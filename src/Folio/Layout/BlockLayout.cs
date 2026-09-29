@@ -10,10 +10,9 @@ namespace Folio.Layout;
 /// </summary>
 internal static class BlockLayout
 {
-    // ponytail: until their own layout lands, inline formatting contexts have no height (their floats sit at their
-    // top), flex, grid, table and replaced boxes are sized from their width and height properties only, and floats
-    // with an auto width fill their containing block instead of shrinking to fit.
-    public static Fragment Layout(Box box, ConstraintSpace space)
+    // ponytail: until their own layout lands, flex, grid, table and replaced boxes are sized from their width and
+    // height properties only, and floats with an auto width fill their containing block instead of shrinking to fit.
+    public static Fragment Layout(Box box, ConstraintSpace space, LayoutContext context)
     {
         var style = box.Style;
         var cbWidth = space.ContainingWidth;
@@ -76,7 +75,7 @@ internal static class BlockLayout
         void PlaceFloat(Box child, float top)
         {
             var spacing = child.Style.Spacing;
-            var fragment = Layout(child, new ConstraintSpace(width, definiteHeight));
+            var fragment = Layout(child, new ConstraintSpace(width, definiteHeight), context);
             var (ml, mr) = (Margin(spacing.MarginLeft, width), Margin(spacing.MarginRight, width));
             var (mt, mb) = (Margin(spacing.MarginTop, width), Margin(spacing.MarginBottom, width));
             var (outerWidth, outerHeight) = (ml + fragment.Width + mr, mt + fragment.Height + mb);
@@ -119,13 +118,13 @@ internal static class BlockLayout
             if (childIndependent && !exclusions.IsEmpty)
             {
                 var wanted = y;
-                (fragment, var left, var top) = AvoidFloats(child, exclusions, contentX, contentX + width, contentY + y, definiteHeight);
+                (fragment, var left, var top) = AvoidFloats(child, exclusions, contentX, contentX + width, contentY + y, definiteHeight, context);
                 (x, y) = (left - boxX, top - contentY);
                 clearance |= y > wanted;
             }
             else
             {
-                fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y));
+                fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y), context);
             }
             x += fragment.MarginLeft;
 
@@ -159,24 +158,28 @@ internal static class BlockLayout
             pending = fragment.BottomMargins;
             hasContent = true;
         }
-        if (box is BlockContainerBox { Inline: { } inline })
+        if (box is BlockContainerBox { Inline: { } inline } container)
         {
             var top = atTop ? 0 : cursor + pending.Resolve();
-            foreach (var item in inline.Items)
-            {
-                if (item.Kind == InlineItemKind.Float)
-                    PlaceFloat(item.Box!, top);
-                else if (item.Kind == InlineItemKind.OutOfFlow)
-                    outOfFlow.Add(new(item.Box!, border.LeftWidth + padding.Left, border.TopWidth + padding.Top + top));
-            }
-            if (inline.Items.Any(i => i.Kind is not (InlineItemKind.Float or InlineItemKind.OutOfFlow)))
+            var environment = new InlineLayout.Environment(
+                (from, to) =>
+                {
+                    var (l, r) = exclusions.Available(contentY + from, contentY + to, contentX, contentX + width);
+                    return (l - contentX, r - contentX);
+                },
+                (from, to) => exclusions.NextBottom(contentY + from, contentY + to) is { } b ? b - contentY : null,
+                PlaceFloat,
+                (child, x, y) => outOfFlow.Add(new(child, border.LeftWidth + padding.Left + x, border.TopWidth + padding.Top + y)));
+            var (lines, bottom, hasLineBoxes) = InlineLayout.Layout(container, inline, width, top, environment, context);
+            foreach (var line in lines)
+                children.Add(line with { X = line.X + border.LeftWidth + padding.Left, Y = line.Y + border.TopWidth + padding.Top });
+            if (hasLineBoxes)
             {
                 // Line boxes are content: margins before them no longer adjoin this box's edges.
                 if (atTop)
                     (leading, atTop) = (pending, false);
-                else
-                    cursor += pending.Resolve();
                 pending = default;
+                cursor = bottom;
                 hasContent = true;
             }
         }
@@ -218,7 +221,7 @@ internal static class BlockLayout
                     outOfFlow.Add(o);
                     continue;
                 }
-                var placed = PositionedLayout.LayoutAbsolute(o.Box, paddingWidth, paddingHeight, o.StaticX - border.LeftWidth, o.StaticY - border.TopWidth);
+                var placed = PositionedLayout.LayoutAbsolute(o.Box, paddingWidth, paddingHeight, o.StaticX - border.LeftWidth, o.StaticY - border.TopWidth, context);
                 Place(o.Box, placed.Fragment, placed.X + border.LeftWidth, placed.Y + border.TopWidth);
             }
         }
@@ -247,14 +250,14 @@ internal static class BlockLayout
     /// </summary>
     // ponytail: percentages inside resolve against the narrowed space rather than the containing block.
     private static (Fragment Fragment, float Left, float Top) AvoidFloats(
-        Box child, ExclusionSpace exclusions, float left, float right, float top, float? containingHeight)
+        Box child, ExclusionSpace exclusions, float left, float right, float top, float? containingHeight, LayoutContext context)
     {
         var height = 0f;
         for (var attempt = 0; ; attempt++)
         {
             var (l, r) = exclusions.Available(top, top + height, left, right);
             var available = Math.Max(0, r - l);
-            var fragment = Layout(child, new ConstraintSpace(available, containingHeight));
+            var fragment = Layout(child, new ConstraintSpace(available, containingHeight), context);
             var outer = fragment.MarginLeft + fragment.Width + Margin(child.Style.Spacing.MarginRight, available);
             var band = exclusions.Available(top, top + fragment.Height, left, right);
             if (band == (l, r) && outer <= available + 0.01f)

@@ -76,6 +76,14 @@ internal static class DisplayListBuilder
         foreach (var child in children)
         {
             var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip);
+            // Line boxes only hold inline content; text is painted with text painting.
+            if (child.Fragment.Kind == FragmentKind.Line)
+            {
+                Collect(context, real, placed, child.Fragment.Children, order);
+                continue;
+            }
+            if (child.Fragment.Kind == FragmentKind.Text)
+                continue;
             var box = placed.Box;
             var style = box.Style.Box;
             var index = order.GetValueOrDefault(box);
@@ -121,7 +129,7 @@ internal static class DisplayListBuilder
     // is not clipped.
     private static RoundedRect? OverflowClip(PaintBox box)
     {
-        if (box.Fragment.Box is not { } b)
+        if (box.Fragment.Box is not { } b || box.Fragment.Kind != FragmentKind.Box)
             return null;
         var (x, y) = (b.Style.Box.OverflowX, b.Style.Box.OverflowY);
         if (x == Overflow.Visible && y == Overflow.Visible)
