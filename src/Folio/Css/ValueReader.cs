@@ -79,6 +79,47 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
         return null;
     }
 
+    /// <summary>The position, to <see cref="Reset"/> to after a failed attempt.</summary>
+    public int Mark => _pos;
+
+    public void Reset(int mark) => _pos = mark;
+
+    /// <summary>Whether the next value is a comma (without consuming it).</summary>
+    public bool PeekComma() => Next() is PreservedToken { Token.Kind: CssTokenKind.Comma };
+
+    /// <summary>A URL: <c>url(x)</c> or <c>url("x")</c>.</summary>
+    public string? Url()
+    {
+        switch (Next())
+        {
+            case PreservedToken { Token.Kind: CssTokenKind.Url } url:
+                _pos++;
+                return url.Token.Value;
+            case CssFunction f when f.Name.Equals("url", StringComparison.OrdinalIgnoreCase):
+                var args = new ValueReader(source, f.Arguments);
+                if (args.String() is { } text && args.AtEnd)
+                {
+                    _pos++;
+                    return text;
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>A function of this name with any arguments, returned as its source text.</summary>
+    public string? FunctionText(string name)
+    {
+        if (Next() is CssFunction f && f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+            && f.Arguments.Any(a => a is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }))
+        {
+            _pos++;
+            return source[f.Start..f.End];
+        }
+        return null;
+    }
+
     /// <summary>Any identifier, as written.</summary>
     public string? Ident()
     {

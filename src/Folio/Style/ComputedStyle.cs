@@ -116,7 +116,8 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 // between elements, replaced whole when any member changes.
 
 /// <summary>Inherited: font properties.</summary>
-internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight);
+internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight,
+                                 float Stretch, string VariantCaps);
 
 /// <summary>Inherited: other inherited properties.</summary>
 internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme);
@@ -151,7 +152,27 @@ internal sealed record BorderGroup(
     private static bool Visible(BorderStyle style) => style is not (BorderStyle.None or BorderStyle.Hidden);
 }
 
-internal sealed record BackgroundGroup(CssColor Color);
+/// <summary>A computed background position: offsets from the left and top edges.</summary>
+internal readonly record struct BackgroundPosition(LengthPercentage X, LengthPercentage Y)
+{
+    public override string ToString() => $"{X} {Y}";
+}
+
+internal readonly record struct BackgroundSize(BackgroundSizeKind Kind, SizeValue Width, SizeValue Height)
+{
+    public override string ToString() => Kind switch
+    {
+        BackgroundSizeKind.Cover => "cover",
+        BackgroundSizeKind.Contain => "contain",
+        _ => $"{Width} {Height}",
+    };
+}
+
+/// <summary>Backgrounds: the colour and per-layer lists (layer count is the image list's; others repeat when shorter).</summary>
+internal sealed record BackgroundGroup(
+    CssColor Color, IReadOnlyList<ImageValue> Images, IReadOnlyList<BackgroundPosition> Positions, IReadOnlyList<BackgroundSize> Sizes,
+    IReadOnlyList<RepeatStyle> Repeats, IReadOnlyList<BackgroundAttachment> Attachments, IReadOnlyList<BackgroundBox> Origins,
+    IReadOnlyList<BackgroundBox> Clips);
 
 /// <summary>Inherited: white space handling and list markers.</summary>
 internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition);

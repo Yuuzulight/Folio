@@ -1,0 +1,90 @@
+=== background color only
+background: #f00
+---
+background-color: rgb(255, 0, 0)
+background-image: none
+background-position: 0px 0px
+background-repeat: repeat
+
+=== background with image, position, size and repeat
+background: url(a.png) right 10px bottom / cover no-repeat fixed content-box
+---
+background-image: url("a.png")
+background-position: -10px + 100% 100%
+background-size: cover
+background-repeat: no-repeat
+background-attachment: fixed
+background-origin: content-box
+background-clip: content-box
+
+=== two boxes set origin then clip
+background: padding-box border-box red
+---
+background-origin: padding-box
+background-clip: border-box
+background-color: rgb(255, 0, 0)
+
+=== multiple layers with the colour last
+background: url(top.png) no-repeat, linear-gradient(red, blue) #00f
+---
+background-image: url("top.png"), linear-gradient(red, blue)
+background-repeat: no-repeat, repeat
+background-color: rgb(0, 0, 255)
+
+=== the colour only in the last layer
+background: red, url(x.png)
+---
+background-color: rgba(0, 0, 0, 0)
+background-image: none
+
+=== background position keywords
+background-position: center, top left, right 20% top 10px, 25% 75%
+---
+background-position: 50% 50%, 0px 0px, 80% 10px, 25% 75%
+
+=== background size values
+background-size: 50% auto, 10px, auto 20px, contain
+---
+background-size: 50% auto, 10px auto, auto 20px, contain
+
+=== background repeat values
+background-repeat: repeat-x, space round, no-repeat
+---
+background-repeat: repeat-x, space round, no-repeat
+
+=== font shorthand
+font: italic small-caps bold condensed 20px/1.5 "Helvetica Neue", sans-serif
+---
+font-style: italic
+font-variant-caps: small-caps
+font-weight: 700
+font-stretch: 75
+font-size: 20
+line-height: 1.5
+font-family: Helvetica Neue, sans-serif
+
+=== font shorthand resets what it omits
+%parent font-weight: 700; line-height: 3
+font: 12px serif
+---
+font-weight: 400
+line-height: normal
+font-size: 12
+font-family: serif
+
+=== font shorthand needs size and family
+font: bold serif
+---
+font-weight: 400
+font-family: serif
+
+=== system font keywords
+font: menu
+---
+font-family: system-ui
+font-size: 13
+
+=== font-stretch
+font-stretch: 87.5%
+---
+font-stretch: 87.5
