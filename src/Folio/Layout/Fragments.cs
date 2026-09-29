@@ -14,7 +14,7 @@ internal enum FragmentKind
 /// Glyphs of a shaped run shown by a text fragment; the baseline is <see cref="Ascent"/> below its top. Right-to-left
 /// runs keep their glyphs in logical order, to be drawn from the fragment's right edge.
 /// </summary>
-internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft = false);
+internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style);
 
 /// <summary>What layout needs besides the box tree: the fonts text is measured with.</summary>
 internal sealed class LayoutContext(FontCollection fonts)

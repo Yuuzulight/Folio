@@ -1,4 +1,7 @@
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using Folio.Painting;
+using Folio.Typography;
 using SkiaSharp;
 
 namespace Folio.Skia;
@@ -47,6 +50,31 @@ public sealed class SkiaCanvas(SKCanvas canvas) : ICanvas
         skPaint.PathEffect = dash;
         canvas.DrawPath(skPath, skPaint);
     }
+
+    public void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
+    {
+        if (Typeface(font) is not { } typeface || glyphs.Length == 0)
+            return;
+        // Greyscale antialiasing with subpixel positioning: the backdrop is not known to be opaque here (study 12).
+        using var skFont = new SKFont(typeface, size) { Subpixel = true, Edging = SKFontEdging.Antialias };
+        var points = new SKPoint[origins.Length];
+        for (var i = 0; i < points.Length; i++)
+            points[i] = new SKPoint(origins[i].X, origins[i].Y);
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPositionedRun(glyphs, skFont, points);
+        using var blob = builder.Build();
+        using var skPaint = Fill(paint);
+        canvas.DrawText(blob, 0, 0, skPaint);
+    }
+
+    // One typeface per font handle, created from its bytes on first use.
+    private static readonly ConditionalWeakTable<IFontHandle, SKTypeface?> Typefaces = new();
+
+    private static SKTypeface? Typeface(IFontHandle font) => Typefaces.GetValue(font, f =>
+    {
+        using var data = SKData.CreateCopy(f.Data.Span);
+        return SKTypeface.FromData(data, f.FaceIndex);
+    });
 
     public void PushLayer(in LayerOptions options)
     {

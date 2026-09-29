@@ -4,6 +4,7 @@ using Folio.Layout;
 using Folio.Painting;
 using Folio.Skia;
 using Folio.Style;
+using Folio.Typography;
 using SkiaSharp;
 
 namespace Folio.RenderTests;
@@ -72,12 +73,32 @@ public class SkiaCanvasTests
         Assert.Contains(SKColors.White, row);
     }
 
+    // The test box font for every family: each inked glyph is a full em square from 0.8em above the baseline.
+    private static readonly Lazy<FontCollection> BoxFont = new(() =>
+    {
+        var fonts = FontCollection.FromFolder(Path.Combine(RepoPaths.Tests, "fonts"));
+        foreach (var generic in new[] { "serif", "sans-serif", "monospace" })
+            fonts.GenericFamilies[generic] = ["Folio Box"];
+        return fonts;
+    });
+
+    [Fact]
+    public void DrawsTextInItsColour()
+    {
+        using var bitmap = Render("<style>body { margin: 0; color: blue } span { color: red }</style><p style='margin: 0'>a<span>b</span> </p>");
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(8, 8));
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(24, 8));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(40, 8)); // the space is blank
+        Assert.Equal(SKColors.White, bitmap.GetPixel(8, 20)); // below the line
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {
         var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
         StyleResolver.Resolve(document, new MediaContext(100, 100));
-        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 100, 100);
+        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 100, 100, BoxFont.Value);
         var list = DisplayListBuilder.Build(fragment);
 
         var bitmap = new SKBitmap(new SKImageInfo(100, 100, SKColorType.Bgra8888, SKAlphaType.Premul));

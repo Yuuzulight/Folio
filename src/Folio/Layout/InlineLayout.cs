@@ -756,7 +756,7 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1),
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style),
                     }));
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)
