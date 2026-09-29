@@ -8,8 +8,7 @@ namespace Folio.Layout;
 /// one layout (study 06: repeated measuring is what makes nested shrink-to-fit exponential).
 /// </summary>
 // ponytail: floats side by side contribute one at a time, not summed; percentages of the containing block count as 0
-// (the cyclic-percentage rule); table and replaced boxes contribute only their specified widths until their layouts
-// land.
+// (the cyclic-percentage rule); replaced boxes contribute only their specified widths until images are laid out.
 internal static class IntrinsicSizes
 {
     /// <summary>A box's own min-content and max-content content-box widths.</summary>
@@ -24,6 +23,10 @@ internal static class IntrinsicSizes
         if (box is BlockContainerBox { Inline: { } inline } block)
         {
             sizes = InlineLayout.Measure(block, inline, context);
+        }
+        else if (box is TableWrapperBox table)
+        {
+            sizes = TableLayout.IntrinsicWidths(table, context);
         }
         else if (box is GridContainerBox grid)
         {
@@ -63,7 +66,8 @@ internal static class IntrinsicSizes
     {
         var style = box.Style;
         var spacing = style.Spacing;
-        var frame = style.Border.LeftWidth + style.Border.RightWidth + Fixed(spacing.PaddingLeft) + Fixed(spacing.PaddingRight);
+        // A table wrapper's own sizes already include the table's border and padding.
+        var frame = box is TableWrapperBox ? 0 : style.Border.LeftWidth + style.Border.RightWidth + Fixed(spacing.PaddingLeft) + Fixed(spacing.PaddingRight);
         var margins = FixedMargin(spacing.MarginLeft) + FixedMargin(spacing.MarginRight);
         var borderBox = style.Box.BoxSizing == BoxSizing.BorderBox;
 

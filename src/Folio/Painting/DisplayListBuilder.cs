@@ -239,7 +239,8 @@ internal static class DisplayListBuilder
         private void PaintBackground(PaintBox box)
         {
             var style = box.Box.Style;
-            if (style.Inherited.Visibility != Visibility.Visible)
+            // A table wrapper shares the table's style; the table grid box inside it paints the table.
+            if (style.Inherited.Visibility != Visibility.Visible || box.Box is TableWrapperBox)
                 return;
             var shape = BorderBox(box);
             var border = style.Border;
