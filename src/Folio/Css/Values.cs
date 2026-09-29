@@ -94,6 +94,9 @@ internal sealed record CalcValue(CalcNode Node, CalcType Type) : CssValue;
 
 internal sealed record ColorValue(CssColor Color) : CssValue;
 
+/// <summary>A specified corner radius: horizontal and vertical length-percentages.</summary>
+internal sealed record RadiusValue(CssValue X, CssValue Y) : CssValue;
+
 /// <summary>A colour that depends on the element: <c>color-mix()</c> with <c>currentcolor</c>, or <c>light-dark()</c>.</summary>
 internal abstract record ColorExpression;
 

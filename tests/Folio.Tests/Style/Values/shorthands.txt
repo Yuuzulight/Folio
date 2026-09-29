@@ -88,3 +88,25 @@ font-size: 13
 font-stretch: 87.5%
 ---
 font-stretch: 87.5
+
+=== border-radius expands to the four corners
+border-radius: 10px 20% 5px
+---
+border-top-left-radius: 10px
+border-top-right-radius: 20%
+border-bottom-right-radius: 5px
+border-bottom-left-radius: 20%
+
+=== border-radius with vertical radii after a slash
+border-radius: 10px 20px / 5px
+---
+border-top-left-radius: 10px 5px
+border-top-right-radius: 20px 5px
+border-bottom-right-radius: 10px 5px
+border-bottom-left-radius: 20px 5px
+
+=== border-radius rejects negative radii and a slash without vertical radii
+border-radius: 10px; border-radius: -1px; border-top-left-radius: 1px / 2px
+---
+border-top-left-radius: 10px
+border-top-right-radius: 10px

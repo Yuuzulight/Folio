@@ -149,3 +149,14 @@ content: "a" 12px; counter-reset: none 1
 ---
 content: normal
 counter-reset: none
+
+=== corner radii take one or two values
+border-top-left-radius: 1em 50%; border-bottom-right-radius: 3px
+---
+border-top-left-radius: 16px 50%
+border-bottom-right-radius: 3px
+
+=== isolation
+isolation: isolate
+---
+isolation: isolate
