@@ -204,7 +204,7 @@ internal sealed partial class TreeBuilder
     private void InsertCharacters(string text)
     {
         var (parent, before) = AppropriatePlace();
-        if (parent is Document)
+        if (parent is DocumentNode)
             return;
         if ((before is null ? parent.LastChild : before.PreviousSibling) is Dom.Text previous)
         {
@@ -270,7 +270,7 @@ internal sealed partial class TreeBuilder
     private Element InsertElement(Element element)
     {
         var (parent, before) = AppropriatePlace();
-        if (Count() && parent is not Document { DocumentElement: not null })
+        if (Count() && parent is not DocumentNode { DocumentElement: not null })
             parent.InsertBefore(element, before);
         _open.Add(element);
         return element;

@@ -1,11 +1,10 @@
-namespace Folio.Tests.Dom;
-
-// Inside the namespace so Folio.Dom.Text wins over the Folio.Text namespace.
 using Folio.Dom;
+
+namespace Folio.Tests.Dom;
 
 public class DomTests
 {
-    private readonly Document _doc = new();
+    private readonly DocumentNode _doc = new();
 
     private Element Html(string name) => _doc.CreateElement(Namespaces.Html, name);
 
@@ -101,7 +100,7 @@ public class DomTests
         Assert.Throws<InvalidOperationException>(() => parent.AppendChild(parent));
         Assert.Throws<ArgumentException>(() => parent.InsertBefore(Html("a"), Html("b")));
         Assert.Throws<ArgumentException>(() => parent.RemoveChild(Html("a")));
-        Assert.Throws<ArgumentException>(() => parent.AppendChild(new Document().CreateText("x")));
+        Assert.Throws<ArgumentException>(() => parent.AppendChild(new DocumentNode().CreateText("x")));
         Assert.Throws<InvalidOperationException>(() => parent.AppendChild(_doc.CreateDocumentType("html", "", "")));
     }
 
@@ -185,7 +184,7 @@ public class DomTests
     [Fact]
     public void AtomsAreSharedAcrossDocuments()
     {
-        Assert.Equal(_doc.Intern("div"), new Document().Intern("div"));
+        Assert.Equal(_doc.Intern("div"), new DocumentNode().Intern("div"));
         Assert.Equal("div", _doc.TextOf(_doc.Intern("div")));
     }
 
@@ -193,7 +192,7 @@ public class DomTests
     public void FullSharedTableFallsBackToDocumentAtoms()
     {
         var table = new AtomTable(capacity: 2);
-        var doc = new Document(table);
+        var doc = new DocumentNode(table);
 
         var a = doc.Intern("a");
         var b = doc.Intern("b");
@@ -204,7 +203,7 @@ public class DomTests
         Assert.Equal(c, doc.Intern("c"));
         Assert.Equal(c, doc.Find("c"));
         Assert.Equal("c", doc.TextOf(c));
-        Assert.True(new Document(table).Find("c").IsNone);
+        Assert.True(new DocumentNode(table).Find("c").IsNone);
         Assert.Equal(2, table.Count);
     }
 }

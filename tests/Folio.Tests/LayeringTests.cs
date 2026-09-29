@@ -42,20 +42,18 @@ public class LayeringTests
     }
 
     // docs/architecture.md, Boundaries: lower layers never reference higher ones. Types directly in Folio are the
-    // public hosting API, so they rank with Hosting. Resources is not in the documented order; it is left
-    // unchecked until the docs place it.
+    // public hosting API, so they rank with Hosting.
     private static readonly string[][] Layers =
     [
+        ["Resources"],
         ["Dom", "Html", "Xml"],
         ["Css", "Style"],
-        ["Text", "Imaging"],
+        ["Typography", "Imaging"],
         ["Layout", "Svg"],
         ["Painting"],
         ["Interaction"],
         ["Hosting", ""],
     ];
-
-    private static readonly string[] Unlayered = ["Resources"];
 
     [Fact]
     public void NamespacesReferenceOnlyTheirOwnOrLowerLayers()
@@ -79,7 +77,7 @@ public class LayeringTests
         var unknown = typeof(ICanvas).Assembly.GetTypes()
             .Where(type => type.Namespace?.Split('.')[0] == "Folio")
             .Select(type => type.Namespace!)
-            .Where(ns => Layer(ns) < 0 && !Unlayered.Contains(Segment(ns)))
+            .Where(ns => Layer(ns) < 0)
             .Distinct()
             .ToList();
 

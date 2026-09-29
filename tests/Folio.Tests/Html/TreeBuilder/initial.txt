@@ -64,3 +64,48 @@
   <html lang="en">
     <head>
     <body>
+
+=== legacy public identifier is quirks, compared case-insensitively
+<!DOCTYPE HTML PUBLIC "-//ietf//dtd html 2.0//en">
+---
+#document quirks
+  <!DOCTYPE html "-//ietf//dtd html 2.0//en" "">
+  <html>
+    <head>
+    <body>
+
+=== last legacy public identifier in the list is quirks
+<!DOCTYPE html PUBLIC "-//WebTechs//DTD Mozilla HTML//">
+---
+#document quirks
+  <!DOCTYPE html "-//WebTechs//DTD Mozilla HTML//" "">
+  <html>
+    <head>
+    <body>
+
+=== HTML 4.01 transitional with an empty system identifier is quirks
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "">
+---
+#document quirks
+  <!DOCTYPE html "-//W3C//DTD HTML 4.01 Transitional//EN" "">
+  <html>
+    <head>
+    <body>
+
+=== HTML 4.01 transitional with a system identifier is limited quirks
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+---
+#document limited-quirks
+  <!DOCTYPE html "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+  <html>
+    <head>
+    <body>
+
+=== HTML 4.01 strict is no quirks
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+---
+#document
+  <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+  <html>
+    <head>
+    <body>
