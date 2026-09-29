@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <None Include="Html\**\*.txt;Css\**\*.txt;Style\**\*.txt;Layout\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fonts\*.ttf" LinkBase="fonts" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
