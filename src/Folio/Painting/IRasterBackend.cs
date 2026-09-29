@@ -1,4 +1,4 @@
-namespace Folio.Paint;
+namespace Folio.Painting;
 
 /// <summary>Creates raster surfaces, fonts and images for a drawing backend.</summary>
 /// <remarks>

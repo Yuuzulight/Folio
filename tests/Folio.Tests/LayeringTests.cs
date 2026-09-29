@@ -1,4 +1,4 @@
-using Folio.Paint;
+using Folio.Painting;
 
 namespace Folio.Tests;
 

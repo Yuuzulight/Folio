@@ -1,0 +1,70 @@
+=== quoted and unquoted values
+<a href="x" title='y' id=z>
+---
+<a href="x" title="y" id="z">
+
+=== attribute without value
+<input disabled>
+---
+<input disabled="">
+
+=== whitespace around equals sign
+<a href = "x">
+---
+<a href="x">
+
+=== duplicate attributes keep the first
+<a x=1 x=2 y=3>
+---
+<a x="1" y="3">
+! duplicate-attribute
+
+=== equals sign before attribute name
+<a =b>
+---
+<a =b="">
+! unexpected-equals-sign-before-attribute-name
+
+=== quote in attribute name
+<a b"c='d'>
+---
+<a b\"c="d">
+! unexpected-character-in-attribute-name
+
+=== odd characters in unquoted value
+<a b=c"d<e=f`>
+---
+<a b="c\"d<e=f`">
+! unexpected-character-in-unquoted-attribute-value
+! unexpected-character-in-unquoted-attribute-value
+! unexpected-character-in-unquoted-attribute-value
+! unexpected-character-in-unquoted-attribute-value
+
+=== missing attribute value
+<a b=>
+---
+<a b="">
+! missing-attribute-value
+
+=== missing whitespace between attributes
+<a b="c"d="e">
+---
+<a b="c" d="e">
+! missing-whitespace-between-attributes
+
+=== null in attribute name and value
+<a b\u0000="c\u0000">
+---
+<a b\uFFFD="c\uFFFD">
+! unexpected-null-character
+! unexpected-null-character
+
+=== eof in attribute value drops the tag
+<a b="c
+---
+! eof-in-tag
+
+=== newlines in attribute values are normalised
+<a b="1\u000D\u000A2\u000D3">
+---
+<a b="1\n2\n3">

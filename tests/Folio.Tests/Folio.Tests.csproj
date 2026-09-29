@@ -8,4 +8,8 @@
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Html\Tokenizer\*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

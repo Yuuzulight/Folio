@@ -1,4 +1,4 @@
-namespace Folio.Paint;
+namespace Folio.Painting;
 
 /// <summary>The drawing surface the display list replays onto.</summary>
 /// <remarks>

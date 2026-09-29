@@ -1,0 +1,27 @@
+=== plain text
+Hello, world
+---
+"Hello, world"
+
+=== empty input
+---
+
+=== null in data is kept
+a\u0000b
+---
+"a\u0000b"
+! unexpected-null-character
+
+=== newlines are normalised
+a\u000D\u000Ab\u000Dc
+---
+"a\nb\nc"
+
+=== text across lines
+<p>
+one
+</p>
+---
+<p>
+"\none\n"
+</p>

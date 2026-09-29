@@ -1,0 +1,18 @@
+=== CDATA section in foreign content
+@cdata
+<![CDATA[a<b]]c]]]>d
+---
+"a<b]]c]d"
+
+=== eof in CDATA section
+@cdata
+<![CDATA[x
+---
+"x"
+! eof-in-cdata
+
+=== single bracket in CDATA section
+@cdata
+<![CDATA[a]b]]>
+---
+"a]b"

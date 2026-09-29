@@ -1,0 +1,88 @@
+=== start and end tags
+<p>Hi</p>
+---
+<p>
+"Hi"
+</p>
+
+=== names are lowercased
+<DIV Class=X></DiV>
+---
+<div class="X">
+</div>
+
+=== self-closing start tag
+<br/>
+---
+<br />
+
+=== self-closing start tag with attribute
+<img src="a.png" />
+---
+<img src="a.png" />
+
+=== unexpected solidus in tag
+<a / b>
+---
+<a b="">
+! unexpected-solidus-in-tag
+
+=== end tag with attributes
+</p class=x>
+---
+</p class="x">
+! end-tag-with-attributes
+
+=== end tag with trailing solidus
+</br/>
+---
+</br />
+! end-tag-with-trailing-solidus
+
+=== less-than sign followed by space is text
+a < b
+---
+"a < b"
+! invalid-first-character-of-tag-name
+
+=== eof after less-than sign
+a<
+---
+"a<"
+! eof-before-tag-name
+
+=== eof after end tag open
+</
+---
+"</"
+! eof-before-tag-name
+
+=== missing end tag name
+a</>b
+---
+"ab"
+! missing-end-tag-name
+
+=== end tag open followed by a non-letter is a bogus comment
+</3 x>
+---
+<!--3 x-->
+! invalid-first-character-of-tag-name
+
+=== question mark opens a bogus comment
+<?xml version="1.0"?>
+---
+<!--?xml version=\"1.0\"?-->
+! unexpected-question-mark-instead-of-tag-name
+
+=== eof in tag drops the tag
+text<div class
+---
+"text"
+! eof-in-tag
+
+=== null in tag name
+<a\u0000b>
+---
+<a\uFFFDb>
+! unexpected-null-character
