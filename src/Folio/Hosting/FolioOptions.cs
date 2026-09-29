@@ -28,7 +28,7 @@ public sealed record ResourceLimits
     public int MaxStyleRules { get; init; } = 100_000;
 }
 
-/// <summary>How a host configures a document. Members for resource loading, fonts and scripting arrive with those features.</summary>
+/// <summary>How a host configures a document. Members for resource loading and scripting arrive with those features.</summary>
 public sealed class FolioOptions
 {
     /// <summary>Resolves relative URLs; null for documents without a location.</summary>
@@ -40,6 +40,9 @@ public sealed class FolioOptions
 
     /// <summary>A user stylesheet, applied between the user-agent and author styles.</summary>
     public string? UserStyleSheet { get; init; }
+
+    /// <summary>Where text finds its fonts, and what generic family names stand for. By default there are no fonts.</summary>
+    public Typography.FontSettings Fonts { get; init; } = Typography.FontSettings.Default;
 
     public ResourceLimits Limits { get; init; } = ResourceLimits.Default;
 

@@ -183,5 +183,26 @@ public class TypographyTests
         Assert.Equal("Folio Box", fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "A")?.Family);
     }
 
+    [Fact]
+    public void CollectionOpensFamiliesFromItsSourceOnFirstUse()
+    {
+        var fonts = FontCollection.For(new FontSettings
+        {
+            Source = new FontFolderSource(FontsFolder),
+            GenericFamilies = new Dictionary<string, IReadOnlyList<string>> { ["monospace"] = ["Folio Box"] },
+        });
+
+        Assert.Equal("Folio Box", fonts.Match("folio box", FaceStyle.Normal, 400, 100)?.Family);
+        Assert.Equal("Folio Box", fonts.Match("monospace", FaceStyle.Normal, 400, 100)?.Family);
+        Assert.Null(fonts.Match("Missing", FaceStyle.Normal, 400, 100));
+        // Step 3: the source names a family for a character no requested family covers.
+        Assert.Equal("Folio Box", fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "A")?.Family);
+        Assert.Null(fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "Ā"));
+    }
+
+    [Fact]
+    public void FolderSourceIsEmptyForAMissingFolder() =>
+        Assert.Empty(new FontFolderSource(Path.Combine(FontsFolder, "missing")).OpenFamily("Folio Box"));
+
     private sealed record Holder(FaceTraits Traits);
 }

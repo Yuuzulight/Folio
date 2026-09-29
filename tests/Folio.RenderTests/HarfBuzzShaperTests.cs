@@ -43,6 +43,23 @@ public class HarfBuzzShaperTests
     }
 
     [Fact]
+    public void SystemFontSourceOpensTheFamilyItMatches()
+    {
+        var source = new SystemFontSource();
+        if (source.MatchCharacter('A', 400, italic: false) is not { } family)
+        {
+            Assert.Skip("This machine has no system fonts.");
+            return;
+        }
+
+        var faces = source.OpenFamily(family);
+
+        Assert.NotEmpty(faces);
+        Assert.Contains(faces, f => FontFace.Parse(f.Data, f.FaceIndex)?.Covers('A') == true);
+        Assert.Empty(source.OpenFamily("No Such Family Anywhere"));
+    }
+
+    [Fact]
     public void ReturnsRightToLeftRunsInLogicalOrder()
     {
         var shaped = new HarfBuzzShaper().Shape("xABy", 1, 2, BoxFace, 16, rightToLeft: true, language: null);

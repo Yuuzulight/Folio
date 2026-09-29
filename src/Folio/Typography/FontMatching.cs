@@ -61,11 +61,22 @@ internal static class FontMatcher
 
 /// <summary>
 /// Faces grouped by family, with generic family mapping and per-cluster fallback (docs/study/11-text.md, font matching
-/// and fallback steps 1). Tests fill it from bundled font files only, so text never depends on system fonts.
+/// and fallback steps 1 to 3). Families come from an <see cref="IFontSource"/> on first use, or are added directly.
 /// </summary>
-internal sealed class FontCollection
+internal sealed class FontCollection(IFontSource? source = null)
 {
     private readonly Dictionary<string, List<FontFace>> _families = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _opened = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, string?> _characterFallbacks = [];
+
+    /// <summary>A collection for a document's font settings.</summary>
+    public static FontCollection For(FontSettings settings)
+    {
+        var fonts = new FontCollection(settings.Source);
+        foreach (var (generic, families) in settings.GenericFamilies)
+            fonts.GenericFamilies[generic] = [.. families];
+        return fonts;
+    }
 
     /// <summary>Generic family → families to try, in order (host-configurable; defaults from study 11).</summary>
     public Dictionary<string, string[]> GenericFamilies { get; } = new(StringComparer.OrdinalIgnoreCase)
@@ -104,6 +115,7 @@ internal sealed class FontCollection
     {
         foreach (var name in Resolve(family))
         {
+            Open(name);
             if (_families.TryGetValue(name, out var faces)
                 && FontMatcher.Match(faces, f => new FaceTraits(f.Weight, f.Style, f.Stretch), stretch, style, weight) is { } face)
                 return face;
@@ -147,7 +159,27 @@ internal sealed class FontCollection
             if (Match(family, style, weight, stretch) is { } face && CoversAll(face, cluster))
                 return face;
         }
+        // Step 3: the source's own choice for the cluster's first character.
+        if (source is not null && Rune.DecodeFromUtf16(cluster, out var rune, out _) == System.Buffers.OperationStatus.Done)
+        {
+            if (!_characterFallbacks.TryGetValue(rune.Value, out var family))
+                _characterFallbacks[rune.Value] = family = source.MatchCharacter(rune.Value, weight, style != FaceStyle.Normal);
+            if (family is not null && Match(family, style, weight, stretch) is { } face && CoversAll(face, cluster))
+                return face;
+        }
         return null;
+    }
+
+    // Loads a family from the source the first time it is asked for; faces that fail to parse are skipped.
+    private void Open(string family)
+    {
+        if (source is null || !_opened.Add(family))
+            return;
+        foreach (var handle in source.OpenFamily(family))
+        {
+            if ((handle as FontFace ?? FontFace.Parse(handle.Data, handle.FaceIndex)) is { } face)
+                Add(face);
+        }
     }
 
     // The script of a cluster: its first character that is not Common or Inherited, else Common.
