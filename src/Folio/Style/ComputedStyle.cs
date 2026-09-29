@@ -40,6 +40,8 @@ internal enum Visibility { Visible, Hidden, Collapse }
 
 internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
+internal enum Isolation { Auto, Isolate }
+
 internal enum BorderStyle { None, Hidden, Dotted, Dashed, Solid, Double, Groove, Ridge, Inset, Outset }
 
 internal enum FontStyle { Normal, Italic, Oblique }
@@ -124,7 +126,13 @@ internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, Col
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
-    Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity);
+    Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto);
+
+/// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
+internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
+{
+    public override string ToString() => X == Y ? X.ToString() : $"{X} {Y}";
+}
 
 internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight);
 
@@ -142,7 +150,9 @@ internal sealed record SpacingGroup(
 internal sealed record BorderGroup(
     float TopWidthPx, float RightWidthPx, float BottomWidthPx, float LeftWidthPx,
     BorderStyle TopStyle, BorderStyle RightStyle, BorderStyle BottomStyle, BorderStyle LeftStyle,
-    CssColor TopColor, CssColor RightColor, CssColor BottomColor, CssColor LeftColor)
+    CssColor TopColor, CssColor RightColor, CssColor BottomColor, CssColor LeftColor,
+    CornerRadius TopLeftRadius = default, CornerRadius TopRightRadius = default,
+    CornerRadius BottomRightRadius = default, CornerRadius BottomLeftRadius = default)
 {
     public float TopWidth => Visible(TopStyle) ? TopWidthPx : 0;
     public float RightWidth => Visible(RightStyle) ? RightWidthPx : 0;
