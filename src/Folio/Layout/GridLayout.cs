@@ -7,9 +7,8 @@ namespace Folio.Layout;
 /// Grid layout (https://www.w3.org/TR/css-grid-1/, docs/study/08-layout-grid.md, option A): placement (§8.5), the track
 /// sizing algorithm (§11) for columns then rows, and alignment, as steps named after the spec.
 /// </summary>
-// ponytail: named lines and areas act as auto, repeat(auto-fill/auto-fit) and positioned children placed by grid areas
-// come next; baseline alignment falls back to start (study 08); an item's min-content contribution is not re-checked
-// after the rows are sized.
+// ponytail: baseline alignment falls back to start (study 08); an item's min-content contribution is not re-checked
+// after the rows are sized; with an indefinite height, auto-fill rows repeat to fit max-height, or once.
 internal static class GridLayout
 {
     private sealed class Item(Box box)
@@ -24,17 +23,85 @@ internal static class GridLayout
     {
         public TrackSize Size { get; } = size;
         public float Base, Limit, Position;
+        public bool Collapsed; // an empty auto-fit track: no size and no gaps
+    }
+
+    /// <summary>
+    /// One axis of the explicit grid: its tracks and line names with auto-fill/auto-fit repetitions expanded, the
+    /// implicit names of named areas added, and which tracks came from auto-fit. Count is at least the areas' extent.
+    /// </summary>
+    private sealed record Axis(List<TrackSize> Tracks, List<List<string>> Names, HashSet<int> AutoFit, int Count);
+
+    private static Axis BuildAxis(TrackList list, GridAreas areas, bool rows, float? space, float gap)
+    {
+        var tracks = new List<TrackSize>();
+        var names = new List<List<string>>();
+        var autoFit = new HashSet<int>();
+        var repetitions = list.Repeat is { } repeat && space is { } s ? Repetitions(list, repeat, s, gap) : 1;
+        for (var i = 0; i <= list.Tracks.Count; i++)
+        {
+            List<string> line = [.. list.LineNames[i]];
+            if (list.Repeat is { } r && r.Index == i)
+            {
+                // The repeated block's first names join the line before it, its last ones the line after it.
+                for (var k = 0; k < repetitions; k++)
+                {
+                    for (var t = 0; t < r.Tracks.Count; t++)
+                    {
+                        List<string> before = t == 0 && k == 0 ? [.. r.Names[0]]
+                            : t == 0 ? [.. r.Names[^1], .. r.Names[0]] : [.. r.Names[t]];
+                        names.Add(before);
+                        if (r.Fit)
+                            autoFit.Add(tracks.Count);
+                        tracks.Add(r.Tracks[t]);
+                    }
+                }
+                line = [.. r.Names[^1], .. line];
+            }
+            if (i < list.Tracks.Count)
+            {
+                names.Add(line);
+                tracks.Add(list.Tracks[i]);
+            }
+            else
+            {
+                names.Add(line);
+            }
+        }
+        var count = Math.Max(tracks.Count, rows ? areas.Rows : areas.Columns);
+        while (names.Count < count + 1)
+            names.Add([]);
+        foreach (var (name, area) in areas.Areas)
+        {
+            var (start, end) = rows ? (area.RowStart, area.RowEnd) : (area.ColumnStart, area.ColumnEnd);
+            names[start].Add(name + "-start");
+            names[end].Add(name + "-end");
+        }
+        return new Axis(tracks, names, autoFit, count);
+    }
+
+    // How many times repeat(auto-fill | auto-fit) fits (css-grid-1 §7.2.3.2): at least once; every track has a fixed size.
+    private static int Repetitions(TrackList list, AutoRepeat repeat, float space, float gap)
+    {
+        static float Fixed(TrackSize t, float basis) => t.Max.Kind == TrackKind.Length ? t.Max.Length.Resolve(basis)
+            : t.Min.Kind == TrackKind.Length ? t.Min.Length.Resolve(basis) : 0;
+        var others = list.Tracks.Sum(t => Fixed(t, space));
+        var each = repeat.Tracks.Sum(t => Fixed(t, space)) + gap * repeat.Tracks.Count;
+        var room = space - others - gap * (list.Tracks.Count - 1);
+        return each <= 0 ? 1 : Math.Clamp((int)Math.Floor((room + 0.001f) / each), 1, GridParsing.MaxTracks / repeat.Tracks.Count);
     }
 
     private enum Constraint { Definite, MinContent, MaxContent }
 
-    public static (List<ChildFragment> Items, float Height, List<Box> OutOfFlow) Layout(
+    public static (List<ChildFragment> Items, float Height, List<(Box Box, float? Left, float? Top, float? Right, float? Bottom)> Positioned) Layout(
         GridContainerBox box, float innerWidth, float? innerHeight, float minHeight, float maxHeight, LayoutContext context)
     {
         var style = box.Style;
-        var (items, columns, rows) = Place(box);
         var columnGap = style.Flex.ColumnGap.Resolve(innerWidth);
         var rowGap = innerHeight is { } h ? style.Flex.RowGap.Resolve(h) : style.Flex.RowGap.HasPercent ? 0 : style.Flex.RowGap.Px;
+        var columnAxis = BuildAxis(style.Grid.TemplateColumns, style.Grid.Areas, rows: false, innerWidth, columnGap);
+        var rowAxis = BuildAxis(style.Grid.TemplateRows, style.Grid.Areas, rows: true, innerHeight ?? (float.IsFinite(maxHeight) ? maxHeight : null), rowGap);
+        var (items, columns, rows, offsets) = Place(box, columnAxis, rowAxis);
         foreach (var item in items)
             ResolveMargins(item, innerWidth);
 
@@ -70,8 +137,38 @@ internal static class GridLayout
             var y = rows[item.Row].Position + item.MarginTop + Offset(item, areaHeight - item.MarginTop - item.MarginBottom - fragment.Height, horizontal: false, style);
             fragments.Add(new ChildFragment(x, y, fragment));
         }
-        var outOfFlow = box.Children.Where(c => c.IsAbsolutelyPositioned).ToList();
-        return (fragments, innerHeight ?? height, outOfFlow);
+        // Positioned children: the area their lines name (css-grid-1 §9.1); auto lines are the padding edges (null).
+        var positioned = new List<(Box Box, float? Left, float? Top, float? Right, float? Bottom)>();
+        foreach (var child in box.Children.Where(c => c.IsAbsolutelyPositioned))
+        {
+            var g = child.Style.Grid;
+            var (columnStart, columnEnd) = AbsoluteLines(g.ColumnStart, g.ColumnEnd, columnAxis);
+            var (rowStart, rowEnd) = AbsoluteLines(g.RowStart, g.RowEnd, rowAxis);
+            positioned.Add((child, Edge(columns, columnStart, offsets.Column, start: true), Edge(rows, rowStart, offsets.Row, start: true),
+                Edge(columns, columnEnd, offsets.Column, start: false), Edge(rows, rowEnd, offsets.Row, start: false)));
+        }
+        return (fragments, innerHeight ?? height, positioned);
+    }
+
+    // A positioned child's lines, without auto-placement: auto (and a span against auto) stays null.
+    private static (int? Start, int? End) AbsoluteLines(GridLine start, GridLine end, Axis axis)
+    {
+        var (s, e) = (LineIndex(start, axis, isStart: true), LineIndex(end, axis, isStart: false));
+        if (s is { } a && e is null && end.Kind == GridLineKind.Span)
+            e = SpanFrom(end, axis, a, forward: true);
+        if (e is { } b && s is null && start.Kind == GridLineKind.Span)
+            s = SpanFrom(start, axis, b, forward: false);
+        return (s, e);
+    }
+
+    // The position of a grid line in the content box, or null for auto; lines outside the grid clamp to its edges.
+    private static float? Edge(List<Track> tracks, int? line, int offset, bool start)
+    {
+        if (line is not { } l || tracks.Count == 0)
+            return null;
+        var index = Math.Clamp(l + offset, 0, tracks.Count);
+        return index == tracks.Count ? tracks[^1].Position + tracks[^1].Base
+            : start || index == 0 ? tracks[index].Position : tracks[index - 1].Position + tracks[index - 1].Base;
     }
 
     /// <summary>The min-content and max-content widths of a grid container: its columns sized under each constraint.</summary>
@@ -81,17 +178,23 @@ internal static class GridLayout
         var gap = style.Flex.ColumnGap.HasPercent ? 0 : style.Flex.ColumnGap.Px;
         float Measure(Constraint constraint)
         {
-            var (items, columns, _) = Place(box);
+            var axis = BuildAxis(style.Grid.TemplateColumns, style.Grid.Areas, rows: false, null, gap);
+            var (items, columns, _, _) = Place(box, axis, BuildAxis(style.Grid.TemplateRows, style.Grid.Areas, rows: true, null, 0));
             SizeTracks(columns, null, constraint, gap, items, i => (i.Column, i.ColumnSpan), i => IntrinsicSizes.Contribution(i.Box, context), style.Flex.JustifyContent);
             return Sum(columns, gap);
         }
         return (Measure(Constraint.MinContent), Measure(Constraint.MaxContent));
     }
 
-    private static float Sum(List<Track> tracks, float gap) => tracks.Sum(t => t.Base) + gap * Math.Max(0, tracks.Count - 1);
+    // Gaps sit between tracks that are not collapsed.
+    private static float Sum(List<Track> tracks, float gap) =>
+        tracks.Sum(t => t.Base) + gap * Math.Max(0, tracks.Count(t => !t.Collapsed) - 1);
 
-    private static float AreaSize(List<Track> tracks, int start, int span, float gap) =>
-        tracks.Skip(start).Take(span).Sum(t => t.Base) + gap * (span - 1);
+    private static float AreaSize(List<Track> tracks, int start, int span, float gap)
+    {
+        var area = tracks.Skip(start).Take(span).ToList();
+        return area.Sum(t => t.Base) + gap * Math.Max(0, area.Count(t => !t.Collapsed) - 1);
+    }
 
     private static void ResolveMargins(Item item, float innerWidth)
     {
@@ -156,16 +259,16 @@ internal static class GridLayout
     }
 
     // §8.5: items in order-modified document order, placed on an occupancy map; the grid grows with them.
-    private static (List<Item> Items, List<Track> Columns, List<Track> Rows) Place(GridContainerBox box)
+    private static (List<Item> Items, List<Track> Columns, List<Track> Rows, (int Row, int Column) Offsets) Place(GridContainerBox box, Axis columnAxis, Axis rowAxis)
     {
         var grid = box.Style.Grid;
         var items = box.Children.Where(c => !c.IsAbsolutelyPositioned).Select(c => new Item(c)).OrderBy(i => i.Box.Style.Flex.Order).ToList();
-        var (explicitColumns, explicitRows) = (grid.TemplateColumns.Tracks.Count, grid.TemplateRows.Tracks.Count);
+        var (explicitColumns, explicitRows) = (columnAxis.Count, rowAxis.Count);
 
         var resolved = items.Select(i =>
         {
             var g = i.Box.Style.Grid;
-            return (Item: i, Row: ResolveLines(g.RowStart, g.RowEnd, explicitRows), Column: ResolveLines(g.ColumnStart, g.ColumnEnd, explicitColumns));
+            return (Item: i, Row: ResolveLines(g.RowStart, g.RowEnd, rowAxis), Column: ResolveLines(g.ColumnStart, g.ColumnEnd, columnAxis));
         }).ToList();
         // Implicit tracks before the explicit grid shift every line.
         var rowOffset = -Math.Min(0, resolved.Where(r => r.Row.Start is not null).Select(r => r.Row.Start!.Value).DefaultIfEmpty(0).Min());
@@ -258,27 +361,71 @@ internal static class GridLayout
 
         var rowCount = Math.Max(explicitRows + rowOffset, items.Count == 0 ? 0 : items.Max(i => i.Row + i.RowSpan));
         var columnCount = Math.Max(explicitColumns + columnOffset, items.Count == 0 ? 0 : items.Max(i => i.Column + i.ColumnSpan));
-        return (items, Tracks(grid.TemplateColumns.Tracks, grid.AutoColumns, columnOffset, Math.Min(columnCount, GridParsing.MaxTracks)),
-                Tracks(grid.TemplateRows.Tracks, grid.AutoRows, rowOffset, Math.Min(rowCount, GridParsing.MaxTracks)));
+        var columns = Tracks(columnAxis.Tracks, grid.AutoColumns, columnOffset, Math.Min(columnCount, GridParsing.MaxTracks));
+        var rows = Tracks(rowAxis.Tracks, grid.AutoRows, rowOffset, Math.Min(rowCount, GridParsing.MaxTracks));
+        // auto-fit: repeated tracks no item occupies collapse (css-grid-1 §7.2.3.2).
+        foreach (var index in columnAxis.AutoFit.Where(i => i + columnOffset < columns.Count))
+            columns[index + columnOffset].Collapsed = !items.Any(it => it.Column <= index + columnOffset && index + columnOffset < it.Column + it.ColumnSpan);
+        foreach (var index in rowAxis.AutoFit.Where(i => i + rowOffset < rows.Count))
+            rows[index + rowOffset].Collapsed = !items.Any(it => it.Row <= index + rowOffset && index + rowOffset < it.Row + it.RowSpan);
+        return (items, columns, rows, (rowOffset, columnOffset));
     }
 
     // §8.3.1: a start line (0-based, from the explicit grid's first line; null when auto) and a span.
-    private static (int? Start, int Span) ResolveLines(GridLine start, GridLine end, int explicitCount)
+    private static (int? Start, int Span) ResolveLines(GridLine start, GridLine end, Axis axis)
     {
-        int? Line(GridLine line) => line is { Kind: GridLineKind.Line, Number: not 0 } l
-            ? l.Number > 0 ? l.Number - 1 : explicitCount + 1 + l.Number
-            : null; // auto, and (for now) named lines
-        var (s, e) = (Line(start), Line(end));
+        var (s, e) = (LineIndex(start, axis, isStart: true), LineIndex(end, axis, isStart: false));
         if (s is { } a && e is { } b)
             return b == a ? (a, 1) : (Math.Min(a, b), Math.Abs(b - a));
         if (s is { } a2)
-            return (a2, end.Kind == GridLineKind.Span ? end.Number : 1);
+            return (a2, end.Kind == GridLineKind.Span ? Math.Max(1, (SpanFrom(end, axis, a2, forward: true) ?? a2 + 1) - a2) : 1);
         if (e is { } b2)
         {
-            var span = start.Kind == GridLineKind.Span ? start.Number : 1;
-            return (b2 - span, span);
+            var from = start.Kind == GridLineKind.Span ? SpanFrom(start, axis, b2, forward: false) ?? b2 - 1 : b2 - 1;
+            return (from, Math.Max(1, b2 - from));
         }
-        return (null, start.Kind == GridLineKind.Span ? start.Number : end.Kind == GridLineKind.Span ? end.Number : 1);
+        // A span against auto: a named span counts as one track.
+        return (null, start is { Kind: GridLineKind.Span, Name: null } ? start.Number : end is { Kind: GridLineKind.Span, Name: null } ? end.Number : 1);
+    }
+
+    // A line (not a span) as a 0-based index from the explicit grid's first line; null for auto and spans.
+    private static int? LineIndex(GridLine line, Axis axis, bool isStart)
+    {
+        if (line.Kind != GridLineKind.Line)
+            return null;
+        if (line.Name is null)
+            return line.Number > 0 ? line.Number - 1 : axis.Count + 1 + line.Number;
+        // A lone name prefers the area's implicit line (name-start or name-end).
+        if (line.Number == 0 && Named(axis, line.Name + (isStart ? "-start" : "-end")).Count > 0)
+            return Nth(axis, line.Name + (isStart ? "-start" : "-end"), 1);
+        return Nth(axis, line.Name, line.Number == 0 ? 1 : line.Number);
+    }
+
+    private static List<int> Named(Axis axis, string name) =>
+        Enumerable.Range(0, axis.Names.Count).Where(i => axis.Names[i].Contains(name, StringComparer.Ordinal)).ToList();
+
+    // The nth line with a name (negative counts from the end); when there are too few, implicit lines take the name.
+    private static int Nth(Axis axis, string name, int n)
+    {
+        var lines = Named(axis, name);
+        if (n > 0)
+            return lines.Count >= n ? lines[n - 1] : axis.Count + (n - lines.Count);
+        var m = -n;
+        return lines.Count >= m ? lines[lines.Count - m] : -(m - lines.Count);
+    }
+
+    // The far edge of a span from a definite line: n tracks, or the nth line with the span's name in that direction.
+    private static int? SpanFrom(GridLine span, Axis axis, int from, bool forward)
+    {
+        if (span.Name is null)
+            return forward ? from + span.Number : from - span.Number;
+        var lines = Named(axis, span.Name).Where(i => forward ? i > from : i < from).ToList();
+        if (!forward)
+            lines.Reverse();
+        var n = Math.Max(1, span.Number);
+        if (lines.Count >= n)
+            return lines[n - 1];
+        return forward ? Math.Max(axis.Count, from) + (n - lines.Count) : Math.Min(0, from) - (n - lines.Count);
     }
 
     // Explicit tracks from the template, implicit ones from grid-auto-rows/columns repeated in both directions.
@@ -311,8 +458,8 @@ internal static class GridLayout
         foreach (var track in tracks)
         {
             var (min, max) = (Usable(track.Size.Min), Usable(track.Size.Max));
-            track.Base = min.Kind == TrackKind.Length ? Resolve(min) : 0;
-            track.Limit = max.Kind == TrackKind.Length ? Resolve(max) : float.PositiveInfinity;
+            track.Base = min.Kind == TrackKind.Length && !track.Collapsed ? Resolve(min) : 0;
+            track.Limit = track.Collapsed ? 0 : max.Kind == TrackKind.Length ? Resolve(max) : float.PositiveInfinity;
             track.Limit = Math.Max(track.Limit, track.Base);
         }
 
@@ -426,7 +573,7 @@ internal static class GridLayout
         if (constraint == Constraint.Definite && alignment is ContentAlign.Normal or ContentAlign.Stretch)
         {
             var remaining = available!.Value - Sum(tracks, gap);
-            var autoTracks = tracks.Where(t => Usable(t.Size.Max).Kind == TrackKind.Auto).ToList();
+            var autoTracks = tracks.Where(t => Usable(t.Size.Max).Kind == TrackKind.Auto && !t.Collapsed).ToList();
             if (remaining > 0 && autoTracks.Count > 0)
             {
                 foreach (var t in autoTracks)
@@ -469,7 +616,7 @@ internal static class GridLayout
         foreach (var t in tracks)
         {
             t.Position = position;
-            position += t.Base + between;
+            position += t.Base + (t.Collapsed ? 0 : between);
         }
     }
 }

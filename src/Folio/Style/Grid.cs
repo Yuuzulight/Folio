@@ -28,18 +28,35 @@ internal readonly record struct TrackSize(TrackBreadth Min, TrackBreadth Max)
         : $"minmax({Min}, {Max})";
 }
 
-/// <summary>A computed track list: the tracks (repeat() expanded) and the names of each line, one more than the tracks.</summary>
-internal sealed record TrackList(IReadOnlyList<TrackSize> Tracks, IReadOnlyList<IReadOnlyList<string>> LineNames)
+/// <summary>
+/// <c>repeat(auto-fill | auto-fit, ...)</c> in a track list: inserted before track <see cref="Index"/>, repeated as
+/// often as fits; <see cref="Names"/> has one more entry than <see cref="Tracks"/>.
+/// </summary>
+internal sealed record AutoRepeat(int Index, bool Fit, IReadOnlyList<TrackSize> Tracks, IReadOnlyList<IReadOnlyList<string>> Names)
+{
+    public bool Equals(AutoRepeat? other) => other is not null && Index == other.Index && Fit == other.Fit && Tracks.SequenceEqual(other.Tracks)
+        && Names.Zip(other.Names).All(p => p.First.SequenceEqual(p.Second));
+
+    public override int GetHashCode() => HashCode.Combine(Index, Fit, Tracks.Count);
+}
+
+/// <summary>
+/// A computed track list: the tracks (integer repeat() expanded), the names of each line (one more than the tracks),
+/// and an automatic repetition if any.
+/// </summary>
+internal sealed record TrackList(IReadOnlyList<TrackSize> Tracks, IReadOnlyList<IReadOnlyList<string>> LineNames, AutoRepeat? Repeat = null)
 {
     public static TrackList None { get; } = new([], [[]]);
 
     public override string ToString()
     {
-        if (Tracks.Count == 0)
+        if (Tracks.Count == 0 && Repeat is null)
             return "none";
         var parts = new List<string>();
         for (var i = 0; i <= Tracks.Count; i++)
         {
+            if (Repeat is { } r && r.Index == i)
+                parts.Add($"repeat({(r.Fit ? "auto-fit" : "auto-fill")}, {new TrackList(r.Tracks, r.Names)})");
             if (LineNames[i].Count > 0)
                 parts.Add($"[{string.Join(" ", LineNames[i])}]");
             if (i < Tracks.Count)
@@ -49,9 +66,25 @@ internal sealed record TrackList(IReadOnlyList<TrackSize> Tracks, IReadOnlyList<
     }
 
     public bool Equals(TrackList? other) => other is not null && Tracks.SequenceEqual(other.Tracks)
-        && LineNames.Count == other.LineNames.Count && LineNames.Zip(other.LineNames).All(p => p.First.SequenceEqual(p.Second));
+        && LineNames.Count == other.LineNames.Count && LineNames.Zip(other.LineNames).All(p => p.First.SequenceEqual(p.Second))
+        && Equals(Repeat, other.Repeat);
 
     public override int GetHashCode() => Tracks.Count;
+}
+
+/// <summary>A named grid area: its lines, 0-based from the explicit grid's first line.</summary>
+internal readonly record struct GridArea(int RowStart, int RowEnd, int ColumnStart, int ColumnEnd);
+
+/// <summary>A computed <c>grid-template-areas</c>: its rows as written, and the rectangle of each name.</summary>
+internal sealed record GridAreas(IReadOnlyList<string> RowStrings, int Rows, int Columns, IReadOnlyDictionary<string, GridArea> Areas)
+{
+    public static GridAreas None { get; } = new([], 0, 0, new Dictionary<string, GridArea>());
+
+    public override string ToString() => RowStrings.Count == 0 ? "none" : string.Join(" ", RowStrings.Select(r => $"\"{r}\""));
+
+    public bool Equals(GridAreas? other) => other is not null && RowStrings.SequenceEqual(other.RowStrings);
+
+    public override int GetHashCode() => RowStrings.Count;
 }
 
 internal enum GridLineKind { Auto, Line, Span }
@@ -77,15 +110,15 @@ internal readonly record struct GridLine(GridLineKind Kind, int Number = 0, stri
 internal sealed record GridGroup(
     TrackList TemplateColumns, TrackList TemplateRows, IReadOnlyList<TrackSize> AutoColumns, IReadOnlyList<TrackSize> AutoRows,
     bool AutoFlowColumn, bool Dense, GridLine RowStart, GridLine RowEnd, GridLine ColumnStart, GridLine ColumnEnd,
-    ItemAlign JustifyItems, ItemAlign JustifySelf)
+    ItemAlign JustifyItems, ItemAlign JustifySelf, GridAreas Areas)
 {
     public static GridGroup Initial { get; } = new(TrackList.None, TrackList.None, [TrackSize.Auto], [TrackSize.Auto], false, false,
-        GridLine.Auto, GridLine.Auto, GridLine.Auto, GridLine.Auto, ItemAlign.Normal, ItemAlign.Auto);
+        GridLine.Auto, GridLine.Auto, GridLine.Auto, GridLine.Auto, ItemAlign.Normal, ItemAlign.Auto, GridAreas.None);
 
     public bool Equals(GridGroup? other) => other is not null && TemplateColumns.Equals(other.TemplateColumns) && TemplateRows.Equals(other.TemplateRows)
         && AutoColumns.SequenceEqual(other.AutoColumns) && AutoRows.SequenceEqual(other.AutoRows) && AutoFlowColumn == other.AutoFlowColumn
         && Dense == other.Dense && RowStart == other.RowStart && RowEnd == other.RowEnd && ColumnStart == other.ColumnStart
-        && ColumnEnd == other.ColumnEnd && JustifyItems == other.JustifyItems && JustifySelf == other.JustifySelf;
+        && ColumnEnd == other.ColumnEnd && JustifyItems == other.JustifyItems && JustifySelf == other.JustifySelf && Areas.Equals(other.Areas);
 
     public override int GetHashCode() => HashCode.Combine(TemplateColumns.Tracks.Count, TemplateRows.Tracks.Count, RowStart, ColumnStart);
 }

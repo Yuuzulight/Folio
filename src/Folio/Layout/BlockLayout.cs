@@ -98,11 +98,23 @@ internal static class BlockLayout
         }
         else if (box is GridContainerBox gridBox)
         {
-            var (items, gridHeight, gridOutOfFlow) = GridLayout.Layout(gridBox, width, definiteHeight, minHeight, maxHeight, context);
+            var (items, gridHeight, gridPositioned) = GridLayout.Layout(gridBox, width, definiteHeight, minHeight, maxHeight, context);
             foreach (var item in items)
                 Place(item.Fragment.Box!, item.Fragment, border.LeftWidth + padding.Left + item.X, border.TopWidth + padding.Top + item.Y);
-            foreach (var child in gridOutOfFlow)
-                outOfFlow.Add(new(child, border.LeftWidth + padding.Left, border.TopWidth + padding.Top));
+            foreach (var (child, left, top, right, bottom) in gridPositioned)
+            {
+                if (style.Box.Position == Position.Static || child.Style.Box.Position != Position.Absolute)
+                {
+                    outOfFlow.Add(new(child, border.LeftWidth + padding.Left, border.TopWidth + padding.Top));
+                    continue;
+                }
+                // A positioned grid is the containing block of its absolute children: each gets its grid area, auto
+                // lines being its padding edges (css-grid-1 §9.1).
+                var (l, t) = (left ?? -padding.Left, top ?? -padding.Top);
+                var (r, b) = (right ?? width + padding.Right, bottom ?? Clamp(height ?? gridHeight, minHeight, maxHeight) + padding.Bottom);
+                var placed = PositionedLayout.LayoutAbsolute(child, Math.Max(0, r - l), Math.Max(0, b - t), 0, 0, context);
+                Place(child, placed.Fragment, border.LeftWidth + padding.Left + l + placed.X, border.TopWidth + padding.Top + t + placed.Y);
+            }
             cursor = gridHeight;
             hasContent = items.Count > 0;
         }

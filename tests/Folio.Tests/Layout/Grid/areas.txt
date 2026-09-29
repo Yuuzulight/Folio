@@ -1,0 +1,56 @@
+=== items placed by named areas
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-areas: 'head head' 'nav main'; grid-template-columns: 100px 1fr; grid-template-rows: 20px 30px"><div style="grid-area: main"></div><div style="grid-area: head"></div><div style="grid-area: nav"></div></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div 0,0 800x50
+      div 100,20 700x30
+      div 0,0 800x20
+      div 0,20 100x30
+
+=== grid-template with areas, row sizes and columns
+<!DOCTYPE html><style>body { margin: 0 }</style><div style='display: grid; grid-template: "a b" 40px "c c" / 50px 1fr'><div style="grid-area: b"></div><div style="grid-area: c; height: 10px"></div></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div 0,0 800x50
+      div 50,0 750x40
+      div 0,40 800x10
+
+=== named lines and a span to a named line
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: [a] 100px [b] 100px [c] 100px [d]; grid-auto-rows: 10px"><div style="grid-column: b / d"></div><div style="grid-column: a"></div><div style="grid-column: span c / d"></div></div>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    div 0,0 800x20
+      div 100,0 200x10
+      div 0,10 100x10
+      div 200,10 100x10
+
+=== auto-fill repeats as many tracks as fit
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: repeat(auto-fill, 100px); width: 350px; gap: 10px"><div style="height: 10px"></div><div style="height: 10px"></div><div style="height: 10px"></div><div style="height: 10px"></div></div>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    div 0,0 350x30
+      div 0,0 100x10
+      div 110,0 100x10
+      div 220,0 100x10
+      div 0,20 100x10
+
+=== auto-fit collapses the empty tracks
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: repeat(auto-fit, 100px); width: 350px; justify-content: center"><div style="height: 10px"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 350x10
+      div 125,0 100x10
+
+=== absolutely positioned children use their grid area, auto lines being the padding edges
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; position: relative; grid-template-columns: 100px 100px; grid-template-rows: 50px; padding: 5px"><div style="position: absolute; grid-column: 2; inset: 0"></div><div style="position: absolute; grid-row: 1; top: 0; left: 0; width: 10px; height: 10px"></div></div>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    div 0,0 800x60
+      div 105,0 695x60
+      div 0,5 10x10

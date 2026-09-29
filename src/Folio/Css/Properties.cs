@@ -102,6 +102,7 @@ internal enum PropertyId
     GridColumnEnd,
     JustifyItems,
     JustifySelf,
+    GridTemplateAreas,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -479,6 +480,8 @@ internal static class Properties
             // legacy is accepted and acts as normal.
             Aligned(PropertyId.JustifyItems, "justify-items", JustifyKeywords, s => s.Grid.JustifyItems, (b, v) => b.Grid = b.Grid with { JustifyItems = v }),
             Aligned(PropertyId.JustifySelf, "justify-self", JustifyKeywords, s => s.Grid.JustifySelf, (b, v) => b.Grid = b.Grid with { JustifySelf = v }, "auto"),
+            new Property<GridAreas>(PropertyId.GridTemplateAreas, "grid-template-areas", false, "none", GridParsing.Areas,
+                (v, _) => ((GridAreasValue)v).Areas, s => s.Grid.Areas, (b, v) => b.Grid = b.Grid with { Areas = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -543,7 +546,10 @@ internal static class Properties
 
     private static Property<TrackList> Tracks(PropertyId id, string name, Func<ComputedStyle, TrackList> get, Action<StyleBuilder, TrackList> set) =>
         new(id, name, false, "none", GridParsing.TrackList,
-            (v, ctx) => v is TrackListValue list ? new TrackList(list.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), list.LineNames) : TrackList.None,
+            (v, ctx) => v is TrackListValue list
+                ? new TrackList(list.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), list.LineNames,
+                    list.Repeat is { } r ? new AutoRepeat(r.Index, r.Fit, r.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), r.Names) : null)
+                : TrackList.None,
             get, set);
 
     private static Property<IReadOnlyList<TrackSize>> AutoTracks(PropertyId id, string name, Func<ComputedStyle, IReadOnlyList<TrackSize>> get,
@@ -850,13 +856,33 @@ internal static class Properties
             var columnEnd = parts.Count > 3 ? parts[3] : GridParsing.Omitted(columnStart);
             return [(PropertyId.GridRowStart, rowStart), (PropertyId.GridColumnStart, columnStart), (PropertyId.GridRowEnd, rowEnd), (PropertyId.GridColumnEnd, columnEnd)];
         }),
-        // grid-template: none | <rows> / <columns> (the areas form comes with grid-template-areas).
-        ["grid-template"] = new([PropertyId.GridTemplateRows, PropertyId.GridTemplateColumns], r =>
+        // grid-template: none | <rows> / <columns> | [ <line-names>? <string> <track-size>? <line-names>? ]+ [ / <columns> ]?
+        ["grid-template"] = new([PropertyId.GridTemplateRows, PropertyId.GridTemplateColumns, PropertyId.GridTemplateAreas], r =>
         {
+            var none = new TrackListValue([], [[]]);
             if (r.Copy().Keyword("none") is not null && r.Keyword("none") is not null && r.AtEnd)
-                return [(PropertyId.GridTemplateRows, new TrackListValue([], [[]])), (PropertyId.GridTemplateColumns, new TrackListValue([], [[]]))];
-            var parts = SlashSeparated(r, 2, GridParsing.TrackList);
-            return parts is [var rows, var columns] ? [(PropertyId.GridTemplateRows, rows), (PropertyId.GridTemplateColumns, columns)] : null;
+                return [(PropertyId.GridTemplateRows, none), (PropertyId.GridTemplateColumns, none), (PropertyId.GridTemplateAreas, new GridAreasValue(GridAreas.None))];
+            var values = r.Rest();
+            var slash = values.FindIndex(v => v is PreservedToken t && t.Token.IsDelim('/'));
+            var head = slash < 0 ? values : values[..slash];
+            if (head.Any(v => v is PreservedToken { Token.Kind: CssTokenKind.String }))
+            {
+                if (TemplateAreas(new ValueReader(r.Source, head)) is not var (rows, areas))
+                    return null;
+                CssValue columns = none;
+                if (slash >= 0)
+                {
+                    var tail = new ValueReader(r.Source, values[(slash + 1)..]);
+                    if (GridParsing.TrackList(tail) is not TrackListValue { Repeat: null } list || !tail.AtEnd)
+                        return null;
+                    columns = list;
+                }
+                return [(PropertyId.GridTemplateRows, rows), (PropertyId.GridTemplateColumns, columns), (PropertyId.GridTemplateAreas, new GridAreasValue(areas))];
+            }
+            var parts = SlashSeparated(new ValueReader(r.Source, values), 2, GridParsing.TrackList);
+            return parts is [var rowList, var columnList]
+                ? [(PropertyId.GridTemplateRows, rowList), (PropertyId.GridTemplateColumns, columnList), (PropertyId.GridTemplateAreas, new GridAreasValue(GridAreas.None))]
+                : null;
         }),
         ["place-items"] = PlacePair(PropertyId.AlignItems, PropertyId.JustifyItems),
         ["place-self"] = PlacePair(PropertyId.AlignSelf, PropertyId.JustifySelf),
@@ -901,6 +927,32 @@ internal static class Properties
             parts.Add(value);
         }
         return parts;
+    }
+
+    // The areas form of grid-template: each string a row, with an optional size and line names around it.
+    private static (TrackListValue Rows, GridAreas Areas)? TemplateAreas(ValueReader r)
+    {
+        var strings = new List<string>();
+        var tracks = new List<TrackSizeSpecified>();
+        var names = new List<IReadOnlyList<string>>();
+        var pending = new List<string>();
+        var auto = new TrackSizeSpecified(new TrackBreadthSpecified(TrackKind.Auto), new TrackBreadthSpecified(TrackKind.Auto));
+        while (!r.AtEnd)
+        {
+            if (r.LineNames() is { } before)
+                pending.AddRange(before);
+            if (r.String() is not { } row)
+                return null;
+            strings.Add(row);
+            names.Add([.. pending]);
+            pending.Clear();
+            var size = GridParsing.OneTrackSize(r);
+            tracks.Add(size ?? auto);
+            if (r.LineNames() is { } after)
+                pending.AddRange(after);
+        }
+        names.Add(pending);
+        return GridParsing.BuildAreas(strings) is { } areas && areas.Rows == tracks.Count ? (new TrackListValue(tracks, names), areas) : null;
     }
 
     private static Shorthand GridLines(PropertyId start, PropertyId end) => new([start, end], r =>
