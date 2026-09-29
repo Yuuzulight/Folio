@@ -95,6 +95,7 @@ internal static class StyleResolver
 
             var computeContext = new ComputeContext(item.Parent, rootFontSize, media.Width, media.Height)
             {
+                PrefersDark = media.DarkColorScheme,
                 Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
             };
             var style = StyleBuilder.Compute(values, computeContext, groups);
@@ -109,6 +110,7 @@ internal static class StyleResolver
                     var (pseudoValues, pseudoCustom) = Cascade.Compute(element, origins, null, 0, context, pe);
                     var pseudoContext = new ComputeContext(style, rootFontSize, media.Width, media.Height)
                     {
+                        PrefersDark = media.DarkColorScheme,
                         Custom = CustomProperties.Compute(style.Custom, pseudoCustom, registered),
                     };
                     return StyleBuilder.Compute(pseudoValues, pseudoContext, groups);

@@ -47,14 +47,20 @@ internal sealed class StyleBuilder
     {
         var builder = new StyleBuilder(context.Parent) { _custom = context.Custom };
 
-        // font-size first: em units in every other property refer to it.
+        // Properties others depend on come first: color-scheme (light-dark()), font-size (em), color (currentcolor).
+        if (cascaded.TryGetValue(PropertyId.ColorScheme, out var scheme))
+            builder.Apply(Properties.Get(PropertyId.ColorScheme), scheme, context);
+        context.UsesDark = builder.Inherited.ColorScheme.UsesDark(context.PrefersDark);
         if (cascaded.TryGetValue(PropertyId.FontSize, out var fontSize))
             builder.Apply(Properties.Get(PropertyId.FontSize), fontSize, context);
         context.FontSize = builder.Font.Size;
+        if (cascaded.TryGetValue(PropertyId.Color, out var color))
+            builder.Apply(Properties.Get(PropertyId.Color), color, context);
+        context.CurrentColor = builder.Inherited.Color;
 
         foreach (var (id, value) in cascaded)
         {
-            if (id != PropertyId.FontSize)
+            if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme))
                 builder.Apply(Properties.Get(id), value, context);
         }
         return builder.Build(groups);

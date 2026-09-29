@@ -60,3 +60,10 @@
 #c color: rgb(255, 0, 0)
 #d color: rgb(255, 0, 0)
 #e color: rgb(0, 0, 0)
+
+=== light-dark uses the preferred scheme when the element supports it
+%dark
+<!DOCTYPE html><style>:root { color-scheme: light dark } p { color: light-dark(red, blue) } #n { color-scheme: normal }</style><p id=a>x<p id=n>y
+---
+#a color: rgb(0, 0, 255)
+#n color: rgb(255, 0, 0)

@@ -60,6 +60,7 @@ internal enum PropertyId
     CounterReset,
     CounterIncrement,
     CounterSet,
+    ColorScheme,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -251,8 +252,8 @@ internal static class Properties
 
             // color: currentcolor means the parent's colour (https://www.w3.org/TR/css-color-4/#resolving-other-colors).
             new Property<CssColor>(PropertyId.Color, "color", true, "black",
-                r => r.Color() is { } c ? new ColorValue(c) : null,
-                (v, ctx) => ((ColorValue)v).Color.Resolve(ctx.Parent.Inherited.Color),
+                r => r.ColorSpecified(),
+                (v, ctx) => ctx.Color(v, ctx.Parent.Inherited.Color).Resolve(ctx.Parent.Inherited.Color),
                 s => s.Inherited.Color, (b, v) => b.Inherited = b.Inherited with { Color = v }),
             Color(PropertyId.BackgroundColor, "background-color", "transparent", s => s.Background.Color, (b, v) => b.Background = b.Background with { Color = v }),
 
@@ -305,6 +306,28 @@ internal static class Properties
                 s => s.Generated.CounterIncrement, (b, v) => b.Generated = b.Generated with { CounterIncrement = v }),
             Counters(PropertyId.CounterSet, "counter-set", 0, allowReversed: false,
                 s => s.Generated.CounterSet, (b, v) => b.Generated = b.Generated with { CounterSet = v }),
+            // https://www.w3.org/TR/css-color-adjust-1/#color-scheme-prop
+            new Property<ColorSchemeValue>(PropertyId.ColorScheme, "color-scheme", true, "normal",
+                r =>
+                {
+                    if (r.Keyword("normal") is not null)
+                        return new ColorSchemeSpecified(ColorSchemeValue.Normal);
+                    bool light = false, dark = false, only = false, any = false;
+                    while (r.Ident() is { } word)
+                    {
+                        any = true;
+                        switch (word.ToLowerInvariant())
+                        {
+                            case "light": light = true; break;
+                            case "dark": dark = true; break;
+                            case "only": only = true; break;
+                            case "normal": return null;
+                        }
+                    }
+                    return any && r.AtEnd ? new ColorSchemeSpecified(new ColorSchemeValue(light, dark, only)) : null;
+                },
+                (v, _) => ((ColorSchemeSpecified)v).Scheme,
+                s => s.Inherited.ColorScheme, (b, v) => b.Inherited = b.Inherited with { ColorScheme = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -406,7 +429,7 @@ internal static class Properties
             get, set);
 
     private static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
-        new(id, name, false, initial, r => r.Color() is { } c ? new ColorValue(c) : null, (v, _) => ((ColorValue)v).Color, get, set);
+        new(id, name, false, initial, r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor), get, set);
 
     private static float ComputeFontSize(CssValue value, ComputeContext context)
     {
@@ -566,7 +589,7 @@ internal static class Properties
     public static ComputedStyle InitialStyle() => new()
     {
         Font = new FontGroup(["serif"], 16, 400, Style.FontStyle.Normal, LineHeight.Normal),
-        Inherited = new InheritedGroup(CssColor.Black, Visibility.Visible),
+        Inherited = new InheritedGroup(CssColor.Black, Visibility.Visible, ColorSchemeValue.Normal),
         Box = new BoxGroup(Display.Inline, Position.Static, FloatSide.None, Clear.None, BoxSizing.ContentBox, Overflow.Visible, Overflow.Visible, null, 1),
         Size = new SizeGroup(SizeValue.Auto, SizeValue.Auto, SizeValue.Auto, SizeValue.Auto, SizeValue.None, SizeValue.None),
         Spacing = new SpacingGroup(
