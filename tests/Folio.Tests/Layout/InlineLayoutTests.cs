@@ -4,9 +4,9 @@ namespace Folio.Tests.Layout;
 
 public class InlineLayoutTests
 {
-    // Inline and flex cases share the dump format and the test font.
+    // Inline, flex and grid cases share the dump format and the test font.
     private static readonly Lazy<Dictionary<string, CaseFiles.Case>> AllCases = new(() =>
-        CaseFiles.Load("Layout", "Inline").Concat(CaseFiles.Load("Layout", "Flex")).ToDictionary());
+        CaseFiles.Load("Layout", "Inline").Concat(CaseFiles.Load("Layout", "Flex")).Concat(CaseFiles.Load("Layout", "Grid")).ToDictionary());
 
     public static TheoryData<string> Ids => new(AllCases.Value.Keys.Order());
 

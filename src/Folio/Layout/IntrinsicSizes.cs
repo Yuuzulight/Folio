@@ -8,8 +8,8 @@ namespace Folio.Layout;
 /// one layout (study 06: repeated measuring is what makes nested shrink-to-fit exponential).
 /// </summary>
 // ponytail: floats side by side contribute one at a time, not summed; percentages of the containing block count as 0
-// (the cyclic-percentage rule); grid, table and replaced boxes contribute only their specified widths until their
-// layouts land.
+// (the cyclic-percentage rule); table and replaced boxes contribute only their specified widths until their layouts
+// land.
 internal static class IntrinsicSizes
 {
     /// <summary>A box's own min-content and max-content content-box widths.</summary>
@@ -24,6 +24,10 @@ internal static class IntrinsicSizes
         if (box is BlockContainerBox { Inline: { } inline } block)
         {
             sizes = InlineLayout.Measure(block, inline, context);
+        }
+        else if (box is GridContainerBox grid)
+        {
+            sizes = GridLayout.IntrinsicWidths(grid, context);
         }
         else if (box is FlexContainerBox flex)
         {
