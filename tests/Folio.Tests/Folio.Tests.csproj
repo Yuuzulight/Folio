@@ -9,7 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Html\Tokenizer\*.txt;Html\TreeBuilder\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Html\**\*.txt;Css\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

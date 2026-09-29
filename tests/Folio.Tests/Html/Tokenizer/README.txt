@@ -2,8 +2,8 @@ Tokenizer cases, written from https://html.spec.whatwg.org/multipage/parsing.htm
 
 Format:
   === case name
-  @state <TokenizerState> <last start tag>   (optional: initial state, e.g. RcData title)
-  @cdata                                     (optional: CDATA sections allowed)
+  %state <TokenizerState> <last start tag>   (optional: initial state, e.g. RcData title)
+  %cdata                                     (optional: CDATA sections allowed)
   input lines, with \uXXXX escapes
   ---
   one line per token, then one "! code" line per parse error, in order

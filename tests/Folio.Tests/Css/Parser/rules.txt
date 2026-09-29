@@ -1,0 +1,117 @@
+=== style rules and declarations
+a, b > c { color: red; margin : 0 auto }
+---
+style a, b > c
+  color: red
+  margin: 0 auto
+
+=== important and property name case
+p { COLOR: Red !important; width: 1px ! IMPORTANT; }
+---
+style p
+  color: Red !important
+  width: 1px !important
+
+=== custom properties keep their case and value
+:root { --Main-Color: #fff; --empty:; --block: { a: b } }
+---
+style :root
+  --Main-Color: #fff
+  --empty:
+  --block: { a: b }
+
+=== invalid declarations are dropped up to the next semicolon
+p { color red; 12: x; width: 1px; : y; height: 2px }
+---
+style p
+  width: 1px
+  height: 2px
+
+=== a block mixed with other values is not a declaration but a nested rule
+p { foo: a {b}; width: 1px }
+---
+style p
+  style foo: a
+  declarations
+    width: 1px
+
+=== statement and block at-rules
+@import url(a.css) screen; @media (min-width: 600px) { p { color: red } } @font-face { font-family: X; src: url(x.woff) }
+---
+at import url(a.css) screen
+at media (min-width: 600px) {
+  style p
+    color: red
+at font-face {
+  font-family: X
+  src: url(x.woff)
+
+=== nested style rules and nested declarations
+.card { color: red; &:hover { color: blue } padding: 1px; .x & { margin: 0 } }
+---
+style .card
+  color: red
+  style &:hover
+    color: blue
+  declarations
+    padding: 1px
+  style .x &
+    margin: 0
+
+=== nested rule starting with an identifier
+nav { a:hover { color: red } ul li { margin: 0 } }
+---
+style nav
+  style a:hover
+    color: red
+  style ul li
+    margin: 0
+
+=== nested at-rules
+div { @media (width > 1px) { color: red } }
+---
+style div
+  at media (width > 1px) {
+    color: red
+
+=== unclosed blocks end at the end of input
+p { color: red; a { width: 1px
+---
+style p
+  color: red
+  style a
+    width: 1px
+
+=== stray closing brace at top level joins the prelude
+} p { color: red }
+---
+style } p
+  color: red
+
+=== CDO and CDC at top level are ignored
+<!-- p { color: red } -->
+---
+style p
+  color: red
+
+=== keyframes keep their selectors as preludes
+@keyframes fade { from { opacity: 0 } 50% { opacity: .5 } to { opacity: 1 } }
+---
+at keyframes fade {
+  style from
+    opacity: 0
+  style 50%
+    opacity: .5
+  style to
+    opacity: 1
+
+=== custom property that looks like a rule at top level is dropped
+--x: { color: red } p { color: blue }
+---
+style p
+  color: blue
+
+=== at-rule names are lowercased
+@MEDIA print { }
+---
+at media print {
