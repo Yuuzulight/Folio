@@ -42,6 +42,15 @@ internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
 internal enum Isolation { Auto, Isolate }
 
+internal enum VerticalAlignKind { Baseline, Sub, Super, TextTop, TextBottom, Middle, Top, Bottom, Length }
+
+/// <summary>A computed <c>vertical-align</c>: a keyword, or a raise by a length or a percentage of the line height.</summary>
+internal readonly record struct VerticalAlign(VerticalAlignKind Kind, LengthPercentage Length = default)
+{
+    public override string ToString() => Kind == VerticalAlignKind.Length ? Length.ToString()
+        : string.Concat(Kind.ToString().Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString()));
+}
+
 internal enum BorderStyle { None, Hidden, Dotted, Dashed, Solid, Double, Groove, Ridge, Inset, Outset }
 
 internal enum FontStyle { Normal, Italic, Oblique }
@@ -128,7 +137,8 @@ internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, Col
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
-    Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto);
+    Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
+    VerticalAlign VerticalAlign = default);
 
 /// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
 internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)

@@ -76,6 +76,7 @@ internal enum PropertyId
     BorderBottomLeftRadius,
     Isolation,
     TextAlign,
+    VerticalAlign,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -392,6 +393,11 @@ internal static class Properties
             // https://www.w3.org/TR/css-text-3/#text-align-property (match-parent is not supported)
             Keywords(PropertyId.TextAlign, "text-align", true, "start", Enum<Style.TextAlign>("start", "end", "left", "right", "center", "justify"),
                 s => s.Text.TextAlign, (b, v) => b.Text = b.Text with { TextAlign = v }),
+            // https://www.w3.org/TR/CSS22/visudet.html#propdef-vertical-align
+            new Property<VerticalAlign>(PropertyId.VerticalAlign, "vertical-align", false, "baseline",
+                r => r.Keyword(VerticalAlignKeywords.Keys.ToArray()) is { } k ? new KeywordValue(k) : r.LengthPercentage(),
+                (v, ctx) => v is KeywordValue k ? new VerticalAlign(VerticalAlignKeywords[k.Keyword]) : new VerticalAlign(VerticalAlignKind.Length, ctx.LengthPercentage(v)),
+                s => s.Box.VerticalAlign, (b, v) => b.Box = b.Box with { VerticalAlign = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -415,6 +421,13 @@ internal static class Properties
         ["table-row"] = Display.TableRow, ["table-cell"] = Display.TableCell, ["table-column-group"] = Display.TableColumnGroup,
         ["table-column"] = Display.TableColumn, ["table-caption"] = Display.TableCaption, ["contents"] = Display.Contents,
         ["none"] = Display.None,
+    };
+
+    private static readonly Dictionary<string, VerticalAlignKind> VerticalAlignKeywords = new()
+    {
+        ["baseline"] = VerticalAlignKind.Baseline, ["sub"] = VerticalAlignKind.Sub, ["super"] = VerticalAlignKind.Super,
+        ["text-top"] = VerticalAlignKind.TextTop, ["text-bottom"] = VerticalAlignKind.TextBottom, ["middle"] = VerticalAlignKind.Middle,
+        ["top"] = VerticalAlignKind.Top, ["bottom"] = VerticalAlignKind.Bottom,
     };
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
