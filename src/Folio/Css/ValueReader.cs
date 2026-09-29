@@ -24,6 +24,9 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
 {
     private int _pos;
 
+    /// <summary>The text the component values index into.</summary>
+    public string Source => source;
+
     public bool AtEnd
     {
         get
@@ -148,6 +151,35 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
             return new ValueReader(source, f.Arguments);
         }
         return null;
+    }
+
+    /// <summary>A non-negative flex value (<c>fr</c>).</summary>
+    public float? Flex()
+    {
+        if (Next() is PreservedToken { Token.Kind: CssTokenKind.Dimension } d && d.Token.Value.Equals("fr", StringComparison.OrdinalIgnoreCase) && d.Token.Number >= 0)
+        {
+            _pos++;
+            return (float)d.Token.Number;
+        }
+        return null;
+    }
+
+    /// <summary>A bracketed list of line names (<c>[a b]</c>); null when the next value is not one.</summary>
+    public List<string>? LineNames()
+    {
+        if (Next() is not SimpleBlock { Open: CssTokenKind.LeftBracket } block)
+            return null;
+        var names = new List<string>();
+        foreach (var value in block.Contents)
+        {
+            if (value is PreservedToken { Token.Kind: CssTokenKind.Ident } ident && !ident.Token.Value.Equals("span", StringComparison.OrdinalIgnoreCase)
+                && !ident.Token.Value.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                names.Add(ident.Token.Value);
+            else if (value is not PreservedToken { Token.Kind: CssTokenKind.Whitespace })
+                return null;
+        }
+        _pos++;
+        return names;
     }
 
     public bool Comma()

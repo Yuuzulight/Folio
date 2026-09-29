@@ -91,6 +91,17 @@ internal enum PropertyId
     Order,
     RowGap,
     ColumnGap,
+    GridTemplateColumns,
+    GridTemplateRows,
+    GridAutoColumns,
+    GridAutoRows,
+    GridAutoFlow,
+    GridRowStart,
+    GridRowEnd,
+    GridColumnStart,
+    GridColumnEnd,
+    JustifyItems,
+    JustifySelf,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -451,6 +462,23 @@ internal static class Properties
                 s => s.Flex.Order, (b, v) => b.Flex = b.Flex with { Order = v }),
             Gap(PropertyId.RowGap, "row-gap", s => s.Flex.RowGap, (b, v) => b.Flex = b.Flex with { RowGap = v }),
             Gap(PropertyId.ColumnGap, "column-gap", s => s.Flex.ColumnGap, (b, v) => b.Flex = b.Flex with { ColumnGap = v }),
+
+            // https://www.w3.org/TR/css-grid-1/
+            Tracks(PropertyId.GridTemplateColumns, "grid-template-columns", s => s.Grid.TemplateColumns, (b, v) => b.Grid = b.Grid with { TemplateColumns = v }),
+            Tracks(PropertyId.GridTemplateRows, "grid-template-rows", s => s.Grid.TemplateRows, (b, v) => b.Grid = b.Grid with { TemplateRows = v }),
+            AutoTracks(PropertyId.GridAutoColumns, "grid-auto-columns", s => s.Grid.AutoColumns, (b, v) => b.Grid = b.Grid with { AutoColumns = v }),
+            AutoTracks(PropertyId.GridAutoRows, "grid-auto-rows", s => s.Grid.AutoRows, (b, v) => b.Grid = b.Grid with { AutoRows = v }),
+            new Property<string>(PropertyId.GridAutoFlow, "grid-auto-flow", false, "row", GridParsing.AutoFlow,
+                (v, _) => v is GridAutoFlowValue f ? (f.Column ? "column" : "row") + (f.Dense ? " dense" : "") : "row",
+                s => (s.Grid.AutoFlowColumn ? "column" : "row") + (s.Grid.Dense ? " dense" : ""),
+                (b, v) => b.Grid = b.Grid with { AutoFlowColumn = v.StartsWith("column", StringComparison.Ordinal), Dense = v.EndsWith("dense", StringComparison.Ordinal) }),
+            Placement(PropertyId.GridRowStart, "grid-row-start", s => s.Grid.RowStart, (b, v) => b.Grid = b.Grid with { RowStart = v }),
+            Placement(PropertyId.GridRowEnd, "grid-row-end", s => s.Grid.RowEnd, (b, v) => b.Grid = b.Grid with { RowEnd = v }),
+            Placement(PropertyId.GridColumnStart, "grid-column-start", s => s.Grid.ColumnStart, (b, v) => b.Grid = b.Grid with { ColumnStart = v }),
+            Placement(PropertyId.GridColumnEnd, "grid-column-end", s => s.Grid.ColumnEnd, (b, v) => b.Grid = b.Grid with { ColumnEnd = v }),
+            // legacy is accepted and acts as normal.
+            Aligned(PropertyId.JustifyItems, "justify-items", JustifyKeywords, s => s.Grid.JustifyItems, (b, v) => b.Grid = b.Grid with { JustifyItems = v }),
+            Aligned(PropertyId.JustifySelf, "justify-self", JustifyKeywords, s => s.Grid.JustifySelf, (b, v) => b.Grid = b.Grid with { JustifySelf = v }, "auto"),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -507,6 +535,25 @@ internal static class Properties
             },
             (v, _) => ((KeywordValue)v).Keyword == "last baseline" ? (T)(object)ItemAlign.LastBaseline : keywords[((KeywordValue)v).Keyword],
             get, set);
+
+    private static readonly Dictionary<string, ItemAlign> JustifyKeywords = new(ItemAlignKeywords)
+    {
+        ["left"] = ItemAlign.Start, ["right"] = ItemAlign.End, ["legacy"] = ItemAlign.Normal,
+    };
+
+    private static Property<TrackList> Tracks(PropertyId id, string name, Func<ComputedStyle, TrackList> get, Action<StyleBuilder, TrackList> set) =>
+        new(id, name, false, "none", GridParsing.TrackList,
+            (v, ctx) => v is TrackListValue list ? new TrackList(list.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), list.LineNames) : TrackList.None,
+            get, set);
+
+    private static Property<IReadOnlyList<TrackSize>> AutoTracks(PropertyId id, string name, Func<ComputedStyle, IReadOnlyList<TrackSize>> get,
+                                                              Action<StyleBuilder, IReadOnlyList<TrackSize>> set) =>
+        new(id, name, false, "auto", GridParsing.TrackSizes,
+            (v, ctx) => ((TrackSizesValue)v).Sizes.Select(t => GridParsing.Compute(t, ctx)).ToList(),
+            get, set);
+
+    private static Property<GridLine> Placement(PropertyId id, string name, Func<ComputedStyle, GridLine> get, Action<StyleBuilder, GridLine> set) =>
+        new(id, name, false, "auto", GridParsing.Line, (v, _) => ((GridLineValue)v).Line, get, set);
 
     // row-gap and column-gap: normal (zero in flex and grid) or a non-negative length-percentage.
     private static Property<LengthPercentage> Gap(PropertyId id, string name, Func<ComputedStyle, LengthPercentage> get, Action<StyleBuilder, LengthPercentage> set) =>
@@ -789,6 +836,31 @@ internal static class Properties
             return direction is null && wrap is null ? null
                 : [(PropertyId.FlexDirection, direction ?? Get(PropertyId.FlexDirection).Initial), (PropertyId.FlexWrap, wrap ?? Get(PropertyId.FlexWrap).Initial)];
         }),
+        // https://www.w3.org/TR/css-grid-1/#placement-shorthands
+        ["grid-row"] = GridLines(PropertyId.GridRowStart, PropertyId.GridRowEnd),
+        ["grid-column"] = GridLines(PropertyId.GridColumnStart, PropertyId.GridColumnEnd),
+        ["grid-area"] = new([PropertyId.GridRowStart, PropertyId.GridColumnStart, PropertyId.GridRowEnd, PropertyId.GridColumnEnd], r =>
+        {
+            var parts = SlashSeparated(r, 4, GridParsing.Line);
+            if (parts is null)
+                return null;
+            var rowStart = parts[0];
+            var columnStart = parts.Count > 1 ? parts[1] : GridParsing.Omitted(rowStart);
+            var rowEnd = parts.Count > 2 ? parts[2] : GridParsing.Omitted(rowStart);
+            var columnEnd = parts.Count > 3 ? parts[3] : GridParsing.Omitted(columnStart);
+            return [(PropertyId.GridRowStart, rowStart), (PropertyId.GridColumnStart, columnStart), (PropertyId.GridRowEnd, rowEnd), (PropertyId.GridColumnEnd, columnEnd)];
+        }),
+        // grid-template: none | <rows> / <columns> (the areas form comes with grid-template-areas).
+        ["grid-template"] = new([PropertyId.GridTemplateRows, PropertyId.GridTemplateColumns], r =>
+        {
+            if (r.Copy().Keyword("none") is not null && r.Keyword("none") is not null && r.AtEnd)
+                return [(PropertyId.GridTemplateRows, new TrackListValue([], [[]])), (PropertyId.GridTemplateColumns, new TrackListValue([], [[]]))];
+            var parts = SlashSeparated(r, 2, GridParsing.TrackList);
+            return parts is [var rows, var columns] ? [(PropertyId.GridTemplateRows, rows), (PropertyId.GridTemplateColumns, columns)] : null;
+        }),
+        ["place-items"] = PlacePair(PropertyId.AlignItems, PropertyId.JustifyItems),
+        ["place-self"] = PlacePair(PropertyId.AlignSelf, PropertyId.JustifySelf),
+        ["place-content"] = PlacePair(PropertyId.AlignContent, PropertyId.JustifyContent),
         ["gap"] = new([PropertyId.RowGap, PropertyId.ColumnGap], r =>
         {
             var row = Get(PropertyId.RowGap).Parse(r.OneValue());
@@ -806,6 +878,47 @@ internal static class Properties
             return y is null ? null : [(PropertyId.OverflowX, x), (PropertyId.OverflowY, y)];
         }),
     };
+
+    // Values separated by "/": each part parsed by the property grammar.
+    private static List<CssValue>? SlashSeparated(ValueReader r, int most, Func<ValueReader, CssValue?> parse)
+    {
+        var groups = new List<List<ComponentValue>> { new() };
+        foreach (var value in r.Rest())
+        {
+            if (value is PreservedToken t && t.Token.IsDelim('/'))
+                groups.Add([]);
+            else
+                groups[^1].Add(value);
+        }
+        if (groups.Count > most)
+            return null;
+        var parts = new List<CssValue>();
+        foreach (var group in groups)
+        {
+            var reader = new ValueReader(r.Source, group);
+            if (parse(reader) is not { } value || !reader.AtEnd)
+                return null;
+            parts.Add(value);
+        }
+        return parts;
+    }
+
+    private static Shorthand GridLines(PropertyId start, PropertyId end) => new([start, end], r =>
+        SlashSeparated(r, 2, GridParsing.Line) is { } parts
+            ? [(start, parts[0]), (end, parts.Count > 1 ? parts[1] : GridParsing.Omitted(parts[0]))]
+            : null);
+
+    // place-*: <align> [ <justify> ]? (the justify value repeats the align value when omitted).
+    private static Shorthand PlacePair(PropertyId align, PropertyId justify) => new([align, justify], r =>
+    {
+        var first = r.OneValue();
+        var a = Get(align).Parse(first.Copy());
+        if (a is null)
+            return null;
+        if (r.AtEnd)
+            return Get(justify).Parse(first) is { } same ? [(align, a), (justify, same)] : null;
+        return Get(justify).Parse(r.OneValue()) is { } j ? [(align, a), (justify, j)] : null;
+    });
 
     // margin/padding/inset/border-*: 1–4 values for top, right, bottom, left.
     private static Shorthand Sides(PropertyId[] sides) => new(sides, r =>

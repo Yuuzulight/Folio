@@ -1,0 +1,69 @@
+=== fixed and flexible columns, and an auto row stretched to the grid's height
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: 100px 1fr 2fr; height: 30px"><div></div><div></div><div></div></div>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    div 0,0 800x30
+      div 0,0 100x30
+      div 100,0 233.33x30
+      div 333.33,0 466.67x30
+
+=== auto-placement fills rows, with gaps
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: repeat(2, 100px); gap: 10px 20px"><div style="height: 10px"></div><div style="height: 20px"></div><div style="height: 30px"></div></div>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    div 0,0 800x60
+      div 0,0 100x10
+      div 120,0 100x20
+      div 0,30 100x30
+
+=== line numbers, spans and negative lines, with the cursor wrapping round them
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: 50px 50px 50px; grid-auto-rows: 20px"><div style="grid-column: 2 / span 2"></div><div style="grid-column: -2; grid-row: 2"></div><div></div></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div 0,0 800x40
+      div 50,0 100x20
+      div 100,20 50x20
+      div 0,20 50x20
+
+=== an auto column fits its content and a flexible one takes the rest
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: auto 1fr; width: 300px"><div>abc</div><div>d</div></div>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    div 0,0 300x16
+      div 0,0 48x16
+        line 0,0 48x16
+          text "abc" 0,0 48x16
+      div 48,0 252x16
+        line 48,0 252x16
+          text "d" 48,0 16x16
+
+=== justify-items and align-self place an item in its area
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: 100px; grid-template-rows: 50px; justify-items: center"><div style="width: 20px; height: 10px; align-self: end"></div></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div 0,0 800x50
+      div 40,40 20x10
+
+=== justify-content centres the tracks
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-template-columns: 100px 100px; justify-content: center; height: 10px"><div></div><div></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 800x10
+      div 300,0 100x10
+      div 400,0 100x10
+
+=== column flow fills columns
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; grid-auto-flow: column; grid-template-rows: 10px 10px; grid-auto-columns: 30px"><div></div><div></div><div></div></div>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    div 0,0 800x20
+      div 0,0 30x10
+      div 0,10 30x10
+      div 30,0 30x10

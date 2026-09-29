@@ -240,6 +240,7 @@ internal sealed class ComputedStyle
     public required TextGroup Text { get; init; }
     public required GeneratedGroup Generated { get; init; }
     public FlexGroup Flex { get; init; } = FlexGroup.Initial;
+    public GridGroup Grid { get; init; } = GridGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
