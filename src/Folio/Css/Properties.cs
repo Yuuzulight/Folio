@@ -61,6 +61,15 @@ internal enum PropertyId
     CounterIncrement,
     CounterSet,
     ColorScheme,
+    BackgroundImage,
+    BackgroundPosition,
+    BackgroundSize,
+    BackgroundRepeat,
+    BackgroundAttachment,
+    BackgroundOrigin,
+    BackgroundClip,
+    FontStretch,
+    FontVariantCaps,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -118,6 +127,8 @@ internal sealed class Property<T>(
         Enum e => string.Concat(e.ToString().Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString())),
         IReadOnlyList<string> list => string.Join(", ", list),
         IReadOnlyList<CounterChange> counters => counters.Count == 0 ? "none" : string.Join(" ", counters),
+        string text => text,
+        System.Collections.IEnumerable items => string.Join(", ", items.Cast<object?>().Select(Format)),
         _ => value.ToString() ?? "",
     };
 }
@@ -328,6 +339,43 @@ internal static class Properties
                 },
                 (v, _) => ((ColorSchemeSpecified)v).Scheme,
                 s => s.Inherited.ColorScheme, (b, v) => b.Inherited = b.Inherited with { ColorScheme = v }),
+
+            new Property<IReadOnlyList<ImageValue>>(PropertyId.BackgroundImage, "background-image", false, "none",
+                BackgroundParsing.ImageList, (v, _) => ((LayerListValue<ImageValue>)v).Items,
+                s => s.Background.Images, (b, v) => b.Background = b.Background with { Images = v }),
+            Layers<PositionSpecified, Style.BackgroundPosition>(PropertyId.BackgroundPosition, "background-position", "0% 0%",
+                BackgroundParsing.Position,
+                (p, ctx) => new Style.BackgroundPosition(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd)),
+                s => s.Background.Positions, (b, v) => b.Background = b.Background with { Positions = v }),
+            Layers<SizeSpecified, BackgroundSize>(PropertyId.BackgroundSize, "background-size", "auto",
+                BackgroundParsing.Size,
+                (z, ctx) => new BackgroundSize(z.Kind,
+                    z.Width is null ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(z.Width, nonNegative: true)),
+                    z.Height is null ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(z.Height, nonNegative: true))),
+                s => s.Background.Sizes, (b, v) => b.Background = b.Background with { Sizes = v }),
+            Layers<RepeatStyle, RepeatStyle>(PropertyId.BackgroundRepeat, "background-repeat", "repeat",
+                BackgroundParsing.Repeat, (x, _) => x,
+                s => s.Background.Repeats, (b, v) => b.Background = b.Background with { Repeats = v }),
+            Layers<BackgroundAttachment, BackgroundAttachment>(PropertyId.BackgroundAttachment, "background-attachment", "scroll",
+                BackgroundParsing.Attachment, (x, _) => x,
+                s => s.Background.Attachments, (b, v) => b.Background = b.Background with { Attachments = v }),
+            Layers<BackgroundBox, BackgroundBox>(PropertyId.BackgroundOrigin, "background-origin", "padding-box",
+                r => BackgroundParsing.Box(r, allowText: false), (x, _) => x,
+                s => s.Background.Origins, (b, v) => b.Background = b.Background with { Origins = v }),
+            Layers<BackgroundBox, BackgroundBox>(PropertyId.BackgroundClip, "background-clip", "border-box",
+                r => BackgroundParsing.Box(r, allowText: true), (x, _) => x,
+                s => s.Background.Clips, (b, v) => b.Background = b.Background with { Clips = v }),
+
+            // https://www.w3.org/TR/css-fonts-4/#font-stretch-prop (as a percentage of normal)
+            new Property<float>(PropertyId.FontStretch, "font-stretch", true, "normal",
+                r => r.Keyword(FontStretchKeywords.Keys.ToArray()) is { } k ? new PercentageValue(FontStretchKeywords[k])
+                    : r.LengthPercentage(allowPercent: true, nonNegative: true) is PercentageValue p ? p : null,
+                (v, _) => ((PercentageValue)v).Percent,
+                s => s.Font.Stretch, (b, v) => b.Font = b.Font with { Stretch = v }),
+            new Property<string>(PropertyId.FontVariantCaps, "font-variant-caps", true, "normal",
+                r => r.Keyword("normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps") is { } k ? new KeywordValue(k) : null,
+                (v, _) => ((KeywordValue)v).Keyword,
+                s => s.Font.VariantCaps, (b, v) => b.Font = b.Font with { VariantCaps = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -420,6 +468,28 @@ internal static class Properties
                 _ => Math.Max(0, ctx.LengthPercentage(v).Resolve(0)),
             },
             get, set);
+
+    // A background longhand: a comma-separated list, one value per layer.
+    private static Property<IReadOnlyList<TComputed>> Layers<TSpecified, TComputed>(PropertyId id, string name, string initial,
+        Func<ValueReader, TSpecified?> item, Func<TSpecified, ComputeContext, TComputed> compute,
+        Func<ComputedStyle, IReadOnlyList<TComputed>> get, Action<StyleBuilder, IReadOnlyList<TComputed>> set) where TSpecified : struct =>
+        new(id, name, false, initial,
+            r => BackgroundParsing.List(r, item),
+            (v, ctx) => ((LayerListValue<TSpecified>)v).Items.Select(x => compute(x, ctx)).ToList(),
+            get, set);
+
+    // An offset from the right or bottom edge is 100% minus the offset.
+    private static LengthPercentage FromEdge(LengthPercentage value, bool fromEnd) =>
+        !fromEnd ? value
+        : value.Calc is null ? new LengthPercentage(-value.Px, 100 - value.Percent)
+        : new LengthPercentage(0, 0, new CalcSum(new CalcPercent(100), new CalcProduct(new CalcNumber(-1), value.Calc)));
+
+    // https://www.w3.org/TR/css-fonts-4/#font-stretch-prop
+    private static readonly Dictionary<string, float> FontStretchKeywords = new()
+    {
+        ["ultra-condensed"] = 50, ["extra-condensed"] = 62.5f, ["condensed"] = 75, ["semi-condensed"] = 87.5f, ["normal"] = 100,
+        ["semi-expanded"] = 112.5f, ["expanded"] = 125, ["extra-expanded"] = 150, ["ultra-expanded"] = 200,
+    };
 
     private static Property<IReadOnlyList<CounterChange>> Counters(PropertyId id, string name, int defaultValue, bool allowReversed,
         Func<ComputedStyle, IReadOnlyList<CounterChange>> get, Action<StyleBuilder, IReadOnlyList<CounterChange>> set) =>
@@ -519,6 +589,11 @@ internal static class Properties
                 (PropertyId.ListStylePosition, position ?? Get(PropertyId.ListStylePosition).Initial),
             ];
         }),
+        ["background"] = new([PropertyId.BackgroundColor, PropertyId.BackgroundImage, PropertyId.BackgroundPosition, PropertyId.BackgroundSize,
+            PropertyId.BackgroundRepeat, PropertyId.BackgroundAttachment, PropertyId.BackgroundOrigin, PropertyId.BackgroundClip],
+            BackgroundParsing.Shorthand),
+        ["font"] = new([PropertyId.FontStyle, PropertyId.FontVariantCaps, PropertyId.FontWeight, PropertyId.FontStretch,
+            PropertyId.FontSize, PropertyId.LineHeight, PropertyId.FontFamily], FontShorthand),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {
             var x = Get(PropertyId.OverflowX).Parse(r.OneValue());
@@ -585,10 +660,87 @@ internal static class Properties
         });
     }
 
+    // https://www.w3.org/TR/css-fonts-4/#font-prop: [ style || variant || weight || stretch ]? size [ / line-height ]? family,
+    // or a system font keyword. Longhands not given are reset to their initial values.
+    private static List<(PropertyId, CssValue)>? FontShorthand(ValueReader r)
+    {
+        CssValue Initial(PropertyId id) => Get(id).Initial;
+
+        // ponytail: system font keywords map to system-ui at 13px until the host reports its system fonts.
+        if (r.Keyword("caption", "icon", "menu", "message-box", "small-caption", "status-bar") is not null)
+        {
+            return r.AtEnd
+                ?
+                [
+                    (PropertyId.FontStyle, Initial(PropertyId.FontStyle)), (PropertyId.FontVariantCaps, Initial(PropertyId.FontVariantCaps)),
+                    (PropertyId.FontWeight, Initial(PropertyId.FontWeight)), (PropertyId.FontStretch, Initial(PropertyId.FontStretch)),
+                    (PropertyId.FontSize, new LengthValue(new Length(13, LengthUnit.Px))), (PropertyId.LineHeight, Initial(PropertyId.LineHeight)),
+                    (PropertyId.FontFamily, new FontFamilyValue(["system-ui"])),
+                ]
+                : null;
+        }
+
+        CssValue? style = null, variant = null, weight = null, stretch = null;
+        for (var i = 0; i < 4; i++)
+        {
+            var mark = r.Mark;
+            if (r.Keyword("normal") is not null)
+                continue;
+            if (style is null && Get(PropertyId.FontStyle).Parse(r.OneValue()) is { } s)
+            {
+                style = s;
+                continue;
+            }
+            r.Reset(mark);
+            if (variant is null && r.Keyword("small-caps") is not null)
+            {
+                variant = new KeywordValue("small-caps");
+                continue;
+            }
+            if (weight is null && (r.Keyword("bold", "bolder", "lighter") is { } wk ? new KeywordValue(wk) : r.Number() is { } n && n is >= 1 and <= 1000 ? (CssValue)new NumberValue(n) : null) is { } w)
+            {
+                weight = w;
+                continue;
+            }
+            r.Reset(mark);
+            if (stretch is null && r.Keyword(FontStretchKeywords.Keys.ToArray()) is { } sk)
+            {
+                stretch = new PercentageValue(FontStretchKeywords[sk]);
+                continue;
+            }
+            r.Reset(mark);
+            break;
+        }
+
+        var size = Get(PropertyId.FontSize).Parse(r.OneValue());
+        if (size is null)
+            return null;
+        CssValue? lineHeight = null;
+        if (r.Delim('/'))
+        {
+            lineHeight = Get(PropertyId.LineHeight).Parse(r.OneValue());
+            if (lineHeight is null)
+                return null;
+        }
+        if (r.FontFamily() is not { } family)
+            return null;
+
+        return
+        [
+            (PropertyId.FontStyle, style ?? Initial(PropertyId.FontStyle)),
+            (PropertyId.FontVariantCaps, variant ?? Initial(PropertyId.FontVariantCaps)),
+            (PropertyId.FontWeight, weight ?? Initial(PropertyId.FontWeight)),
+            (PropertyId.FontStretch, stretch ?? Initial(PropertyId.FontStretch)),
+            (PropertyId.FontSize, size),
+            (PropertyId.LineHeight, lineHeight ?? Initial(PropertyId.LineHeight)),
+            (PropertyId.FontFamily, family),
+        ];
+    }
+
     /// <summary>The style every property's initial value computes to (the root's parent).</summary>
     public static ComputedStyle InitialStyle() => new()
     {
-        Font = new FontGroup(["serif"], 16, 400, Style.FontStyle.Normal, LineHeight.Normal),
+        Font = new FontGroup(["serif"], 16, 400, Style.FontStyle.Normal, LineHeight.Normal, 100, "normal"),
         Inherited = new InheritedGroup(CssColor.Black, Visibility.Visible, ColorSchemeValue.Normal),
         Box = new BoxGroup(Display.Inline, Position.Static, FloatSide.None, Clear.None, BoxSizing.ContentBox, Overflow.Visible, Overflow.Visible, null, 1),
         Size = new SizeGroup(SizeValue.Auto, SizeValue.Auto, SizeValue.Auto, SizeValue.Auto, SizeValue.None, SizeValue.None),
@@ -598,7 +750,11 @@ internal static class Properties
             SizeValue.Auto, SizeValue.Auto, SizeValue.Auto, SizeValue.Auto),
         Border = new BorderGroup(3, 3, 3, 3, BorderStyle.None, BorderStyle.None, BorderStyle.None, BorderStyle.None,
             CssColor.CurrentColor, CssColor.CurrentColor, CssColor.CurrentColor, CssColor.CurrentColor),
-        Background = new BackgroundGroup(CssColor.Transparent),
+        Background = new BackgroundGroup(CssColor.Transparent, [NoImage.Instance],
+            [new Style.BackgroundPosition(new LengthPercentage(0, 0), new LengthPercentage(0, 0))],
+            [new BackgroundSize(BackgroundSizeKind.Explicit, SizeValue.Auto, SizeValue.Auto)],
+            [new RepeatStyle(Css.BackgroundRepeat.Repeat, Css.BackgroundRepeat.Repeat)],
+            [Css.BackgroundAttachment.Scroll], [BackgroundBox.PaddingBox], [BackgroundBox.BorderBox]),
         Text = new TextGroup(Style.WhiteSpaceCollapse.Collapse, Style.TextWrapMode.Wrap, new ListStyleType("disc", null), Style.ListStylePosition.Outside),
         Generated = new GeneratedGroup(ContentValue.Normal, [], [], []),
     };
