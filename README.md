@@ -37,7 +37,11 @@ dotnet build Folio.slnx
 dotnet test --solution Folio.slnx
 ```
 
-Failing image tests write their expected, actual and diff images to `render-output/` next to the test assembly.
+Image tests that fail or change write their actual, expected and diff images to `tests/render-output/`. Golden images change only through the approve command, after reviewing those images:
+
+```
+dotnet run --project tests/Folio.RenderTests -- approve <area|area/name>
+```
 
 ## Licence
 Apache-2.0, same as Mana.

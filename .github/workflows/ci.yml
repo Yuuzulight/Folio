@@ -26,10 +26,11 @@ jobs:
 
       - run: dotnet test --solution Folio.slnx -c Release --no-build
 
-      - name: Upload failing test images
-        if: failure()
+      # Actual, expected and diff images of every failing or changed image test.
+      - name: Upload image test output
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: render-output-${{ matrix.os }}
-          path: tests/*/bin/Release/*/render-output/
+          path: tests/render-output/
           if-no-files-found: ignore

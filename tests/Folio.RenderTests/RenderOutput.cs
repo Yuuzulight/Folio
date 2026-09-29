@@ -1,17 +1,29 @@
 namespace Folio.RenderTests;
 
-/// <summary>Where failing image tests leave their images; CI uploads this folder when a job fails.</summary>
+/// <summary>
+/// Where image tests leave <c>.actual.png</c>, <c>.expected.png</c> and <c>.diff.png</c> for anything that
+/// failed or changed. Gitignored; CI uploads it.
+/// </summary>
 public static class RenderOutput
 {
-    public static string Root { get; } = Path.Combine(AppContext.BaseDirectory, "render-output");
+    public static string Root { get; } = Path.Combine(RepoPaths.Tests, "render-output");
 
-    /// <summary>Writes <c>name.expected.png</c>, <c>name.actual.png</c> and <c>name.diff.png</c>.</summary>
-    public static void WriteFailure(string name, PixelBuffer expected, PixelBuffer actual, ComparisonResult result)
+    private static readonly string[] Suffixes = [".actual.png", ".expected.png", ".diff.png"];
+
+    /// <param name="basePath">Output path without suffix, e.g. <c>render-output/goldens/area/name</c>.</param>
+    public static void Write(string basePath, PixelBuffer actual, PixelBuffer? expected = null, PixelBuffer? diff = null)
     {
-        var basePath = Path.Combine(Root, name);
         Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
-        expected.SavePng(basePath + ".expected.png");
         actual.SavePng(basePath + ".actual.png");
-        result.Diff.SavePng(basePath + ".diff.png");
+        expected?.SavePng(basePath + ".expected.png");
+        diff?.SavePng(basePath + ".diff.png");
+    }
+
+    public static void Clear(string basePath)
+    {
+        if (!Directory.Exists(Path.GetDirectoryName(basePath)))
+            return;
+        foreach (var suffix in Suffixes)
+            File.Delete(basePath + suffix);
     }
 }
