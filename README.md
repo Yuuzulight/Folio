@@ -49,5 +49,11 @@ The fuzzer mutates the parser and decoder test inputs for the given number of se
 dotnet run --project tests/Folio.Fuzz -c Release -- fuzz <seconds> [html|css|png|jpeg]...
 ```
 
+The benchmark harness times each pipeline stage and measures memory for generated documents and the conformance corpus (plus the private corpus when present), against the targets in `docs/study/18-memory-and-performance.md`:
+
+```
+dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations]
+```
+
 ## Licence
 Apache-2.0, same as Mana.
