@@ -1,0 +1,62 @@
+=== min-width and max-width
+%viewport 500 400
+<!DOCTYPE html><style>@media (min-width: 600px) { #a { color: red } } @media (max-width: 600px) { #b { color: blue } }</style><p id=a>x<p id=b>y
+---
+#a color: rgb(0, 0, 0)
+#b color: rgb(0, 0, 255)
+
+=== range syntax
+%viewport 500 400
+<!DOCTYPE html><style>@media (400px < width <= 500px) { #a { color: red } } @media (width > 500px) { #b { color: red } }</style><p id=a>x<p id=b>y
+---
+#a color: rgb(255, 0, 0)
+#b color: rgb(0, 0, 0)
+
+=== media types, not and only
+<!DOCTYPE html><style>@media print { #a { color: red } } @media only screen { #b { color: red } } @media not print { #c { color: red } }</style><p id=a>x<p id=b>y<p id=c>z
+---
+#a color: rgb(0, 0, 0)
+#b color: rgb(255, 0, 0)
+#c color: rgb(255, 0, 0)
+
+=== query lists, and, or and orientation
+%viewport 500 800
+<!DOCTYPE html><style>@media print, (orientation: portrait) { #a { color: red } } @media screen and (min-width: 1000px) { #b { color: red } } @media (min-width: 1000px) or (min-height: 700px) { #c { color: red } }</style><p id=a>x<p id=b>y<p id=c>z
+---
+#a color: rgb(255, 0, 0)
+#b color: rgb(0, 0, 0)
+#c color: rgb(255, 0, 0)
+
+=== em in media queries is 16px
+%viewport 500 400
+<!DOCTYPE html><style>@media (min-width: 30em) { #a { color: red } }</style><p id=a>x
+---
+#a color: rgb(255, 0, 0)
+
+=== color scheme and reduced motion
+%dark
+<!DOCTYPE html><style>@media (prefers-color-scheme: dark) { #a { color: red } } @media (prefers-reduced-motion: reduce) { #b { color: red } }</style><p id=a>x<p id=b>y
+---
+#a color: rgb(255, 0, 0)
+#b color: rgb(255, 0, 0)
+
+=== unknown media features match nothing
+<!DOCTYPE html><style>@media (bogus-feature) { #a { color: red } } @media not (bogus-feature) { #b { color: red } }</style><p id=a>x<p id=b>y
+---
+#a color: rgb(0, 0, 0)
+#b color: rgb(0, 0, 0)
+
+=== media inside a style rule
+%viewport 500 400
+<!DOCTYPE html><style>p { color: blue; @media (max-width: 600px) { color: red } }</style><p id=a>x
+---
+#a color: rgb(255, 0, 0)
+
+=== supports
+<!DOCTYPE html><style>@supports (display: flex) { #a { color: red } } @supports (display: bogus) { #b { color: red } } @supports not (display: bogus) { #c { color: red } } @supports (display: grid) and (color: red) { #d { color: red } } @supports selector(:has(a)) { #e { color: red } }</style><p id=a>1<p id=b>2<p id=c>3<p id=d>4<p id=e>5
+---
+#a color: rgb(255, 0, 0)
+#b color: rgb(0, 0, 0)
+#c color: rgb(255, 0, 0)
+#d color: rgb(255, 0, 0)
+#e color: rgb(0, 0, 0)

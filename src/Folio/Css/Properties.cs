@@ -159,12 +159,30 @@ internal static class Properties
             return longhand is not null ? [(longhand.Id, keyword)] : shorthand!.Longhands.Select(id => (id, (CssValue)keyword)).ToList();
         }
 
+        if (ContainsVar(declaration.Value))
+        {
+            var text = declaration.Value.Count == 0 ? "" : source[declaration.Value[0].Start..declaration.Value[^1].End];
+            return longhand is not null
+                ? [(longhand.Id, new UnparsedValue(text, null))]
+                : shorthand!.Longhands.Select(id => (id, (CssValue)new UnparsedValue(text, declaration.Name))).ToList();
+        }
+
         reader = new ValueReader(source, declaration.Value);
         if (longhand is not null)
             return longhand.Parse(reader) is { } value ? [(longhand.Id, value)] : null;
         var expanded = shorthand!.Expand(reader);
         return expanded is not null && reader.AtEnd ? expanded : null;
     }
+
+    /// <summary>Longhands a shorthand sets, or null for a name that is not a shorthand.</summary>
+    public static IReadOnlyList<PropertyId>? LonghandsOf(string shorthand) => Shorthands.GetValueOrDefault(shorthand)?.Longhands;
+
+    public static bool ContainsVar(List<ComponentValue> values) => values.Any(v => v switch
+    {
+        CssFunction f => f.Name.Equals("var", StringComparison.OrdinalIgnoreCase) || ContainsVar(f.Arguments),
+        SimpleBlock b => ContainsVar(b.Contents),
+        _ => false,
+    });
 
     // ---------------------------------------------------------------- table
 

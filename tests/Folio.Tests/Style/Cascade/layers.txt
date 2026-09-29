@@ -1,0 +1,35 @@
+=== unlayered styles beat layered ones
+<!DOCTYPE html><style>p { color: blue } @layer base { #a { color: red } }</style><p id=a>x</p>
+---
+#a color: rgb(0, 0, 255)
+
+=== later layers beat earlier ones
+<!DOCTYPE html><style>@layer a { #a { color: red } } @layer b { p { color: blue } }</style><p id=a>x</p>
+---
+#a color: rgb(0, 0, 255)
+
+=== a layer statement fixes the order
+<!DOCTYPE html><style>@layer b, a; @layer a { p { color: red } } @layer b { p { color: blue } }</style><p id=a>x</p>
+---
+#a color: rgb(255, 0, 0)
+
+=== important declarations reverse layer order
+<!DOCTYPE html><style>@layer a { p { color: red !important } } @layer b { p { color: blue !important } } p { color: green !important }</style><p id=a>x</p>
+---
+#a color: rgb(255, 0, 0)
+
+=== a layer's own rules beat its sub-layers
+<!DOCTYPE html><style>@layer a { p { color: red } @layer b { p { color: blue } } }</style><p id=a>x</p>
+---
+#a color: rgb(255, 0, 0)
+
+=== dotted names reopen nested layers
+<!DOCTYPE html><style>@layer a.b { p { color: red } } @layer a.c { p { color: blue } } @layer a.b { p { margin-top: 1px } }</style><p id=a>x</p>
+---
+#a color: rgb(0, 0, 255)
+#a margin-top: 1px
+
+=== revert-layer rolls back to the previous layer
+<!DOCTYPE html><style>@layer a { p { color: red } } @layer b { p { color: revert-layer } }</style><p id=a>x</p>
+---
+#a color: rgb(255, 0, 0)

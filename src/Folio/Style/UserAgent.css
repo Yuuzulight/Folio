@@ -1,0 +1,109 @@
+/*
+ * Folio's user-agent stylesheet, written from the HTML standard's Rendering section
+ * (https://html.spec.whatwg.org/multipage/rendering.html). Declarations for properties Folio does not support
+ * yet are dropped by the parser like any unknown property and start applying when the property is added.
+ */
+
+/* 15.3.1 Hidden elements */
+area, base, basefont, datalist, head, link, meta, noembed, noframes, param, rp, script, style, template, title {
+  display: none;
+}
+[hidden]:not([hidden=until-found i]):not(embed) { display: none; }
+embed[hidden] { display: inline; height: 0; width: 0; }
+input[type=hidden i] { display: none !important; }
+
+/* 15.3.2 The page */
+html, body { display: block; }
+body { margin: 8px; }
+
+/* 15.3.3 Flow content */
+address, blockquote, center, dialog, div, figure, figcaption, footer, form, header, hr, legend, listing, main, p,
+plaintext, pre, search, xmp {
+  display: block;
+}
+blockquote, figure, listing, p, plaintext, pre, xmp { margin-top: 1em; margin-bottom: 1em; }
+blockquote, figure { margin-left: 40px; margin-right: 40px; }
+address { font-style: italic; }
+listing, plaintext, pre, xmp { font-family: monospace; white-space: pre; }
+dialog:not([open]) { display: none; }
+dialog {
+  position: absolute; left: 0; right: 0; width: fit-content; height: fit-content; margin: auto;
+  border: solid; padding: 1em; background-color: Canvas; color: CanvasText;
+}
+
+/* 15.3.4 Phrasing content */
+cite, dfn, em, i, var { font-style: italic; }
+b, strong { font-weight: bolder; }
+code, kbd, samp, tt { font-family: monospace; }
+big { font-size: larger; }
+small { font-size: smaller; }
+sub { vertical-align: sub; font-size: smaller; }
+sup { vertical-align: super; font-size: smaller; }
+sub, sup { line-height: normal; }
+ruby { display: ruby; }
+rt { display: ruby-text; }
+:link { color: #0000EE; }
+:visited { color: #551A8B; }
+:link, :visited { text-decoration: underline; cursor: pointer; }
+mark { background-color: yellow; color: black; }
+abbr[title], acronym[title] { text-decoration: dotted underline; }
+ins, u { text-decoration: underline; }
+del, s, strike { text-decoration: line-through; }
+q::before { content: open-quote; }
+q::after { content: close-quote; }
+br { display-outside: newline; }
+nobr { white-space: nowrap; }
+wbr { display-outside: break-opportunity; }
+
+/* 15.3.6 Sections and headings */
+article, aside, h1, h2, h3, h4, h5, h6, hgroup, nav, section { display: block; }
+h1 { margin-top: 0.67em; margin-bottom: 0.67em; font-size: 2.00em; font-weight: bold; }
+h2 { margin-top: 0.83em; margin-bottom: 0.83em; font-size: 1.50em; font-weight: bold; }
+h3 { margin-top: 1.00em; margin-bottom: 1.00em; font-size: 1.17em; font-weight: bold; }
+h4 { margin-top: 1.33em; margin-bottom: 1.33em; font-size: 1.00em; font-weight: bold; }
+h5 { margin-top: 1.67em; margin-bottom: 1.67em; font-size: 0.83em; font-weight: bold; }
+h6 { margin-top: 2.33em; margin-bottom: 2.33em; font-size: 0.67em; font-weight: bold; }
+
+/* 15.3.7 Lists */
+dir, dd, dl, dt, menu, ol, ul { display: block; }
+li { display: list-item; text-align: match-parent; }
+dir, dl, menu, ol, ul { margin-top: 1em; margin-bottom: 1em; }
+:is(dir, dl, menu, ol, ul) :is(dir, dl, menu, ol, ul) { margin-top: 0; margin-bottom: 0; }
+dd { margin-left: 40px; }
+dir, menu, ol, ul { padding-left: 40px; }
+ol, ul, menu { counter-reset: list-item; }
+ol { list-style-type: decimal; }
+dir, menu, ul { list-style-type: disc; }
+:is(dir, menu, ol, ul) :is(dir, menu, ul) { list-style-type: circle; }
+:is(dir, menu, ol, ul) :is(dir, menu, ol, ul) :is(dir, menu, ul) { list-style-type: square; }
+
+/* 15.3.8 Tables */
+table { display: table; box-sizing: border-box; border-spacing: 2px; border-collapse: separate; text-indent: initial; }
+caption { display: table-caption; text-align: center; }
+colgroup, colgroup[hidden] { display: table-column-group; }
+col, col[hidden] { display: table-column; }
+thead, thead[hidden] { display: table-header-group; }
+tbody, tbody[hidden] { display: table-row-group; }
+tfoot, tfoot[hidden] { display: table-footer-group; }
+tr, tr[hidden] { display: table-row; }
+td, th { display: table-cell; padding: 1px; }
+th { font-weight: bold; text-align: -internal-center; }
+thead, tbody, tfoot, table > tr { vertical-align: middle; }
+tr, td, th { vertical-align: inherit; }
+
+/* 15.3.11 The hr element */
+hr {
+  color: gray; border-style: inset; border-width: 1px; margin-top: 0.5em; margin-bottom: 0.5em;
+  margin-left: auto; margin-right: auto; overflow: hidden;
+}
+
+/* 15.3.12 The fieldset and legend elements */
+fieldset {
+  display: block; margin-left: 2px; margin-right: 2px; border: groove 2px; border-color: ThreeDFace;
+  padding-top: 0.35em; padding-right: 0.75em; padding-bottom: 0.625em; padding-left: 0.75em; min-width: min-content;
+}
+legend { padding-left: 2px; padding-right: 2px; }
+
+/* 15.4 Replaced elements and 15.5 widgets appear with their layout and paint stages. */
+details, summary { display: block; }
+details > summary:first-of-type { display: list-item; }
