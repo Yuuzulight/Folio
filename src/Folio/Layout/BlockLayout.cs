@@ -10,8 +10,8 @@ namespace Folio.Layout;
 /// </summary>
 internal static class BlockLayout
 {
-    // ponytail: until their own layout lands, flex, grid, table and replaced boxes are sized from their width and
-    // height properties only.
+    // ponytail: until their own layout lands, grid, table and replaced boxes are sized from their width and height
+    // properties only.
     public static Fragment Layout(Box box, ConstraintSpace space, LayoutContext context)
     {
         var style = box.Style;
@@ -84,6 +84,17 @@ internal static class BlockLayout
             var (fx, fy) = exclusions.PlaceFloat(side, outerWidth, outerHeight, minTop, contentX, contentX + width);
             exclusions = exclusions.Add(new FloatArea(side, fx, fy, fx + outerWidth, fy + outerHeight));
             Place(child, fragment, fx + ml - boxX, fy + mt - boxY);
+        }
+
+        if (box is FlexContainerBox flexBox)
+        {
+            var (items, flexHeight, flexOutOfFlow) = FlexLayout.Layout(flexBox, width, definiteHeight, minHeight, maxHeight, context);
+            foreach (var item in items)
+                Place(item.Fragment.Box!, item.Fragment, border.LeftWidth + padding.Left + item.X, border.TopWidth + padding.Top + item.Y);
+            foreach (var child in flexOutOfFlow)
+                outOfFlow.Add(new(child, border.LeftWidth + padding.Left, border.TopWidth + padding.Top));
+            cursor = flexHeight;
+            hasContent = items.Count > 0;
         }
 
         foreach (var child in box is BlockContainerBox { Inline: null } ? box.Children : [])

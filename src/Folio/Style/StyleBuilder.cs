@@ -25,6 +25,7 @@ internal sealed class StyleBuilder
         Background = initial.Background;
         Text = parent.Text;
         Generated = initial.Generated;
+        Flex = initial.Flex;
     }
 
     public FontGroup Font { get; set; }
@@ -36,6 +37,7 @@ internal sealed class StyleBuilder
     public BackgroundGroup Background { get; set; }
     public TextGroup Text { get; set; }
     public GeneratedGroup Generated { get; set; }
+    public FlexGroup Flex { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -96,6 +98,7 @@ internal sealed class StyleBuilder
             Background = Share(Background, initial.Background, groups),
             Text = Share(Text, _parent.Text, groups),
             Generated = Share(Generated, initial.Generated, groups),
+            Flex = Share(Flex, initial.Flex, groups),
             Custom = _custom,
         };
     }

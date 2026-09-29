@@ -1,0 +1,104 @@
+=== items sit side by side and the line is as tall as the tallest
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex"><div style="width: 100px; height: 20px"></div><div style="width: 50px; height: 40px"></div></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div 0,0 800x40
+      div 0,0 100x20
+      div 100,0 50x40
+
+=== flex-grow shares the free space and stretch fills the line
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; height: 50px"><div style="flex: 1"></div><div style="flex: 2"></div><div style="width: 200px"></div></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div 0,0 800x50
+      div 0,0 200x50
+      div 200,0 400x50
+      div 600,0 200x50
+
+=== flex-shrink is weighted by the base size
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; width: 300px"><div style="width: 200px; height: 10px"></div><div style="width: 200px; height: 10px; flex-shrink: 3"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 300x10
+      div 0,0 175x10
+      div 175,0 125x10
+
+=== items do not shrink below their min-content width
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; width: 100px"><div>aaa bbb</div><div>cc</div></div>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    div 0,0 100x32
+      div 0,0 68x32
+        line 0,0 68x16
+          text "aaa " 0,0 64x16
+        line 0,16 68x16
+          text "bbb" 0,16 48x16
+      div 68,0 32x32
+        line 68,0 32x16
+          text "cc" 68,0 32x16
+
+=== justify-content space-between and align-items center
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; justify-content: space-between; align-items: center; height: 40px"><div style="width: 100px; height: 10px"></div><div style="width: 100px; height: 20px"></div><div style="width: 100px; height: 30px"></div></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div 0,0 800x40
+      div 0,15 100x10
+      div 350,10 100x20
+      div 700,5 100x30
+
+=== wrapping lines with row and column gaps
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; flex-wrap: wrap; width: 250px; gap: 10px 20px"><div style="width: 100px; height: 10px"></div><div style="width: 100px; height: 20px"></div><div style="width: 100px; height: 10px"></div></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div 0,0 250x40
+      div 0,0 100x10
+      div 120,0 100x20
+      div 0,30 100x10
+
+=== a column stacks items and sizes them to fit when not stretched
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; flex-direction: column; align-items: flex-start"><div style="width: 50px; height: 10px"></div><div>ab</div></div>
+---
+html 0,0 800x26
+  body 0,0 800x26
+    div 0,0 800x26
+      div 0,0 50x10
+      div 0,10 32x16
+        line 0,10 32x16
+          text "ab" 0,10 32x16
+
+=== row-reverse starts at the right and order sorts the items
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; flex-direction: row-reverse"><div id=a style="width: 100px; height: 10px; order: 2"></div><div id=b style="width: 100px; height: 10px"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 800x10
+      div#b 700,0 100x10
+      div#a 600,0 100x10
+
+=== an auto margin takes the free space
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex"><div style="width: 100px; height: 10px"></div><div style="width: 100px; height: 10px; margin-left: auto"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 800x10
+      div 0,0 100x10
+      div 700,0 100x10
+
+=== baseline alignment lines up first baselines
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex; align-items: baseline"><div style="font-size: 32px">a</div><div>b</div></div>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    div 0,0 800x32
+      div 0,0 32x32
+        line 0,0 32x32
+          text "a" 0,0 32x32
+      div 32,12.8 16x16
+        line 32,12.8 16x16
+          text "b" 32,12.8 16x16
