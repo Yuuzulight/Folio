@@ -177,7 +177,7 @@ internal sealed class NthSelector(bool ofType, bool fromEnd, int a, int b) : Sim
     public int B { get; } = b;
     public override Specificity Specificity => new(0, 1, 0);
 
-    /// <summary>Whether a 1-based index is An+B for some n \u2265 0.</summary>
+    /// <summary>Whether a 1-based index is An+B for some n >= 0.</summary>
     public bool Matches(int index)
     {
         if (A == 0)
