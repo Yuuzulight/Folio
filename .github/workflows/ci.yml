@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - run: dotnet build Folio.slnx -c Release
+
+      - run: dotnet test --solution Folio.slnx -c Release --no-build
+
+      - name: Upload failing test images
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-output-${{ matrix.os }}
+          path: tests/*/bin/Release/*/render-output/
+          if-no-files-found: ignore
