@@ -43,5 +43,11 @@ Image tests that fail or change write their actual, expected and diff images to 
 dotnet run --project tests/Folio.RenderTests -- approve <area|area/name>
 ```
 
+The benchmark harness times each pipeline stage and measures memory for generated documents and the conformance corpus (plus the private corpus when present), against the targets in `docs/study/18-memory-and-performance.md`:
+
+```
+dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations]
+```
+
 ## Licence
 Apache-2.0, same as Mana.

@@ -26,6 +26,11 @@ jobs:
 
       - run: dotnet test --solution Folio.slnx -c Release --no-build
 
+      # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
+      - name: Benchmarks
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll bench
+
       # Actual, expected and diff images of every failing or changed image test.
       - name: Upload image test output
         if: always()
