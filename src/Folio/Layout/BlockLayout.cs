@@ -10,8 +10,7 @@ namespace Folio.Layout;
 /// </summary>
 internal static class BlockLayout
 {
-    // ponytail: until their own layout lands, table and replaced boxes are sized from their width and height
-    // properties only.
+    // ponytail: until their own layout lands, replaced boxes are sized from their width and height properties only.
     public static Fragment Layout(Box box, ConstraintSpace space, LayoutContext context)
     {
         var style = box.Style;
@@ -22,8 +21,10 @@ internal static class BlockLayout
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
             return new Fragment(box, 0, 0, []) { Exclusions = space.Exclusions };
 
-        var border = style.Border;
-        var padding = (
+        // A table wrapper has the table's style, but its border and padding belong to the table grid box inside it.
+        var wrapper = box is TableWrapperBox;
+        var border = wrapper ? ComputedStyle.Initial.Border : style.Border;
+        var padding = wrapper ? (Top: 0f, Right: 0f, Bottom: 0f, Left: 0f) : (
             Top: Resolve(style.Spacing.PaddingTop, cbWidth), Right: Resolve(style.Spacing.PaddingRight, cbWidth),
             Bottom: Resolve(style.Spacing.PaddingBottom, cbWidth), Left: Resolve(style.Spacing.PaddingLeft, cbWidth));
         var frameX = border.LeftWidth + padding.Left + padding.Right + border.RightWidth;
@@ -117,6 +118,18 @@ internal static class BlockLayout
             }
             cursor = gridHeight;
             hasContent = items.Count > 0;
+        }
+        else if (box is TableWrapperBox tableWrapper)
+        {
+            var (parts, tableHeight) = TableLayout.LayoutWrapper(tableWrapper, width, context);
+            foreach (var part in parts)
+            {
+                children.Add(part);
+                foreach (var o in part.Fragment.OutOfFlow)
+                    outOfFlow.Add(o with { StaticX = o.StaticX + part.X, StaticY = o.StaticY + part.Y });
+            }
+            cursor = tableHeight;
+            hasContent = parts.Count > 0;
         }
 
         foreach (var child in box is BlockContainerBox { Inline: null } ? box.Children : [])
@@ -371,7 +384,7 @@ internal static class BlockLayout
         float? Size(SizeValue value) =>
             ContentSize(value, cbWidth, frameX, borderBox) ?? IntrinsicSizes.Keyword(value, box, available, context);
         var width = Size(style.Size.Width)
-            ?? (context is not null && (box.IsFloat || box is BlockContainerBox { IsAtomicInline: true })
+            ?? (context is not null && (box.IsFloat || box is BlockContainerBox { IsAtomicInline: true } || box is TableWrapperBox)
                 ? IntrinsicSizes.FitContent(box, available, context)
                 : null);
         var result = Solve(width);

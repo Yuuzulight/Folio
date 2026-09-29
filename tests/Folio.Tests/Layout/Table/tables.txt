@@ -1,0 +1,105 @@
+=== a table shrinks to its columns, with border spacing and cell padding
+<!DOCTYPE html><style>body { margin: 0 }</style><table><tr><td>a</td><td>bb</td></tr><tr><td>ccc</td><td>d</td></tr></table>
+---
+html 0,0 800x42
+  body 0,0 800x42
+    table 0,0 90x42
+      table 0,0 90x42
+        tbody 2,2 86x38
+          tr 2,2 86x18
+            td 2,2 50x18
+              line 3,3 48x16
+                text "a" 3,3 16x16
+            td 54,2 34x18
+              line 55,3 32x16
+                text "bb" 55,3 32x16
+          tr 2,22 86x18
+            td 2,22 50x18
+              line 3,23 48x16
+                text "ccc" 3,23 48x16
+            td 54,22 34x18
+              line 55,23 32x16
+                text "d" 55,23 16x16
+
+=== colspan, and a wider table sharing its width by the columns' max-content widths
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 200px"><tr><td colspan=2>x</td></tr><tr><td style="width: 50px">a</td><td>b</td></tr></table>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    table 0,0 200x32
+      table 0,0 200x32
+        tbody 0,0 200x32
+          tr 0,0 200x16
+            td 0,0 200x16
+              line 0,0 200x16
+                text "x" 0,0 16x16
+          tr 0,16 200x16
+            td 0,16 151.52x16
+              line 0,16 151.52x16
+                text "a" 0,16 16x16
+            td 151.52,16 48.48x16
+              line 151.52,16 48.48x16
+                text "b" 151.52,16 16x16
+
+=== a taller row-spanning cell stretches the last row it spans; cells are centred by default
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0"><tr><td rowspan=2 style="height: 50px">a</td><td>b</td></tr><tr><td>c</td></tr></table>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    table 0,0 32x50
+      table 0,0 32x50
+        tbody 0,0 32x50
+          tr 0,0 32x16
+            td 0,0 16x50
+              line 0,0 16x16
+                text "a" 0,0 16x16
+            td 16,0 16x16
+              line 16,0 16x16
+                text "b" 16,0 16x16
+          tr 0,16 32x34
+            td 16,16 16x34
+              line 16,25 16x16
+                text "c" 16,25 16x16
+
+=== the header group comes first, the footer last, and a bottom caption follows the table
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0"><caption style="caption-side: bottom">cap</caption><tfoot><tr><td>f</td></tr></tfoot><thead><tr><td style="height: 30px">h</td><td style="vertical-align: middle">m</td></tr></thead></table>
+---
+html 0,0 800x62
+  body 0,0 800x62
+    table 0,0 48x62
+      table 0,0 48x46
+        thead 0,0 48x30
+          tr 0,0 48x30
+            td 0,0 24x30
+              line 0,0 24x16
+                text "h" 0,0 16x16
+            td 24,0 24x30
+              line 24,7 24x16
+                text "m" 24,7 16x16
+        tfoot 0,30 48x16
+          tr 0,30 48x16
+            td 0,30 24x16
+              line 0,30 24x16
+                text "f" 0,30 16x16
+      caption 0,46 48x16
+        line 0,46 48x16
+          text "cap" 0,46 48x16
+
+=== table-layout fixed takes widths from the first row and shares out the rest
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="table-layout: fixed; width: 300px; border-spacing: 0"><tr><td style="width: 100px">a</td><td>bbbbbbbbbbbb</td><td>c</td></tr></table>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    table 0,0 300x16
+      table 0,0 300x16
+        tbody 0,0 300x16
+          tr 0,0 300x16
+            td 0,0 100x16
+              line 0,0 100x16
+                text "a" 0,0 16x16
+            td 100,0 100x16
+              line 100,0 100x16
+                text "bbbbbbbbbbbb" 100,0 192x16
+            td 200,0 100x16
+              line 200,0 100x16
+                text "c" 200,0 16x16

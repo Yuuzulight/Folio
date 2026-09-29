@@ -103,6 +103,11 @@ internal enum PropertyId
     JustifyItems,
     JustifySelf,
     GridTemplateAreas,
+    TableLayout,
+    BorderCollapse,
+    BorderSpacing,
+    CaptionSide,
+    EmptyCells,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -480,6 +485,20 @@ internal static class Properties
             // legacy is accepted and acts as normal.
             Aligned(PropertyId.JustifyItems, "justify-items", JustifyKeywords, s => s.Grid.JustifyItems, (b, v) => b.Grid = b.Grid with { JustifyItems = v }),
             Aligned(PropertyId.JustifySelf, "justify-self", JustifyKeywords, s => s.Grid.JustifySelf, (b, v) => b.Grid = b.Grid with { JustifySelf = v }, "auto"),
+            // https://www.w3.org/TR/css-tables-3/
+            Keywords(PropertyId.TableLayout, "table-layout", false, "auto", Enum<TableLayoutMode>("auto", "fixed"),
+                s => s.Box.TableLayout, (b, v) => b.Box = b.Box with { TableLayout = v }),
+            Keywords(PropertyId.BorderCollapse, "border-collapse", true, "separate", Enum<BorderCollapse>("separate", "collapse"),
+                s => s.Text.BorderCollapse, (b, v) => b.Text = b.Text with { BorderCollapse = v }),
+            new Property<(float X, float Y)>(PropertyId.BorderSpacing, "border-spacing", true, "0",
+                r => r.LengthPercentage(allowPercent: false, nonNegative: true) is { } x
+                    ? new RadiusValue(x, r.LengthPercentage(allowPercent: false, nonNegative: true) ?? x) : null,
+                (v, ctx) => (ctx.LengthPercentage(((RadiusValue)v).X).Px, ctx.LengthPercentage(((RadiusValue)v).Y).Px),
+                s => (s.Text.BorderSpacingX, s.Text.BorderSpacingY), (b, v) => b.Text = b.Text with { BorderSpacingX = v.X, BorderSpacingY = v.Y }),
+            Keywords(PropertyId.CaptionSide, "caption-side", true, "top", Enum<CaptionSide>("top", "bottom"),
+                s => s.Text.CaptionSide, (b, v) => b.Text = b.Text with { CaptionSide = v }),
+            Keywords(PropertyId.EmptyCells, "empty-cells", true, "show", Enum<EmptyCells>("show", "hide"),
+                s => s.Text.EmptyCells, (b, v) => b.Text = b.Text with { EmptyCells = v }),
             new Property<GridAreas>(PropertyId.GridTemplateAreas, "grid-template-areas", false, "none", GridParsing.Areas,
                 (v, _) => ((GridAreasValue)v).Areas, s => s.Grid.Areas, (b, v) => b.Grid = b.Grid with { Areas = v }),
         };

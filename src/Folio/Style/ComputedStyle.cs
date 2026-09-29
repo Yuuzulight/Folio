@@ -65,6 +65,14 @@ internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
 
+internal enum TableLayoutMode { Auto, Fixed }
+
+internal enum BorderCollapse { Separate, Collapse }
+
+internal enum CaptionSide { Top, Bottom }
+
+internal enum EmptyCells { Show, Hide }
+
 internal enum UnicodeBidi { Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext }
 
 /// <summary>
@@ -143,7 +151,7 @@ internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, Col
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
-    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal);
+    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto);
 
 /// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
 internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
@@ -201,9 +209,11 @@ internal sealed record BackgroundGroup(
     IReadOnlyList<RepeatStyle> Repeats, IReadOnlyList<BackgroundAttachment> Attachments, IReadOnlyList<BackgroundBox> Origins,
     IReadOnlyList<BackgroundBox> Clips);
 
-/// <summary>Inherited: white space handling, alignment and list markers.</summary>
+/// <summary>Inherited: white space handling, alignment, list markers and the inherited table properties.</summary>
 internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition,
-                                 TextAlign TextAlign = TextAlign.Start, Direction Direction = Direction.Ltr);
+                                 TextAlign TextAlign = TextAlign.Start, Direction Direction = Direction.Ltr,
+                                 BorderCollapse BorderCollapse = BorderCollapse.Separate, float BorderSpacingX = 0, float BorderSpacingY = 0,
+                                 CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
