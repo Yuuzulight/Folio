@@ -29,5 +29,15 @@ Render and run AI-written HTML artifacts as well as a modern browser does: pages
 
 Until a milestone lands, anything Folio can't handle yet opens in the system browser.
 
+## Building
+Needs the .NET 10 SDK. The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.
+
+```
+dotnet build Folio.slnx
+dotnet test --solution Folio.slnx
+```
+
+Failing image tests write their expected, actual and diff images to `render-output/` next to the test assembly.
+
 ## Licence
 Apache-2.0, same as Mana.

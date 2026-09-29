@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
+    <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\reftests\**\*" LinkBase="reftests" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

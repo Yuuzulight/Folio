@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Folio/Folio.csproj" />
+    <Project Path="src/Folio.Skia/Folio.Skia.csproj" />
+    <Project Path="src/Folio.WinForms/Folio.WinForms.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Folio.Tests/Folio.Tests.csproj" />
+    <Project Path="tests/Folio.RenderTests/Folio.RenderTests.csproj" />
+  </Folder>
+</Solution>

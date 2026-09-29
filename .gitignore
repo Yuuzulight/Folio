@@ -1,2 +1,13 @@
+# Build output
+bin/
+obj/
+TestResults/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+
 # Private conformance corpus (local only, never committed)
 tests/conformance-private/
