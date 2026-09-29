@@ -19,6 +19,9 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
                     break;
+                case DisplayItemKind.Glyphs:
+                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color)));
+                    break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();
                     canvas.ClipRoundedRect(item.Shape);

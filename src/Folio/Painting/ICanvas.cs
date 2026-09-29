@@ -1,9 +1,12 @@
+using System.Numerics;
+using Folio.Typography;
+
 namespace Folio.Painting;
 
 /// <summary>The drawing surface the display list replays onto. Coordinates are CSS pixels.</summary>
 /// <remarks>
 /// Swap-out interface, sketched in docs/dependencies.md. Members are added together with the value
-/// types they use when the first implementation needs them: glyphs, images and shadows come later.
+/// types they use when the first implementation needs them: images and shadows come later.
 /// </remarks>
 public interface ICanvas
 {
@@ -23,6 +26,9 @@ public interface ICanvas
     void FillPath(PathData path, FillRule rule, in Paint paint);
 
     void StrokePath(PathData path, in Stroke stroke, in Paint paint);
+
+    /// <summary>Draws glyphs of a font by id at a size in CSS pixels, each at its baseline origin.</summary>
+    void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint);
 
     /// <summary>Starts a layer that is composited with <paramref name="options"/> at the matching <see cref="PopLayer"/>.</summary>
     void PushLayer(in LayerOptions options);

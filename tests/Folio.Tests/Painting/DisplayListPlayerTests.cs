@@ -59,6 +59,8 @@ public class DisplayListPlayerTests
         public void FillPath(PathData path, FillRule rule, in Paint paint) => Calls.Add($"fill-path {rule}");
         public void StrokePath(PathData path, in Stroke stroke, in Paint paint) =>
             Calls.Add($"stroke {stroke.Width} {stroke.Cap} {string.Join(",", stroke.Dashes ?? [])}");
+        public void DrawGlyphs(Folio.Typography.IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<System.Numerics.Vector2> origins, in Paint paint) =>
+            Calls.Add($"glyphs {glyphs.Length}");
         public void PushLayer(in LayerOptions options) => Calls.Add($"layer {options.Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         public void PopLayer() => Calls.Add("pop-layer");
     }
