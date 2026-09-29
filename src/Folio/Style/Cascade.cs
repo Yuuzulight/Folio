@@ -1,5 +1,7 @@
+using System.Text;
 using Folio.Css;
 using Folio.Dom;
+using Folio.Resources;
 
 namespace Folio.Style;
 
@@ -22,7 +24,44 @@ internal sealed record CascadeRule(IReadOnlyList<CascadeDeclaration> Declaration
 /// The compiled style rules of one origin (docs/study/04-cascade-and-computed-values.md): nesting flattened,
 /// <c>@media</c> and <c>@supports</c> evaluated, layers ordered, declarations parsed into longhands.
 /// </summary>
-internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, MediaContext media)
+/// <summary>Where external stylesheets come from, for @import and link elements.</summary>
+/// <param name="RequireCssType">Standards-mode documents only use responses typed text/css (when a type is known).</param>
+/// <param name="Report">Told about every stylesheet that was not loaded, and why.</param>
+internal sealed record StyleSources(ResourceLoader Loader, string? BaseUrl, bool RequireCssType = true, Action<string>? Report = null)
+{
+    /// <summary>@import depth limit (docs/study/16-resources-and-security.md).</summary>
+    public const int MaxImportDepth = 4;
+
+    /// <summary>Loads and decodes a stylesheet; null (reported) when it cannot be used.</summary>
+    public string? LoadStyleSheet(string url)
+    {
+        var response = Loader.Load(new ResourceRequest(url, ResourceKind.Stylesheet));
+        if (!response.Succeeded)
+        {
+            Report?.Invoke($"Stylesheet {Shorten(url)} was not loaded: {response.Error}");
+            return null;
+        }
+        if (RequireCssType && response.ContentType is { } type && !type.Split(';')[0].Trim().Equals("text/css", StringComparison.OrdinalIgnoreCase))
+        {
+            Report?.Invoke($"Stylesheet {Shorten(url)} was ignored: its type is {type}, not text/css.");
+            return null;
+        }
+        return Decode(response.Data!);
+    }
+
+    // https://www.w3.org/TR/css-syntax-3/#input-byte-stream, simplified: a byte order mark, else UTF-8.
+    private static string Decode(byte[] bytes) => bytes switch
+    {
+        [0xEF, 0xBB, 0xBF, ..] => Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3),
+        [0xFE, 0xFF, ..] => Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2),
+        [0xFF, 0xFE, ..] => Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2),
+        _ => Encoding.UTF8.GetString(bytes),
+    };
+
+    private static string Shorten(string url) => url.Length > 80 ? url[..77] + "..." : url;
+}
+
+internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, MediaContext media, StyleSources? sources = null)
 {
     private readonly LayerNode _layers = new();
     private int _order;
@@ -34,7 +73,82 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
     /// <summary>Order-of-appearance counter shared by all origins and the style attribute.</summary>
     public int NextOrder() => _order++;
 
-    public void Add(CssStyleSheet sheet) => AddRules(sheet.Source, sheet.Rules, null, [], _layers);
+    /// <param name="url">The sheet's own URL (for @import resolution); null for inline sheets, which use the base URL.</param>
+    public void Add(CssStyleSheet sheet, string? url = null) =>
+        AddSheet(sheet.Source, sheet.Rules, url ?? sources?.BaseUrl, [], _layers, url is null ? [] : [url], 0);
+
+    // A sheet's top level: @import rules count only before any rule other than @charset and @layer statements.
+    // chain: the URLs of the sheets being imported into (for cycles); depth: how many @imports deep this sheet is.
+    private void AddSheet(string source, List<CssRule> rules, string? baseUrl, int[] layer, LayerNode layerNode, List<string> chain, int depth)
+    {
+        var importsAllowed = true;
+        foreach (var rule in rules)
+        {
+            if (rule is AtRule { Name: "import", HasBlock: false } import)
+            {
+                if (importsAllowed)
+                    Import(source, import, baseUrl, layer, layerNode, chain, depth);
+                continue;
+            }
+            if (rule is not (AtRule { Name: "charset" } or AtRule { Name: "layer", HasBlock: false }))
+                importsAllowed = false;
+            AddRules(source, [rule], null, layer, layerNode);
+        }
+    }
+
+    // https://www.w3.org/TR/css-cascade-5/#at-import: url [ layer | layer(name) ]? [ supports(...) ]? [ media-query-list ]?
+    private void Import(string source, AtRule import, string? baseUrl, int[] layer, LayerNode layerNode, List<string> chain, int depth)
+    {
+        var r = new ValueReader(source, import.Prelude);
+        if ((r.Url() ?? r.String()) is not { } href)
+            return;
+
+        var layered = false;
+        string? layerName = null;
+        if (r.Keyword("layer") is not null)
+        {
+            layered = true;
+        }
+        else if (r.Function("layer") is { } layerArgs)
+        {
+            var names = LayerNames(source, layerArgs.Rest());
+            if (names is not [var name])
+                return;
+            (layered, layerName) = (true, name);
+        }
+
+        if (r.Function("supports") is { } supports)
+        {
+            var condition = supports.Rest();
+            var text = condition.Count == 0 ? "" : source[condition[0].Start..condition[^1].End];
+            var (conditionSource, conditionValues) = CssParser.ParseComponentValues("(" + text + ")");
+            if (!Conditions.Supports(conditionSource, conditionValues))
+                return;
+        }
+        if (!Conditions.MediaMatches(source, r.Rest(), media))
+            return;
+
+        if (sources is null)
+            return;
+        if (ResourceLoader.Resolve(baseUrl, href) is not { } url)
+        {
+            sources.Report?.Invoke($"@import \"{href}\" has no base URL to resolve against.");
+            return;
+        }
+        if (chain.Contains(url, StringComparer.Ordinal))
+            return; // an import cycle
+        if (depth >= StyleSources.MaxImportDepth)
+        {
+            sources.Report?.Invoke($"@import \"{href}\" is nested deeper than {StyleSources.MaxImportDepth} levels.");
+            return;
+        }
+        if (sources.LoadStyleSheet(url) is not { } css)
+            return;
+
+        var sheet = CssParser.ParseStyleSheet(css);
+        var (importLayer, importNode) = layered ? layerNode.Enter(layerName, layer) : (layer, layerNode);
+        AddSheet(sheet.Source, sheet.Rules, url, importLayer, importNode, [.. chain, url], depth + 1);
+    }
 
     private void AddRules(string source, List<CssRule> rules, SelectorList? parent, int[] layer, LayerNode layerNode)
     {
@@ -89,8 +203,8 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             case "property" when parent is null && at.HasBlock:
                 Register(source, at);
                 break;
-            // @import needs the host's resource loader (docs/study/16-resources-and-security.md) and arrives with it;
-            // @font-face, @keyframes and @page arrive with web fonts, animations and printing.
+            // @import is handled at a sheet's top level (AddSheet); @font-face, @keyframes and @page arrive with web
+            // fonts, animations and printing.
         }
     }
 
