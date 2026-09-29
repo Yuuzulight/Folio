@@ -1,0 +1,40 @@
+=== template contents with table parts
+<!DOCTYPE html><body><template><tr><td>a</td></tr></template>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <template>
+        #content
+          <tr>
+            <td>
+              "a"
+
+=== nested templates
+<!DOCTYPE html><template><template>x</template></template>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <template>
+        #content
+          <template>
+            #content
+              "x"
+    <body>
+
+=== unclosed template at end of input
+<!DOCTYPE html><body><template><div>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <template>
+        #content
+          <div>
+            "x"

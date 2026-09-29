@@ -1,5 +1,13 @@
 namespace Folio.Dom;
 
+/// <summary>https://dom.spec.whatwg.org/#concept-document-mode</summary>
+internal enum DocumentMode
+{
+    NoQuirks,
+    Quirks,
+    LimitedQuirks,
+}
+
 /// <summary>https://dom.spec.whatwg.org/#interface-document</summary>
 internal sealed class Document : ContainerNode
 {
@@ -14,6 +22,8 @@ internal sealed class Document : ContainerNode
     internal Document(AtomTable atoms) : base(null) => _atoms = atoms;
 
     public Element? DocumentElement => Children.OfType<Element>().FirstOrDefault();
+
+    public DocumentMode Mode { get; set; }
 
     public override string? TextContent => null;
 
@@ -40,7 +50,10 @@ internal sealed class Document : ContainerNode
 
     public string TextOf(Atom atom) => atom.Value >= 0 ? _atoms.Text(atom) : _localTexts[-atom.Value - 1];
 
-    public Element CreateElement(Atom ns, string localName) => new(this, new QualifiedName(ns, Intern(localName)));
+    public Element CreateElement(Atom ns, string localName) =>
+        ns == Namespaces.Html && localName == "template"
+            ? new TemplateElement(this, new QualifiedName(ns, Intern(localName)))
+            : new Element(this, new QualifiedName(ns, Intern(localName)));
 
     public Text CreateText(string data) => new(this, data);
 

@@ -1,0 +1,181 @@
+=== implied tbody and tr
+<!DOCTYPE html><table><td>a<td>b</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              "a"
+            <td>
+              "b"
+
+=== text in a table is foster-parented
+<!DOCTYPE html><table>a<tr><td>b</td></tr>c</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      "ac"
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              "b"
+
+=== elements in a table are foster-parented
+<!DOCTYPE html><table><div>x</div><tr><td>y</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <div>
+        "x"
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              "y"
+
+=== whitespace in a table stays in place
+<!DOCTYPE html><table> <tr> <td>x</td> </tr> </table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        " "
+        <tbody>
+          <tr>
+            " "
+            <td>
+              "x"
+            " "
+          " "
+
+=== nested table in a cell
+<!DOCTYPE html><table><tr><td><table><tr><td>a</table>b</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <table>
+                <tbody>
+                  <tr>
+                    <td>
+                      "a"
+              "b"
+
+=== caption and colgroup
+<!DOCTYPE html><table><caption>c</caption><col><tr><td>d</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <caption>
+          "c"
+        <colgroup>
+          <col>
+        <tbody>
+          <tr>
+            <td>
+              "d"
+
+=== table start tag closes a paragraph in no-quirks mode
+<!DOCTYPE html><p><table></table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+      <table>
+
+=== table stays inside a paragraph in quirks mode
+<p><table></table>
+---
+#document quirks
+  <html>
+    <head>
+    <body>
+      <p>
+        <table>
+
+=== hidden input stays in the table
+<!DOCTYPE html><table><input type=hidden><input></table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <input>
+      <table>
+        <input type="hidden">
+
+=== a table start tag inside a table closes it
+<!DOCTYPE html><table><tr><td>a</td></tr><table>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              "a"
+      "b"
+      <table>
+
+=== a table inside a cell nests
+<!DOCTYPE html><table><tr><td>a<table>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              "ab"
+              <table>
+
+=== table parts close a caption
+<!DOCTYPE html><table><caption>c<tr><td>x</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <caption>
+          "c"
+        <tbody>
+          <tr>
+            <td>
+              "x"

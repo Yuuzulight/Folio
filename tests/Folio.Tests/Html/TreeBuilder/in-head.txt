@@ -1,0 +1,77 @@
+=== head elements
+<!DOCTYPE html><title>A &amp; B</title><meta charset=utf-8><style>p{}</style><script>if(a<b){}</script><link rel=icon>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <title>
+        "A & B"
+      <meta charset="utf-8">
+      <style>
+        "p{}"
+      <script>
+        "if(a<b){}"
+      <link rel="icon">
+    <body>
+
+=== noscript in head is parsed as markup
+<!DOCTYPE html><head><noscript><link rel=a></noscript></head>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <noscript>
+        <link rel="a">
+    <body>
+
+=== body content ends head noscript
+<!DOCTYPE html><noscript><p>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <noscript>
+    <body>
+      <p>
+        "x"
+
+=== head elements after the head go into the head
+<!DOCTYPE html><head></head><style>x</style><body>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <style>
+        "x"
+    <body>
+
+=== template contents are kept in a fragment
+<!DOCTYPE html><template><p>a</p></template>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <template>
+        #content
+          <p>
+            "a"
+    <body>
+
+=== whitespace in head stays, text starts the body
+<!DOCTYPE html><head> <title>t</title> x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      " "
+      <title>
+        "t"
+      " "
+    <body>
+      "x"

@@ -69,10 +69,16 @@ internal static class Namespaces
     public const string HtmlUri = "http://www.w3.org/1999/xhtml";
     public const string SvgUri = "http://www.w3.org/2000/svg";
     public const string MathMLUri = "http://www.w3.org/1998/Math/MathML";
+    public const string XLinkUri = "http://www.w3.org/1999/xlink";
+    public const string XmlUri = "http://www.w3.org/XML/1998/namespace";
+    public const string XmlnsUri = "http://www.w3.org/2000/xmlns/";
 
     public static Atom Html { get; } = Intern(HtmlUri);
     public static Atom Svg { get; } = Intern(SvgUri);
     public static Atom MathML { get; } = Intern(MathMLUri);
+    public static Atom XLink { get; } = Intern(XLinkUri);
+    public static Atom Xml { get; } = Intern(XmlUri);
+    public static Atom Xmlns { get; } = Intern(XmlnsUri);
 
     private static Atom Intern(string uri) =>
         AtomTable.Shared.TryIntern(uri, out var atom) ? atom : throw new InvalidOperationException("Atom table full at startup.");

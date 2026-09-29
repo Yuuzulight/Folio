@@ -111,7 +111,7 @@ public class TokenizerTests
         return cases;
     }
 
-    private static string Unescape(string text)
+    internal static string Unescape(string text)
     {
         var result = new StringBuilder();
         for (var i = 0; i < text.Length; i++)

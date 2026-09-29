@@ -1,0 +1,246 @@
+=== paragraphs close each other
+<!DOCTYPE html><p>a<p>b<div>c</div>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+        "a"
+      <p>
+        "b"
+      <div>
+        "c"
+
+=== list items close each other
+<!DOCTYPE html><ul><li>a<li>b</ul><dl><dt>t<dd>d</dl>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <ul>
+        <li>
+          "a"
+        <li>
+          "b"
+      <dl>
+        <dt>
+          "t"
+        <dd>
+          "d"
+
+=== end p without start inserts an empty paragraph
+<!DOCTYPE html><body></p>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+      "x"
+
+=== headings do not nest
+<!DOCTYPE html><h1>a<h2>b</h1>c
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <h1>
+        "a"
+      <h2>
+        "b"
+      "c"
+
+=== pre drops its first newline
+<!DOCTYPE html><pre>
+a
+</pre>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <pre>
+        "a\n"
+
+=== textarea is RCDATA and drops its first newline
+<!DOCTYPE html><textarea>
+<b>&lt;</textarea>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <textarea>
+        "<b><"
+
+=== unknown and void elements
+<!DOCTYPE html><custom-el a=1><img src=x><br></custom-el>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <custom-el a="1">
+        <img src="x">
+        <br>
+
+=== end br becomes a br element
+<!DOCTYPE html></br>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <br>
+
+=== stray end tags are ignored
+<!DOCTYPE html><div></span>a</div>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <div>
+        "a"
+
+=== image becomes img
+<!DOCTYPE html><image src=a>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <img src="a">
+
+=== a second body start tag adds missing attributes
+<!DOCTYPE html><body class=a><body id=b class=c>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body class="a" id="b">
+
+=== buttons close open buttons
+<!DOCTYPE html><button>a<button>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <button>
+        "a"
+      <button>
+        "b"
+
+=== form inside form is ignored
+<!DOCTYPE html><form><form><input></form>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <form>
+        <input>
+      "x"
+
+=== nulls in body text are dropped
+<!DOCTYPE html><p>a\u0000b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+        "ab"
+
+=== frameset is an ordinary element
+<!DOCTYPE html><frameset><frame></frameset>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <frameset>
+
+=== ruby annotations
+<!DOCTYPE html><ruby>a<rb>b<rt>c<rp>d</ruby>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <ruby>
+        "a"
+        <rb>
+          "b"
+        <rt>
+          "c"
+        <rp>
+          "d"
+
+=== script and style in the body are raw text
+<!DOCTYPE html><body><script>a</p>b</script><style><b></style>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <script>
+        "a</p>b"
+      <style>
+        "<b>"
+
+=== unclosed title runs to the end of input
+<!DOCTYPE html><title>a<b>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <title>
+        "a<b>"
+    <body>
+
+=== plaintext never ends
+<!DOCTYPE html><plaintext></plaintext><b>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <plaintext>
+        "</plaintext><b>"
+
+=== xmp and iframe are raw text
+<!DOCTYPE html><xmp><b></xmp><iframe><p></iframe>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <xmp>
+        "<b>"
+      <iframe>
+        "<p>"

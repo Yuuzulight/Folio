@@ -1,0 +1,120 @@
+=== misnested formatting elements
+<!DOCTYPE html><b><i>a</b>b</i>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <b>
+        <i>
+          "a"
+      <i>
+        "b"
+
+=== formatting element across a block
+<!DOCTYPE html><b>1<p>2</b>3</p>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <b>
+        "1"
+      <p>
+        <b>
+          "2"
+        "3"
+
+=== formatting element across nested blocks
+<!DOCTYPE html><a><div><div>x</a>y
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <a>
+      <div>
+        <a>
+        <div>
+          <a>
+            "x"
+          "y"
+
+=== anchors close previous anchors
+<!DOCTYPE html><a href=1>x<a href=2>y
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <a href="1">
+        "x"
+      <a href="2">
+        "y"
+
+=== formatting elements are reconstructed in new blocks
+<!DOCTYPE html><p><b><i>a</p><p>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+        <b>
+          <i>
+            "a"
+      <p>
+        <b>
+          <i>
+            "b"
+
+=== at most three identical formatting elements are reconstructed
+<!DOCTYPE html><p><b><b><b><b>x</p>y
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+        <b>
+          <b>
+            <b>
+              <b>
+                "x"
+      <b>
+        <b>
+          <b>
+            "y"
+
+=== nobr closes the previous nobr
+<!DOCTYPE html><nobr>a<nobr>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <nobr>
+        "a"
+      <nobr>
+        "b"
+
+=== marker in applet stops reconstruction
+<!DOCTYPE html><b><object><i>x</object>y
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <b>
+        <object>
+          <i>
+            "x"
+        "y"

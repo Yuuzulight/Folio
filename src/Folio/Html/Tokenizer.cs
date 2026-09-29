@@ -116,6 +116,7 @@ internal sealed class Tokenizer
     private bool _selfClosing;
     private bool _inAttribute;
     private string? _pendingAttrName;                  // set when leaving the attribute name state; null if dropped
+    private readonly HashSet<string> _attrNames = new(StringComparer.Ordinal); // keeps duplicate checks linear
     private bool _hasDoctypeName, _hasPublicId, _hasSystemId, _forceQuirks;
     private S _returnState;
     private int _charRefCode;
@@ -138,11 +139,17 @@ internal sealed class Tokenizer
     /// <summary>Receives each parse error's spec code and input offset; null skips reporting.</summary>
     public Action<string, int>? ParseError { get; set; }
 
+    /// <summary>Offset of the next input character, for diagnostics.</summary>
+    public int Position => _pos;
+
     public void Run()
     {
         while (!_done)
             Step();
     }
+
+    /// <summary>Stops after the current token (used when a parser limit is reached).</summary>
+    public void Stop() => _done = true;
 
     private int Next() => _pos < _input.Length ? _input[_pos++] : Eof;
 
@@ -1290,6 +1297,7 @@ internal sealed class Tokenizer
         _inAttribute = false;
         _name.Clear();
         _token.Attributes.Clear();
+        _attrNames.Clear();
     }
 
     private void StartAttribute()
@@ -1305,7 +1313,7 @@ internal sealed class Tokenizer
     private void LeaveAttributeName()
     {
         var name = _attrName.ToString();
-        if (_token.Attributes.Exists(a => a.Name == name))
+        if (!_attrNames.Add(name))
         {
             Error("duplicate-attribute");
             _pendingAttrName = null;
