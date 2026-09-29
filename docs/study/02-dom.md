@@ -26,7 +26,7 @@
 
 **Option A with compact nodes and interned names.**
 
-- `Node` (abstract) → `ContainerNode` → `Element`, `Document`, `DocumentFragment`; `CharacterData` → `Text`, `Comment`. Links: `Parent`, `FirstChild`, `LastChild`, `PreviousSibling`, `NextSibling`. No child list objects.
+- `Node` (abstract) → `ContainerNode` → `Element`, `DocumentNode`, `DocumentFragment`; `CharacterData` → `Text`, `Comment`. Links: `Parent`, `FirstChild`, `LastChild`, `PreviousSibling`, `NextSibling`. No child list objects. The DOM document class is `DocumentNode` (internal), so the public hosting class can be `Folio.Document`.
 - **Atoms**: tag names, attribute names, class names, ids and CSS property names are interned into a per-process `AtomTable` and stored as `Atom` (a 4-byte struct wrapping an int). Equality is an int compare. The table is append-only and bounded (see limits); uncommon strings beyond the cap stay as plain strings and match by string compare.
 - **Element name**: one `QualifiedName` atom pair (namespace + local name). HTML elements also get a small `ElementKind` enum (Div, P, Img, Table, …) for fast switch-based behaviour.
 - **Attributes**: an `Attribute[]` array per element (struct of name atom + string value), exact-size, linear scan (elements rarely have more than 5). `id` and `class` are parsed on set and cached: `Atom Id`, `Atom[] Classes`.

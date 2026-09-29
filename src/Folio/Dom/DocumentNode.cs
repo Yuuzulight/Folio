@@ -9,17 +9,17 @@ internal enum DocumentMode
 }
 
 /// <summary>https://dom.spec.whatwg.org/#interface-document</summary>
-internal sealed class Document : ContainerNode
+internal sealed class DocumentNode : ContainerNode
 {
     private readonly AtomTable _atoms;
     private readonly Dictionary<string, Atom> _localIds = new(StringComparer.Ordinal);
     private readonly List<string> _localTexts = [];
 
-    public Document() : this(AtomTable.Shared)
+    public DocumentNode() : this(AtomTable.Shared)
     {
     }
 
-    internal Document(AtomTable atoms) : base(null) => _atoms = atoms;
+    internal DocumentNode(AtomTable atoms) : base(null) => _atoms = atoms;
 
     public Element? DocumentElement => Children.OfType<Element>().FirstOrDefault();
 
@@ -115,10 +115,10 @@ internal sealed class Document : ContainerNode
 }
 
 /// <summary>https://dom.spec.whatwg.org/#interface-documentfragment</summary>
-internal sealed class DocumentFragment(Document ownerDocument) : ContainerNode(ownerDocument);
+internal sealed class DocumentFragment(DocumentNode ownerDocument) : ContainerNode(ownerDocument);
 
 /// <summary>https://dom.spec.whatwg.org/#interface-documenttype</summary>
-internal sealed class DocumentType(Document ownerDocument, string name, string publicId, string systemId) : Node(ownerDocument)
+internal sealed class DocumentType(DocumentNode ownerDocument, string name, string publicId, string systemId) : Node(ownerDocument)
 {
     public string Name { get; } = name;
     public string PublicId { get; } = publicId;
@@ -126,7 +126,7 @@ internal sealed class DocumentType(Document ownerDocument, string name, string p
 }
 
 /// <summary>https://dom.spec.whatwg.org/#interface-characterdata</summary>
-internal abstract class CharacterData(Document ownerDocument, string data) : Node(ownerDocument)
+internal abstract class CharacterData(DocumentNode ownerDocument, string data) : Node(ownerDocument)
 {
     public string Data
     {
@@ -141,6 +141,6 @@ internal abstract class CharacterData(Document ownerDocument, string data) : Nod
     public override string? TextContent => Data;
 }
 
-internal sealed class Text(Document ownerDocument, string data) : CharacterData(ownerDocument, data);
+internal sealed class Text(DocumentNode ownerDocument, string data) : CharacterData(ownerDocument, data);
 
-internal sealed class Comment(Document ownerDocument, string data) : CharacterData(ownerDocument, data);
+internal sealed class Comment(DocumentNode ownerDocument, string data) : CharacterData(ownerDocument, data);

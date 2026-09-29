@@ -13,7 +13,7 @@ internal readonly record struct Atom(int Value)
 
 /// <summary>
 /// Process-wide, append-only, thread-safe and bounded (docs/study/02-dom.md). When it is full, new strings
-/// are interned per document instead (<see cref="Document.Intern"/>), so memory stays bounded by the documents alive.
+/// are interned per document instead (<see cref="DocumentNode.Intern"/>), so memory stays bounded by the documents alive.
 /// </summary>
 internal sealed class AtomTable(int capacity)
 {

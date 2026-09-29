@@ -1,10 +1,8 @@
 using System.Text;
+using Folio.Dom;
 using Folio.Html;
 
 namespace Folio.Tests.Html;
-
-// Inside the namespace so Folio.Dom.Text wins over the Folio.Text namespace.
-using Folio.Dom;
 
 public class TreeBuilderTests
 {
@@ -127,7 +125,7 @@ public class TreeBuilderTests
         Assert.Contains("Q3 \u2014 Summary", body.TextContent);
     }
 
-    internal static string Dump(Document document)
+    internal static string Dump(DocumentNode document)
     {
         var lines = new List<string>
         {

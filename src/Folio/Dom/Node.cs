@@ -18,9 +18,9 @@ internal enum MutationKind
 /// <summary>A DOM node (https://dom.spec.whatwg.org/#interface-node) linked to its parent and siblings.</summary>
 internal abstract class Node
 {
-    protected Node(Document? ownerDocument) => OwnerDocument = ownerDocument ?? (Document)this;
+    protected Node(DocumentNode? ownerDocument) => OwnerDocument = ownerDocument ?? (DocumentNode)this;
 
-    public Document OwnerDocument { get; }
+    public DocumentNode OwnerDocument { get; }
     public ContainerNode? Parent { get; internal set; }
     public Node? PreviousSibling { get; internal set; }
     public Node? NextSibling { get; internal set; }
@@ -72,8 +72,8 @@ internal abstract class Node
     }
 }
 
-/// <summary>A node that can have children: <see cref="Document"/>, <see cref="DocumentFragment"/>, <see cref="Element"/>.</summary>
-internal abstract class ContainerNode(Document? ownerDocument) : Node(ownerDocument)
+/// <summary>A node that can have children: <see cref="DocumentNode"/>, <see cref="DocumentFragment"/>, <see cref="Element"/>.</summary>
+internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerDocument)
 {
     public Node? FirstChild { get; private set; }
     public Node? LastChild { get; private set; }
@@ -150,15 +150,15 @@ internal abstract class ContainerNode(Document? ownerDocument) : Node(ownerDocum
     {
         if (node.OwnerDocument != OwnerDocument)
             throw new ArgumentException("The node belongs to another document.", nameof(node));
-        if (node is Document)
+        if (node is DocumentNode)
             throw new InvalidOperationException("A document cannot be inserted.");
         if (node.IsInclusiveAncestorOf(this))
             throw new InvalidOperationException("A node cannot be inserted into itself or its descendants.");
         if (child is not null && child.Parent != this)
             throw new ArgumentException("The reference node is not a child of this node.", nameof(child));
-        if (node is DocumentType && this is not Document)
+        if (node is DocumentType && this is not DocumentNode)
             throw new InvalidOperationException("A doctype can only be a child of a document.");
-        if (this is Document document)
+        if (this is DocumentNode document)
             document.EnsureChildAllowed(node, child);
     }
 

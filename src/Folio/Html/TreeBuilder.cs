@@ -38,7 +38,7 @@ internal sealed partial class TreeBuilder : ITokenSink
         AfterAfterBody,
     }
 
-    private readonly Document _document;
+    private readonly DocumentNode _document;
     private readonly Tokenizer _tokenizer;
     private readonly ParserLimits _limits;
     private readonly Action<string, int>? _parseError;
@@ -60,7 +60,7 @@ internal sealed partial class TreeBuilder : ITokenSink
 
     private TreeBuilder(string html, ParserLimits limits, Action<string, int>? parseError)
     {
-        _document = new Document();
+        _document = new DocumentNode();
         _limits = limits;
         _parseError = parseError;
         _tokenizer = new Tokenizer(html, this) { ParseError = parseError };
@@ -68,7 +68,7 @@ internal sealed partial class TreeBuilder : ITokenSink
 
     /// <param name="parseError">Receives tokenizer error codes, "unexpected-token" for tree construction errors,
     /// and "nesting-depth-limit" / "node-count-limit" when a limit stops work; with the input offset.</param>
-    public static Document Parse(string html, ParserLimits? limits = null, Action<string, int>? parseError = null)
+    public static DocumentNode Parse(string html, ParserLimits? limits = null, Action<string, int>? parseError = null)
     {
         var builder = new TreeBuilder(html, limits ?? ParserLimits.Default, parseError);
         builder._tokenizer.Run();
