@@ -28,17 +28,17 @@ public class TypographyTests
     {
         Assert.Equal(1, Box.GlyphFor(' '));
         Assert.Equal(34, Box.GlyphFor('A'));
-        Assert.NotEqual(0, Box.GlyphFor('€'));
-        Assert.NotEqual(0, Box.GlyphFor('�'));
-        Assert.Equal(0, Box.GlyphFor('Ā'));
+        Assert.NotEqual(0, Box.GlyphFor('\u20AC'));
+        Assert.NotEqual(0, Box.GlyphFor('\uFFFD'));
+        Assert.Equal(0, Box.GlyphFor('\u0100'));
         Assert.Equal(0, Box.GlyphFor(0x1F600));
     }
 
     [Fact]
     public void ReadsAdvancesAndKerning()
     {
-        var times = Box.GlyphFor('×');
-        var divide = Box.GlyphFor('÷');
+        var times = Box.GlyphFor('\u00D7');
+        var divide = Box.GlyphFor('\u00F7');
 
         Assert.Equal(1000, Box.Advance(Box.GlyphFor('W')));
         Assert.Equal(-500, Box.Kerning(times, divide));
@@ -93,9 +93,9 @@ public class TypographyTests
     [Fact]
     public void SimpleShaperUsesAdvancesAndKerning()
     {
-        var run = SimpleShaper.Shape("A×÷B", 0, 4, Box, 16);
+        var run = SimpleShaper.Shape("A\u00D7\u00F7B", 0, 4, Box, 16);
 
-        Assert.Equal([Box.GlyphFor('A'), Box.GlyphFor('×'), Box.GlyphFor('÷'), Box.GlyphFor('B')], run.Glyphs);
+        Assert.Equal([Box.GlyphFor('A'), Box.GlyphFor('\u00D7'), Box.GlyphFor('\u00F7'), Box.GlyphFor('B')], run.Glyphs);
         Assert.Equal([0, 1, 2, 3], run.Clusters);
         Assert.Equal([16f, 8f, 16f, 16f], run.Advances);
         Assert.Equal(56, run.Width);
@@ -112,10 +112,10 @@ public class TypographyTests
 
     [Theory]
     [InlineData("Hello, world", true)]
-    [InlineData("café €5", true)]
-    [InlineData("é", false)]          // combining mark
-    [InlineData("ال", false)]     // Arabic
-    [InlineData("Ā", false)]           // Latin, but not in the font
+    [InlineData("caf\u00E9 \u20AC5", true)]
+    [InlineData("e\u0301", false)]          // combining mark
+    [InlineData("\u0627\u0644", false)]     // Arabic
+    [InlineData("\u0100", false)]           // Latin, but not in the font
     [InlineData("\U0001F600", false)]       // emoji
     public void SimpleShaperTakesOnlySimpleCoveredText(string text, bool simple)
     {
@@ -125,7 +125,7 @@ public class TypographyTests
     [Theory]
     [InlineData(400, 400)]
     [InlineData(450, 500)]   // 400-500: heavier up to 500 first
-    [InlineData(420, 400)]   // 420 → 500 is not available below 500 → lighter
+    [InlineData(420, 400)]   // 420 \u2192 500 is not available below 500 \u2192 lighter
     [InlineData(300, 100)]   // below 400: lighter first
     [InlineData(600, 700)]   // above 500: heavier first
     [InlineData(950, 700)]   // nothing heavier: lighter
@@ -175,7 +175,7 @@ public class TypographyTests
         Assert.Equal("Folio Box", fonts.Match("monospace", FaceStyle.Normal, 400, 100)?.Family);
         Assert.Null(fonts.Match("No Such Family", FaceStyle.Normal, 400, 100));
         Assert.Equal("Folio Box", fonts.FaceForCluster(["Missing", "Folio Box"], FaceStyle.Normal, 400, 100, "A")?.Family);
-        Assert.Null(fonts.FaceForCluster(["Folio Box"], FaceStyle.Normal, 400, 100, "Ā"));
+        Assert.Null(fonts.FaceForCluster(["Folio Box"], FaceStyle.Normal, 400, 100, "\u0100"));
     }
 
     private sealed record Holder(FaceTraits Traits);
