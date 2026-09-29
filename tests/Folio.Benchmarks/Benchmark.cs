@@ -3,6 +3,7 @@ using System.Text;
 using Folio.Css;
 using Folio.Html;
 using Folio.Layout;
+using Folio.Painting;
 using Folio.RenderTests;
 using Folio.Style;
 
@@ -11,14 +12,14 @@ namespace Folio.Benchmarks;
 /// <summary>Median time of each pipeline stage, and memory, for one document.</summary>
 internal sealed record Measurement(string Name, int Length, TimeSpan[] Stages, long Allocated, long Retained)
 {
-    public static readonly string[] StageNames = ["Parse", "Style", "Boxes", "Layout"];
+    public static readonly string[] StageNames = ["Parse", "Style", "Boxes", "Layout", "Display list"];
 
     public TimeSpan Total => Stages.Aggregate(TimeSpan.Zero, (sum, stage) => sum + stage);
 }
 
 /// <summary>
 /// Times the pipeline stages that exist so far over the benchmark documents, in a warm process, and compares them with
-/// the targets in docs/study/18-memory-and-performance.md. First paint joins when painting lands.
+/// the targets in docs/study/18-memory-and-performance.md. Rasterising the first frame joins when it lands.
 /// </summary>
 internal static class Benchmark
 {
@@ -87,7 +88,9 @@ internal static class Benchmark
         marks[3] = Stopwatch.GetTimestamp();
         var fragment = root is null ? null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);
         marks[4] = Stopwatch.GetTimestamp();
-        return (document, fragment);
+        var displayList = fragment is null ? null : DisplayListBuilder.Build(fragment);
+        marks[5] = Stopwatch.GetTimestamp();
+        return (document, displayList);
     }
 
     private static TimeSpan Median(TimeSpan[] values) => values.Order().ElementAt(values.Length / 2);

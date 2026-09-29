@@ -26,7 +26,7 @@ public static class Program
     private static int Bench(int iterations)
     {
         var table = new StringBuilder()
-            .AppendLine($"Parse to layout, median of {iterations} runs; typical-artifact targets: {Benchmark.TimeTarget.TotalMilliseconds} ms and {Mb(Benchmark.MemoryTarget)} MB for the whole first paint.")
+            .AppendLine($"Parse to display list, median of {iterations} runs; typical-artifact targets: {Benchmark.TimeTarget.TotalMilliseconds} ms and {Mb(Benchmark.MemoryTarget)} MB for the whole first paint.")
             .AppendLine()
             .AppendLine($"| Document | KB | {string.Concat(Measurement.StageNames.Select(n => n + " ms | "))}Total ms | Allocated MB | Retained MB |")
             .AppendLine($"|---|--:|{string.Concat(Measurement.StageNames.Select(_ => "--:|"))}--:|--:|--:|");
