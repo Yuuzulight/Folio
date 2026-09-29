@@ -10,8 +10,8 @@ namespace Folio.Layout;
 /// line filling beside floats, line boxes sized from the strut and each piece's font and <c>line-height</c> with
 /// everything on the baseline, and <c>text-align</c>.
 /// </summary>
-// ponytail: vertical-align (all baseline), bidi reordering, justification (as start), text-indent, soft hyphens shown
-// at breaks, and shrink-to-fit widths for atomic inlines arrive in the next inline layout changes.
+// ponytail: justification (as start), text-indent, soft hyphens shown at breaks, and bidi's L1 reset of whitespace
+// at soft line ends are not done yet.
 internal static class InlineLayout
 {
     /// <summary>What the enclosing block layout provides: floats and positioned boxes are its to place.</summary>
@@ -29,7 +29,8 @@ internal static class InlineLayout
     public static (List<ChildFragment> Lines, float Bottom, bool HasLineBoxes) Layout(
         BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context)
     {
-        var units = Units(block, ifc, width, context);
+        var levels = BidiLevels(block, ifc);
+        var units = Units(block, ifc, width, context, levels);
         var strut = Metrics(block.Style, context);
         var lines = new List<ChildFragment>();
         var hasLineBoxes = false;
@@ -71,7 +72,7 @@ internal static class InlineLayout
                     break;
             }
 
-            var line = BuildLine(block, lineUnits, openBoxes, right - left, width, strut, context, (box, px) => environment.AddOutOfFlow(box, left + px, y));
+            var line = BuildLine(block, lineUnits, openBoxes, right - left, width, strut, levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y));
             if (line.Height > 0 || line.Children.Count > 0)
             {
                 hasLineBoxes |= line.Height > 0;
@@ -99,6 +100,7 @@ internal static class InlineLayout
         public float AtomicMarginTop { get; init; }
         public float AtomicMarginBottom { get; init; }
         public bool Visible { get; init; } // content that makes the line box a real one
+        public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
     }
 
     // Content between two break opportunities: never broken inside.
@@ -111,7 +113,8 @@ internal static class InlineLayout
     }
 
     // Break the content into units; atomic inlines are laid out only for layout, not for measuring.
-    private static List<Unit> Units(BlockContainerBox block, InlineFormattingContext ifc, float width, LayoutContext context, bool layOutAtomics = true)
+    private static List<Unit> Units(BlockContainerBox block, InlineFormattingContext ifc, float width, LayoutContext context, Levels levels,
+                                    bool layOutAtomics = true)
     {
         var text = ifc.Text;
         var breaks = LineBreaker.Find(text);
@@ -159,7 +162,7 @@ internal static class InlineLayout
                     Add(new Piece(PieceKind.BoxEnd, item.Style, item.Continuation ? 0 : InlineEnd(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineEnd(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.Text:
-                    foreach (var run in Shape(text, item.Start, item.Length, item.Style, context))
+                    foreach (var run in ShapeByLevel(text, item.Start, item.Length, item.Style, context, levels.Text))
                     {
                         var start = 0;
                         for (var g = 0; g <= run.Glyphs.Length; g++)
@@ -169,7 +172,7 @@ internal static class InlineLayout
                             if (g == run.Glyphs.Length || kind != BreakKind.None)
                             {
                                 if (g > start)
-                                    AddGlyphs(run, start, g, item.Style);
+                                    AddGlyphs(run, start, g, item.Style, levels.Text[run.Clusters[start]]);
                                 if (kind != BreakKind.None)
                                 {
                                     Close(kind == BreakKind.Mandatory);
@@ -186,7 +189,7 @@ internal static class InlineLayout
                     var box = item.Box!;
                     if (!layOutAtomics)
                     {
-                        Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true });
+                        Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true, Level = levels.Atomics.GetValueOrDefault(box) });
                         Close();
                         break;
                     }
@@ -197,6 +200,7 @@ internal static class InlineLayout
                     Add(new Piece(PieceKind.Atomic, box.Style, ml + fragment.Width + mr)
                     {
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
+                        Level = levels.Atomics.GetValueOrDefault(box),
                     });
                     Close();
                     break;
@@ -219,7 +223,7 @@ internal static class InlineLayout
         Close();
         return units;
 
-        void AddGlyphs(ShapedRun run, int from, int to, ComputedStyle style)
+        void AddGlyphs(ShapedRun run, int from, int to, ComputedStyle style, byte level)
         {
             var w = 0f;
             for (var g = from; g < to; g++)
@@ -231,7 +235,7 @@ internal static class InlineLayout
                 trailing += run.Advances[g2];
             var visible = g2 >= from;
             visible |= style.Text.WhiteSpaceCollapse is WhiteSpaceCollapse.Preserve or WhiteSpaceCollapse.BreakSpaces && to > from;
-            Add(new Piece(PieceKind.Text, style, w) { Run = run, GlyphStart = from, GlyphEnd = to, Visible = visible });
+            Add(new Piece(PieceKind.Text, style, w) { Run = run, GlyphStart = from, GlyphEnd = to, Visible = visible, Level = level });
             unit.TrailingSpace = trailing;
         }
     }
@@ -243,7 +247,7 @@ internal static class InlineLayout
     public static (float Min, float Max) Measure(BlockContainerBox block, InlineFormattingContext ifc, LayoutContext context)
     {
         float min = 0, max = 0, line = 0;
-        foreach (var unit in Units(block, ifc, 0, context, layOutAtomics: false))
+        foreach (var unit in Units(block, ifc, 0, context, BidiLevels(block, ifc), layOutAtomics: false))
         {
             var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace, unit.Width);
             foreach (var piece in unit.Pieces)
@@ -268,11 +272,152 @@ internal static class InlineLayout
         return (min, max);
     }
 
-    private static float InlineStart(ComputedStyle style, float cbWidth) =>
+    // Bidi levels of a paragraph's text (per UTF-16 offset) and atomic inlines, with its paragraph level.
+    private sealed record Levels(byte[] Text, Dictionary<Box, byte> Atomics, int Paragraph);
+
+    /// <summary>
+    /// Resolves the paragraph's bidi levels (UAX #9) with the embeddings, isolates and overrides its inline boxes ask
+    /// for (css-writing-modes-3 §2.4.2); atomic inlines are U+FFFC and forced breaks U+2029.
+    /// </summary>
+    private static Levels BidiLevels(BlockContainerBox block, InlineFormattingContext ifc)
+    {
+        var text = ifc.Text;
+        int? paragraph = block.Style.Box.UnicodeBidi == UnicodeBidi.Plaintext ? null : block.Style.Text.Direction == Direction.Rtl ? 1 : 0;
+        var codePoints = new List<int>(text.Length + 8);
+        var textIndex = new int[text.Length];
+        var atomicIndex = new Dictionary<Box, int>();
+        var needed = paragraph != 0;
+        foreach (var item in ifc.Items)
+        {
+            switch (item.Kind)
+            {
+                case InlineItemKind.OpenBox or InlineItemKind.CloseBox:
+                {
+                    var (open, close) = Controls(item.Style);
+                    codePoints.AddRange(item.Kind == InlineItemKind.OpenBox ? open : close);
+                    needed |= open.Length > 0;
+                    break;
+                }
+                case InlineItemKind.Text:
+                    for (var i = item.Start; i < item.Start + item.Length; i++)
+                    {
+                        textIndex[i] = codePoints.Count;
+                        var cp = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+                        if (cp > 0xFFFF)
+                            textIndex[++i] = codePoints.Count;
+                        codePoints.Add(cp);
+                        needed |= UnicodeData.Bidi(cp) is BidiClass.R or BidiClass.AL or BidiClass.AN;
+                    }
+                    break;
+                case InlineItemKind.Atomic:
+                    atomicIndex[item.Box!] = codePoints.Count;
+                    codePoints.Add(0xFFFC);
+                    break;
+                case InlineItemKind.ForcedBreak:
+                    codePoints.Add(0x2029);
+                    break;
+            }
+        }
+        if (!needed)
+            return new Levels(new byte[text.Length], [], 0);
+
+        var (levels, resolved) = Bidi.Resolve(codePoints.ToArray(), paragraph);
+        byte Level(int index) => levels[index] == Bidi.Removed ? (byte)resolved : levels[index];
+        var textLevels = new byte[text.Length];
+        for (var i = 0; i < text.Length; i++)
+            textLevels[i] = Level(textIndex[i]);
+        return new Levels(textLevels, atomicIndex.ToDictionary(a => a.Key, a => Level(a.Value)), resolved);
+    }
+
+    // The controls an inline box's unicode-bidi and direction stand for, at its start and end.
+    private static (int[] Open, int[] Close) Controls(ComputedStyle style)
+    {
+        var rtl = style.Text.Direction == Direction.Rtl;
+        return style.Box.UnicodeBidi switch
+        {
+            UnicodeBidi.Embed => ([rtl ? 0x202B : 0x202A], [0x202C]),
+            UnicodeBidi.Isolate => ([rtl ? 0x2067 : 0x2066], [0x2069]),
+            UnicodeBidi.BidiOverride => ([rtl ? 0x202E : 0x202D], [0x202C]),
+            UnicodeBidi.IsolateOverride => ([rtl ? 0x2067 : 0x2066, rtl ? 0x202E : 0x202D], [0x202C, 0x2069]),
+            UnicodeBidi.Plaintext => ([0x2068], [0x2069]),
+            _ => ([], []),
+        };
+    }
+
+    // The visual order of a line's pieces (L2); edges and markers borrow a neighbour's level.
+    private static List<int> VisualOrder(List<Piece> pieces, int paragraphLevel)
+    {
+        var levels = new byte[pieces.Count];
+        var any = false;
+        for (var i = 0; i < pieces.Count; i++)
+        {
+            levels[i] = pieces[i].Kind is PieceKind.Text or PieceKind.Atomic ? pieces[i].Level : byte.MaxValue;
+            any |= levels[i] != byte.MaxValue && levels[i] != 0;
+        }
+        if (!any && paragraphLevel == 0)
+            return [.. Enumerable.Range(0, pieces.Count)];
+        for (var i = 0; i < pieces.Count; i++)
+        {
+            if (levels[i] != byte.MaxValue)
+                continue;
+            // Box starts look ahead, everything else looks back, then the other way, then the paragraph level.
+            var ahead = pieces[i].Kind == PieceKind.BoxStart;
+            levels[i] = Neighbour(i, ahead ? 1 : -1) ?? Neighbour(i, ahead ? -1 : 1) ?? (byte)paragraphLevel;
+        }
+        return Bidi.Reorder(levels, 0, levels.Length);
+
+        byte? Neighbour(int i, int step)
+        {
+            for (var j = i + step; j >= 0 && j < pieces.Count; j += step)
+            {
+                if (pieces[j].Kind is PieceKind.Text or PieceKind.Atomic)
+                    return pieces[j].Level;
+            }
+            return null;
+        }
+    }
+
+    // Shapes text in runs of one bidi level each; right-to-left runs use mirrored glyphs (UAX #9 L4).
+    private static IEnumerable<ShapedRun> ShapeByLevel(string text, int start, int length, ComputedStyle style, LayoutContext context, byte[] levels)
+    {
+        var end = start + length;
+        for (var runStart = start; runStart < end;)
+        {
+            var runEnd = runStart + 1;
+            while (runEnd < end && levels[runEnd] == levels[runStart])
+                runEnd++;
+            foreach (var run in Shape(text, runStart, runEnd - runStart, style, context))
+            {
+                if (levels[runStart] % 2 == 1 && run.Face is { } face)
+                {
+                    for (var g = 0; g < run.Glyphs.Length; g++)
+                    {
+                        if (UnicodeData.Mirror(char.ConvertToUtf32(text, run.Clusters[g])) is { } mirror && face.Covers(mirror))
+                            run.Glyphs[g] = face.GlyphFor(mirror);
+                    }
+                }
+                yield return run;
+            }
+            runStart = runEnd;
+        }
+    }
+
+    // An inline box's margin, border and padding at its inline start and end: left and right, swapped in rtl.
+    private static float InlineStart(ComputedStyle style, float cbWidth) => style.Text.Direction == Direction.Rtl ? Right(style, cbWidth) : Left(style, cbWidth);
+
+    private static float InlineEnd(ComputedStyle style, float cbWidth) => style.Text.Direction == Direction.Rtl ? Left(style, cbWidth) : Right(style, cbWidth);
+
+    private static float Left(ComputedStyle style, float cbWidth) =>
         BlockLayout.Margin(style.Spacing.MarginLeft, cbWidth) + style.Border.LeftWidth + BlockLayout.Resolve(style.Spacing.PaddingLeft, cbWidth);
 
-    private static float InlineEnd(ComputedStyle style, float cbWidth) =>
+    private static float Right(ComputedStyle style, float cbWidth) =>
         BlockLayout.Margin(style.Spacing.MarginRight, cbWidth) + style.Border.RightWidth + BlockLayout.Resolve(style.Spacing.PaddingRight, cbWidth);
+
+    private static float StartMargin(ComputedStyle style, float cbWidth) =>
+        BlockLayout.Margin(style.Text.Direction == Direction.Rtl ? style.Spacing.MarginRight : style.Spacing.MarginLeft, cbWidth);
+
+    private static float EndMargin(ComputedStyle style, float cbWidth) =>
+        BlockLayout.Margin(style.Text.Direction == Direction.Rtl ? style.Spacing.MarginLeft : style.Spacing.MarginRight, cbWidth);
 
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
@@ -378,46 +523,77 @@ internal static class InlineLayout
     }
 
     private static Fragment BuildLine(BlockContainerBox block, List<Unit> units, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
-                                      float available, float cbWidth, LineMetrics strut, LayoutContext context, Action<Box, float> addOutOfFlow)
+                                      float available, float cbWidth, LineMetrics strut, int paragraphLevel, LayoutContext context,
+                                      Action<Box, float> addOutOfFlow)
     {
         var pieces = units.SelectMany(u => u.Pieces).ToList();
         var contentWidth = units.Sum(u => u.Width) - (units.Count > 0 ? units[^1].TrailingSpace : 0);
         var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
         var free = available - contentWidth;
-        var x = block.Style.Text.TextAlign switch
-        {
-            TextAlign.Right or TextAlign.End => free,
-            TextAlign.Center => free / 2,
-            _ => 0,
-        };
+        var rtl = paragraphLevel == 1;
+        var align = block.Style.Text.TextAlign;
+        var x = align == TextAlign.Center ? free / 2
+            : align == TextAlign.Right || align == TextAlign.End && !rtl || align is TextAlign.Start or TextAlign.Justify && rtl ? free
+            : 0;
 
-        // Build the tree, placing everything horizontally on the way.
+        // Horizontal: pieces in visual order (UAX #9 L2 over the line). Box edges and markers take the level of the
+        // content next to them, so an inline box's start edge follows its content's direction.
+        var order = VisualOrder(pieces, paragraphLevel);
+        var pieceX = new Dictionary<Piece, float>(pieces.Count);
+        foreach (var index in order)
+        {
+            pieceX[pieces[index]] = x;
+            x += pieces[index].Width;
+        }
+        var lineEnd = x;
+
+        // Build the tree in logical order; every open box collects the pieces inside it.
         var root = new Node(null, block.Style, strut);
         var current = root;
-        var boxes = new List<Node>();
-        Node OpenBox(InlineBox box, ComputedStyle style, float start)
+        var boxes = new List<(Node Node, List<Piece> Pieces, Piece? Start, Piece? End)>();
+        void OpenBox(InlineBox box, ComputedStyle style, Piece? start)
         {
-            var node = new Node(current, style, Metrics(style, context)) { Box = box, X = start };
+            var node = new Node(current, style, Metrics(style, context)) { Box = box };
             current.Children.Add(node);
-            boxes.Add(node);
-            return current = node;
+            boxes.Add((node, [], start, null));
+            current = node;
+        }
+        void Collect(Piece piece)
+        {
+            for (var i = boxes.Count - 1; i >= 0; i--)
+            {
+                if (IsOpen(boxes[i].Node))
+                    boxes[i].Pieces.Add(piece);
+            }
+        }
+        bool IsOpen(Node node)
+        {
+            for (var n = current; n is not null; n = n.Parent)
+            {
+                if (n == node)
+                    return true;
+            }
+            return false;
         }
         foreach (var (box, style) in openBoxes)
-            OpenBox(box, style, x);
+            OpenBox(box, style, null);
         foreach (var piece in pieces)
         {
             switch (piece.Kind)
             {
                 case PieceKind.BoxStart:
-                    OpenBox((InlineBox)piece.Box!, piece.Style, x + BlockLayout.Margin(piece.Style.Spacing.MarginLeft, cbWidth));
+                    OpenBox((InlineBox)piece.Box!, piece.Style, piece);
+                    Collect(piece);
                     openBoxes.Add(((InlineBox)piece.Box!, piece.Style));
                     break;
                 case PieceKind.BoxEnd:
+                    Collect(piece);
                     for (var node = current; node != root; node = node.Parent!)
                     {
                         if (node.Box == piece.Box)
                         {
-                            node.End = x + piece.Width - BlockLayout.Margin(piece.Style.Spacing.MarginRight, cbWidth);
+                            var i = boxes.FindIndex(b => b.Node == node);
+                            boxes[i] = boxes[i] with { End = piece };
                             current = node.Parent!;
                             openBoxes.RemoveAt(openBoxes.FindLastIndex(o => o.Box == piece.Box));
                             break;
@@ -425,10 +601,12 @@ internal static class InlineLayout
                     }
                     break;
                 case PieceKind.Text:
-                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, piece.Run!.Face)) { Piece = piece, X = x });
+                    Collect(piece);
+                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, piece.Run!.Face)) { Piece = piece, X = pieceX[piece] });
                     break;
                 case PieceKind.Atomic:
                 {
+                    Collect(piece);
                     // Its baseline is its last line's, or its bottom margin edge (CSS 2.2 §10.8.1).
                     var fragment = piece.Atomic!;
                     var baseline = AtomicBaseline(fragment);
@@ -437,18 +615,43 @@ internal static class InlineLayout
                         : (piece.AtomicMarginTop + fragment.Height + piece.AtomicMarginBottom, 0f);
                     current.Children.Add(new Node(current, piece.Style, new LineMetrics(above, below, above, below, 0, 0, above + below))
                     {
-                        Piece = piece, X = x + piece.AtomicMarginLeft,
+                        Piece = piece, X = pieceX[piece] + piece.AtomicMarginLeft,
                     });
                     break;
                 }
                 case PieceKind.OutOfFlow:
-                    addOutOfFlow(piece.Box!, x);
+                    addOutOfFlow(piece.Box!, pieceX[piece]);
                     break;
             }
-            x += piece.Width;
         }
-        foreach (var node in boxes.Where(n => n.End == 0 && openBoxes.Any(o => o.Box == n.Box)))
-            node.End = x; // continues on the next line
+        // Each box spans its pieces; its start and end margins sit outside its border, on whichever side they fell.
+        foreach (var (node, boxPieces, start, end) in boxes)
+        {
+            if (boxPieces.Count == 0)
+            {
+                node.X = node.End = lineEnd;
+                continue;
+            }
+            var left = boxPieces.Min(p => pieceX[p]);
+            var right = boxPieces.Max(p => pieceX[p] + p.Width);
+            if (start is not null)
+            {
+                var margin = StartMargin(start.Style, cbWidth);
+                if (pieceX[start] <= left)
+                    left += margin;
+                else
+                    right -= margin;
+            }
+            if (end is not null)
+            {
+                var margin = EndMargin(end.Style, cbWidth);
+                if (pieceX[end] + end.Width >= right)
+                    right -= margin;
+                else
+                    left += margin;
+            }
+            (node.X, node.End) = (left, right);
+        }
 
         // Vertical: shifts, then extents bottom-up, then the line box and every baseline.
         var edges = new List<Node>();
@@ -553,7 +756,7 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent),
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1),
                     }));
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)

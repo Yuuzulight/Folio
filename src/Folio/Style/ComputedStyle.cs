@@ -63,6 +63,10 @@ internal enum ListStylePosition { Outside, Inside }
 
 internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
+internal enum Direction { Ltr, Rtl }
+
+internal enum UnicodeBidi { Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext }
+
 /// <summary>
 /// A computed length-percentage: <c>Px + Percent% of the basis</c>, or a <c>calc()</c> tree that is not linear
 /// in the basis (e.g. <c>min(50%, 300px)</c>), kept with its lengths already in px (docs/study/04-cascade-and-computed-values.md).
@@ -138,7 +142,7 @@ internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, Col
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
-    VerticalAlign VerticalAlign = default);
+    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal);
 
 /// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
 internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
@@ -198,7 +202,7 @@ internal sealed record BackgroundGroup(
 
 /// <summary>Inherited: white space handling, alignment and list markers.</summary>
 internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition,
-                                 TextAlign TextAlign = TextAlign.Start);
+                                 TextAlign TextAlign = TextAlign.Start, Direction Direction = Direction.Ltr);
 
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);

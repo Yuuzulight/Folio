@@ -1,0 +1,50 @@
+=== a right-to-left paragraph starts on the right
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p dir=rtl>abc</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "abc" 752,0 48x16
+
+=== right-to-left text in a left-to-right paragraph keeps its place and runs right to left
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>ab \u05D0\u05D1 cd</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "ab " 0,0 48x16
+        text "אב" rtl 48,0 32x16
+        text " " 80,0 16x16
+        text "cd" 96,0 32x16
+
+=== right-to-left words reverse their order on the line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>\u05D0 \u05D1</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "א " rtl 16,0 32x16
+        text "ב" rtl 0,0 16x16
+
+=== bdo overrides the direction of its text
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p><bdo dir=rtl>abc</bdo></p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        bdo 0,0 48x16
+        text "abc" rtl 0,0 48x16
+
+=== an inline box's start edge follows its content's direction
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p dir=rtl><span style="padding-left: 4px; padding-right: 8px" dir=rtl>\u05D0</span></p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        span 772,0 28x16
+        text "א" rtl 776,0 16x16
