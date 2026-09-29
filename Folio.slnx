@@ -4,6 +4,9 @@
     <Project Path="src/Folio.Skia/Folio.Skia.csproj" />
     <Project Path="src/Folio.WinForms/Folio.WinForms.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Folio.Gen/Folio.Gen.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Folio.Tests/Folio.Tests.csproj" />
     <Project Path="tests/Folio.RenderTests/Folio.RenderTests.csproj" />

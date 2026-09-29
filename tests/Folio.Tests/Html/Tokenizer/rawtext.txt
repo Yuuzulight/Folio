@@ -1,0 +1,40 @@
+=== RCDATA decodes references and ends at the appropriate end tag
+@state RcData title
+a &amp; <b></x></title>c
+---
+"a & <b></x>"
+</title>
+"c"
+
+=== null in RCDATA
+@state RcData textarea
+a\u0000
+---
+"a\uFFFD"
+! unexpected-null-character
+
+=== RAWTEXT keeps references
+@state RawText style
+a &amp; <b></style >
+---
+"a &amp; <b>"
+</style>
+
+=== end tag name is case-insensitive
+@state RawText style
+x</STYLE>
+---
+"x"
+</style>
+
+=== PLAINTEXT never ends
+@state PlainText plaintext
+</plaintext><b>
+---
+"</plaintext><b>"
+
+=== RCDATA end tag at eof stays text
+@state RcData title
+a</title
+---
+"a</title"

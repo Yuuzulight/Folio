@@ -1,0 +1,106 @@
+=== named reference
+a &amp; b
+---
+"a & b"
+
+=== named reference without semicolon in text
+&amp b
+---
+"& b"
+! missing-semicolon-after-character-reference
+
+=== longest match wins
+&notin; &notit;
+---
+"∉ ¬it;"
+! missing-semicolon-after-character-reference
+
+=== reference outside the Basic Multilingual Plane
+&Afr;
+---
+"𝔄"
+
+=== unknown named reference
+&zzz; &zzz
+---
+"&zzz; &zzz"
+! unknown-named-character-reference
+
+=== ampersand followed by a non-alphanumeric
+a & b &# c
+---
+"a & b &# c"
+! absence-of-digits-in-numeric-character-reference
+
+=== hexadecimal reference without digits
+&#xg;
+---
+"&#xg;"
+! absence-of-digits-in-numeric-character-reference
+
+=== numeric references
+&#65;&#x42;&#X43;&#x1F600;
+---
+"ABC😀"
+
+=== numeric reference without semicolon
+&#65x
+---
+"Ax"
+! missing-semicolon-after-character-reference
+
+=== null, out-of-range and surrogate references
+&#0;&#x110000;&#xD800;&#99999999999;
+---
+"\uFFFD\uFFFD\uFFFD\uFFFD"
+! null-character-reference
+! character-reference-outside-unicode-range
+! surrogate-character-reference
+! character-reference-outside-unicode-range
+
+=== C1 controls map through the replacement table
+&#x80;&#x9F;&#x81;
+---
+"€Ÿ\u0081"
+! control-character-reference
+! control-character-reference
+! control-character-reference
+
+=== carriage return and noncharacter references stay
+&#13;&#xFFFF;
+---
+"\u000D\uFFFF"
+! control-character-reference
+! noncharacter-character-reference
+
+=== historical references in attribute values stay as written
+<a href="?x=1&amp=2&copy3&not;">
+---
+<a href="?x=1&amp=2&copy3¬">
+
+=== reference without semicolon at the end of an attribute value
+<a title="&amp">
+---
+<a title="&">
+! missing-semicolon-after-character-reference
+
+=== reference in unquoted attribute value
+<a b=&lt;>
+---
+<a b="<">
+
+=== unknown reference in attribute value
+<a b="&zz;">
+---
+<a b="&zz;">
+! unknown-named-character-reference
+
+=== references in single-quoted attribute value
+<a b='&lt;&#X3E;'>
+---
+<a b="<>">
+
+=== ampersand at end of input
+a&
+---
+"a&"

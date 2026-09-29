@@ -78,7 +78,7 @@ src/
                              Interface: IImageDecoder
     Layout/                  Box tree, block/inline/flex/grid/table/positioned layout, fragments
     Svg/                     SVG render tree, path data, paint servers
-    Paint/                   Stacking tree, display list builder, RecordingCanvas
+    Painting/                Stacking tree, display list builder, RecordingCanvas
                              Interfaces: IRasterBackend, ICanvas
     Interaction/             Hit testing, selection, InputRouter, form controls, focus
     Resources/               ResourceRequest/Response, DataUri, LocalFolderLoader,
@@ -120,7 +120,7 @@ tests/
 
 **Boundaries**:
 
-- `Folio` references no native library. Namespaces are layered: `Dom`/`Html`/`Xml` → `Css`/`Style` → `Text`/`Imaging` → `Layout`/`Svg` → `Paint` → `Interaction` → `Hosting`; lower layers never reference higher ones. A unit test reads the assembly's metadata and fails on a layering violation.
+- `Folio` references no native library. Namespaces are layered: `Dom`/`Html`/`Xml` → `Css`/`Style` → `Text`/`Imaging` → `Layout`/`Svg` → `Painting` → `Interaction` → `Hosting`; lower layers never reference higher ones. A unit test reads the assembly's metadata and fails on a layering violation.
 - Swap-out interfaces live in the engine; implementations that use a dependency live in `Folio.Skia`, `Folio.Scripting.Jint` or `Folio.Scripting.Jit`. Replacing a dependency means adding one assembly.
 - `Folio.WinForms` contains no rendering logic; it translates Windows messages to Folio input and blits the surface.
 

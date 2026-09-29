@@ -1,0 +1,62 @@
+=== comment
+<!-- hi -->
+---
+<!-- hi -->
+
+=== empty comment
+<!---->
+---
+<!---->
+
+=== abruptly closed empty comments
+<!--><!--->
+---
+<!---->
+<!---->
+! abrupt-closing-of-empty-comment
+! abrupt-closing-of-empty-comment
+
+=== dashes inside comments
+<!-- a - b -- c --->
+---
+<!-- a - b -- c --->
+
+=== incorrectly closed comment
+<!-- a --!>
+---
+<!-- a -->
+! incorrectly-closed-comment
+
+=== bang after double dash inside comment
+<!-- a --!b -->
+---
+<!-- a --!b -->
+
+=== nested comment
+<!-- <!-- x -->
+---
+<!-- <!-- x -->
+! nested-comment
+
+=== less-than signs in comment
+<!--<<!-->
+---
+<!--<<!-->
+
+=== eof in comment
+<!-- a
+---
+<!-- a-->
+! eof-in-comment
+
+=== markup declaration that is not a comment
+<!x>
+---
+<!--x-->
+! incorrectly-opened-comment
+
+=== CDATA in HTML content is a bogus comment
+<![CDATA[x]]>
+---
+<!--[CDATA[x]]-->
+! cdata-in-html-content

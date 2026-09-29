@@ -1,0 +1,88 @@
+=== html doctype
+<!DOCTYPE html>
+---
+<!DOCTYPE html>
+
+=== keyword and name are case-insensitive
+<!doctype HTML>
+---
+<!DOCTYPE html>
+
+=== public and system identifiers
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" 'http://www.w3.org/TR/html4/strict.dtd'>
+---
+<!DOCTYPE html public="-//W3C//DTD HTML 4.01//EN" system="http://www.w3.org/TR/html4/strict.dtd">
+
+=== system identifier only
+<!DOCTYPE html SYSTEM "about:legacy-compat">
+---
+<!DOCTYPE html system="about:legacy-compat">
+
+=== missing name
+<!DOCTYPE>
+---
+<!DOCTYPE quirks>
+! missing-doctype-name
+
+=== missing whitespace before name
+<!DOCTYPEhtml>
+---
+<!DOCTYPE html>
+! missing-whitespace-before-doctype-name
+
+=== eof in doctype
+<!DOCTYPE html
+---
+<!DOCTYPE html quirks>
+! eof-in-doctype
+
+=== bogus text after name
+<!DOCTYPE html bogus>
+---
+<!DOCTYPE html quirks>
+! invalid-character-sequence-after-doctype-name
+
+=== missing quote before public identifier
+<!DOCTYPE html PUBLIC x>
+---
+<!DOCTYPE html quirks>
+! missing-quote-before-doctype-public-identifier
+
+=== missing whitespace after keyword and between identifiers
+<!DOCTYPE html PUBLIC"a""b">
+---
+<!DOCTYPE html public="a" system="b">
+! missing-whitespace-after-doctype-public-keyword
+! missing-whitespace-between-doctype-public-and-system-identifiers
+
+=== abrupt public identifier
+<!DOCTYPE html PUBLIC "a>
+---
+<!DOCTYPE html public="a" quirks>
+! abrupt-doctype-public-identifier
+
+=== text after system identifier is ignored without quirks
+<!DOCTYPE html SYSTEM "a" x>
+---
+<!DOCTYPE html system="a">
+! unexpected-character-after-doctype-system-identifier
+
+=== missing system identifier
+<!DOCTYPE html SYSTEM>
+---
+<!DOCTYPE html quirks>
+! missing-doctype-system-identifier
+
+=== null in doctype name and public identifier
+<!DOCTYPE a\u0000 PUBLIC 'x\u0000'>
+---
+<!DOCTYPE a\uFFFD public="x\uFFFD">
+! unexpected-null-character
+! unexpected-null-character
+
+=== null in bogus doctype is ignored
+<!DOCTYPE html x\u0000>
+---
+<!DOCTYPE html quirks>
+! invalid-character-sequence-after-doctype-name
+! unexpected-null-character
