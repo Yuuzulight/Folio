@@ -1,0 +1,81 @@
+=== absolute units
+width: 1in; height: 2.54cm; min-width: 12pt; min-height: 1pc; max-width: 10mm; max-height: 4q
+---
+width: 96px
+height: 96px
+min-width: 16px
+min-height: 16px
+max-width: 37.795px
+max-height: 3.78px
+
+=== font-relative units use the element's font size
+font-size: 20px; width: 2em; height: 1rem; margin-top: 2ex; margin-left: 1ch
+---
+width: 40px
+height: 16px
+margin-top: 20px
+margin-left: 10px
+
+=== em in font-size refers to the parent
+%parent font-size: 20px
+font-size: 1.5em; width: 1em
+---
+font-size: 30
+width: 30px
+
+=== viewport units
+width: 50vw; height: 10vh; min-width: 10vmin; min-height: 10vmax; max-height: 100dvh
+---
+width: 400px
+height: 60px
+min-width: 60px
+min-height: 80px
+max-height: 600px
+
+=== percentages stay percentages
+width: 50%; padding-left: 10%; margin-top: -5%
+---
+width: 50%
+padding-left: 10%
+margin-top: -5%
+
+=== calc with lengths and percentages stays linear
+width: calc(100% - 2em); height: calc((10px + 5%) * 2); margin-left: calc(3 * 10px / 2)
+---
+width: -32px + 100%
+height: 20px + 10%
+margin-left: 15px
+
+=== min, max and clamp fold unless they hold a percentage
+width: min(10px, 2em); height: clamp(10px, 50px, 30px); min-width: max(10px, 20%)
+---
+width: 10px
+height: 30px
+min-width: calc(...)
+
+=== invalid calc leaves the initial value
+width: calc(10px + 2); height: calc(10px*2px); margin-top: calc(1px -2px)
+---
+width: auto
+height: auto
+margin-top: 0px
+
+=== negative sizes and paddings are invalid
+width: -10px; padding-top: -1px
+---
+width: auto
+padding-top: 0px
+
+=== unitless zero is a length, other unitless numbers are not
+margin-top: 0; margin-left: 10
+---
+margin-top: 0px
+margin-left: 0px
+
+=== sizing keywords
+width: min-content; height: fit-content; max-width: none; min-height: auto
+---
+width: min-content
+height: fit-content
+max-width: none
+min-height: auto

@@ -1,0 +1,108 @@
+=== keywords
+display: inline-block; position: sticky; float: left; clear: both; box-sizing: border-box; visibility: hidden
+---
+display: inline-block
+position: sticky
+float: left
+clear: both
+box-sizing: border-box
+visibility: hidden
+
+=== unknown keywords are dropped, later valid declarations win
+display: blok; display: flex; position: fixed; position: nowhere
+---
+display: flex
+position: fixed
+
+=== keywords are case-insensitive
+DISPLAY: Table-Cell
+---
+display: table-cell
+
+=== opacity and z-index
+opacity: 150%; z-index: -3
+---
+opacity: 1
+z-index: -3
+
+=== opacity from a number
+opacity: 0.25
+---
+opacity: 0.25
+
+=== margin and padding shorthands
+margin: 1px auto 3px; padding: 1px 2px
+---
+margin-top: 1px
+margin-right: auto
+margin-bottom: 3px
+margin-left: auto
+padding-top: 1px
+padding-right: 2px
+padding-bottom: 1px
+padding-left: 2px
+
+=== inset shorthand
+inset: 0 10%
+---
+top: 0px
+right: 10%
+bottom: 0px
+left: 10%
+
+=== border shorthand in any order
+border: red solid thin
+---
+border-top-width: 1
+border-right-style: solid
+border-bottom-color: rgb(255, 0, 0)
+border-left-width: 1
+
+=== border without a style has no width
+border: 4px red
+---
+border-top-width: 0
+border-left-color: rgb(255, 0, 0)
+
+=== border side shorthand resets what it omits
+border-top: 2px dashed; border-left-style: solid
+---
+border-top-width: 2
+border-top-style: dashed
+border-top-color: currentcolor
+border-left-width: 3
+
+=== border-width and border-style sides
+border-style: solid none; border-width: thick 2px
+---
+border-top-width: 5
+border-right-width: 0
+border-bottom-width: 5
+border-left-width: 0
+
+=== overflow shorthand
+overflow: hidden auto
+---
+overflow-x: hidden
+overflow-y: auto
+
+=== overflow with one value
+overflow: scroll
+---
+overflow-x: scroll
+overflow-y: scroll
+
+=== css-wide keywords
+%parent width: 10px; color: red; margin-top: 5px
+width: inherit; color: initial; margin-top: unset
+---
+width: 10px
+color: rgb(0, 0, 0)
+margin-top: 0px
+
+=== css-wide keyword on a shorthand
+%parent margin-left: 7px
+margin: inherit
+---
+margin-left: 7px
+margin-top: 0px
