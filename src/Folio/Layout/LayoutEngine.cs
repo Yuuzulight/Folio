@@ -11,6 +11,19 @@ internal static class LayoutEngine
     {
         var fragment = BlockLayout.Layout(root, new ConstraintSpace(viewportWidth, viewportHeight));
         // The root establishes a block formatting context, so its margins are its own.
-        return new Fragment(null, viewportWidth, viewportHeight, [new(fragment.MarginLeft, fragment.TopMargins.Resolve(), fragment)]);
+        var (x, y) = (fragment.MarginLeft, fragment.TopMargins.Resolve());
+        List<ChildFragment> children = [new(x, y, fragment)];
+
+        // Positioned boxes with no positioned ancestor, and fixed ones, use the initial containing block (at scroll
+        // offset zero, the viewport). Their own fixed descendants arrive here too.
+        var pending = new Queue<OutOfFlowBox>(fragment.OutOfFlow.Select(o => o with { StaticX = o.StaticX + x, StaticY = o.StaticY + y }));
+        while (pending.TryDequeue(out var o))
+        {
+            var placed = PositionedLayout.LayoutAbsolute(o.Box, viewportWidth, viewportHeight, o.StaticX, o.StaticY);
+            children.Add(placed);
+            foreach (var inner in placed.Fragment.OutOfFlow)
+                pending.Enqueue(inner with { StaticX = inner.StaticX + placed.X, StaticY = inner.StaticY + placed.Y });
+        }
+        return new Fragment(null, viewportWidth, viewportHeight, children);
     }
 }

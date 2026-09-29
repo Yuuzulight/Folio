@@ -1,0 +1,54 @@
+=== relative offsets move a box without moving the flow
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style>
+<div id=a style="position: relative; left: 10px; top: 5px"></div><div id=b style="position: relative; right: 20px; bottom: 4px"></div><div id=c></div><div id=d style="position: relative; top: 50%; left: 10%"></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div#a 10,5 800x10
+    div#b -20,6 800x10
+    div#c 0,20 800x10
+    div#d 80,30 800x10
+
+=== absolute boxes use their positioned ancestor's padding box
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="position: relative; margin: 10px; padding: 5px; border: 2px solid; height: 100px"><div id=a style="position: absolute; top: 10px; left: 20px; width: 50px; height: 30px"></div><div id=b style="position: absolute; right: 0; bottom: 0; width: 40px; height: 20px"></div><div id=s style="height: 10px"></div><div id=t style="position: absolute; width: 10px; height: 10px"></div></div>
+---
+html 0,0 800x134
+  body 0,10 800x114
+    div#p 10,10 780x114
+      div#s 17,17 766x10
+      div#a 32,22 50x30
+      div#b 748,102 40x20
+      div#t 17,27 10x10
+
+=== without a positioned ancestor the initial containing block is used
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=a style="position: absolute; left: 10px; right: 30px; top: 0; height: 20px"></div>
+<div id=b style="position: absolute; top: 10px; bottom: 20px; left: 0; width: 100px"></div>
+<div id=c style="position: absolute; inset: 0; width: 200px; height: 100px; margin: auto"></div>
+<div id=d style="position: absolute; left: 50%; top: 25%; width: 10%; height: 10%"></div>
+---
+html 0,0 800x0
+  body 0,0 800x0
+div#a 10,0 760x20
+div#b 0,10 100x570
+div#c 300,250 200x100
+div#d 400,150 80x60
+
+=== fixed boxes use the viewport even inside a positioned ancestor
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="position: relative; margin-top: 50px; height: 10px"><div id=f style="position: fixed; bottom: 0; left: 0; width: 10px; height: 10px"></div></div>
+---
+html 0,0 800x60
+  body 0,50 800x10
+    div#p 0,50 800x10
+div#f 0,590 10x10
+
+=== a relatively positioned container moves its absolute children with it
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="position: relative; left: 5px; top: 5px; height: 20px"><div id=a style="position: absolute; left: 0; top: 0; width: 10px; height: 10px"></div></div>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    div#p 5,5 800x20
+      div#a 5,5 10x10

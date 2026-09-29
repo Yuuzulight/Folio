@@ -31,13 +31,17 @@ internal static class BlockLayout
         var frameY = border.TopWidth + padding.Top + padding.Bottom + border.BottomWidth;
         var borderBox = style.Box.BoxSizing == BoxSizing.BorderBox;
 
-        var (width, marginLeft, marginRight) = SolveWidth(box, cbWidth, frameX, borderBox);
+        var (width, marginLeft, marginRight) = space.FixedWidth is { } fixedWidth
+            ? (Math.Max(0, fixedWidth - frameX), 0f, 0f)
+            : SolveWidth(box, cbWidth, frameX, borderBox);
         var marginTop = Margin(style.Spacing.MarginTop, cbWidth);
         var marginBottom = Margin(style.Spacing.MarginBottom, cbWidth);
 
-        var height = ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
-        var minHeight = ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0;
-        var maxHeight = ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity;
+        var height = space.FixedHeight is { } fixedHeight
+            ? Math.Max(0, fixedHeight - frameY)
+            : ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
+        var minHeight = space.FixedHeight is null ? ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0 : 0;
+        var maxHeight = space.FixedHeight is null ? ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity : float.PositiveInfinity;
         var definiteHeight = height is { } h ? Clamp(h, minHeight, maxHeight) : (float?)null;
 
         var independent = EstablishesIndependentFormattingContext(box);
@@ -58,6 +62,16 @@ internal static class BlockLayout
         var atTop = collapseTop;            // no content placed yet, so margins still adjoin the top edge
         var cursor = 0f;                    // bottom of the last placed content, from the content box top
         var hasContent = false;
+        var outOfFlow = new List<OutOfFlowBox>();
+
+        // Adds a child fragment, shifted by its relative offset, and carries up its positioned descendants.
+        void Place(Box child, Fragment fragment, float x, float y)
+        {
+            var (dx, dy) = PositionedLayout.RelativeOffset(child, width, definiteHeight);
+            children.Add(new(x + dx, y + dy, fragment));
+            foreach (var o in fragment.OutOfFlow)
+                outOfFlow.Add(o with { StaticX = o.StaticX + x + dx, StaticY = o.StaticY + y + dy });
+        }
 
         void PlaceFloat(Box child, float top)
         {
@@ -70,11 +84,16 @@ internal static class BlockLayout
             var minTop = Math.Max(contentY + top, exclusions.ClearEdge(child.Style.Box.Clear) ?? float.NegativeInfinity);
             var (fx, fy) = exclusions.PlaceFloat(side, outerWidth, outerHeight, minTop, contentX, contentX + width);
             exclusions = exclusions.Add(new FloatArea(side, fx, fy, fx + outerWidth, fy + outerHeight));
-            children.Add(new(fx + ml - boxX, fy + mt - boxY, fragment));
+            Place(child, fragment, fx + ml - boxX, fy + mt - boxY);
         }
 
-        foreach (var child in FlowChildren(box))
+        foreach (var child in box is BlockContainerBox { Inline: null } ? box.Children : [])
         {
+            if (child.IsAbsolutelyPositioned)
+            {
+                outOfFlow.Add(new(child, border.LeftWidth + padding.Left, border.TopWidth + padding.Top + (atTop ? 0 : cursor + pending.Resolve())));
+                continue;
+            }
             if (child.IsFloat)
             {
                 PlaceFloat(child, atTop ? 0 : cursor + pending.Resolve());
@@ -112,7 +131,7 @@ internal static class BlockLayout
 
             if (clearance)
             {
-                children.Add(new(x, border.TopWidth + padding.Top + y, fragment));
+                Place(child, fragment, x, border.TopWidth + padding.Top + y);
                 if (!childIndependent)
                     exclusions = fragment.Exclusions ?? exclusions;
                 (cursor, atTop, hasContent) = (y + fragment.Height, false, true);
@@ -124,7 +143,7 @@ internal static class BlockLayout
             {
                 // An empty block sits where its top border edge would be; its margins join the pending ones.
                 var throughY = atTop ? 0 : cursor + pending.Append(fragment.TopMargins).Resolve();
-                children.Add(new(x, border.TopWidth + padding.Top + throughY, fragment));
+                Place(child, fragment, x, border.TopWidth + padding.Top + throughY);
                 exclusions = MoveFloats(fragment, exclusions, throughY - y);
                 pending = pending.Append(fragment.TopMargins);
                 continue;
@@ -133,7 +152,7 @@ internal static class BlockLayout
             var placedY = atTop ? 0 : cursor + margins.Resolve();
             if (atTop)
                 (leading, atTop) = (margins, false);
-            children.Add(new(x, border.TopWidth + padding.Top + placedY, fragment));
+            Place(child, fragment, x, border.TopWidth + padding.Top + placedY);
             if (!childIndependent)
                 exclusions = MoveFloats(fragment, exclusions, placedY - y);
             cursor = placedY + fragment.Height;
@@ -147,6 +166,8 @@ internal static class BlockLayout
             {
                 if (item.Kind == InlineItemKind.Float)
                     PlaceFloat(item.Box!, top);
+                else if (item.Kind == InlineItemKind.OutOfFlow)
+                    outOfFlow.Add(new(item.Box!, border.LeftWidth + padding.Left, border.TopWidth + padding.Top + top));
             }
             if (inline.Items.Any(i => i.Kind is not (InlineItemKind.Float or InlineItemKind.OutOfFlow)))
             {
@@ -183,6 +204,25 @@ internal static class BlockLayout
             (leading, pending) = (pending, default);
         }
 
+        // A positioned box is the containing block of its absolutely positioned descendants (CSS 2.2 §10.1): they are
+        // laid out against its padding box now that its size is known. Fixed ones go on up to the viewport.
+        if (style.Box.Position != Position.Static && outOfFlow.Count > 0)
+        {
+            var carried = outOfFlow.ToList();
+            outOfFlow.Clear();
+            var (paddingWidth, paddingHeight) = (width + padding.Left + padding.Right, contentHeight + padding.Top + padding.Bottom);
+            foreach (var o in carried)
+            {
+                if (o.Box.Style.Box.Position == Position.Fixed)
+                {
+                    outOfFlow.Add(o);
+                    continue;
+                }
+                var placed = PositionedLayout.LayoutAbsolute(o.Box, paddingWidth, paddingHeight, o.StaticX - border.LeftWidth, o.StaticY - border.TopWidth);
+                Place(o.Box, placed.Fragment, placed.X + border.LeftWidth, placed.Y + border.TopWidth);
+            }
+        }
+
         return new Fragment(box, width + frameX, contentHeight + frameY, children)
         {
             MarginLeft = marginLeft,
@@ -191,6 +231,7 @@ internal static class BlockLayout
             BottomMargins = collapsesThrough ? default : own.Bottom.Append(pending),
             CollapsesThrough = collapsesThrough,
             Exclusions = independent ? space.Exclusions : exclusions,
+            OutOfFlow = outOfFlow,
         };
     }
 
@@ -323,7 +364,7 @@ internal static class BlockLayout
     /// indefinite size.
     /// </summary>
     // ponytail: min-content, max-content and fit-content act as auto until intrinsic sizes arrive with inline layout.
-    private static float? ContentSize(SizeValue value, float? basis, float frame, bool borderBox)
+    internal static float? ContentSize(SizeValue value, float? basis, float frame, bool borderBox)
     {
         if (value.Kind != SizeKind.Length || value.Length.HasPercent && basis is null)
             return null;
@@ -332,12 +373,12 @@ internal static class BlockLayout
     }
 
     // Margins and paddings resolve percentages against the containing block's width, vertical ones included.
-    private static float Margin(SizeValue value, float cbWidth) => value.Kind == SizeKind.Length ? value.Length.Resolve(cbWidth) : 0;
+    internal static float Margin(SizeValue value, float cbWidth) => value.Kind == SizeKind.Length ? value.Length.Resolve(cbWidth) : 0;
 
-    private static float Resolve(LengthPercentage value, float cbWidth) => Math.Max(0, value.Resolve(cbWidth));
+    internal static float Resolve(LengthPercentage value, float cbWidth) => Math.Max(0, value.Resolve(cbWidth));
 
     // max wins over the size, min wins over max (§10.4, §10.7).
-    private static float Clamp(float size, float min, float max) => Math.Max(min, Math.Min(size, max));
+    internal static float Clamp(float size, float min, float max) => Math.Max(min, Math.Min(size, max));
 
     /// <summary>
     /// Whether the box's content is laid out independently of its surroundings, so its margins do not collapse with
