@@ -4,8 +4,6 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#. No
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher avoids Chromium to keep its memory footprint small. Mana writes HTML "artifacts" (reports, tables, small interactive pages); Folio's first job is to show them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-> A *folio* is a single page of a book: what this engine produces.
-
 **Status:** study phase. No engine code yet.
 
 ## Goals
