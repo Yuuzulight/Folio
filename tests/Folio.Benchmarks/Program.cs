@@ -15,7 +15,7 @@ public static class Program
     public static int Main(string[] args)
     {
         if (args is ["bench", .. var rest])
-            return Bench(rest is [var n] ? int.Parse(n, CultureInfo.InvariantCulture) : 20);
+            return Bench(rest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 20);
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
