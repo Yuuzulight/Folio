@@ -1,0 +1,72 @@
+=== widths and horizontal margins of blocks in normal flow
+<!DOCTYPE html><style>body { margin: 0 } div { height: 1px }</style>
+<div id=a style="width: 200px; margin: 0 auto"></div>
+<div id=b style="width: 200px; margin-left: auto"></div>
+<div id=c style="width: 200px; margin-left: 50px; margin-right: auto"></div>
+<div id=d style="margin: 0 10px; padding: 0 5px; border: 0 solid; border-width: 0 2px"></div>
+<div id=e style="width: 50%; padding-left: 10%"></div>
+<div id=f style="box-sizing: border-box; width: 100px; height: 20px; padding: 0 10px; border: 5px solid"></div>
+<div id=g style="width: 1000px; margin: 0 auto"></div>
+---
+html 0,0 800x26
+  body 0,0 800x26
+    div#a 300,0 200x1
+    div#b 600,1 200x1
+    div#c 50,2 200x1
+    div#d 10,3 780x1
+    div#e 0,4 480x1
+    div#f 0,5 100x20
+    div#g 0,25 1000x1
+
+=== min and max widths and heights
+<!DOCTYPE html><style>body { margin: 0 } div { height: 1px }</style>
+<div id=a style="max-width: 300px; margin: 0 auto"></div>
+<div id=b style="width: 100px; min-width: 200px"></div>
+<div id=c style="max-width: 100px; min-width: 150px"></div>
+<div id=d style="height: 50px; max-height: 20px"></div>
+<div id=e style="height: 10px; min-height: 30px; max-height: 20px"></div>
+---
+html 0,0 800x53
+  body 0,0 800x53
+    div#a 250,0 300x1
+    div#b 0,1 200x1
+    div#c 0,2 150x1
+    div#d 0,3 800x20
+    div#e 0,23 800x30
+
+=== percentage heights resolve against definite containing blocks
+<!DOCTYPE html><style>html, body { height: 100%; margin: 0 } #a { height: 50% } #b { height: 25% } #c { height: 10% }</style>
+<div id=a><div id=c></div></div><div id=b></div>
+---
+html 0,0 800x600
+  body 0,0 800x600
+    div#a 0,0 800x300
+      div#c 0,0 800x30
+    div#b 0,300 800x150
+
+=== percentage heights against an auto-height containing block act as auto
+<!DOCTYPE html><style>body { margin: 0 } #a { height: 50%; min-height: 10%; max-height: 1% }</style>
+<div id=a><div id=c style="height: 40px"></div></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div#a 0,0 800x40
+      div#c 0,0 800x40
+
+=== the viewport is the initial containing block
+%viewport 300 200
+<!DOCTYPE html><style>body { margin: 0 } #a { width: 50%; height: 50vh }</style>
+<div id=a></div>
+---
+html 0,0 300x100
+  body 0,0 300x100
+    div#a 0,0 150x100
+
+=== boxes out of flow and without boxes do not take space
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style>
+<div id=a></div><div style="display: none"></div><div style="position: absolute"></div><div style="float: left"></div><div id=b></div>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    div#a 0,0 800x10
+    div#b 0,10 800x10
