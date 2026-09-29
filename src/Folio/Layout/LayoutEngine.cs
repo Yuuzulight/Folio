@@ -10,9 +10,10 @@ internal static class LayoutEngine
     /// (https://www.w3.org/TR/CSS22/visudet.html#containing-block-details). Returns the containing block's fragment.
     /// </summary>
     /// <param name="fonts">The fonts text is measured with; none means text is measured with fallback metrics.</param>
-    public static Fragment LayoutDocument(Box root, float viewportWidth, float viewportHeight, FontCollection? fonts = null)
+    /// <param name="shaper">The shaper for complex text; none means every run goes through SimpleShaper.</param>
+    public static Fragment LayoutDocument(Box root, float viewportWidth, float viewportHeight, FontCollection? fonts = null, ITextShaper? shaper = null)
     {
-        var context = new LayoutContext(fonts ?? new FontCollection());
+        var context = new LayoutContext(fonts ?? new FontCollection(), shaper);
         var fragment = BlockLayout.Layout(root, new ConstraintSpace(viewportWidth, viewportHeight), context);
         // The root establishes a block formatting context, so its margins are its own.
         var (x, y) = (fragment.MarginLeft, fragment.TopMargins.Resolve());

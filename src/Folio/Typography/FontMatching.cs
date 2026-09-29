@@ -112,17 +112,64 @@ internal sealed class FontCollection
     }
 
     /// <summary>
-    /// Fallback per grapheme cluster: the first family in the list whose matched face maps every code point of the
-    /// cluster. Null means none does; script and system fallback come later (study 11, steps 2 and 3).
+    /// Families to try for a script when none of the requested families covers a cluster (host-configurable; defaults
+    /// from study 11 for Windows).
+    /// </summary>
+    public Dictionary<Script, string[]> ScriptFallbacks { get; } = new()
+    {
+        [Script.Arabic] = ["Segoe UI"],
+        [Script.Hebrew] = ["Segoe UI"],
+        [Script.Han] = ["Microsoft YaHei", "Yu Gothic", "Malgun Gothic"],
+        [Script.Hiragana] = ["Yu Gothic", "Microsoft YaHei"],
+        [Script.Katakana] = ["Yu Gothic", "Microsoft YaHei"],
+        [Script.Hangul] = ["Malgun Gothic"],
+        [Script.Thai] = ["Leelawadee UI"],
+        [Script.Devanagari] = ["Nirmala UI"],
+        [Script.Bengali] = ["Nirmala UI"],
+        [Script.Tamil] = ["Nirmala UI"],
+        [Script.Common] = ["Segoe UI Symbol"],
+    };
+
+    /// <summary>
+    /// Fallback per grapheme cluster (study 11): the first family in the list whose matched face maps every code point
+    /// of the cluster (emoji-presentation clusters try the emoji family first), then the fallback families for the
+    /// cluster's script. Null means none does; system fallback is the next step.
     /// </summary>
     public FontFace? FaceForCluster(IReadOnlyList<string> families, FaceStyle style, int weight, float stretch, ReadOnlySpan<char> cluster)
     {
-        foreach (var family in families)
+        IEnumerable<string> candidates = families;
+        if (IsEmojiPresentation(cluster))
+            candidates = candidates.Prepend("emoji");
+        if (ScriptFallbacks.TryGetValue(ScriptOf(cluster), out var fallbacks))
+            candidates = candidates.Concat(fallbacks);
+        foreach (var family in candidates)
         {
             if (Match(family, style, weight, stretch) is { } face && CoversAll(face, cluster))
                 return face;
         }
         return null;
+    }
+
+    // The script of a cluster: its first character that is not Common or Inherited, else Common.
+    private static Script ScriptOf(ReadOnlySpan<char> cluster)
+    {
+        foreach (var rune in cluster.EnumerateRunes())
+        {
+            if (UnicodeData.Scripts(rune.Value) is not (Script.Common or Script.Inherited) and var script)
+                return script;
+        }
+        return Script.Common;
+    }
+
+    // UTS #51: shown as emoji by default, or asked to be with VS16.
+    private static bool IsEmojiPresentation(ReadOnlySpan<char> cluster)
+    {
+        foreach (var rune in cluster.EnumerateRunes())
+        {
+            if (rune.Value == 0xFE0F || (UnicodeData.Emoji(rune.Value) & EmojiProperties.EmojiPresentation) != 0)
+                return true;
+        }
+        return false;
     }
 
     private static bool CoversAll(FontFace face, ReadOnlySpan<char> cluster)
@@ -155,6 +202,9 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
 
     /// <summary>Advances in CSS px, kerning included.</summary>
     public float[] Advances { get; } = advances;
+
+    /// <summary>Glyph offsets from their pen positions (CSS px, y down), from complex shaping; null when all are zero.</summary>
+    public System.Numerics.Vector2[]? Offsets { get; init; }
 
     public float Width => Advances.Sum();
 }

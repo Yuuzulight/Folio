@@ -282,7 +282,7 @@ internal static class DisplayListBuilder
                 if (run.RightToLeft)
                     x -= advance;
                 glyphs[i] = run.Run.Glyphs[g];
-                origins[i] = new Vector2(x, baseline);
+                origins[i] = new Vector2(x, baseline) + (run.Run.Offsets?[g] ?? Vector2.Zero);
                 if (!run.RightToLeft)
                     x += advance;
             }

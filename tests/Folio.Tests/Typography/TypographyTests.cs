@@ -176,6 +176,11 @@ public class TypographyTests
         Assert.Null(fonts.Match("No Such Family", FaceStyle.Normal, 400, 100));
         Assert.Equal("Folio Box", fonts.FaceForCluster(["Missing", "Folio Box"], FaceStyle.Normal, 400, 100, "A")?.Family);
         Assert.Null(fonts.FaceForCluster(["Folio Box"], FaceStyle.Normal, 400, 100, "\u0100"));
+
+        // Step 2: the cluster's script picks further families.
+        Assert.Null(fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "A"));
+        fonts.ScriptFallbacks[Script.Latin] = ["Folio Box"];
+        Assert.Equal("Folio Box", fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "A")?.Family);
     }
 
     private sealed record Holder(FaceTraits Traits);

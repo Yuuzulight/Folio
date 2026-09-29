@@ -17,9 +17,12 @@ internal enum FragmentKind
 internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style);
 
 /// <summary>What layout needs besides the box tree: the fonts text is measured with.</summary>
-internal sealed class LayoutContext(FontCollection fonts)
+internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = null)
 {
     public FontCollection Fonts { get; } = fonts;
+
+    /// <summary>Shapes the runs SimpleShaper cannot (complex scripts, marks); without one, SimpleShaper does all.</summary>
+    public ITextShaper? Shaper { get; } = shaper;
 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
