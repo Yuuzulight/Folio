@@ -24,11 +24,13 @@ internal sealed record ResourceResponse(byte[]? Data, string? ContentType, strin
 
 /// <summary>
 /// The minimal loader M1 needs (docs/study/16-resources-and-security.md, option B, deny by default): <c>data:</c> URLs
-/// and nothing else. There is no network code here, so no request ever leaves the process. Host-allowed local folders
-/// and the public loader interface are separate changes.
+/// always, <c>file:</c> URLs only under folders the host allowed, and nothing else. There is no network code here,
+/// so with default options no request ever leaves the process. The public loader interface is a separate change.
 /// </summary>
-internal sealed class ResourceLoader(int maxBytes = 8 * 1024 * 1024)
+internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = null, int maxBytes = 8 * 1024 * 1024)
 {
+    private readonly LocalFolder[] _folders = (allowedFolders ?? []).Select(f => new LocalFolder(f)).ToArray();
+
     /// <summary>Loads nothing but <c>data:</c> URLs: the default.</summary>
     public static ResourceLoader DataUrlsOnly { get; } = new();
 
@@ -44,6 +46,20 @@ internal sealed class ResourceLoader(int maxBytes = 8 * 1024 * 1024)
             return data.Length > MaxBytes
                 ? ResourceResponse.Refused($"The data: URL is larger than {MaxBytes} bytes.")
                 : new ResourceResponse(data, mimeType, null);
+        }
+
+        if (url.StartsWith("file:", StringComparison.OrdinalIgnoreCase) && _folders.Length > 0
+            && Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsFile)
+        {
+            string? lastError = null;
+            foreach (var folder in _folders)
+            {
+                var result = folder.Read(uri.LocalPath, MaxBytes);
+                if (result.Succeeded)
+                    return result;
+                lastError = result.Error;
+            }
+            return ResourceResponse.Refused(lastError ?? "Not found.");
         }
 
         return ResourceResponse.Refused($"Loading {Scheme(url)} URLs is not allowed.");
@@ -84,6 +100,76 @@ internal sealed class ResourceLoader(int maxBytes = 8 * 1024 * 1024)
             return null;
         return Uri.TryCreate(baseUri, reference, out var resolved) ? resolved.AbsoluteUri : null;
     }
+}
+
+/// <summary>
+/// Serves files under one folder (the study's LocalFolderLoader), refusing anything that could leave it: parent
+/// references, UNC and device paths, alternate data streams, reserved device names, and links whose target is
+/// outside the folder.
+/// </summary>
+internal sealed class LocalFolder(string root)
+{
+    private readonly string _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
+    public ResourceResponse Read(string path, int maxBytes)
+    {
+        if (path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
+            return ResourceResponse.Refused("Network and device paths are not allowed.");
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return ResourceResponse.Refused("Invalid path.");
+        }
+        if (!IsUnderRoot(full))
+            return ResourceResponse.Refused("The path is outside the allowed folder.");
+
+        var current = _root;
+        foreach (var segment in full[_root.Length..].Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment.Contains(':') || ReservedNames.Contains(Path.GetFileNameWithoutExtension(segment)))
+                return ResourceResponse.Refused("Alternate data streams and reserved names are not allowed.");
+            current = Path.Combine(current, segment);
+            FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            if (info.Exists && info.LinkTarget is not null
+                && info.ResolveLinkTarget(returnFinalTarget: true) is { } target && !IsUnderRoot(Path.GetFullPath(target.FullName)))
+                return ResourceResponse.Refused("A link points outside the allowed folder.");
+        }
+
+        var file = new FileInfo(full);
+        if (!file.Exists)
+            return ResourceResponse.Refused("Not found.");
+        if (file.Length > maxBytes)
+            return ResourceResponse.Refused($"The file is larger than {maxBytes} bytes.");
+        try
+        {
+            return new ResourceResponse(File.ReadAllBytes(full), null, null);
+        }
+        catch (IOException e)
+        {
+            return ResourceResponse.Refused(e.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return ResourceResponse.Refused("Access denied.");
+        }
+    }
+
+    private bool IsUnderRoot(string full) =>
+        full.StartsWith(_root, PathComparison) && full.Length > _root.Length && full[_root.Length] is '\\' or '/';
 }
 
 /// <summary>https://fetch.spec.whatwg.org/#data-url-processor</summary>
