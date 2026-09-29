@@ -70,6 +70,11 @@ internal enum PropertyId
     BackgroundClip,
     FontStretch,
     FontVariantCaps,
+    BorderTopLeftRadius,
+    BorderTopRightRadius,
+    BorderBottomRightRadius,
+    BorderBottomLeftRadius,
+    Isolation,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -376,6 +381,13 @@ internal static class Properties
                 r => r.Keyword("normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps") is { } k ? new KeywordValue(k) : null,
                 (v, _) => ((KeywordValue)v).Keyword,
                 s => s.Font.VariantCaps, (b, v) => b.Font = b.Font with { VariantCaps = v }),
+
+            Radius(PropertyId.BorderTopLeftRadius, "border-top-left-radius", s => s.Border.TopLeftRadius, (b, v) => b.Border = b.Border with { TopLeftRadius = v }),
+            Radius(PropertyId.BorderTopRightRadius, "border-top-right-radius", s => s.Border.TopRightRadius, (b, v) => b.Border = b.Border with { TopRightRadius = v }),
+            Radius(PropertyId.BorderBottomRightRadius, "border-bottom-right-radius", s => s.Border.BottomRightRadius, (b, v) => b.Border = b.Border with { BottomRightRadius = v }),
+            Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
+            // https://www.w3.org/TR/compositing-1/#isolation
+            Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -446,6 +458,13 @@ internal static class Properties
         new(id, name, false, initial,
             r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.LengthPercentage(),
             (v, ctx) => v is KeywordValue ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(v)),
+            get, set);
+
+    // border-*-radius: one or two non-negative length-percentages, horizontal then vertical.
+    private static Property<CornerRadius> Radius(PropertyId id, string name, Func<ComputedStyle, CornerRadius> get, Action<StyleBuilder, CornerRadius> set) =>
+        new(id, name, false, "0",
+            r => r.LengthPercentage(nonNegative: true) is { } x ? new RadiusValue(x, r.LengthPercentage(nonNegative: true) ?? x) : null,
+            (v, ctx) => new CornerRadius(ctx.LengthPercentage(((RadiusValue)v).X, nonNegative: true), ctx.LengthPercentage(((RadiusValue)v).Y, nonNegative: true)),
             get, set);
 
     private static Property<LengthPercentage> Padding(PropertyId id, string name,
@@ -545,6 +564,24 @@ internal static class Properties
         ["border-bottom"] = Border(Side.Bottom),
         ["border-left"] = Border(Side.Left),
         ["border"] = Border(Side.Top, Side.Right, Side.Bottom, Side.Left),
+        // https://www.w3.org/TR/css-backgrounds-3/#border-radius: 1-4 horizontal radii, optionally "/" and 1-4 vertical.
+        ["border-radius"] = new([PropertyId.BorderTopLeftRadius, PropertyId.BorderTopRightRadius, PropertyId.BorderBottomRightRadius, PropertyId.BorderBottomLeftRadius], r =>
+        {
+            List<CssValue>? Read()
+            {
+                var list = new List<CssValue>();
+                while (list.Count < 4 && r.LengthPercentage(nonNegative: true) is { } value)
+                    list.Add(value);
+                return list.Count == 0 ? null : list;
+            }
+            if (Read() is not { } horizontal || (r.Delim('/') ? Read() : horizontal) is not { } vertical)
+                return null;
+            // Missing corners copy the opposite one: top-right for bottom-left, top-left for the rest.
+            static CssValue Corner(List<CssValue> l, int i) => i < l.Count ? l[i] : i == 3 && l.Count > 1 ? l[1] : l[0];
+            return Enumerable.Range(0, 4)
+                .Select(i => (PropertyId.BorderTopLeftRadius + i, (CssValue)new RadiusValue(Corner(horizontal, i), Corner(vertical, i))))
+                .ToList();
+        }),
         // https://www.w3.org/TR/css-text-4/#white-space-property (the single keywords)
         ["white-space"] = new([PropertyId.WhiteSpaceCollapse, PropertyId.TextWrapMode], r =>
         {

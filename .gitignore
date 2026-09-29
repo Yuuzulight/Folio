@@ -3,6 +3,10 @@ bin/
 obj/
 TestResults/
 tests/render-output/
+tests/fuzz-output/
+
+# Downloaded data (Unicode Character Database), checked against committed checksums
+.cache/
 
 # IDE
 .vs/
