@@ -110,7 +110,8 @@ internal static class InlineLayout
         public bool MandatoryBreakAfter { get; set; }
     }
 
-    private static List<Unit> Units(BlockContainerBox block, InlineFormattingContext ifc, float width, LayoutContext context)
+    // Break the content into units; atomic inlines are laid out only for layout, not for measuring.
+    private static List<Unit> Units(BlockContainerBox block, InlineFormattingContext ifc, float width, LayoutContext context, bool layOutAtomics = true)
     {
         var text = ifc.Text;
         var breaks = LineBreaker.Find(text);
@@ -183,6 +184,12 @@ internal static class InlineLayout
                 {
                     Close();
                     var box = item.Box!;
+                    if (!layOutAtomics)
+                    {
+                        Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true });
+                        Close();
+                        break;
+                    }
                     var fragment = BlockLayout.Layout(box, new ConstraintSpace(width, null), context);
                     var spacing = box.Style.Spacing;
                     var (ml, mr) = (BlockLayout.Margin(spacing.MarginLeft, width), BlockLayout.Margin(spacing.MarginRight, width));
@@ -227,6 +234,38 @@ internal static class InlineLayout
             Add(new Piece(PieceKind.Text, style, w) { Run = run, GlyphStart = from, GlyphEnd = to, Visible = visible });
             unit.TrailingSpace = trailing;
         }
+    }
+
+    /// <summary>
+    /// Min-content (the widest unit) and max-content (the widest line with only forced breaks) widths
+    /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own.
+    /// </summary>
+    public static (float Min, float Max) Measure(BlockContainerBox block, InlineFormattingContext ifc, LayoutContext context)
+    {
+        float min = 0, max = 0, line = 0;
+        foreach (var unit in Units(block, ifc, 0, context, layOutAtomics: false))
+        {
+            var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace, unit.Width);
+            foreach (var piece in unit.Pieces)
+            {
+                if (piece.Kind is PieceKind.Atomic or PieceKind.Float)
+                {
+                    var c = IntrinsicSizes.Contribution(piece.Box!, context);
+                    if (piece.Kind == PieceKind.Float)
+                    {
+                        (min, max) = (Math.Max(min, c.Min), Math.Max(max, c.Max));
+                        continue;
+                    }
+                    (unitMin, unitMax) = (unitMin + c.Min, unitMax + c.Max);
+                }
+            }
+            min = Math.Max(min, unitMin);
+            max = Math.Max(max, line + unitMax - unit.TrailingSpace);
+            line += unitMax;
+            if (unit.MandatoryBreakAfter)
+                line = 0;
+        }
+        return (min, max);
     }
 
     private static float InlineStart(ComputedStyle style, float cbWidth) =>

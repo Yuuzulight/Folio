@@ -1,0 +1,76 @@
+=== floats shrink to fit their content
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="float: left">abc de</div>
+---
+html 0,0 800x16
+  body 0,0 800x0
+    div 0,0 96x16
+      line 0,0 96x16
+        text "abc " 0,0 64x16
+        text "de" 64,0 32x16
+
+=== a float wider than its space shrinks to the space but not below min-content
+%viewport 60 600
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="float: left">abc de</div>
+---
+html 0,0 60x32
+  body 0,0 60x0
+    div 0,0 60x32
+      line 0,0 60x16
+        text "abc " 0,0 64x16
+      line 0,16 60x16
+        text "de" 0,16 32x16
+
+=== inline-blocks shrink to fit and sit on the baseline
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block">bc</span>d</p>
+---
+html 0,0 800x19.2
+  body 0,0 800x19.2
+    p 0,0 800x19.2
+      line 0,0 800x19.2
+        text "a" 0,3.2 16x16
+        span 16,0 32x16
+          line 16,0 32x16
+            text "bc" 16,0 32x16
+        text "d" 48,3.2 16x16
+
+=== absolutely positioned boxes shrink to fit unless both insets are set
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="position: absolute; left: 10px">abc</div><div style="position: absolute; top: 20px; left: 10px; right: 10px">abc</div>
+---
+html 0,0 800x0
+  body 0,0 800x0
+div 10,0 48x16
+  line 10,0 48x16
+    text "abc" 10,0 48x16
+div 10,20 780x16
+  line 10,20 780x16
+    text "abc" 10,20 48x16
+
+=== width keywords
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: min-content">ab cd</div><div style="width: max-content">ab cd</div><div style="width: fit-content">ab cd</div>
+---
+html 0,0 800x64
+  body 0,0 800x64
+    div 0,0 32x32
+      line 0,0 32x16
+        text "ab " 0,0 48x16
+      line 0,16 32x16
+        text "cd" 0,16 32x16
+    div 0,32 80x16
+      line 0,32 80x16
+        text "ab " 0,32 48x16
+        text "cd" 48,32 32x16
+    div 0,48 80x16
+      line 0,48 80x16
+        text "ab " 0,48 48x16
+        text "cd" 48,48 32x16
+
+=== a block's intrinsic width is its widest child's
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="float: left"><div style="padding: 0 5px">abc</div><div style="width: 20px; margin-left: 30px"></div></div>
+---
+html 0,0 800x16
+  body 0,0 800x0
+    div 0,0 58x16
+      div 0,0 58x16
+        line 5,0 48x16
+          text "abc" 5,0 48x16
+      div 30,16 20x0
