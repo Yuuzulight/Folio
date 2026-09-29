@@ -1,0 +1,115 @@
+=== a short paragraph is one line split at its break opportunity
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>Hello world</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "Hello " 0,0 96x16
+        text "world" 96,0 80x16
+
+=== lines fill greedily and trailing spaces hang
+%viewport 100 600
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>aaa bbb ccc</p>
+---
+html 0,0 100x48
+  body 0,0 100x48
+    p 0,0 100x48
+      line 0,0 100x16
+        text "aaa " 0,0 64x16
+      line 0,16 100x16
+        text "bbb " 0,16 64x16
+      line 0,32 100x16
+        text "ccc" 0,32 48x16
+
+=== nowrap keeps a line together
+%viewport 100 600
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="white-space: nowrap">aaa bbb ccc</p>
+---
+html 0,0 100x16
+  body 0,0 100x16
+    p 0,0 100x16
+      line 0,0 100x16
+        text "aaa bbb ccc" 0,0 176x16
+
+=== br ends a line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<br>b</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x16
+        text "a" 0,0 16x16
+      line 0,16 800x16
+        text "b" 0,16 16x16
+
+=== text-align center and right
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-align: center">ab</p><p style="text-align: right">ab cd</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x16
+      line 0,0 800x16
+        text "ab" 384,0 32x16
+    p 0,16 800x16
+      line 0,16 800x16
+        text "ab " 720,16 48x16
+        text "cd" 768,16 32x16
+
+=== inline boxes add their horizontal margins, borders and padding
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="padding: 0 4px; margin-left: 2px; border: 1px solid">b</span>c</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        span 18,-1 26x18
+        text "a" 0,0 16x16
+        text "b" 23,0 16x16
+        text "c" 44,0 16x16
+
+=== line-height adds half the leading above and below
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="line-height: 2">ab</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        text "ab" 0,8 32x16
+
+=== larger text raises the line box around the shared baseline
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="font-size: 32px">b</span></p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        span 16,0 32x32
+        text "a" 0,12.8 16x16
+        text "b" 16,0 32x32
+
+=== lines get shorter beside a float
+%viewport 200 600
+<!DOCTYPE html><style>body, p { margin: 0 }</style><div style="float: left; width: 100px; height: 40px"></div><p>aaa bbb ccc ddd</p>
+---
+html 0,0 200x64
+  body 0,0 200x64
+    div 0,0 100x40
+    p 0,0 200x64
+      line 100,0 100x16
+        text "aaa " 100,0 64x16
+      line 100,16 100x16
+        text "bbb " 100,16 64x16
+      line 100,32 100x16
+        text "ccc " 100,32 64x16
+      line 0,48 200x16
+        text "ddd" 0,48 48x16
+
+=== a paragraph's margins collapse around its lines
+<!DOCTYPE html><style>body { margin: 0 } p { margin: 10px 0 }</style><p>a</p>
+---
+html 0,0 800x36
+  body 0,10 800x16
+    p 0,10 800x16
+      line 0,10 800x16
+        text "a" 0,10 16x16

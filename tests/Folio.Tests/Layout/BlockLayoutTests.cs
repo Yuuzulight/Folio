@@ -4,6 +4,7 @@ using Folio.Dom;
 using Folio.Html;
 using Folio.Layout;
 using Folio.Style;
+using Folio.Typography;
 
 namespace Folio.Tests.Layout;
 
@@ -33,16 +34,25 @@ public class BlockLayoutTests
             parent = parent.AppendChild(document.CreateElement(Namespaces.Html, "div"));
         StyleResolver.Resolve(document, new MediaContext(800, 600));
 
-        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 800, 600);
+        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 800, 600, BoxFont.Value);
 
         Assert.Equal(800, fragment.Children[0].Fragment.Width);
     }
+
+    /// <summary>The test box font for every generic family: every glyph is one em wide, ascent 0.8em, descent 0.2em.</summary>
+    internal static readonly Lazy<FontCollection> BoxFont = new(() =>
+    {
+        var fonts = FontCollection.FromFolder(Path.Combine(AppContext.BaseDirectory, "fonts"));
+        foreach (var generic in new[] { "serif", "sans-serif", "monospace", "system-ui", "emoji", "cursive", "fantasy" })
+            fonts.GenericFamilies[generic] = ["Folio Box"];
+        return fonts;
+    });
 
     internal static Fragment LayOut(string html, float width = 800, float height = 600)
     {
         var document = TreeBuilder.Parse(html);
         StyleResolver.Resolve(document, new MediaContext(width, height));
-        return LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, width, height);
+        return LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, width, height, BoxFont.Value);
     }
 
     // The fragment tree below the initial containing block, border boxes in page coordinates.
@@ -57,9 +67,22 @@ public class BlockLayoutTests
     private static void DumpFragment(ChildFragment placed, float parentX, float parentY, int depth, List<string> lines)
     {
         var (x, y, fragment) = (parentX + placed.X, parentY + placed.Y, placed.Fragment);
-        lines.Add($"{new string(' ', depth * 2)}{Label(fragment.Box)} {N(x)},{N(y)} {N(fragment.Width)}x{N(fragment.Height)}");
+        var label = fragment.Kind switch
+        {
+            FragmentKind.Line => "line",
+            FragmentKind.Text => $"text \"{CaseFiles.Escape(Text(fragment))}\"",
+            _ => Label(fragment.Box),
+        };
+        lines.Add($"{new string(' ', depth * 2)}{label} {N(x)},{N(y)} {N(fragment.Width)}x{N(fragment.Height)}");
         foreach (var child in fragment.Children)
             DumpFragment(child, x, y, depth + 1, lines);
+    }
+
+    private static string Text(Fragment fragment)
+    {
+        var (run, text) = (fragment.Text!.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
+        var (start, end) = (run.Clusters[fragment.Text.GlyphStart], run.Clusters[fragment.Text.GlyphEnd - 1] + 1);
+        return text[start..end];
     }
 
     private static string Label(Box? box) => box switch

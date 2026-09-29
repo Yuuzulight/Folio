@@ -52,6 +52,8 @@ internal enum TextWrapMode { Wrap, Nowrap }
 
 internal enum ListStylePosition { Outside, Inside }
 
+internal enum TextAlign { Start, End, Left, Right, Center, Justify }
+
 /// <summary>
 /// A computed length-percentage: <c>Px + Percent% of the basis</c>, or a <c>calc()</c> tree that is not linear
 /// in the basis (e.g. <c>min(50%, 300px)</c>), kept with its lengths already in px (docs/study/04-cascade-and-computed-values.md).
@@ -184,8 +186,9 @@ internal sealed record BackgroundGroup(
     IReadOnlyList<RepeatStyle> Repeats, IReadOnlyList<BackgroundAttachment> Attachments, IReadOnlyList<BackgroundBox> Origins,
     IReadOnlyList<BackgroundBox> Clips);
 
-/// <summary>Inherited: white space handling and list markers.</summary>
-internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition);
+/// <summary>Inherited: white space handling, alignment and list markers.</summary>
+internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition,
+                                 TextAlign TextAlign = TextAlign.Start);
 
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);

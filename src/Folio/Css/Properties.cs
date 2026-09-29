@@ -75,6 +75,7 @@ internal enum PropertyId
     BorderBottomRightRadius,
     BorderBottomLeftRadius,
     Isolation,
+    TextAlign,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -388,6 +389,9 @@ internal static class Properties
             Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
             // https://www.w3.org/TR/compositing-1/#isolation
             Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
+            // https://www.w3.org/TR/css-text-3/#text-align-property (match-parent is not supported)
+            Keywords(PropertyId.TextAlign, "text-align", true, "start", Enum<Style.TextAlign>("start", "end", "left", "right", "center", "justify"),
+                s => s.Text.TextAlign, (b, v) => b.Text = b.Text with { TextAlign = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];

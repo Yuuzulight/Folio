@@ -25,7 +25,7 @@ internal static class PositionedLayout
     /// static position and the result are from the padding box's origin.
     /// </summary>
     // ponytail: an auto width fills the space the insets leave instead of shrinking to fit, until intrinsic sizes exist.
-    public static ChildFragment LayoutAbsolute(Box box, float cbWidth, float cbHeight, float staticX, float staticY)
+    public static ChildFragment LayoutAbsolute(Box box, float cbWidth, float cbHeight, float staticX, float staticY, LayoutContext context)
     {
         var style = box.Style;
         var spacing = style.Spacing;
@@ -57,7 +57,7 @@ internal static class PositionedLayout
         }
         float? fixedHeight = height is { } known ? BlockLayout.Clamp(known, minHeight, maxHeight) + frameY : null;
 
-        var fragment = BlockLayout.Layout(box, new ConstraintSpace(cbWidth, cbHeight, FixedWidth: h.Size + frameX, FixedHeight: fixedHeight));
+        var fragment = BlockLayout.Layout(box, new ConstraintSpace(cbWidth, cbHeight, FixedWidth: h.Size + frameX, FixedHeight: fixedHeight), context);
 
         var v = Solve(top, fragment.Height - frameY, bottom, spacing.MarginTop, spacing.MarginBottom,
             cbWidth, frameY, cbHeight, staticY, horizontal: false, sizeWasAuto: style.Size.Height.Kind != SizeKind.Length);
