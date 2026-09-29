@@ -70,8 +70,8 @@ public class TreeBuilderTests
     {
         var html = "<div " + string.Join(' ', Enumerable.Range(0, 20_000).Select(i => $"a{i}=1")) + " a0=2>";
 
-        var body = (Element)TreeBuilder.Parse(html).DocumentElement!.LastChild!;
-        var div = (Element)body.FirstChild!;
+        var body = (ElementNode)TreeBuilder.Parse(html).DocumentElement!.LastChild!;
+        var div = (ElementNode)body.FirstChild!;
 
         Assert.Equal(20_000, div.Attributes.Length);
         Assert.Equal("1", div.GetAttribute("a0"));
@@ -116,12 +116,12 @@ public class TreeBuilderTests
 
         Assert.Empty(errors);
         Assert.Equal(DocumentMode.NoQuirks, document.Mode);
-        var body = (Element)document.DocumentElement!.LastChild!;
+        var body = (ElementNode)document.DocumentElement!.LastChild!;
         Assert.Equal("body", body.LocalName);
-        var main = body.Children.OfType<Element>().Single(e => e.LocalName == "main");
-        Assert.Equal(["section", "section", "svg"], main.Children.OfType<Element>().Select(e => e.LocalName));
-        var table = main.Children.OfType<Element>().ElementAt(1).Children.OfType<Element>().Single(e => e.LocalName == "table");
-        Assert.Equal(["thead", "tbody"], table.Children.OfType<Element>().Select(e => e.LocalName));
+        var main = body.Children.OfType<ElementNode>().Single(e => e.LocalName == "main");
+        Assert.Equal(["section", "section", "svg"], main.Children.OfType<ElementNode>().Select(e => e.LocalName));
+        var table = main.Children.OfType<ElementNode>().ElementAt(1).Children.OfType<ElementNode>().Single(e => e.LocalName == "table");
+        Assert.Equal(["thead", "tbody"], table.Children.OfType<ElementNode>().Select(e => e.LocalName));
         Assert.Contains("Q3 \u2014 Summary", body.TextContent);
     }
 
@@ -150,7 +150,7 @@ public class TreeBuilderTests
                         ? $"{indent}<!DOCTYPE {doctype.Name}>"
                         : $"{indent}<!DOCTYPE {doctype.Name} \"{doctype.PublicId}\" \"{doctype.SystemId}\">");
                     break;
-                case Element element:
+                case ElementNode element:
                     lines.Add(indent + StartTag(element));
                     PushChildren(stack, element, depth + 1);
                     if (element is TemplateElement template)
@@ -180,7 +180,7 @@ public class TreeBuilderTests
             stack.Push((child, depth));
     }
 
-    private static string StartTag(Element element)
+    private static string StartTag(ElementNode element)
     {
         var prefix = element.Name.Namespace == Namespaces.Svg ? "svg:" : element.Name.Namespace == Namespaces.MathML ? "math:" : "";
         var tag = new StringBuilder("<").Append(prefix).Append(element.LocalName);

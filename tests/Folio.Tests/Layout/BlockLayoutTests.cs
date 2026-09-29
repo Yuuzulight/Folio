@@ -88,7 +88,7 @@ public class BlockLayoutTests
     private static string Label(Box? box) => box switch
     {
         { PseudoElement: not PseudoElement.None and var pe } => "::" + pe.ToString().ToLowerInvariant(),
-        { Node: Element e } => e.LocalName + (e.GetAttribute("id") is { } id ? "#" + id : ""),
+        { Node: ElementNode e } => e.LocalName + (e.GetAttribute("id") is { } id ? "#" + id : ""),
         _ => "(anonymous)",
     };
 

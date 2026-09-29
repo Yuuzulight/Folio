@@ -174,9 +174,9 @@ internal static class DisplayListBuilder
     private static (Box? Owner, CssColor Color) CanvasBackground(Box root)
     {
         var rootColor = root.Style.Background.Color.Resolve(root.Style.Inherited.Color);
-        if (rootColor.A > 0 || root.Node is not Element { LocalName: "html" })
+        if (rootColor.A > 0 || root.Node is not ElementNode { LocalName: "html" })
             return (root, rootColor);
-        var body = root.Children.FirstOrDefault(b => b.Node is Element { LocalName: "body" } e && e.Name.Namespace == Namespaces.Html);
+        var body = root.Children.FirstOrDefault(b => b.Node is ElementNode { LocalName: "body" } e && e.Name.Namespace == Namespaces.Html);
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
     }
 

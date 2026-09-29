@@ -41,15 +41,15 @@ internal sealed partial class TreeBuilder : ITokenSink
     private readonly ParserLimits _limits;
     private readonly Action<string, int>? _parseError;
 
-    private readonly List<Element> _open = [];
-    private readonly List<Element?> _formatting = []; // null is a marker
+    private readonly List<ElementNode> _open = [];
+    private readonly List<ElementNode?> _formatting = []; // null is a marker
     private readonly List<Mode> _templateModes = [];
     private readonly System.Text.StringBuilder _pendingTableText = new();
 
     private Mode _mode = Mode.Initial;
     private Mode _originalMode;
-    private Element? _head;
-    private Element? _form;
+    private ElementNode? _head;
+    private ElementNode? _form;
     private bool _fosterParenting;
     private bool _skipNextNewline;
     private bool _selfClosingAcknowledged;

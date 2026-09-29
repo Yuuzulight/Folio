@@ -21,7 +21,7 @@ internal sealed class DocumentNode : ContainerNode
 
     internal DocumentNode(AtomTable atoms) : base(null) => _atoms = atoms;
 
-    public Element? DocumentElement => Children.OfType<Element>().FirstOrDefault();
+    public ElementNode? DocumentElement => Children.OfType<ElementNode>().FirstOrDefault();
 
     public DocumentMode Mode { get; set; }
 
@@ -50,10 +50,10 @@ internal sealed class DocumentNode : ContainerNode
 
     public string TextOf(Atom atom) => atom.Value >= 0 ? _atoms.Text(atom) : _localTexts[-atom.Value - 1];
 
-    public Element CreateElement(Atom ns, string localName) =>
+    public ElementNode CreateElement(Atom ns, string localName) =>
         ns == Namespaces.Html && localName == "template"
             ? new TemplateElement(this, new QualifiedName(ns, Intern(localName)))
-            : new Element(this, new QualifiedName(ns, Intern(localName)));
+            : new ElementNode(this, new QualifiedName(ns, Intern(localName)));
 
     public Text CreateText(string data) => new(this, data);
 
@@ -71,13 +71,13 @@ internal sealed class DocumentNode : ContainerNode
             case Text:
                 throw new InvalidOperationException("Text cannot be a child of a document.");
             case DocumentFragment fragment:
-                var elements = fragment.Children.Count(n => n is Element);
+                var elements = fragment.Children.Count(n => n is ElementNode);
                 if (elements > 1 || fragment.Children.Any(n => n is Text))
                     throw new InvalidOperationException("A document can have only one element and no text.");
                 if (elements == 1)
                     EnsureElementAllowed(child);
                 break;
-            case Element:
+            case ElementNode:
                 EnsureElementAllowed(child);
                 break;
             case DocumentType:
@@ -97,7 +97,7 @@ internal sealed class DocumentNode : ContainerNode
     {
         for (var node = child is null ? LastChild : child.PreviousSibling; node is not null; node = node.PreviousSibling)
         {
-            if (node is Element)
+            if (node is ElementNode)
                 return true;
         }
         return false;

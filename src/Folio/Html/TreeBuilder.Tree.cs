@@ -5,21 +5,21 @@ namespace Folio.Html;
 // The stack of open elements, the list of active formatting elements, and node insertion.
 internal sealed partial class TreeBuilder
 {
-    private Element CurrentNode => _open[^1];
+    private ElementNode CurrentNode => _open[^1];
 
-    private static bool IsHtml(Element element) => element.Name.Namespace == Namespaces.Html;
+    private static bool IsHtml(ElementNode element) => element.Name.Namespace == Namespaces.Html;
 
-    private static bool IsHtml(Element element, string name) => IsHtml(element) && element.LocalName == name;
+    private static bool IsHtml(ElementNode element, string name) => IsHtml(element) && element.LocalName == name;
 
-    private static bool IsHtml(Element element, params ReadOnlySpan<string> names) =>
+    private static bool IsHtml(ElementNode element, params ReadOnlySpan<string> names) =>
         IsHtml(element) && names.Contains(element.LocalName);
 
     private bool CurrentIsHtml(params ReadOnlySpan<string> names) => IsHtml(CurrentNode, names);
 
-    private static bool IsMathMLTextIntegrationPoint(Element element) =>
+    private static bool IsMathMLTextIntegrationPoint(ElementNode element) =>
         element.Name.Namespace == Namespaces.MathML && element.LocalName is "mi" or "mo" or "mn" or "ms" or "mtext";
 
-    private static bool IsHtmlIntegrationPoint(Element element)
+    private static bool IsHtmlIntegrationPoint(ElementNode element)
     {
         if (element.Name.Namespace == Namespaces.MathML && element.LocalName == "annotation-xml")
         {
@@ -43,7 +43,7 @@ internal sealed partial class TreeBuilder
         "template", "textarea", "tfoot", "th", "thead", "title", "tr", "track", "ul", "wbr", "xmp",
     ];
 
-    private static bool IsSpecial(Element element)
+    private static bool IsSpecial(ElementNode element)
     {
         if (IsHtml(element))
             return SpecialHtml.Contains(element.LocalName);
@@ -65,7 +65,7 @@ internal sealed partial class TreeBuilder
         }
     }
 
-    private void PopUntil(Element element)
+    private void PopUntil(ElementNode element)
     {
         while (_open.Count > 0)
         {
@@ -89,9 +89,9 @@ internal sealed partial class TreeBuilder
 
     private bool InScope(string name, Scope scope = Scope.Default) => InScope(e => IsHtml(e, name), scope);
 
-    private bool InScope(Element target, Scope scope = Scope.Default) => InScope(e => e == target, scope);
+    private bool InScope(ElementNode target, Scope scope = Scope.Default) => InScope(e => e == target, scope);
 
-    private bool InScope(Predicate<Element> isTarget, Scope scope)
+    private bool InScope(Predicate<ElementNode> isTarget, Scope scope)
     {
         for (var i = _open.Count - 1; i >= 0; i--)
         {
@@ -104,7 +104,7 @@ internal sealed partial class TreeBuilder
         return false;
     }
 
-    private static bool IsScopeBoundary(Element node, Scope scope)
+    private static bool IsScopeBoundary(ElementNode node, Scope scope)
     {
         switch (scope)
         {
@@ -160,7 +160,7 @@ internal sealed partial class TreeBuilder
     // ---------------------------------------------------------------- insertion
 
     // https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node
-    private (ContainerNode Parent, Node? Before) AppropriatePlace(Element? overrideTarget = null)
+    private (ContainerNode Parent, Node? Before) AppropriatePlace(ElementNode? overrideTarget = null)
     {
         var target = overrideTarget ?? CurrentNode;
         if (overrideTarget is null && _open.Count > _limits.MaxDepth)
@@ -240,7 +240,7 @@ internal sealed partial class TreeBuilder
     }
 
     // https://html.spec.whatwg.org/multipage/parsing.html#create-an-element-for-the-token
-    private Element CreateElement(string localName, Atom ns, List<TokenAttribute>? attributes, Func<string, (Atom Ns, string Name)>? adjust = null)
+    private ElementNode CreateElement(string localName, Atom ns, List<TokenAttribute>? attributes, Func<string, (Atom Ns, string Name)>? adjust = null)
     {
         var element = _document.CreateElement(ns, localName);
         if (attributes is { Count: > 0 })
@@ -256,7 +256,7 @@ internal sealed partial class TreeBuilder
         return element;
     }
 
-    private Element Clone(Element element)
+    private ElementNode Clone(ElementNode element)
     {
         var clone = _document.CreateElement(element.Name.Namespace, element.LocalName);
         clone.SetParsedAttributes(element.Attributes.ToArray());
@@ -264,7 +264,7 @@ internal sealed partial class TreeBuilder
     }
 
     // https://html.spec.whatwg.org/multipage/parsing.html#insert-a-foreign-element
-    private Element InsertElement(Element element)
+    private ElementNode InsertElement(ElementNode element)
     {
         var (parent, before) = AppropriatePlace();
         if (Count() && parent is not DocumentNode { DocumentElement: not null })
@@ -273,10 +273,10 @@ internal sealed partial class TreeBuilder
         return element;
     }
 
-    private Element InsertHtmlElement(Token token) =>
+    private ElementNode InsertHtmlElement(Token token) =>
         InsertElement(CreateElement(token.Name, Namespaces.Html, token.Attributes));
 
-    private Element InsertHtmlElement(string name) => InsertElement(CreateElement(name, Namespaces.Html, null));
+    private ElementNode InsertHtmlElement(string name) => InsertElement(CreateElement(name, Namespaces.Html, null));
 
     private void InsertHtmlElementIntoDocument(Token? token)
     {
@@ -293,7 +293,7 @@ internal sealed partial class TreeBuilder
         _selfClosingAcknowledged = true;
     }
 
-    private void AddMissingAttributes(Element element, Token token)
+    private void AddMissingAttributes(ElementNode element, Token token)
     {
         foreach (var attribute in token.Attributes)
         {
@@ -305,7 +305,7 @@ internal sealed partial class TreeBuilder
     // ---------------------------------------------------------------- active formatting elements
 
     // https://html.spec.whatwg.org/multipage/parsing.html#push-onto-the-list-of-active-formatting-elements
-    private void PushFormatting(Element element)
+    private void PushFormatting(ElementNode element)
     {
         var matches = 0;
         var earliest = -1;
@@ -319,7 +319,7 @@ internal sealed partial class TreeBuilder
         _formatting.Add(element);
     }
 
-    private static bool SameElementAndAttributes(Element a, Element b)
+    private static bool SameElementAndAttributes(ElementNode a, ElementNode b)
     {
         if (a.Name != b.Name || a.Attributes.Length != b.Attributes.Length)
             return false;

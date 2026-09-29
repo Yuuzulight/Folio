@@ -6,12 +6,12 @@ public class DomTests
 {
     private readonly DocumentNode _doc = new();
 
-    private Element Html(string name) => _doc.CreateElement(Namespaces.Html, name);
+    private ElementNode Html(string name) => _doc.CreateElement(Namespaces.Html, name);
 
     private static string Names(ContainerNode parent) =>
         string.Join(",", parent.Children.Select(n => n switch
         {
-            Element e => e.LocalName,
+            ElementNode e => e.LocalName,
             Text t => $"'{t.Data}'",
             _ => n.GetType().Name,
         }));

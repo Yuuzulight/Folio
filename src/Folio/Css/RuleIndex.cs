@@ -45,7 +45,7 @@ internal sealed class RuleIndex<T>
     }
 
     /// <summary>Appends the entries matching <paramref name="element"/> (and <paramref name="pseudoElement"/>), in order of appearance.</summary>
-    public void Collect(Element element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
+    public void Collect(ElementNode element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
     {
         var start = matches.Count;
         if (!element.Id.IsNone && _byId.TryGetValue(element.Id, out var byId))
@@ -64,7 +64,7 @@ internal sealed class RuleIndex<T>
 
     // ponytail: quirks-mode documents match ids and classes case-insensitively, so their rules may sit in a bucket
     // this lookup misses; they are rare for artifacts, and the universal bucket would be the fix if they matter.
-    private static void CollectFrom(List<Entry> entries, Element element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
+    private static void CollectFrom(List<Entry> entries, ElementNode element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
     {
         foreach (var entry in entries)
         {

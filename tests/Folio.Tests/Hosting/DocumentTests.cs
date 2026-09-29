@@ -149,4 +149,40 @@ public class DocumentTests
         Assert.Equal("box", document.ElementAt(50, 25)?.GetAttribute("id"));
         Assert.Null(document.ElementAt(50, 100)); // below the page
     }
+
+    [Fact]
+    public void ExposesElementsReadOnly()
+    {
+        using var document = Document.Parse("<div id=main CLASS='a b'><p>One <b>two</b></p><p lang=en>Three</p></div><p id=main>late");
+
+        var root = document.DocumentElement!;
+        Assert.Equal(("html", "http://www.w3.org/1999/xhtml"), (root.LocalName, root.NamespaceUri));
+        Assert.Null(root.Parent);
+        Assert.Equal(["head", "body"], root.Children.Select(e => e.LocalName));
+
+        var main = document.GetElementById("main")!;
+        Assert.Equal("div", main.LocalName);                       // the first in tree order
+        Assert.Equal("main", main.Id);
+        Assert.Equal("a b", main.GetAttribute("Class"));           // HTML attribute names ignore case
+        Assert.Null(main.GetAttribute("title"));
+        Assert.Equal([new("id", "main"), new("class", "a b")], main.Attributes);
+        Assert.Equal("One twoThree", main.TextContent);
+        Assert.Same(main, document.QuerySelector("#main"));        // one wrapper per element
+        Assert.Same(main, main.Children[0].Parent);
+        Assert.Null(document.GetElementById(""));
+    }
+
+    [Fact]
+    public void QueriesSelectorsInTreeOrder()
+    {
+        using var document = Document.Parse("<div><p>1</p><section><p>2</p></section></div><p>3</p>");
+
+        Assert.Equal(["1", "2", "3"], document.QuerySelectorAll("p").Select(e => e.TextContent));
+        var div = document.QuerySelector("div")!;
+        Assert.Equal(["1", "2"], div.QuerySelectorAll("p").Select(e => e.TextContent));
+        Assert.Equal("2", div.QuerySelector("section > p")!.TextContent);
+        Assert.Null(div.QuerySelector("div"));                     // descendants only
+        Assert.Empty(document.QuerySelectorAll("table"));
+        Assert.Throws<ArgumentException>(() => document.QuerySelector("p["));
+    }
 }

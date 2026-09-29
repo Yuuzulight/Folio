@@ -7,7 +7,7 @@ internal readonly record struct QualifiedName(Atom Namespace, Atom LocalName);
 internal readonly record struct Attribute(Atom Name, string Value, Atom Namespace = default);
 
 /// <summary>https://dom.spec.whatwg.org/#interface-element</summary>
-internal class Element(DocumentNode ownerDocument, QualifiedName name) : ContainerNode(ownerDocument)
+internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : ContainerNode(ownerDocument)
 {
     private Attribute[] _attributes = [];
 
@@ -94,7 +94,7 @@ internal class Element(DocumentNode ownerDocument, QualifiedName name) : Contain
 /// https://html.spec.whatwg.org/multipage/scripting.html#the-template-element: its parsed contents are kept
 /// in an inert fragment, outside the tree.
 /// </summary>
-internal sealed class TemplateElement(DocumentNode ownerDocument, QualifiedName name) : Element(ownerDocument, name)
+internal sealed class TemplateElement(DocumentNode ownerDocument, QualifiedName name) : ElementNode(ownerDocument, name)
 {
     public DocumentFragment Content { get; } = new(ownerDocument);
 }

@@ -70,14 +70,14 @@ public class CascadeTests
 
         StyleResolver.Resolve(document, new MediaContext(800, 600));
 
-        Assert.Equal(Display.Block, ((Element)parent).ComputedStyle()!.Box.Display);
+        Assert.Equal(Display.Block, ((ElementNode)parent).ComputedStyle()!.Box.Display);
     }
 
-    private static Element Find(DocumentNode document, string label)
+    private static ElementNode Find(DocumentNode document, string label)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {
-            if (node is Element e && (label.StartsWith('#') ? e.GetAttribute("id") == label[1..] : e.LocalName == label))
+            if (node is ElementNode e && (label.StartsWith('#') ? e.GetAttribute("id") == label[1..] : e.LocalName == label))
                 return e;
         }
         throw new InvalidOperationException($"No element {label}.");

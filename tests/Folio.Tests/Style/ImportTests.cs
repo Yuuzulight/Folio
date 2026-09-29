@@ -109,11 +109,11 @@ public class ImportTests
         return Find(document, "a").ComputedStyle()!;
     }
 
-    private static Element Find(DocumentNode document, string id)
+    private static ElementNode Find(DocumentNode document, string id)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {
-            if (node is Element e && e.GetAttribute("id") == id)
+            if (node is ElementNode e && e.GetAttribute("id") == id)
                 return e;
         }
         throw new InvalidOperationException($"No element #{id}.");
