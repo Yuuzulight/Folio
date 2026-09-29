@@ -79,6 +79,18 @@ internal enum PropertyId
     VerticalAlign,
     Direction,
     UnicodeBidi,
+    FlexDirection,
+    FlexWrap,
+    JustifyContent,
+    AlignItems,
+    AlignSelf,
+    AlignContent,
+    FlexGrow,
+    FlexShrink,
+    FlexBasis,
+    Order,
+    RowGap,
+    ColumnGap,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -406,6 +418,39 @@ internal static class Properties
             Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
                 Enum<UnicodeBidi>("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
                 s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
+
+            // https://www.w3.org/TR/css-flexbox-1/ and css-align-3 (safe and unsafe are accepted and ignored)
+            Keywords(PropertyId.FlexDirection, "flex-direction", false, "row", Enum<FlexDirection>("row", "row-reverse", "column", "column-reverse"),
+                s => s.Flex.Direction, (b, v) => b.Flex = b.Flex with { Direction = v }),
+            Keywords(PropertyId.FlexWrap, "flex-wrap", false, "nowrap", Enum<FlexWrap>("nowrap", "wrap", "wrap-reverse"),
+                s => s.Flex.Wrap, (b, v) => b.Flex = b.Flex with { Wrap = v }),
+            Aligned(PropertyId.JustifyContent, "justify-content", ContentAlignKeywords, s => s.Flex.JustifyContent, (b, v) => b.Flex = b.Flex with { JustifyContent = v }),
+            Aligned(PropertyId.AlignContent, "align-content", ContentAlignKeywords, s => s.Flex.AlignContent, (b, v) => b.Flex = b.Flex with { AlignContent = v }),
+            Aligned(PropertyId.AlignItems, "align-items", ItemAlignKeywords, s => s.Flex.AlignItems, (b, v) => b.Flex = b.Flex with { AlignItems = v }),
+            Aligned(PropertyId.AlignSelf, "align-self", ItemAlignKeywords, s => s.Flex.AlignSelf, (b, v) => b.Flex = b.Flex with { AlignSelf = v }, "auto"),
+            new Property<float>(PropertyId.FlexGrow, "flex-grow", false, "0",
+                r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : null, (v, _) => ((NumberValue)v).Number,
+                s => s.Flex.Grow, (b, v) => b.Flex = b.Flex with { Grow = v }),
+            new Property<float>(PropertyId.FlexShrink, "flex-shrink", false, "1",
+                r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : null, (v, _) => ((NumberValue)v).Number,
+                s => s.Flex.Shrink, (b, v) => b.Flex = b.Flex with { Shrink = v }),
+            new Property<SizeValue>(PropertyId.FlexBasis, "flex-basis", false, "auto",
+                r => r.Keyword("auto", "content", "min-content", "max-content", "fit-content") is { } k ? new KeywordValue(k) : r.LengthPercentage(nonNegative: true),
+                (v, ctx) => v switch
+                {
+                    KeywordValue { Keyword: "auto" } => SizeValue.Auto,
+                    KeywordValue { Keyword: "content" } => new SizeValue(SizeKind.Content),
+                    KeywordValue { Keyword: "min-content" } => new SizeValue(SizeKind.MinContent),
+                    KeywordValue { Keyword: "max-content" } => new SizeValue(SizeKind.MaxContent),
+                    KeywordValue => new SizeValue(SizeKind.FitContent),
+                    _ => SizeValue.Of(ctx.LengthPercentage(v, nonNegative: true)),
+                },
+                s => s.Flex.Basis, (b, v) => b.Flex = b.Flex with { Basis = v }),
+            new Property<int>(PropertyId.Order, "order", false, "0",
+                r => r.Integer() is { } i ? new NumberValue(i) : null, (v, _) => (int)((NumberValue)v).Number,
+                s => s.Flex.Order, (b, v) => b.Flex = b.Flex with { Order = v }),
+            Gap(PropertyId.RowGap, "row-gap", s => s.Flex.RowGap, (b, v) => b.Flex = b.Flex with { RowGap = v }),
+            Gap(PropertyId.ColumnGap, "column-gap", s => s.Flex.ColumnGap, (b, v) => b.Flex = b.Flex with { ColumnGap = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -430,6 +475,45 @@ internal static class Properties
         ["table-column"] = Display.TableColumn, ["table-caption"] = Display.TableCaption, ["contents"] = Display.Contents,
         ["none"] = Display.None,
     };
+
+    private static readonly Dictionary<string, ContentAlign> ContentAlignKeywords = new()
+    {
+        ["normal"] = ContentAlign.Normal, ["flex-start"] = ContentAlign.FlexStart, ["flex-end"] = ContentAlign.FlexEnd,
+        ["center"] = ContentAlign.Center, ["space-between"] = ContentAlign.SpaceBetween, ["space-around"] = ContentAlign.SpaceAround,
+        ["space-evenly"] = ContentAlign.SpaceEvenly, ["stretch"] = ContentAlign.Stretch, ["start"] = ContentAlign.Start,
+        ["end"] = ContentAlign.End, ["left"] = ContentAlign.Left, ["right"] = ContentAlign.Right,
+    };
+
+    private static readonly Dictionary<string, ItemAlign> ItemAlignKeywords = new()
+    {
+        ["auto"] = ItemAlign.Auto, ["normal"] = ItemAlign.Normal, ["stretch"] = ItemAlign.Stretch, ["flex-start"] = ItemAlign.FlexStart,
+        ["flex-end"] = ItemAlign.FlexEnd, ["center"] = ItemAlign.Center, ["baseline"] = ItemAlign.Baseline, ["start"] = ItemAlign.Start,
+        ["end"] = ItemAlign.End, ["self-start"] = ItemAlign.SelfStart, ["self-end"] = ItemAlign.SelfEnd,
+    };
+
+    // An alignment keyword, optionally after safe/unsafe (overflow alignment is not supported) or first/last (baseline).
+    private static Property<T> Aligned<T>(PropertyId id, string name, Dictionary<string, T> keywords,
+                                          Func<ComputedStyle, T> get, Action<StyleBuilder, T> set, string initial = "normal") where T : struct, Enum =>
+        new(id, name, false, initial,
+            r =>
+            {
+                var position = r.Keyword("first", "last");
+                if (position is null)
+                    r.Keyword("safe", "unsafe");
+                var keyword = r.Keyword(keywords.Keys.Where(k => k != "auto" || initial == "auto").ToArray());
+                if (keyword is null || position is not null && keyword != "baseline")
+                    return null;
+                return new KeywordValue(position == "last" ? "last baseline" : keyword);
+            },
+            (v, _) => ((KeywordValue)v).Keyword == "last baseline" ? (T)(object)ItemAlign.LastBaseline : keywords[((KeywordValue)v).Keyword],
+            get, set);
+
+    // row-gap and column-gap: normal (zero in flex and grid) or a non-negative length-percentage.
+    private static Property<LengthPercentage> Gap(PropertyId id, string name, Func<ComputedStyle, LengthPercentage> get, Action<StyleBuilder, LengthPercentage> set) =>
+        new(id, name, false, "normal",
+            r => r.Keyword("normal") is not null ? new KeywordValue("normal") : r.LengthPercentage(nonNegative: true),
+            (v, ctx) => v is KeywordValue ? default : ctx.LengthPercentage(v, nonNegative: true),
+            get, set);
 
     private static readonly Dictionary<string, VerticalAlignKind> VerticalAlignKeywords = new()
     {
@@ -656,6 +740,63 @@ internal static class Properties
             BackgroundParsing.Shorthand),
         ["font"] = new([PropertyId.FontStyle, PropertyId.FontVariantCaps, PropertyId.FontWeight, PropertyId.FontStretch,
             PropertyId.FontSize, PropertyId.LineHeight, PropertyId.FontFamily], FontShorthand),
+        // https://www.w3.org/TR/css-flexbox-1/#flex-property: none | [ <grow> <shrink>? || <basis> ]
+        ["flex"] = new([PropertyId.FlexGrow, PropertyId.FlexShrink, PropertyId.FlexBasis], r =>
+        {
+            if (r.Keyword("none") is not null)
+                return [(PropertyId.FlexGrow, new NumberValue(0)), (PropertyId.FlexShrink, new NumberValue(0)), (PropertyId.FlexBasis, new KeywordValue("auto"))];
+            CssValue? grow = null, shrink = null, basis = null;
+            while (!r.AtEnd)
+            {
+                if (grow is null && r.Number(nonNegative: true) is { } g)
+                {
+                    grow = new NumberValue(g);
+                    if (r.Number(nonNegative: true) is { } s)
+                        shrink = new NumberValue(s);
+                }
+                else if (basis is null && Get(PropertyId.FlexBasis).Parse(r.OneValue()) is { } b)
+                {
+                    basis = b;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            if (grow is null && basis is null)
+                return null;
+            // Omitted grow and shrink are 1; an omitted basis is 0.
+            return
+            [
+                (PropertyId.FlexGrow, grow ?? new NumberValue(1)),
+                (PropertyId.FlexShrink, shrink ?? new NumberValue(1)),
+                (PropertyId.FlexBasis, basis ?? new PercentageValue(0)),
+            ];
+        }),
+        ["flex-flow"] = new([PropertyId.FlexDirection, PropertyId.FlexWrap], r =>
+        {
+            CssValue? direction = null, wrap = null;
+            while (!r.AtEnd)
+            {
+                var one = r.OneValue();
+                if (direction is null && Get(PropertyId.FlexDirection).Parse(one.Copy()) is { } d)
+                    direction = d;
+                else if (wrap is null && Get(PropertyId.FlexWrap).Parse(one.Copy()) is { } w)
+                    wrap = w;
+                else
+                    return null;
+            }
+            return direction is null && wrap is null ? null
+                : [(PropertyId.FlexDirection, direction ?? Get(PropertyId.FlexDirection).Initial), (PropertyId.FlexWrap, wrap ?? Get(PropertyId.FlexWrap).Initial)];
+        }),
+        ["gap"] = new([PropertyId.RowGap, PropertyId.ColumnGap], r =>
+        {
+            var row = Get(PropertyId.RowGap).Parse(r.OneValue());
+            if (row is null)
+                return null;
+            var column = r.AtEnd ? row : Get(PropertyId.ColumnGap).Parse(r.OneValue());
+            return column is null ? null : [(PropertyId.RowGap, row), (PropertyId.ColumnGap, column)];
+        }),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {
             var x = Get(PropertyId.OverflowX).Parse(r.OneValue());

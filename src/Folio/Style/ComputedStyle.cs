@@ -99,7 +99,7 @@ internal readonly record struct LengthPercentage(float Px, float Percent = 0, Ca
     }
 }
 
-internal enum SizeKind { Length, Auto, None, MinContent, MaxContent, FitContent }
+internal enum SizeKind { Length, Auto, None, MinContent, MaxContent, FitContent, Content }
 
 /// <summary>A size or offset: a length-percentage, or one of the keywords the property allows.</summary>
 internal readonly record struct SizeValue(SizeKind Kind, LengthPercentage Length = default)
@@ -115,6 +115,7 @@ internal readonly record struct SizeValue(SizeKind Kind, LengthPercentage Length
         SizeKind.MinContent => "min-content",
         SizeKind.MaxContent => "max-content",
         SizeKind.FitContent => "fit-content",
+        SizeKind.Content => "content",
         _ => Kind.ToString().ToLowerInvariant(),
     };
 }
@@ -204,6 +205,25 @@ internal sealed record BackgroundGroup(
 internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition,
                                  TextAlign TextAlign = TextAlign.Start, Direction Direction = Direction.Ltr);
 
+internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
+
+internal enum FlexWrap { Nowrap, Wrap, WrapReverse }
+
+/// <summary>justify-content and align-content (css-align-3 §4 and §5).</summary>
+internal enum ContentAlign { Normal, FlexStart, FlexEnd, Center, SpaceBetween, SpaceAround, SpaceEvenly, Stretch, Start, End, Left, Right }
+
+/// <summary>align-items and align-self (css-align-3 §6); Auto only for align-self.</summary>
+internal enum ItemAlign { Auto, Normal, Stretch, FlexStart, FlexEnd, Center, Baseline, LastBaseline, Start, End, SelfStart, SelfEnd }
+
+/// <summary>Flexible box layout properties, and the gaps grid shares (not inherited).</summary>
+internal sealed record FlexGroup(
+    FlexDirection Direction, FlexWrap Wrap, ContentAlign JustifyContent, ItemAlign AlignItems, ItemAlign AlignSelf,
+    ContentAlign AlignContent, float Grow, float Shrink, SizeValue Basis, int Order, LengthPercentage RowGap, LengthPercentage ColumnGap)
+{
+    public static FlexGroup Initial { get; } = new(FlexDirection.Row, FlexWrap.Nowrap, ContentAlign.Normal, ItemAlign.Normal, ItemAlign.Auto,
+        ContentAlign.Normal, 0, 1, SizeValue.Auto, 0, default, default);
+}
+
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
@@ -219,6 +239,7 @@ internal sealed class ComputedStyle
     public required BackgroundGroup Background { get; init; }
     public required TextGroup Text { get; init; }
     public required GeneratedGroup Generated { get; init; }
+    public FlexGroup Flex { get; init; } = FlexGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);

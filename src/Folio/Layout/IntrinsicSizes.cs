@@ -8,8 +8,8 @@ namespace Folio.Layout;
 /// one layout (study 06: repeated measuring is what makes nested shrink-to-fit exponential).
 /// </summary>
 // ponytail: floats side by side contribute one at a time, not summed; percentages of the containing block count as 0
-// (the cyclic-percentage rule); flex, grid, table and replaced boxes contribute only their specified widths until
-// their layouts land.
+// (the cyclic-percentage rule); grid, table and replaced boxes contribute only their specified widths until their
+// layouts land.
 internal static class IntrinsicSizes
 {
     /// <summary>A box's own min-content and max-content content-box widths.</summary>
@@ -24,6 +24,21 @@ internal static class IntrinsicSizes
         if (box is BlockContainerBox { Inline: { } inline } block)
         {
             sizes = InlineLayout.Measure(block, inline, context);
+        }
+        else if (box is FlexContainerBox flex)
+        {
+            // css-flexbox-1 §9.9 (the simple rule, study 07): a single-line row adds its items up, gaps included;
+            // multi-line rows and columns take their largest item.
+            var style = flex.Style.Flex;
+            var row = style.Direction is FlexDirection.Row or FlexDirection.RowReverse;
+            var items = flex.Children.Where(c => !c.IsAbsolutelyPositioned).Select(c => Contribution(c, context)).ToList();
+            var gaps = row && items.Count > 1 ? (style.ColumnGap.HasPercent ? 0 : style.ColumnGap.Px) * (items.Count - 1) : 0;
+            if (items.Count > 0)
+            {
+                sizes = !row ? (items.Max(i => i.Min), items.Max(i => i.Max))
+                    : style.Wrap == FlexWrap.Nowrap ? (items.Sum(i => i.Min) + gaps, items.Sum(i => i.Max) + gaps)
+                    : (items.Max(i => i.Min), items.Sum(i => i.Max) + gaps);
+            }
         }
         else if (box is BlockContainerBox)
         {
