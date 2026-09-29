@@ -28,9 +28,24 @@ jobs:
 
       # Actual, expected and diff images of every failing or changed image test.
       - name: Upload image test output
+        id: render-output
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: render-output-${{ matrix.os }}
           path: tests/render-output/
           if-no-files-found: ignore
+
+      # Lists those tests on the run's summary page, with a link to the images.
+      - name: List image test output
+        if: always() && steps.render-output.outputs.artifact-url != ''
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.render-output.outputs.artifact-url }}
+        run: |
+          {
+            echo "### Image tests that failed or changed (${{ matrix.os }})"
+            echo "Actual, expected and diff images: [render-output-${{ matrix.os }}]($ARTIFACT_URL)"
+            echo
+            find tests/render-output -name '*.actual.png' | sed 's|^tests/render-output/||; s|\.actual\.png$||' | sort | sed 's|^|- |'
+          } >> "$GITHUB_STEP_SUMMARY"
