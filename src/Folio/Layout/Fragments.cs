@@ -1,4 +1,29 @@
+using Folio.Typography;
+
 namespace Folio.Layout;
+
+/// <summary>What a fragment is: a box's border box, a line box, or a run of text on a line.</summary>
+internal enum FragmentKind
+{
+    Box,
+    Line,
+    Text,
+}
+
+/// <summary>
+/// Glyphs of a shaped run shown by a text fragment; the baseline is <see cref="Ascent"/> below its top. Right-to-left
+/// runs keep their glyphs in logical order, to be drawn from the fragment's right edge.
+/// </summary>
+internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style);
+
+/// <summary>What layout needs besides the box tree: the fonts text is measured with.</summary>
+internal sealed class LayoutContext(FontCollection fonts)
+{
+    public FontCollection Fonts { get; } = fonts;
+
+    /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
+    public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
+}
 
 /// <summary>
 /// The input to laying out one box (docs/study/06-layout-block-and-inline.md, option B): the size of its containing
@@ -69,6 +94,14 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// an independent formatting context, the ones it was given.
     /// </summary>
     public ExclusionSpace? Exclusions { get; init; }
+
+    public FragmentKind Kind { get; init; } = FragmentKind.Box;
+
+    /// <summary>For text fragments: the glyphs.</summary>
+    public TextRun? Text { get; init; }
+
+    /// <summary>For line boxes: the baseline, from the top of the line.</summary>
+    public float Baseline { get; init; }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];

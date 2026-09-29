@@ -24,8 +24,7 @@ internal static class PositionedLayout
     /// Lays out an absolutely or fixed positioned box in a containing block of the given padding-box size. The
     /// static position and the result are from the padding box's origin.
     /// </summary>
-    // ponytail: an auto width fills the space the insets leave instead of shrinking to fit, until intrinsic sizes exist.
-    public static ChildFragment LayoutAbsolute(Box box, float cbWidth, float cbHeight, float staticX, float staticY)
+    public static ChildFragment LayoutAbsolute(Box box, float cbWidth, float cbHeight, float staticX, float staticY, LayoutContext context)
     {
         var style = box.Style;
         var spacing = style.Spacing;
@@ -36,11 +35,15 @@ internal static class PositionedLayout
 
         // Horizontal (§10.3.7), then max-width and min-width by solving again with the limit as the width (§10.4).
         var (left, right) = (Inset(spacing.Left, cbWidth), Inset(spacing.Right, cbWidth));
-        var h = Solve(left, BlockLayout.ContentSize(style.Size.Width, cbWidth, frameX, borderBox), right, spacing.MarginLeft, spacing.MarginRight,
-            cbWidth, frameX, cbWidth, staticX, horizontal: true);
-        if (BlockLayout.ContentSize(style.Size.MaxWidth, cbWidth, frameX, borderBox) is { } max && h.Size > max)
+        // An auto width shrinks to fit unless both insets are set (then it stretches).
+        float? Size(SizeValue value, float available) => BlockLayout.ContentSize(value, cbWidth, frameX, borderBox)
+            ?? IntrinsicSizes.Keyword(value, box, available, context);
+        float FitContent(float available) => IntrinsicSizes.FitContent(box, available, context);
+        var h = Solve(left, Size(style.Size.Width, cbWidth - frameX), right, spacing.MarginLeft, spacing.MarginRight,
+            cbWidth, frameX, cbWidth, staticX, horizontal: true, autoSize: FitContent);
+        if (Size(style.Size.MaxWidth, h.Size) is { } max && h.Size > max)
             h = Solve(left, max, right, spacing.MarginLeft, spacing.MarginRight, cbWidth, frameX, cbWidth, staticX, horizontal: true);
-        if (BlockLayout.ContentSize(style.Size.MinWidth, cbWidth, frameX, borderBox) is { } min && h.Size < min)
+        if (Size(style.Size.MinWidth, h.Size) is { } min && h.Size < min)
             h = Solve(left, min, right, spacing.MarginLeft, spacing.MarginRight, cbWidth, frameX, cbWidth, staticX, horizontal: true);
 
         // Vertical (§10.6.4): a specified height, or top and bottom stretching an auto height, is known before layout;
@@ -57,7 +60,7 @@ internal static class PositionedLayout
         }
         float? fixedHeight = height is { } known ? BlockLayout.Clamp(known, minHeight, maxHeight) + frameY : null;
 
-        var fragment = BlockLayout.Layout(box, new ConstraintSpace(cbWidth, cbHeight, FixedWidth: h.Size + frameX, FixedHeight: fixedHeight));
+        var fragment = BlockLayout.Layout(box, new ConstraintSpace(cbWidth, cbHeight, FixedWidth: h.Size + frameX, FixedHeight: fixedHeight), context);
 
         var v = Solve(top, fragment.Height - frameY, bottom, spacing.MarginTop, spacing.MarginBottom,
             cbWidth, frameY, cbHeight, staticY, horizontal: false, sizeWasAuto: style.Size.Height.Kind != SizeKind.Length);
@@ -67,8 +70,10 @@ internal static class PositionedLayout
     // One axis of §10.3.7 / §10.6.4: start + margin-start + frame + size + margin-end + end = the containing block.
     private static (float Start, float Size, float MarginStart, float MarginEnd) Solve(
         float? start, float? size, float? end, SizeValue marginStart, SizeValue marginEnd,
-        float marginBasis, float frame, float cb, float staticStart, bool horizontal, bool sizeWasAuto = false)
+        float marginBasis, float frame, float cb, float staticStart, bool horizontal, bool sizeWasAuto = false,
+        Func<float, float>? autoSize = null)
     {
+        var bothInsets = start is not null && end is not null;
         var ms = BlockLayout.Margin(marginStart, marginBasis);
         var me = BlockLayout.Margin(marginEnd, marginBasis);
         if (start is null && end is null)
@@ -90,7 +95,7 @@ internal static class PositionedLayout
 
         // Auto margins are zero from here on (they came back as zero from Margin).
         var available = Math.Max(0, cb - (start ?? 0) - (end ?? 0) - frame - ms - me);
-        var used = size ?? available;
+        var used = size ?? (bothInsets || autoSize is null ? available : autoSize(available));
         if (start is null)
             start = cb - end!.Value - used - frame - ms - me;
         return (start.Value, used, ms, me);

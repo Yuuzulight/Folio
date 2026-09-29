@@ -143,9 +143,10 @@ internal sealed class FontCollection
 }
 
 /// <summary>A run of glyphs from one face at one size (docs/study/11-text.md, ShapedRun).</summary>
-internal sealed class ShapedRun(FontFace face, float size, ushort[] glyphs, int[] clusters, float[] advances)
+/// <remarks>A null face means no font was available: the glyphs are blanks.</remarks>
+internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int[] clusters, float[] advances)
 {
-    public FontFace Face { get; } = face;
+    public FontFace? Face { get; } = face;
     public float Size { get; } = size;
     public ushort[] Glyphs { get; } = glyphs;
 

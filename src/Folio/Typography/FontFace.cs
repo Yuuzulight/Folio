@@ -49,7 +49,7 @@ internal enum FaceStyle
 /// tables the engine needs for matching, metrics and simple shaping. Outlines are not read; the raster backend
 /// draws glyphs by id.
 /// </summary>
-internal sealed class FontFace
+internal sealed class FontFace : IFontHandle
 {
     private readonly FontData _data;
     private readonly Dictionary<string, (int Offset, int Length)> _tables;
@@ -177,13 +177,18 @@ internal sealed class FontFace
                 data.Slice(tableOffset, tableLength); // validates the range
                 tables[data.Tag(record)] = (tableOffset, tableLength);
             }
-            return new FontFace(data, tables);
+            return new FontFace(data, tables) { Data = bytes, FaceIndex = faceIndex };
         }
         catch (Exception e) when (e is InvalidDataException or OverflowException or ArgumentException or IndexOutOfRangeException)
         {
             return null;
         }
     }
+
+    /// <summary>The file this face came from.</summary>
+    public ReadOnlyMemory<byte> Data { get; private init; }
+
+    public int FaceIndex { get; private init; }
 
     public bool HasTable(string tag) => _tables.ContainsKey(tag);
 

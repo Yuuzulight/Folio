@@ -40,4 +40,12 @@ public class UnicodeDataTests
     [Fact]
     public void WordBoundariesPassTheConformanceTest() =>
         UnicodeConformance.CheckBreaks("auxiliary/WordBreakTest.txt", WordBoundaries.Find);
+
+    [Fact]
+    public void LineBreaksPassTheConformanceTest() =>
+        UnicodeConformance.CheckBreaks("auxiliary/LineBreakTest.txt", text =>
+        {
+            var kinds = LineBreaker.Find(text);
+            return Enumerable.Range(0, kinds.Length).Where(i => kinds[i] != BreakKind.None).ToList();
+        });
 }

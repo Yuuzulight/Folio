@@ -1,0 +1,72 @@
+=== a length raises an inline box and the line grows to fit it
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="vertical-align: 4px">b</span></p>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    p 0,0 800x20
+      line 0,0 800x20
+        span 16,0 16x16
+        text "a" 0,4 16x16
+        text "b" 16,0 16x16
+
+=== sub lowers the baseline by a fifth of the parent's font size
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="vertical-align: sub">b</span></p>
+---
+html 0,0 800x19.2
+  body 0,0 800x19.2
+    p 0,0 800x19.2
+      line 0,0 800x19.2
+        span 16,3.2 16x16
+        text "a" 0,0 16x16
+        text "b" 16,3.2 16x16
+
+=== middle centres a box on the parent's baseline plus half its x-height
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block; width: 10px; height: 40px; vertical-align: middle"></span></p>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    p 0,0 800x40
+      line 0,0 800x40
+        text "a" 0,13.6 16x16
+        span 16,0 10x40
+
+=== top and bottom align with the line box
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block; width: 10px; height: 40px"></span><span style="vertical-align: top">b</span></p><p>a<span style="display: inline-block; width: 10px; height: 40px"></span><span style="vertical-align: bottom">b</span></p>
+---
+html 0,0 800x86.4
+  body 0,0 800x86.4
+    p 0,0 800x43.2
+      line 0,0 800x43.2
+        span 26,0 16x16
+        text "a" 0,27.2 16x16
+        span 16,0 10x40
+        text "b" 26,0 16x16
+    p 0,43.2 800x43.2
+      line 0,43.2 800x43.2
+        span 26,70.4 16x16
+        text "a" 0,70.4 16x16
+        span 16,43.2 10x40
+        text "b" 26,70.4 16x16
+
+=== text-top aligns with the top of the parent's font
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="font-size: 32px">a<span style="font-size: 16px; vertical-align: text-top">b</span></p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        span 32,0 16x16
+        text "a" 0,0 32x32
+        text "b" 32,0 16x16
+
+=== an inline-block sits on its last line's baseline
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block; margin-bottom: 5px; padding-top: 4px">b</span></p>
+---
+html 0,0 800x25
+  body 0,0 800x25
+    p 0,0 800x25
+      line 0,0 800x25
+        text "a" 0,4 16x16
+        span 16,0 16x20
+          line 16,4 16x16
+            text "b" 16,4 16x16

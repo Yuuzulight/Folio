@@ -11,7 +11,8 @@ namespace Folio.Painting;
 /// (docs/study/10-layout-positioning-overflow-stacking.md, option A), then its paint order per CSS 2.2 Appendix E.
 /// Every painted box carries the clip chain of its containing blocks' overflow clips.
 /// </summary>
-// ponytail: M1 paints background colours and borders; images, text, outlines and markers come with their own work.
+// ponytail: M1 paints background colours, borders and text; images, text decorations, outlines and markers come with
+// their own work.
 internal static class DisplayListBuilder
 {
     // A box's border box on the canvas, with the overflow clips it is painted under.
@@ -38,6 +39,7 @@ internal static class DisplayListBuilder
         public int Order { get; } = order;
         public List<PaintBox> Blocks { get; } = [];
         public List<Context> Floats { get; } = [];
+        public List<PaintBox> Text { get; } = [];
         public List<Context> Negative { get; } = [];
         public List<Context> ZeroOrAuto { get; } = [];
         public List<Context> Positive { get; } = [];
@@ -76,6 +78,17 @@ internal static class DisplayListBuilder
         foreach (var child in children)
         {
             var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip);
+            // Line boxes only hold inline content; text is painted with text painting.
+            if (child.Fragment.Kind == FragmentKind.Line)
+            {
+                Collect(context, real, placed, child.Fragment.Children, order);
+                continue;
+            }
+            if (child.Fragment.Kind == FragmentKind.Text)
+            {
+                context.Text.Add(placed);
+                continue;
+            }
             var box = placed.Box;
             var style = box.Style.Box;
             var index = order.GetValueOrDefault(box);
@@ -121,7 +134,7 @@ internal static class DisplayListBuilder
     // is not clipped.
     private static RoundedRect? OverflowClip(PaintBox box)
     {
-        if (box.Fragment.Box is not { } b)
+        if (box.Fragment.Box is not { } b || box.Fragment.Kind != FragmentKind.Box)
             return null;
         var (x, y) = (b.Style.Box.OverflowX, b.Style.Box.OverflowY);
         if (x == Overflow.Visible && y == Overflow.Visible)
@@ -206,6 +219,8 @@ internal static class DisplayListBuilder
                 PaintBackground(block);
             foreach (var c in context.Floats)
                 Emit(c);
+            foreach (var text in context.Text)
+                PaintText(text);
             foreach (var c in context.ZeroOrAuto.OrderBy(c => c.Order))
                 Emit(c);
             foreach (var c in Sorted(context.Positive))
@@ -245,6 +260,33 @@ internal static class DisplayListBuilder
                 };
                 list.Items.Add(new DisplayItem(DisplayItemKind.Border, shape, Border: used));
             }
+        }
+
+        // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge.
+        private void PaintText(PaintBox box)
+        {
+            var run = box.Fragment.Text!;
+            var style = run.Style;
+            if (style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
+                return;
+            var count = run.GlyphEnd - run.GlyphStart;
+            var glyphs = new ushort[count];
+            var origins = new Vector2[count];
+            var baseline = box.Y + run.Ascent;
+            var x = run.RightToLeft ? box.X + box.Fragment.Width : box.X;
+            for (var i = 0; i < count; i++)
+            {
+                var g = run.GlyphStart + i;
+                var advance = run.Run.Advances[g];
+                if (run.RightToLeft)
+                    x -= advance;
+                glyphs[i] = run.Run.Glyphs[g];
+                origins[i] = new Vector2(x, baseline);
+                if (!run.RightToLeft)
+                    x += advance;
+            }
+            SetClip(box.Clip);
+            list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, origins)));
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).
