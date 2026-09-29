@@ -2,9 +2,23 @@ namespace Folio.Layout;
 
 /// <summary>
 /// The input to laying out one box (docs/study/06-layout-block-and-inline.md, option B): the size of its containing
-/// block, which percentages resolve against. A null height is indefinite (an auto-height containing block).
+/// block, which percentages resolve against (a null height is indefinite: an auto-height containing block), and, for a
+/// box that joins its parent's block formatting context, the floats in it and where the box sits in it.
 /// </summary>
-internal readonly record struct ConstraintSpace(float ContainingWidth, float? ContainingHeight);
+/// <param name="Exclusions">The floats placed so far in the block formatting context; null when there are none.</param>
+/// <param name="BfcLeft">The left edge of the containing block's content box, in formatting context coordinates.</param>
+/// <param name="BfcTop">The top of the box's border box, in formatting context coordinates.</param>
+/// <param name="FixedWidth">A border-box width already decided by the parent's algorithm (absolute positioning).</param>
+/// <param name="FixedHeight">A border-box height already decided by the parent's algorithm.</param>
+internal readonly record struct ConstraintSpace(
+    float ContainingWidth, float? ContainingHeight, ExclusionSpace? Exclusions = null, float BfcLeft = 0, float BfcTop = 0,
+    float? FixedWidth = null, float? FixedHeight = null);
+
+/// <summary>
+/// An absolutely or fixed positioned box on its way up to its containing block (study 10, option A), with its static
+/// position: where its margin box would start if it were in flow, from the carrying fragment's border-box origin.
+/// </summary>
+internal readonly record struct OutOfFlowBox(Box Box, float StaticX, float StaticY);
 
 /// <summary>
 /// A set of adjoining margins (https://www.w3.org/TR/CSS22/box.html#collapsing-margins): they collapse to the largest
@@ -49,4 +63,13 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// collapse with the siblings' on both sides.
     /// </summary>
     public bool CollapsesThrough { get; init; }
+
+    /// <summary>
+    /// The floats in the enclosing block formatting context after this box, including any it placed; for a box with
+    /// an independent formatting context, the ones it was given.
+    /// </summary>
+    public ExclusionSpace? Exclusions { get; init; }
+
+    /// <summary>Positioned descendants whose containing block is further up.</summary>
+    public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
 }

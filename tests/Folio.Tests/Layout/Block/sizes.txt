@@ -62,11 +62,12 @@ html 0,0 300x100
   body 0,0 300x100
     div#a 0,0 150x100
 
-=== boxes out of flow and without boxes do not take space
+=== positioned boxes and elements without boxes do not take space
 <!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style>
-<div id=a></div><div style="display: none"></div><div style="position: absolute"></div><div style="float: left"></div><div id=b></div>
+<div id=a></div><div style="display: none"></div><div style="position: absolute"></div><div id=b></div>
 ---
 html 0,0 800x20
   body 0,0 800x20
     div#a 0,0 800x10
     div#b 0,10 800x10
+div 0,10 800x10
