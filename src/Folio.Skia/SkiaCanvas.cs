@@ -7,7 +7,8 @@ using SkiaSharp;
 namespace Folio.Skia;
 
 /// <summary>An <see cref="ICanvas"/> drawing onto a SkiaSharp canvas, antialiased, one CSS pixel per unit.</summary>
-public sealed class SkiaCanvas(SKCanvas canvas) : ICanvas
+/// <param name="subpixelText">Subpixel (LCD) antialiasing for text, for opaque backgrounds on a known screen; greyscale otherwise.</param>
+public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICanvas
 {
     public void Save() => canvas.Save();
 
@@ -55,8 +56,8 @@ public sealed class SkiaCanvas(SKCanvas canvas) : ICanvas
     {
         if (Typeface(font) is not { } typeface || glyphs.Length == 0)
             return;
-        // Greyscale antialiasing with subpixel positioning: the backdrop is not known to be opaque here (study 12).
-        using var skFont = new SKFont(typeface, size) { Subpixel = true, Edging = SKFontEdging.Antialias };
+        // Subpixel positioning; greyscale edges unless the caller knows the backdrop is opaque (study 12).
+        using var skFont = new SKFont(typeface, size) { Subpixel = true, Edging = subpixelText ? SKFontEdging.SubpixelAntialias : SKFontEdging.Antialias };
         var points = new SKPoint[origins.Length];
         for (var i = 0; i < points.Length; i++)
             points[i] = new SKPoint(origins[i].X, origins[i].Y);

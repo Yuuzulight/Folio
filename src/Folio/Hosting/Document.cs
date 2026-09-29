@@ -1,5 +1,11 @@
+using Folio.Css;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Layout;
+using Folio.Painting;
+using Folio.Resources;
+using Folio.Style;
+using Folio.Typography;
 
 namespace Folio;
 
@@ -106,6 +112,25 @@ public sealed class Document : IDisposable
 
     private static Diagnostic Limit(string message, SourceLocation? at = null) =>
         new(DiagnosticCode.LimitExceeded, Severity.Warning, message, at, null);
+
+    private FontCollection? _fonts;
+
+    /// <summary>
+    /// Styles, lays out and paints the document in a viewport (the pipeline in docs/architecture.md): its display list
+    /// and the height of its content, from the canvas origin.
+    /// </summary>
+    internal (DisplayList List, float Height) Paint(float viewportWidth, float viewportHeight, float deviceScale = 1, ITextShaper? shaper = null)
+    {
+        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark);
+        StyleResolver.Resolve(Node, media, Options.UserStyleSheet, new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri));
+        if (BoxTreeBuilder.Build(Node) is not { } root)
+            return (new DisplayList(), 0);
+        _fonts ??= FontCollection.For(Options.Fonts);
+        var page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
+        // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
+        var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
+        return (DisplayListBuilder.Build(page), height);
+    }
 
     public void Dispose()
     {
