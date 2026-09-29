@@ -337,14 +337,14 @@ internal sealed class BoxTreeBuilder
                     if (q.Open)
                     {
                         if (q.Emit)
-                            text.Append(_quoteDepth == 0 ? '“' : '‘');
+                            text.Append(_quoteDepth == 0 ? '\u201C' : '\u2018');
                         _quoteDepth++;
                     }
                     else if (_quoteDepth > 0)
                     {
                         _quoteDepth--;
                         if (q.Emit)
-                            text.Append(_quoteDepth == 0 ? '”' : '’');
+                            text.Append(_quoteDepth == 0 ? '\u201D' : '\u2019');
                     }
                     break;
             }

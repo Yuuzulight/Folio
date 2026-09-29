@@ -87,11 +87,11 @@ internal static class CounterStyles
             case "none":
                 return "";
             case "disc":
-                return "•";
+                return "\u2022";
             case "circle":
-                return "◦";
+                return "\u25E6";
             case "square":
-                return "▪";
+                return "\u25AA";
             case "decimal-leading-zero":
                 return value is >= 0 and < 10 ? "0" + value : Decimal(value);
             case "lower-alpha" or "lower-latin":
@@ -99,7 +99,7 @@ internal static class CounterStyles
             case "upper-alpha" or "upper-latin":
                 return Alphabetic(value, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") ?? Decimal(value);
             case "lower-greek":
-                return Alphabetic(value, "αβγδεζηθικλμνξοπρστυφχψω") ?? Decimal(value);
+                return Alphabetic(value, "\u03B1\u03B2\u03B3\u03B4\u03B5\u03B6\u03B7\u03B8\u03B9\u03BA\u03BB\u03BC\u03BD\u03BE\u03BF\u03C0\u03C1\u03C3\u03C4\u03C5\u03C6\u03C7\u03C8\u03C9") ?? Decimal(value);
             case "lower-roman":
                 return Roman(value)?.ToLowerInvariant() ?? Decimal(value);
             case "upper-roman":
