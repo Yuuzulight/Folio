@@ -84,6 +84,14 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
 
     public void Reset(int mark) => _pos = mark;
 
+    /// <summary>The component values not read yet.</summary>
+    public List<ComponentValue> Rest()
+    {
+        var rest = values.Skip(_pos).ToList();
+        _pos = values.Count;
+        return rest;
+    }
+
     /// <summary>Whether the next value is a comma (without consuming it).</summary>
     public bool PeekComma() => Next() is PreservedToken { Token.Kind: CssTokenKind.Comma };
 
