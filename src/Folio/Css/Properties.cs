@@ -77,6 +77,8 @@ internal enum PropertyId
     Isolation,
     TextAlign,
     VerticalAlign,
+    Direction,
+    UnicodeBidi,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -398,6 +400,12 @@ internal static class Properties
                 r => r.Keyword(VerticalAlignKeywords.Keys.ToArray()) is { } k ? new KeywordValue(k) : r.LengthPercentage(),
                 (v, ctx) => v is KeywordValue k ? new VerticalAlign(VerticalAlignKeywords[k.Keyword]) : new VerticalAlign(VerticalAlignKind.Length, ctx.LengthPercentage(v)),
                 s => s.Box.VerticalAlign, (b, v) => b.Box = b.Box with { VerticalAlign = v }),
+            // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
+            Keywords(PropertyId.Direction, "direction", true, "ltr", Enum<Direction>("ltr", "rtl"),
+                s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }),
+            Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
+                Enum<UnicodeBidi>("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
+                s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];

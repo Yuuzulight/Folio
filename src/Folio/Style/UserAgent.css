@@ -40,6 +40,12 @@ small { font-size: smaller; }
 sub { vertical-align: sub; font-size: smaller; }
 sup { vertical-align: super; font-size: smaller; }
 sub, sup { line-height: normal; }
+
+/* https://html.spec.whatwg.org/multipage/rendering.html#bidi-rendering */
+[dir]:dir(ltr), bdi:dir(ltr) { direction: ltr; }
+[dir]:dir(rtl), bdi:dir(rtl) { direction: rtl; }
+[dir], bdi, output { unicode-bidi: isolate; }
+bdo, bdo[dir] { unicode-bidi: isolate-override; }
 ruby { display: ruby; }
 rt { display: ruby-text; }
 :link { color: #0000EE; }

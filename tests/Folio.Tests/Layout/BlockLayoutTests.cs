@@ -70,7 +70,7 @@ public class BlockLayoutTests
         var label = fragment.Kind switch
         {
             FragmentKind.Line => "line",
-            FragmentKind.Text => $"text \"{CaseFiles.Escape(Text(fragment))}\"",
+            FragmentKind.Text => $"text \"{CaseFiles.Escape(Text(fragment))}\"{(fragment.Text!.RightToLeft ? " rtl" : "")}",
             _ => Label(fragment.Box),
         };
         lines.Add($"{new string(' ', depth * 2)}{label} {N(x)},{N(y)} {N(fragment.Width)}x{N(fragment.Height)}");
