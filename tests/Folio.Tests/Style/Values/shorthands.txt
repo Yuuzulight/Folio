@@ -131,3 +131,10 @@ grid-auto-flow: column dense; place-items: center start
 grid-auto-flow: column dense
 align-items: center
 justify-items: start
+
+=== grid-template-areas rows, and auto repetition only of fixed sizes
+grid-template-areas: "a a ." "b  b ..."; grid-template-columns: repeat(auto-fill, [x] 100px [y]) 50px; grid-template-rows: repeat(auto-fit, 1fr)
+---
+grid-template-areas: "a a ." "b b ."
+grid-template-columns: repeat(auto-fill, [x] 100px [y]) 50px
+grid-template-rows: none
