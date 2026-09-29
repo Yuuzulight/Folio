@@ -119,7 +119,7 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight);
 
 /// <summary>Inherited: other inherited properties.</summary>
-internal sealed record InheritedGroup(CssColor Color, Visibility Visibility);
+internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme);
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
@@ -186,6 +186,26 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
     public float RootFontSize { get; } = rootFontSize;
     public float ViewportWidth { get; } = viewportWidth;
     public float ViewportHeight { get; } = viewportHeight;
+
+    /// <summary>The host's preferred colour scheme (prefers-color-scheme).</summary>
+    public bool PrefersDark { get; init; }
+
+    /// <summary>Whether the element uses the dark scheme (its color-scheme and the preference), for light-dark().</summary>
+    public bool UsesDark { get; set; }
+
+    /// <summary>The element's computed color, once computed (currentcolor in other properties' expressions).</summary>
+    public CssColor CurrentColor { get; set; } = parent.Inherited.Color;
+
+    /// <summary>
+    /// Computes a colour: a plain colour keeps currentcolor symbolic; an expression resolves against
+    /// <paramref name="currentColor"/> and the used colour scheme.
+    /// </summary>
+    public CssColor Color(CssValue value, CssColor currentColor) => value switch
+    {
+        ColorExpressionValue e => ColorResolver.Resolve(e.Expression, currentColor, UsesDark),
+        ColorValue c => c.Color,
+        _ => CssColor.CurrentColor,
+    };
 
     /// <summary>The element's computed custom properties, used to substitute var() in other properties.</summary>
     public ImmutableDictionary<string, string> Custom { get; set; } = parent.Custom;
