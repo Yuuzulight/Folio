@@ -5,12 +5,14 @@ namespace Folio.Layout;
 
 /// <summary>
 /// Block-level boxes in normal flow (docs/study/06-layout-block-and-inline.md): widths and horizontal margins
-/// (CSS 2.2 §10.3.3), heights (§10.6.3), min/max sizes (§10.4, §10.7), box-sizing, and margin collapsing (§8.3.1).
+/// (CSS 2.2 §10.3.3), heights (§10.6.3, §10.6.7), min/max sizes (§10.4, §10.7), box-sizing, margin collapsing
+/// (§8.3.1), floats and clearance (§9.5).
 /// </summary>
 internal static class BlockLayout
 {
-    // ponytail: until their own layout lands, inline formatting contexts have no height, and flex, grid, table and
-    // replaced boxes are sized from their width and height properties only, with no content laid out.
+    // ponytail: until their own layout lands, inline formatting contexts have no height (their floats sit at their
+    // top), flex, grid, table and replaced boxes are sized from their width and height properties only, and floats
+    // with an auto width fill their containing block instead of shrinking to fit.
     public static Fragment Layout(Box box, ConstraintSpace space)
     {
         var style = box.Style;
@@ -19,7 +21,7 @@ internal static class BlockLayout
         // Content that nests deeper than the stack allows is left out rather than overflowing it (study 16: limits
         // stop work gracefully).
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
-            return new Fragment(box, 0, 0, []);
+            return new Fragment(box, 0, 0, []) { Exclusions = space.Exclusions };
 
         var border = style.Border;
         var padding = (
@@ -36,59 +38,130 @@ internal static class BlockLayout
         var height = ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
         var minHeight = ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0;
         var maxHeight = ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity;
+        var definiteHeight = height is { } h ? Clamp(h, minHeight, maxHeight) : (float?)null;
 
         var independent = EstablishesIndependentFormattingContext(box);
         var collapseTop = !independent && border.TopWidth == 0 && padding.Top == 0;
         var bottomEdgeOpen = !independent && border.BottomWidth == 0 && padding.Bottom == 0;
         var collapseBottom = bottomEdgeOpen && height is null;
 
+        // Block formatting context coordinates: an independent box starts its own at its border box.
+        var (boxX, boxY) = independent ? (0f, 0f) : (space.BfcLeft + marginLeft, space.BfcTop);
+        var contentX = boxX + border.LeftWidth + padding.Left;
+        var contentY = boxY + border.TopWidth + padding.Top;
+        var exclusions = independent ? ExclusionSpace.Empty : space.Exclusions ?? ExclusionSpace.Empty;
+
         // Normal flow: place block-level children top to bottom, collapsing adjoining margins (§8.3.1).
         var children = new List<ChildFragment>();
-        var childSpace = new ConstraintSpace(width, height is { } h ? Clamp(h, minHeight, maxHeight) : null);
         var pending = default(MarginStrut); // margins after the last placed content, not yet resolved
         var leading = default(MarginStrut); // margins adjoining this box's top edge
         var atTop = collapseTop;            // no content placed yet, so margins still adjoin the top edge
         var cursor = 0f;                    // bottom of the last placed content, from the content box top
         var hasContent = false;
+
+        void PlaceFloat(Box child, float top)
+        {
+            var spacing = child.Style.Spacing;
+            var fragment = Layout(child, new ConstraintSpace(width, definiteHeight));
+            var (ml, mr) = (Margin(spacing.MarginLeft, width), Margin(spacing.MarginRight, width));
+            var (mt, mb) = (Margin(spacing.MarginTop, width), Margin(spacing.MarginBottom, width));
+            var (outerWidth, outerHeight) = (ml + fragment.Width + mr, mt + fragment.Height + mb);
+            var side = child.Style.Box.Float is FloatSide.Right or FloatSide.InlineEnd ? FloatSide.Right : FloatSide.Left;
+            var minTop = Math.Max(contentY + top, exclusions.ClearEdge(child.Style.Box.Clear) ?? float.NegativeInfinity);
+            var (fx, fy) = exclusions.PlaceFloat(side, outerWidth, outerHeight, minTop, contentX, contentX + width);
+            exclusions = exclusions.Add(new FloatArea(side, fx, fy, fx + outerWidth, fy + outerHeight));
+            children.Add(new(fx + ml - boxX, fy + mt - boxY, fragment));
+        }
+
         foreach (var child in FlowChildren(box))
         {
-            var fragment = Layout(child, childSpace);
-            var x = border.LeftWidth + padding.Left + fragment.MarginLeft;
+            if (child.IsFloat)
+            {
+                PlaceFloat(child, atTop ? 0 : cursor + pending.Resolve());
+                continue;
+            }
+
+            var childIndependent = EstablishesIndependentFormattingContext(child);
+            // Where the child's border box goes if its top margins collapse as expected. With floats around, that
+            // must be right before layout, so the margins collapsing through its top are worked out first; otherwise
+            // its own margin will do, and any floats it places are moved once its position is known.
+            var expected = exclusions.IsEmpty || childIndependent
+                ? MarginStrut.Of(Margin(child.Style.Spacing.MarginTop, width))
+                : LeadingMargins(child, width);
+            var y = atTop ? 0 : cursor + pending.Append(expected).Resolve();
+
+            // Clearance (§9.5.2): the border box goes below the floats it clears, and margins stop collapsing across.
+            var clearance = false;
+            if (exclusions.ClearEdge(child.Style.Box.Clear) is { } edge && contentY + y < edge)
+                (y, clearance) = (edge - contentY, true);
+
+            Fragment fragment;
+            var x = border.LeftWidth + padding.Left;
+            if (childIndependent && !exclusions.IsEmpty)
+            {
+                var wanted = y;
+                (fragment, var left, var top) = AvoidFloats(child, exclusions, contentX, contentX + width, contentY + y, definiteHeight);
+                (x, y) = (left - boxX, top - contentY);
+                clearance |= y > wanted;
+            }
+            else
+            {
+                fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y));
+            }
+            x += fragment.MarginLeft;
+
+            if (clearance)
+            {
+                children.Add(new(x, border.TopWidth + padding.Top + y, fragment));
+                if (!childIndependent)
+                    exclusions = fragment.Exclusions ?? exclusions;
+                (cursor, atTop, hasContent) = (y + fragment.Height, false, true);
+                pending = fragment.CollapsesThrough ? MarginStrut.Of(Margin(child.Style.Spacing.MarginBottom, width)) : fragment.BottomMargins;
+                continue;
+            }
+
             if (fragment.CollapsesThrough)
             {
                 // An empty block sits where its top border edge would be; its margins join the pending ones.
-                var y = atTop ? 0 : cursor + pending.Append(fragment.TopMargins).Resolve();
-                children.Add(new(x, border.TopWidth + padding.Top + y, fragment));
+                var throughY = atTop ? 0 : cursor + pending.Append(fragment.TopMargins).Resolve();
+                children.Add(new(x, border.TopWidth + padding.Top + throughY, fragment));
+                exclusions = MoveFloats(fragment, exclusions, throughY - y);
                 pending = pending.Append(fragment.TopMargins);
                 continue;
             }
             var margins = pending.Append(fragment.TopMargins);
-            float top;
+            var placedY = atTop ? 0 : cursor + margins.Resolve();
             if (atTop)
-            {
-                (leading, top, atTop) = (margins, 0, false);
-            }
-            else
-            {
-                top = cursor + margins.Resolve();
-            }
-            children.Add(new(x, border.TopWidth + padding.Top + top, fragment));
-            cursor = top + fragment.Height;
+                (leading, atTop) = (margins, false);
+            children.Add(new(x, border.TopWidth + padding.Top + placedY, fragment));
+            if (!childIndependent)
+                exclusions = MoveFloats(fragment, exclusions, placedY - y);
+            cursor = placedY + fragment.Height;
             pending = fragment.BottomMargins;
             hasContent = true;
         }
-        if (box is BlockContainerBox { Inline: { } inline } && inline.Items.Any(i => i.Kind is not (InlineItemKind.Float or InlineItemKind.OutOfFlow)))
+        if (box is BlockContainerBox { Inline: { } inline })
         {
-            // Line boxes are content: margins before them no longer adjoin this box's edges.
-            if (atTop)
-                (leading, atTop) = (pending, false);
-            else
-                cursor += pending.Resolve();
-            pending = default;
-            hasContent = true;
+            var top = atTop ? 0 : cursor + pending.Resolve();
+            foreach (var item in inline.Items)
+            {
+                if (item.Kind == InlineItemKind.Float)
+                    PlaceFloat(item.Box!, top);
+            }
+            if (inline.Items.Any(i => i.Kind is not (InlineItemKind.Float or InlineItemKind.OutOfFlow)))
+            {
+                // Line boxes are content: margins before them no longer adjoin this box's edges.
+                if (atTop)
+                    (leading, atTop) = (pending, false);
+                else
+                    cursor += pending.Resolve();
+                pending = default;
+                hasContent = true;
+            }
         }
 
-        // Height: auto is the flow's extent; min and max apply either way (§10.6.3, §10.7).
+        // Height: auto is the flow's extent; min and max apply either way (§10.6.3, §10.7). An independent formatting
+        // context's auto height also contains its floats (§10.6.7).
         var flowHeight = cursor;
         var contentHeight = Clamp(height ?? flowHeight, minHeight, maxHeight);
         if (collapseBottom && contentHeight != flowHeight)
@@ -98,6 +171,8 @@ internal static class BlockLayout
             contentHeight = Clamp(height ?? flowHeight + pending.Resolve(), minHeight, maxHeight);
             pending = default;
         }
+        if (independent && height is null && !exclusions.IsEmpty)
+            contentHeight = Clamp(Math.Max(contentHeight, exclusions.Bottom - contentY), minHeight, maxHeight);
 
         var own = (Top: MarginStrut.Of(marginTop), Bottom: MarginStrut.Of(marginBottom));
         // §8.3.1: no content, no top or bottom border or padding, zero or auto height and zero min-height.
@@ -115,12 +190,93 @@ internal static class BlockLayout
             TopMargins = collapsesThrough ? own.Top.Append(pending).Append(own.Bottom) : own.Top.Append(leading),
             BottomMargins = collapsesThrough ? default : own.Bottom.Append(pending),
             CollapsesThrough = collapsesThrough,
+            Exclusions = independent ? space.Exclusions : exclusions,
         };
     }
 
-    // In-flow block-level children; floats and positioned boxes are laid out by their own algorithms.
+    // The floats after a child that joined this formatting context, with the ones it placed moved by dy: the child
+    // was laid out at an expected position that its collapsed margins then changed.
+    private static ExclusionSpace MoveFloats(Fragment child, ExclusionSpace before, float dy) =>
+        (child.Exclusions ?? before).Translate(before.Count, dy);
+
+    /// <summary>
+    /// Places a box with an independent formatting context next to the floats (§9.5): at the first position from
+    /// <paramref name="top"/> down where its border box fits beside them, its auto width shrinking to the space left.
+    /// Returns its fragment and the left edge and top of the space it was given.
+    /// </summary>
+    // ponytail: percentages inside resolve against the narrowed space rather than the containing block.
+    private static (Fragment Fragment, float Left, float Top) AvoidFloats(
+        Box child, ExclusionSpace exclusions, float left, float right, float top, float? containingHeight)
+    {
+        var height = 0f;
+        for (var attempt = 0; ; attempt++)
+        {
+            var (l, r) = exclusions.Available(top, top + height, left, right);
+            var available = Math.Max(0, r - l);
+            var fragment = Layout(child, new ConstraintSpace(available, containingHeight));
+            var outer = fragment.MarginLeft + fragment.Width + Margin(child.Style.Spacing.MarginRight, available);
+            var band = exclusions.Available(top, top + fragment.Height, left, right);
+            if (band == (l, r) && outer <= available + 0.01f)
+                return (fragment, l, top);
+            if (attempt > exclusions.Count * 2 || exclusions.NextBottom(top, top + fragment.Height) is not { } next)
+                return (fragment, band.Left, top);
+            if (band == (l, r))
+                top = next; // too wide beside these floats: try below the first of them to end
+            height = fragment.Height;
+        }
+    }
+
+    /// <summary>
+    /// The margins that collapse through a box's top edge, worked out from the box tree before layout (§8.3.1): its
+    /// own top margin, joined by its first in-flow child's when nothing separates them, and past children that
+    /// collapse through.
+    /// </summary>
+    private static MarginStrut LeadingMargins(Box box, float cbWidth)
+    {
+        var style = box.Style;
+        var strut = MarginStrut.Of(Margin(style.Spacing.MarginTop, cbWidth));
+        if (EstablishesIndependentFormattingContext(box) || style.Border.TopWidth != 0 || Resolve(style.Spacing.PaddingTop, cbWidth) != 0)
+            return strut;
+        var width = ChildWidth(box, cbWidth);
+        foreach (var child in FlowChildren(box))
+        {
+            if (child.IsFloat)
+                continue;
+            strut = strut.Append(LeadingMargins(child, width));
+            if (!CollapsesThrough(child, width))
+                return strut;
+            strut = strut.Append(MarginStrut.Of(Margin(child.Style.Spacing.MarginBottom, width)));
+        }
+        return strut;
+    }
+
+    // Whether a box collapses through (§8.3.1), judged from the box tree; Layout decides it exactly.
+    private static bool CollapsesThrough(Box box, float cbWidth)
+    {
+        var style = box.Style;
+        if (EstablishesIndependentFormattingContext(box) || style.Box.Clear != Clear.None
+            || style.Border.TopWidth != 0 || style.Border.BottomWidth != 0
+            || Resolve(style.Spacing.PaddingTop, cbWidth) != 0 || Resolve(style.Spacing.PaddingBottom, cbWidth) != 0
+            || style.Size.Height is { Kind: SizeKind.Length } h && (h.Length.HasPercent || h.Length.Px != 0)
+            || style.Size.MinHeight is { Kind: SizeKind.Length } min && (min.Length.HasPercent || min.Length.Px != 0)
+            || box is BlockContainerBox { Inline: { } inline } && inline.Items.Any(i => i.Kind is not (InlineItemKind.Float or InlineItemKind.OutOfFlow)))
+            return false;
+        var width = ChildWidth(box, cbWidth);
+        return FlowChildren(box).All(c => c.IsFloat || CollapsesThrough(c, width));
+    }
+
+    // The content-box width a box gives its children.
+    private static float ChildWidth(Box box, float cbWidth)
+    {
+        var style = box.Style;
+        var frameX = style.Border.LeftWidth + Resolve(style.Spacing.PaddingLeft, cbWidth)
+            + Resolve(style.Spacing.PaddingRight, cbWidth) + style.Border.RightWidth;
+        return SolveWidth(box, cbWidth, frameX, style.Box.BoxSizing == BoxSizing.BorderBox).Width;
+    }
+
+    // In-flow block-level children and floats; positioned boxes are laid out by their own algorithm.
     private static IEnumerable<Box> FlowChildren(Box box) =>
-        box is BlockContainerBox { Inline: null } ? box.Children.Where(c => !c.IsFloat && !c.IsAbsolutelyPositioned) : [];
+        box is BlockContainerBox { Inline: null } ? box.Children.Where(c => !c.IsAbsolutelyPositioned) : [];
 
     /// <summary>
     /// The width and horizontal margins of a block-level box in normal flow (§10.3.3), with max-width then min-width
@@ -185,7 +341,8 @@ internal static class BlockLayout
 
     /// <summary>
     /// Whether the box's content is laid out independently of its surroundings, so its margins do not collapse with
-    /// its children's (https://www.w3.org/TR/CSS22/visuren.html#block-formatting and css-display-3 §2.3).
+    /// its children's and floats outside do not reach in (https://www.w3.org/TR/CSS22/visuren.html#block-formatting
+    /// and css-display-3 §2.3).
     /// </summary>
     private static bool EstablishesIndependentFormattingContext(Box box)
     {
