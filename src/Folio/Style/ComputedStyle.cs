@@ -44,6 +44,12 @@ internal enum BorderStyle { None, Hidden, Dotted, Dashed, Solid, Double, Groove,
 
 internal enum FontStyle { Normal, Italic, Oblique }
 
+internal enum WhiteSpaceCollapse { Collapse, Preserve, PreserveBreaks, PreserveSpaces, BreakSpaces }
+
+internal enum TextWrapMode { Wrap, Nowrap }
+
+internal enum ListStylePosition { Outside, Inside }
+
 /// <summary>
 /// A computed length-percentage: <c>Px + Percent% of the basis</c>, or a <c>calc()</c> tree that is not linear
 /// in the basis (e.g. <c>min(50%, 300px)</c>), kept with its lengths already in px (docs/study/04-cascade-and-computed-values.md).
@@ -147,6 +153,12 @@ internal sealed record BorderGroup(
 
 internal sealed record BackgroundGroup(CssColor Color);
 
+/// <summary>Inherited: white space handling and list markers.</summary>
+internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition);
+
+/// <summary>Generated content and counters (not inherited).</summary>
+internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
+
 /// <summary>An element's computed style: references to shared groups.</summary>
 internal sealed class ComputedStyle
 {
@@ -157,6 +169,8 @@ internal sealed class ComputedStyle
     public required SpacingGroup Spacing { get; init; }
     public required BorderGroup Border { get; init; }
     public required BackgroundGroup Background { get; init; }
+    public required TextGroup Text { get; init; }
+    public required GeneratedGroup Generated { get; init; }
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);

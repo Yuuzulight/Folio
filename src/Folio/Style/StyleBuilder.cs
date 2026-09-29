@@ -23,6 +23,8 @@ internal sealed class StyleBuilder
         Spacing = initial.Spacing;
         Border = initial.Border;
         Background = initial.Background;
+        Text = parent.Text;
+        Generated = initial.Generated;
     }
 
     public FontGroup Font { get; set; }
@@ -32,6 +34,8 @@ internal sealed class StyleBuilder
     public SpacingGroup Spacing { get; set; }
     public BorderGroup Border { get; set; }
     public BackgroundGroup Background { get; set; }
+    public TextGroup Text { get; set; }
+    public GeneratedGroup Generated { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -84,6 +88,8 @@ internal sealed class StyleBuilder
             Spacing = Share(Spacing, initial.Spacing, groups),
             Border = Share(Border, initial.Border, groups),
             Background = Share(Background, initial.Background, groups),
+            Text = Share(Text, _parent.Text, groups),
+            Generated = Share(Generated, initial.Generated, groups),
             Custom = _custom,
         };
     }

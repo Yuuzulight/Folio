@@ -3,10 +3,30 @@ using Folio.Dom;
 
 namespace Folio.Style;
 
+/// <summary>An element's computed style and those of its ::before, ::after and ::marker pseudo-elements.</summary>
+internal sealed class ElementStyles(ComputedStyle style)
+{
+    public ComputedStyle Style { get; } = style;
+    public ComputedStyle? Before { get; set; }
+    public ComputedStyle? After { get; set; }
+    public ComputedStyle? Marker { get; set; }
+}
+
 internal static class ElementStyleExtensions
 {
     /// <summary>The element's computed style, once <see cref="StyleResolver"/> has run.</summary>
-    public static ComputedStyle? ComputedStyle(this Element element) => element.StyleData as ComputedStyle;
+    public static ComputedStyle? ComputedStyle(this Element element) => (element.StyleData as ElementStyles)?.Style;
+
+    /// <summary>A pseudo-element's style: set for ::before/::after when rules target them, and for ::marker on list items.</summary>
+    public static ComputedStyle? PseudoStyle(this Element element, PseudoElement pseudoElement) => element.StyleData is ElementStyles styles
+        ? pseudoElement switch
+        {
+            PseudoElement.Before => styles.Before,
+            PseudoElement.After => styles.After,
+            PseudoElement.Marker => styles.Marker,
+            _ => styles.Style,
+        }
+        : null;
 }
 
 /// <summary>
@@ -78,7 +98,26 @@ internal static class StyleResolver
                 Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
             };
             var style = StyleBuilder.Compute(values, computeContext, groups);
-            element.StyleData = style;
+            var styles = new ElementStyles(style);
+            element.StyleData = styles;
+            if (style.Box.Display != Display.None)
+            {
+                ComputedStyle? Pseudo(PseudoElement pe, bool always = false)
+                {
+                    if (!always && !origins.Any(o => o.Rules.HasRulesFor(pe)))
+                        return null;
+                    var (pseudoValues, pseudoCustom) = Cascade.Compute(element, origins, null, 0, context, pe);
+                    var pseudoContext = new ComputeContext(style, rootFontSize, media.Width, media.Height)
+                    {
+                        Custom = CustomProperties.Compute(style.Custom, pseudoCustom, registered),
+                    };
+                    return StyleBuilder.Compute(pseudoValues, pseudoContext, groups);
+                }
+                styles.Before = Pseudo(PseudoElement.Before);
+                styles.After = Pseudo(PseudoElement.After);
+                if (style.Box.Display == Display.ListItem)
+                    styles.Marker = Pseudo(PseudoElement.Marker, always: true);
+            }
             if (element.Parent is DocumentNode)
                 rootFontSize = style.Font.Size;
 

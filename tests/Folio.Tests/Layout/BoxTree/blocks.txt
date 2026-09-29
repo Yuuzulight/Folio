@@ -1,0 +1,134 @@
+=== paragraph with inline content and collapsed spaces
+<!DOCTYPE html><p>Hello <b>big</b>  world</p>
+---
+block html
+  block body
+    block p
+      "Hello "
+      <b>
+      "big"
+      </b>
+      " world"
+
+=== white space between blocks makes no boxes, text between them gets an anonymous block
+<!DOCTYPE html><div>
+  <p>a</p>
+  text
+  <p>b</p>
+</div>
+---
+block html
+  block body
+    block div
+      block p
+        "a"
+      block (anonymous)
+        "text "
+      block p
+        "b"
+
+=== a block inside an inline splits it
+<!DOCTYPE html><div><a href=x>link <div>card</div> more</a></div>
+---
+block html
+  block body
+    block div
+      block (anonymous)
+        <a>
+        "link "
+        </a+>
+      block div
+        "card"
+      block (anonymous)
+        <a+>
+        "more"
+        </a>
+
+=== display none and contents
+<!DOCTYPE html><div><span style="display:none">x</span><section style="display:contents"><p>y</p></section></div>
+---
+block html
+  block body
+    block div
+      block p
+        "y"
+
+=== atomic inlines
+<!DOCTYPE html><p>a<span style="display:inline-block">b</span><img src=x>c</p>
+---
+block html
+  block body
+    block p
+      "a"
+      inline-block span
+        "b"
+      replaced(image) img
+      "c"
+
+=== floats inside inline content stay in place
+<!DOCTYPE html><p>a<span style="float:left">f</span>b</p>
+---
+block html
+  block body
+    block p
+      "a"
+      block span [float]
+        "f"
+      "b"
+
+=== floats and absolutely positioned boxes between blocks are block children
+<!DOCTYPE html><div><div style="float:right">f</div><div style="position:absolute">a</div><p>x</p></div>
+---
+block html
+  block body
+    block div
+      block div [float]
+        "f"
+      block div [absolute]
+        "a"
+      block p
+        "x"
+
+=== forced breaks
+<!DOCTYPE html><p>a <br> b<wbr>c</p>
+---
+block html
+  block body
+    block p
+      "a"
+      br
+      "b"
+      wbr
+      "c"
+
+=== preserved white space
+<!DOCTYPE html><pre>a  b
+ c</pre>
+---
+block html
+  block body
+    block pre
+      "a  b"
+      br
+      " c"
+
+=== pre-line collapses spaces but keeps breaks
+<!DOCTYPE html><p style="white-space:pre-line">a   b
+  c</p>
+---
+block html
+  block body
+    block p
+      "a b"
+      br
+      "c"
+
+=== replaced elements take no children
+<!DOCTYPE html><div><canvas>fallback</canvas><video>v</video><svg><text>t</text></svg></div>
+---
+block html
+  block body
+    block div
+      replaced(canvas) canvas
+      replaced(media) video
+      replaced(svg) svg
