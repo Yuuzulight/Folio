@@ -7,19 +7,22 @@ using System.Text.RegularExpressions;
 //   dotnet run --project tools/Folio.Gen -- entities [entities.json]
 //   dotnet run --project tools/Folio.Gen -- colors [css-color-4.html]
 //   dotnet run --project tools/Folio.Gen -- boxfont
-// Without a file, the source is downloaded from the specification.
+//   dotnet run --project tools/Folio.Gen -- unicode [ucd-folder]
+// Without a file, the source is downloaded from the specification. The Unicode tables are generated from a local
+// copy of the Unicode Character Database (default .cache/unicode/<version>), checked against unicode-<version>.sha256.
 
 return args switch
 {
     ["entities", ..] => await Entities(args.Length > 1 ? args[1] : null),
     ["colors", ..] => await Colors(args.Length > 1 ? args[1] : null),
     ["boxfont"] => await WriteBoxFont(),
+    ["unicode", ..] => await Unicode.Generate(FindRoot(), args.Length > 1 ? args[1] : null),
     _ => Usage(),
 };
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont");
+    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont | unicode [ucd-folder]");
     return 2;
 }
 
