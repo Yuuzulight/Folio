@@ -11,7 +11,7 @@ namespace Folio.Layout;
 internal static class BlockLayout
 {
     // ponytail: until their own layout lands, flex, grid, table and replaced boxes are sized from their width and
-    // height properties only, and floats with an auto width fill their containing block instead of shrinking to fit.
+    // height properties only.
     public static Fragment Layout(Box box, ConstraintSpace space, LayoutContext context)
     {
         var style = box.Style;
@@ -32,7 +32,7 @@ internal static class BlockLayout
 
         var (width, marginLeft, marginRight) = space.FixedWidth is { } fixedWidth
             ? (Math.Max(0, fixedWidth - frameX), 0f, 0f)
-            : SolveWidth(box, cbWidth, frameX, borderBox);
+            : SolveWidth(box, cbWidth, frameX, borderBox, context);
         var marginTop = Margin(style.Spacing.MarginTop, cbWidth);
         var marginBottom = Margin(style.Spacing.MarginBottom, cbWidth);
 
@@ -326,14 +326,25 @@ internal static class BlockLayout
     /// The width and horizontal margins of a block-level box in normal flow (§10.3.3), with max-width then min-width
     /// applied by solving again with the limit as the width (§10.4).
     /// </summary>
-    private static (float Width, float MarginLeft, float MarginRight) SolveWidth(Box box, float cbWidth, float frameX, bool borderBox)
+    /// <remarks>
+    /// With a layout context, auto widths of floats and inline-blocks shrink to fit (§10.3.5) and the sizing keywords
+    /// resolve; without one (structural estimates), they act as auto.
+    /// </remarks>
+    private static (float Width, float MarginLeft, float MarginRight) SolveWidth(Box box, float cbWidth, float frameX, bool borderBox,
+                                                                                 LayoutContext? context = null)
     {
         var style = box.Style;
-        var width = ContentSize(style.Size.Width, cbWidth, frameX, borderBox);
+        var available = cbWidth - Margin(style.Spacing.MarginLeft, cbWidth) - Margin(style.Spacing.MarginRight, cbWidth) - frameX;
+        float? Size(SizeValue value) =>
+            ContentSize(value, cbWidth, frameX, borderBox) ?? IntrinsicSizes.Keyword(value, box, available, context);
+        var width = Size(style.Size.Width)
+            ?? (context is not null && (box.IsFloat || box is BlockContainerBox { IsAtomicInline: true })
+                ? IntrinsicSizes.FitContent(box, available, context)
+                : null);
         var result = Solve(width);
-        if (ContentSize(style.Size.MaxWidth, cbWidth, frameX, borderBox) is { } max && result.Width > max)
+        if (Size(style.Size.MaxWidth) is { } max && result.Width > max)
             result = Solve(max);
-        if (ContentSize(style.Size.MinWidth, cbWidth, frameX, borderBox) is { } min && result.Width < min)
+        if (Size(style.Size.MinWidth) is { } min && result.Width < min)
             result = Solve(min);
         return result;
 
@@ -366,7 +377,6 @@ internal static class BlockLayout
     /// A width or height as a content-box size: null when auto, none, a sizing keyword, or a percentage of an
     /// indefinite size.
     /// </summary>
-    // ponytail: min-content, max-content and fit-content act as auto until intrinsic sizes arrive with inline layout.
     internal static float? ContentSize(SizeValue value, float? basis, float frame, bool borderBox)
     {
         if (value.Kind != SizeKind.Length || value.Length.HasPercent && basis is null)

@@ -17,6 +17,9 @@ internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, floa
 internal sealed class LayoutContext(FontCollection fonts)
 {
     public FontCollection Fonts { get; } = fonts;
+
+    /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
+    public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 }
 
 /// <summary>
