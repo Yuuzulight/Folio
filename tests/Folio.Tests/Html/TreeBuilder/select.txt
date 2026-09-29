@@ -1,0 +1,58 @@
+=== options close each other
+<!DOCTYPE html><select><option>a<option>b<optgroup><option>c</select>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+        <option>
+          "a"
+        <option>
+          "b"
+        <optgroup>
+          <option>
+            "c"
+      "x"
+
+=== select in a table closes on table parts
+<!DOCTYPE html><table><tr><td><select><option>a<td>b</table>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <select>
+                <option>
+                  "a"
+            <td>
+              "b"
+
+=== input closes a select
+<!DOCTYPE html><select><input>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+      <input>
+      "x"
+
+=== other markup inside select is dropped
+<!DOCTYPE html><select><b>a</b></select>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+        "a"

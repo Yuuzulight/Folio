@@ -1,0 +1,66 @@
+=== doctype and implied elements
+<!DOCTYPE html>Hello
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      "Hello"
+
+=== missing doctype is quirks
+<p>x
+---
+#document quirks
+  <html>
+    <head>
+    <body>
+      <p>
+        "x"
+
+=== XHTML transitional doctype is limited quirks
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+---
+#document limited-quirks
+  <!DOCTYPE html "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+  <html>
+    <head>
+    <body>
+
+=== HTML 4.01 transitional without system identifier is quirks
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+---
+#document quirks
+  <!DOCTYPE html "-//W3C//DTD HTML 4.01 Transitional//EN" "">
+  <html>
+    <head>
+    <body>
+
+=== comments before and after the document element
+<!--a--><!DOCTYPE html><html></html><!--b-->
+---
+#document
+  <!--a-->
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+  <!--b-->
+
+=== whitespace before the document element is dropped
+  <!DOCTYPE html>  <html>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+
+=== html attributes are kept
+<!DOCTYPE html><html lang=en>
+---
+#document
+  <!DOCTYPE html>
+  <html lang="en">
+    <head>
+    <body>

@@ -2,10 +2,12 @@ namespace Folio.Dom;
 
 internal readonly record struct QualifiedName(Atom Namespace, Atom LocalName);
 
-internal readonly record struct Attribute(Atom Name, string Value);
+/// <param name="Name">The qualified name (<c>xlink:href</c> for a prefixed attribute).</param>
+/// <param name="Namespace">None for ordinary attributes; set for the parser's adjusted foreign attributes.</param>
+internal readonly record struct Attribute(Atom Name, string Value, Atom Namespace = default);
 
 /// <summary>https://dom.spec.whatwg.org/#interface-element</summary>
-internal sealed class Element(Document ownerDocument, QualifiedName name) : ContainerNode(ownerDocument)
+internal class Element(Document ownerDocument, QualifiedName name) : ContainerNode(ownerDocument)
 {
     private Attribute[] _attributes = [];
 
@@ -50,6 +52,23 @@ internal sealed class Element(Document ownerDocument, QualifiedName name) : Cont
             _attributes[^1] = new Attribute(atom, value);
         }
 
+        Reflect(name, value);
+        OnMutated(MutationKind.Attributes);
+    }
+
+    /// <summary>Sets all attributes of a new element at once (the parser; names are already unique).</summary>
+    internal void SetParsedAttributes(Attribute[] attributes)
+    {
+        _attributes = attributes;
+        foreach (var attribute in attributes)
+        {
+            if (attribute.Namespace.IsNone)
+                Reflect(OwnerDocument.TextOf(attribute.Name), attribute.Value);
+        }
+    }
+
+    private void Reflect(string name, string value)
+    {
         switch (name)
         {
             case "id":
@@ -62,10 +81,17 @@ internal sealed class Element(Document ownerDocument, QualifiedName name) : Cont
                     .ToArray();
                 break;
         }
-
-        OnMutated(MutationKind.Attributes);
     }
 
     // https://infra.spec.whatwg.org/#ascii-whitespace
     internal static readonly char[] AsciiWhitespace = ['\t', '\n', '\f', '\r', ' '];
+}
+
+/// <summary>
+/// https://html.spec.whatwg.org/multipage/scripting.html#the-template-element: its parsed contents are kept
+/// in an inert fragment, outside the tree.
+/// </summary>
+internal sealed class TemplateElement(Document ownerDocument, QualifiedName name) : Element(ownerDocument, name)
+{
+    public DocumentFragment Content { get; } = new(ownerDocument);
 }

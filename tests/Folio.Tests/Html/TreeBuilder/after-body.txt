@@ -1,0 +1,21 @@
+=== content after the body end tag goes back into the body
+<!DOCTYPE html><body></body><p>x</p></html><!--c-->
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <p>
+        "x"
+  <!--c-->
+
+=== comment after the body end tag goes into the html element
+<!DOCTYPE html><body></body><!--c-->
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+    <!--c-->

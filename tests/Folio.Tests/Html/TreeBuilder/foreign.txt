@@ -1,0 +1,110 @@
+=== svg with adjusted names and an HTML integration point
+<!DOCTYPE html><svg viewbox="0 0 10 10"><lineargradient id=g></lineargradient><foreignobject><p>x</p></foreignobject></svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg viewBox="0 0 10 10">
+        <svg:linearGradient id="g">
+        <svg:foreignObject>
+          <p>
+            "x"
+
+=== xlink attributes
+<!DOCTYPE html><svg><use xlink:href="#a"/></svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg>
+        <svg:use xlink:href="#a">
+
+=== HTML elements break out of svg
+<!DOCTYPE html><svg><g><p>x</svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg>
+        <svg:g>
+      <p>
+        "x"
+
+=== self-closing elements in svg
+<!DOCTYPE html><svg><circle r=1 /><rect/></svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg>
+        <svg:circle r="1">
+        <svg:rect>
+
+=== MathML integration points
+<!DOCTYPE html><math><mi><b>x</b></mi><annotation-xml encoding="text/html"><div>y</div></annotation-xml></math>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <math:math>
+        <math:mi>
+          <b>
+            "x"
+        <math:annotation-xml encoding="text/html">
+          <div>
+            "y"
+
+=== CDATA in svg
+<!DOCTYPE html><svg><![CDATA[a<b]]></svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg>
+        "a<b"
+
+=== definitionURL in MathML
+<!DOCTYPE html><math definitionurl=x></math>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <math:math definitionURL="x">
+
+=== font with attributes breaks out of svg
+<!DOCTYPE html><svg><font color=red>x</font></svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg>
+      <font color="red">
+        "x"
+
+=== font without attributes stays in svg
+<!DOCTYPE html><svg><font>x</font></svg>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <svg:svg>
+        <svg:font>
+          "x"
