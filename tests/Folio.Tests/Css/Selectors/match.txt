@@ -1,0 +1,105 @@
+=== descendant
+%selector div p
+<div><p id=a></p><section><p id=b></p></section></div><p id=c></p>
+---
+a
+b
+
+=== child
+%selector div > p
+<div><p id=a></p><section><p id=b></p></section></div><p id=c></p>
+---
+a
+
+=== sibling combinators
+%selector h1 + p, h1 ~ ul
+<h1></h1><p id=a></p><p id=b></p><ul id=c></ul>
+---
+a
+c
+
+=== classes, ids and attributes
+%selector .x.y, #z, [data-k^="ab"], input[type=TEXT]
+<p class="x y" id=a></p><p class=x id=b></p><div id=z></div><span data-k=abc id=c></span><input type=text id=d>
+---
+a
+z
+c
+d
+
+=== attribute values are case-sensitive unless listed or flagged
+%selector [title=abc], [title=ABC i], [data-x=Y]
+<p title=ABC id=a></p><p title=abc id=b></p><p data-x=y id=c></p>
+---
+a
+b
+
+=== type selectors ignore case for HTML elements only
+%selector DIV, foreignObject, foreignobject
+<div id=a></div><svg><foreignObject id=b></foreignObject></svg>
+---
+a
+b
+
+=== structural pseudo-classes
+%selector li:first-child, li:last-child, li:nth-child(2n+3)
+<ul><li id=a></li><li id=b></li><li id=c></li><li id=d></li></ul>
+---
+a
+c
+d
+
+=== of-type pseudo-classes
+%selector p:first-of-type, p:last-of-type, span:only-of-type
+<div><span id=s></span><p id=a></p><p id=b></p><p id=c></p></div>
+---
+s
+a
+c
+
+=== empty and root
+%selector :empty, :root
+<div id=a></div><div id=b> </div><div id=c><!--x--></div>
+---
+html
+head
+a
+c
+
+=== links, checked and disabled
+%selector :link, :checked, :disabled
+<a href=x id=a></a><a id=b></a><input type=checkbox checked id=c><input checked id=d><fieldset disabled><legend><input id=e></legend><input id=f></fieldset><select><optgroup disabled><option id=g></option></optgroup></select>
+---
+a
+c
+fieldset
+f
+optgroup
+g
+
+=== lang and dir
+%selector :lang(en), :dir(rtl)
+<div lang=en-GB id=a><p id=b></p></div><p lang=fr id=c dir=rtl></p>
+---
+a
+b
+c
+
+=== not and is
+%selector p:not(.x), :is(h1, h2).t
+<p id=a class=x></p><p id=b></p><h2 class=t id=c></h2>
+---
+b
+c
+
+=== nesting selector matches the parent selectors
+%parent .card
+%selector > .title
+<div class=card><p class=title id=a></p><div><p class=title id=b></p></div></div>
+---
+a
+
+=== user-action states are off until interaction exists
+%selector :hover, :focus, :active
+<a href=x id=a></a>
+---
