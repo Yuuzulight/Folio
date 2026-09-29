@@ -1,0 +1,175 @@
+=== identifiers, functions and at-keywords
+foo -bar --baz \41 x rgb( @media
+---
+ident foo
+whitespace
+ident -bar
+whitespace
+ident --baz
+whitespace
+ident Ax
+whitespace
+function rgb
+whitespace
+at-keyword media
+
+=== names are kept as written
+DIV @MEDIA
+---
+ident DIV
+whitespace
+at-keyword MEDIA
+
+=== numbers, percentages and dimensions
+1 -2.5 +.5 1e3 50% 10px 1.5EM 3e-2x
+---
+number 1 integer
+whitespace
+number -2.5 signed
+whitespace
+number 0.5 signed
+whitespace
+number 1000
+whitespace
+percentage 50 integer
+whitespace
+dimension 10 px integer
+whitespace
+dimension 1.5 EM
+whitespace
+dimension 0.03 x
+
+=== a number followed by e is a dimension
+2em 1e
+---
+dimension 2 em integer
+whitespace
+dimension 1 e integer
+
+=== hashes
+#main #1a2b3c # #-x
+---
+hash-id main
+whitespace
+hash 1a2b3c
+whitespace
+delim #
+whitespace
+hash-id -x
+
+=== strings and escapes
+"a\"b" 'c\
+d' "\263A!" "tail
+---
+string "a\"b"
+whitespace
+string "cd"
+whitespace
+string "☺!"
+whitespace
+string "tail"
+
+=== newline in a string makes a bad string
+"ab
+c
+---
+bad-string
+whitespace
+ident c
+
+=== urls
+url(a.png) url( "b.png" ) URL(c\)d) url(e f)
+---
+url "a.png"
+whitespace
+function url
+whitespace
+string "b.png"
+whitespace
+)
+whitespace
+url "c)d"
+whitespace
+bad-url
+
+=== bad url skips to its closing parenthesis
+url(a"b\)c) x
+---
+bad-url
+whitespace
+ident x
+
+=== punctuation and delimiters
+a:b;c,[d](e){f}!*>+~|
+---
+ident a
+:
+ident b
+;
+ident c
+,
+[
+ident d
+]
+(
+ident e
+)
+{
+ident f
+}
+delim !
+delim *
+delim >
+delim +
+delim ~
+delim |
+
+=== comments are dropped, CDO and CDC kept
+<!-- a /* x */b -->/* unclosed
+---
+CDO
+whitespace
+ident a
+whitespace
+ident b
+whitespace
+CDC
+
+=== minus forms
+-x - -1 --> -\31
+---
+ident -x
+whitespace
+delim -
+whitespace
+number -1 integer signed
+whitespace
+CDC
+whitespace
+ident -1
+
+=== escapes of zero, surrogates and out-of-range code points become U+FFFD
+\0 x \D800 y \110000 z
+---
+ident \uFFFDx
+whitespace
+ident \uFFFDy
+whitespace
+ident \uFFFDz
+
+=== null and form feed are preprocessed
+a\u0000b\u000Cc
+---
+ident a\uFFFDb
+whitespace
+ident c
+
+=== at sign without a name is a delimiter
+@ @1 @-a
+---
+delim @
+whitespace
+delim @
+number 1 integer
+whitespace
+at-keyword -a

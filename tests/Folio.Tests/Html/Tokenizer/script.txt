@@ -1,54 +1,54 @@
 === script data ends at its end tag only
-@state ScriptData script
+%state ScriptData script
 if (a<b) x = "</p>";</script>
 ---
 "if (a<b) x = \"</p>\";"
 </script>
 
 === escaped script data
-@state ScriptData script
+%state ScriptData script
 <!-- a </script>
 ---
 "<!-- a "
 </script>
 
 === double-escaped script data hides the end tag
-@state ScriptData script
+%state ScriptData script
 <!--<script></script>--></script>
 ---
 "<!--<script></script>-->"
 </script>
 
 === eof in script comment-like text
-@state ScriptData script
+%state ScriptData script
 <!-- x
 ---
 "<!-- x"
 ! eof-in-script-html-comment-like-text
 
 === null in script data
-@state ScriptData script
+%state ScriptData script
 \u0000
 ---
 "\uFFFD"
 ! unexpected-null-character
 
 === escape start without dashes is plain script data
-@state ScriptData script
+%state ScriptData script
 <!x</script>
 ---
 "<!x"
 </script>
 
 === double escape needs the exact word script
-@state ScriptData script
+%state ScriptData script
 <!--<scripts></script>
 ---
 "<!--<scripts>"
 </script>
 
 === uppercase SCRIPT starts a double escape
-@state ScriptData script
+%state ScriptData script
 <!--<SCRIPT></script>x--></script>
 ---
 "<!--<SCRIPT></script>x-->"

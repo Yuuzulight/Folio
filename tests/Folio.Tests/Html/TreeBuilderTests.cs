@@ -6,7 +6,7 @@ namespace Folio.Tests.Html;
 
 public class TreeBuilderTests
 {
-    private static readonly Lazy<Dictionary<string, (string Input, string Expected)>> AllCases = new(LoadCases);
+    private static readonly Lazy<Dictionary<string, CaseFiles.Case>> AllCases = new(() => CaseFiles.Load("Html", "TreeBuilder"));
 
     public static TheoryData<string> Cases => new(AllCases.Value.Keys.Order());
 
@@ -14,9 +14,9 @@ public class TreeBuilderTests
     [MemberData(nameof(Cases))]
     public void BuildsTree(string id)
     {
-        var (input, expected) = AllCases.Value[id];
+        var test = AllCases.Value[id];
 
-        Assert.Equal(expected, Dump(TreeBuilder.Parse(input)));
+        Assert.Equal(string.Join("\n", test.Expected), Dump(TreeBuilder.Parse(test.Input)));
     }
 
     [Fact]
@@ -164,10 +164,10 @@ public class TreeBuilderTests
                     PushChildren(stack, fragment, depth + 1);
                     break;
                 case Text text:
-                    lines.Add($"{indent}\"{TokenizerTests.Escape(text.Data)}\"");
+                    lines.Add($"{indent}\"{CaseFiles.Escape(text.Data)}\"");
                     break;
                 case Comment comment:
-                    lines.Add($"{indent}<!--{TokenizerTests.Escape(comment.Data)}-->");
+                    lines.Add($"{indent}<!--{CaseFiles.Escape(comment.Data)}-->");
                     break;
             }
         }
@@ -187,39 +187,8 @@ public class TreeBuilderTests
         foreach (var attribute in element.Attributes)
         {
             tag.Append(' ').Append(element.OwnerDocument.TextOf(attribute.Name))
-                .Append("=\"").Append(TokenizerTests.Escape(attribute.Value)).Append('"');
+                .Append("=\"").Append(CaseFiles.Escape(attribute.Value)).Append('"');
         }
         return tag.Append('>').ToString();
-    }
-
-    private static Dictionary<string, (string, string)> LoadCases()
-    {
-        var cases = new Dictionary<string, (string, string)>();
-        var dir = Path.Combine(AppContext.BaseDirectory, "Html", "TreeBuilder");
-        foreach (var file in Directory.GetFiles(dir, "*.txt"))
-        {
-            var lines = File.ReadAllLines(file);
-            for (var i = 0; i < lines.Length; i++)
-            {
-                if (!lines[i].StartsWith("=== ", StringComparison.Ordinal))
-                    continue;
-                var id = $"{Path.GetFileNameWithoutExtension(file)}: {lines[i][4..]}";
-
-                var input = new List<string>();
-                for (i++; lines[i] != "---"; i++)
-                    input.Add(lines[i]);
-
-                var expected = new List<string>();
-                for (i++; i < lines.Length && !lines[i].StartsWith("=== ", StringComparison.Ordinal); i++)
-                {
-                    if (lines[i].Length > 0)
-                        expected.Add(lines[i]);
-                }
-                i--;
-
-                cases.Add(id, (TokenizerTests.Unescape(string.Join('\n', input)), string.Join('\n', expected)));
-            }
-        }
-        return cases;
     }
 }
