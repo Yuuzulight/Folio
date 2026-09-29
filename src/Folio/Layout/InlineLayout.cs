@@ -338,7 +338,7 @@ internal static class InlineLayout
 
     // An inline box's layout bounds around the baseline (CSS 2.2 §10.8.1): the font's ascent and descent, with half
     // the leading from line-height added above and below.
-    private readonly record struct LineMetrics(float Ascent, float Descent, float Above, float Below);
+    private readonly record struct LineMetrics(float Ascent, float Descent, float Above, float Below, float XHeight, float Size, float LineHeight);
 
     private static LineMetrics Metrics(ComputedStyle style, LayoutContext context) => Metrics(style, PrimaryFace(style, context));
 
@@ -347,6 +347,7 @@ internal static class InlineLayout
         var size = style.Font.Size;
         var (ascent, descent, gap) = face is null ? (0.8f * size, 0.2f * size, 0.2f * size)
             : (face.Ascent * size / face.UnitsPerEm, -face.Descent * size / face.UnitsPerEm, face.LineGap * size / face.UnitsPerEm);
+        var xHeight = face is { XHeight: > 0 } ? face.XHeight * size / face.UnitsPerEm : size / 2;
         var lineHeight = style.Font.LineHeight switch
         {
             { IsNormal: true } => ascent + descent + gap,
@@ -354,7 +355,26 @@ internal static class InlineLayout
             var l => l.Number * size,
         };
         var halfLeading = (lineHeight - ascent - descent) / 2;
-        return new LineMetrics(ascent, descent, ascent + halfLeading, descent + halfLeading);
+        return new LineMetrics(ascent, descent, ascent + halfLeading, descent + halfLeading, xHeight, size, lineHeight);
+    }
+
+    // The line as a tree: the root (the block's strut), inline boxes, and text and atomic leaves. Each node's
+    // baseline is raised by Shift above its parent's (vertical-align), or aligned with the line box's top or bottom.
+    private sealed class Node(Node? parent, ComputedStyle style, LineMetrics metrics)
+    {
+        public Node? Parent { get; } = parent;
+        public ComputedStyle Style { get; } = style;
+        public LineMetrics Metrics { get; } = metrics;
+        public List<Node> Children { get; } = [];
+        public InlineBox? Box { get; init; }
+        public Piece? Piece { get; init; }
+        public float X { get; set; }
+        public float End { get; set; }
+        public float Shift { get; set; }
+        public VerticalAlignKind? Edge { get; set; }
+        public float Above { get; set; }
+        public float Below { get; set; }
+        public float Baseline { get; set; }
     }
 
     private static Fragment BuildLine(BlockContainerBox block, List<Unit> units, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
@@ -363,105 +383,206 @@ internal static class InlineLayout
         var pieces = units.SelectMany(u => u.Pieces).ToList();
         var contentWidth = units.Sum(u => u.Width) - (units.Count > 0 ? units[^1].TrailingSpace : 0);
         var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
-
-        // Vertical extent: everything sits on the baseline.
-        float above = strut.Above, below = strut.Below;
-        void Extend(LineMetrics m)
-        {
-            above = Math.Max(above, m.Above);
-            below = Math.Max(below, m.Below);
-        }
-        foreach (var (_, style) in openBoxes)
-            Extend(Metrics(style, context));
-        foreach (var piece in pieces)
-        {
-            switch (piece.Kind)
-            {
-                case PieceKind.Text:
-                    Extend(Metrics(piece.Style, piece.Run!.Face));
-                    break;
-                case PieceKind.BoxStart:
-                    Extend(Metrics(piece.Style, context));
-                    break;
-                case PieceKind.Atomic:
-                    // Its bottom margin edge sits on the baseline (the baseline of inline-blocks comes with vertical-align).
-                    above = Math.Max(above, piece.AtomicMarginTop + piece.Atomic!.Height + piece.AtomicMarginBottom);
-                    break;
-            }
-        }
-        if (!visible)
-            above = below = 0; // a line with nothing to show has no height (css-inline-3 \u00A72.1, CSS 2.2 \u00A79.4.2)
-        var baseline = above;
-
         var free = available - contentWidth;
-        var shift = block.Style.Text.TextAlign switch
+        var x = block.Style.Text.TextAlign switch
         {
             TextAlign.Right or TextAlign.End => free,
             TextAlign.Center => free / 2,
             _ => 0,
         };
 
-        var boxFragments = new List<ChildFragment>();
-        var textFragments = new List<ChildFragment>();
-        var boxStarts = openBoxes.Select(_ => shift).ToList();
-        var x = shift;
-        void CloseBox(int index, float end)
+        // Build the tree, placing everything horizontally on the way.
+        var root = new Node(null, block.Style, strut);
+        var current = root;
+        var boxes = new List<Node>();
+        Node OpenBox(InlineBox box, ComputedStyle style, float start)
         {
-            var (box, style) = openBoxes[index];
-            var m = Metrics(style, context);
-            var (bt, bb) = (style.Border.TopWidth, style.Border.BottomWidth);
-            var (pt, pb) = (BlockLayout.Resolve(style.Spacing.PaddingTop, cbWidth), BlockLayout.Resolve(style.Spacing.PaddingBottom, cbWidth));
-            var top = baseline - m.Ascent - pt - bt;
-            boxFragments.Add(new ChildFragment(boxStarts[index], top, new Fragment(box, Math.Max(0, end - boxStarts[index]), m.Ascent + m.Descent + pt + pb + bt + bb, [])));
+            var node = new Node(current, style, Metrics(style, context)) { Box = box, X = start };
+            current.Children.Add(node);
+            boxes.Add(node);
+            return current = node;
         }
-
+        foreach (var (box, style) in openBoxes)
+            OpenBox(box, style, x);
         foreach (var piece in pieces)
         {
             switch (piece.Kind)
             {
                 case PieceKind.BoxStart:
+                    OpenBox((InlineBox)piece.Box!, piece.Style, x + BlockLayout.Margin(piece.Style.Spacing.MarginLeft, cbWidth));
                     openBoxes.Add(((InlineBox)piece.Box!, piece.Style));
-                    boxStarts.Add(x + BlockLayout.Margin(piece.Style.Spacing.MarginLeft, cbWidth));
                     break;
                 case PieceKind.BoxEnd:
-                {
-                    var index = openBoxes.FindLastIndex(o => o.Box == piece.Box);
-                    if (index >= 0)
+                    for (var node = current; node != root; node = node.Parent!)
                     {
-                        CloseBox(index, x + piece.Width - BlockLayout.Margin(piece.Style.Spacing.MarginRight, cbWidth));
-                        openBoxes.RemoveAt(index);
-                        boxStarts.RemoveAt(index);
+                        if (node.Box == piece.Box)
+                        {
+                            node.End = x + piece.Width - BlockLayout.Margin(piece.Style.Spacing.MarginRight, cbWidth);
+                            current = node.Parent!;
+                            openBoxes.RemoveAt(openBoxes.FindLastIndex(o => o.Box == piece.Box));
+                            break;
+                        }
                     }
                     break;
-                }
                 case PieceKind.Text:
+                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, piece.Run!.Face)) { Piece = piece, X = x });
+                    break;
+                case PieceKind.Atomic:
                 {
-                    var m = Metrics(piece.Style, piece.Run!.Face);
-                    textFragments.Add(new ChildFragment(x, baseline - m.Ascent, new Fragment(block, piece.Width, m.Ascent + m.Descent, [])
+                    // Its baseline is its last line's, or its bottom margin edge (CSS 2.2 §10.8.1).
+                    var fragment = piece.Atomic!;
+                    var baseline = AtomicBaseline(fragment);
+                    var (above, below) = baseline is { } b
+                        ? (piece.AtomicMarginTop + b, fragment.Height - b + piece.AtomicMarginBottom)
+                        : (piece.AtomicMarginTop + fragment.Height + piece.AtomicMarginBottom, 0f);
+                    current.Children.Add(new Node(current, piece.Style, new LineMetrics(above, below, above, below, 0, 0, above + below))
                     {
-                        Kind = FragmentKind.Text,
-                        Text = new TextRun(piece.Run, piece.GlyphStart, piece.GlyphEnd, m.Ascent),
-                    }));
+                        Piece = piece, X = x + piece.AtomicMarginLeft,
+                    });
                     break;
                 }
-                case PieceKind.Atomic:
-                    textFragments.Add(new ChildFragment(x + piece.AtomicMarginLeft, baseline - piece.AtomicMarginBottom - piece.Atomic!.Height, piece.Atomic));
-                    break;
                 case PieceKind.OutOfFlow:
                     addOutOfFlow(piece.Box!, x);
                     break;
             }
             x += piece.Width;
         }
-        // Boxes still open continue on the next line; their fragment on this line ends here.
-        for (var i = 0; i < openBoxes.Count; i++)
-            CloseBox(i, x);
-        boxStarts.Clear();
+        foreach (var node in boxes.Where(n => n.End == 0 && openBoxes.Any(o => o.Box == n.Box)))
+            node.End = x; // continues on the next line
 
-        return new Fragment(block, available, above + below, [.. boxFragments, .. textFragments])
+        // Vertical: shifts, then extents bottom-up, then the line box and every baseline.
+        var edges = new List<Node>();
+        Measure(root);
+        float lineAbove = root.Above, lineBelow = root.Below;
+        foreach (var edge in edges)
+        {
+            if (edge.Above + edge.Below > lineAbove + lineBelow)
+            {
+                if (edge.Edge == VerticalAlignKind.Top)
+                    lineBelow = edge.Above + edge.Below - lineAbove;
+                else
+                    lineAbove = edge.Above + edge.Below - lineBelow;
+            }
+        }
+        if (!visible)
+            lineAbove = lineBelow = 0; // a line with nothing to show has no height (css-inline-3 \u00A72.1, CSS 2.2 \u00A79.4.2)
+        var height = lineAbove + lineBelow;
+        root.Baseline = lineAbove;
+        Place(root);
+
+        var boxFragments = new List<ChildFragment>();
+        var contentFragments = new List<ChildFragment>();
+        Emit(root);
+        return new Fragment(block, available, height, [.. boxFragments, .. contentFragments])
         {
             Kind = FragmentKind.Line,
-            Baseline = baseline,
+            Baseline = root.Baseline,
         };
+
+        void Measure(Node node)
+        {
+            float above = node.Metrics.Above, below = node.Metrics.Below;
+            foreach (var child in node.Children)
+            {
+                Measure(child);
+                Align(child, node);
+                if (child.Edge is not null)
+                {
+                    edges.Add(child);
+                    continue;
+                }
+                above = Math.Max(above, child.Shift + child.Above);
+                below = Math.Max(below, child.Below - child.Shift);
+            }
+            (node.Above, node.Below) = (above, below);
+        }
+
+        // vertical-align of a box or atomic inline relative to its parent (text follows its box).
+        // ponytail: sub and super move by fixed fractions of the parent's font size, not the font's own offsets.
+        void Align(Node node, Node parent)
+        {
+            if (node.Box is null && node.Piece?.Kind != PieceKind.Atomic)
+                return;
+            var align = node.Style.Box.VerticalAlign;
+            var (own, p) = (node.Metrics, parent.Metrics);
+            node.Shift = align.Kind switch
+            {
+                VerticalAlignKind.Sub => -p.Size / 5,
+                VerticalAlignKind.Super => p.Size / 3,
+                VerticalAlignKind.TextTop => p.Ascent - own.Above,
+                VerticalAlignKind.TextBottom => own.Below - p.Descent,
+                VerticalAlignKind.Middle => p.XHeight / 2 - (own.Above - own.Below) / 2,
+                VerticalAlignKind.Length => align.Length.Resolve(own.LineHeight),
+                _ => 0,
+            };
+            if (align.Kind is VerticalAlignKind.Top or VerticalAlignKind.Bottom)
+                node.Edge = align.Kind;
+        }
+
+        void Place(Node node)
+        {
+            foreach (var child in node.Children)
+            {
+                child.Baseline = child.Edge switch
+                {
+                    VerticalAlignKind.Top => child.Above,
+                    VerticalAlignKind.Bottom => height - child.Below,
+                    _ => node.Baseline - child.Shift,
+                };
+                Place(child);
+            }
+        }
+
+        void Emit(Node node)
+        {
+            foreach (var child in node.Children)
+            {
+                if (child.Box is { } box)
+                {
+                    var m = child.Metrics;
+                    var style = child.Style;
+                    var (bt, bb) = (style.Border.TopWidth, style.Border.BottomWidth);
+                    var (pt, pb) = (BlockLayout.Resolve(style.Spacing.PaddingTop, cbWidth), BlockLayout.Resolve(style.Spacing.PaddingBottom, cbWidth));
+                    boxFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent - pt - bt,
+                        new Fragment(box, Math.Max(0, child.End - child.X), m.Ascent + m.Descent + pt + pb + bt + bb, [])));
+                    Emit(child);
+                }
+                else if (child.Piece is { Kind: PieceKind.Text } text)
+                {
+                    var m = child.Metrics;
+                    contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
+                    {
+                        Kind = FragmentKind.Text,
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent),
+                    }));
+                }
+                else if (child.Piece is { Kind: PieceKind.Atomic } atomic)
+                {
+                    contentFragments.Add(new ChildFragment(child.X, child.Baseline - child.Above + atomic.AtomicMarginTop, atomic.Atomic!));
+                }
+            }
+        }
+    }
+
+    // The baseline of an inline-block: its last in-flow line box's, from its top; none when it has no line boxes or
+    // clips its overflow.
+    private static float? AtomicBaseline(Fragment fragment)
+    {
+        if (fragment.Box is { } box && (box.Style.Box.OverflowX != Overflow.Visible || box.Style.Box.OverflowY != Overflow.Visible || box is not BlockContainerBox))
+            return null;
+        return LastBaseline(fragment);
+
+        static float? LastBaseline(Fragment f)
+        {
+            for (var i = f.Children.Count - 1; i >= 0; i--)
+            {
+                var (child, y) = (f.Children[i].Fragment, f.Children[i].Y);
+                if (child.Kind == FragmentKind.Line && child.Height > 0)
+                    return y + child.Baseline;
+                if (child.Kind == FragmentKind.Box && child.Box is { IsFloat: false, IsAbsolutelyPositioned: false } && LastBaseline(child) is { } inner)
+                    return y + inner;
+            }
+            return null;
+        }
     }
 }

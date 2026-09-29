@@ -23,15 +23,15 @@ html 0,0 60x32
 === inline-blocks shrink to fit and sit on the baseline
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block">bc</span>d</p>
 ---
-html 0,0 800x19.2
-  body 0,0 800x19.2
-    p 0,0 800x19.2
-      line 0,0 800x19.2
-        text "a" 0,3.2 16x16
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "a" 0,0 16x16
         span 16,0 32x16
           line 16,0 32x16
             text "bc" 16,0 32x16
-        text "d" 48,3.2 16x16
+        text "d" 48,0 16x16
 
 === absolutely positioned boxes shrink to fit unless both insets are set
 <!DOCTYPE html><style>body { margin: 0 }</style><div style="position: absolute; left: 10px">abc</div><div style="position: absolute; top: 20px; left: 10px; right: 10px">abc</div>

@@ -92,5 +92,5 @@ public class BlockLayoutTests
         _ => "(anonymous)",
     };
 
-    private static string N(float value) => Math.Round(value, 2).ToString(CultureInfo.InvariantCulture);
+    private static string N(float value) => (Math.Round(value, 2) + 0.0).ToString(CultureInfo.InvariantCulture); // + 0.0 turns -0 into 0
 }
