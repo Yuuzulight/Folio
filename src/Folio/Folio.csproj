@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Folio.Tests" />
+    <InternalsVisibleTo Include="Folio.RenderTests" />
     <EmbeddedResource Include="Style\UserAgent.css" LogicalName="Folio.UserAgent.css" />
   </ItemGroup>
 
