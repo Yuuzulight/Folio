@@ -43,5 +43,11 @@ Image tests that fail or change write their actual, expected and diff images to 
 dotnet run --project tests/Folio.RenderTests -- approve <area|area/name>
 ```
 
+The fuzzer mutates the parser and decoder test inputs for the given number of seconds per target. Inputs it fails on are written to `tests/fuzz-output/`; once fixed, they go in `tests/Folio.Fuzz/Regressions/<target>/`, which the test run replays:
+
+```
+dotnet run --project tests/Folio.Fuzz -c Release -- fuzz <seconds> [html|css|png|jpeg]...
+```
+
 ## Licence
 Apache-2.0, same as Mana.
