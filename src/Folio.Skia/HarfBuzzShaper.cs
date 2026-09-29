@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Folio.Typography;
 using HarfBuzzSharp;
 using Buffer = HarfBuzzSharp.Buffer;
@@ -50,7 +51,12 @@ public sealed class HarfBuzzShaper : ITextShaper
 
     private static ShapingFont? FontFor(IFontHandle handle) => Fonts.GetValue(handle, h =>
     {
-        using var blob = Blob.FromStream(new MemoryStream(h.Data.ToArray()));
+        // HarfBuzz reads the bytes for the font's lifetime, so they live in unmanaged memory the GC cannot move; the blob
+        // frees them when HarfBuzz lets go of the last reference.
+        var bytes = h.Data.ToArray();
+        var data = Marshal.AllocHGlobal(bytes.Length);
+        Marshal.Copy(bytes, 0, data, bytes.Length);
+        using var blob = new Blob(data, bytes.Length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(data));
         var face = new Face(blob, h.FaceIndex);
         if (face.UnitsPerEm <= 0)
             return null;
