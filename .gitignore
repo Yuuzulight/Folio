@@ -3,6 +3,7 @@ bin/
 obj/
 TestResults/
 tests/render-output/
+tests/fuzz-output/
 
 # IDE
 .vs/
