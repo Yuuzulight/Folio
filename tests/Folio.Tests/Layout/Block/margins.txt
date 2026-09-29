@@ -1,0 +1,139 @@
+=== the body's default margin does not collapse with the root
+<!DOCTYPE html><div style="height:50px"></div>
+---
+html 0,0 800x66
+  body 8,8 784x50
+    div 8,8 784x50
+
+=== adjoining sibling margins collapse to the larger
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style>
+<div id=a style="margin-bottom: 20px"></div><div id=b style="margin-top: 30px; margin-bottom: 10px"></div><div id=c style="margin-top: -4px"></div>
+---
+html 0,0 800x66
+  body 0,0 800x66
+    div#a 0,0 800x10
+    div#b 0,40 800x10
+    div#c 0,56 800x10
+
+=== negative margins: largest positive plus most negative
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style>
+<div id=a style="margin-bottom: -10px"></div><div id=b style="margin-top: 4px; margin-bottom: -3px"></div><div id=c style="margin-top: -8px"></div>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    div#a 0,0 800x10
+    div#b 0,4 800x10
+    div#c 0,6 800x10
+
+=== a first child's top margin collapses through its ancestors
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-top: 10px"><div id=c style="margin-top: 25px; height: 10px"></div></div>
+---
+html 0,0 800x35
+  body 0,25 800x10
+    div#p 0,25 800x10
+      div#c 0,25 800x10
+
+=== top padding separates parent and child margins
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-top: 10px; padding-top: 1px"><div id=c style="margin-top: 25px; height: 10px"></div></div>
+---
+html 0,0 800x46
+  body 0,10 800x36
+    div#p 0,10 800x36
+      div#c 0,36 800x10
+
+=== a top border separates parent and child margins
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-top: 10px; border-top: 2px solid"><div id=c style="margin-top: 25px; height: 10px"></div></div>
+---
+html 0,0 800x47
+  body 0,10 800x37
+    div#p 0,10 800x37
+      div#c 0,37 800x10
+
+=== flow-root contains its children's margins
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-top: 10px; display: flow-root"><div id=c style="margin-top: 25px; height: 10px"></div></div>
+---
+html 0,0 800x45
+  body 0,10 800x35
+    div#p 0,10 800x35
+      div#c 0,35 800x10
+
+=== overflow other than visible contains its children's margins
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-top: 10px; overflow: hidden"><div id=c style="margin-top: 25px; height: 10px"></div></div>
+---
+html 0,0 800x45
+  body 0,10 800x35
+    div#p 0,10 800x35
+      div#c 0,35 800x10
+
+=== overflow clip does not contain margins
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-top: 10px; overflow: clip"><div id=c style="margin-top: 25px; height: 10px"></div></div>
+---
+html 0,0 800x35
+  body 0,25 800x10
+    div#p 0,25 800x10
+      div#c 0,25 800x10
+
+=== a last child's bottom margin collapses through an auto-height parent
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="margin-bottom: 5px"><div id=c style="height: 10px; margin-bottom: 30px"></div></div><div id=n style="height: 10px"></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div#p 0,0 800x10
+      div#c 0,0 800x10
+    div#n 0,40 800x10
+
+=== a fixed height keeps the last child's bottom margin inside
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="height: 20px; margin-bottom: 5px"><div id=c style="height: 10px; margin-bottom: 30px"></div></div><div id=n style="height: 10px"></div>
+---
+html 0,0 800x35
+  body 0,0 800x35
+    div#p 0,0 800x20
+      div#c 0,0 800x10
+    div#n 0,25 800x10
+
+=== min-height moving the bottom edge keeps the last child's bottom margin inside
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="min-height: 20px; margin-bottom: 5px"><div id=c style="height: 10px; margin-bottom: 30px"></div></div><div id=n style="height: 10px"></div>
+---
+html 0,0 800x55
+  body 0,0 800x55
+    div#p 0,0 800x40
+      div#c 0,0 800x10
+    div#n 0,45 800x10
+
+=== an empty block's margins collapse through it and with both siblings
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=a style="height: 10px; margin-bottom: 10px"></div><div id=e style="margin-top: 20px; margin-bottom: 15px"></div><div id=b style="height: 10px; margin-top: 5px"></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div#a 0,0 800x10
+    div#e 0,30 800x0
+    div#b 0,30 800x10
+
+=== an empty first child's margins join the parent's top margin
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="padding-bottom: 1px"><div id=e style="margin: 12px 0 7px"></div></div>
+---
+html 0,0 800x13
+  body 0,12 800x1
+    div#p 0,12 800x1
+      div#e 0,12 800x0
+
+=== a zero-height block with a border does not collapse through
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=a style="margin-bottom: 10px; height: 10px"></div><div id=e style="margin: 20px 0; border-top: 1px solid"></div><div id=b style="height: 10px"></div>
+---
+html 0,0 800x61
+  body 0,0 800x61
+    div#a 0,0 800x10
+    div#e 0,30 800x1
+    div#b 0,51 800x10
