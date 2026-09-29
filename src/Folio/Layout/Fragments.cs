@@ -35,9 +35,10 @@ internal sealed class LayoutContext(FontCollection fonts)
 /// <param name="BfcTop">The top of the box's border box, in formatting context coordinates.</param>
 /// <param name="FixedWidth">A border-box width already decided by the parent's algorithm (absolute positioning).</param>
 /// <param name="FixedHeight">A border-box height already decided by the parent's algorithm.</param>
+/// <param name="Border">Border widths decided by the parent's algorithm (collapsed table borders), instead of the style's.</param>
 internal readonly record struct ConstraintSpace(
     float ContainingWidth, float? ContainingHeight, ExclusionSpace? Exclusions = null, float BfcLeft = 0, float BfcTop = 0,
-    float? FixedWidth = null, float? FixedHeight = null);
+    float? FixedWidth = null, float? FixedHeight = null, Style.BorderGroup? Border = null);
 
 /// <summary>
 /// An absolutely or fixed positioned box on its way up to its containing block (study 10, option A), with its static
@@ -96,6 +97,15 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     public ExclusionSpace? Exclusions { get; init; }
 
     public FragmentKind Kind { get; init; } = FragmentKind.Box;
+
+    /// <summary>
+    /// The border painted instead of the style's: for collapsed table borders, a cell's full resolved border centred on
+    /// its edges, and no border for the table, its rows and row groups.
+    /// </summary>
+    public Style.BorderGroup? PaintedBorder { get; init; }
+
+    /// <summary>No background or border is painted (an empty cell with empty-cells: hide).</summary>
+    public bool SkipsDecorations { get; init; }
 
     /// <summary>For text fragments: the glyphs.</summary>
     public TextRun? Text { get; init; }
