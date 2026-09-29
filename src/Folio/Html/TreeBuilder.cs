@@ -31,8 +31,6 @@ internal sealed partial class TreeBuilder : ITokenSink
         InTableBody,
         InRow,
         InCell,
-        InSelect,
-        InSelectInTable,
         InTemplate,
         AfterBody,
         AfterAfterBody,
@@ -214,11 +212,6 @@ internal sealed partial class TreeBuilder : ITokenSink
                 _mode = Mode.InTable;
                 return text;
             }
-
-            case Mode.InSelect:
-            case Mode.InSelectInTable:
-                InsertCharacters(WithoutNulls(text));
-                return "";
 
             case Mode.AfterBody:
             case Mode.AfterAfterBody:

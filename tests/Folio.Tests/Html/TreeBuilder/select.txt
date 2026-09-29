@@ -46,7 +46,7 @@
       <input>
       "x"
 
-=== other markup inside select is dropped
+=== formatting elements go inside select
 <!DOCTYPE html><select><b>a</b></select>
 ---
 #document
@@ -55,4 +55,88 @@
     <head>
     <body>
       <select>
+        <b>
+          "a"
+
+=== other elements go inside select too
+<!DOCTYPE html><select><div>x</div><option>y</select>z
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+        <div>
+          "x"
+        <option>
+          "y"
+      "z"
+
+=== hr closes an open option
+<!DOCTYPE html><select><option>a<hr><option>b</select>
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+        <option>
+          "a"
+        <hr>
+        <option>
+          "b"
+
+=== a select start tag inside select closes it and is ignored
+<!DOCTYPE html><select><select><option>x
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+      <option>
+        "x"
+
+=== textarea stays inside select
+<!DOCTYPE html><select><textarea>x</textarea></select>y
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+        <textarea>
+          "x"
+      "y"
+
+=== options outside select close each other
+<!DOCTYPE html><option>a<option>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <option>
         "a"
+      <option>
+        "b"
+
+=== optgroup closes the open option and optgroup
+<!DOCTYPE html><select><optgroup><option>a<optgroup>b
+---
+#document
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <body>
+      <select>
+        <optgroup>
+          <option>
+            "a"
+        <optgroup>
+          "b"
