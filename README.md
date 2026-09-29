@@ -21,7 +21,7 @@ Render and run AI-written HTML artifacts as well as a modern browser does: pages
 
 ## Milestones
 0. **Study and architecture:** how each part of an engine works, written up as Folio's own design in `docs/`.
-1. **Static rendering:** HTML and CSS parsing, the cascade, block, inline, flex and grid layout, text and font fallback, images, painting with SkiaSharp. Ships as a WinForms control and a render-to-image API.
+1. **Static rendering:** HTML and CSS parsing, the cascade, block, inline, flex and grid layout, text and font fallback, images, painting with SkiaSharp. Ships as a WinForms control (page scrolling and clickable links) and a render-to-image API.
 2. **Static parity:** gradients, shadows, transforms, transitions and animations, web fonts, and SVG. Most artifacts look identical to how a browser shows them.
 3. **Interaction:** scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint.
 4. **Scripting foundations:** a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage.

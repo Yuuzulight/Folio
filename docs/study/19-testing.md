@@ -28,6 +28,7 @@
 | Golden images | Conformance artifacts, and features with no simpler equivalent (text rendering, gradients, shadows, SVG) | Reviewed PNGs stored in the repo, compared with per-test tolerance |
 | Conformance suite | Whole artifacts, static and scripted | Goldens + interaction scripts (below) |
 | Incremental equivalence | After every incremental update, compare with a full re-render | Fragment tree and display list must be identical |
+| Shared public conformance suite | The subset of the public cross-browser test suite that covers the specs Folio implements | Downloaded by CI at a pinned revision and run there; nothing is copied into the repo. The repo keeps only an expectations file (which fetched tests should pass) |
 | Fuzzing | HTML, CSS, fonts, WOFF/WOFF2, PNG, JPEG, SVG/XML, `data:` URLs, IPC messages (M4) | Must not throw, must stay within limits, must satisfy invariants |
 
 ## Decisions
@@ -46,7 +47,7 @@
 
 A corpus of real-world-style single-file HTML artifacts, like the ones AI assistants write, stored in `tests/conformance/`. Each artifact has a manifest entry: category, features used (tags), viewport sizes to test, and for scripted ones an interaction script.
 
-**Sources**: artifacts written by language models from a fixed list of prompts per category, plus artifacts Mana produces in real use (with personal content removed). Library-based artifacts reference their libraries through pinned, integrity-checked URLs served from the test cache (no network in CI).
+**Sources**: the public corpus in the repo contains only artifacts made specifically for testing, written by language models from a fixed list of prompts per category. Library-based artifacts reference their libraries through pinned, integrity-checked URLs served from the test cache (no network in CI).
 
 **Categories**
 
@@ -69,11 +70,13 @@ A corpus of real-world-style single-file HTML artifacts, like the ones AI assist
 **How an artifact passes**
 
 - **Two images per artifact and viewport**:
-  - `reference.png` — the parity target, captured once from a reference browser under a fixed configuration (same bundled fonts, viewport, device scale, animations settled or disabled), reviewed and committed. It never changes because Folio changed. The capture tool is a separate utility, not part of the engine or its build.
+  - `reference.png` — the parity target, captured once from the **primary reference browser** under a fixed configuration (same bundled fonts, viewport, device scale, animations settled or disabled), reviewed and committed. It never changes because Folio changed. `reference-secondary.png` is captured the same way from a **secondary reference browser** and is used only as a tie-breaker. Both come from `tools/Folio.RefCapture`; which installed browsers act as primary and secondary is local capture configuration, not part of the engine or its build.
   - `approved.png` — Folio's last approved output, updated only through the approve workflow. It guards against regressions and is what PR before/after diffs show.
-- **Static artifact passes** when: it renders without crash, timeout or limit hit; it meets the time and memory targets; and the image matches `reference.png` (default: at most 0.5% of pixels differ by more than a small per-channel tolerance; per-artifact overrides only with a written reason).
+- **Static artifact passes** when: it renders without crash, timeout or limit hit; it meets the time and memory targets; and the image matches the reference. It passes if it matches `reference.png`; if it does not, but matches `reference-secondary.png` within the same tolerance, it also passes and is **flagged for human review** (the two browsers disagree, so the difference may be a quirk of the primary). Tolerance defaults: at most 0.5% of pixels differ by more than a small per-channel tolerance; per-artifact overrides only with a written reason).
 - **Scripted artifact passes** when, additionally: the settled image after load matches (virtual clock, seeded randomness, "settled" = no pending timers or animation frames within a window, or a fixed virtual time), and every step of its **interaction script** succeeds. Steps are simple: `click <selector>`, `hover <selector>`, `type <selector> <text>`, `key <key>`, `wheel <selector> <dx> <dy>`, `wait <frames|ms>`, then assertions: `text <selector> <expected>`, `exists <selector>`, `image <region>` against a golden region.
 - **Performance categories** (D5, D7) also require p95 frame time ≤ 16.7 ms over a fixed animation window.
+
+**Private corpus**: the user's real artifacts are never committed or uploaded. They live in a local corpus with the same layout and manifest format, either in `tests/conformance-private/` (listed in `.gitignore`) or in any folder named by the `FOLIO_PRIVATE_CORPUS` environment variable. The runner includes it automatically when present, reports its pass rates separately, and writes its actual and diff images inside that folder. CI never sees it; it runs only on the user's machine.
 
 **Regression check**: any change against `approved.png` beyond tolerance fails CI until approved.
 

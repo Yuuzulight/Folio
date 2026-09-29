@@ -14,13 +14,13 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 1. Static rendering
 
-**Scope**: HTML parsing, DOM, CSS parsing and selector matching, cascade with custom properties and `calc()`, box tree, block/inline/flex/grid/table layout, positioning and overflow, text shaping with font fallback, emoji and bidi, PNG and JPEG decoding, painting of backgrounds, borders, radii, images and text through SkiaSharp. `FolioView` (display, relayout on resize, root scrolling) and the headless render-to-image API. `ArtifactClassifier`. The test and CI infrastructure (reftests, golden images with tolerance, approve workflow, diff images on PRs, Linux and Windows runners), the benchmark harness and the first fuzz harnesses.
+**Scope**: HTML parsing, DOM, CSS parsing and selector matching, cascade with custom properties and `calc()`, box tree, block/inline/flex/grid/table layout, positioning and overflow, text shaping with font fallback, emoji and bidi, PNG and JPEG decoding, painting of backgrounds, borders, radii, images and text through SkiaSharp. `FolioView` (display, relayout on resize, root-page scrolling with wheel and scrollbar, clickable links through a host callback that by default opens the system browser) and the headless render-to-image API. `ArtifactClassifier`. The test and CI infrastructure (reftests, golden images with tolerance, approve workflow, diff images on PRs, Linux and Windows runners), the benchmark harness and the first fuzz harnesses.
 
 **Acceptance criteria**: the list in [architecture.md → Milestone 1 in detail](architecture.md#milestone-1-in-detail-static-rendering), in short:
 
 - CI green on Linux and Windows with unit, dump, Unicode conformance, reftests and golden tests; approve workflow and diff artifacts working.
 - Every M1 CSS feature covered by a test.
-- S1 and S3 ≥ 85% match; no crash, hang or limit hit anywhere in the corpus.
+- The simple static categories, S1 and S3, each ≥ 95% pass; no crash, hang or limit hit anywhere in the corpus.
 - Time and memory targets met for S1 and S3.
 - No network access possible with default options; fuzzers running with no open crash bugs.
 - Mana's "Open in Mana" window can use `FolioView`.
@@ -31,7 +31,7 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 **Acceptance criteria**
 
-- Static categories S1–S6 each ≥ 95% match `reference.png` ("most artifacts look identical").
+- All static categories S1–S6 each ≥ 98% pass against the reference images ("most artifacts look identical").
 - Paint-only animation frames within the M2 target; animations respect `prefers-reduced-motion` from the OS.
 - SVG reftests and goldens pass; SVG and font fuzz harnesses added and clean.
 - Web font loading honours the allowlist, cache and integrity rules; blocked fonts fall back without layout errors.
@@ -49,7 +49,7 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 4. Scripting foundations
 
-**Scope**: the sandboxed content process (Job Object limits, no-network token, IPC, watchdog), the JavaScript engine behind `IScriptEngine` (Jint first), the HTML event loop, generated DOM bindings: DOM core, events, element styles, `getComputedStyle`, geometry and scrolling APIs, timers, promises, animation frames, `ResizeObserver`, `IntersectionObserver`, storage, `console`, and the other APIs listed for M4 in [study 17](study/17-scripting.md). `ArtifactClassifier` learns to recognise artifacts M4 can run.
+**Scope**: the sandboxed content process (Job Object limits, no-network token, IPC, watchdog), the JavaScript engine behind `IScriptEngine` (Jint in this milestone), the HTML event loop, generated DOM bindings: DOM core, events, element styles, `getComputedStyle`, geometry and scrolling APIs, timers, promises, animation frames, `ResizeObserver`, `IntersectionObserver`, storage, `console`, and the other APIs listed for M4 in [study 17](study/17-scripting.md). `ArtifactClassifier` learns to recognise artifacts M4 can run.
 
 **Acceptance criteria**
 
@@ -60,13 +60,14 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 5. Scripted parity
 
-**Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. Performance work on the script path, and a measured decision on adding a JIT-compiling engine behind `IScriptEngine` for categories the interpreter cannot carry.
+**Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. The switch from Jint to a native JIT-compiling engine inside the content process (a backend swap behind `IScriptEngine`). Folio's own diagram renderer for diagram-description languages, used instead of running a large diagram library in the sandbox. Component code written with JSX arrives already compiled by the host.
 
 **Acceptance criteria**
 
 - D2–D7 each ≥ 90% pass, including interaction scripts.
 - D5 and D7 canvas animations reach p95 frame time ≤ 16.7 ms.
-- Library artifacts start within the scripted start-up targets set from M4 measurements.
+- DOM binding tests pass on both engines; library artifacts start within the scripted start-up targets set from M4 measurements.
+- D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
 
 ## Optional track: towards all-Folio

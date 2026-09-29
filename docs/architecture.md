@@ -57,7 +57,8 @@ One entry point drives it: `Document.Update()` runs only the stages that are dir
 8. **Deny-by-default resources**: all loads go through the host's `IResourceLoader`; the default allows `data:` URLs only.
 9. **Static documents render in-process; scripted documents run in a sandboxed content process** that owns DOM, style, layout and the script engine and sends display lists to the host.
 10. **Content never throws**: bad HTML/CSS is recovered per spec; limits stop work gracefully; everything is reported as diagnostics that a host (Mana) can feed back to the model that wrote the artifact.
-11. **.NET 10 only**: `net10.0` for the engine (runs on Windows and Linux, which the tests use), `net10.0-windows` for the WinForms control and the content process.
+11. **Scripts**: Jint through M4, a native JIT-compiling engine from M5, both behind `IScriptEngine` so the switch is a backend swap. JSX is compiled by the host before content reaches Folio; diagram-description languages are rendered by Folio's own diagram renderer instead of a diagram library.
+12. **.NET 10 only**: `net10.0` for the engine (runs on Windows and Linux, which the tests use), `net10.0-windows` for the WinForms control and the content process.
 
 ## Solution layout
 
@@ -93,8 +94,11 @@ src/
   Folio.Scripting/           net10.0          (M4) Event loop, generated DOM/CSSOM bindings, canvas 2D API,
                                               IPC protocol. Interface: IScriptEngine
   Folio.Scripting.Jint/      net10.0          (M4) IScriptEngine on Jint
+  Folio.Scripting.Jit/       net10.0          (M5) IScriptEngine on a native JIT-compiling engine
+  Folio.Diagrams/            net10.0          (M5) Diagram-description languages → SVG in the DOM
   Folio.ContentHost/         net10.0-windows  (M4) Sandboxed content process executable
 tools/
+  Folio.RefCapture/          Captures reference images from the installed reference browsers
   Folio.Gen/                 Generates entity table, property table, Unicode tables, bindings,
                              the test box font
 tests/
@@ -109,13 +113,15 @@ tests/
   goldens/<area>/            Feature golden images with tolerance settings
   conformance/<category>/<artifact>/
                              index.html, manifest (features, viewports, tolerance, interaction script),
-                             reference.png (parity target), approved.png (regression guard)
+                             reference.png (parity target), reference-secondary.png (tie-breaker),
+                             approved.png (regression guard)
+  conformance-private/       Gitignored: the user's own artifacts (or FOLIO_PRIVATE_CORPUS), local only
 ```
 
 **Boundaries**:
 
 - `Folio` references no native library. Namespaces are layered: `Dom`/`Html`/`Xml` → `Css`/`Style` → `Text`/`Imaging` → `Layout`/`Svg` → `Paint` → `Interaction` → `Hosting`; lower layers never reference higher ones. A unit test reads the assembly's metadata and fails on a layering violation.
-- Swap-out interfaces live in the engine; implementations that use a dependency live in `Folio.Skia` or `Folio.Scripting.Jint`. Replacing a dependency means adding one assembly.
+- Swap-out interfaces live in the engine; implementations that use a dependency live in `Folio.Skia`, `Folio.Scripting.Jint` or `Folio.Scripting.Jit`. Replacing a dependency means adding one assembly.
 - `Folio.WinForms` contains no rendering logic; it translates Windows messages to Folio input and blits the surface.
 
 ## Public API sketch
@@ -133,6 +139,8 @@ public sealed class FolioOptions
     public FontSettings Fonts { get; init; } = FontSettings.Default;   // generic families, fallback lists
     public ResourceLimits Limits { get; init; } = ResourceLimits.Default;
     public ScriptingPolicy Scripting { get; init; } = ScriptingPolicy.Disabled; // M4: ContentProcess
+    public string? ArtifactId { get; init; }                           // M4: key for per-artifact storage
+    public IArtifactStorage? Storage { get; init; }                    // M4: localStorage backing; null = memory only
     public bool CollectDiagnostics { get; init; } = true;
 }
 
@@ -171,7 +179,8 @@ public sealed record RenderRequest(
     int ViewportWidth,
     int? ViewportHeight = null,          // null: full document height
     float DeviceScale = 1f,
-    TimeSpan? ResourceWait = null);      // how long to wait for allowed loads
+    TimeSpan? ResourceWait = null,       // how long to wait for allowed loads
+    TextAntialiasing Text = TextAntialiasing.Greyscale); // Subpixel on request; the control follows the system setting
 
 public sealed class RenderResult : IDisposable
 {
@@ -201,7 +210,7 @@ public class FolioView : Control
     public event EventHandler? Rendered;
     public event EventHandler<DiagnosticsEventArgs>? DiagnosticsChanged;
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
-    public event EventHandler<LinkActivatedEventArgs>? LinkActivated;     // M3: host decides what to open
+    public event EventHandler<LinkActivatedEventArgs>? LinkActivated;     // M1: host decides; if unhandled, http/https/mailto open in the system browser
     public event EventHandler<FormSubmittedEventArgs>? FormSubmitted;     // M3
 }
 ```
@@ -246,7 +255,7 @@ public class FolioView : Control
 
 The full milestone list is in the [roadmap](roadmap.md). M1 is specified here because it fixes the core architecture.
 
-**Scope**: HTML and CSS parsing, the cascade, block, inline, flex, grid and table layout, positioning and overflow, text with font fallback and emoji, PNG/JPEG images, painting with SkiaSharp, the WinForms control (display, resize, root scrolling) and the headless API.
+**Scope**: HTML and CSS parsing, the cascade, block, inline, flex, grid and table layout, positioning and overflow, text with font fallback and emoji, PNG/JPEG images, painting with SkiaSharp, the WinForms control (display, resize, root-page scrolling with wheel and scrollbar, clickable links) and the headless API.
 
 **HTML elements rendered**: all flow and phrasing content with the UA stylesheet (headings, paragraphs, lists including nested and `start`/`reversed`, `dl`, `blockquote`, `pre`, `code`, `kbd`, `hr`, `br`, `wbr`, `a`, `strong`/`em`/`b`/`i`/`u`/`s`/`mark`/`small`/`sub`/`sup`, `abbr`, `time`, `figure`/`figcaption`, `details`/`summary` in their initial state, `section`/`article`/`header`/`footer`/`nav`/`aside`/`main`), tables with all parts, `img` (with `srcset` density selection and `alt` fallback), `picture`/`source`, form controls in static appearance, `progress`, `meter`. `svg`, `canvas`, `video`, `audio`, `iframe`, `object`, `embed` render as boxes of their specified size.
 
@@ -269,7 +278,7 @@ Everything else parses (so `@supports` and fallbacks behave correctly) and is re
 
 1. **CI is in place and green**: GitHub Actions on Linux and Windows run unit tests, parser/layout/display-list dump tests, Unicode conformance tests, reftests and golden-image tests on every push and PR. Golden tests have per-test tolerances, the `folio-test approve` workflow exists, and CI uploads actual/expected/diff images for every failing or changed golden.
 2. **Spec coverage**: every feature in the list above has at least one reftest, dump test or golden test; the expected-failure manifest is empty for M1 features.
-3. **Conformance**: in categories S1 (documents) and S3 (data tables), at least 85% of artifacts match `reference.png` within tolerance. Every artifact in the corpus, including those needing M2+ features and scripts, renders without an exception, hang or limit hit.
+3. **Conformance**: in the simple static categories, S1 (documents) and S3 (data tables), at least 95% of artifacts pass against the reference images. Every artifact in the corpus, including those needing M2+ features and scripts, renders without an exception, hang or limit hit.
 4. **Budgets**: the time and memory targets in [study 18](study/18-memory-and-performance.md) hold for S1 and S3 in the benchmark harness.
 5. **Safety**: with the default options, a test loader proves no request other than `data:` is ever made; fuzz harnesses for HTML, CSS, PNG, JPEG and fonts run on schedule in CI with no open crash bugs.
-6. **Integration**: Mana's "Open in Mana" window can show artifacts with `FolioView`, using `ArtifactClassifier` to send anything classified `Scripted` or `NeedsBrowser` to the system browser.
+6. **Integration**: Mana's "Open in Mana" window can show artifacts with `FolioView`, handles `LinkActivated`, using `ArtifactClassifier` to send anything classified `Scripted` or `NeedsBrowser` to the system browser.

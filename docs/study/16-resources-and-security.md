@@ -50,6 +50,7 @@ Folio renders content written by a language model. It must be treated as untrust
 | Font file size (after WOFF/WOFF2 decoding) | 20 MB |
 | Total loaded bytes per document | 64 MB |
 | SVG `use` expansion | 10,000 elements |
+| Per-artifact script storage (`localStorage`, M4) | 5 MB |
 | Time per `Update()` | 2 s, checked cooperatively inside parsing, style and layout loops |
 
 - **Untrusted binary formats** (PNG, JPEG, fonts, WOFF/WOFF2, SVG/XML) are parsed with bounds-checked readers and fuzzed continuously ([testing](19-testing.md)).

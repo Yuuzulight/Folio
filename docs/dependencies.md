@@ -36,7 +36,10 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
 | Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
-| JavaScript engine | **Dependency for now**: Jint (candidate) | Behind `IScriptEngine` |
+| JavaScript engine | **Dependency**: Jint through M4; a native JIT-compiling engine from M5 | Behind `IScriptEngine`; the switch is a backend swap |
+| Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
+| JSX compilation | **Host** (Mana) | Done before content reaches Folio |
+| Per-artifact script storage | **Host** | Behind `IArtifactStorage`: local, isolated per artifact |
 | Code generators (entities, property table, Unicode tables, bindings), test tools | **Folio builds it** | Build-time only, in `tools/` |
 
 ## Unicode: what the BCL covers and what Folio implements
@@ -107,7 +110,7 @@ public interface ITextShaper
 
 `ShaperRouter` asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` (in `Folio.Skia`). A configuration switch forces all text through one shaper for differential testing.
 
-### Jint — JavaScript (M4 onwards, candidate)
+### JavaScript engine — Jint through M4, a native JIT-compiling engine from M5
 
 **Why it is hard to build**: a standards-conforming ECMAScript engine (the whole language, its built-in library, regular expressions, garbage-collected object model, and enough speed for library bundles) is a project of its own, unrelated to rendering.
 
@@ -125,7 +128,7 @@ public interface IScriptEngine : IDisposable
 }
 ```
 
-The engine runs only inside the sandboxed content process ([study](study/17-scripting.md)), so replacing it (for speed) does not change the security model.
+Both engines run only inside the sandboxed content process ([study](study/17-scripting.md)). M4 ships `Folio.Scripting.Jint`; M5 adds `Folio.Scripting.Jit` on a native JIT-compiling engine (chosen at the start of M5) as a second implementation of the same interface, so the switch is a backend swap and does not change the security model.
 
 ### Image codecs not built in-house
 
