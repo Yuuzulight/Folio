@@ -2,6 +2,7 @@
 bin/
 obj/
 TestResults/
+tests/render-output/
 
 # IDE
 .vs/

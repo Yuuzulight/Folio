@@ -2,7 +2,7 @@ namespace Folio.RenderTests;
 
 public class ImageComparerTests
 {
-    private static PixelBuffer Solid(int width, int height, byte b, byte g, byte r, byte a = 255)
+    internal static PixelBuffer Solid(int width, int height, byte b, byte g, byte r, byte a = 255)
     {
         var image = new PixelBuffer(width, height);
         for (var i = 0; i < image.Pixels.Length; i += 4)
@@ -121,26 +121,28 @@ public class ImageComparerTests
     }
 
     [Fact]
-    public void FailureImagesRoundTripThroughPng()
+    public void OutputImagesRoundTripThroughPngAndClear()
     {
         var expected = Solid(5, 4, 10, 20, 30);
         var actual = Solid(5, 4, 10, 20, 30);
         actual.Pixel(2, 2)[0] = 250;
-        var result = ImageComparer.Compare(expected, actual, Tolerance.Exact);
-        var name = $"self-test/{Guid.NewGuid():N}";
-
-        RenderOutput.WriteFailure(name, expected, actual, result);
-
-        var basePath = Path.Combine(RenderOutput.Root, name);
+        var diff = ImageComparer.Compare(expected, actual, Tolerance.Exact).Diff;
+        var dir = Directory.CreateTempSubdirectory("folio-").FullName;
+        var basePath = Path.Combine(dir, "area", "name");
         try
         {
+            RenderOutput.Write(basePath, actual, expected, diff);
+
             Assert.Equal(expected.Pixels, PixelBuffer.LoadPng(basePath + ".expected.png").Pixels);
             Assert.Equal(actual.Pixels, PixelBuffer.LoadPng(basePath + ".actual.png").Pixels);
-            Assert.Equal(result.Diff.Pixels, PixelBuffer.LoadPng(basePath + ".diff.png").Pixels);
+            Assert.Equal(diff.Pixels, PixelBuffer.LoadPng(basePath + ".diff.png").Pixels);
+
+            RenderOutput.Clear(basePath);
+            Assert.Empty(Directory.EnumerateFiles(Path.Combine(dir, "area")));
         }
         finally
         {
-            Directory.Delete(Path.GetDirectoryName(basePath)!, recursive: true);
+            Directory.Delete(dir, recursive: true);
         }
     }
 }

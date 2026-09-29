@@ -6,20 +6,18 @@ namespace Folio.RenderTests;
 /// </summary>
 public static class ReftestRunner
 {
-    public static string Root { get; } = Path.Combine(AppContext.BaseDirectory, "reftests");
+    public static string Root { get; } = Path.Combine(RepoPaths.Tests, "reftests");
 
     /// <param name="name">Path under <c>tests/reftests</c> without extension, e.g. <c>css-backgrounds/background-color-001</c>.</param>
     public static ComparisonResult Run(string name)
     {
-        var actual = Render(Path.Combine(Root, name + ".html"));
-        var expected = Render(Path.Combine(Root, name + "-ref.html"));
+        var outputBase = Path.Combine(RenderOutput.Root, "reftests", name);
+        RenderOutput.Clear(outputBase);
+        var actual = TestRenderer.Render(Path.Combine(Root, name + ".html"));
+        var expected = TestRenderer.Render(Path.Combine(Root, name + "-ref.html"));
         var result = ImageComparer.Compare(expected, actual, Tolerance.Exact);
         if (!result.Passed)
-            RenderOutput.WriteFailure(name, expected, actual, result);
+            RenderOutput.Write(outputBase, actual, expected, result.Diff);
         return result;
     }
-
-    // Becomes a call to Folio.Skia's headless renderer once it exists.
-    private static PixelBuffer Render(string htmlPath) =>
-        throw new NotImplementedException($"The headless renderer does not exist yet: {htmlPath}");
 }
