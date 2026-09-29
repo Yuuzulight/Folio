@@ -1,0 +1,4 @@
+# Fonts and images are binary; never convert their line endings.
+*.ttf binary
+*.otf binary
+*.png binary
