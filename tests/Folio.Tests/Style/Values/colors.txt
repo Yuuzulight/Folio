@@ -1,0 +1,46 @@
+=== hex colors
+color: #f00; background-color: #00ff0080; border-top-color: #0000FF; border-left-color: #fff8
+---
+color: rgb(255, 0, 0)
+background-color: rgba(0, 255, 0, 0.502)
+border-top-color: rgb(0, 0, 255)
+border-left-color: rgba(255, 255, 255, 0.533)
+
+=== named colors are case-insensitive
+color: RebeccaPurple; background-color: transparent
+---
+color: rgb(102, 51, 153)
+background-color: rgba(0, 0, 0, 0)
+
+=== rgb in legacy and modern syntax
+color: rgb(255, 128, 0); background-color: rgba(100%, 0%, 0%, .5); border-top-color: rgb(0 255 0 / 25%); border-left-color: rgb(none 0 255)
+---
+color: rgb(255, 128, 0)
+background-color: rgba(255, 0, 0, 0.5)
+border-top-color: rgba(0, 255, 0, 0.25)
+border-left-color: rgb(0, 0, 255)
+
+=== legacy rgb cannot mix numbers and percentages
+color: rgb(255, 50%, 0)
+---
+color: rgb(0, 0, 0)
+
+=== hsl and hwb
+color: hsl(120, 100%, 50%); background-color: hsla(0deg 100% 50% / 0.5); border-top-color: hwb(240 0% 0%); border-left-color: hsl(0.5turn 100% 25%)
+---
+color: rgb(0, 255, 0)
+background-color: rgba(255, 0, 0, 0.5)
+border-top-color: rgb(0, 0, 255)
+border-left-color: rgb(0, 128, 128)
+
+=== currentcolor in color is the parent's color, elsewhere it stays symbolic
+%parent color: blue
+color: currentcolor; border-top-color: currentcolor
+---
+color: rgb(0, 0, 255)
+border-top-color: currentcolor
+
+=== color inherits
+%parent color: red
+---
+color: rgb(255, 0, 0)

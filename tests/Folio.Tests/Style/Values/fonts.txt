@@ -1,0 +1,64 @@
+=== font families
+font-family: "Helvetica Neue", Arial Black, SANS-SERIF
+---
+font-family: Helvetica Neue, Arial Black, sans-serif
+
+=== font-size relative keyword
+%parent font-size: 20px
+font-size: larger
+---
+font-size: 24
+
+=== font-size absolute keyword
+font-size: x-large
+---
+font-size: 24
+
+=== font-size percentage of the parent
+%parent font-size: 10px
+font-size: 150%
+---
+font-size: 15
+
+=== font-weight bolder
+%parent font-weight: 600
+font-weight: bolder
+---
+font-weight: 900
+
+=== font-weight lighter
+%parent font-weight: 400
+font-weight: lighter
+---
+font-weight: 100
+
+=== font-weight number
+font-weight: 350
+---
+font-weight: 350
+
+=== font-weight out of range is invalid
+font-weight: 1200
+---
+font-weight: 400
+
+=== line-height percentage
+font-size: 20px; line-height: 150%
+---
+line-height: 30px
+
+=== line-height number inherits as a number
+%parent font-size: 10px; line-height: 1.5
+font-size: 20px
+---
+line-height: 1.5
+
+=== line-height em
+font-size: 10px; line-height: 2em
+---
+line-height: 20px
+
+=== font-style
+font-style: italic
+---
+font-style: italic
