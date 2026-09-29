@@ -40,9 +40,17 @@ internal enum Visibility { Visible, Hidden, Collapse }
 
 internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
+internal enum Isolation { Auto, Isolate }
+
 internal enum BorderStyle { None, Hidden, Dotted, Dashed, Solid, Double, Groove, Ridge, Inset, Outset }
 
 internal enum FontStyle { Normal, Italic, Oblique }
+
+internal enum WhiteSpaceCollapse { Collapse, Preserve, PreserveBreaks, PreserveSpaces, BreakSpaces }
+
+internal enum TextWrapMode { Wrap, Nowrap }
+
+internal enum ListStylePosition { Outside, Inside }
 
 /// <summary>
 /// A computed length-percentage: <c>Px + Percent% of the basis</c>, or a <c>calc()</c> tree that is not linear
@@ -110,14 +118,21 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 // between elements, replaced whole when any member changes.
 
 /// <summary>Inherited: font properties.</summary>
-internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight);
+internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight,
+                                 float Stretch, string VariantCaps);
 
 /// <summary>Inherited: other inherited properties.</summary>
-internal sealed record InheritedGroup(CssColor Color, Visibility Visibility);
+internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme);
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
-    Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity);
+    Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto);
+
+/// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
+internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
+{
+    public override string ToString() => X == Y ? X.ToString() : $"{X} {Y}";
+}
 
 internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight);
 
@@ -135,7 +150,9 @@ internal sealed record SpacingGroup(
 internal sealed record BorderGroup(
     float TopWidthPx, float RightWidthPx, float BottomWidthPx, float LeftWidthPx,
     BorderStyle TopStyle, BorderStyle RightStyle, BorderStyle BottomStyle, BorderStyle LeftStyle,
-    CssColor TopColor, CssColor RightColor, CssColor BottomColor, CssColor LeftColor)
+    CssColor TopColor, CssColor RightColor, CssColor BottomColor, CssColor LeftColor,
+    CornerRadius TopLeftRadius = default, CornerRadius TopRightRadius = default,
+    CornerRadius BottomRightRadius = default, CornerRadius BottomLeftRadius = default)
 {
     public float TopWidth => Visible(TopStyle) ? TopWidthPx : 0;
     public float RightWidth => Visible(RightStyle) ? RightWidthPx : 0;
@@ -145,7 +162,33 @@ internal sealed record BorderGroup(
     private static bool Visible(BorderStyle style) => style is not (BorderStyle.None or BorderStyle.Hidden);
 }
 
-internal sealed record BackgroundGroup(CssColor Color);
+/// <summary>A computed background position: offsets from the left and top edges.</summary>
+internal readonly record struct BackgroundPosition(LengthPercentage X, LengthPercentage Y)
+{
+    public override string ToString() => $"{X} {Y}";
+}
+
+internal readonly record struct BackgroundSize(BackgroundSizeKind Kind, SizeValue Width, SizeValue Height)
+{
+    public override string ToString() => Kind switch
+    {
+        BackgroundSizeKind.Cover => "cover",
+        BackgroundSizeKind.Contain => "contain",
+        _ => $"{Width} {Height}",
+    };
+}
+
+/// <summary>Backgrounds: the colour and per-layer lists (layer count is the image list's; others repeat when shorter).</summary>
+internal sealed record BackgroundGroup(
+    CssColor Color, IReadOnlyList<ImageValue> Images, IReadOnlyList<BackgroundPosition> Positions, IReadOnlyList<BackgroundSize> Sizes,
+    IReadOnlyList<RepeatStyle> Repeats, IReadOnlyList<BackgroundAttachment> Attachments, IReadOnlyList<BackgroundBox> Origins,
+    IReadOnlyList<BackgroundBox> Clips);
+
+/// <summary>Inherited: white space handling and list markers.</summary>
+internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition);
+
+/// <summary>Generated content and counters (not inherited).</summary>
+internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
 /// <summary>An element's computed style: references to shared groups.</summary>
 internal sealed class ComputedStyle
@@ -157,6 +200,8 @@ internal sealed class ComputedStyle
     public required SpacingGroup Spacing { get; init; }
     public required BorderGroup Border { get; init; }
     public required BackgroundGroup Background { get; init; }
+    public required TextGroup Text { get; init; }
+    public required GeneratedGroup Generated { get; init; }
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
@@ -172,6 +217,26 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
     public float RootFontSize { get; } = rootFontSize;
     public float ViewportWidth { get; } = viewportWidth;
     public float ViewportHeight { get; } = viewportHeight;
+
+    /// <summary>The host's preferred colour scheme (prefers-color-scheme).</summary>
+    public bool PrefersDark { get; init; }
+
+    /// <summary>Whether the element uses the dark scheme (its color-scheme and the preference), for light-dark().</summary>
+    public bool UsesDark { get; set; }
+
+    /// <summary>The element's computed color, once computed (currentcolor in other properties' expressions).</summary>
+    public CssColor CurrentColor { get; set; } = parent.Inherited.Color;
+
+    /// <summary>
+    /// Computes a colour: a plain colour keeps currentcolor symbolic; an expression resolves against
+    /// <paramref name="currentColor"/> and the used colour scheme.
+    /// </summary>
+    public CssColor Color(CssValue value, CssColor currentColor) => value switch
+    {
+        ColorExpressionValue e => ColorResolver.Resolve(e.Expression, currentColor, UsesDark),
+        ColorValue c => c.Color,
+        _ => CssColor.CurrentColor,
+    };
 
     /// <summary>The element's computed custom properties, used to substitute var() in other properties.</summary>
     public ImmutableDictionary<string, string> Custom { get; set; } = parent.Custom;

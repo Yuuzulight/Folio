@@ -26,11 +26,46 @@ jobs:
 
       - run: dotnet test --solution Folio.slnx -c Release --no-build
 
+      # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
+      - name: Benchmarks
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll bench
+
       # Actual, expected and diff images of every failing or changed image test.
       - name: Upload image test output
+        id: render-output
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: render-output-${{ matrix.os }}
           path: tests/render-output/
+          if-no-files-found: ignore
+
+      # Lists those tests on the run's summary page, with a link to the images.
+      - name: List image test output
+        if: always() && steps.render-output.outputs.artifact-url != ''
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.render-output.outputs.artifact-url }}
+        run: |
+          {
+            echo "### Image tests that failed or changed (${{ matrix.os }})"
+            echo "Actual, expected and diff images: [render-output-${{ matrix.os }}]($ARTIFACT_URL)"
+            echo
+            find tests/render-output -name '*.actual.png' | sed 's|^tests/render-output/||; s|\.actual\.png$||' | sort | sed 's|^|- |'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Mutation fuzzing of the HTML and CSS parsers and the image decoders, 30 seconds per target.
+      - name: Fuzz
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 10
+        run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz 30
+
+      # Inputs the fuzzer failed on; add them to tests/Folio.Fuzz/Regressions/<target>/ with the fix.
+      - name: Upload fuzz failures
+        if: failure() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-output
+          path: tests/fuzz-output/
           if-no-files-found: ignore

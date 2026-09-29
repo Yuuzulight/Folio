@@ -1,0 +1,55 @@
+=== paint order: negative z, blocks, floats, positioned in tree order, positive z
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px; width: 10px }</style>
+<div style="position: relative; background: rgb(1, 0, 0)"></div>
+<div style="position: absolute; z-index: -1; background: rgb(2, 0, 0)"></div>
+<div style="float: left; background: rgb(3, 0, 0)"></div>
+<div style="background: rgb(4, 0, 0)"></div>
+<div style="position: absolute; z-index: 5; background: rgb(5, 0, 0)"></div>
+<div style="position: absolute; z-index: 0; background: rgb(6, 0, 0)"></div>
+---
+fill 0,10 10x10 rgb(2, 0, 0)
+fill 0,10 10x10 rgb(4, 0, 0)
+fill 0,10 10x10 rgb(3, 0, 0)
+fill 0,0 10x10 rgb(1, 0, 0)
+fill 0,20 10x10 rgb(6, 0, 0)
+fill 0,20 10x10 rgb(5, 0, 0)
+
+=== a stacking context keeps its negative children above its own background
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div style="position: relative; z-index: 1; background: rgb(1, 0, 0); height: 10px"><div style="position: absolute; z-index: -1; background: rgb(2, 0, 0); width: 5px; height: 5px"></div></div><div style="background: rgb(3, 0, 0); height: 10px"></div>
+---
+fill 0,10 800x10 rgb(3, 0, 0)
+fill 0,0 800x10 rgb(1, 0, 0)
+fill 0,0 5x5 rgb(2, 0, 0)
+
+=== equal z-index follows tree order, whatever the containing block
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style>
+<div style="position: relative; background: rgb(1, 0, 0)"><div style="position: absolute; z-index: 2; width: 5px; height: 5px; background: rgb(2, 0, 0)"></div></div><div style="position: relative; z-index: 2; background: rgb(3, 0, 0)"></div>
+---
+fill 0,0 800x10 rgb(1, 0, 0)
+fill 0,0 5x5 rgb(2, 0, 0)
+fill 0,10 800x10 rgb(3, 0, 0)
+
+=== opacity groups a stacking context into a layer
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div style="opacity: 0.5; background: red; height: 10px"><div style="height: 5px; background: blue"></div></div>
+---
+opacity 0.5
+fill 0,0 800x10 rgb(255, 0, 0)
+fill 0,0 800x5 rgb(0, 0, 255)
+pop
+
+=== overflow clips descendants to the padding box with inner radii
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div style="overflow: hidden; width: 100px; height: 50px; border: 5px solid red; border-radius: 20px"><div style="height: 100px; background: blue"></div></div>
+---
+border 0,0 110x60 radius 20 5 solid rgb(255, 0, 0)
+clip 5,5 100x50 radius 15
+fill 5,5 100x100 rgb(0, 0, 255)
+pop
+
+=== positioned boxes whose containing block is outside an overflow box are not clipped by it
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div style="overflow: hidden; height: 10px"><div style="position: absolute; top: 0; left: 0; width: 5px; height: 5px; background: blue"></div></div>
+---
+fill 0,0 5x5 rgb(0, 0, 255)

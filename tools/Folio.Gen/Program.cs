@@ -6,18 +6,20 @@ using System.Text.RegularExpressions;
 // Generates committed C# tables for the engine. Usage:
 //   dotnet run --project tools/Folio.Gen -- entities [entities.json]
 //   dotnet run --project tools/Folio.Gen -- colors [css-color-4.html]
+//   dotnet run --project tools/Folio.Gen -- boxfont
 // Without a file, the source is downloaded from the specification.
 
 return args switch
 {
     ["entities", ..] => await Entities(args.Length > 1 ? args[1] : null),
     ["colors", ..] => await Colors(args.Length > 1 ? args[1] : null),
+    ["boxfont"] => await WriteBoxFont(),
     _ => Usage(),
 };
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html]");
+    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont");
     return 2;
 }
 
@@ -106,6 +108,16 @@ static async Task<int> Colors(string? path)
         """);
 
     await Write(code, "Css", "NamedColors.g.cs", $"{colors.Count} named colors");
+    return 0;
+}
+
+static async Task<int> WriteBoxFont()
+{
+    var output = Path.Combine(FindRoot(), "tests", "fonts", "FolioBox.ttf");
+    Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+    var font = BoxFont.Build();
+    await File.WriteAllBytesAsync(output, font);
+    Console.WriteLine($"{BoxFont.CodePoints.Length + 1} glyphs, {font.Length} bytes -> {output}");
     return 0;
 }
 

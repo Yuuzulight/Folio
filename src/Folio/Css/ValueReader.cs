@@ -79,6 +79,77 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
         return null;
     }
 
+    /// <summary>The position, to <see cref="Reset"/> to after a failed attempt.</summary>
+    public int Mark => _pos;
+
+    public void Reset(int mark) => _pos = mark;
+
+    /// <summary>The component values not read yet.</summary>
+    public List<ComponentValue> Rest()
+    {
+        var rest = values.Skip(_pos).ToList();
+        _pos = values.Count;
+        return rest;
+    }
+
+    /// <summary>Whether the next value is a comma (without consuming it).</summary>
+    public bool PeekComma() => Next() is PreservedToken { Token.Kind: CssTokenKind.Comma };
+
+    /// <summary>A URL: <c>url(x)</c> or <c>url("x")</c>.</summary>
+    public string? Url()
+    {
+        switch (Next())
+        {
+            case PreservedToken { Token.Kind: CssTokenKind.Url } url:
+                _pos++;
+                return url.Token.Value;
+            case CssFunction f when f.Name.Equals("url", StringComparison.OrdinalIgnoreCase):
+                var args = new ValueReader(source, f.Arguments);
+                if (args.String() is { } text && args.AtEnd)
+                {
+                    _pos++;
+                    return text;
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>A function of this name with any arguments, returned as its source text.</summary>
+    public string? FunctionText(string name)
+    {
+        if (Next() is CssFunction f && f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+            && f.Arguments.Any(a => a is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }))
+        {
+            _pos++;
+            return source[f.Start..f.End];
+        }
+        return null;
+    }
+
+    /// <summary>Any identifier, as written.</summary>
+    public string? Ident()
+    {
+        if (Next() is PreservedToken { Token.Kind: CssTokenKind.Ident } t)
+        {
+            _pos++;
+            return t.Token.Value;
+        }
+        return null;
+    }
+
+    /// <summary>A function of this name (ASCII case-insensitive): consumes it and reads its arguments.</summary>
+    public ValueReader? Function(string name)
+    {
+        if (Next() is CssFunction f && f.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        {
+            _pos++;
+            return new ValueReader(source, f.Arguments);
+        }
+        return null;
+    }
+
     public bool Comma()
     {
         if (Next() is PreservedToken { Token.Kind: CssTokenKind.Comma })
@@ -337,9 +408,122 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
 
     // ---------------------------------------------------------------- colours
 
-    /// <summary>A <c>&lt;color&gt;</c> (https://www.w3.org/TR/css-color-4/): hex, named, currentcolor, transparent,
-    /// rgb(a), hsl(a), hwb.</summary>
+    /// <summary>
+    /// A <c>&lt;color&gt;</c> as a specified value: a <see cref="ColorValue"/>, or a <see cref="ColorExpressionValue"/>
+    /// when it depends on the element (color-mix() with currentcolor, light-dark()).
+    /// </summary>
+    public CssValue? ColorSpecified() => ColorExpression() switch
+    {
+        null => null,
+        var e when ColorResolver.NeedsElement(e) && e is not ColorLiteral => new ColorExpressionValue(e),
+        var e => new ColorValue(ColorResolver.Resolve(e, CssColor.CurrentColor, dark: false)),
+    };
+
+    /// <summary>A colour that needs no element: currentcolor is kept symbolic, element-dependent expressions fail.</summary>
     public CssColor? Color()
+    {
+        var start = _pos;
+        var e = ColorExpression();
+        if (e is ColorLiteral literal)
+            return literal.Color;
+        if (e is not null && !ColorResolver.NeedsElement(e))
+            return ColorResolver.Resolve(e, CssColor.Black, dark: false);
+        _pos = start;
+        return null;
+    }
+
+    /// <summary>
+    /// A <c>&lt;color&gt;</c> (https://www.w3.org/TR/css-color-4/, https://www.w3.org/TR/css-color-5/): hex, named,
+    /// currentcolor, transparent, rgb(a), hsl(a), hwb, lab, lch, oklab, oklch, color-mix(), light-dark().
+    /// </summary>
+    public ColorExpression? ColorExpression()
+    {
+        if (Next() is CssFunction f)
+        {
+            var name = f.Name.ToLowerInvariant();
+            ColorExpression? expression = name switch
+            {
+                "color-mix" => ColorMix(f.Arguments),
+                "light-dark" => LightDark(f.Arguments),
+                _ => null,
+            };
+            if (expression is not null)
+            {
+                _pos++;
+                return expression;
+            }
+            if (name is "color-mix" or "light-dark")
+                return null;
+        }
+        return LiteralColor() is { } color ? new ColorLiteral(color) : null;
+    }
+
+    private ColorExpression? ColorMix(List<ComponentValue> arguments)
+    {
+        var parts = SplitCommas(arguments);
+        if (parts.Count != 3)
+            return null;
+
+        var method = new ValueReader(source, parts[0]);
+        if (method.Keyword("in") is null)
+            return null;
+        ColorSpace? space = method.Keyword("srgb", "srgb-linear", "lab", "oklab", "lch", "oklch", "xyz", "xyz-d50", "xyz-d65", "hsl", "hwb") switch
+        {
+            "srgb" => ColorSpace.Srgb,
+            "srgb-linear" => ColorSpace.SrgbLinear,
+            "lab" => ColorSpace.Lab,
+            "oklab" => ColorSpace.Oklab,
+            "lch" => ColorSpace.Lch,
+            "oklch" => ColorSpace.Oklch,
+            "xyz" or "xyz-d65" => ColorSpace.XyzD65,
+            "xyz-d50" => ColorSpace.XyzD50,
+            "hsl" => ColorSpace.Hsl,
+            "hwb" => ColorSpace.Hwb,
+            _ => null,
+        };
+        if (space is null)
+            return null;
+        var hue = HueInterpolation.Shorter;
+        if (method.Keyword("shorter", "longer", "increasing", "decreasing") is { } hueMethod)
+        {
+            if (!ColorSpaces.IsPolar(space.Value) || method.Keyword("hue") is null)
+                return null;
+            hue = Enum.Parse<HueInterpolation>(hueMethod, ignoreCase: true);
+        }
+        if (!method.AtEnd)
+            return null;
+
+        (ColorExpression Color, float? Percent)? Operand(List<ComponentValue> values)
+        {
+            var reader = new ValueReader(source, values);
+            var percent = reader.LengthPercentage() as PercentageValue;
+            var color = reader.ColorExpression();
+            percent ??= reader.LengthPercentage() as PercentageValue;
+            if (color is null || !reader.AtEnd || percent is { Percent: < 0 or > 100 })
+                return null;
+            return (color, percent?.Percent);
+        }
+
+        if (Operand(parts[1]) is not { } first || Operand(parts[2]) is not { } second)
+            return null;
+        if (first.Percent is 0 && second.Percent is 0)
+            return null;
+        return new ColorMix(space.Value, hue, first.Color, first.Percent, second.Color, second.Percent);
+    }
+
+    private ColorExpression? LightDark(List<ComponentValue> arguments)
+    {
+        var parts = SplitCommas(arguments);
+        if (parts.Count != 2)
+            return null;
+        var light = new ValueReader(source, parts[0]);
+        var dark = new ValueReader(source, parts[1]);
+        var l = light.ColorExpression();
+        var d = dark.ColorExpression();
+        return l is not null && d is not null && light.AtEnd && dark.AtEnd ? new LightDark(l, d) : null;
+    }
+
+    private CssColor? LiteralColor()
     {
         switch (Next())
         {
@@ -365,6 +549,8 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
                     "rgb" or "rgba" => Rgb(function.Arguments),
                     "hsl" or "hsla" => HslOrHwb(function.Arguments, hwb: false),
                     "hwb" => HslOrHwb(function.Arguments, hwb: true),
+                    "lab" or "oklab" => LabLike(function.Arguments, ok: function.Name.Equals("oklab", StringComparison.OrdinalIgnoreCase), polar: false),
+                    "lch" or "oklch" => LabLike(function.Arguments, ok: function.Name.Equals("oklch", StringComparison.OrdinalIgnoreCase), polar: true),
                     _ => null,
                 };
                 if (result is not null)
@@ -459,6 +645,31 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
             ? HwbToRgb(hue.Value, second.Value / 100, third.Value / 100)
             : HslToRgb(hue.Value, Clamp01(second.Value / 100), Clamp01(third.Value / 100));
         return new CssColor(Clamp01(r), Clamp01(g), Clamp01(b), alpha.Value);
+    }
+
+    // lab(), lch(), oklab(), oklch() (https://www.w3.org/TR/css-color-4/#specifying-lab-lch): modern syntax only;
+    // results outside sRGB are gamut mapped.
+    private CssColor? LabLike(List<ComponentValue> arguments, bool ok, bool polar)
+    {
+        if (ColorArguments(arguments) is not var (channels, alphaValue, legacy) || legacy)
+            return null;
+        var lightness = Channel(channels[0], ok ? 1 : 100, legacy: false);
+        var second = Channel(channels[1], ok ? 0.4f : polar ? 150 : 125, legacy: false);
+        var third = polar ? Hue(channels[2], legacy: false) : Channel(channels[2], ok ? 0.4f : 125, legacy: false);
+        var alpha = Alpha(alphaValue, legacy: false);
+        if (lightness is null || second is null || third is null || alpha is null)
+            return null;
+
+        var l = System.Math.Clamp(lightness.Value, 0, ok ? 1 : 100);
+        (double, double, double) rgb = (ok, polar) switch
+        {
+            (false, false) => ColorSpaces.LabToSrgb(l, second.Value, third.Value),
+            (true, false) => ColorSpaces.OklabToSrgb(l, second.Value, third.Value),
+            (false, true) => ColorSpaces.LchToSrgb(l, System.Math.Max(0, second.Value), third.Value),
+            _ => ColorSpaces.OklchToSrgb(l, System.Math.Max(0, second.Value), third.Value),
+        };
+        var mapped = ColorSpaces.GamutMapToSrgb(rgb);
+        return new CssColor((float)mapped.R, (float)mapped.G, (float)mapped.B, alpha.Value);
     }
 
     private float? Hue(ComponentValue value, bool legacy)

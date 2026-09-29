@@ -1,0 +1,101 @@
+=== left and right floats line up along the top
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=l1 style="float: left; width: 100px; height: 50px"></div><div id=l2 style="float: left; width: 100px; height: 30px"></div><div id=r style="float: right; width: 200px; height: 20px"></div>
+---
+html 0,0 800x50
+  body 0,0 800x0
+    div#l1 0,0 100x50
+    div#l2 100,0 100x30
+    div#r 600,0 200x20
+
+=== a float that does not fit moves below, and later floats are never higher
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=a style="float: left; width: 500px; height: 50px"></div><div id=b style="float: left; width: 400px; height: 20px"></div><div id=c style="float: right; width: 100px; height: 10px"></div>
+---
+html 0,0 800x70
+  body 0,0 800x0
+    div#a 0,0 500x50
+    div#b 0,50 400x20
+    div#c 700,50 100x10
+
+=== float margins are part of the space it takes
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=f style="float: right; width: 100px; height: 10px; margin: 5px 10px"></div>
+---
+html 0,0 800x20
+  body 0,0 800x0
+    div#f 690,5 100x10
+
+=== a float with clear goes below the floats it clears
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=a style="float: left; width: 100px; height: 20px"></div><div id=b style="float: right; width: 100px; height: 40px"></div><div id=c style="float: left; clear: right; width: 100px; height: 10px"></div>
+---
+html 0,0 800x50
+  body 0,0 800x0
+    div#a 0,0 100x20
+    div#b 700,0 100x40
+    div#c 0,40 100x10
+
+=== clearance puts a block below the floats and stops its margins collapsing
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=f style="float: left; width: 100px; height: 50px"></div><div id=c style="clear: left; height: 10px; margin-top: 10px"></div>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    div#f 0,0 100x50
+    div#c 0,50 800x10
+
+=== an empty clearing block makes its parent contain the floats
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p><div id=f style="float: left; width: 100px; height: 50px"></div><div id=cf style="clear: both"></div></div><div id=n style="height: 10px"></div>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    div#p 0,0 800x50
+      div#f 0,0 100x50
+      div#cf 0,50 800x0
+    div#n 0,50 800x10
+
+=== blocks overlap floats but independent formatting contexts go beside or below them
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=f style="float: left; width: 200px; height: 50px"></div><div id=n style="height: 10px"></div><div id=b style="overflow: hidden; height: 10px"></div><div id=w style="display: flow-root; width: 700px; height: 10px"></div>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    div#f 0,0 200x50
+    div#n 0,0 800x10
+    div#b 200,10 600x10
+    div#w 0,50 700x10
+
+=== independent formatting contexts contain their floats, other blocks do not
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p style="display: flow-root"><div id=f style="float: left; width: 10px; height: 30px"></div></div><div id=q><div id=g style="float: left; width: 10px; height: 30px"></div></div><div id=n style="height: 5px"></div>
+---
+html 0,0 800x60
+  body 0,0 800x35
+    div#p 0,0 800x30
+      div#f 0,0 10x30
+    div#q 0,30 800x0
+      div#g 0,30 10x30
+    div#n 0,30 800x5
+
+=== a float moves down with margins that collapse through its parent's top
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=p><div id=f style="float: left; width: 100px; height: 20px"></div><div id=c style="margin-top: 30px; height: 10px"></div></div>
+---
+html 0,0 800x50
+  body 0,30 800x10
+    div#p 0,30 800x10
+      div#f 0,30 100x20
+      div#c 0,30 800x10
+
+=== floats inside a block beside earlier floats account for margins collapsing through it
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=f1 style="float: left; width: 100px; height: 100px"></div><div id=p><div id=c style="margin-top: 40px; height: 10px"><div id=f2 style="float: left; width: 100px; height: 10px"></div></div></div>
+---
+html 0,0 800x140
+  body 0,40 800x10
+    div#f1 0,40 100x100
+    div#p 0,40 800x10
+      div#c 0,40 800x10
+        div#f2 100,40 100x10

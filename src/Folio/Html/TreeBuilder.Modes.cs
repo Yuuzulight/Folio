@@ -24,8 +24,6 @@ internal sealed partial class TreeBuilder
             case Mode.InTableBody: InTableBody(t); break;
             case Mode.InRow: InRow(t); break;
             case Mode.InCell: InCell(t); break;
-            case Mode.InSelect: InSelect(t); break;
-            case Mode.InSelectInTable: InSelectInTable(t); break;
             case Mode.InTemplate: InTemplate(t); break;
             case Mode.AfterBody: AfterBody(t); break;
             case Mode.AfterAfterBody: AfterAfterBody(t); break;
@@ -542,6 +540,11 @@ internal sealed partial class TreeBuilder
                 return;
 
             case "input":
+                if (InScope("select"))
+                {
+                    Error();
+                    PopUntil("select");
+                }
                 ReconstructActiveFormattingElements();
                 InsertVoid(t);
                 return;
@@ -552,6 +555,12 @@ internal sealed partial class TreeBuilder
 
             case "hr":
                 ClosePIfInButtonScope();
+                if (InScope("select"))
+                {
+                    GenerateImpliedEndTags();
+                    if (InScope("option") || InScope("optgroup"))
+                        Error();
+                }
                 InsertVoid(t);
                 return;
 
@@ -584,16 +593,42 @@ internal sealed partial class TreeBuilder
                 return;
 
             case "select":
+                if (InScope("select"))
+                {
+                    Error();
+                    PopUntil("select");
+                    return;
+                }
                 ReconstructActiveFormattingElements();
                 InsertHtmlElement(t);
-                _mode = _mode is Mode.InTable or Mode.InCaption or Mode.InTableBody or Mode.InRow or Mode.InCell
-                    ? Mode.InSelectInTable
-                    : Mode.InSelect;
                 return;
 
-            case "optgroup" or "option":
-                if (CurrentIsHtml("option"))
+            case "option":
+                if (InScope("select"))
+                {
+                    GenerateImpliedEndTags("optgroup");
+                    if (InScope("option"))
+                        Error();
+                }
+                else if (CurrentIsHtml("option"))
+                {
                     Pop();
+                }
+                ReconstructActiveFormattingElements();
+                InsertHtmlElement(t);
+                return;
+
+            case "optgroup":
+                if (InScope("select"))
+                {
+                    GenerateImpliedEndTags();
+                    if (InScope("option") || InScope("optgroup"))
+                        Error();
+                }
+                else if (CurrentIsHtml("option"))
+                {
+                    Pop();
+                }
                 ReconstructActiveFormattingElements();
                 InsertHtmlElement(t);
                 return;
@@ -683,7 +718,7 @@ internal sealed partial class TreeBuilder
 
             case "address" or "article" or "aside" or "blockquote" or "button" or "center" or "details" or "dialog"
                 or "dir" or "div" or "dl" or "fieldset" or "figcaption" or "figure" or "footer" or "header" or "hgroup"
-                or "listing" or "main" or "menu" or "nav" or "ol" or "pre" or "search" or "section" or "summary" or "ul":
+                or "listing" or "main" or "menu" or "nav" or "ol" or "pre" or "search" or "section" or "select" or "summary" or "ul":
                 if (!InScope(t.Name))
                 {
                     Error();
@@ -1163,116 +1198,6 @@ internal sealed partial class TreeBuilder
         PopUntil("td", "th");
         ClearFormattingToLastMarker();
         _mode = Mode.InRow;
-    }
-
-    // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inselect
-    private void InSelect(Token t)
-    {
-        if (t.Kind == TokenKind.Comment)
-        {
-            InsertComment(t.Data);
-        }
-        else if (t.Kind == TokenKind.Doctype)
-        {
-            Error();
-        }
-        else if (IsStart(t, "html"))
-        {
-            InBody(t);
-        }
-        else if (IsStart(t, "option"))
-        {
-            if (CurrentIsHtml("option"))
-                Pop();
-            InsertHtmlElement(t);
-        }
-        else if (IsStart(t, "optgroup", "hr"))
-        {
-            if (CurrentIsHtml("option"))
-                Pop();
-            if (CurrentIsHtml("optgroup"))
-                Pop();
-            if (t.Name == "hr")
-                InsertVoid(t);
-            else
-                InsertHtmlElement(t);
-        }
-        else if (IsEnd(t, "optgroup"))
-        {
-            if (CurrentIsHtml("option") && _open.Count > 1 && IsHtml(_open[^2], "optgroup"))
-                Pop();
-            if (CurrentIsHtml("optgroup"))
-                Pop();
-            else
-                Error();
-        }
-        else if (IsEnd(t, "option"))
-        {
-            if (CurrentIsHtml("option"))
-                Pop();
-            else
-                Error();
-        }
-        else if (IsEnd(t, "select") || IsStart(t, "select"))
-        {
-            if (t.Kind == TokenKind.StartTag)
-                Error();
-            if (!InScope("select", Scope.Select))
-            {
-                if (t.Kind == TokenKind.EndTag)
-                    Error();
-                return;
-            }
-            PopUntil("select");
-            ResetInsertionMode();
-        }
-        else if (IsStart(t, "input", "keygen", "textarea"))
-        {
-            Error();
-            if (!InScope("select", Scope.Select))
-                return;
-            PopUntil("select");
-            ResetInsertionMode();
-            Process(_mode, t);
-        }
-        else if (IsStart(t, "script", "template") || IsEnd(t, "template"))
-        {
-            InHead(t);
-        }
-        else if (t.Kind == TokenKind.EndOfFile)
-        {
-            InBody(t);
-        }
-        else
-        {
-            Error();
-        }
-    }
-
-    // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inselectintable
-    private void InSelectInTable(Token t)
-    {
-        string[] tableParts = ["caption", "table", "tbody", "tfoot", "thead", "tr", "td", "th"];
-        if (IsStart(t, tableParts))
-        {
-            Error();
-            PopUntil("select");
-            ResetInsertionMode();
-            Process(_mode, t);
-        }
-        else if (IsEnd(t, tableParts))
-        {
-            Error();
-            if (!InScope(t.Name, Scope.Table))
-                return;
-            PopUntil("select");
-            ResetInsertionMode();
-            Process(_mode, t);
-        }
-        else
-        {
-            InSelect(t);
-        }
     }
 
     // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-intemplate

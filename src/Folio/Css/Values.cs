@@ -94,6 +94,127 @@ internal sealed record CalcValue(CalcNode Node, CalcType Type) : CssValue;
 
 internal sealed record ColorValue(CssColor Color) : CssValue;
 
+/// <summary>A specified corner radius: horizontal and vertical length-percentages.</summary>
+internal sealed record RadiusValue(CssValue X, CssValue Y) : CssValue;
+
+/// <summary>A colour that depends on the element: <c>color-mix()</c> with <c>currentcolor</c>, or <c>light-dark()</c>.</summary>
+internal abstract record ColorExpression;
+
+internal sealed record ColorLiteral(CssColor Color) : ColorExpression;
+
+internal sealed record ColorMix(ColorSpace Space, HueInterpolation Hue, ColorExpression First, float? FirstPercent,
+                                ColorExpression Second, float? SecondPercent) : ColorExpression;
+
+internal sealed record LightDark(ColorExpression Light, ColorExpression Dark) : ColorExpression;
+
+/// <summary>A specified colour resolved at computed-value time (it needs currentcolor or the used colour scheme).</summary>
+internal sealed record ColorExpressionValue(ColorExpression Expression) : CssValue;
+
+/// <summary><c>color-scheme</c> (https://www.w3.org/TR/css-color-adjust-1/#color-scheme-prop): normal, or the schemes an element supports.</summary>
+internal readonly record struct ColorSchemeValue(bool Light, bool Dark, bool Only)
+{
+    public static ColorSchemeValue Normal => default;
+
+    public bool IsNormal => !Light && !Dark;
+
+    /// <summary>The used scheme: dark when the element supports it and the host prefers it, or supports only dark.</summary>
+    public bool UsesDark(bool prefersDark) => Dark && (prefersDark || !Light);
+
+    public override string ToString() => IsNormal ? "normal" : string.Join(" ", new[] { Light ? "light" : null, Dark ? "dark" : null, Only ? "only" : null }.Where(s => s is not null));
+}
+
+internal sealed record ColorSchemeSpecified(ColorSchemeValue Scheme) : CssValue;
+
+/// <summary>Resolves colour expressions (https://www.w3.org/TR/css-color-5/#color-mix, #light-dark).</summary>
+internal static class ColorResolver
+{
+    public static bool NeedsElement(ColorExpression e) => e switch
+    {
+        ColorLiteral l => l.Color.IsCurrentColor,
+        ColorMix m => NeedsElement(m.First) || NeedsElement(m.Second),
+        _ => true,
+    };
+
+    public static CssColor Resolve(ColorExpression e, CssColor currentColor, bool dark) => e switch
+    {
+        ColorLiteral l => l.Color.Resolve(currentColor),
+        LightDark ld => Resolve(dark ? ld.Dark : ld.Light, currentColor, dark),
+        ColorMix m => Mix(m, Resolve(m.First, currentColor, dark), Resolve(m.Second, currentColor, dark)),
+        _ => CssColor.Black,
+    };
+
+    private static CssColor Mix(ColorMix mix, CssColor first, CssColor second)
+    {
+        // Percentage normalisation: missing ones complete to 100%, a sum under 100% scales the alpha.
+        double p1, p2;
+        if (mix.FirstPercent is null && mix.SecondPercent is null)
+            (p1, p2) = (50, 50);
+        else
+            (p1, p2) = (mix.FirstPercent ?? 100 - mix.SecondPercent!.Value, mix.SecondPercent ?? 100 - mix.FirstPercent!.Value);
+        var sum = p1 + p2;
+        var alphaMultiplier = sum < 100 ? sum / 100 : 1;
+        var t = p2 / sum;
+
+        var space = mix.Space;
+        var a = ColorSpaces.FromSrgb(space, (first.R, first.G, first.B));
+        var b = ColorSpaces.FromSrgb(space, (second.R, second.G, second.B));
+        double[] ca = [a.Item1, a.Item2, a.Item3], cb = [b.Item1, b.Item2, b.Item3];
+        var hue = ColorSpaces.IsPolar(space) ? ColorSpaces.HueIndex(space) : -1;
+
+        if (hue >= 0)
+        {
+            if (double.IsNaN(ca[hue]))
+                ca[hue] = double.IsNaN(cb[hue]) ? 0 : cb[hue];
+            if (double.IsNaN(cb[hue]))
+                cb[hue] = ca[hue];
+            (ca[hue], cb[hue]) = FixHues(ca[hue], cb[hue], mix.Hue);
+        }
+
+        var alpha = first.A * (1 - t) + second.A * t;
+        var result = new double[3];
+        for (var i = 0; i < 3; i++)
+        {
+            if (i == hue)
+            {
+                result[i] = (ca[i] * (1 - t) + cb[i] * t) % 360;
+                continue;
+            }
+            // Interpolate premultiplied by alpha.
+            var premultiplied = ca[i] * first.A * (1 - t) + cb[i] * second.A * t;
+            result[i] = alpha == 0 ? 0 : premultiplied / alpha;
+        }
+
+        var rgb = ColorSpaces.GamutMapToSrgb(ColorSpaces.ToSrgb(space, (result[0], result[1], result[2])));
+        return new CssColor((float)rgb.R, (float)rgb.G, (float)rgb.B, (float)(alpha * alphaMultiplier));
+    }
+
+    // https://www.w3.org/TR/css-color-4/#hue-interpolation
+    private static (double, double) FixHues(double h1, double h2, HueInterpolation method)
+    {
+        h1 = (h1 % 360 + 360) % 360;
+        h2 = (h2 % 360 + 360) % 360;
+        var d = h2 - h1;
+        switch (method)
+        {
+            case HueInterpolation.Shorter:
+                if (d > 180) h1 += 360;
+                else if (d < -180) h2 += 360;
+                break;
+            case HueInterpolation.Longer:
+                if (d is > 0 and < 180) h1 += 360;
+                else if (d is > -180 and <= 0) h2 += 360;
+                break;
+            case HueInterpolation.Increasing:
+                if (h2 < h1) h2 += 360;
+                break;
+            case HueInterpolation.Decreasing:
+                if (h1 < h2) h1 += 360;
+                break;
+        }
+        return (h1, h2);
+    }
+}
+
 internal sealed record FontFamilyValue(IReadOnlyList<string> Families) : CssValue;
 
 /// <summary>https://www.w3.org/TR/css-cascade-5/#defaulting-keywords</summary>

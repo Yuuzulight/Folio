@@ -16,13 +16,18 @@ internal sealed class RuleIndex<T>
     private readonly Dictionary<Atom, List<Entry>> _byClass = [];
     private readonly Dictionary<Atom, List<Entry>> _byTag = [];
     private readonly List<Entry> _universal = [];
+    private readonly HashSet<PseudoElement> _pseudoElements = [];
     private int _count;
 
     public int Count => _count;
 
+    /// <summary>Whether any rule targets this pseudo-element (so styles for it are worth computing).</summary>
+    public bool HasRulesFor(PseudoElement pseudoElement) => _pseudoElements.Contains(pseudoElement);
+
     public void Add(ComplexSelector selector, T data)
     {
         var entry = new Entry(selector, data, _count++, AncestorHashes(selector));
+        _pseudoElements.Add(selector.PseudoElement);
         var rightmost = selector.Rightmost.Simples;
         if (rightmost.OfType<IdSelector>().FirstOrDefault() is { } id)
             Bucket(_byId, id.Atom).Add(entry);

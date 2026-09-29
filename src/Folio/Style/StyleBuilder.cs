@@ -23,6 +23,8 @@ internal sealed class StyleBuilder
         Spacing = initial.Spacing;
         Border = initial.Border;
         Background = initial.Background;
+        Text = parent.Text;
+        Generated = initial.Generated;
     }
 
     public FontGroup Font { get; set; }
@@ -32,6 +34,8 @@ internal sealed class StyleBuilder
     public SpacingGroup Spacing { get; set; }
     public BorderGroup Border { get; set; }
     public BackgroundGroup Background { get; set; }
+    public TextGroup Text { get; set; }
+    public GeneratedGroup Generated { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -43,14 +47,20 @@ internal sealed class StyleBuilder
     {
         var builder = new StyleBuilder(context.Parent) { _custom = context.Custom };
 
-        // font-size first: em units in every other property refer to it.
+        // Properties others depend on come first: color-scheme (light-dark()), font-size (em), color (currentcolor).
+        if (cascaded.TryGetValue(PropertyId.ColorScheme, out var scheme))
+            builder.Apply(Properties.Get(PropertyId.ColorScheme), scheme, context);
+        context.UsesDark = builder.Inherited.ColorScheme.UsesDark(context.PrefersDark);
         if (cascaded.TryGetValue(PropertyId.FontSize, out var fontSize))
             builder.Apply(Properties.Get(PropertyId.FontSize), fontSize, context);
         context.FontSize = builder.Font.Size;
+        if (cascaded.TryGetValue(PropertyId.Color, out var color))
+            builder.Apply(Properties.Get(PropertyId.Color), color, context);
+        context.CurrentColor = builder.Inherited.Color;
 
         foreach (var (id, value) in cascaded)
         {
-            if (id != PropertyId.FontSize)
+            if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme))
                 builder.Apply(Properties.Get(id), value, context);
         }
         return builder.Build(groups);
@@ -84,6 +94,8 @@ internal sealed class StyleBuilder
             Spacing = Share(Spacing, initial.Spacing, groups),
             Border = Share(Border, initial.Border, groups),
             Background = Share(Background, initial.Background, groups),
+            Text = Share(Text, _parent.Text, groups),
+            Generated = Share(Generated, initial.Generated, groups),
             Custom = _custom,
         };
     }

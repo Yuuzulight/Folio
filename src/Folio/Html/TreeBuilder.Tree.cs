@@ -85,7 +85,6 @@ internal sealed partial class TreeBuilder
         ListItem,
         Button,
         Table,
-        Select,
     }
 
     private bool InScope(string name, Scope scope = Scope.Default) => InScope(e => IsHtml(e, name), scope);
@@ -111,13 +110,11 @@ internal sealed partial class TreeBuilder
         {
             case Scope.Table:
                 return IsHtml(node, "html", "table", "template");
-            case Scope.Select:
-                return !IsHtml(node, "optgroup", "option");
         }
 
         if (IsHtml(node))
         {
-            if (node.LocalName is "applet" or "caption" or "html" or "table" or "td" or "th" or "marquee" or "object" or "template")
+            if (node.LocalName is "applet" or "caption" or "html" or "table" or "td" or "th" or "marquee" or "object" or "select" or "template")
                 return true;
             if (scope == Scope.ListItem && node.LocalName is "ol" or "ul")
                 return true;
@@ -504,19 +501,6 @@ internal sealed partial class TreeBuilder
 
             switch (node.LocalName)
             {
-                case "select":
-                    for (var j = i - 1; j > 0; j--)
-                    {
-                        if (IsHtml(_open[j], "template"))
-                            break;
-                        if (IsHtml(_open[j], "table"))
-                        {
-                            _mode = Mode.InSelectInTable;
-                            return;
-                        }
-                    }
-                    _mode = Mode.InSelect;
-                    return;
                 case "td" or "th" when !last:
                     _mode = Mode.InCell;
                     return;
