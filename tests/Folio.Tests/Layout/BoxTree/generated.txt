@@ -1,0 +1,179 @@
+=== before and after with counters and attr
+<!DOCTYPE html><style>h2 { counter-increment: sec } h2::before { content: counter(sec) ". " } p::after { content: " [" attr(data-x) "]" }</style><h2>A</h2><h2>B</h2><p data-x=1>t</p>
+---
+block html
+  block body
+    block h2
+      <::before>
+      "1. "
+      </::before>
+      "A"
+    block h2
+      <::before>
+      "2. "
+      </::before>
+      "B"
+    block p
+      "t"
+      <::after>
+      " [1]"
+      </::after>
+
+=== pseudo-elements without content generate nothing
+<!DOCTYPE html><style>p::before { color: red } p::after { content: none }</style><p>t</p>
+---
+block html
+  block body
+    block p
+      "t"
+
+=== block pseudo-elements
+<!DOCTYPE html><style>div::before { content: "x"; display: block }</style><div>t</div>
+---
+block html
+  block body
+    block div
+      block ::before
+        "x"
+      block (anonymous)
+        "t"
+
+=== quotes nest
+<!DOCTYPE html><p>a<q>b<q>c</q></q></p>
+---
+block html
+  block body
+    block p
+      "a"
+      <q>
+      <::before>
+      "“"
+      </::before>
+      "b"
+      <q>
+      <::before>
+      "‘"
+      </::before>
+      "c"
+      <::after>
+      "’"
+      </::after>
+      </q>
+      <::after>
+      "”"
+      </::after>
+      </q>
+
+=== nested counters
+<!DOCTYPE html><style>ol { counter-reset: item; list-style: none } li::before { content: counters(item, ".") " "; counter-increment: item }</style><ol><li>a<ol><li>b<li>c</ol><li>d</ol>
+---
+block html
+  block body
+    block ol
+      block li
+        block (anonymous)
+          <::before>
+          "1 "
+          </::before>
+          "a"
+        block ol
+          block li
+            <::before>
+            "1.1 "
+            </::before>
+            "b"
+          block li
+            <::before>
+            "1.2 "
+            </::before>
+            "c"
+      block li
+        <::before>
+        "2 "
+        </::before>
+        "d"
+
+=== list markers outside and inside
+<!DOCTYPE html><ol><li>a<li>b</ol><ul style="list-style-position:inside"><li>c</ul>
+---
+block html
+  block body
+    block ol
+      block li
+        marker "1. "
+        "a"
+      block li
+        marker "2. "
+        "b"
+    block ul
+      block li
+        <::marker>
+        "• "
+        </::marker>
+        "c"
+
+=== ol start, reversed and li value
+<!DOCTYPE html><ol start=5 reversed><li>x<li>y</ol><ol><li value=10>p<li>q</ol>
+---
+block html
+  block body
+    block ol
+      block li
+        marker "5. "
+        "x"
+      block li
+        marker "4. "
+        "y"
+    block ol
+      block li
+        marker "10. "
+        "p"
+      block li
+        marker "11. "
+        "q"
+
+=== reversed ol counts its items
+<!DOCTYPE html><ol reversed><li>a<li>b<li>c</ol>
+---
+block html
+  block body
+    block ol
+      block li
+        marker "3. "
+        "a"
+      block li
+        marker "2. "
+        "b"
+      block li
+        marker "1. "
+        "c"
+
+=== list style types and marker content
+<!DOCTYPE html><style>#r { list-style-type: upper-roman } #g { list-style-type: lower-alpha } #s li::marker { content: "> " } #n { list-style: none }</style><ol id=r><li>a<li>b<li>c<li>d</ol><ol id=g><li>a</ol><ul id=s><li>x</ul><ul id=n><li>y</ul>
+---
+block html
+  block body
+    block ol
+      block li
+        marker "I. "
+        "a"
+      block li
+        marker "II. "
+        "b"
+      block li
+        marker "III. "
+        "c"
+      block li
+        marker "IV. "
+        "d"
+    block ol
+      block li
+        marker "a. "
+        "a"
+    block ul
+      block li
+        marker "> "
+        "x"
+    block ul
+      block li
+        "y"

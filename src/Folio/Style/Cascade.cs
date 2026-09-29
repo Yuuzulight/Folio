@@ -222,14 +222,15 @@ internal static class Cascade
     private readonly record struct Candidate(CascadeDeclaration Declaration, Origin Origin, bool ElementAttached, int[] Layer, Specificity Specificity, int Order, int Index);
 
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
-        Element element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context)
+        Element element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context,
+        PseudoElement pseudoElement = PseudoElement.None)
     {
         var candidates = new List<Candidate>();
         var matches = new List<RuleIndex<CascadeRule>.Entry>();
         foreach (var data in origins)
         {
             matches.Clear();
-            data.Rules.Collect(element, PseudoElement.None, context, matches);
+            data.Rules.Collect(element, pseudoElement, context, matches);
             foreach (var match in matches)
             {
                 var declarations = match.Data.Declarations;

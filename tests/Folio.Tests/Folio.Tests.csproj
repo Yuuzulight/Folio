@@ -9,7 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Html\**\*.txt;Css\**\*.txt;Style\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Html\**\*.txt;Css\**\*.txt;Style\**\*.txt;Layout\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

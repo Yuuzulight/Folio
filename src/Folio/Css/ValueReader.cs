@@ -79,6 +79,28 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
         return null;
     }
 
+    /// <summary>Any identifier, as written.</summary>
+    public string? Ident()
+    {
+        if (Next() is PreservedToken { Token.Kind: CssTokenKind.Ident } t)
+        {
+            _pos++;
+            return t.Token.Value;
+        }
+        return null;
+    }
+
+    /// <summary>A function of this name (ASCII case-insensitive): consumes it and reads its arguments.</summary>
+    public ValueReader? Function(string name)
+    {
+        if (Next() is CssFunction f && f.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        {
+            _pos++;
+            return new ValueReader(source, f.Arguments);
+        }
+        return null;
+    }
+
     public bool Comma()
     {
         if (Next() is PreservedToken { Token.Kind: CssTokenKind.Comma })

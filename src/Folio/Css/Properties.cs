@@ -52,6 +52,14 @@ internal enum PropertyId
     FontWeight,
     FontStyle,
     LineHeight,
+    WhiteSpaceCollapse,
+    TextWrapMode,
+    ListStyleType,
+    ListStylePosition,
+    Content,
+    CounterReset,
+    CounterIncrement,
+    CounterSet,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -108,6 +116,7 @@ internal sealed class Property<T>(
         float f => Math.Round(f, 3).ToString(System.Globalization.CultureInfo.InvariantCulture),
         Enum e => string.Concat(e.ToString().Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString())),
         IReadOnlyList<string> list => string.Join(", ", list),
+        IReadOnlyList<CounterChange> counters => counters.Count == 0 ? "none" : string.Join(" ", counters),
         _ => value.ToString() ?? "",
     };
 }
@@ -274,6 +283,28 @@ internal static class Properties
                     _ => new LineHeight(false, 0, ctx.LengthPercentage(v, nonNegative: true).Resolve(ctx.FontSize)),
                 },
                 s => s.Font.LineHeight, (b, v) => b.Font = b.Font with { LineHeight = v }),
+
+            Keywords(PropertyId.WhiteSpaceCollapse, "white-space-collapse", true, "collapse",
+                Enum<WhiteSpaceCollapse>("collapse", "preserve", "preserve-breaks", "preserve-spaces", "break-spaces"),
+                s => s.Text.WhiteSpaceCollapse, (b, v) => b.Text = b.Text with { WhiteSpaceCollapse = v }),
+            Keywords(PropertyId.TextWrapMode, "text-wrap-mode", true, "wrap", Enum<TextWrapMode>("wrap", "nowrap"),
+                s => s.Text.TextWrapMode, (b, v) => b.Text = b.Text with { TextWrapMode = v }),
+            new Property<ListStyleType>(PropertyId.ListStyleType, "list-style-type", true, "disc",
+                GeneratedContentParsing.ListStyleType,
+                (v, _) => ((ListStyleTypeValue)v).Type,
+                s => s.Text.ListStyleType, (b, v) => b.Text = b.Text with { ListStyleType = v }),
+            Keywords(PropertyId.ListStylePosition, "list-style-position", true, "outside", Enum<ListStylePosition>("outside", "inside"),
+                s => s.Text.ListStylePosition, (b, v) => b.Text = b.Text with { ListStylePosition = v }),
+            new Property<ContentValue>(PropertyId.Content, "content", false, "normal",
+                GeneratedContentParsing.Content,
+                (v, _) => ((ContentSpecified)v).Content,
+                s => s.Generated.Content, (b, v) => b.Generated = b.Generated with { Content = v }),
+            Counters(PropertyId.CounterReset, "counter-reset", 0, allowReversed: true,
+                s => s.Generated.CounterReset, (b, v) => b.Generated = b.Generated with { CounterReset = v }),
+            Counters(PropertyId.CounterIncrement, "counter-increment", 1, allowReversed: false,
+                s => s.Generated.CounterIncrement, (b, v) => b.Generated = b.Generated with { CounterIncrement = v }),
+            Counters(PropertyId.CounterSet, "counter-set", 0, allowReversed: false,
+                s => s.Generated.CounterSet, (b, v) => b.Generated = b.Generated with { CounterSet = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -367,6 +398,13 @@ internal static class Properties
             },
             get, set);
 
+    private static Property<IReadOnlyList<CounterChange>> Counters(PropertyId id, string name, int defaultValue, bool allowReversed,
+        Func<ComputedStyle, IReadOnlyList<CounterChange>> get, Action<StyleBuilder, IReadOnlyList<CounterChange>> set) =>
+        new(id, name, false, "none",
+            r => GeneratedContentParsing.Counters(r, defaultValue, allowReversed),
+            (v, _) => ((CounterListValue)v).Changes,
+            get, set);
+
     private static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
         new(id, name, false, initial, r => r.Color() is { } c ? new ColorValue(c) : null, (v, _) => ((ColorValue)v).Color, get, set);
 
@@ -414,6 +452,50 @@ internal static class Properties
         ["border-bottom"] = Border(Side.Bottom),
         ["border-left"] = Border(Side.Left),
         ["border"] = Border(Side.Top, Side.Right, Side.Bottom, Side.Left),
+        // https://www.w3.org/TR/css-text-4/#white-space-property (the single keywords)
+        ["white-space"] = new([PropertyId.WhiteSpaceCollapse, PropertyId.TextWrapMode], r =>
+        {
+            (string Collapse, string Wrap)? parts = r.Keyword("normal", "pre", "nowrap", "pre-wrap", "pre-line", "break-spaces") switch
+            {
+                "normal" => ("collapse", "wrap"),
+                "pre" => ("preserve", "nowrap"),
+                "nowrap" => ("collapse", "nowrap"),
+                "pre-wrap" => ("preserve", "wrap"),
+                "pre-line" => ("preserve-breaks", "wrap"),
+                "break-spaces" => ("break-spaces", "wrap"),
+                _ => null,
+            };
+            return parts is { } p
+                ? [(PropertyId.WhiteSpaceCollapse, new KeywordValue(p.Collapse)), (PropertyId.TextWrapMode, new KeywordValue(p.Wrap))]
+                : null;
+        }),
+        // list-style: type || position || image. Images arrive with the image loader, so only none is accepted there.
+        ["list-style"] = new([PropertyId.ListStyleType, PropertyId.ListStylePosition], r =>
+        {
+            CssValue? type = null, position = null;
+            var nones = 0;
+            while (!r.AtEnd)
+            {
+                var one = r.OneValue();
+                if (one.Copy().Keyword("none") is not null)
+                    nones++;
+                else if (position is null && Get(PropertyId.ListStylePosition).Parse(one.Copy()) is { } p)
+                    position = p;
+                else if (type is null && Get(PropertyId.ListStyleType).Parse(one.Copy()) is { } t)
+                    type = t;
+                else
+                    return null;
+            }
+            if (nones > 2 || (nones == 2 && type is not null))
+                return null;
+            if (nones > 0 && type is null)
+                type = new ListStyleTypeValue(Css.ListStyleType.None);
+            return
+            [
+                (PropertyId.ListStyleType, type ?? Get(PropertyId.ListStyleType).Initial),
+                (PropertyId.ListStylePosition, position ?? Get(PropertyId.ListStylePosition).Initial),
+            ];
+        }),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {
             var x = Get(PropertyId.OverflowX).Parse(r.OneValue());
@@ -494,5 +576,7 @@ internal static class Properties
         Border = new BorderGroup(3, 3, 3, 3, BorderStyle.None, BorderStyle.None, BorderStyle.None, BorderStyle.None,
             CssColor.CurrentColor, CssColor.CurrentColor, CssColor.CurrentColor, CssColor.CurrentColor),
         Background = new BackgroundGroup(CssColor.Transparent),
+        Text = new TextGroup(Style.WhiteSpaceCollapse.Collapse, Style.TextWrapMode.Wrap, new ListStyleType("disc", null), Style.ListStylePosition.Outside),
+        Generated = new GeneratedGroup(ContentValue.Normal, [], [], []),
     };
 }

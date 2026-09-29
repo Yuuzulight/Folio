@@ -1,0 +1,80 @@
+=== flex items are blockified and text becomes anonymous items
+<!DOCTYPE html><div style="display:flex">text <span>s</span> <p>p</p></div>
+---
+block html
+  block body
+    flex div
+      block (anonymous)
+        "text "
+      block span
+        "s"
+      block p
+        "p"
+
+=== grid and inline-flex
+<!DOCTYPE html><p>x<span style="display:inline-flex">y</span></p><div style="display:grid"><b>g</b></div>
+---
+block html
+  block body
+    block p
+      "x"
+      inline-flex span
+        block (anonymous)
+          "y"
+    grid div
+      block b
+        "g"
+
+=== table with caption and implied row group
+<!DOCTYPE html><table><caption>c</caption><tr><td>1</td></tr></table>
+---
+block html
+  block body
+    table-wrapper table
+      caption caption
+        "c"
+      table table
+        row-group tbody
+          row tr
+            cell td
+              "1"
+
+=== table cells without a table get anonymous rows and tables
+<!DOCTYPE html><div><div style="display:table-cell">a</div><div style="display:table-cell">b</div></div>
+---
+block html
+  block body
+    block div
+      table-wrapper (anonymous)
+        table (anonymous)
+          row (anonymous)
+            cell div
+              "a"
+            cell div
+              "b"
+
+=== content directly in a table gets an anonymous row and cell
+<!DOCTYPE html><div style="display:table">x</div>
+---
+block html
+  block body
+    table-wrapper div
+      table div
+        row (anonymous)
+          cell (anonymous)
+            block (anonymous)
+              "x"
+
+=== white space between table parts is dropped
+<!DOCTYPE html><table>
+  <tr> <td>1</td> </tr>
+</table>
+---
+block html
+  block body
+    table-wrapper table
+      table table
+        row-group tbody
+          row tr
+            cell td
+              "1"
