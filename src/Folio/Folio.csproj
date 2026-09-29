@@ -8,6 +8,7 @@
     <InternalsVisibleTo Include="Folio.Tests" />
     <InternalsVisibleTo Include="Folio.RenderTests" />
     <InternalsVisibleTo Include="Folio.Fuzz" />
+    <InternalsVisibleTo Include="Folio.Benchmarks" />
     <EmbeddedResource Include="Style\UserAgent.css" LogicalName="Folio.UserAgent.css" />
   </ItemGroup>
 

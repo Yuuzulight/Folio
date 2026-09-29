@@ -11,5 +11,6 @@
     <Project Path="tests/Folio.Tests/Folio.Tests.csproj" />
     <Project Path="tests/Folio.RenderTests/Folio.RenderTests.csproj" />
     <Project Path="tests/Folio.Fuzz/Folio.Fuzz.csproj" />
+    <Project Path="tests/Folio.Benchmarks/Folio.Benchmarks.csproj" />
   </Folder>
 </Solution>
