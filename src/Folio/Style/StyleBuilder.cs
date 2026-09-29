@@ -9,10 +9,12 @@ namespace Folio.Style;
 internal sealed class StyleBuilder
 {
     private readonly ComputedStyle _parent;
+    private System.Collections.Immutable.ImmutableDictionary<string, string> _custom;
 
     public StyleBuilder(ComputedStyle parent)
     {
         _parent = parent;
+        _custom = parent.Custom;
         var initial = ComputedStyle.Initial;
         Font = parent.Font;
         Inherited = parent.Inherited;
@@ -36,9 +38,10 @@ internal sealed class StyleBuilder
     /// <paramref name="cascaded"/> inherit or take their initial value). <c>revert</c> and <c>revert-layer</c>
     /// must already be resolved by the cascade; left here they act as <c>unset</c>.
     /// </summary>
-    public static ComputedStyle Compute(IReadOnlyDictionary<PropertyId, CssValue> cascaded, ComputeContext context)
+    /// <param name="groups">Equal groups built during one style pass, so siblings share instances too.</param>
+    public static ComputedStyle Compute(IReadOnlyDictionary<PropertyId, CssValue> cascaded, ComputeContext context, Dictionary<object, object>? groups = null)
     {
-        var builder = new StyleBuilder(context.Parent);
+        var builder = new StyleBuilder(context.Parent) { _custom = context.Custom };
 
         // font-size first: em units in every other property refer to it.
         if (cascaded.TryGetValue(PropertyId.FontSize, out var fontSize))
@@ -50,11 +53,13 @@ internal sealed class StyleBuilder
             if (id != PropertyId.FontSize)
                 builder.Apply(Properties.Get(id), value, context);
         }
-        return builder.Build();
+        return builder.Build(groups);
     }
 
     private void Apply(Property property, CssValue value, ComputeContext context)
     {
+        if (value is UnparsedValue pending)
+            value = CustomProperties.Resolve(pending, property, context.Custom) ?? new CssWideValue(CssWideKeyword.Unset);
         if (value is CssWideValue wide)
         {
             var inherit = wide.Keyword == CssWideKeyword.Inherit || (wide.Keyword != CssWideKeyword.Initial && property.Inherited);
@@ -67,21 +72,32 @@ internal sealed class StyleBuilder
         property.Apply(this, value, context);
     }
 
-    public ComputedStyle Build()
+    public ComputedStyle Build(Dictionary<object, object>? groups = null)
     {
         var initial = ComputedStyle.Initial;
         return new ComputedStyle
         {
-            Font = Share(Font, _parent.Font),
-            Inherited = Share(Inherited, _parent.Inherited),
-            Box = Share(Box, initial.Box),
-            Size = Share(Size, initial.Size),
-            Spacing = Share(Spacing, initial.Spacing),
-            Border = Share(Border, initial.Border),
-            Background = Share(Background, initial.Background),
+            Font = Share(Font, _parent.Font, groups),
+            Inherited = Share(Inherited, _parent.Inherited, groups),
+            Box = Share(Box, initial.Box, groups),
+            Size = Share(Size, initial.Size, groups),
+            Spacing = Share(Spacing, initial.Spacing, groups),
+            Border = Share(Border, initial.Border, groups),
+            Background = Share(Background, initial.Background, groups),
+            Custom = _custom,
         };
     }
 
-    // Reuses the existing instance when the values are equal, so unchanged groups stay shared.
-    private static T Share<T>(T built, T existing) where T : class => built.Equals(existing) ? existing : built;
+    // Reuses an equal instance (the parent's or initial group, or one built earlier in the pass).
+    private static T Share<T>(T built, T existing, Dictionary<object, object>? groups) where T : class
+    {
+        if (ReferenceEquals(built, existing) || built.Equals(existing))
+            return existing;
+        if (groups is null)
+            return built;
+        if (groups.TryGetValue(built, out var shared))
+            return (T)shared;
+        groups[built] = built;
+        return built;
+    }
 }

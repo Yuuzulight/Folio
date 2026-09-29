@@ -1,0 +1,317 @@
+using Folio.Css;
+using Folio.Dom;
+
+namespace Folio.Style;
+
+/// <summary>https://www.w3.org/TR/css-cascade-5/#cascade-origin</summary>
+internal enum Origin
+{
+    UserAgent,
+    User,
+    Author,
+}
+
+/// <summary>One declaration as the cascade sees it: a longhand value, or a custom property's text or keyword.</summary>
+internal sealed record CascadeDeclaration(PropertyId Id, CssValue? Value, string? CustomName, CustomProperties.Declared Custom, bool Important);
+
+/// <summary>A style rule's declarations with where they come from.</summary>
+/// <param name="Layer">Cascade layer path; each level ends with int.MaxValue for "not in a sub-layer".</param>
+internal sealed record CascadeRule(IReadOnlyList<CascadeDeclaration> Declarations, Origin Origin, int[] Layer, int Order);
+
+/// <summary>
+/// The compiled style rules of one origin (docs/study/04-cascade-and-computed-values.md): nesting flattened,
+/// <c>@media</c> and <c>@supports</c> evaluated, layers ordered, declarations parsed into longhands.
+/// </summary>
+internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, MediaContext media)
+{
+    private readonly LayerNode _layers = new();
+    private int _order;
+
+    public Origin Origin { get; } = origin;
+    public RuleIndex<CascadeRule> Rules { get; } = new();
+    public Dictionary<string, RegisteredProperty> Registered { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Order-of-appearance counter shared by all origins and the style attribute.</summary>
+    public int NextOrder() => _order++;
+
+    public void Add(CssStyleSheet sheet) => AddRules(sheet.Source, sheet.Rules, null, [], _layers);
+
+    private void AddRules(string source, List<CssRule> rules, SelectorList? parent, int[] layer, LayerNode layerNode)
+    {
+        foreach (var rule in rules)
+        {
+            switch (rule)
+            {
+                case StyleRule style:
+                    var selectors = SelectorParser.Parse(source, style.Prelude, intern, parent, nested: parent is not null);
+                    if (selectors is null)
+                        break; // an invalid selector drops the rule and everything nested in it
+                    AddDeclarations(source, style.Declarations, selectors, layer);
+                    AddRules(source, style.Rules, selectors, layer, layerNode);
+                    break;
+                case NestedDeclarations nested when parent is not null:
+                    AddDeclarations(source, nested.Declarations, parent, layer);
+                    break;
+                case AtRule at:
+                    AddAtRule(source, at, parent, layer, layerNode);
+                    break;
+            }
+        }
+    }
+
+    private void AddAtRule(string source, AtRule at, SelectorList? parent, int[] layer, LayerNode layerNode)
+    {
+        switch (at.Name)
+        {
+            case "media" when at.HasBlock:
+                if (Conditions.MediaMatches(source, at.Prelude, media))
+                    AddBlock(source, at, parent, layer, layerNode);
+                break;
+            case "supports" when at.HasBlock:
+                if (Conditions.Supports(source, at.Prelude))
+                    AddBlock(source, at, parent, layer, layerNode);
+                break;
+            case "layer":
+                var names = LayerNames(source, at.Prelude);
+                if (names is null)
+                    break;
+                if (!at.HasBlock)
+                {
+                    foreach (var name in names)
+                        layerNode.Enter(name, layer); // statement: fixes the order only
+                }
+                else if (names.Count <= 1)
+                {
+                    var (path, node) = layerNode.Enter(names.FirstOrDefault(), layer);
+                    AddBlock(source, at, parent, path, node);
+                }
+                break;
+            case "property" when parent is null && at.HasBlock:
+                Register(source, at);
+                break;
+            // @import needs the host's resource loader (docs/study/16-resources-and-security.md) and arrives with it;
+            // @font-face, @keyframes and @page arrive with web fonts, animations and printing.
+        }
+    }
+
+    // Declarations directly in a conditional or layer block apply to the enclosing style rule (nesting).
+    private void AddBlock(string source, BlockRule block, SelectorList? parent, int[] layer, LayerNode layerNode)
+    {
+        if (parent is not null)
+            AddDeclarations(source, block.Declarations, parent, layer);
+        AddRules(source, block.Rules, parent, layer, layerNode);
+    }
+
+    private void AddDeclarations(string source, List<Declaration> declarations, SelectorList selectors, int[] layer)
+    {
+        var parsed = Parse(source, declarations);
+        if (parsed.Count == 0)
+            return;
+        var rule = new CascadeRule(parsed, Origin, Complete(layer), NextOrder());
+        foreach (var selector in selectors.Selectors)
+            Rules.Add(selector, rule);
+    }
+
+    /// <summary>Parses declarations into longhands and custom properties, dropping invalid ones.</summary>
+    public static List<CascadeDeclaration> Parse(string source, List<Declaration> declarations)
+    {
+        var result = new List<CascadeDeclaration>();
+        foreach (var declaration in declarations)
+        {
+            if (declaration.IsCustomProperty)
+            {
+                var text = declaration.Value.Count == 0 ? "" : source[declaration.Value[0].Start..declaration.Value[^1].End];
+                var keyword = text.Trim().ToLowerInvariant() switch
+                {
+                    "initial" => CssWideKeyword.Initial,
+                    "inherit" => CssWideKeyword.Inherit,
+                    "unset" => CssWideKeyword.Unset,
+                    "revert" => CssWideKeyword.Revert,
+                    "revert-layer" => CssWideKeyword.RevertLayer,
+                    _ => (CssWideKeyword?)null,
+                };
+                result.Add(new CascadeDeclaration(default, null, declaration.Name, new(keyword is null ? text : null, keyword), declaration.Important));
+                continue;
+            }
+            if (Properties.Parse(source, declaration) is { } values)
+            {
+                foreach (var (id, value) in values)
+                    result.Add(new CascadeDeclaration(id, value, null, default, declaration.Important));
+            }
+        }
+        return result;
+    }
+
+    private void Register(string source, AtRule at)
+    {
+        if (at.Prelude.FirstOrDefault(v => v is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }) is not PreservedToken { Token.Kind: CssTokenKind.Ident } name
+            || !name.Token.Value.StartsWith("--", StringComparison.Ordinal))
+            return;
+        bool? inherits = null;
+        string? initial = null;
+        foreach (var declaration in at.Declarations)
+        {
+            var text = declaration.Value.Count == 0 ? "" : source[declaration.Value[0].Start..declaration.Value[^1].End].Trim();
+            if (declaration.Name == "inherits")
+                inherits = text.ToLowerInvariant() switch { "true" => true, "false" => false, _ => null };
+            else if (declaration.Name == "initial-value")
+                initial = text;
+        }
+        if (inherits is { } i)
+            Registered[name.Token.Value] = new RegisteredProperty(i, initial); // syntax checking arrives in M2
+    }
+
+    private static List<string>? LayerNames(string source, List<ComponentValue> prelude)
+    {
+        var names = new List<string>();
+        var current = "";
+        foreach (var value in prelude)
+        {
+            switch (value)
+            {
+                case PreservedToken { Token.Kind: CssTokenKind.Whitespace }:
+                    break;
+                case PreservedToken { Token.Kind: CssTokenKind.Ident } ident:
+                    current += ident.Token.Value;
+                    break;
+                case PreservedToken dot when dot.Token.IsDelim('.') && current.Length > 0:
+                    current += ".";
+                    break;
+                case PreservedToken { Token.Kind: CssTokenKind.Comma } when current.Length > 0:
+                    names.Add(current);
+                    current = "";
+                    break;
+                default:
+                    return null;
+            }
+        }
+        if (current.Length > 0)
+            names.Add(current);
+        return names;
+    }
+
+    private static int[] Complete(int[] layer) => [.. layer, int.MaxValue];
+
+    /// <summary>Layers in declaration order (https://www.w3.org/TR/css-cascade-5/#layer-ordering).</summary>
+    private sealed class LayerNode
+    {
+        private readonly Dictionary<string, (int Index, LayerNode Node)> _children = new(StringComparer.Ordinal);
+        private int _next;
+
+        /// <summary>Enters a (dotted) layer name, or an anonymous layer for null.</summary>
+        public (int[] Path, LayerNode Node) Enter(string? dottedName, int[] path)
+        {
+            if (dottedName is null)
+                return ([.. path, _next++], new LayerNode());
+            var node = this;
+            foreach (var part in dottedName.Split('.'))
+            {
+                if (!node._children.TryGetValue(part, out var child))
+                    node._children[part] = child = (node._next++, new LayerNode());
+                path = [.. path, child.Index];
+                node = child.Node;
+            }
+            return (path, node);
+        }
+    }
+}
+
+/// <summary>Finds each property's cascaded value for an element (https://www.w3.org/TR/css-cascade-5/#cascade-sort).</summary>
+internal static class Cascade
+{
+    private readonly record struct Candidate(CascadeDeclaration Declaration, Origin Origin, bool ElementAttached, int[] Layer, Specificity Specificity, int Order, int Index);
+
+    public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
+        Element element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context)
+    {
+        var candidates = new List<Candidate>();
+        var matches = new List<RuleIndex<CascadeRule>.Entry>();
+        foreach (var data in origins)
+        {
+            matches.Clear();
+            data.Rules.Collect(element, PseudoElement.None, context, matches);
+            foreach (var match in matches)
+            {
+                var declarations = match.Data.Declarations;
+                for (var d = 0; d < declarations.Count; d++)
+                    candidates.Add(new Candidate(declarations[d], data.Origin, false, match.Data.Layer, match.Selector.Specificity, match.Data.Order, d));
+            }
+        }
+        if (styleAttribute is not null)
+        {
+            for (var d = 0; d < styleAttribute.Count; d++)
+                candidates.Add(new Candidate(styleAttribute[d], Origin.Author, true, [int.MaxValue], default, styleAttributeOrder, d));
+        }
+
+        // Highest priority first; within one rule, later declarations come first too.
+        candidates.Sort((a, b) => Compare(b, a));
+
+        var values = new Dictionary<PropertyId, CssValue>();
+        var custom = new Dictionary<string, CustomProperties.Declared>(StringComparer.Ordinal);
+        var rollbacks = new Dictionary<object, Func<Candidate, bool>>();
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var c = candidates[i];
+            object key = c.Declaration.CustomName is { } name ? name : c.Declaration.Id;
+            if ((c.Declaration.CustomName is { } n ? custom.ContainsKey(n) : values.ContainsKey(c.Declaration.Id))
+                || (rollbacks.TryGetValue(key, out var skip) && skip(c)))
+                continue;
+
+            var keyword = c.Declaration.CustomName is not null ? c.Declaration.Custom.Keyword : (c.Declaration.Value as CssWideValue)?.Keyword;
+            if (keyword == CssWideKeyword.RevertLayer && c.Layer.Length == 1)
+                keyword = CssWideKeyword.Revert; // outside any layer there is no layer to go back to
+            if (keyword == CssWideKeyword.Revert && c.Origin != Origin.UserAgent)
+            {
+                // Roll back to the previous origin: ignore the rest of this origin, both importances.
+                var origin = c.Origin;
+                rollbacks[key] = other => other.Origin == origin;
+                continue;
+            }
+            if (keyword == CssWideKeyword.RevertLayer)
+            {
+                // Roll back to the previous layer of the same origin and importance.
+                var (origin, important, layer) = (c.Origin, c.Declaration.Important, c.Layer);
+                rollbacks[key] = other => other.Origin == origin && other.Declaration.Important == important && other.Layer.SequenceEqual(layer);
+                continue;
+            }
+
+            var resolved = keyword is CssWideKeyword.Revert or CssWideKeyword.RevertLayer ? CssWideKeyword.Unset : keyword;
+            if (c.Declaration.CustomName is { } customName)
+                custom[customName] = resolved is null ? c.Declaration.Custom : new CustomProperties.Declared(null, resolved);
+            else
+                values[c.Declaration.Id] = resolved is { } k && k != keyword ? new CssWideValue(k) : c.Declaration.Value!;
+        }
+        return (values, custom);
+    }
+
+    // Origin and importance, then element-attached (style attribute), then layer, specificity, order.
+    private static int Compare(Candidate a, Candidate b)
+    {
+        var rank = Rank(a).CompareTo(Rank(b));
+        if (rank != 0)
+            return rank;
+        if (a.ElementAttached != b.ElementAttached)
+            return a.ElementAttached ? 1 : -1;
+        var layer = CompareLayers(a.Layer, b.Layer);
+        if (layer != 0)
+            return a.Declaration.Important ? -layer : layer; // important declarations reverse layer order
+        var specificity = a.Specificity.CompareTo(b.Specificity);
+        if (specificity != 0)
+            return specificity;
+        var order = a.Order.CompareTo(b.Order);
+        return order != 0 ? order : a.Index.CompareTo(b.Index);
+    }
+
+    // UA < user < author for normal declarations, reversed for important ones.
+    private static int Rank(Candidate c) => c.Declaration.Important ? 5 - (int)c.Origin : (int)c.Origin;
+
+    private static int CompareLayers(int[] a, int[] b)
+    {
+        for (var i = 0; i < Math.Min(a.Length, b.Length); i++)
+        {
+            if (a[i] != b[i])
+                return a[i].CompareTo(b[i]);
+        }
+        return a.Length.CompareTo(b.Length);
+    }
+}

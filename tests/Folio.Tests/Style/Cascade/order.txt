@@ -1,0 +1,70 @@
+=== specificity decides before order
+<!DOCTYPE html><style>#a { color: red } .c { color: blue } p { color: green }</style><p id=a class=c>x</p>
+---
+#a color: rgb(255, 0, 0)
+
+=== later rules win at equal specificity
+<!DOCTYPE html><style>.c { color: red } .d { color: blue }</style><p id=a class="c d">x</p>
+---
+#a color: rgb(0, 0, 255)
+
+=== later declarations in one rule win
+<!DOCTYPE html><style>p { margin-top: 1px; margin-top: 2px }</style><p id=a>x</p>
+---
+#a margin-top: 2px
+
+=== important beats specificity
+<!DOCTYPE html><style>p { color: red !important } #a { color: blue }</style><p id=a>x</p>
+---
+#a color: rgb(255, 0, 0)
+
+=== the style attribute beats selectors, important rules beat it
+<!DOCTYPE html><style>#a { color: red; margin-top: 3px !important }</style><p id=a style="color: blue; margin-top: 1px">x</p>
+---
+#a color: rgb(0, 0, 255)
+#a margin-top: 3px
+
+=== an important style attribute beats important rules
+<!DOCTYPE html><style>#a { color: red !important }</style><p id=a style="color: blue !important">x</p>
+---
+#a color: rgb(0, 0, 255)
+
+=== author styles beat the user agent, except its important declarations
+<!DOCTYPE html><style>body { margin: 0 } input { display: block }</style><input type=hidden id=i>
+---
+body margin-top: 0px
+#i display: none
+
+=== inheritance
+<!DOCTYPE html><style>div { color: red; margin-top: 5px }</style><div><p id=a>x</p></div>
+---
+#a color: rgb(255, 0, 0)
+#a margin-top: 16px
+
+=== invalid selectors drop the whole rule
+<!DOCTYPE html><style>p, p:bogus { color: red }</style><p id=a>x</p>
+---
+#a color: rgb(0, 0, 0)
+
+=== nesting
+<!DOCTYPE html><style>.card { color: red; & .t { color: blue } .u & { color: green } margin-top: 2px }</style><div class=card id=c><p class=t id=t>x</p></div>
+---
+#c color: rgb(255, 0, 0)
+#c margin-top: 2px
+#t color: rgb(0, 0, 255)
+
+=== style elements with a non-matching media attribute are ignored
+<!DOCTYPE html><style media=print>p { color: red }</style><style media="screen and (min-width: 1px)">p { margin-top: 0 }</style><p id=a>x</p>
+---
+#a color: rgb(0, 0, 0)
+#a margin-top: 0px
+
+=== rem uses the root font size
+<!DOCTYPE html><style>html { font-size: 10px } p { width: 2rem }</style><p id=a>x</p>
+---
+#a width: 20px
+
+=== revert rolls back to the user agent
+<!DOCTYPE html><style>div { display: inline } div { display: revert }</style><div id=a>x</div>
+---
+#a display: block

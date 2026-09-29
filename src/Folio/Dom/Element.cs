@@ -21,6 +21,9 @@ internal class Element(DocumentNode ownerDocument, QualifiedName name) : Contain
     /// <summary>The <c>id</c> attribute, parsed when set.</summary>
     public Atom Id { get; private set; }
 
+    /// <summary>The computed style, owned by the style module (typed there, so the DOM layer does not reference it).</summary>
+    internal object? StyleData { get; set; }
+
     /// <summary>The <c>class</c> attribute split on ASCII whitespace, parsed when set.</summary>
     public Atom[] Classes { get; private set; } = [];
 

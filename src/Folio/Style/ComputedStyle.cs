@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Folio.Css;
 
 namespace Folio.Style;
@@ -157,6 +158,9 @@ internal sealed class ComputedStyle
     public required BorderGroup Border { get; init; }
     public required BackgroundGroup Background { get; init; }
 
+    /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
+    public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
+
     /// <summary>The style of the root's parent: every property at its initial value.</summary>
     public static ComputedStyle Initial { get; } = Properties.InitialStyle();
 }
@@ -168,6 +172,9 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
     public float RootFontSize { get; } = rootFontSize;
     public float ViewportWidth { get; } = viewportWidth;
     public float ViewportHeight { get; } = viewportHeight;
+
+    /// <summary>The element's computed custom properties, used to substitute var() in other properties.</summary>
+    public ImmutableDictionary<string, string> Custom { get; set; } = parent.Custom;
 
     /// <summary>The element's own computed font size, once font-size has been computed (em units refer to it).</summary>
     public float FontSize { get; set; } = parent.Font.Size;

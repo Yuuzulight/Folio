@@ -107,3 +107,10 @@ internal enum CssWideKeyword
 }
 
 internal sealed record CssWideValue(CssWideKeyword Keyword) : CssValue;
+
+/// <summary>
+/// A value containing <c>var()</c>, kept as text until computed-value time
+/// (https://www.w3.org/TR/css-variables-1/#variables-in-shorthands). For a longhand of a shorthand,
+/// <paramref name="Shorthand"/> names the shorthand whose substituted value is parsed.
+/// </summary>
+internal sealed record UnparsedValue(string Text, string? Shorthand) : CssValue;

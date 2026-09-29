@@ -1,0 +1,51 @@
+=== page and flow defaults
+<!DOCTYPE html><p>x<ul><li id=li>y</ul><blockquote>q</blockquote>
+---
+html display: block
+head display: none
+body display: block
+body margin-left: 8px
+p display: block
+p margin-top: 16px
+#li display: list-item
+ul padding-left: 40px
+blockquote margin-left: 40px
+
+=== headings
+<!DOCTYPE html><h1>a<b id=b>b</b></h1><h6>c</h6>
+---
+h1 font-size: 32
+h1 margin-top: 21.44px
+h1 font-weight: 700
+#b font-weight: 900
+h6 font-size: 10.72
+
+=== phrasing
+<!DOCTYPE html><em>a</em><code>b</code><small>c</small><a href=x>d</a>
+---
+em font-style: italic
+code font-family: monospace
+small font-size: 13.333
+a color: rgb(0, 0, 238)
+
+=== nested lists have no vertical margins
+<!DOCTYPE html><ul><li><ol id=inner><li>x</ol></ul>
+---
+ul margin-top: 16px
+#inner margin-top: 0px
+
+=== tables
+<!DOCTYPE html><table><tr><th>h<td>d</table>
+---
+table display: table
+tbody display: table-row-group
+tr display: table-row
+td display: table-cell
+td padding-top: 1px
+th font-weight: 700
+
+=== hidden attribute
+<!DOCTYPE html><div hidden id=a>x</div><input type=hidden id=i style="display: block">
+---
+#a display: none
+#i display: none

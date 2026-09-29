@@ -1,0 +1,61 @@
+=== var substitutes and custom properties inherit
+<!DOCTYPE html><style>:root { --accent: #f00; --gap: 12px } p { color: var(--accent); margin-top: var(--gap) }</style><p id=a>x</p>
+---
+#a color: rgb(255, 0, 0)
+#a margin-top: 12px
+
+=== fallback when the property is missing
+<!DOCTYPE html><style>p { color: var(--missing, blue); margin-top: var(--missing, var(--also-missing, 4px)) }</style><p id=a>x</p>
+---
+#a color: rgb(0, 0, 255)
+#a margin-top: 4px
+
+=== invalid at computed-value time acts as unset
+<!DOCTYPE html><style>div { color: green; margin-top: 7px } p { color: red; color: var(--missing); margin-top: var(--missing) }</style><div><p id=a>x</p></div>
+---
+#a color: rgb(0, 128, 0)
+#a margin-top: 0px
+
+=== var inside calc
+<!DOCTYPE html><style>p { --n: 3; --w: 10px; width: calc(var(--n) * var(--w)) }</style><p id=a>x</p>
+---
+#a width: 30px
+
+=== var in a shorthand
+<!DOCTYPE html><style>p { --m: 1px 2px; margin: var(--m) }</style><p id=a>x</p>
+---
+#a margin-top: 1px
+#a margin-right: 2px
+#a margin-bottom: 1px
+
+=== substituted tokens do not merge
+<!DOCTYPE html><style>p { --n: 10; width: var(--n)px }</style><p id=a>x</p>
+---
+#a width: auto
+
+=== custom properties referring to each other
+<!DOCTYPE html><style>:root { --base: 4px; --double: calc(var(--base) * 2) } p { margin-top: var(--double) }</style><p id=a>x</p>
+---
+#a margin-top: 8px
+
+=== cycles make every property in them invalid
+<!DOCTYPE html><style>p { --a: var(--b, 1px); --b: var(--a, 2px); margin-top: var(--a, 5px); margin-left: var(--b, 6px) }</style><p id=a>x</p>
+---
+#a margin-top: 5px
+#a margin-left: 6px
+
+=== a child overrides a custom property for its subtree
+<!DOCTYPE html><style>:root { --c: red } .x { --c: blue } p { color: var(--c) }</style><div class=x><p id=a>x</p></div><p id=b>y</p>
+---
+#a color: rgb(0, 0, 255)
+#b color: rgb(255, 0, 0)
+
+=== registered properties that do not inherit
+<!DOCTYPE html><style>@property --size { syntax: '<length>'; inherits: false; initial-value: 3px } div { --size: 9px } p { margin-top: var(--size) }</style><div><p id=a>x</p></div>
+---
+#a margin-top: 3px
+
+=== var in the style attribute
+<!DOCTYPE html><style>:root { --c: blue }</style><p id=a style="color: var(--c)">x</p>
+---
+#a color: rgb(0, 0, 255)
