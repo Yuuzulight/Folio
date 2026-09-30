@@ -70,6 +70,17 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 - D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
 
+## 6. Beyond artifacts
+
+**Scope**: the web features the scripting study left out of milestones 4 and 5, planned in this order: WebGL 2 ([#169](https://github.com/Yuuzulight/Folio/issues/169)), audio and video playback through the operating system's media stack ([#170](https://github.com/Yuuzulight/Folio/issues/170)), dedicated workers ([#171](https://github.com/Yuuzulight/Folio/issues/171)), WebAssembly on the native script engine ([#172](https://github.com/Yuuzulight/Folio/issues/172)), iframes and cross-document messaging ([#173](https://github.com/Yuuzulight/Folio/issues/173)), WebRTC ([#174](https://github.com/Yuuzulight/Folio/issues/174)) and service workers ([#175](https://github.com/Yuuzulight/Folio/issues/175)). Each one is a capability the host grants; devices (camera, microphone) and the network stay off unless the host allows them.
+
+**Acceptance criteria**
+
+- Each feature passes its own conformance category, added to the corpus when the feature starts.
+- Sandbox, memory-cap and watchdog tests still pass with the feature on; a host that turns a feature off gets a clear fallback, never a blank area.
+- GPU and media resources stay within budgets the host sets.
+- Until a feature lands, `ArtifactClassifier` keeps routing artifacts that need it to the system browser.
+
 ## Optional track: towards all-Folio
 
 Replacing dependencies with Folio's own code (extended shaper, own rasteriser, own GIF/WebP decoders) is optional and never blocks the milestones above. Scope and "good enough" criteria are in [dependencies.md → Towards all-Folio](dependencies.md#towards-all-folio).
