@@ -51,9 +51,8 @@ public class ArtifactClassifierTests
     [InlineData("<style>@import url(\"https://fonts.example.com/css\");</style>", "loads a stylesheet these options do not allow")]
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
     [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
-    [InlineData("<svg><defs><linearGradient id=g /></defs><rect fill=\"url(#g)\" /></svg>", "uses SVG <linearGradient>")]
-    [InlineData("<svg><defs><linearGradient id=g /></defs><rect fill=\"url(#g)\" /></svg>", "uses an SVG fill reference")]
-    [InlineData("<svg><style>rect { stroke: url(#g) }</style><rect /></svg>", "uses an SVG stroke reference")]
+    [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
+    [InlineData("<svg><rect clip-path=\"url(#c)\" /></svg>", "uses an SVG clip-path reference")]
     [InlineData("<svg><use href=\"#a\" /></svg>", "uses SVG <use>")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
     [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
@@ -88,6 +87,8 @@ public class ArtifactClassifierTests
     [InlineData("<svg viewBox=\"0 0 100 50\"><defs><style>.bar { fill: #6366f1 }</style></defs><g><rect class=bar width=10 height=40 />"
         + "<text x=5 y=48 text-anchor=middle dominant-baseline=hanging font-size=8>Q1</text></g></svg>")]
     [InlineData("<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" /></svg>")]
+    [InlineData("<svg><defs><linearGradient id=g x2=\"0\" y2=\"1\"><stop offset=0 stop-color=red /><stop offset=1 style=\"stop-color: blue\" /></linearGradient>"
+        + "<radialGradient id=h href=\"#g\" /></defs><style>circle { stroke: url(#h) }</style><rect fill=\"url(#g)\" /><circle r=5 /></svg>")]
     public void SvgShapesPathsAndTextAreStatic(string artifact)
     {
         var (kind, reasons) = ArtifactClassifier.Classify(artifact);

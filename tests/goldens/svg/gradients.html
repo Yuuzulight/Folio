@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<title>SVG linear and radial gradients</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 24px; margin-bottom: 24px; align-items: flex-start; }
+  svg { background: #f1f5f9; }
+</style>
+<svg width="0" height="0" style="position: absolute">
+  <defs>
+    <linearGradient id="sunset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f59e0b" />
+      <stop offset="0.5" stop-color="#e11d48" />
+      <stop offset="1" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="diagonal" href="#sunset" x2="1" gradientTransform="rotate(20 0.5 0.5)" />
+    <radialGradient id="sphere" cx="0.5" cy="0.5" r="0.5" fx="0.35" fy="0.3">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="0.4" stop-color="#22c55e" />
+      <stop offset="1" stop-color="#14532d" />
+    </radialGradient>
+    <linearGradient id="stripes" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="12" y2="12">
+      <stop offset="0" stop-color="#0ea5e9" />
+      <stop offset="1" stop-color="#e0f2fe" stop-opacity="0.3" />
+    </linearGradient>
+    <linearGradient id="reflect" href="#stripes" spreadMethod="reflect" />
+    <linearGradient id="repeat" href="#stripes" spreadMethod="repeat" />
+  </defs>
+</svg>
+<div class="row">
+  <svg width="140" height="100"><rect x="10" y="10" width="120" height="80" rx="14" fill="url(#sunset)" /></svg>
+  <svg width="140" height="100"><rect x="10" y="10" width="120" height="80" rx="14" fill="url(#diagonal)" stroke="url(#sphere)" stroke-width="6" /></svg>
+  <svg width="140" height="100"><circle cx="70" cy="50" r="40" fill="url(#sphere)" /></svg>
+</div>
+<div class="row">
+  <svg width="140" height="100"><rect x="10" y="10" width="120" height="80" fill="url(#reflect)" /></svg>
+  <svg width="140" height="100"><rect x="10" y="10" width="120" height="80" fill="url(#repeat)" /></svg>
+  <svg width="140" height="100" viewBox="0 0 140 100">
+    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6366f1" stop-opacity="0.6" /><stop offset="1" stop-color="#6366f1" stop-opacity="0" /></linearGradient>
+    <path d="M10 80 L40 40 L70 55 L100 20 L130 35 L130 90 L10 90 Z" fill="url(#area)" />
+    <polyline points="10,80 40,40 70,55 100,20 130,35" fill="none" stroke="#6366f1" stroke-width="3" stroke-linejoin="round" />
+    <text x="70" y="96" text-anchor="middle" font-size="12" fill="url(#sunset)">Revenue</text>
+  </svg>
+</div>

@@ -17,8 +17,7 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void Transform(in Matrix3x2 matrix)
     {
-        // Skia's matrices map column vectors, so the row-vector form's rows are its columns.
-        var m = new SKMatrix(matrix.M11, matrix.M21, matrix.M31, matrix.M12, matrix.M22, matrix.M32, 0, 0, 1);
+        var m = ToSkia(matrix);
         canvas.Concat(in m);
     }
 
@@ -201,29 +200,43 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
     {
         var colors = gradient.Stops.Select(s => ToSkia(s.Color)).ToArray();
         var offsets = gradient.Stops.Select(s => Math.Clamp(s.Offset, 0, 1)).ToArray();
-        var tile = gradient.Repeat ? SKShaderTileMode.Repeat : SKShaderTileMode.Clamp;
+        var tile = gradient.Spread switch
+        {
+            GradientSpread.Repeat => SKShaderTileMode.Repeat,
+            GradientSpread.Reflect => SKShaderTileMode.Mirror,
+            _ => SKShaderTileMode.Clamp,
+        };
+        // Gradient space to canvas: the gradient's own transform after any the kind needs.
+        var toCanvas = gradient.Transform is { } t ? ToSkia(t) : SKMatrix.Identity;
         switch (gradient.Kind)
         {
             case GradientKind.Linear:
                 return SKShader.CreateLinearGradient(new SKPoint(gradient.Start.X, gradient.Start.Y), new SKPoint(gradient.End.X, gradient.End.Y),
-                    colors, offsets, tile);
+                    colors, offsets, tile, toCanvas);
             case GradientKind.Radial:
             {
                 // A circle of the horizontal radius, stretched vertically about the centre into the ellipse.
                 var (c, r) = (gradient.Center, gradient.Radii);
-                var matrix = SKMatrix.CreateScale(1, r.X > 0 ? r.Y / r.X : 1, c.X, c.Y);
-                return SKShader.CreateRadialGradient(new SKPoint(c.X, c.Y), Math.Max(r.X, 0.001f), colors, offsets, tile, matrix);
+                var matrix = SKMatrix.CreateScale(1, r.X > 0 ? r.Y / r.X : 1, c.X, c.Y).PostConcat(toCanvas);
+                var radius = Math.Max(r.X, 0.001f);
+                return gradient.Focus is { } f
+                    ? SKShader.CreateTwoPointConicalGradient(new SKPoint(f.X, f.Y), Math.Max(gradient.FocusRadius, 0), new SKPoint(c.X, c.Y), radius,
+                        colors, offsets, tile, matrix)
+                    : SKShader.CreateRadialGradient(new SKPoint(c.X, c.Y), radius, colors, offsets, tile, matrix);
             }
             default:
             {
                 // Sweeps start at 3 o'clock; CSS angles start at 12 o'clock.
                 var c = gradient.Center;
-                var matrix = SKMatrix.CreateRotationDegrees(gradient.StartAngle - 90, c.X, c.Y);
+                var matrix = SKMatrix.CreateRotationDegrees(gradient.StartAngle - 90, c.X, c.Y).PostConcat(toCanvas);
                 var sweep = Math.Max(gradient.EndAngle - gradient.StartAngle, 0.001f);
                 return SKShader.CreateSweepGradient(new SKPoint(c.X, c.Y), colors, offsets, tile, 0, sweep, matrix);
             }
         }
     }
+
+    // Skia's matrices map column vectors, so the row-vector form's rows are its columns.
+    private static SKMatrix ToSkia(in Matrix3x2 m) => new(m.M11, m.M21, m.M31, m.M12, m.M22, m.M32, 0, 0, 1);
 
     private static SKColor ToSkia(Rgba c) => new(ToByte(c.R), ToByte(c.G), ToByte(c.B), ToByte(c.A));
 

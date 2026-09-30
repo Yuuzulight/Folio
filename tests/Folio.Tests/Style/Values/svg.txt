@@ -121,3 +121,16 @@ dominant-baseline: central
 dominant-baseline: text-after-edge
 ---
 dominant-baseline: text-bottom
+
+=== stop-color and stop-opacity default to opaque black and are not inherited
+%parent stop-color: red; stop-opacity: 0.5
+display: block
+---
+stop-color: rgb(0, 0, 0)
+stop-opacity: 1
+
+=== stop-color keeps currentcolor; stop-opacity takes percentages
+stop-color: currentcolor; stop-opacity: 20%
+---
+stop-color: currentcolor
+stop-opacity: 0.2

@@ -21,7 +21,7 @@ internal enum DisplayItemKind
     /// </summary>
     BoxShadow,
 
-    /// <summary>Draws <see cref="DisplayItem.Glyphs"/> in <see cref="DisplayItem.Color"/>.</summary>
+    /// <summary>Draws <see cref="DisplayItem.Glyphs"/> in <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
     Glyphs,
 
     /// <summary>
@@ -34,10 +34,10 @@ internal enum DisplayItemKind
     /// <summary>Draws <see cref="DisplayItem.Image"/> scaled into <see cref="DisplayItem.Shape"/>.</summary>
     Image,
 
-    /// <summary>Fills <see cref="DisplayItem.Path"/> by <see cref="DisplayItem.Rule"/> with <see cref="DisplayItem.Color"/>.</summary>
+    /// <summary>Fills <see cref="DisplayItem.Path"/> by <see cref="DisplayItem.Rule"/> with <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
     FillPath,
 
-    /// <summary>Strokes <see cref="DisplayItem.Path"/> as <see cref="DisplayItem.Stroke"/> says, with <see cref="DisplayItem.Color"/>.</summary>
+    /// <summary>Strokes <see cref="DisplayItem.Path"/> as <see cref="DisplayItem.Stroke"/> says, with <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
     StrokePath,
 
     /// <summary>

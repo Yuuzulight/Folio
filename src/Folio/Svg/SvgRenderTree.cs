@@ -17,11 +17,11 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity);
 internal sealed record SvgContainerNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgRenderNode> Children, SvgRect? Clip = null)
     : SvgRenderNode(Transform, Opacity);
 
-/// <summary>A fill: its colour (opacity included) and whether the fill rule is evenodd.</summary>
-internal readonly record struct SvgFill(CssColor Color, bool EvenOdd);
+/// <summary>A fill: its paint and whether the fill rule is evenodd.</summary>
+internal readonly record struct SvgFill(SvgResolvedPaint Paint, bool EvenOdd);
 
-/// <summary>A stroke in user units: colour (opacity included), width, caps, joins, and a dash pattern with an even count.</summary>
-internal sealed record SvgStroke(CssColor Color, float Width, StrokeLinecap Cap, StrokeLinejoin Join, float MiterLimit,
+/// <summary>A stroke in user units: its paint, width, caps, joins, and a dash pattern with an even count.</summary>
+internal sealed record SvgStroke(SvgResolvedPaint Paint, float Width, StrokeLinecap Cap, StrokeLinejoin Join, float MiterLimit,
                                  IReadOnlyList<float>? Dashes, float DashOffset);
 
 /// <summary>A path painted with a fill and/or a stroke, the stroke first when <paramref name="StrokeFirst"/>.</summary>
@@ -33,8 +33,8 @@ internal sealed record SvgShapeNode(Matrix3x2 Transform, float Opacity, IReadOnl
 /// (https://www.w3.org/TR/SVG2/coords.html), transforms, the basic shapes and paths, and their fills and strokes
 /// (https://www.w3.org/TR/SVG2/painting.html).
 /// </summary>
-// ponytail: stage 1 draws structure (svg, g, a), shapes, paths and text; defs, use, gradients, clipping, markers and
-// the other elements are not rendered yet (issue #97).
+// ponytail: structure (svg, g, a), shapes, paths and text, painted with colours and gradients; use, clipping, markers,
+// patterns and the other elements are not rendered yet (issue #97).
 internal static class SvgRenderTree
 {
     /// <summary>
@@ -53,9 +53,10 @@ internal static class SvgRenderTree
     }
 
     /// <summary>The render tree of an outermost svg element laid out in a content box of this size, or null when nothing shows.</summary>
-    public static SvgContainerNode? Build(ElementNode svg, float width, float height, Layout.LayoutContext context)
+    public static SvgContainerNode? Build(ElementNode svg, float width, float height, Layout.LayoutContext layout)
     {
         var style = svg.ComputedStyle();
+        var context = new SvgContext(layout, svg.OwnerDocument);
         // Its transform and opacity belong to its CSS box, which paints them.
         return style is null ? null : Viewport(svg, style, new SvgRect(0, 0, width, height), Matrix3x2.Identity, 1, context);
     }
@@ -63,7 +64,7 @@ internal static class SvgRenderTree
     // An svg element's viewport: its viewBox mapped into the rectangle, the content clipped to it unless overflow is
     // visible. A viewBox with a zero size disables rendering (https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute).
     private static SvgContainerNode? Viewport(ElementNode svg, ComputedStyle style, SvgRect rect, Matrix3x2 transform, float opacity,
-                                               Layout.LayoutContext context)
+                                               SvgContext context)
     {
         var viewBox = SvgGeometry.ParseViewBox(svg.GetAttribute("viewBox"));
         if (viewBox is { Width: 0 } or { Height: 0 } || rect.Width <= 0 || rect.Height <= 0)
@@ -79,7 +80,7 @@ internal static class SvgRenderTree
         return new SvgContainerNode(transform, opacity, [new SvgContainerNode(map, 1, Children(svg, size, context))], clips ? rect : null);
     }
 
-    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, Layout.LayoutContext context)
+    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, SvgContext context)
     {
         var nodes = new List<SvgRenderNode>();
         // Content that nests deeper than the stack allows is left out (study 16: limits stop work gracefully).
@@ -95,7 +96,7 @@ internal static class SvgRenderTree
         return nodes;
     }
 
-    private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport, Layout.LayoutContext context)
+    private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport, SvgContext context)
     {
         var transform = Transform(element, style, viewport);
         // A transform that cannot be inverted draws nothing.
@@ -156,10 +157,12 @@ internal static class SvgRenderTree
             if (style.Inherited.Visibility != Visibility.Visible)
                 return null;
             var svg = style.Svg;
-            var fill = canFill && Color(svg.Fill, svg.FillOpacity, style) is { } fillColor
-                ? new SvgFill(fillColor, svg.FillRule == SvgFillRule.Evenodd)
+            SvgRect? bounds = null;
+            SvgRect? Bounds() => bounds ??= SvgGeometry.Bounds(path);
+            var fill = canFill && context.Paint(svg.Fill, svg.FillOpacity, style, viewport, Bounds) is { } fillPaint
+                ? new SvgFill(fillPaint, svg.FillRule == SvgFillRule.Evenodd)
                 : (SvgFill?)null;
-            var stroke = Stroke(style, viewport);
+            var stroke = Stroke(style, viewport, context, Bounds);
             return fill is null && stroke is null ? null
                 : new SvgShapeNode(transform, style.Box.Opacity, path, fill, stroke, svg.PaintOrder == PaintOrder.Stroke);
         }
@@ -176,32 +179,21 @@ internal static class SvgRenderTree
         style.Transform.IsTransformed ? style.Transform.Matrix2D(viewport.X, viewport.Y)
         : SvgGeometry.ParseTransform(element.GetAttribute("transform")) ?? Matrix3x2.Identity;
 
-    // A paint's colour with its opacity, or null when nothing is painted. Paint servers (url()) paint their fallback
-    // until stage 2 brings them.
-    private static CssColor? Color(SvgPaint paint, float opacity, ComputedStyle style)
-    {
-        if (paint.Color is not { } color)
-            return null;
-        var c = color.Resolve(style.Inherited.Color);
-        var alpha = c.A * opacity;
-        return alpha > 0 ? c with { A = alpha } : null;
-    }
-
     // https://www.w3.org/TR/SVG2/painting.html#StrokeProperties: no stroke at zero width; a dash array summing to zero,
     // like none, draws solid, and an odd one is repeated to make it even.
-    private static SvgStroke? Stroke(ComputedStyle style, Vector2 viewport)
+    private static SvgStroke? Stroke(ComputedStyle style, Vector2 viewport, SvgContext context, Func<SvgRect?> bounds)
     {
         var svg = style.Svg;
         var diagonal = SvgGeometry.Diagonal(viewport);
         var width = svg.StrokeWidth.Resolve(diagonal);
-        if (width <= 0 || Color(svg.Stroke, svg.StrokeOpacity, style) is not { } color)
+        if (width <= 0 || context.Paint(svg.Stroke, svg.StrokeOpacity, style, viewport, bounds) is not { } paint)
             return null;
         var dashes = svg.StrokeDasharray.Dashes.Select(d => Math.Max(0, d.Resolve(diagonal))).ToList();
         if (dashes.Sum() <= 0)
             dashes.Clear();
         else if (dashes.Count % 2 == 1)
             dashes.AddRange(dashes.ToList());
-        return new SvgStroke(color, width, svg.StrokeLinecap, svg.StrokeLinejoin, svg.StrokeMiterlimit, dashes.Count > 0 ? dashes : null,
+        return new SvgStroke(paint, width, svg.StrokeLinecap, svg.StrokeLinejoin, svg.StrokeMiterlimit, dashes.Count > 0 ? dashes : null,
             svg.StrokeDashoffset.Resolve(diagonal));
     }
 }

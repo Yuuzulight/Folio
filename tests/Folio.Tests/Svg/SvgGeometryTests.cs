@@ -103,6 +103,15 @@ public class SvgGeometryTests
         Assert.Equal(expected, segments is null ? null : string.Join(" ", segments.Select(s => s.Verb == 'Z' ? "Z" : string.Create(CultureInfo.InvariantCulture, $"{s.Verb}{s.P1.X},{s.P1.Y}"))));
     }
 
+    [Fact]
+    public void BoundsFollowCurvesToWhereTheyTurn()
+    {
+        var box = SvgGeometry.Bounds(Folio.Css.PathDataParser.Parse("M0 0 C 10 20 20 -20 30 0 Z M40 5 L40 5")!)!.Value;
+
+        Assert.Equal((0f, -5.774f, 40f, 11.547f), (box.X, MathF.Round(box.Y, 3), box.Width, MathF.Round(box.Height, 3)));
+        Assert.Null(SvgGeometry.Bounds([]));
+    }
+
     private static string? Matrix(Matrix3x2? matrix) => matrix is { } m
         ? string.Join(",", new[] { m.M11, m.M12, m.M21, m.M22, m.M31, m.M32 }.Select(v => (Math.Round(v, 3) + 0).ToString(CultureInfo.InvariantCulture)))
         : null;
