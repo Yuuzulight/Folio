@@ -51,7 +51,7 @@ public class BlockLayoutTests
     internal static Fragment LayOut(string html, float width = 800, float height = 600)
     {
         var document = TreeBuilder.Parse(html);
-        StyleResolver.Resolve(document, new MediaContext(width, height));
+        StyleResolver.Resolve(document, new MediaContext(width, height), measure: InlineLayout.MeasureWith(BoxFont.Value));
         return LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, width, height, BoxFont.Value);
     }
 

@@ -125,11 +125,12 @@ internal static class DisplayListBuilder
 
     // https://www.w3.org/TR/CSS22/visuren.html#z-index, css-position-3, css-color-4 opacity, compositing-1 isolation,
     // css-transforms-2 (any transform property other than none).
+    // The root's context is made by Build. Boxes in inline content (inline boxes, floats and atomic inlines found
+    // there) have no parent box, so a missing parent says nothing here.
     private static bool CreatesStackingContext(Box box)
     {
         var style = box.Style.Box;
-        return box.Parent is null
-            || style.Position is Position.Fixed or Position.Sticky
+        return style.Position is Position.Fixed or Position.Sticky
             || style.ZIndex is not null && (style.Position != Position.Static || box.Parent is FlexContainerBox or GridContainerBox)
             || style.Opacity < 1
             || style.Isolation == Isolation.Isolate

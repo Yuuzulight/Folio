@@ -112,5 +112,9 @@ fieldset {
 legend { padding-left: 2px; padding-right: 2px; }
 
 /* 15.4 Replaced elements and 15.5 widgets appear with their layout and paint stages. */
+/* https://html.spec.whatwg.org/multipage/rendering.html#the-details-and-summary-elements: a closed details shows only
+   its summary, which has a disclosure triangle. Text directly inside a closed details is not hidden. */
 details, summary { display: block; }
-details > summary:first-of-type { display: list-item; }
+details > summary:first-of-type { display: list-item; counter-increment: list-item 0; list-style: disclosure-closed inside; }
+details[open] > summary:first-of-type { list-style-type: disclosure-open; }
+details:not([open]) > :not(summary:first-of-type) { display: none; }

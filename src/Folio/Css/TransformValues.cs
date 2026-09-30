@@ -83,6 +83,9 @@ internal static class TransformProperties
         ["perspective"] = ([Arg.PerspectiveLength], 1),
     };
 
+    /// <summary>Reads one transform function; false (nothing read) when the next value is not one.</summary>
+    public static bool OneFunction(ValueReader r) => Function(r) is not null;
+
     private static TransformFunctionValue? Function(ValueReader r)
     {
         var mark = r.Mark;

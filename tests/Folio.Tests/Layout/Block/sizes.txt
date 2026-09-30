@@ -71,3 +71,12 @@ html 0,0 800x20
     div#a 0,0 800x10
     div#b 0,10 800x10
 div 0,10 0x10
+
+=== ch and ex come from the first available font
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div id=a style="width: 10ch"></div><div id=b style="width: 10ex"></div><div id=c style="font-size: 2ex; width: 1em"></div>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    div#a 0,0 160x10
+    div#b 0,10 128x10
+    div#c 0,20 25.6x10
