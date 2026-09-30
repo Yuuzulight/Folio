@@ -40,6 +40,7 @@ public class Reftests
     [InlineData("svg/currentcolor-001")]
     [InlineData("svg/stroke-linecap-square-001")]
     [InlineData("svg/stroke-dashoffset-001")]
+    [InlineData("svg/standalone-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

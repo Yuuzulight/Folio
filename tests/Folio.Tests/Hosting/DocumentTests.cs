@@ -15,6 +15,35 @@ public class DocumentTests
     }
 
     [Fact]
+    public void AStandaloneSvgDocumentIsParsedAsXml()
+    {
+        using var document = Document.Parse("<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\">"
+            + "<title> An \n icon </title><rect width=\"5\" height=\"5\"/></svg>");
+
+        Assert.Equal("svg", document.DocumentElement!.LocalName);
+        Assert.Equal("http://www.w3.org/2000/svg", document.DocumentElement.NamespaceUri);
+        Assert.Equal("An icon", document.Title);
+        Assert.Empty(document.Diagnostics);
+    }
+
+    [Fact]
+    public void SvgWithoutAnXmlSignIsHtml()
+    {
+        Assert.Equal("html", Document.Parse("<svg><rect/></svg>").DocumentElement!.LocalName);
+    }
+
+    [Fact]
+    public void XmlErrorsBecomeDiagnostics()
+    {
+        var document = Document.Parse("<svg xmlns=\"http://www.w3.org/2000/svg\">\n<g></svg>");
+
+        var error = Assert.Single(document.Diagnostics);
+        Assert.Equal(DiagnosticCode.ParseError, error.Code);
+        Assert.Contains("mismatched-end-tag", error.Message);
+        Assert.Equal("xml-parsing", error.Feature);
+    }
+
+    [Fact]
     public void TitleIsEmptyWithoutATitleElement()
     {
         Assert.Equal("", Document.Parse("<p>x").Title);

@@ -3,10 +3,14 @@ using Folio.Css;
 using Folio.Dom;
 using Folio.Html;
 using Folio.Imaging;
+using Folio.Layout;
+using Folio.Painting;
+using Folio.Resources;
 using Folio.RenderTests;
 using Folio.Style;
 using Folio.Tests.Typography;
 using Folio.Typography;
+using Folio.Xml;
 
 namespace Folio.Fuzz;
 
@@ -36,6 +40,10 @@ internal static class Targets
         new("png", data => PngDecoder.Decode(data, MaxPixels), () => Images("*.png"), []),
         new("jpeg", data => JpegDecoder.Decode(data, MaxPixels), () => Images("*.jpg"), []),
         new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
+        new("svg", Svg, SvgSeeds, ["<svg xmlns=\"http://www.w3.org/2000/svg\">", "</svg>", "<?xml version=\"1.0\"?>", "<!DOCTYPE svg [", "]>",
+            "<![CDATA[", "]]>", "<!--", "&#x", "&amp;", "xmlns:x=\"", "<g>", "</g>", "<path d=\"", "M0 0", "A1 1 0 1 1", "C", "Z", " viewBox=\"",
+            " preserveAspectRatio=\"", " transform=\"", "rotate(", "matrix(", "<text", "<tspan", " x=\"", " dx=\"", "%", "e9", "-", ".",
+            " stroke-dasharray=\"", "url(#", "<rect", "<circle", " r=\"", "<polygon points=\"", "<svg", " width=\"", " style=\"", "<style>"]),
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -46,6 +54,35 @@ internal static class Targets
         CheckLinks(document);
         StyleResolver.Resolve(document, Media);
     }
+
+    // A standalone SVG file through parsing, style, layout and the display list; inline SVG in HTML through its render
+    // tree and painting (the HTML around it is the html target's).
+    private static void Svg(byte[] data)
+    {
+        var text = Encoding.UTF8.GetString(data);
+        var standalone = XmlParser.IsSvgDocument(text);
+        var document = standalone ? XmlParser.Parse(text) : TreeBuilder.Parse(text);
+        CheckLinks(document);
+        StyleResolver.Resolve(document, Media);
+        if (standalone)
+        {
+            if (BoxTreeBuilder.Build(document, new ImageLoader(ResourceLoader.DataUrlsOnly, null)) is { } root)
+                DisplayListBuilder.Build(LayoutEngine.LayoutDocument(root, 800, 600));
+            return;
+        }
+        var context = new LayoutContext(new FontCollection());
+        for (Node? node = document; node is not null; node = node.NextInTree(document))
+        {
+            if (node is ElementNode { LocalName: "svg" } svg && svg.Name.Namespace == Namespaces.Svg
+                && (svg.Parent as ElementNode)?.Name.Namespace != Namespaces.Svg
+                && Folio.Svg.SvgRenderTree.Build(svg, 300, 150, context) is { } tree)
+                SvgPainter.Paint(tree, System.Numerics.Vector2.Zero, []);
+        }
+    }
+
+    private static IEnumerable<byte[]> SvgSeeds() =>
+        new[] { "reftests", "goldens" }.SelectMany(folder => Directory.GetFiles(Path.Combine(RepoPaths.Tests, folder, "svg"), "*.html"))
+            .Select(File.ReadAllBytes);
 
     // Web font unwrapping, then the font reader, as a document's @font-face would run them.
     private static void Font(byte[] data)

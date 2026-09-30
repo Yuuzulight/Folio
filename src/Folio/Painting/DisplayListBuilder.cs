@@ -64,6 +64,9 @@ internal static class DisplayListBuilder
         // The root element's stacking context also holds the positioned boxes placed in the initial containing block.
         var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null);
         var rootContext = new Context(rootBox, real: true, 0, 0);
+        // A replaced root element (the svg root of an SVG document) paints its content like any replaced box.
+        if (root.Svg is not null || root.Box is ReplacedBox { Image: not null })
+            rootContext.Text.Add(rootBox);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
         Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null), initialContainingBlock.Children.Skip(1), order);
         // The root group blends with the canvas background, which is painted outside it.
