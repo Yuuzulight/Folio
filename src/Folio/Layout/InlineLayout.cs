@@ -214,11 +214,16 @@ internal static class InlineLayout
             unit.TrailingSpace = 0;
         }
 
+        // The styles of the inline boxes open at each point: whether the content around an atomic inline may wrap is
+        // its parent's white-space (css-text-3 §5.1: the nearest common ancestor of the two sides).
+        var open = new Stack<ComputedStyle>();
+        bool Wraps() => (open.Count > 0 ? open.Peek() : block.Style).Text.TextWrapMode == TextWrapMode.Wrap;
         foreach (var item in ifc.Items)
         {
             switch (item.Kind)
             {
                 case InlineItemKind.OpenBox:
+                    open.Push(item.Style);
                     if (BreakAt(item.Start) is var b && b != BreakKind.None && brokeAt != item.Start)
                     {
                         Break(b);
@@ -227,6 +232,7 @@ internal static class InlineLayout
                     Add(new Piece(PieceKind.BoxStart, item.Style, item.Continuation ? 0 : InlineStart(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineStart(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.CloseBox:
+                    open.TryPop(out _);
                     Add(new Piece(PieceKind.BoxEnd, item.Style, item.Continuation ? 0 : InlineEnd(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineEnd(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.Text:
@@ -253,12 +259,16 @@ internal static class InlineLayout
                     break;
                 case InlineItemKind.Atomic:
                 {
-                    Close();
+                    // An atomic inline is a break opportunity on both sides, unless the text there does not wrap.
+                    var wraps = Wraps();
+                    if (wraps)
+                        Close();
                     var box = item.Box!;
                     if (!layOutAtomics)
                     {
                         Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true, Level = levels.Atomics.GetValueOrDefault(box) });
-                        Close();
+                        if (wraps)
+                            Close();
                         break;
                     }
                     var fragment = BlockLayout.Layout(box, new ConstraintSpace(width, null), context);
@@ -270,7 +280,8 @@ internal static class InlineLayout
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
                         Level = levels.Atomics.GetValueOrDefault(box),
                     });
-                    Close();
+                    if (wraps)
+                        Close();
                     break;
                 }
                 case InlineItemKind.ForcedBreak:
@@ -773,7 +784,10 @@ internal static class InlineLayout
             Ellipsize(pieces, available, block.Style, context, paragraphLevel);
             contentWidth = pieces.Sum(p => p.Width);
         }
-        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
+        // A line ended by a forced break (br, or a preserved segment break) is not empty, even with nothing on it
+        // (CSS 2.2 §9.4.2), so blank lines in pre keep their height.
+        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text)
+                      || units.Count > 0 && units[^1].MandatoryBreakAfter;
         var free = available - contentWidth;
         var rtl = paragraphLevel == 1;
         var textStyle = block.Style.Text;
