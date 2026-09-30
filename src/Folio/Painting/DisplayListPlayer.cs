@@ -39,7 +39,10 @@ internal static class DisplayListPlayer
                     break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();
-                    canvas.ClipRoundedRect(item.Shape);
+                    if (item.Path is { } path)
+                        canvas.ClipPath(path, item.Rule);
+                    else
+                        canvas.ClipRoundedRect(item.Shape);
                     open.Push(item.Kind);
                     break;
                 case DisplayItemKind.PushLayer:

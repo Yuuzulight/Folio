@@ -48,6 +48,7 @@ public class DisplayListTests
         DisplayItemKind.BoxShadow => $"shadow {Shape(item.Shape)} {item.Color} blur {N(item.Blur)} {(item.Inset ? "inside" : "outside")} {Shape(item.Box)}",
         DisplayItemKind.Decoration => $"decoration {Shape(item.Shape)} {item.LineStyle.ToString().ToLowerInvariant()} {item.Color}{(item.Glyphs is null ? "" : " skip-ink")}",
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
+        DisplayItemKind.PushClip when item.Path is { } path => $"clip path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(path)}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushLayer => Layer(item),
         DisplayItemKind.PushTransform when item.Transform is var m => $"transform {N(m.M11)},{N(m.M12)},{N(m.M21)},{N(m.M22)},{N(m.M31)},{N(m.M32)}",
@@ -78,6 +79,14 @@ public class DisplayListTests
         FilterKind.DropShadow => $"shadow({N(f.Offset.X)},{N(f.Offset.Y)},{N(f.StdDeviation)},{N(f.Color.R)},{N(f.Color.G)},{N(f.Color.B)},{N(f.Color.A)})",
         _ => $"matrix({string.Join(",", f.Matrix!.Select(N))})",
     };
+
+    private static string Path(PathData path) => string.Join(" ", path.Commands.Select(c => c.Verb switch
+    {
+        PathVerb.MoveTo => $"M{N(c.P1.X)},{N(c.P1.Y)}",
+        PathVerb.LineTo => $"L{N(c.P1.X)},{N(c.P1.Y)}",
+        PathVerb.CubicTo => $"C{N(c.P1.X)},{N(c.P1.Y)} {N(c.P2.X)},{N(c.P2.Y)} {N(c.P3.X)},{N(c.P3.Y)}",
+        _ => "Z",
+    }));
 
     private static string Shape(RoundedRect shape)
     {

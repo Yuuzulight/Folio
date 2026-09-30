@@ -1,0 +1,74 @@
+=== clip-path is none by default
+display: block
+---
+clip-path: none
+
+=== inset takes one to four offsets like margins, and corner radii after round
+clip-path: inset(10px 20% round 5px)
+---
+clip-path: inset(10px 20% 10px 20% round 5px)
+
+=== inset with three offsets and elliptical radii
+clip-path: inset(1px 2px 3px round 1px 2px / 3px)
+---
+clip-path: inset(1px 2px 3px 2px round 1px 3px 2px 3px 1px 3px 2px 3px)
+
+=== rect computes to inset, auto meaning the box's own edge
+clip-path: rect(10px auto 20% 5px)
+---
+clip-path: inset(10px 0px 80% 5px)
+
+=== xywh computes to inset
+clip-path: xywh(1px 2px 30% 40px round 50%)
+---
+clip-path: inset(2px -1px + 70% -42px + 100% 1px round 50%)
+
+=== circle and ellipse default to closest-side about the centre
+clip-path: circle(); clip-path: circle()
+---
+clip-path: circle(closest-side at 50% 50%)
+
+=== circle with a radius and a position
+clip-path: circle(farthest-side at left 10px top)
+---
+clip-path: circle(farthest-side at 10px 0px)
+
+=== ellipse with two radii
+clip-path: ellipse(10px 20% at 30px bottom)
+---
+clip-path: ellipse(10px 20% at 30px 100%)
+
+=== ellipse with no radii
+clip-path: ellipse(at right)
+---
+clip-path: ellipse(closest-side closest-side at 100% 50%)
+
+=== polygon with a fill rule
+clip-path: polygon(evenodd, 0 0, 100% 0, 50% 1em)
+---
+clip-path: polygon(evenodd, 0px 0px, 100% 0px, 50% 16px)
+
+=== polygon without a fill rule
+clip-path: polygon(nonzero, 1px 2px); clip-path: polygon(1px 2px, 3px 4px, 5% 6%)
+---
+clip-path: polygon(1px 2px, 3px 4px, 5% 6%)
+
+=== path keeps its data
+clip-path: path(evenodd, "M0,0 h10 v10 z")
+---
+clip-path: path(evenodd, "M0,0 h10 v10 z")
+
+=== a reference box alone
+clip-path: padding-box
+---
+clip-path: padding-box
+
+=== a shape and a reference box in either order
+clip-path: margin-box inset(1px)
+---
+clip-path: inset(1px 1px 1px 1px) margin-box
+
+=== invalid clip paths are dropped
+clip-path: circle(5px); clip-path: circle(-10px); clip-path: circle(1px 2px); clip-path: ellipse(10px); clip-path: inset(); clip-path: inset(1px round); clip-path: rect(1px 2px 3px); clip-path: xywh(0 0 -1px 1px); clip-path: polygon(); clip-path: polygon(1px); clip-path: polygon(evenodd 0 0); clip-path: path("M 0 0 L"); clip-path: path("L 0 0"); clip-path: path(""); clip-path: url(#clip); clip-path: circle() circle(); clip-path: border-box padding-box
+---
+clip-path: circle(5px at 50% 50%)

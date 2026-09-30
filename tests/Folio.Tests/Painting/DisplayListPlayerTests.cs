@@ -22,6 +22,14 @@ public class DisplayListPlayerTests
     }
 
     [Fact]
+    public void ClipPathsClipToTheirPathOrRoundedRectangle()
+    {
+        var calls = Replay("<style>body { margin: 0 } div { height: 10px }</style><div style='clip-path: polygon(evenodd, 0 0, 10px 0, 0 10px)'></div><div style='clip-path: circle()'></div>");
+
+        Assert.Equal(["save", "clip-path EvenOdd", "restore", "save", "clip-rrect", "restore"], calls);
+    }
+
+    [Fact]
     public void TransformsBecomeSaveTransformRestorePairs()
     {
         var calls = Replay("<style>body { margin: 0 }</style><div style='transform: translate(2px, 3px); height: 10px; background: red'></div>");

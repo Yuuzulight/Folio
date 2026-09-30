@@ -102,10 +102,12 @@ internal static class DisplayListBuilder
             var box = placed.Box;
             var style = box.Style.Box;
             var index = order.GetValueOrDefault(box);
-            // A transformed box's outline is transformed with it and a filtered box's is filtered with it
-            // (https://drafts.csswg.org/filter-effects-1/#FilterProperty), so those paint in the box's own stacking context.
+            // A transformed box's outline is transformed with it, and a filtered or clipped box's is filtered or clipped
+            // with it (https://drafts.csswg.org/filter-effects-1/#FilterProperty, https://drafts.csswg.org/css-masking-1/#the-clip-path),
+            // so those paint in the box's own stacking context.
             var outlined = box.Style.Outline.Width > 0 && box is not TableWrapperBox;
-            var ownOutline = box.IsTransformed || !box.Style.Effects.Filter.IsNone && box is not TablePartBox { Part: TablePart.Table };
+            var ownOutline = box.IsTransformed
+                || (!box.Style.Effects.Filter.IsNone || !box.Style.Effects.ClipPath.IsNone) && box is not TablePartBox { Part: TablePart.Table };
             if (outlined && !ownOutline)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
@@ -161,7 +163,7 @@ internal static class DisplayListBuilder
 
     // https://www.w3.org/TR/CSS22/visuren.html#z-index, css-position-3, css-color-4 opacity, compositing-1 isolation,
     // css-transforms-2 (any transform property other than none), filter-effects-1 filter, filter-effects-2 backdrop-filter
-    // and compositing-2 mix-blend-mode.
+    // compositing-2 mix-blend-mode and css-masking-1 clip-path.
     // The root's context is made by Build. Boxes in inline content (inline boxes, floats and atomic inlines found
     // there) have no parent box, so a missing parent says nothing here.
     private static bool CreatesStackingContext(Box box)
@@ -174,7 +176,8 @@ internal static class DisplayListBuilder
             || box.IsTransformed
             || !box.Style.Effects.Filter.IsNone
             || !box.Style.Effects.BackdropFilter.IsNone
-            || box.Style.Effects.MixBlendMode != Style.BlendMode.Normal;
+            || box.Style.Effects.MixBlendMode != Style.BlendMode.Normal
+            || !box.Style.Effects.ClipPath.IsNone;
     }
 
     // z-index applies to positioned boxes and to flex and grid items.
@@ -201,14 +204,18 @@ internal static class DisplayListBuilder
             : new RectF(rect.X, -Far, rect.Width, 2 * Far), default);
     }
 
-    private static RoundedRect BorderBox(PaintBox box) => new(box.Rect, Radii(box.Box.Style.Border, box.Rect));
+    private static RoundedRect BorderBox(PaintBox box)
+    {
+        var border = box.Box.Style.Border;
+        return new(box.Rect, Radii(border.TopLeftRadius, border.TopRightRadius, border.BottomRightRadius, border.BottomLeftRadius, box.Rect));
+    }
 
-    // Used corner radii: percentages of the border box, then scaled down together if adjacent ones overlap
+    // Used corner radii: percentages of the rectangle, then scaled down together if adjacent ones overlap
     // (https://www.w3.org/TR/css-backgrounds-3/#corner-overlap).
-    private static CornerRadii Radii(BorderGroup border, RectF rect)
+    private static CornerRadii Radii(CornerRadius topLeft, CornerRadius topRight, CornerRadius bottomRight, CornerRadius bottomLeft, RectF rect)
     {
         Vector2 R(CornerRadius r) => new(r.X.Resolve(rect.Width), r.Y.Resolve(rect.Height));
-        var (tl, tr, br, bl) = (R(border.TopLeftRadius), R(border.TopRightRadius), R(border.BottomRightRadius), R(border.BottomLeftRadius));
+        var (tl, tr, br, bl) = (R(topLeft), R(topRight), R(bottomRight), R(bottomLeft));
         var f = 1f;
         void Fit(float length, float sum)
         {
@@ -264,15 +271,20 @@ internal static class DisplayListBuilder
             // (https://www.w3.org/TR/css-transforms-1/#transform-function-lists).
             if (transform is { } singular && !Matrix3x2.Invert(singular, out _))
                 return;
+            var clipPath = owner is null || owner.Box.Style.Effects.ClipPath.IsNone ? (DisplayItem?)null : ClipPathItem(owner, owner.Box.Style.Effects.ClipPath);
+            var grouped = layered || transform is not null || clipPath is not null;
             var floor = _floor;
-            // The clips outside stay open under the group; the transform and the layer apply to the box and all it holds.
+            // The clips outside stay open under the group; the transform, the clip path and the layer apply to the box and
+            // all it holds. The clip path is in the box's coordinates and clips what the layer composites.
             // The layer filters it, then applies opacity (https://drafts.csswg.org/filter-effects-1/#placement) and blends
             // it; a backdrop filter is clipped to the border box (https://drafts.csswg.org/filter-effects-2/#backdrop-filter-operation).
-            if (layered || transform is not null)
+            if (grouped)
             {
                 SetClip(owner!.Clip);
                 if (transform is { } matrix)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: matrix));
+                if (clipPath is { } clip)
+                    list.Items.Add(clip);
                 if (layered)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, backdrop is null ? default : BorderBox(owner), Opacity: opacity,
                         Filters: filters, Backdrop: backdrop, Blend: blend));
@@ -297,10 +309,12 @@ internal static class DisplayListBuilder
             foreach (var box in context.Outlines)
                 PaintOutline(box);
 
-            if (layered || transform is not null)
+            if (grouped)
             {
                 PopTo(_floor);
                 if (layered)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                if (clipPath is not null)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 if (transform is not null)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
@@ -317,6 +331,106 @@ internal static class DisplayListBuilder
             * Matrix3x2.CreateTranslation(box.X, box.Y);
 
         private static BlendMode Blend(Style.BlendMode mode) => Enum.Parse<BlendMode>(mode.ToString());
+
+        /// <summary>
+        /// A clip-path as a clip item (https://drafts.csswg.org/css-masking-1/#the-clip-path): a basic shape resolved
+        /// against its reference box (https://drafts.csswg.org/css-shapes-1/#basic-shape-functions), or the box's own
+        /// shape with its corners. Circles, ellipses and insets are rounded rectangles; polygons and paths are paths.
+        /// </summary>
+        private static DisplayItem ClipPathItem(PaintBox box, ClipPath clip)
+        {
+            var reference = ReferenceBox(box, clip.Box ?? GeometryBox.BorderBox);
+            var r = reference.Rect;
+            var rule = FillRule.NonZero;
+            PathData path;
+            switch (clip.Shape)
+            {
+                case InsetShape i:
+                    var inset = r.Inset(i.Top.Resolve(r.Height), i.Right.Resolve(r.Width), i.Bottom.Resolve(r.Height), i.Left.Resolve(r.Width));
+                    return new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(inset, Radii(i.TopLeft, i.TopRight, i.BottomRight, i.BottomLeft, inset)));
+                case EllipseShape e:
+                    var (rx, ry) = EllipseRadii(e, r.Width, r.Height);
+                    var (cx, cy) = (r.X + e.Center.X.Resolve(r.Width), r.Y + e.Center.Y.Resolve(r.Height));
+                    var corner = new Vector2(rx, ry);
+                    return new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(cx - rx, cy - ry, 2 * rx, 2 * ry), new CornerRadii(corner, corner, corner, corner)));
+                case PolygonShape p:
+                    path = new PathData();
+                    for (var n = 0; n < p.Points.Count; n++)
+                    {
+                        var (x, y) = (r.X + p.Points[n].X.Resolve(r.Width), r.Y + p.Points[n].Y.Resolve(r.Height));
+                        if (n == 0)
+                            path.MoveTo(x, y);
+                        else
+                            path.LineTo(x, y);
+                    }
+                    path.Close();
+                    rule = p.EvenOdd ? FillRule.EvenOdd : FillRule.NonZero;
+                    break;
+                case PathShape d:
+                    path = new PathData();
+                    var origin = new Vector2(r.X, r.Y);
+                    foreach (var segment in d.Segments)
+                    {
+                        _ = segment.Verb switch
+                        {
+                            'M' => path.MoveTo(segment.P1.X + r.X, segment.P1.Y + r.Y),
+                            'L' => path.LineTo(segment.P1.X + r.X, segment.P1.Y + r.Y),
+                            'C' => path.CubicTo(segment.P1 + origin, segment.P2 + origin, segment.P3 + origin),
+                            _ => path.Close(),
+                        };
+                    }
+                    rule = d.EvenOdd ? FillRule.EvenOdd : FillRule.NonZero;
+                    break;
+                default:
+                    return new DisplayItem(DisplayItemKind.PushClip, reference);
+            }
+            return new DisplayItem(DisplayItemKind.PushClip, reference, Path: path, Rule: rule);
+        }
+
+        // The radii of circle() and ellipse() in a reference box of this size. A percentage refers to the box's width or
+        // height, or for a circle to its diagonal divided by the square root of 2; closest-side and farthest-side
+        // measure to the nearest or furthest edge, a circle's to any of the four.
+        private static (float X, float Y) EllipseRadii(EllipseShape e, float width, float height)
+        {
+            var (cx, cy) = (e.Center.X.Resolve(width), e.Center.Y.Resolve(height));
+            float Side(bool farthest, float a, float b) => farthest ? Math.Max(Math.Abs(a), Math.Abs(b)) : Math.Min(Math.Abs(a), Math.Abs(b));
+            if (e.RadiusY is not { } radiusY)
+            {
+                var radius = e.RadiusX.Length is { } length ? length.Resolve(MathF.Sqrt((width * width + height * height) / 2))
+                    : e.RadiusX.FarthestSide ? Math.Max(Side(true, cx, width - cx), Side(true, cy, height - cy))
+                    : Math.Min(Side(false, cx, width - cx), Side(false, cy, height - cy));
+                return (radius, radius);
+            }
+            return (e.RadiusX.Length?.Resolve(width) ?? Side(e.RadiusX.FarthestSide, cx, width - cx),
+                    radiusY.Length?.Resolve(height) ?? Side(radiusY.FarthestSide, cy, height - cy));
+        }
+
+        // A reference box with its corners (https://drafts.csswg.org/css-masking-1/#typedef-geometry-box): for CSS boxes,
+        // fill-box is the content box and stroke-box and view-box the border box. The margin box's corners grow by the
+        // margins.
+        // ponytail: the margin box's top and bottom margins are the computed ones, percentages against the box's own
+        // width; collapsed and auto margins are not looked up.
+        private static RoundedRect ReferenceBox(PaintBox box, GeometryBox which)
+        {
+            var borderBox = BorderBox(box);
+            var style = box.Box.Style;
+            switch (which)
+            {
+                case GeometryBox.PaddingBox:
+                    return Area(borderBox, style, box.Fragment, BackgroundBox.PaddingBox);
+                case GeometryBox.ContentBox or GeometryBox.FillBox:
+                    return Area(borderBox, style, box.Fragment, BackgroundBox.ContentBox);
+                case GeometryBox.MarginBox:
+                    float M(SizeValue margin) => margin.Kind == SizeKind.Length ? margin.Length.Resolve(box.Fragment.Width) : 0;
+                    var (top, right, bottom, left) = (M(style.Spacing.MarginTop), box.Fragment.MarginRight, M(style.Spacing.MarginBottom), box.Fragment.MarginLeft);
+                    static Vector2 Grown(Vector2 r, float x, float y) => r == Vector2.Zero ? r : Vector2.Max(r + new Vector2(x, y), Vector2.Zero);
+                    var c = borderBox.Radii;
+                    return new RoundedRect(borderBox.Rect.Inset(-top, -right, -bottom, -left),
+                        new CornerRadii(Grown(c.TopLeft, left, top), Grown(c.TopRight, right, top), Grown(c.BottomRight, right, bottom), Grown(c.BottomLeft, left, bottom)));
+                default:
+                    return borderBox;
+            }
+        }
 
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 

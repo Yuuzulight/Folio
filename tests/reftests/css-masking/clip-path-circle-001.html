@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>clip-path: circle(50%) on a square equals a fully rounded box</title>
+<link rel="help" href="https://drafts.csswg.org/css-shapes-1/#funcdef-basic-shape-circle">
+<style>
+  body { margin: 0; }
+  div { margin: 10px; width: 60px; height: 60px; background: blue; clip-path: circle(50%); }
+</style>
+<div></div>
+<div style="clip-path: circle(closest-side)"></div>

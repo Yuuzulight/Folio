@@ -153,6 +153,7 @@ internal enum PropertyId
     BackdropFilter,
     MixBlendMode,
     BackgroundBlendMode,
+    ClipPath,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -741,11 +742,7 @@ internal static class Properties
                 s => s.Replaced.Fit, (b, v) => b.Replaced = b.Replaced with { Fit = v }),
             new Property<Style.BackgroundPosition>(PropertyId.ObjectPosition, "object-position", false, "50% 50%",
                 r => BackgroundParsing.Position(r) is { } p ? new PositionValue(p) : null,
-                (v, ctx) =>
-                {
-                    var p = ((PositionValue)v).Position;
-                    return new Style.BackgroundPosition(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd));
-                },
+                (v, ctx) => ComputePosition(((PositionValue)v).Position, ctx),
                 s => s.Replaced.Position, (b, v) => b.Replaced = b.Replaced with { Position = v }),
             Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", Enum<ImageRendering>("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
                 s => s.Inherited.ImageRendering, (b, v) => b.Inherited = b.Inherited with { ImageRendering = v }),
@@ -755,6 +752,7 @@ internal static class Properties
 
         rows.AddRange(TransformProperties.Rows);
         rows.AddRange(FilterProperties.Rows);
+        rows.Add(ShapeProperties.Row);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)
@@ -1044,8 +1042,32 @@ internal static class Properties
             (v, ctx) => ((LayerListValue<TSpecified>)v).Items.Select(x => compute(x, ctx)).ToList(),
             get, set);
 
+    /// <summary>
+    /// The border-radius shorthand's value: the four corners' radii from the top left, clockwise. Also the radii after
+    /// <c>round</c> in basic shapes.
+    /// </summary>
+    internal static RadiusValue[]? BorderRadii(ValueReader r)
+    {
+        List<CssValue>? Read()
+        {
+            var list = new List<CssValue>();
+            while (list.Count < 4 && r.LengthPercentage(nonNegative: true) is { } value)
+                list.Add(value);
+            return list.Count == 0 ? null : list;
+        }
+        if (Read() is not { } horizontal || (r.Delim('/') ? Read() : horizontal) is not { } vertical)
+            return null;
+        // Missing corners copy the opposite one: top-right for bottom-left, top-left for the rest.
+        static CssValue Corner(List<CssValue> l, int i) => i < l.Count ? l[i] : i == 3 && l.Count > 1 ? l[1] : l[0];
+        return [.. Enumerable.Range(0, 4).Select(i => new RadiusValue(Corner(horizontal, i), Corner(vertical, i)))];
+    }
+
+    /// <summary>A computed position: offsets from the left and top edges.</summary>
+    internal static Style.BackgroundPosition ComputePosition(PositionSpecified p, ComputeContext ctx) =>
+        new(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd));
+
     // An offset from the right or bottom edge is 100% minus the offset.
-    private static LengthPercentage FromEdge(LengthPercentage value, bool fromEnd) =>
+    internal static LengthPercentage FromEdge(LengthPercentage value, bool fromEnd) =>
         !fromEnd ? value
         : value.Calc is null ? new LengthPercentage(-value.Px, 100 - value.Percent)
         : new LengthPercentage(0, 0, new CalcSum(new CalcPercent(100), new CalcProduct(new CalcNumber(-1), value.Calc)));
@@ -1112,23 +1134,8 @@ internal static class Properties
         ["border-left"] = Border(Side.Left),
         ["border"] = Border(Side.Top, Side.Right, Side.Bottom, Side.Left),
         // https://www.w3.org/TR/css-backgrounds-3/#border-radius: 1-4 horizontal radii, optionally "/" and 1-4 vertical.
-        ["border-radius"] = new([PropertyId.BorderTopLeftRadius, PropertyId.BorderTopRightRadius, PropertyId.BorderBottomRightRadius, PropertyId.BorderBottomLeftRadius], r =>
-        {
-            List<CssValue>? Read()
-            {
-                var list = new List<CssValue>();
-                while (list.Count < 4 && r.LengthPercentage(nonNegative: true) is { } value)
-                    list.Add(value);
-                return list.Count == 0 ? null : list;
-            }
-            if (Read() is not { } horizontal || (r.Delim('/') ? Read() : horizontal) is not { } vertical)
-                return null;
-            // Missing corners copy the opposite one: top-right for bottom-left, top-left for the rest.
-            static CssValue Corner(List<CssValue> l, int i) => i < l.Count ? l[i] : i == 3 && l.Count > 1 ? l[1] : l[0];
-            return Enumerable.Range(0, 4)
-                .Select(i => (PropertyId.BorderTopLeftRadius + i, (CssValue)new RadiusValue(Corner(horizontal, i), Corner(vertical, i))))
-                .ToList();
-        }),
+        ["border-radius"] = new([PropertyId.BorderTopLeftRadius, PropertyId.BorderTopRightRadius, PropertyId.BorderBottomRightRadius, PropertyId.BorderBottomLeftRadius],
+            r => BorderRadii(r) is { } radii ? radii.Select((radius, i) => (PropertyId.BorderTopLeftRadius + i, (CssValue)radius)).ToList() : null),
         // https://www.w3.org/TR/css-text-4/#white-space-property (the single keywords)
         ["white-space"] = new([PropertyId.WhiteSpaceCollapse, PropertyId.TextWrapMode], r =>
         {
