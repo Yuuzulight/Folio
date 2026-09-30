@@ -73,6 +73,8 @@ internal sealed class StyleBuilder
         if (cascaded.TryGetValue(PropertyId.Color, out var color))
             builder.Apply(Properties.Get(PropertyId.Color), color, context);
         context.CurrentColor = builder.Inherited.Color;
+        if (context.Registered is { Count: > 0 } registered)
+            context.Custom = builder._custom = CustomProperties.ApplySyntax(context.Custom, context.Parent.Custom, registered, context);
 
         foreach (var (id, value) in cascaded)
         {
