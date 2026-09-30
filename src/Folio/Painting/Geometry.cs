@@ -106,14 +106,32 @@ public enum FillRule
     EvenOdd,
 }
 
+/// <summary>How open subpaths end (https://www.w3.org/TR/SVG2/painting.html#LineCaps).</summary>
 public enum LineCap
 {
     Butt,
     Round,
+
+    /// <summary>Extended by half the stroke width, square.</summary>
+    Square,
 }
 
-/// <summary>How a path is stroked: its width, cap, and an optional dash pattern (on, off, ... lengths).</summary>
-public readonly record struct Stroke(float Width, LineCap Cap = LineCap.Butt, IReadOnlyList<float>? Dashes = null);
+/// <summary>How segments meet (https://www.w3.org/TR/SVG2/painting.html#LineJoin).</summary>
+public enum LineJoin
+{
+    /// <summary>A sharp corner, beveled instead where it would reach further than the miter limit allows.</summary>
+    Miter,
+    Round,
+    Bevel,
+}
+
+/// <summary>
+/// How a path is stroked: its width, cap, an optional dash pattern (on, off, ... lengths) started
+/// <paramref name="DashOffset"/> into the pattern, and how segments join. A miter join longer than
+/// <paramref name="MiterLimit"/> times the width becomes a bevel.
+/// </summary>
+public readonly record struct Stroke(float Width, LineCap Cap = LineCap.Butt, IReadOnlyList<float>? Dashes = null,
+                                     LineJoin Join = LineJoin.Miter, float MiterLimit = 4, float DashOffset = 0);
 
 /// <summary>How image pixels are sampled when an image is drawn larger or smaller than its pixel size.</summary>
 public enum ImageSampling

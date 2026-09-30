@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<title>SVG stroke caps, joins, miter limits and dash offsets</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 24px; margin-bottom: 24px; align-items: flex-start; }
+  svg { background: #f1f5f9; }
+</style>
+<div class="row">
+  <svg width="140" height="100" fill="none" stroke="#6366f1" stroke-width="12">
+    <polyline points="20,80 45,20 70,80" stroke-linejoin="miter" />
+    <polyline points="80,80 105,20 130,80" stroke-linejoin="round" />
+  </svg>
+  <svg width="140" height="100" fill="none" stroke="#6366f1" stroke-width="12">
+    <polyline points="20,80 45,20 70,80" stroke-linejoin="bevel" />
+    <polyline points="80,80 105,20 130,80" stroke-miterlimit="1.5" />
+  </svg>
+  <svg width="140" height="100" fill="none" stroke="#e11d48" stroke-width="12">
+    <line x1="25" y1="20" x2="115" y2="20" stroke-linecap="butt" />
+    <line x1="25" y1="50" x2="115" y2="50" stroke-linecap="round" />
+    <line x1="25" y1="80" x2="115" y2="80" stroke-linecap="square" />
+  </svg>
+</div>
+<div class="row">
+  <svg width="140" height="100" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 12h4l3-8 4 16 3-8h4" />
+  </svg>
+  <svg width="140" height="100" viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r="45" fill="none" stroke="#e2e8f0" stroke-width="14" />
+    <circle cx="60" cy="60" r="45" fill="none" stroke="#22c55e" stroke-width="14" stroke-linecap="round"
+            stroke-dasharray="282.74" stroke-dashoffset="70.7" transform="rotate(-90 60 60)" />
+  </svg>
+  <svg width="140" height="100" fill="none" stroke="#f59e0b" stroke-width="6">
+    <line x1="10" y1="30" x2="130" y2="30" stroke-dasharray="16 8" stroke-dashoffset="0" />
+    <line x1="10" y1="50" x2="130" y2="50" stroke-dasharray="16 8" stroke-dashoffset="8" />
+    <line x1="10" y1="70" x2="130" y2="70" stroke-dasharray="16 8" stroke-dashoffset="-8" />
+  </svg>
+</div>

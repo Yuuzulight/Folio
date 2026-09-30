@@ -9,6 +9,6 @@ for a plain isolated group)
 "matrix(<20 values>)", colours from 0 to 1), "transform <a>,<b>,<c>,<d>,<e>,<f>" (as matrix(), in canvas coordinates), "decoration <rect> <line style> <colour>[ skip-ink]" (the rectangle's height is the line's thickness; skip-ink
 when the line leaves gaps around the glyphs)
 "image <rect> <pixel width>x<pixel height> <smooth|pixelated>", "fill path[ evenodd] <commands> <colour>",
-"stroke path <commands> <width>[ round][ dashes <lengths>] <colour>", "shadow <rect>[ radius ...] <colour> blur <standard deviation> <inside|outside> <clip rect>", and "pop". Glyphs
+"stroke path <commands> <width>[ <round|square> cap][ <round|bevel> join| miter <limit other than 4>][ dashes <lengths>[ offset <length>]] <colour>", "shadow <rect>[ radius ...] <colour> blur <standard deviation> <inside|outside> <clip rect>", and "pop". Glyphs
 drawn blurred (text shadows) end with "blur <standard deviation>". A radius is
 one value for equal circular corners, "x,y" for equal elliptical ones, or four corners from the top left.
