@@ -5,6 +5,8 @@ using Folio.Html;
 using Folio.Imaging;
 using Folio.RenderTests;
 using Folio.Style;
+using Folio.Tests.Typography;
+using Folio.Typography;
 
 namespace Folio.Fuzz;
 
@@ -33,6 +35,7 @@ internal static class Targets
             "url(", "\\", "/*", "*/", "\"", "'", "&", ":is(", ":not(", ":nth-child(", "::before", "attr(", "#", "."]),
         new("png", data => PngDecoder.Decode(data, MaxPixels), () => Images("*.png"), []),
         new("jpeg", data => JpegDecoder.Decode(data, MaxPixels), () => Images("*.jpg"), []),
+        new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -42,6 +45,19 @@ internal static class Targets
         var document = TreeBuilder.Parse(Encoding.UTF8.GetString(data));
         CheckLinks(document);
         StyleResolver.Resolve(document, Media);
+    }
+
+    // Web font unwrapping, then the font reader, as a document's @font-face would run them.
+    private static void Font(byte[] data)
+    {
+        if (WebFontDecoder.Decode(data) is { } sfnt && FontFace.Parse(sfnt) is { } face)
+            face.GlyphFor('A');
+    }
+
+    private static IEnumerable<byte[]> FontSeeds()
+    {
+        var box = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioBox.ttf"));
+        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box)];
     }
 
     private static void Css(byte[] data)

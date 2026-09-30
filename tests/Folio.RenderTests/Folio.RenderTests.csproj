@@ -11,4 +11,9 @@
     <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Builds WOFF and WOFF 2 fonts for the web font tests. -->
+    <Compile Include="..\Folio.Tests\Typography\WebFontWriter.cs" Link="WebFontWriter.cs" />
+  </ItemGroup>
+
 </Project>

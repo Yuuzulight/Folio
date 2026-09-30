@@ -52,8 +52,9 @@ internal static class StyleResolver
     /// Where link elements and @import load from; by default only data: URLs, with no base URL.
     /// </param>
     /// <param name="measure">Measures fonts for ex and ch; without it they are 0.5em.</param>
-    public static void Resolve(DocumentNode document, MediaContext media, string? userStyleSheet = null, StyleSources? sources = null,
-                               FontMeasure? measure = null)
+    /// <returns>The <c>@font-face</c> rules of the user and author stylesheets, in that order.</returns>
+    public static List<FontFaceRule> Resolve(DocumentNode document, MediaContext media, string? userStyleSheet = null, StyleSources? sources = null,
+                                             FontMeasure? measure = null)
     {
         sources ??= new StyleSources(Resources.ResourceLoader.DataUrlsOnly, null);
         sources = sources with
@@ -178,6 +179,7 @@ internal static class StyleResolver
                     stack.Push((e, null, style));
             }
         }
+        return [.. origins.Skip(1).SelectMany(o => o.FontFaces)];
     }
 
     /// <summary>
@@ -257,7 +259,7 @@ internal static class StyleResolver
     }
 
     // https://html.spec.whatwg.org/multipage/semantics.html#the-base-element: the first base element with href.
-    private static string? BaseUrl(DocumentNode document, string? documentUrl)
+    internal static string? BaseUrl(DocumentNode document, string? documentUrl)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {

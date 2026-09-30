@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using Folio.Imaging;
 using Folio.Painting;
 using Folio.Typography;
 using SkiaSharp;
@@ -66,6 +67,39 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         using var blob = builder.Build();
         using var skPaint = Fill(paint);
         canvas.DrawText(blob, 0, 0, skPaint);
+    }
+
+    public void DrawImage(IImageHandle image, in RectF destination, ImageSampling sampling)
+    {
+        if (Image(image) is not { } skImage)
+            return;
+        var options = sampling == ImageSampling.Pixelated
+            ? new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None)
+            : new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        using var paint = new SKPaint { IsAntialias = true };
+        canvas.DrawImage(skImage, new SKRect(destination.X, destination.Y, destination.Right, destination.Bottom), options, paint);
+    }
+
+    // One Skia image per image handle, copied from its straight-alpha RGBA pixels on first use.
+    private static readonly ConditionalWeakTable<IImageHandle, SKImage?> Images = new();
+
+    private static SKImage? Image(IImageHandle image) => Images.GetValue(image, i =>
+        i.Width > 0 && i.Height > 0 && i.Pixels.Length >= i.Width * i.Height * 4
+            ? SKImage.FromPixelCopy(new SKImageInfo(i.Width, i.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul), i.Pixels.Span)
+            : null);
+
+    public float[] GlyphIntercepts(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, float top, float bottom)
+    {
+        if (Typeface(font) is not { } typeface || glyphs.Length == 0)
+            return [];
+        using var skFont = new SKFont(typeface, size) { Subpixel = true };
+        var points = new SKPoint[origins.Length];
+        for (var i = 0; i < points.Length; i++)
+            points[i] = new SKPoint(origins[i].X, origins[i].Y);
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPositionedRun(glyphs, skFont, points);
+        using var blob = builder.Build();
+        return blob?.GetIntercepts(top, bottom) ?? [];
     }
 
     // One typeface per font handle, created from its bytes on first use.

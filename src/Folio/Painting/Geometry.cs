@@ -53,6 +53,16 @@ public enum LineCap
 /// <summary>How a path is stroked: its width, cap, and an optional dash pattern (on, off, ... lengths).</summary>
 public readonly record struct Stroke(float Width, LineCap Cap = LineCap.Butt, IReadOnlyList<float>? Dashes = null);
 
+/// <summary>How image pixels are sampled when an image is drawn larger or smaller than its pixel size.</summary>
+public enum ImageSampling
+{
+    /// <summary>Smoothly interpolated.</summary>
+    Smooth,
+
+    /// <summary>Nearest pixel, so enlarged pixels stay square (image-rendering: pixelated and crisp-edges).</summary>
+    Pixelated,
+}
+
 /// <summary>Options for a compositing layer; the layer is blended back when popped.</summary>
 public readonly record struct LayerOptions(float Opacity);
 

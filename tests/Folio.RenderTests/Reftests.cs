@@ -6,6 +6,7 @@ public class Reftests
     [InlineData("css-backgrounds/background-color-001")]
     [InlineData("css-backgrounds/box-shadow-001")]
     [InlineData("css-ui/outline-offset-001")]
+    [InlineData("css-images/image-rendering-pixelated-001")]
     [InlineData("css-text-decor/text-decoration-line-001")]
     [InlineData("css-text-decor/text-decoration-propagation-001")]
     [InlineData("css-text/hyphens-manual-001")]

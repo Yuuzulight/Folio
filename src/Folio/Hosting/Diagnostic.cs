@@ -10,6 +10,9 @@ public enum DiagnosticCode
 
     /// <summary>The document named a character encoding Folio does not decode; it was read as UTF-8.</summary>
     UnsupportedEncoding,
+
+    /// <summary>A resource was refused by the loader, failed to load or could not be decoded; the document renders without it.</summary>
+    ResourceNotLoaded,
 }
 
 public enum Severity
