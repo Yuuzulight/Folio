@@ -119,7 +119,11 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void PopLayer() => canvas.Restore();
 
-    private static SKPaint Fill(in Paint paint) => new() { IsAntialias = true, Style = SKPaintStyle.Fill, Color = ToSkia(paint.Color) };
+    private static SKPaint Fill(in Paint paint) => new()
+    {
+        IsAntialias = true, Style = SKPaintStyle.Fill, Color = ToSkia(paint.Color),
+        MaskFilter = paint.Blur > 0 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, paint.Blur) : null,
+    };
 
     private static SKColor ToSkia(Rgba c) => new(ToByte(c.R), ToByte(c.G), ToByte(c.B), ToByte(c.A));
 

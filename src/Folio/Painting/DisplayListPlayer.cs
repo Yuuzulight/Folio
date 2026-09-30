@@ -16,11 +16,14 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Fill:
                     canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color)));
                     break;
+                case DisplayItemKind.BoxShadow:
+                    PaintBoxShadow(canvas, item);
+                    break;
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
                     break;
                 case DisplayItemKind.Glyphs:
-                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color)));
+                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color), item.Blur));
                     break;
                 case DisplayItemKind.Decoration when item.Glyphs is { } ink && SkipInk(canvas, item.Shape.Rect, item.LineStyle, ink) is { } gaps:
                     canvas.Save();
@@ -124,6 +127,29 @@ internal static class DisplayListPlayer
         canvas.Save();
         canvas.ClipRoundedRect(new RoundedRect(new RectF(rect.X, rect.Y - t, rect.Width, 5 * t), default));
         canvas.StrokePath(path, stroke, paint);
+        canvas.Restore();
+    }
+
+    // A box shadow: blurred, and clipped to the outside of the border box (outer) or the inside of the padding box
+    // (inset, where the shadow is the region outside its shape).
+    private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item)
+    {
+        var paint = new Paint(ToRgba(item.Color), item.Blur);
+        var box = item.Box;
+        var margin = 3 * item.Blur + Math.Abs(item.Shape.Rect.X - box.Rect.X) + Math.Abs(item.Shape.Rect.Y - box.Rect.Y)
+                     + Math.Abs(item.Shape.Rect.Width - box.Rect.Width) + Math.Abs(item.Shape.Rect.Height - box.Rect.Height) + 1;
+        var around = new RoundedRect(box.Rect.Inset(-margin, -margin, -margin, -margin), default);
+        canvas.Save();
+        if (item.Inset)
+        {
+            canvas.ClipRoundedRect(box);
+            canvas.FillPath(new PathData().AddRoundedRect(around).AddRoundedRect(item.Shape), FillRule.EvenOdd, paint);
+        }
+        else
+        {
+            canvas.ClipPath(new PathData().AddRoundedRect(around).AddRoundedRect(box), FillRule.EvenOdd);
+            canvas.FillRoundedRect(item.Shape, paint);
+        }
         canvas.Restore();
     }
 
