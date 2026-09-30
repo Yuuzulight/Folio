@@ -44,7 +44,8 @@ internal sealed class DashArray(IReadOnlyList<LengthPercentage> dashes) : IEquat
 }
 
 /// <summary>
-/// The SVG painting and text properties (all inherited): fill and stroke with their opacities and stroke geometry
+/// The SVG painting and text properties (all inherited): fill and stroke with their opacities and stroke geometry,
+/// clip-rule (https://drafts.csswg.org/css-masking-1/#the-clip-rule),
 /// (https://www.w3.org/TR/SVG2/painting.html), paint-order, text-anchor (https://www.w3.org/TR/SVG2/text.html#TextAnchoringProperties)
 /// and dominant-baseline (https://www.w3.org/TR/css-inline-3/#dominant-baseline-property). Lengths keep their
 /// percentages, which refer to the SVG viewport.
@@ -52,7 +53,7 @@ internal sealed class DashArray(IReadOnlyList<LengthPercentage> dashes) : IEquat
 internal sealed record SvgGroup(SvgPaint Fill, float FillOpacity, SvgFillRule FillRule, SvgPaint Stroke, float StrokeOpacity,
                                 LengthPercentage StrokeWidth, StrokeLinecap StrokeLinecap, StrokeLinejoin StrokeLinejoin, float StrokeMiterlimit,
                                 DashArray StrokeDasharray, LengthPercentage StrokeDashoffset, PaintOrder PaintOrder, TextAnchor TextAnchor,
-                                DominantBaseline DominantBaseline)
+                                DominantBaseline DominantBaseline, SvgFillRule ClipRule = SvgFillRule.Nonzero)
 {
     public static SvgGroup Initial { get; } = new(new SvgPaint(CssColor.Black), 1, SvgFillRule.Nonzero, SvgPaint.None, 1, new LengthPercentage(1),
         StrokeLinecap.Butt, StrokeLinejoin.Miter, 4, DashArray.None, default, PaintOrder.Normal, TextAnchor.Start, DominantBaseline.Auto);

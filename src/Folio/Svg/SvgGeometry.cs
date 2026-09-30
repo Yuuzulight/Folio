@@ -254,6 +254,29 @@ internal static class SvgGeometry
         return segments;
     }
 
+    /// <summary>The box around a rectangle mapped by a transform.</summary>
+    public static SvgRect Transform(SvgRect rect, Matrix3x2 matrix)
+    {
+        Vector2[] corners =
+        [
+            Vector2.Transform(new(rect.X, rect.Y), matrix), Vector2.Transform(new(rect.X + rect.Width, rect.Y), matrix),
+            Vector2.Transform(new(rect.X, rect.Y + rect.Height), matrix), Vector2.Transform(new(rect.X + rect.Width, rect.Y + rect.Height), matrix),
+        ];
+        var (min, max) = (corners.Aggregate(Vector2.Min), corners.Aggregate(Vector2.Max));
+        return new SvgRect(min.X, min.Y, max.X - min.X, max.Y - min.Y);
+    }
+
+    /// <summary>The box around two boxes, either of which may be missing.</summary>
+    public static SvgRect? Union(SvgRect? a, SvgRect? b)
+    {
+        if (a is not { } x)
+            return b;
+        if (b is not { } y)
+            return x;
+        var (left, top) = (Math.Min(x.X, y.X), Math.Min(x.Y, y.Y));
+        return new SvgRect(left, top, Math.Max(x.X + x.Width, y.X + y.Width) - left, Math.Max(x.Y + x.Height, y.Y + y.Height) - top);
+    }
+
     /// <summary>
     /// The tight bounding box of normalised path segments (https://www.w3.org/TR/SVG2/coords.html#BoundingBoxes): end
     /// points, and where cubic curves turn; null for a path with no points.

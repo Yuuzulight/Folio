@@ -52,8 +52,9 @@ public class ArtifactClassifierTests
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
     [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
     [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
-    [InlineData("<svg><rect clip-path=\"url(#c)\" /></svg>", "uses an SVG clip-path reference")]
+    [InlineData("<svg><rect mask=\"url(#m)\" /></svg>", "uses an SVG mask reference")]
     [InlineData("<svg><use href=\"#a\" /></svg>", "uses SVG <use>")]
+    [InlineData("<style>.a { clip-path: url(#c) }</style><div class=a></div>", "uses clip-path: url() in CSS")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
     [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
     [InlineData("<svg><text rotate=\"10\">a</text></svg>", "uses the SVG text attribute rotate")]
@@ -89,6 +90,7 @@ public class ArtifactClassifierTests
     [InlineData("<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" /></svg>")]
     [InlineData("<svg><defs><linearGradient id=g x2=\"0\" y2=\"1\"><stop offset=0 stop-color=red /><stop offset=1 style=\"stop-color: blue\" /></linearGradient>"
         + "<radialGradient id=h href=\"#g\" /></defs><style>circle { stroke: url(#h) }</style><rect fill=\"url(#g)\" /><circle r=5 /></svg>")]
+    [InlineData("<svg><clipPath id=c clipPathUnits=objectBoundingBox><circle cx=.5 cy=.5 r=.5 clip-rule=evenodd /></clipPath><rect width=5 height=5 clip-path=\"url(#c)\" /></svg>")]
     public void SvgShapesPathsAndTextAreStatic(string artifact)
     {
         var (kind, reasons) = ArtifactClassifier.Classify(artifact);

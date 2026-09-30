@@ -183,6 +183,7 @@ internal enum PropertyId
     DominantBaseline,
     StopColor,
     StopOpacity,
+    ClipRule,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>

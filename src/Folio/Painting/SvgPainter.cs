@@ -34,6 +34,14 @@ internal static class SvgPainter
             Push(new DisplayItem(DisplayItemKind.PushTransform, Transform: node.Transform));
         if (node is SvgContainerNode { Clip: { } clip })
             Push(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(clip.X, clip.Y, clip.Width, clip.Height), default)));
+        // A clip path of one plain shape clips with its path; any other is a mask of its region, drawn over the node's
+        // content in a layer of its own and kept where it is opaque.
+        var mask = node.ClipPath is { } clipPath && ClipPathItem(clipPath) is null ? clipPath : null;
+        if (node.ClipPath is not null && mask is null)
+            Push(ClipPathItem(node.ClipPath)!.Value);
+        else if (mask is not null)
+            Push(new DisplayItem(DisplayItemKind.PushLayer));
+        var beforeContent = pushed;
 
         switch (node)
         {
@@ -79,8 +87,30 @@ internal static class SvgPainter
                 break;
         }
 
+        if (mask is not null)
+        {
+            for (; pushed > beforeContent; pushed--)
+                items.Add(new DisplayItem(DisplayItemKind.Pop));
+            items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
+            Emit(new SvgContainerNode(mask.Transform, 1, mask.Children) { ClipPath = mask.ClipPath }, items);
+            items.Add(new DisplayItem(DisplayItemKind.Pop));
+        }
         for (var i = 0; i < pushed; i++)
             items.Add(new DisplayItem(DisplayItemKind.Pop));
+    }
+
+    // A clip path that is one shape with no clip path of its own, or nothing at all, as a path clip in the clipped
+    // node's user space; null for one that needs a mask.
+    private static DisplayItem? ClipPathItem(SvgClipPath clip)
+    {
+        if (clip.ClipPath is not null)
+            return null;
+        if (clip.Children.Count == 0)
+            return new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(default, default));
+        if (clip.Children is not [SvgShapeNode { ClipPath: null, Fill: { } fill } shape])
+            return null;
+        return new DisplayItem(DisplayItemKind.PushClip, Path: ToPathData(shape.Path, shape.Transform * clip.Transform),
+            Rule: fill.EvenOdd ? FillRule.EvenOdd : FillRule.NonZero);
     }
 
     private static void StrokeItem(SvgShapeNode shape, PathData path, float fade, List<DisplayItem> items)
@@ -110,17 +140,19 @@ internal static class SvgPainter
         return (CssColor.Black, gradient);
     }
 
-    /// <summary>Normalised path segments (absolute M, L, C and Z) as a canvas path.</summary>
-    public static PathData ToPathData(IReadOnlyList<PathSegment> segments)
+    /// <summary>Normalised path segments (absolute M, L, C and Z) as a canvas path, mapped by a transform when given.</summary>
+    public static PathData ToPathData(IReadOnlyList<PathSegment> segments, Matrix3x2? transform = null)
     {
+        var m = transform ?? Matrix3x2.Identity;
+        Vector2 P(Vector2 p) => Vector2.Transform(p, m);
         var path = new PathData();
         foreach (var segment in segments)
         {
             _ = segment.Verb switch
             {
-                'M' => path.MoveTo(segment.P1.X, segment.P1.Y),
-                'L' => path.LineTo(segment.P1.X, segment.P1.Y),
-                'C' => path.CubicTo(segment.P1, segment.P2, segment.P3),
+                'M' => path.MoveTo(P(segment.P1).X, P(segment.P1).Y),
+                'L' => path.LineTo(P(segment.P1).X, P(segment.P1).Y),
+                'C' => path.CubicTo(P(segment.P1), P(segment.P2), P(segment.P3)),
                 _ => path.Close(),
             };
         }

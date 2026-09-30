@@ -134,3 +134,9 @@ stop-color: currentcolor; stop-opacity: 20%
 ---
 stop-color: currentcolor
 stop-opacity: 0.2
+
+=== clip-rule is inherited
+%parent clip-rule: evenodd
+display: block
+---
+clip-rule: evenodd

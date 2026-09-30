@@ -20,6 +20,8 @@ internal static class SvgProperties
         Opacity(PropertyId.FillOpacity, "fill-opacity", s => s.Svg.FillOpacity, (b, v) => b.Svg = b.Svg with { FillOpacity = v }),
         Keywords(PropertyId.FillRule, "fill-rule", "nonzero", new() { ["nonzero"] = SvgFillRule.Nonzero, ["evenodd"] = SvgFillRule.Evenodd },
             s => s.Svg.FillRule, (b, v) => b.Svg = b.Svg with { FillRule = v }),
+        Keywords(PropertyId.ClipRule, "clip-rule", "nonzero", new() { ["nonzero"] = SvgFillRule.Nonzero, ["evenodd"] = SvgFillRule.Evenodd },
+            s => s.Svg.ClipRule, (b, v) => b.Svg = b.Svg with { ClipRule = v }),
         Paint(PropertyId.Stroke, "stroke", "none", s => s.Svg.Stroke, (b, v) => b.Svg = b.Svg with { Stroke = v }),
         Opacity(PropertyId.StrokeOpacity, "stroke-opacity", s => s.Svg.StrokeOpacity, (b, v) => b.Svg = b.Svg with { StrokeOpacity = v }),
         Length(PropertyId.StrokeWidth, "stroke-width", "1px", nonNegative: true, s => s.Svg.StrokeWidth, (b, v) => b.Svg = b.Svg with { StrokeWidth = v }),

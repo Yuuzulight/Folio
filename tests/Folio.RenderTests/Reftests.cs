@@ -44,6 +44,8 @@ public class Reftests
     [InlineData("svg/linear-gradient-001")]
     [InlineData("svg/linear-gradient-bounding-box-001")]
     [InlineData("svg/linear-gradient-repeat-001")]
+    [InlineData("svg/clip-path-001")]
+    [InlineData("svg/clip-path-union-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

@@ -11,8 +11,9 @@ namespace Folio.Svg;
 /// <summary>Glyphs of one font at one size and paint, each at its baseline origin in user units.</summary>
 internal sealed record SvgGlyphRun(IFontHandle Font, float Size, ushort[] Glyphs, Vector2[] Origins, SvgResolvedPaint Paint);
 
-/// <summary>A text element's glyphs, positioned and anchored.</summary>
-internal sealed record SvgTextNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgGlyphRun> Runs) : SvgRenderNode(Transform, Opacity);
+/// <summary>A text element's glyphs, positioned and anchored, and the box of their cells (its bounding box).</summary>
+internal sealed record SvgTextNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgGlyphRun> Runs, SvgRect? Bounds = null)
+    : SvgRenderNode(Transform, Opacity);
 
 /// <summary>
 /// Lays out a text element (https://www.w3.org/TR/SVG2/text.html#TextLayoutAlgorithm) on one line: the characters of
@@ -32,7 +33,8 @@ internal static class SvgText
 
     private sealed record Span(int Start, int End, ComputedStyle Style, ElementNode Element);
 
-    public static SvgTextNode? Build(ElementNode text, ComputedStyle style, Matrix3x2 transform, Vector2 viewport, SvgContext context)
+    /// <param name="clipping">Building a clip path's text: every visible glyph is drawn opaque, whatever its fill.</param>
+    public static SvgTextNode? Build(ElementNode text, ComputedStyle style, Matrix3x2 transform, Vector2 viewport, SvgContext context, bool clipping = false)
     {
         var chars = new StringBuilder();
         var spans = new List<Span>();
@@ -121,9 +123,9 @@ internal static class SvgText
             }
             return bounds;
         }
-        var paints = spans.Select(span => span.Style.Inherited.Visibility == Visibility.Visible
-            ? context.Paint(span.Style.Svg.Fill, span.Style.Svg.FillOpacity, span.Style, viewport, Bounds)
-            : null).ToList();
+        var paints = spans.Select(span => span.Style.Inherited.Visibility != Visibility.Visible ? null
+            : clipping ? new SvgResolvedPaint(CssColor.Black)
+            : context.Paint(span.Style.Svg.Fill, span.Style.Svg.FillOpacity, span.Style, viewport, Bounds)).ToList();
 
         var runs = new List<SvgGlyphRun>();
         var pending = new List<(ushort Glyph, Vector2 Origin)>();
@@ -140,7 +142,7 @@ internal static class SvgText
             pending.Add((glyph.Glyph, glyph.Origin + new Vector2(Offset(glyph.Chunk), 0)));
         }
         Flush();
-        return runs.Count > 0 ? new SvgTextNode(transform, style.Box.Opacity, runs) : null;
+        return runs.Count > 0 ? new SvgTextNode(transform, clipping ? 1 : style.Box.Opacity, runs, Bounds()) : null;
 
         void Flush()
         {
