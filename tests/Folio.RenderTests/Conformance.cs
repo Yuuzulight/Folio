@@ -55,6 +55,19 @@ public static class Conformance
 {
     public static readonly TimeSpan HangTimeout = TimeSpan.FromSeconds(20);
 
+    /// <summary>
+    /// The families every artifact is drawn with, here and in tools/Folio.RefCapture: the bundled text font, then the
+    /// box font for characters it lacks, so both sides draw the same glyphs and neither falls back to system fonts.
+    /// </summary>
+    public const string FontFamilies = "\"Source Sans 3\", \"Folio Box\"";
+
+    /// <summary>The test renderer's bundled fonts, with a user stylesheet whose !important beats the artifact's own families.</summary>
+    public static FolioOptions Options { get; } = new()
+    {
+        Fonts = TestRenderer.Options.Fonts,
+        UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static string PublicRoot { get; } = Path.Combine(RepoPaths.Tests, "conformance");
@@ -97,7 +110,7 @@ public static class Conformance
         // where work can really be stopped.
         var render = Task.Run(() =>
         {
-            using var document = Document.Parse(html, TestRenderer.Options);
+            using var document = Document.Parse(html, Options);
             using var result = HeadlessRenderer.Render(document, request);
             return (Image: new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray()), result.Diagnostics);
         });

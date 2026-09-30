@@ -197,7 +197,7 @@ public class TypographyTests
         Assert.Null(fonts.Match("Missing", FaceStyle.Normal, 400, 100));
         // Step 3: the source names a family for a character no requested family covers.
         Assert.Equal("Folio Box", fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "A")?.Family);
-        Assert.Null(fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "Ā"));
+        Assert.Null(fonts.FaceForCluster(["Missing"], FaceStyle.Normal, 400, 100, "中")); // no bundled font has CJK
     }
 
     [Fact]
