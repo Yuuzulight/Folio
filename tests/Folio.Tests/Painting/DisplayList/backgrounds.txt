@@ -45,6 +45,25 @@ border -5,-5 20x20 2 dashed rgb(255, 0, 0)
 ---
 border -1,-1 12x12 radius 5 1 solid rgb(0, 0, 255)
 
+=== gradient layers paint over the colour, bottom layer first, clipped to their clip box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 100px; height: 50px; padding: 5px; background: linear-gradient(red, blue) content-box, radial-gradient(red, blue) padding-box yellow"></div>
+---
+fill 0,0 110x60 rgb(255, 255, 0)
+clip 0,0 110x60
+fill 0,0 110x60 radial gradient, 2 stops
+pop
+clip 5,5 100x50
+fill 5,5 100x50 linear gradient, 2 stops
+pop
+
+=== sized gradient layers repeat across their clip box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 40px; height: 10px; background: linear-gradient(red, blue) 10px 0 / 20px 10px repeat-x"></div>
+---
+clip 0,0 40x10
+fill -10,0 20x10 linear gradient, 2 stops
+fill 10,0 20x10 linear gradient, 2 stops
+fill 30,0 20x10 linear gradient, 2 stops
+pop
 === outer shadows go under the background, the first written on top; inset ones over it
 <!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 20px; border: 2px solid; background: white; box-shadow: 4px 4px red, 0 0 6px 2px blue, inset 1px 1px 2px lime"></div>
 ---

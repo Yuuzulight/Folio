@@ -121,9 +121,40 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     private static SKPaint Fill(in Paint paint) => new()
     {
-        IsAntialias = true, Style = SKPaintStyle.Fill, Color = ToSkia(paint.Color),
+        IsAntialias = true, Style = SKPaintStyle.Fill, Color = paint.Gradient is null ? ToSkia(paint.Color) : SKColors.Black,
         MaskFilter = paint.Blur > 0 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, paint.Blur) : null,
+        Shader = paint.Gradient is { } gradient ? Shader(gradient) : null,
     };
+
+    // Stops between which alpha changes come with extra stops interpolated premultiplied, so the plain sRGB
+    // interpolation here matches css-color-4 §12.3.
+    private static SKShader Shader(Gradient gradient)
+    {
+        var colors = gradient.Stops.Select(s => ToSkia(s.Color)).ToArray();
+        var offsets = gradient.Stops.Select(s => Math.Clamp(s.Offset, 0, 1)).ToArray();
+        var tile = gradient.Repeat ? SKShaderTileMode.Repeat : SKShaderTileMode.Clamp;
+        switch (gradient.Kind)
+        {
+            case GradientKind.Linear:
+                return SKShader.CreateLinearGradient(new SKPoint(gradient.Start.X, gradient.Start.Y), new SKPoint(gradient.End.X, gradient.End.Y),
+                    colors, offsets, tile);
+            case GradientKind.Radial:
+            {
+                // A circle of the horizontal radius, stretched vertically about the centre into the ellipse.
+                var (c, r) = (gradient.Center, gradient.Radii);
+                var matrix = SKMatrix.CreateScale(1, r.X > 0 ? r.Y / r.X : 1, c.X, c.Y);
+                return SKShader.CreateRadialGradient(new SKPoint(c.X, c.Y), Math.Max(r.X, 0.001f), colors, offsets, tile, matrix);
+            }
+            default:
+            {
+                // Sweeps start at 3 o'clock; CSS angles start at 12 o'clock.
+                var c = gradient.Center;
+                var matrix = SKMatrix.CreateRotationDegrees(gradient.StartAngle - 90, c.X, c.Y);
+                var sweep = Math.Max(gradient.EndAngle - gradient.StartAngle, 0.001f);
+                return SKShader.CreateSweepGradient(new SKPoint(c.X, c.Y), colors, offsets, tile, 0, sweep, matrix);
+            }
+        }
+    }
 
     private static SKColor ToSkia(Rgba c) => new(ToByte(c.R), ToByte(c.G), ToByte(c.B), ToByte(c.A));
 

@@ -5,7 +5,7 @@ namespace Folio.Painting;
 
 internal enum DisplayItemKind
 {
-    /// <summary>Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/>.</summary>
+    /// <summary>Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
     Fill,
 
     /// <summary>Draws the border described by <see cref="DisplayItem.Border"/> inside <see cref="DisplayItem.Shape"/>.</summary>
@@ -51,7 +51,8 @@ internal enum DisplayItemKind
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
                                             BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
                                             Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth,
-                                            float Blur = 0, bool Inset = false, RoundedRect Box = default);
+                                            float Blur = 0, bool Inset = false, RoundedRect Box = default,
+                                            Gradient? Gradient = null);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

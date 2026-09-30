@@ -1,6 +1,6 @@
 namespace Folio.Css;
 
-/// <summary>An <c>&lt;image&gt;</c>: none, a URL, or a gradient (kept as text until gradients are painted in M2).</summary>
+/// <summary>An <c>&lt;image&gt;</c>: none, a URL, or a gradient.</summary>
 internal abstract record ImageValue;
 
 /// <summary>A single specified image (list-style-image).</summary>
@@ -17,7 +17,8 @@ internal sealed record UrlImage(string Url) : ImageValue
     public override string ToString() => $"url(\"{Url}\")";
 }
 
-internal sealed record GradientImage(string Function, string Text) : ImageValue
+/// <summary>A gradient: its source text (for serialising), its parsed form, and once computed its computed form.</summary>
+internal sealed record GradientImage(string Function, string Text, GradientSpecified Specified, ComputedGradient? Computed = null) : ImageValue
 {
     public override string ToString() => Text;
 }
@@ -89,8 +90,8 @@ internal static class BackgroundParsing
         foreach (var name in (string[])["linear-gradient", "radial-gradient", "conic-gradient", "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient"])
         {
             var mark = r.Mark;
-            if (r.FunctionText(name) is { } text)
-                return new GradientImage(name, text);
+            if (r.Copy().Function(name) is { } arguments && GradientParsing.Parse(name, arguments) is { } gradient && r.FunctionText(name) is { } text)
+                return new GradientImage(name, text, gradient);
             r.Reset(mark);
         }
         return null;

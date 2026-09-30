@@ -11,8 +11,8 @@ namespace Folio.Painting;
 /// (docs/study/10-layout-positioning-overflow-stacking.md, option A), then its paint order per CSS 2.2 Appendix E.
 /// Every painted box carries the clip chain of its containing blocks' overflow clips.
 /// </summary>
-// ponytail: M1 paints background colours, borders, text and its decorations, and images; background images, outlines
-// and markers come with their own work.
+// ponytail: M1 paints background colours and gradients, borders, text and its decorations, and images; url()
+// background images come with their own work.
 internal static class DisplayListBuilder
 {
     // A box's border box on the canvas, with the overflow clips it is painted under. LineEnd marks text that ends its line.
@@ -275,6 +275,8 @@ internal static class DisplayListBuilder
                 SetClip(box.Clip);
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BackgroundArea(shape, style, box.Fragment), color));
             }
+            if (box.Box != canvasBox)
+                PaintBackgroundImages(box, shape);
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
             if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
@@ -456,6 +458,66 @@ internal static class DisplayListBuilder
             SetClip(box.Clip);
             list.Items.Add(new DisplayItem(DisplayItemKind.Border, outer,
                 Border: new BorderGroup(w, w, w, w, borderStyle, borderStyle, borderStyle, borderStyle, color, color, color, color)));
+        }
+
+        /// <summary>
+        /// Gradient background layers, bottom layer first (css-backgrounds-3 §3): each sized by background-size in its
+        /// background-origin box (a gradient has no size of its own, so auto, cover and contain fill the box), placed by
+        /// background-position, repeated by background-repeat, and clipped to its background-clip box.
+        /// </summary>
+        // ponytail: space and round repeat like repeat; url() layers are drawn once images load.
+        private void PaintBackgroundImages(PaintBox box, RoundedRect borderBox)
+        {
+            var style = box.Box.Style;
+            var background = style.Background;
+            for (var i = background.Images.Count - 1; i >= 0; i--)
+            {
+                if (background.Images[i] is not GradientImage { Computed: { } gradient })
+                    continue;
+                var origin = Area(borderBox, style, box.Fragment, background.Origins[i % background.Origins.Count]).Rect;
+                var clip = Area(borderBox, style, box.Fragment, background.Clips[i % background.Clips.Count]);
+                var size = background.Sizes[i % background.Sizes.Count];
+                var (w, h) = size.Kind != BackgroundSizeKind.Explicit ? (origin.Width, origin.Height)
+                    : (size.Width.Kind == SizeKind.Length ? size.Width.Length.Resolve(origin.Width) : origin.Width,
+                       size.Height.Kind == SizeKind.Length ? size.Height.Length.Resolve(origin.Height) : origin.Height);
+                if (w <= 0 || h <= 0)
+                    continue;
+                var position = background.Positions[i % background.Positions.Count];
+                var (x, y) = (origin.X + position.X.Resolve(origin.Width - w), origin.Y + position.Y.Resolve(origin.Height - h));
+                var repeat = background.Repeats[i % background.Repeats.Count];
+                // Tiles cover the clip box in the axes that repeat, starting from one that touches the placed tile.
+                var (x0, x1) = repeat.X == BackgroundRepeat.NoRepeat ? (x, x + w) : (x - MathF.Ceiling((x - clip.Rect.X) / w) * w, clip.Rect.Right);
+                var (y0, y1) = repeat.Y == BackgroundRepeat.NoRepeat ? (y, y + h) : (y - MathF.Ceiling((y - clip.Rect.Y) / h) * h, clip.Rect.Bottom);
+                if ((x1 - x0) / w * ((y1 - y0) / h) > 4096)
+                    (x0, x1, y0, y1) = (x, x + w, y, y + h);
+
+                SetClip(box.Clip);
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, clip));
+                for (var ty = y0; ty < y1 - 0.01f; ty += h)
+                {
+                    for (var tx = x0; tx < x1 - 0.01f; tx += w)
+                    {
+                        var tile = new RectF(tx, ty, w, h);
+                        if (GradientGeometry.Build(gradient, tile, style.Inherited.Color) is { } paint)
+                            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint));
+                    }
+                }
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            }
+        }
+
+        // A background box of the border box: border-box, padding-box or content-box (text clips as border-box).
+        private static RoundedRect Area(RoundedRect borderBox, ComputedStyle style, Fragment fragment, BackgroundBox which)
+        {
+            if (which is BackgroundBox.BorderBox or BackgroundBox.Text)
+                return borderBox;
+            var border = style.Border;
+            var padding = borderBox.Inset(border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+            if (which == BackgroundBox.PaddingBox)
+                return padding;
+            var s = style.Spacing;
+            return padding.Inset(s.PaddingTop.Resolve(fragment.Width), s.PaddingRight.Resolve(fragment.Width),
+                s.PaddingBottom.Resolve(fragment.Width), s.PaddingLeft.Resolve(fragment.Width));
         }
 
         /// <summary>
