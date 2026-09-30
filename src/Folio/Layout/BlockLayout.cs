@@ -280,6 +280,9 @@ internal static class BlockLayout
             }
         }
 
+        if (box is BlockContainerBox { Marker: { } marker })
+            PlaceMarker(marker, children, border.LeftWidth + padding.Left, border.TopWidth + padding.Top, width, context);
+
         return new Fragment(box, width + frameX, contentHeight + frameY, children)
         {
             MarginLeft = marginLeft,
@@ -303,6 +306,41 @@ internal static class BlockLayout
         Clear.InlineEnd => direction == Direction.Rtl ? Clear.Left : Clear.Right,
         _ => clear,
     };
+
+    /// <summary>
+    /// Places an outside list marker (https://www.w3.org/TR/css-lists-3/#list-style-position-property): its text ends
+    /// where the first line box starts (or begins where it ends, right to left), on that line's baseline. The first
+    /// line may be in a descendant block; with no line at all, the marker sits at the top of the content box.
+    /// </summary>
+    private static void PlaceMarker(MarkerBox marker, List<ChildFragment> children, float contentX, float contentY, float contentWidth, LayoutContext context)
+    {
+        var (runs, ascent) = InlineLayout.MarkerText(marker, context);
+        if (runs.Count == 0)
+            return;
+        var markerWidth = runs.Sum(r => r.Width);
+        var (lineX, lineY, lineWidth, baseline) = FirstLine(children, 0, 0) ?? (contentX, contentY, contentWidth, ascent);
+        var rtl = marker.Style.Text.Direction == Style.Direction.Rtl;
+        var x = rtl ? lineX + lineWidth : lineX - markerWidth;
+        foreach (var run in runs)
+        {
+            children.Add(new ChildFragment(x, lineY + baseline - run.Text!.Ascent, run));
+            x += run.Width;
+        }
+
+        // The first line box in flow order, through in-flow block children, as its box-relative position and baseline.
+        static (float X, float Y, float Width, float Baseline)? FirstLine(IReadOnlyList<ChildFragment> fragments, float dx, float dy)
+        {
+            foreach (var child in fragments)
+            {
+                if (child.Fragment.Kind == FragmentKind.Line && child.Fragment.Height > 0)
+                    return (dx + child.X, dy + child.Y, child.Fragment.Width, child.Fragment.Baseline);
+                if (child.Fragment is { Kind: FragmentKind.Box, Box: BlockContainerBox { IsFloat: false, IsAbsolutelyPositioned: false, IsAtomicInline: false } }
+                    && FirstLine(child.Fragment.Children, dx + child.X, dy + child.Y) is { } inner)
+                    return inner;
+            }
+            return null;
+        }
+    }
 
     // The floats after a child that joined this formatting context, with the ones it placed moved by dy: the child
     // was laid out at an expected position that its collapsed margins then changed.
