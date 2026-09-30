@@ -15,7 +15,9 @@ internal static class PositionedLayout
         if (box.Style.Box.Position != Position.Relative)
             return (0, 0);
         var spacing = box.Style.Spacing;
-        var x = Inset(spacing.Left, cbWidth) ?? -Inset(spacing.Right, cbWidth) ?? 0;
+        // With both left and right set, the containing block's end side gives way.
+        var (left, right) = (Inset(spacing.Left, cbWidth), -Inset(spacing.Right, cbWidth));
+        var x = (Rtl(box) ? right ?? left : left ?? right) ?? 0;
         var y = Inset(spacing.Top, cbHeight) ?? -Inset(spacing.Bottom, cbHeight) ?? 0;
         return (x, y);
     }
@@ -39,12 +41,13 @@ internal static class PositionedLayout
         float? Size(SizeValue value, float available) => BlockLayout.ContentSize(value, cbWidth, frameX, borderBox)
             ?? IntrinsicSizes.Keyword(value, box, available, context);
         float FitContent(float available) => IntrinsicSizes.FitContent(box, available, context);
+        var rtl = Rtl(box);
         var h = Solve(left, Size(style.Size.Width, cbWidth - frameX), right, spacing.MarginLeft, spacing.MarginRight,
-            cbWidth, frameX, cbWidth, staticX, horizontal: true, autoSize: FitContent);
+            cbWidth, frameX, cbWidth, staticX, horizontal: true, autoSize: FitContent, rtl: rtl);
         if (Size(style.Size.MaxWidth, h.Size) is { } max && h.Size > max)
-            h = Solve(left, max, right, spacing.MarginLeft, spacing.MarginRight, cbWidth, frameX, cbWidth, staticX, horizontal: true);
+            h = Solve(left, max, right, spacing.MarginLeft, spacing.MarginRight, cbWidth, frameX, cbWidth, staticX, horizontal: true, rtl: rtl);
         if (Size(style.Size.MinWidth, h.Size) is { } min && h.Size < min)
-            h = Solve(left, min, right, spacing.MarginLeft, spacing.MarginRight, cbWidth, frameX, cbWidth, staticX, horizontal: true);
+            h = Solve(left, min, right, spacing.MarginLeft, spacing.MarginRight, cbWidth, frameX, cbWidth, staticX, horizontal: true, rtl: rtl);
 
         // Vertical (§10.6.4): a specified height, or top and bottom stretching an auto height, is known before layout;
         // otherwise the content decides it.
@@ -67,11 +70,15 @@ internal static class PositionedLayout
         return new ChildFragment(h.Start + h.MarginStart, v.Start + v.MarginStart, fragment);
     }
 
+    // The containing block's direction decides which side gives way horizontally; the box's parent stands for it.
+    private static bool Rtl(Box box) => (box.Parent?.Style ?? box.Style).Text.Direction == Direction.Rtl;
+
     // One axis of §10.3.7 / §10.6.4: start + margin-start + frame + size + margin-end + end = the containing block.
+    // Start is left or top; with rtl, the left side gives way where the right one would in ltr.
     private static (float Start, float Size, float MarginStart, float MarginEnd) Solve(
         float? start, float? size, float? end, SizeValue marginStart, SizeValue marginEnd,
         float marginBasis, float frame, float cb, float staticStart, bool horizontal, bool sizeWasAuto = false,
-        Func<float, float>? autoSize = null)
+        Func<float, float>? autoSize = null, bool rtl = false)
     {
         var bothInsets = start is not null && end is not null;
         var ms = BlockLayout.Margin(marginStart, marginBasis);
@@ -84,12 +91,13 @@ internal static class PositionedLayout
             var free = cb - s - e - w - frame - ms - me;
             return (marginStart.Kind == SizeKind.Auto, marginEnd.Kind == SizeKind.Auto) switch
             {
-                // Both auto: centred; a horizontal negative remainder goes to the end margin (ltr).
-                (true, true) when horizontal && free + ms + me < 0 => (s, w, 0, free + me),
+                // Both auto: centred; a horizontal negative remainder goes to the containing block's end margin.
+                (true, true) when horizontal && free + ms + me < 0 => rtl ? (s, w, free + ms + me, 0) : (s, w, 0, free + ms + me),
                 (true, true) => (s, w, (free + ms + me) / 2, (free + ms + me) / 2),
                 (true, false) => (s, w, free + ms, me),
                 (false, true) => (s, w, ms, free + me),
-                _ => (s, w, ms, me), // over-constrained: the end inset is ignored
+                // Over-constrained: the end inset is ignored (the left one, in rtl).
+                _ => rtl && horizontal ? (s + free, w, ms, me) : (s, w, ms, me),
             };
         }
 
