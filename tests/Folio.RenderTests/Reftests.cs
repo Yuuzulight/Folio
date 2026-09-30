@@ -38,6 +38,8 @@ public class Reftests
     [InlineData("svg/sizing-001")]
     [InlineData("svg/opacity-001")]
     [InlineData("svg/currentcolor-001")]
+    [InlineData("svg/stroke-linecap-square-001")]
+    [InlineData("svg/stroke-dashoffset-001")]
     [InlineData("svg/standalone-001")]
     public void RendersLikeItsReference(string name)
     {

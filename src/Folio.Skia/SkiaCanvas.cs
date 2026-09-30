@@ -54,8 +54,10 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         using var skPaint = Fill(paint);
         skPaint.Style = SKPaintStyle.Stroke;
         skPaint.StrokeWidth = stroke.Width;
-        skPaint.StrokeCap = stroke.Cap == LineCap.Round ? SKStrokeCap.Round : SKStrokeCap.Butt;
-        using var dash = stroke.Dashes is { Count: > 0 } d ? SKPathEffect.CreateDash([.. d], 0) : null;
+        skPaint.StrokeCap = stroke.Cap switch { LineCap.Round => SKStrokeCap.Round, LineCap.Square => SKStrokeCap.Square, _ => SKStrokeCap.Butt };
+        skPaint.StrokeJoin = stroke.Join switch { LineJoin.Round => SKStrokeJoin.Round, LineJoin.Bevel => SKStrokeJoin.Bevel, _ => SKStrokeJoin.Miter };
+        skPaint.StrokeMiter = stroke.MiterLimit;
+        using var dash = stroke.Dashes is { Count: > 0 } d ? SKPathEffect.CreateDash([.. d], stroke.DashOffset) : null;
         skPaint.PathEffect = dash;
         canvas.DrawPath(skPath, skPaint);
     }
