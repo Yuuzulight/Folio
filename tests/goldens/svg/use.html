@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<title>SVG use and symbol</title>
+<style>
+  body { margin: 24px; color: #0f172a; }
+  .row { display: flex; gap: 16px; margin-bottom: 24px; align-items: center; }
+  svg { background: #f1f5f9; }
+  .accent { color: #e11d48; }
+</style>
+<svg width="0" height="0" style="position: absolute">
+  <symbol id="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12 L10 18 L20 6" />
+  </symbol>
+  <symbol id="star" viewBox="0 0 24 24">
+    <path d="M12 2 L15.1 8.3 L22 9.3 L17 14.1 L18.2 21 L12 17.8 L5.8 21 L7 14.1 L2 9.3 L8.9 8.3 Z" />
+  </symbol>
+  <g id="tile"><rect width="30" height="30" rx="6" /><circle cx="15" cy="15" r="6" fill="#f8fafc" /></g>
+</svg>
+<div class="row">
+  <svg width="48" height="48"><use href="#check" /></svg>
+  <svg width="48" height="48" class="accent"><use href="#check" /></svg>
+  <svg width="48" height="48"><use href="#star" fill="#f59e0b" /></svg>
+  <svg width="48" height="48"><use href="#star" fill="#6366f1" width="24" height="24" x="12" y="12" /></svg>
+</div>
+<div class="row">
+  <svg width="200" height="80">
+    <use href="#tile" x="10" y="10" fill="#22c55e" />
+    <use href="#tile" x="50" y="10" fill="#0ea5e9" transform="rotate(10 65 25)" />
+    <use href="#tile" x="90" y="10" fill="#a855f7" opacity="0.5" />
+    <g fill="#e11d48"><use href="#tile" x="130" y="10" /></g>
+    <use href="#check" x="10" y="45" width="30" height="30" style="color: #22c55e" />
+  </svg>
+</div>

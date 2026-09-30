@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>A symbol instanced by use draws its content in the use-sized viewport, in the use element's fill</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/struct.html#UseElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><symbol id="box" viewBox="0 0 10 10"><rect x="2" y="2" width="6" height="6" /></symbol><use href="#box" x="20" y="10" width="50" height="50" fill="blue" /><use href="#box" x="100" y="10" width="50" height="50" fill="green" /></svg>

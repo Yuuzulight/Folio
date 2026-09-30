@@ -53,7 +53,7 @@ public class ArtifactClassifierTests
     [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
     [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
     [InlineData("<svg><rect mask=\"url(#m)\" /></svg>", "uses an SVG mask reference")]
-    [InlineData("<svg><use href=\"#a\" /></svg>", "uses SVG <use>")]
+    [InlineData("<svg><marker id=m /></svg>", "uses SVG <marker>")]
     [InlineData("<style>.a { clip-path: url(#c) }</style><div class=a></div>", "uses clip-path: url() in CSS")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
     [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
@@ -91,6 +91,7 @@ public class ArtifactClassifierTests
     [InlineData("<svg><defs><linearGradient id=g x2=\"0\" y2=\"1\"><stop offset=0 stop-color=red /><stop offset=1 style=\"stop-color: blue\" /></linearGradient>"
         + "<radialGradient id=h href=\"#g\" /></defs><style>circle { stroke: url(#h) }</style><rect fill=\"url(#g)\" /><circle r=5 /></svg>")]
     [InlineData("<svg><clipPath id=c clipPathUnits=objectBoundingBox><circle cx=.5 cy=.5 r=.5 clip-rule=evenodd /></clipPath><rect width=5 height=5 clip-path=\"url(#c)\" /></svg>")]
+    [InlineData("<svg><defs><symbol id=i viewBox=\"0 0 24 24\"><path d=\"M0 0h24\" /></symbol></defs><use href=\"#i\" width=16 height=16 fill=red /></svg>")]
     public void SvgShapesPathsAndTextAreStatic(string artifact)
     {
         var (kind, reasons) = ArtifactClassifier.Classify(artifact);

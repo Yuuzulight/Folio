@@ -177,7 +177,7 @@ internal static class SvgText
                         spans.Add(new Span(spanStart, chars.Length, elementStyle, element));
                 }
                 else if (child is ElementNode { LocalName: "tspan" or "a" } inner && inner.Name.Namespace == Namespaces.Svg
-                         && inner.ComputedStyle() is { Box.Display: not Display.None } innerStyle
+                         && context.Style(inner) is { Box.Display: not Display.None } innerStyle
                          && System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
                 {
                     Collect(inner, innerStyle);

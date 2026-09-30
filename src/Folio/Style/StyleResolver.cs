@@ -175,6 +175,7 @@ internal static class StyleResolver
                     stack.Push((e, null, style));
             }
         }
+        document.StyleState = new Restyler(origins, media, measure, registered, sources.BaseUrl, rootFontSize, groups);
         return [.. origins.Skip(1).SelectMany(o => o.FontFaces)];
 
         ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
@@ -185,6 +186,42 @@ internal static class StyleResolver
                 Custom = CustomProperties.Compute(parent.Custom, custom, registered),
                 Registered = registered,
             };
+    }
+
+    /// <summary>
+    /// An element's style computed again under another parent style, with the rules and settings of the document's last
+    /// style resolution: what SVG <c>use</c> instances need, which match style rules where the original element is but
+    /// inherit from the <c>use</c> element (https://www.w3.org/TR/SVG2/struct.html#UseStyleInheritance). Null before
+    /// the document has been styled.
+    /// </summary>
+    public static ComputedStyle? Restyle(ElementNode element, ComputedStyle parent) =>
+        (element.OwnerDocument.StyleState as Restyler)?.Style(element, parent);
+
+    private sealed class Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure,
+                                  Dictionary<string, RegisteredProperty> registered, string? baseUrl, float rootFontSize, Dictionary<object, object> groups)
+    {
+        private readonly MatchContext _context = new();
+        private readonly List<RuleIndex<CascadeRule>.Entry> _matched = [];
+
+        public ComputedStyle Style(ElementNode element, ComputedStyle parent)
+        {
+            List<CascadeDeclaration>? inline = null;
+            if (element.GetAttribute("style") is { } styleAttribute)
+            {
+                var (source, block) = CssParser.ParseBlockContents(styleAttribute);
+                inline = CascadeData.Parse(source, block.Declarations, baseUrl);
+            }
+            _matched.Clear();
+            Cascade.Match(element, origins, _context, PseudoElement.None, _matched);
+            var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element));
+            return StyleBuilder.Compute(values, new ComputeContext(parent, rootFontSize, media.Width, media.Height)
+            {
+                PrefersDark = media.DarkColorScheme,
+                Measure = measure,
+                Custom = CustomProperties.Compute(parent.Custom, custom, registered),
+                Registered = registered,
+            }, groups);
+        }
     }
 
     /// <summary>

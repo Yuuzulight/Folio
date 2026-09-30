@@ -47,8 +47,8 @@ internal sealed record SvgShapeNode(Matrix3x2 Transform, float Opacity, IReadOnl
 /// (https://www.w3.org/TR/SVG2/coords.html), transforms, the basic shapes and paths, and their fills and strokes
 /// (https://www.w3.org/TR/SVG2/painting.html).
 /// </summary>
-// ponytail: structure (svg, g, a), shapes, paths and text, painted with colours and gradients and clipped by clip paths;
-// use, markers, masks, patterns and the other elements are not rendered yet (issue #97).
+// ponytail: structure (svg, g, a, use with symbol), shapes, paths and text, painted with colours and gradients and
+// clipped by clip paths; markers, masks, patterns and the other elements are not rendered yet (issue #97).
 internal static class SvgRenderTree
 {
     /// <summary>
@@ -103,7 +103,7 @@ internal static class SvgRenderTree
         for (var child = parent.FirstChild; child is not null; child = child.NextSibling)
         {
             if (child is ElementNode { Name.Namespace: var ns } element && ns == Namespaces.Svg
-                && element.ComputedStyle() is { Box.Display: not Display.None } style
+                && context.Style(element) is { Box.Display: not Display.None } style
                 && Node(element, style, viewport, context) is { } node)
                 nodes.Add(node);
         }
@@ -184,6 +184,8 @@ internal static class SvgRenderTree
         {
             case "g" or "a":
                 return new SvgContainerNode(transform, style.Box.Opacity, Children(element, viewport, context));
+            case "use":
+                return Use(element, style, transform, viewport, context);
             case "svg":
             {
                 // A nested viewport: width and height default to 100%.
@@ -240,6 +242,52 @@ internal static class SvgRenderTree
             var stroke = Stroke(style, viewport, context, Bounds);
             return fill is null && stroke is null ? null
                 : new SvgShapeNode(transform, style.Box.Opacity, path, fill, stroke, svg.PaintOrder == PaintOrder.Stroke);
+        }
+    }
+
+    // A use element (https://www.w3.org/TR/SVG2/struct.html#UseElement): its target instanced as a child placed at x, y
+    // after the use's own transform, a symbol or svg target as a viewport sized by the use. A target that is the use
+    // itself, an ancestor of it, or an element already being instanced further out draws nothing.
+    private static SvgRenderNode? Use(ElementNode use, ComputedStyle style, Matrix3x2 transform, Vector2 viewport, SvgContext context)
+    {
+        if (context.Find(use.GetAttribute("href") ?? use.GetAttribute("xlink:href")) is not { } target || target.Name.Namespace != Namespaces.Svg
+            || context.Using.Contains(target) || !RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            return null;
+        for (Node? n = use; n is not null; n = n.Parent)
+        {
+            if (n == target)
+                return null;
+        }
+        if (!context.BeginInstance(target, style))
+            return null;
+        try
+        {
+            if (context.Style(target) is not { Box.Display: not Display.None } targetStyle)
+                return null;
+            var fontSize = style.Font.Size;
+            var place = Matrix3x2.CreateTranslation(SvgGeometry.Length(use.GetAttribute("x"), SvgAxis.Horizontal, viewport, fontSize),
+                SvgGeometry.Length(use.GetAttribute("y"), SvgAxis.Vertical, viewport, fontSize));
+            SvgRenderNode? content;
+            if (target.LocalName is "symbol" or "svg")
+            {
+                // The use's width and height, else the target's, else 100%.
+                float Size(string name, SvgAxis axis, float whole) =>
+                    SvgGeometry.ParseLength(use.GetAttribute(name), fontSize) is not null ? SvgGeometry.Length(use.GetAttribute(name), axis, viewport, fontSize)
+                    : SvgGeometry.ParseLength(target.GetAttribute(name), targetStyle.Font.Size) is not null
+                        ? SvgGeometry.Length(target.GetAttribute(name), axis, viewport, targetStyle.Font.Size)
+                        : whole;
+                var rect = new SvgRect(0, 0, Size("width", SvgAxis.Horizontal, viewport.X), Size("height", SvgAxis.Vertical, viewport.Y));
+                content = Viewport(target, targetStyle, rect, Matrix3x2.Identity, targetStyle.Box.Opacity, context);
+            }
+            else
+            {
+                content = Node(target, targetStyle, viewport, context);
+            }
+            return content is null ? null : new SvgContainerNode(place * transform, style.Box.Opacity, [content]);
+        }
+        finally
+        {
+            context.EndInstance(target);
         }
     }
 
