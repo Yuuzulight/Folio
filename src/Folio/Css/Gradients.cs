@@ -65,8 +65,9 @@ internal static class GradientParsing
                 return null;
             stops.Add(stop);
         }
-        // At least two colour stops; hints only between colour stops.
-        if (stops.Count(s => s.Color is not null) < 2)
+        // At least two colour stops, a stop with two positions counting as two (linear-gradient(#fff 0 0) is one
+        // colour filling the box); hints only between colour stops.
+        if (stops.Where(s => s.Color is not null).Sum(s => s.Position2 is null ? 1 : 2) < 2)
             return null;
         for (var i = 0; i < stops.Count; i++)
         {

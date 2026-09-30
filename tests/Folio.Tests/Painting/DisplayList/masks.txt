@@ -1,0 +1,93 @@
+=== a mask is a destination-in layer over what the box painted, each mask layer a layer of its own
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 10px; background: rgb(1, 0, 0); mask-image: linear-gradient(black, transparent)"></div>
+---
+layer
+fill 0,0 10x10 rgb(1, 0, 0)
+blend destination-in
+layer
+clip 0,0 10x10
+fill 0,0 10x10 linear gradient, 17 stops
+pop
+pop
+pop
+pop
+
+=== a luminance mask layer is drawn over black and turned into alpha
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 10px; mask: linear-gradient(white, black) luminance"></div>
+---
+layer
+blend destination-in
+filter matrix(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.21,0.72,0.07,0,0)
+clip 0,0 10x10
+fill 0,0 10x10 rgb(0, 0, 0)
+fill 0,0 10x10 linear gradient, 2 stops
+pop
+pop
+pop
+pop
+
+=== mask layers composite onto those below, the bottom one over nothing
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 10px; padding: 2px; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude"></div>
+---
+layer
+blend destination-in
+layer
+clip 0,0 14x14
+fill 0,0 14x14 linear gradient, 2 stops
+pop
+pop
+blend xor
+clip 2,2 10x10
+fill 2,2 10x10 linear gradient, 2 stops
+pop
+pop
+pop
+pop
+
+=== the filter gets a layer of its own inside the masked one, and opacity stays outside
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 10px; opacity: 0.5; filter: blur(1px); mask-image: linear-gradient(black, black)"></div>
+---
+opacity 0.5
+filter blur(1)
+pop
+blend destination-in
+layer
+clip 0,0 10x10
+fill 0,0 10x10 linear gradient, 2 stops
+pop
+pop
+pop
+pop
+
+=== a layer that does not load adds nothing, and one of none subtracted leaves nothing
+<!DOCTYPE html><style>body { margin: 0 } div { width: 10px; height: 10px }</style><div style="mask-image: url(data:text/plain,x)"></div><div style="mask: none subtract, linear-gradient(black, black) no-clip"></div>
+---
+layer
+blend destination-in
+pop
+pop
+layer
+blend destination-in
+layer
+fill 0,10 10x10 linear gradient, 2 stops
+pop
+blend source-out
+clip 0,10 10x10
+pop
+pop
+pop
+pop
+
+=== a masked box is a stacking context and its outline is masked with it
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; outline: 1px solid rgb(3, 0, 0); mask: linear-gradient(black, black) no-repeat 0 0 / 50% 100%"></div>
+---
+layer
+border -1,-1 802x12 1 solid rgb(3, 0, 0)
+blend destination-in
+layer
+clip 0,0 800x10
+fill 0,0 400x10 linear gradient, 2 stops
+pop
+pop
+pop
+pop

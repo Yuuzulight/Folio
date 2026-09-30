@@ -111,7 +111,7 @@ internal static class DisplayListBuilder
             // so those paint in the box's own stacking context.
             var outlined = box.Style.Outline.Width > 0 && box is not TableWrapperBox;
             var ownOutline = box.IsTransformed
-                || (!box.Style.Effects.Filter.IsNone || !box.Style.Effects.ClipPath.IsNone) && box is not TablePartBox { Part: TablePart.Table };
+                || (!box.Style.Effects.Filter.IsNone || !box.Style.Effects.ClipPath.IsNone || box.Style.Mask.IsMasked) && box is not TablePartBox { Part: TablePart.Table };
             if (outlined && !ownOutline)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
@@ -167,7 +167,7 @@ internal static class DisplayListBuilder
 
     // https://www.w3.org/TR/CSS22/visuren.html#z-index, css-position-3, css-color-4 opacity, compositing-1 isolation,
     // css-transforms-2 (any transform property other than none), filter-effects-1 filter, filter-effects-2 backdrop-filter
-    // compositing-2 mix-blend-mode and css-masking-1 clip-path.
+    // compositing-2 mix-blend-mode, and css-masking-1 clip-path and mask.
     // The root's context is made by Build. Boxes in inline content (inline boxes, floats and atomic inlines found
     // there) have no parent box, so a missing parent says nothing here.
     private static bool CreatesStackingContext(Box box)
@@ -181,7 +181,8 @@ internal static class DisplayListBuilder
             || !box.Style.Effects.Filter.IsNone
             || !box.Style.Effects.BackdropFilter.IsNone
             || box.Style.Effects.MixBlendMode != Style.BlendMode.Normal
-            || !box.Style.Effects.ClipPath.IsNone;
+            || !box.Style.Effects.ClipPath.IsNone
+            || box.Style.Mask.IsMasked;
     }
 
     // z-index applies to positioned boxes and to flex and grid items.
@@ -270,7 +271,10 @@ internal static class DisplayListBuilder
             var opacity = (owner is not null && owner.Box.Style.Box.Opacity < 1 ? owner.Box.Style.Box.Opacity : 1) * filterOpacity;
             var backdrop = owner is null ? null : FilterPrimitives.Of(owner.Box.Style.Effects.BackdropFilter, owner.Box.Style.Inherited.Color);
             var blend = owner is null ? BlendMode.Normal : Blend(owner.Box.Style.Effects.MixBlendMode);
-            var layered = opacity < 1 || filters is not null || backdrop is not null || blend != BlendMode.Normal || context.Isolated;
+            var mask = owner is not null && owner.Box.Style.Mask.IsMasked ? owner.Box.Style.Mask : null;
+            var layered = opacity < 1 || filters is not null || backdrop is not null || blend != BlendMode.Normal || context.Isolated || mask is not null;
+            // A mask applies after the filter and before opacity, so with both the filter gets a layer of its own inside.
+            var innerFilter = mask is not null && filters is not null;
             var transform = owner is not null && owner.Box.IsTransformed ? Transform(owner) : (Matrix3x2?)null;
             // A transform that cannot be inverted flattens the box to nothing: it and its content are not displayed
             // (https://www.w3.org/TR/css-transforms-1/#transform-function-lists).
@@ -292,7 +296,9 @@ internal static class DisplayListBuilder
                     list.Items.Add(clip);
                 if (layered)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, backdrop is null ? default : BorderBox(owner), Opacity: opacity,
-                        Filters: filters, Backdrop: backdrop, Blend: blend));
+                        Filters: innerFilter ? null : filters, Backdrop: backdrop, Blend: blend));
+                if (innerFilter)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: filters));
                 _floor = _open.Count;
             }
 
@@ -317,6 +323,10 @@ internal static class DisplayListBuilder
             if (grouped)
             {
                 PopTo(_floor);
+                if (innerFilter)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                if (mask is not null)
+                    PaintMask(owner!, mask);
                 if (layered)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 if (clipPath is not null)
@@ -672,38 +682,102 @@ internal static class DisplayListBuilder
                     continue;
                 var origin = Area(borderBox, geometry.Box.Style, geometry.Fragment, background.Origins[i % background.Origins.Count]).Rect;
                 var clip = paintingArea ?? Area(borderBox, geometry.Box.Style, geometry.Fragment, background.Clips[i % background.Clips.Count]);
-                var repeat = background.Repeats[i % background.Repeats.Count];
-                var (w, h) = TileSize(background.Sizes[i % background.Sizes.Count], origin, image is null ? null : (image.Width, image.Height), repeat);
-                if (w <= 0 || h <= 0)
-                    continue;
-                var position = background.Positions[i % background.Positions.Count];
-                var (x, y) = (origin.X + position.X.Resolve(origin.Width - w), origin.Y + position.Y.Resolve(origin.Height - h));
                 var blend = Blend(style.Effects.BackgroundBlendModes[i % style.Effects.BackgroundBlendModes.Count]);
-                var across = Tiles(repeat.X, x, w, origin.X, origin.Width, clip.Rect.X, clip.Rect.Right);
-                var down = Tiles(repeat.Y, y, h, origin.Y, origin.Height, clip.Rect.Y, clip.Rect.Bottom);
-                if ((across.End - across.Start) / across.Step * ((down.End - down.Start) / down.Step) > 4096)
-                    (across, down) = ((x, w, x + w), (y, h, y + h));
-
                 SetClip(geometry.Clip);
                 list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, clip));
                 // Images have no paint to blend with, so a blended image layer is a layer of its own.
                 var imageBlend = image is not null && blend != BlendMode.Normal;
                 if (imageBlend)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: blend));
-                for (var ty = down.Start; ty < down.End - 0.01f; ty += down.Step)
-                {
-                    for (var tx = across.Start; tx < across.End - 0.01f; tx += across.Step)
-                    {
-                        var tile = new RectF(tx, ty, w, h);
-                        if (image is not null)
-                            list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(tile, default), Image: image, Sampling: sampling));
-                        else if (GradientGeometry.Build(gradient!, tile, style.Inherited.Color) is { } paint)
-                            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint, Blend: blend));
-                    }
-                }
+                PaintTiles(gradient, image, style, origin, clip.Rect, background.Sizes[i % background.Sizes.Count],
+                    background.Positions[i % background.Positions.Count], background.Repeats[i % background.Repeats.Count], blend, sampling);
                 if (imageBlend)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            }
+        }
+
+        // One background or mask layer's tiles: sized, placed in the positioning area and repeated over the painting area.
+        private void PaintTiles(ComputedGradient? gradient, Imaging.DecodedImage? image, ComputedStyle style, RectF origin, RectF painting,
+                                BackgroundSize size, Style.BackgroundPosition position, RepeatStyle repeat, BlendMode blend, ImageSampling sampling)
+        {
+            var (w, h) = TileSize(size, origin, image is null ? null : (image.Width, image.Height), repeat);
+            if (w <= 0 || h <= 0)
+                return;
+            var (x, y) = (origin.X + position.X.Resolve(origin.Width - w), origin.Y + position.Y.Resolve(origin.Height - h));
+            var across = Tiles(repeat.X, x, w, origin.X, origin.Width, painting.X, painting.Right);
+            var down = Tiles(repeat.Y, y, h, origin.Y, origin.Height, painting.Y, painting.Bottom);
+            if ((across.End - across.Start) / across.Step * ((down.End - down.Start) / down.Step) > 4096)
+                (across, down) = ((x, w, x + w), (y, h, y + h));
+            for (var ty = down.Start; ty < down.End - 0.01f; ty += down.Step)
+            {
+                for (var tx = across.Start; tx < across.End - 0.01f; tx += across.Step)
+                {
+                    var tile = new RectF(tx, ty, w, h);
+                    if (image is not null)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(tile, default), Image: image, Sampling: sampling));
+                    else if (GradientGeometry.Build(gradient!, tile, style.Inherited.Color) is { } paint)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint, Blend: blend));
+                }
+            }
+        }
+
+        // The luminance-to-alpha matrix of feColorMatrix (https://drafts.csswg.org/filter-effects-1/#feColorMatrixElement).
+        private static readonly Filter[] LuminanceToAlpha =
+            [new Filter(FilterKind.ColorMatrix, Matrix: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2125f, 0.7154f, 0.0721f, 0, 0])];
+
+        /// <summary>
+        /// The mask (https://drafts.csswg.org/css-masking-1/#the-mask-image-rendering-model): its layers, bottom first, each
+        /// drawn into a layer of its own and composited onto those below by its mask-composite operator (the bottom one,
+        /// with nothing below, drawn as it is), then applied to what the box painted by keeping it where the mask is opaque. A layer's image is
+        /// sized, placed and tiled like a background in its mask-origin box and clipped to its mask-clip box; an image
+        /// that does not load, and none, are transparent. A luminance layer is drawn over opaque black and turned into
+        /// alpha, so its alpha is the luminance of its colour times its own alpha.
+        /// </summary>
+        // ponytail: with no-clip a layer's tiles cover the border box and the origin box only.
+        private void PaintMask(PaintBox box, MaskGroup mask)
+        {
+            var sampling = box.Box.Style.Inherited.ImageRendering is ImageRendering.Pixelated or ImageRendering.CrispEdges ? ImageSampling.Pixelated : ImageSampling.Smooth;
+            list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
+            for (var i = mask.Images.Count - 1; i >= 0; i--)
+            {
+                var gradient = mask.Images[i] is GradientImage { Computed: { } g } ? g : null;
+                var image = mask.Images[i] is UrlImage url ? images?.Load(url.Url, "mask-image") : null;
+                var composite = i == mask.Images.Count - 1 ? MaskComposite.Add : mask.Composites[i % mask.Composites.Count];
+                if (gradient is null && image is null && composite == MaskComposite.Add)
+                    continue;
+                var luminance = mask.Modes[i % mask.Modes.Count] == MaskMode.Luminance;
+                var operation = composite switch
+                {
+                    MaskComposite.Subtract => BlendMode.SourceOut,
+                    MaskComposite.Intersect => BlendMode.SourceIn,
+                    MaskComposite.Exclude => BlendMode.Xor,
+                    _ => BlendMode.Normal,
+                };
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: luminance ? LuminanceToAlpha : null, Blend: operation));
+                var origin = ReferenceBox(box, mask.Origins[i % mask.Origins.Count]).Rect;
+                // The mask painting area is the box's rectangle, without its corners (unlike background-clip).
+                var clip = mask.Clips[i % mask.Clips.Count].Box is { } clipBox ? new RoundedRect(ReferenceBox(box, clipBox).Rect, default) : (RoundedRect?)null;
+                var painting = clip?.Rect ?? Union(origin, box.Rect);
+                if (clip is { } shape)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, shape));
+                if (luminance)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(painting, default), CssColor.Black));
+                if (gradient is not null || image is not null)
+                {
+                    PaintTiles(gradient, image, box.Box.Style, origin, painting, mask.Sizes[i % mask.Sizes.Count], mask.Positions[i % mask.Positions.Count],
+                        mask.Repeats[i % mask.Repeats.Count], BlendMode.Normal, sampling);
+                }
+                if (clip is not null)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            }
+            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+
+            static RectF Union(RectF a, RectF b)
+            {
+                var (x, y) = (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y));
+                return new RectF(x, y, Math.Max(a.Right, b.Right) - x, Math.Max(a.Bottom, b.Bottom) - y);
             }
         }
 

@@ -180,6 +180,9 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
     {
         BlendMode.Normal => SKBlendMode.SrcOver,
         BlendMode.PlusLighter => SKBlendMode.Plus,
+        BlendMode.SourceIn => SKBlendMode.SrcIn,
+        BlendMode.SourceOut => SKBlendMode.SrcOut,
+        BlendMode.DestinationIn => SKBlendMode.DstIn,
         _ => Enum.Parse<SKBlendMode>(mode.ToString()),
     };
 

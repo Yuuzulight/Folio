@@ -20,6 +20,9 @@ public class GradientTests
     public void TwoPositionsMakeTwoStops()
     {
         Assert.Equal([0f, 0.5f, 0.5f, 1f], Offsets("linear-gradient(to right, red 0 50%, blue 50% 100%)"));
+        // One colour with two positions is two stops, enough for a gradient: a solid fill.
+        Assert.Equal([0f, 0f], Offsets("linear-gradient(#fff 0 0)"));
+        Assert.Null(Gradient("linear-gradient(#fff 0)"));
     }
 
     [Fact]

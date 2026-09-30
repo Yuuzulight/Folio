@@ -386,6 +386,7 @@ internal sealed class ComputedStyle
     public TransformGroup Transform { get; init; } = TransformGroup.Initial;
     public ReplacedGroup Replaced { get; init; } = ReplacedGroup.Initial;
     public EffectsGroup Effects { get; init; } = EffectsGroup.Initial;
+    public MaskGroup Mask { get; init; } = MaskGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
