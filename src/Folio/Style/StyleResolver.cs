@@ -115,7 +115,7 @@ internal static class StyleResolver
                 var (source, block) = CssParser.ParseBlockContents(styleAttribute);
                 inline = CascadeData.Parse(source, block.Declarations);
             }
-            var (values, custom) = Cascade.Compute(element, origins, inline, int.MaxValue, context);
+            var (values, custom) = Cascade.Compute(element, origins, inline, int.MaxValue, context, hints: PresentationalHints.For(element));
 
             var computeContext = new ComputeContext(item.Parent, rootFontSize, media.Width, media.Height)
             {
