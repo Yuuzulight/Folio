@@ -1,0 +1,5 @@
+{
+  "prompt": "Design a pricing comparison table for our project management SaaS with Free, Team, Business and Enterprise plans. Group the features into sections, use check and cross marks, and highlight Team as the most popular plan.",
+  "features": ["comparison-matrix", "check-cross-marks", "colgroup", "col-background", "colspan", "section-header-rows", "status-badges", "border-collapse-separate", "rounded-container", "box-shadow", "row-hover", "overflow-x-scroll", "css-custom-properties"],
+  "viewport": 800
+}

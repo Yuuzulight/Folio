@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harbor Street Bakery — Weekly Sales</title>
+<style>
+  :root {
+    --bg: #fdf8f3;
+    --card: #ffffff;
+    --ink: #2d2320;
+    --muted: #8a7d76;
+    --brand: #d9480f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  .card {
+    max-width: 820px;
+    margin: 36px auto;
+    background: var(--card);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(45, 35, 32, 0.08);
+  }
+
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  h1 { margin: 0; font-size: 20px; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+  .controls { display: flex; gap: 6px; }
+
+  .controls button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid #eadfd6;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .controls button.active {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 340px;
+  }
+
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <div>
+        <h1>Loaves sold per day</h1>
+        <p class="sub">Harbor Street Bakery · week 38, 2026</p>
+      </div>
+      <div class="controls">
+        <button class="active" data-set="sourdough">Sourdough</button>
+        <button data-set="rye">Rye</button>
+        <button data-set="brioche">Brioche</button>
+        <button id="replay" title="Replay animation">↻</button>
+      </div>
+    </div>
+    <canvas id="chart" aria-label="Bar chart of loaves sold per day" role="img"></canvas>
+    <div class="foot"><span id="total"></span><span>Goal line: 120 loaves / day</span></div>
+  </div>
+
+<script>
+  const datasets = {
+    sourdough: { color: ['#f76707', '#d9480f'], values: [86, 94, 102, 97, 131, 158, 142] },
+    rye:       { color: ['#a47148', '#7f5539'], values: [41, 38, 45, 52, 60, 74, 66] },
+    brioche:   { color: ['#fcc419', '#f59f00'], values: [58, 61, 55, 70, 96, 128, 139] }
+  };
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const GOAL = 120;
+
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  let current = 'sourdough';
+  let from = datasets[current].values.map(() => 0);
+  const shown = from.slice();
+  let startTime = null;
+  let frame = null;
+  const DURATION = 900;
+
+  function resize() {
+    const ratio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(rect.height * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
+  const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+  function roundedTopRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h);
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath();
+  }
+
+  function draw(progress) {
+    const { width, height } = canvas.getBoundingClientRect();
+    const pad = { top: 20, right: 12, bottom: 34, left: 40 };
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+    const maxV = 180;
+    const set = datasets[current];
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Grid and y labels
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let v = 0; v <= maxV; v += 30) {
+      const y = pad.top + plotH - (v / maxV) * plotH;
+      ctx.strokeStyle = v === 0 ? '#d8ccc3' : '#f1e9e2';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.left, Math.round(y) + 0.5);
+      ctx.lineTo(width - pad.right, Math.round(y) + 0.5);
+      ctx.stroke();
+      ctx.fillStyle = '#8a7d76';
+      ctx.fillText(String(v), pad.left - 8, y);
+    }
+
+    // Bars
+    const slot = plotW / days.length;
+    const barW = slot * 0.56;
+    const eased = easeOutCubic(progress);
+
+    set.values.forEach((target, i) => {
+      const v = from[i] + (target - from[i]) * eased;
+      shown[i] = v;
+      const h = (v / maxV) * plotH;
+      const x = pad.left + slot * i + (slot - barW) / 2;
+      const y = pad.top + plotH - h;
+
+      const grad = ctx.createLinearGradient(0, y, 0, y + h);
+      grad.addColorStop(0, set.color[0]);
+      grad.addColorStop(1, set.color[1]);
+      ctx.fillStyle = grad;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 3;
+      roundedTopRect(x, y, barW, h, 8);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+
+      // Value label fades in near the end of the animation
+      ctx.globalAlpha = Math.max(0, (progress - 0.6) / 0.4);
+      ctx.fillStyle = '#2d2320';
+      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(String(Math.round(v)), x + barW / 2, y - 6);
+      ctx.globalAlpha = 1;
+
+      // Day label
+      ctx.fillStyle = '#8a7d76';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillText(days[i], x + barW / 2, pad.top + plotH + 10);
+    });
+
+    // Goal line
+    const gy = pad.top + plotH - (GOAL / maxV) * plotH;
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = '#2b8a3e';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, gy);
+    ctx.lineTo(width - pad.right, gy);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#2b8a3e';
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('goal', width - pad.right, gy - 4);
+  }
+
+  function tick(now) {
+    if (startTime === null) startTime = now;
+    const progress = Math.min(1, (now - startTime) / DURATION);
+    draw(progress);
+    if (progress < 1) {
+      frame = requestAnimationFrame(tick);
+    } else {
+      from = datasets[current].values.slice();
+      frame = null;
+    }
+  }
+
+  function animateTo(name, fromZero) {
+    if (frame) {
+      cancelAnimationFrame(frame);
+      from = shown.slice();
+    }
+    if (fromZero) from = from.map(() => 0);
+    current = name;
+    startTime = null;
+    const total = datasets[name].values.reduce((a, b) => a + b, 0);
+    document.getElementById('total').textContent = total.toLocaleString('en-US') + ' loaves this week';
+    frame = requestAnimationFrame(tick);
+  }
+
+  document.querySelectorAll('[data-set]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-set]').forEach((b) => b.classList.toggle('active', b === btn));
+      animateTo(btn.dataset.set, false);
+    });
+  });
+  document.getElementById('replay').addEventListener('click', () => animateTo(current, true));
+
+  window.addEventListener('resize', () => { resize(); draw(1); });
+
+  resize();
+  animateTo(current, true);
+</script>
+</body>
+</html>

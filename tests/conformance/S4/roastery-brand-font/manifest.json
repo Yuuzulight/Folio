@@ -1,0 +1,5 @@
+{
+  "prompt": "Build a landing page for a small-batch coffee roastery using our brand font from fonts/brand.woff2. I want a warm hero with a rotating stamp badge, a tilted scrolling ticker banner, and a product shelf of coffee bags.",
+  "features": ["font-face", "font-fallback", "keyframes", "transform", "backdrop-filter", "linear-gradient", "repeating-linear-gradient", "grid", "flex", "custom-properties", "box-shadow"],
+  "viewport": 800
+}

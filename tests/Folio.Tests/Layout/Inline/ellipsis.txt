@@ -1,0 +1,51 @@
+text-overflow: ellipsis and line-clamp (CSS Overflow 3 section 3.2, CSS Overflow 4 section 4). The box font has
+U+2026, one em wide like every glyph.
+
+=== an overflowing line of a clipping box ends with an ellipsis
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis">aaaaaa</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 50x16
+      line 0,0 50x16
+        text "aa" 0,0 32x16
+        text "…" 32,0 16x16
+
+=== a line that fits keeps its text
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; overflow: hidden; text-overflow: ellipsis">aa</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 50x16
+      line 0,0 50x16
+        text "aa" 0,0 32x16
+
+=== without clipping there is no ellipsis
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; white-space: nowrap; text-overflow: ellipsis">aaaaaa</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 50x16
+      line 0,0 50x16
+        text "aaaaaa" 0,0 96x16
+
+=== line-clamp keeps that many lines and ends the last with an ellipsis
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; -webkit-line-clamp: 2">aaa bbb ccc</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 50x32
+      line 0,0 50x16
+        text "aaa " 0,0 64x16
+      line 0,16 50x16
+        text "bb" 0,16 32x16
+        text "…" 32,16 16x16
+
+=== line-clamp with nothing left out adds no ellipsis
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; line-clamp: 2">aaa</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 50x16
+      line 0,0 50x16
+        text "aaa" 0,0 48x16

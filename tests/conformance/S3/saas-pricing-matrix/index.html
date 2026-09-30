@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relaywise Plans Compared</title>
+<style>
+  :root {
+    --brand: #6d4aff;
+    --brand-soft: #f3f0ff;
+    --brand-softer: #faf8ff;
+    --text: #1b1b2f;
+    --muted: #6e6e85;
+    --line: #ebeaf2;
+    --yes: #16a34a;
+    --no: #c2c2d0;
+    --bg: #ffffff;
+    --radius: 16px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 48px 24px 64px;
+    background: linear-gradient(180deg, #f6f4ff 0%, #ffffff 320px);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .hero {
+    text-align: center;
+    max-width: 620px;
+    margin: 0 auto 36px;
+  }
+
+  .eyebrow {
+    color: var(--brand);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 6px 0 10px;
+    font-size: 34px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+
+  .hero p { margin: 0; color: var(--muted); font-size: 17px; }
+
+  .matrix-wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    overflow-x: auto;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 50px -20px rgba(60, 40, 140, 0.25);
+  }
+
+  table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  col.feature-col { width: 32%; }
+  col.plan-col { width: 17%; }
+  col.featured { background: var(--brand-softer); }
+
+  thead th {
+    padding: 24px 16px 20px;
+    vertical-align: top;
+    text-align: center;
+    border-bottom: 1px solid var(--line);
+  }
+
+  thead th:first-child {
+    text-align: left;
+    vertical-align: bottom;
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .plan-name {
+    display: block;
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .price {
+    display: block;
+    margin-top: 8px;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .price small {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0;
+  }
+
+  .billing {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--muted);
+    min-height: 18px;
+  }
+
+  .cta {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  th.featured-head {
+    border-top: 3px solid var(--brand);
+  }
+
+  th.featured-head .cta {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+  }
+
+  .popular {
+    display: inline-block;
+    margin-bottom: 8px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  tbody th, tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  tbody th {
+    text-align: left;
+    font-weight: 500;
+  }
+
+  tbody td {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  tbody tr.section th {
+    padding-top: 22px;
+    padding-bottom: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--brand);
+    background: var(--bg);
+  }
+
+  tbody tr:not(.section):hover th,
+  tbody tr:not(.section):hover td {
+    background: var(--brand-soft);
+  }
+
+  tbody tr:last-child th,
+  tbody tr:last-child td { border-bottom: none; }
+
+  .yes { color: var(--yes); font-weight: 700; font-size: 17px; }
+  .no { color: var(--no); font-size: 17px; }
+
+  .hint {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .fine-print {
+    max-width: 980px;
+    margin: 18px auto 0;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  @media (max-width: 700px) {
+    body { padding: 28px 12px 40px; }
+    h1 { font-size: 26px; }
+    .price { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="eyebrow">Pricing</div>
+    <h1>Pick the Relaywise plan that fits your team</h1>
+    <p>Every plan includes unlimited projects and guests. Upgrade, downgrade or cancel at any time &mdash; save about 17% with annual billing.</p>
+  </header>
+
+  <div class="matrix-wrap">
+    <table>
+      <colgroup>
+        <col class="feature-col">
+        <col class="plan-col">
+        <col class="plan-col featured">
+        <col class="plan-col">
+        <col class="plan-col">
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col">Compare plans</th>
+          <th scope="col">
+            <span class="plan-name">Free</span>
+            <span class="price">$0</span>
+            <span class="billing">forever, up to 5 users</span>
+            <a class="cta" href="#signup">Get started</a>
+          </th>
+          <th scope="col" class="featured-head">
+            <span class="popular">Most popular</span>
+            <span class="plan-name">Team</span>
+            <span class="price">$12<small> /user/mo</small></span>
+            <span class="billing">$10 billed annually</span>
+            <a class="cta" href="#trial">Start free trial</a>
+          </th>
+          <th scope="col">
+            <span class="plan-name">Business</span>
+            <span class="price">$24<small> /user/mo</small></span>
+            <span class="billing">$20 billed annually</span>
+            <a class="cta" href="#trial">Start free trial</a>
+          </th>
+          <th scope="col">
+            <span class="plan-name">Enterprise</span>
+            <span class="price">Custom</span>
+            <span class="billing">volume pricing from 100 seats</span>
+            <a class="cta" href="#sales">Talk to sales</a>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="section"><th colspan="5" scope="colgroup">Core features</th></tr>
+        <tr>
+          <th scope="row">Projects &amp; tasks</th>
+          <td>Unlimited</td><td>Unlimited</td><td>Unlimited</td><td>Unlimited</td>
+        </tr>
+        <tr>
+          <th scope="row">File storage</th>
+          <td>2 GB</td><td>100 GB</td><td>1 TB</td><td>Unlimited</td>
+        </tr>
+        <tr>
+          <th scope="row">Board, list &amp; calendar views</th>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Timeline &amp; Gantt view</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Automations<span class="hint">runs per month</span></th>
+          <td>100</td><td>5,000</td><td>50,000</td><td>Unlimited</td>
+        </tr>
+        <tr>
+          <th scope="row">Custom fields</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td>20 per project</td><td>Unlimited</td><td>Unlimited</td>
+        </tr>
+
+        <tr class="section"><th colspan="5" scope="colgroup">Collaboration</th></tr>
+        <tr>
+          <th scope="row">Guest access</th>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Shared team inboxes</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Workload &amp; capacity planning</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Client portals</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td>3</td><td>Unlimited</td>
+        </tr>
+
+        <tr class="section"><th colspan="5" scope="colgroup">Security &amp; admin</th></tr>
+        <tr>
+          <th scope="row">Two-factor authentication</th>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Single sign-on (SAML)</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Audit log<span class="hint">retention</span></th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td>30 days</td><td>1 year</td><td>7 years</td>
+        </tr>
+        <tr>
+          <th scope="row">Data residency (EU / US / APAC)</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+
+        <tr class="section"><th colspan="5" scope="colgroup">Support</th></tr>
+        <tr>
+          <th scope="row">Help centre &amp; community</th>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Email support<span class="hint">first response</span></th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td>48 hours</td><td>8 hours</td><td>1 hour</td>
+        </tr>
+        <tr>
+          <th scope="row">Dedicated success manager</th>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="no" aria-label="Not included">&#10007;</span></td>
+          <td><span class="yes" aria-label="Included">&#10003;</span></td>
+        </tr>
+        <tr>
+          <th scope="row">Uptime SLA</th>
+          <td>&mdash;</td><td>&mdash;</td><td>99.9%</td><td>99.95%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="fine-print">Prices in USD, excluding tax. Annual plans are billed up front: Team $120 and Business $240 per user per year.</p>
+</body>
+</html>

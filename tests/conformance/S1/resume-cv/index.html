@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elena Vasquez-Moreau: Senior Product Designer</title>
+<style>
+  :root {
+    --ink: #111827;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #0f766e;
+    --accent-soft: #f0fdfa;
+    --sidebar: #f9fafb;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 16px;
+    background: #e5e7eb;
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+
+  .sheet {
+    max-width: 780px;
+    margin: 0 auto;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+    display: grid;
+    grid-template-columns: 230px 1fr;
+  }
+
+  .masthead {
+    grid-column: 1 / -1;
+    padding: 32px 36px 24px;
+    border-bottom: 4px solid var(--accent);
+  }
+
+  .masthead h1 {
+    margin: 0;
+    font-size: 2rem;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+
+  .masthead .role {
+    margin: 4px 0 14px;
+    font-size: 1.05rem;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .contact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .contact li + li::before {
+    content: "\00b7";
+    margin-right: 20px;
+    margin-left: -12px;
+    color: var(--line);
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  aside {
+    background: var(--sidebar);
+    padding: 24px 22px 32px 36px;
+    border-right: 1px solid var(--line);
+  }
+
+  main { padding: 24px 36px 32px 28px; }
+
+  h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--accent);
+    margin: 0 0 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  section + section { margin-top: 24px; }
+
+  .summary { margin: 0; }
+
+  .job { margin-bottom: 18px; }
+  .job:last-child { margin-bottom: 0; }
+
+  .job-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  h3 { margin: 0; font-size: 1rem; }
+  .dates { color: var(--muted); font-size: 0.8rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .org { color: var(--muted); font-size: 0.875rem; margin: 0 0 4px; }
+
+  .job ul { margin: 4px 0 0; padding-left: 18px; }
+  .job li { margin: 2px 0; }
+  .job li::marker { color: var(--accent); }
+
+  dl.skills { margin: 0; }
+  dl.skills dt { font-weight: 600; font-size: 0.85rem; margin-top: 10px; }
+  dl.skills dt:first-child { margin-top: 0; }
+  dl.skills dd { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
+
+  .meter {
+    height: 5px;
+    margin-top: 4px;
+    background: var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .meter span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+  }
+
+  .edu p { margin: 0 0 10px; font-size: 0.85rem; }
+  .edu strong { display: block; font-size: 0.9rem; }
+
+  .langs { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+  .langs li { display: flex; justify-content: space-between; padding: 2px 0; }
+  .langs em { color: var(--muted); font-style: normal; }
+
+  .highlight {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 8px 12px;
+    margin-top: 10px;
+    font-size: 0.875rem;
+  }
+
+  @media (max-width: 640px) {
+    .sheet { grid-template-columns: 1fr; }
+    aside { border-right: none; border-bottom: 1px solid var(--line); padding: 20px; }
+    main, .masthead { padding: 20px; }
+  }
+
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; font-size: 10.5pt; }
+    .sheet { box-shadow: none; max-width: none; }
+    aside { background: none; }
+    a { color: var(--ink); }
+    a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.8em; color: var(--muted); }
+    .job, section { break-inside: avoid; }
+    .highlight { background: none; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="masthead">
+    <h1>Elena Vasquez-Moreau</h1>
+    <p class="role">Senior Product Designer</p>
+    <ul class="contact">
+      <li>Rotterdam, Netherlands</li>
+      <li><a href="mailto:elena@vasquezmoreau.example">elena@vasquezmoreau.example</a></li>
+      <li>+31 6 1234 5678</li>
+      <li><a href="https://vasquezmoreau.example">vasquezmoreau.example</a></li>
+    </ul>
+  </header>
+
+  <aside>
+    <section>
+      <h2>Skills</h2>
+      <dl class="skills">
+        <dt>Interaction design</dt>
+        <dd><div class="meter"><span style="width: 95%"></span></div></dd>
+        <dt>Design systems</dt>
+        <dd><div class="meter"><span style="width: 90%"></span></div></dd>
+        <dt>User research</dt>
+        <dd><div class="meter"><span style="width: 80%"></span></div></dd>
+        <dt>Prototyping</dt>
+        <dd><div class="meter"><span style="width: 85%"></span></div></dd>
+        <dt>HTML &amp; CSS</dt>
+        <dd><div class="meter"><span style="width: 70%"></span></div></dd>
+      </dl>
+    </section>
+
+    <section class="edu">
+      <h2>Education</h2>
+      <p><strong>MSc Interaction Design</strong>Delft Institute of Technology, 2014</p>
+      <p><strong>BA Graphic Design</strong>Royal Academy of Art, The Hague, 2012</p>
+    </section>
+
+    <section>
+      <h2>Languages</h2>
+      <ul class="langs">
+        <li>Spanish <em>Native</em></li>
+        <li>English <em>Fluent</em></li>
+        <li>Dutch <em>Professional</em></li>
+        <li>French <em>Conversational</em></li>
+      </ul>
+    </section>
+  </aside>
+
+  <main>
+    <section>
+      <h2>Profile</h2>
+      <p class="summary">
+        Product designer with <strong>11 years</strong> of experience turning complex
+        workflows into calm, usable interfaces. I have led design for logistics and
+        fintech products used by more than two million people, built two design
+        systems from scratch, and I enjoy working closely with engineers on the
+        details that make an interface feel right.
+      </p>
+    </section>
+
+    <section>
+      <h2>Experience</h2>
+
+      <div class="job">
+        <div class="job-head"><h3>Lead Product Designer</h3><span class="dates">2022 &ndash; present</span></div>
+        <p class="org">Freightline, Rotterdam &middot; logistics platform, 380 employees</p>
+        <ul>
+          <li>Lead a team of five designers across the shipper and carrier apps.</li>
+          <li>Redesigned the booking flow, cutting median time to book a load from 7 minutes to 2&frac12;.</li>
+          <li>Created the <em>Harbour</em> design system: 64 components, adopted by all nine product teams.</li>
+          <li>Introduced monthly usability sessions with warehouse staff, now run by product managers.</li>
+        </ul>
+        <div class="highlight">Booking conversion rose 18% in the six months after the redesign.</div>
+      </div>
+
+      <div class="job">
+        <div class="job-head"><h3>Senior Product Designer</h3><span class="dates">2018 &ndash; 2022</span></div>
+        <p class="org">Pennywise Bank, Amsterdam &middot; mobile-first retail bank</p>
+        <ul>
+          <li>Owned design for savings and budgeting features, used by 1.4 million customers.</li>
+          <li>Designed "Pots", which became the second most-used feature in the app within a year.</li>
+          <li>Worked with the accessibility team to bring the app to WCAG 2.1 AA.</li>
+        </ul>
+      </div>
+
+      <div class="job">
+        <div class="job-head"><h3>Product Designer</h3><span class="dates">2014 &ndash; 2018</span></div>
+        <p class="org">Studio Kade, Rotterdam &middot; digital agency</p>
+        <ul>
+          <li>Designed web and mobile products for clients in transport, culture and public services.</li>
+          <li>Led the redesign of a national museum's ticketing site, which lifted online sales by 32%.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Speaking &amp; writing</h2>
+      <ul>
+        <li>"Designing for the loading dock", Northern Design Days, 2025</li>
+        <li>"Your design system is a product", guest article, <em>Interface Quarterly</em>, 2023</li>
+      </ul>
+    </section>
+  </main>
+</div>
+</body>
+</html>

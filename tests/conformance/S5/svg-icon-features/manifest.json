@@ -1,0 +1,5 @@
+{
+  "prompt": "Build a features section for a customer-support inbox product: a grid of features each with a small inline SVG icon, a hero illustration embedded as an SVG data URL image, and a checklist of what's included.",
+  "features": ["svg", "svg-icons", "currentcolor", "img", "data-url", "svg-image", "grid", "flex", "multi-column", "custom-properties"],
+  "viewport": 800
+}

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen Notes — Pricing</title>
+<style>
+  :root {
+    --ink: #172033;
+    --muted: #5d6781;
+    --line: #e5e8f0;
+    --brand: #0f9d8a;
+    --brand-2: #2563eb;
+    --card: #ffffff;
+    --radius-lg: 20px;
+    --radius-sm: 10px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at 15% 0%, #dff7f2 0, transparent 45%),
+      radial-gradient(circle at 90% 10%, #e3ebff 0, transparent 40%),
+      #f7f8fb;
+    min-height: 100vh;
+  }
+
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 56px 24px 72px;
+  }
+
+  header { text-align: center; margin-bottom: 40px; }
+
+  .eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--brand);
+    background: #e2f6f2;
+    padding: 5px 12px;
+    border-radius: 999px;
+  }
+
+  h1 {
+    font-size: 38px;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin: 16px 0 10px;
+  }
+
+  header p { color: var(--muted); margin: 0 auto; max-width: 520px; }
+
+  .toggle {
+    display: inline-flex;
+    gap: 4px;
+    margin-top: 22px;
+    padding: 4px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid var(--line);
+    box-shadow: 0 2px 6px rgba(23, 32, 51, 0.05);
+    font-size: 14px;
+  }
+
+  .toggle span { padding: 7px 16px; border-radius: 999px; color: var(--muted); }
+  .toggle .on { background: var(--ink); color: #fff; }
+  .toggle em { font-style: normal; color: var(--brand); font-weight: 600; }
+
+  .plans {
+    display: flex;
+    gap: 22px;
+    align-items: stretch;
+  }
+
+  .plan {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 28px 26px;
+    box-shadow: 0 10px 30px rgba(23, 32, 51, 0.06);
+  }
+
+  .plan.featured {
+    position: relative;
+    border: 2px solid transparent;
+    background:
+      linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(135deg, var(--brand), var(--brand-2)) border-box;
+    box-shadow: 0 18px 40px rgba(37, 99, 235, 0.18);
+    transform: translateY(-8px);
+  }
+
+  .badge {
+    position: absolute;
+    top: -13px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(90deg, var(--brand), var(--brand-2));
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .plan h2 { margin: 0; font-size: 18px; }
+  .plan .desc { color: var(--muted); font-size: 14px; margin: 6px 0 20px; min-height: 42px; }
+
+  .price {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin-bottom: 20px;
+  }
+
+  .price strong { font-size: 44px; letter-spacing: -0.03em; }
+  .price span { color: var(--muted); font-size: 14px; }
+
+  .cta {
+    display: block;
+    text-align: center;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 15px;
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    background: #f4f6fa;
+    margin-bottom: 22px;
+  }
+
+  .featured .cta {
+    border: none;
+    color: #fff;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+  }
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 20px 0 0;
+    border-top: 1px dashed var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    font-size: 14px;
+  }
+
+  li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  li::before {
+    content: "✓";
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brand);
+    background: #e2f6f2;
+  }
+
+  li.off { color: #a3aabb; }
+  li.off::before { content: "–"; color: #a3aabb; background: #f1f2f6; }
+
+  .footnote {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 36px;
+  }
+
+  .footnote a { color: var(--brand-2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="eyebrow">Pricing</span>
+      <h1>Simple plans for teams<br>that write things down</h1>
+      <p>Start free, upgrade when your notebook outgrows you. Every plan includes offline sync and end-to-end encryption.</p>
+      <div class="toggle"><span>Monthly</span><span class="on">Yearly <em>−20%</em></span></div>
+    </header>
+
+    <section class="plans">
+      <article class="plan">
+        <h2>Starter</h2>
+        <p class="desc">For individuals keeping personal notes and journals.</p>
+        <div class="price"><strong>$0</strong><span>/ forever</span></div>
+        <a class="cta" href="https://example.com/signup?plan=starter">Get started</a>
+        <ul>
+          <li>Up to 3 notebooks</li>
+          <li>Sync on 2 devices</li>
+          <li>Markdown export</li>
+          <li class="off">Shared workspaces</li>
+          <li class="off">Version history</li>
+        </ul>
+      </article>
+
+      <article class="plan featured">
+        <span class="badge">Most popular</span>
+        <h2>Team</h2>
+        <p class="desc">For small teams sharing specs, meeting notes and wikis.</p>
+        <div class="price"><strong>$8</strong><span>/ user / month</span></div>
+        <a class="cta" href="https://example.com/signup?plan=team">Start 14-day trial</a>
+        <ul>
+          <li>Unlimited notebooks</li>
+          <li>Unlimited devices</li>
+          <li>Shared workspaces</li>
+          <li>30-day version history</li>
+          <li>Comments and mentions</li>
+        </ul>
+      </article>
+
+      <article class="plan">
+        <h2>Organisation</h2>
+        <p class="desc">For companies that need admin controls and audit logs.</p>
+        <div class="price"><strong>$15</strong><span>/ user / month</span></div>
+        <a class="cta" href="https://example.com/contact-sales">Talk to sales</a>
+        <ul>
+          <li>Everything in Team</li>
+          <li>Single sign-on</li>
+          <li>Unlimited version history</li>
+          <li>Audit log and retention rules</li>
+          <li>Priority support</li>
+        </ul>
+      </article>
+    </section>
+
+    <p class="footnote">Prices shown in USD, billed yearly. Questions? <a href="https://example.com/faq">Read the pricing FAQ</a>.</p>
+  </div>
+</body>
+</html>

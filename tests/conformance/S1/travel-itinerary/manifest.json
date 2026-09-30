@@ -1,0 +1,5 @@
+{
+  "prompt": "Plan a 6-day Lisbon and Porto itinerary for two in mid-May, laid out day by day with times, plus a bookings table and a packing list.",
+  "features": ["headings", "ordered-lists", "nested-lists", "ordered-list-type", "pseudo-elements", "linear-gradient", "grid", "flexbox", "multi-column", "tables", "callouts", "hr", "box-shadow", "custom-properties", "media-queries"],
+  "viewport": 800
+}

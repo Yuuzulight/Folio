@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a heatmap table of last week's website traffic: days as rows, the 24 hours as columns, each cell shaded by session count, with daily and hourly totals and a colour legend. Dark theme please.",
+  "features": ["heatmap", "per-cell-background", "wide-table", "overflow-x-scroll", "tfoot-totals", "tabular-nums", "css-custom-properties", "border-collapse-collapse", "dark-theme", "box-shadow"],
+  "viewport": 800
+}

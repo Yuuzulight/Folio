@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halvorsen Labs — H1 2026 Revenue Report</title>
+<style>
+  :root {
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --c1: #4f46e5;
+    --c2: #0ea5e9;
+    --c3: #f59e0b;
+    --c4: #10b981;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #f9fafb;
+  }
+
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 36px 24px 60px;
+  }
+
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+
+  .charts {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 20px;
+  }
+
+  figure {
+    margin: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+  }
+
+  figcaption {
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  figcaption small {
+    display: block;
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  svg { display: block; width: 100%; height: auto; }
+
+  .axis-label { font-size: 11px; fill: var(--muted); }
+  .value-label { font-size: 11px; font-weight: 600; fill: var(--ink); }
+  .grid-line { stroke: var(--line); stroke-width: 1; }
+  .axis { stroke: #9ca3af; stroke-width: 1.5; }
+
+  .legend {
+    list-style: none;
+    padding: 0;
+    margin: 14px 0 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 14px;
+    font-size: 13px;
+  }
+
+  .legend li { display: flex; align-items: center; gap: 8px; }
+  .legend i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .legend b { margin-left: auto; font-weight: 600; }
+
+  .notes {
+    margin-top: 20px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 22px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #374151;
+  }
+
+  .notes h2 { font-size: 16px; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+  <main>
+    <h1>H1 2026 revenue report</h1>
+    <p class="sub">Halvorsen Labs · prepared by Finance, 3 July 2026</p>
+
+    <section class="charts">
+      <figure>
+        <figcaption>Monthly revenue<small>Thousands of USD, January to June</small></figcaption>
+        <svg viewBox="0 0 480 290" role="img" aria-label="Bar chart of monthly revenue">
+          <!-- horizontal grid lines and y-axis ticks -->
+          <g>
+            <line class="grid-line" x1="50" y1="20" x2="470" y2="20"/>
+            <line class="grid-line" x1="50" y1="77.5" x2="470" y2="77.5"/>
+            <line class="grid-line" x1="50" y1="135" x2="470" y2="135"/>
+            <line class="grid-line" x1="50" y1="192.5" x2="470" y2="192.5"/>
+          </g>
+          <g class="axis-label" text-anchor="end">
+            <text x="42" y="24">100</text>
+            <text x="42" y="81.5">75</text>
+            <text x="42" y="139">50</text>
+            <text x="42" y="196.5">25</text>
+            <text x="42" y="254">0</text>
+          </g>
+
+          <!-- bars -->
+          <g fill="#4f46e5">
+            <rect x="62" y="153.4" width="44" height="96.6" rx="4"/>
+            <rect x="130" y="123.5" width="44" height="126.5" rx="4"/>
+            <rect x="198" y="109.7" width="44" height="140.3" rx="4"/>
+            <rect x="266" y="139.6" width="44" height="110.4" rx="4"/>
+            <rect x="334" y="82.1" width="44" height="167.9" rx="4"/>
+            <rect x="402" y="66" width="44" height="184" rx="4" fill="#0ea5e9"/>
+          </g>
+
+          <!-- value labels -->
+          <g class="value-label" text-anchor="middle">
+            <text x="84" y="147">42</text>
+            <text x="152" y="117">55</text>
+            <text x="220" y="103">61</text>
+            <text x="288" y="133">48</text>
+            <text x="356" y="76">73</text>
+            <text x="424" y="60">80</text>
+          </g>
+
+          <!-- axes -->
+          <line class="axis" x1="50" y1="20" x2="50" y2="250"/>
+          <line class="axis" x1="50" y1="250" x2="470" y2="250"/>
+
+          <!-- x-axis labels -->
+          <g class="axis-label" text-anchor="middle">
+            <text x="84" y="268">Jan</text>
+            <text x="152" y="268">Feb</text>
+            <text x="220" y="268">Mar</text>
+            <text x="288" y="268">Apr</text>
+            <text x="356" y="268">May</text>
+            <text x="424" y="268">Jun</text>
+          </g>
+          <text class="axis-label" x="14" y="135" text-anchor="middle" transform="rotate(-90 14 135)">Revenue ($k)</text>
+          <text class="axis-label" x="260" y="286" text-anchor="middle">Month</text>
+        </svg>
+      </figure>
+
+      <figure>
+        <figcaption>Revenue by segment<small>Share of H1 total ($359k)</small></figcaption>
+        <svg viewBox="0 0 200 200" role="img" aria-label="Donut chart of revenue by segment">
+          <g transform="rotate(-90 100 100)" fill="none" stroke-width="28">
+            <circle cx="100" cy="100" r="70" stroke="#e5e7eb"/>
+            <circle cx="100" cy="100" r="70" stroke="#4f46e5" stroke-dasharray="197.92 439.82" stroke-dashoffset="0"/>
+            <circle cx="100" cy="100" r="70" stroke="#0ea5e9" stroke-dasharray="109.96 439.82" stroke-dashoffset="-197.92"/>
+            <circle cx="100" cy="100" r="70" stroke="#f59e0b" stroke-dasharray="79.17 439.82" stroke-dashoffset="-307.88"/>
+            <circle cx="100" cy="100" r="70" stroke="#10b981" stroke-dasharray="52.78 439.82" stroke-dashoffset="-387.05"/>
+          </g>
+          <text x="100" y="96" text-anchor="middle" font-size="24" font-weight="700" fill="#1f2937">$359k</text>
+          <text x="100" y="116" text-anchor="middle" font-size="11" fill="#6b7280">total revenue</text>
+          <!-- percentage labels placed at segment midpoints -->
+          <g font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">
+            <text x="169" y="93">45%</text>
+            <text x="68" y="166">25%</text>
+            <text x="32" y="87">18%</text>
+            <text x="74" y="39">12%</text>
+          </g>
+        </svg>
+        <ul class="legend">
+          <li><i style="background: var(--c1)"></i>Subscriptions<b>45%</b></li>
+          <li><i style="background: var(--c2)"></i>Services<b>25%</b></li>
+          <li><i style="background: var(--c3)"></i>Hardware<b>18%</b></li>
+          <li><i style="background: var(--c4)"></i>Other<b>12%</b></li>
+        </ul>
+      </figure>
+    </section>
+
+    <section class="notes">
+      <h2>Highlights</h2>
+      June was our strongest month on record at $80k, driven by the Tidewater enterprise renewal. Subscriptions remain the largest segment; hardware revenue dipped in April while the new sensor kit was back-ordered.
+    </section>
+  </main>
+</body>
+</html>

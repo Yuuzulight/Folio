@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbitly — Plan launches, not spreadsheets</title>
+<style>
+  :root {
+    --night: #0b1026;
+    --violet: #7c5cff;
+    --pink: #ff5ca8;
+    --cyan: #3fd6e8;
+    --text: #eef1ff;
+    --muted: #a9b0d6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--text);
+    background: var(--night);
+    overflow-x: hidden;
+  }
+
+  .hero {
+    position: relative;
+    min-height: 620px;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse at 20% 10%, rgba(124, 92, 255, 0.55), transparent 55%),
+      radial-gradient(ellipse at 85% 30%, rgba(255, 92, 168, 0.4), transparent 50%),
+      linear-gradient(180deg, #121a3d 0%, var(--night) 100%);
+  }
+
+  .blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(40px);
+    opacity: 0.7;
+    animation: drift 12s ease-in-out infinite alternate;
+  }
+
+  .blob.one { width: 260px; height: 260px; background: var(--violet); top: 60px; left: -60px; }
+  .blob.two { width: 200px; height: 200px; background: var(--cyan); top: 320px; right: -40px; animation-duration: 9s; animation-delay: -3s; }
+  .blob.three { width: 160px; height: 160px; background: var(--pink); top: 460px; left: 40%; animation-duration: 15s; }
+
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(40px, -30px) scale(1.15); }
+  }
+
+  nav {
+    position: sticky;
+    top: 16px;
+    z-index: 5;
+    margin: 16px auto 0;
+    max-width: 920px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  .logo { font-weight: 800; letter-spacing: -0.02em; font-size: 19px; }
+  .logo b { color: var(--cyan); }
+
+  nav ul { display: flex; gap: 22px; list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  nav a { color: var(--muted); text-decoration: none; }
+
+  .nav-cta {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--night);
+    background: var(--text);
+    padding: 8px 16px;
+    border-radius: 10px;
+    text-decoration: none;
+  }
+
+  .hero-inner {
+    position: relative;
+    z-index: 2;
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 70px 20px 0;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 40px;
+    align-items: center;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 6px 12px 6px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--muted);
+  }
+
+  .pill span {
+    background: linear-gradient(90deg, var(--violet), var(--pink));
+    color: #fff;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+
+  h1 {
+    font-size: 50px;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    margin: 18px 0;
+  }
+
+  .grad-text {
+    background: linear-gradient(90deg, var(--cyan), var(--violet) 50%, var(--pink));
+    background-clip: text;
+    color: transparent;
+  }
+
+  .lead { color: var(--muted); font-size: 17px; line-height: 1.6; margin: 0 0 28px; }
+
+  .actions { display: flex; gap: 12px; }
+
+  .btn {
+    display: inline-block;
+    padding: 13px 22px;
+    border-radius: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    font-size: 15px;
+    transition: transform 0.2s ease;
+  }
+
+  .btn:hover { transform: translateY(-2px); }
+
+  .btn.primary {
+    color: #fff;
+    background: linear-gradient(135deg, var(--violet), var(--pink));
+    box-shadow: 0 10px 30px rgba(124, 92, 255, 0.45);
+  }
+
+  .btn.ghost {
+    color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+
+  .mockup {
+    perspective: 900px;
+  }
+
+  .window {
+    transform: rotateY(-14deg) rotateX(8deg) rotate(2deg);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.45);
+    padding: 16px;
+    animation: floaty 6s ease-in-out infinite;
+  }
+
+  @keyframes floaty {
+    0%, 100% { translate: 0 0; }
+    50% { translate: 0 -12px; }
+  }
+
+  .dots { display: flex; gap: 6px; margin-bottom: 14px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: #ff6b6b; }
+  .dots i:nth-child(2) { background: #ffd166; }
+  .dots i:nth-child(3) { background: #06d6a0; }
+
+  .lane { margin-bottom: 12px; }
+  .lane small { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+
+  .task {
+    height: 26px;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    background: linear-gradient(90deg, rgba(124, 92, 255, 0.9), rgba(63, 214, 232, 0.8));
+  }
+
+  .task.short { width: 55%; }
+  .task.mid { width: 75%; margin-left: 15%; background: linear-gradient(90deg, rgba(255, 92, 168, 0.9), rgba(124, 92, 255, 0.8)); }
+  .task.long { width: 90%; margin-left: 5%; background: linear-gradient(90deg, rgba(63, 214, 232, 0.9), rgba(6, 214, 160, 0.8)); }
+
+  .logos {
+    position: relative;
+    z-index: 2;
+    max-width: 920px;
+    margin: 70px auto 0;
+    padding: 0 20px 50px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .logos div {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 16px;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+    color: rgba(238, 241, 255, 0.45);
+  }
+
+  .features {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 70px 20px 90px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+
+  .feature {
+    padding: 24px;
+    border-radius: 18px;
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: transform 0.25s ease;
+  }
+
+  .feature:hover { transform: translateY(-4px) rotate(-0.5deg); }
+
+  .icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 20px;
+    margin-bottom: 14px;
+    background: linear-gradient(135deg, var(--violet), var(--cyan));
+    transform: rotate(-6deg);
+  }
+
+  .feature h3 { margin: 0 0 8px; font-size: 17px; }
+  .feature p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <section class="hero">
+    <div class="blob one"></div>
+    <div class="blob two"></div>
+    <div class="blob three"></div>
+
+    <nav>
+      <div class="logo">orbit<b>ly</b></div>
+      <ul>
+        <li><a href="https://example.com/product">Product</a></li>
+        <li><a href="https://example.com/customers">Customers</a></li>
+        <li><a href="https://example.com/pricing">Pricing</a></li>
+        <li><a href="https://example.com/changelog">Changelog</a></li>
+      </ul>
+      <a class="nav-cta" href="https://example.com/signup">Sign up</a>
+    </nav>
+
+    <div class="hero-inner">
+      <div>
+        <span class="pill"><span>New</span> Roadmaps now sync with your calendar</span>
+        <h1>Plan launches,<br><span class="grad-text">not spreadsheets.</span></h1>
+        <p class="lead">Orbitly turns scattered launch checklists into one living timeline. Every team sees what ships, when, and what's blocking it.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://example.com/signup">Start free</a>
+          <a class="btn ghost" href="https://example.com/demo">Watch the 2-min tour</a>
+        </div>
+      </div>
+
+      <div class="mockup">
+        <div class="window">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <div class="lane"><small>Design</small><div class="task short"></div><div class="task mid"></div></div>
+          <div class="lane"><small>Engineering</small><div class="task long"></div><div class="task short"></div></div>
+          <div class="lane"><small>Marketing</small><div class="task mid"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="logos">
+      Trusted by launch teams at
+      <div><span>HALCYON</span><span>Brightfern</span><span>QUILLO</span><span>Marrowgate</span><span>tessel</span></div>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="feature">
+      <div class="icon">🛰</div>
+      <h3>One timeline</h3>
+      <p>Drag milestones across teams and watch dependencies shift in real time.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">⚡</div>
+      <h3>Blocker radar</h3>
+      <p>Orbitly flags tasks that will slip before they slip, with a plain-language reason.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">🔔</div>
+      <h3>Quiet updates</h3>
+      <p>A single daily digest replaces a hundred status pings. Your channels will thank you.</p>
+    </div>
+  </section>
+</body>
+</html>

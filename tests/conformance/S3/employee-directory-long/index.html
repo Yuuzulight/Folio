@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staff Directory</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --text: #1e2230;
+    --muted: #6b7185;
+    --border: #e3e6ef;
+    --head-bg: #f0f2f8;
+    --stripe: #fafbfd;
+    --hover: #eef3ff;
+    --accent: #3c5bd6;
+    --active: #1a7f4b;
+    --active-bg: #e0f5ea;
+    --leave: #9a5b00;
+    --leave-bg: #fff1d6;
+    --new: #3c5bd6;
+    --new-bg: #e5ebff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 24px 48px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+  }
+
+  .header {
+    max-width: 1200px;
+    margin: 0 auto 18px;
+  }
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 26px;
+  }
+
+  .header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .stats span {
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .directory {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(20, 24, 40, 0.05), 0 6px 18px rgba(20, 24, 40, 0.06);
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    min-width: 1060px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--head-bg);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  thead th:first-child { border-top-left-radius: 12px; }
+  thead th:last-child { border-top-right-radius: 12px; }
+
+  tbody td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  tbody tr:nth-child(even) td { background: var(--stripe); }
+  tbody tr:hover td { background: var(--hover); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  td.id {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  td.name {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  td.email { color: var(--accent); }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .badge.active { color: var(--active); background: var(--active-bg); }
+  .badge.leave { color: var(--leave); background: var(--leave-bg); }
+  .badge.new { color: var(--new); background: var(--new-bg); }
+
+  .footer-note {
+    max-width: 1200px;
+    margin: 14px auto 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  @media (max-width: 760px) {
+    body { padding: 20px 12px; }
+    h1 { font-size: 22px; }
+    tbody td, thead th { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>Brightmoor Analytics &mdash; Staff Directory</h1>
+    <p>Everyone on the team, including confirmed new starters, sorted by surname. Extensions dial directly from any office phone.</p>
+    <div class="stats">
+      <span><b>114</b> people</span>
+      <span><b>7</b> departments</span>
+      <span><b>4</b> locations</span>
+      <span><b>104</b> active &middot; <b>6</b> on leave &middot; <b>4</b> starting soon</span>
+    </div>
+  </div>
+
+  <div class="directory">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Job title</th>
+          <th>Department</th>
+          <th>Location</th>
+          <th>Email</th>
+          <th class="num">Ext.</th>
+          <th class="num">Start date</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="id">BA-1042</td><td class="name">Amara Achebe</td><td>Senior Data Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">amara.achebe@brightmoor.example</td><td class="num">4102</td><td class="num">2019-03-11</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1187</td><td class="name">Tobias Adler</td><td>Account Executive</td><td>Sales</td><td>Leeds</td><td class="email">tobias.adler@brightmoor.example</td><td class="num">2215</td><td class="num">2022-06-01</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1003</td><td class="name">Priya Agarwal</td><td>Chief Financial Officer</td><td>Finance</td><td>Bristol</td><td class="email">priya.agarwal@brightmoor.example</td><td class="num">1001</td><td class="num">2016-01-04</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1216</td><td class="name">Jonah Albright</td><td>Support Specialist</td><td>Customer Success</td><td>Remote</td><td class="email">jonah.albright@brightmoor.example</td><td class="num">5230</td><td class="num">2023-02-13</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1098</td><td class="name">Leila Amini</td><td>Product Designer</td><td>Engineering</td><td>Dublin</td><td class="email">leila.amini@brightmoor.example</td><td class="num">4318</td><td class="num">2020-09-21</td><td><span class="badge leave">On leave</span></td></tr>
+        <tr><td class="id">BA-1154</td><td class="name">Oscar Andersen</td><td>Payroll Specialist</td><td>Finance</td><td>Leeds</td><td class="email">oscar.andersen@brightmoor.example</td><td class="num">1124</td><td class="num">2021-10-04</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1231</td><td class="name">Beatriz Arruda</td><td>Marketing Coordinator</td><td>Marketing</td><td>Remote</td><td class="email">beatriz.arruda@brightmoor.example</td><td class="num">3207</td><td class="num">2023-07-17</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1067</td><td class="name">Samuel Asante</td><td>Engineering Manager</td><td>Engineering</td><td>Bristol</td><td class="email">samuel.asante@brightmoor.example</td><td class="num">4010</td><td class="num">2019-11-18</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1172</td><td class="name">Chloe Ashworth</td><td>Recruiter</td><td>People</td><td>Leeds</td><td class="email">chloe.ashworth@brightmoor.example</td><td class="num">6104</td><td class="num">2022-03-28</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1249</td><td class="name">Farid Aziz</td><td>Junior Software Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">farid.aziz@brightmoor.example</td><td class="num">4355</td><td class="num">2025-10-06</td><td><span class="badge new">Starting soon</span></td></tr>
+        <tr><td class="id">BA-1015</td><td class="name">Hannah Baird</td><td>Head of Sales</td><td>Sales</td><td>Leeds</td><td class="email">hannah.baird@brightmoor.example</td><td class="num">2001</td><td class="num">2017-04-10</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1133</td><td class="name">Marcus Bannerman</td><td>Site Reliability Engineer</td><td>Engineering</td><td>Remote</td><td class="email">marcus.bannerman@brightmoor.example</td><td class="num">4221</td><td class="num">2021-05-24</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1201</td><td class="name">Ines Barreto</td><td>Customer Success Manager</td><td>Customer Success</td><td>Dublin</td><td class="email">ines.barreto@brightmoor.example</td><td class="num">5112</td><td class="num">2022-11-07</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1076</td><td class="name">George Beckwith</td><td>Financial Analyst</td><td>Finance</td><td>Bristol</td><td class="email">george.beckwith@brightmoor.example</td><td class="num">1108</td><td class="num">2020-02-03</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1222</td><td class="name">Nadia Belkacem</td><td>Content Strategist</td><td>Marketing</td><td>Dublin</td><td class="email">nadia.belkacem@brightmoor.example</td><td class="num">3215</td><td class="num">2023-04-03</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1109</td><td class="name">Rory Blackwood</td><td>Facilities Manager</td><td>Operations</td><td>Bristol</td><td class="email">rory.blackwood@brightmoor.example</td><td class="num">7002</td><td class="num">2020-12-01</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1240</td><td class="name">Elena Bogdan</td><td>QA Engineer</td><td>Engineering</td><td>Remote</td><td class="email">elena.bogdan@brightmoor.example</td><td class="num">4340</td><td class="num">2024-01-15</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1058</td><td class="name">Daniel Brennan</td><td>Sales Engineer</td><td>Sales</td><td>Dublin</td><td class="email">daniel.brennan@brightmoor.example</td><td class="num">2110</td><td class="num">2019-07-29</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1193</td><td class="name">Yasmin Brody</td><td>People Partner</td><td>People</td><td>Bristol</td><td class="email">yasmin.brody@brightmoor.example</td><td class="num">6011</td><td class="num">2022-08-15</td><td><span class="badge leave">On leave</span></td></tr>
+        <tr><td class="id">BA-1121</td><td class="name">Felix Burchell</td><td>Backend Engineer</td><td>Engineering</td><td>Leeds</td><td class="email">felix.burchell@brightmoor.example</td><td class="num">4244</td><td class="num">2021-03-08</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1036</td><td class="name">Sofia Castellano</td><td>VP Marketing</td><td>Marketing</td><td>Bristol</td><td class="email">sofia.castellano@brightmoor.example</td><td class="num">3001</td><td class="num">2018-09-17</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1145</td><td class="name">Liam Chadwick</td><td>Account Manager</td><td>Customer Success</td><td>Leeds</td><td class="email">liam.chadwick@brightmoor.example</td><td class="num">5120</td><td class="num">2021-08-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1088</td><td class="name">Mei Chen</td><td>Staff Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">mei.chen@brightmoor.example</td><td class="num">4015</td><td class="num">2020-06-15</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1210</td><td class="name">Arjun Chopra</td><td>Business Development Rep</td><td>Sales</td><td>Remote</td><td class="email">arjun.chopra@brightmoor.example</td><td class="num">2240</td><td class="num">2023-01-09</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1162</td><td class="name">Grace Coleman</td><td>Office Coordinator</td><td>Operations</td><td>Leeds</td><td class="email">grace.coleman@brightmoor.example</td><td class="num">7015</td><td class="num">2022-01-10</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1252</td><td class="name">Theo Costa</td><td>Data Analyst</td><td>Engineering</td><td>Dublin</td><td class="email">theo.costa@brightmoor.example</td><td class="num">4360</td><td class="num">2025-10-13</td><td><span class="badge new">Starting soon</span></td></tr>
+        <tr><td class="id">BA-1024</td><td class="name">Isabel Crane</td><td>Head of People</td><td>People</td><td>Bristol</td><td class="email">isabel.crane@brightmoor.example</td><td class="num">6001</td><td class="num">2017-10-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1117</td><td class="name">Kwame Danso</td><td>Frontend Engineer</td><td>Engineering</td><td>Remote</td><td class="email">kwame.danso@brightmoor.example</td><td class="num">4238</td><td class="num">2021-02-01</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1179</td><td class="name">Lucy Davenport</td><td>Growth Marketer</td><td>Marketing</td><td>Leeds</td><td class="email">lucy.davenport@brightmoor.example</td><td class="num">3120</td><td class="num">2022-05-03</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1063</td><td class="name">Pierre Delacroix</td><td>Regional Sales Manager</td><td>Sales</td><td>Dublin</td><td class="email">pierre.delacroix@brightmoor.example</td><td class="num">2020</td><td class="num">2019-09-09</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1236</td><td class="name">Ruth Dempsey</td><td>Support Specialist</td><td>Customer Success</td><td>Dublin</td><td class="email">ruth.dempsey@brightmoor.example</td><td class="num">5238</td><td class="num">2023-10-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1094</td><td class="name">Viktor Dragan</td><td>Security Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">viktor.dragan@brightmoor.example</td><td class="num">4130</td><td class="num">2020-08-24</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1150</td><td class="name">Aoife Duggan</td><td>Accounts Payable Clerk</td><td>Finance</td><td>Dublin</td><td class="email">aoife.duggan@brightmoor.example</td><td class="num">1130</td><td class="num">2021-09-13</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1011</td><td class="name">Benjamin Eastwood</td><td>Chief Technology Officer</td><td>Engineering</td><td>Bristol</td><td class="email">benjamin.eastwood@brightmoor.example</td><td class="num">4001</td><td class="num">2016-03-14</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1205</td><td class="name">Zara Edwards</td><td>Talent Coordinator</td><td>People</td><td>Remote</td><td class="email">zara.edwards@brightmoor.example</td><td class="num">6120</td><td class="num">2022-12-05</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1128</td><td class="name">Omar El-Sayed</td><td>DevOps Engineer</td><td>Engineering</td><td>Leeds</td><td class="email">omar.elsayed@brightmoor.example</td><td class="num">4250</td><td class="num">2021-04-19</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1183</td><td class="name">Harriet Ellis</td><td>Implementation Consultant</td><td>Customer Success</td><td>Bristol</td><td class="email">harriet.ellis@brightmoor.example</td><td class="num">5140</td><td class="num">2022-05-23</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1071</td><td class="name">Nikolai Engel</td><td>Senior Account Executive</td><td>Sales</td><td>Remote</td><td class="email">nikolai.engel@brightmoor.example</td><td class="num">2115</td><td class="num">2019-12-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1227</td><td class="name">Maya Farouk</td><td>Product Marketing Manager</td><td>Marketing</td><td>Bristol</td><td class="email">maya.farouk@brightmoor.example</td><td class="num">3110</td><td class="num">2023-05-15</td><td><span class="badge leave">On leave</span></td></tr>
+        <tr><td class="id">BA-1102</td><td class="name">Callum Fergus</td><td>IT Support Lead</td><td>Operations</td><td>Leeds</td><td class="email">callum.fergus@brightmoor.example</td><td class="num">7010</td><td class="num">2020-10-12</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1245</td><td class="name">Lena Fischer</td><td>Machine Learning Engineer</td><td>Engineering</td><td>Dublin</td><td class="email">lena.fischer@brightmoor.example</td><td class="num">4347</td><td class="num">2024-04-08</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1049</td><td class="name">Declan Flynn</td><td>Head of Customer Success</td><td>Customer Success</td><td>Dublin</td><td class="email">declan.flynn@brightmoor.example</td><td class="num">5001</td><td class="num">2019-05-06</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1166</td><td class="name">Rosa Fontaine</td><td>Management Accountant</td><td>Finance</td><td>Bristol</td><td class="email">rosa.fontaine@brightmoor.example</td><td class="num">1115</td><td class="num">2022-02-14</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1138</td><td class="name">Ethan Forsyth</td><td>Mobile Engineer</td><td>Engineering</td><td>Remote</td><td class="email">ethan.forsyth@brightmoor.example</td><td class="num">4262</td><td class="num">2021-06-28</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1213</td><td class="name">Chiara Galli</td><td>Account Executive</td><td>Sales</td><td>Dublin</td><td class="email">chiara.galli@brightmoor.example</td><td class="num">2232</td><td class="num">2023-01-23</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1081</td><td class="name">Hugo Garnier</td><td>Product Manager</td><td>Engineering</td><td>Bristol</td><td class="email">hugo.garnier@brightmoor.example</td><td class="num">4050</td><td class="num">2020-04-20</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1190</td><td class="name">Tamsin Gilchrist</td><td>Learning &amp; Development Lead</td><td>People</td><td>Leeds</td><td class="email">tamsin.gilchrist@brightmoor.example</td><td class="num">6015</td><td class="num">2022-07-11</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1235</td><td class="name">Diego Gonzalez</td><td>Support Specialist</td><td>Customer Success</td><td>Remote</td><td class="email">diego.gonzalez@brightmoor.example</td><td class="num">5236</td><td class="num">2023-09-18</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1113</td><td class="name">Anna Grabowski</td><td>Backend Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">anna.grabowski@brightmoor.example</td><td class="num">4235</td><td class="num">2021-01-11</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1054</td><td class="name">William Greaves</td><td>Operations Director</td><td>Operations</td><td>Bristol</td><td class="email">william.greaves@brightmoor.example</td><td class="num">7001</td><td class="num">2019-06-17</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1197</td><td class="name">Esme Hadley</td><td>SEO Specialist</td><td>Marketing</td><td>Remote</td><td class="email">esme.hadley@brightmoor.example</td><td class="num">3130</td><td class="num">2022-09-26</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1142</td><td class="name">Kenji Harada</td><td>Senior Frontend Engineer</td><td>Engineering</td><td>Dublin</td><td class="email">kenji.harada@brightmoor.example</td><td class="num">4270</td><td class="num">2021-07-19</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1219</td><td class="name">Olivia Hartley</td><td>Sales Development Rep</td><td>Sales</td><td>Leeds</td><td class="email">olivia.hartley@brightmoor.example</td><td class="num">2245</td><td class="num">2023-03-06</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1030</td><td class="name">Patrick Hennessy</td><td>Financial Controller</td><td>Finance</td><td>Dublin</td><td class="email">patrick.hennessy@brightmoor.example</td><td class="num">1010</td><td class="num">2018-05-21</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1158</td><td class="name">Sienna Holloway</td><td>Customer Success Manager</td><td>Customer Success</td><td>Bristol</td><td class="email">sienna.holloway@brightmoor.example</td><td class="num">5125</td><td class="num">2021-11-15</td><td><span class="badge leave">On leave</span></td></tr>
+        <tr><td class="id">BA-1104</td><td class="name">Jakub Horvat</td><td>Data Engineer</td><td>Engineering</td><td>Remote</td><td class="email">jakub.horvat@brightmoor.example</td><td class="num">4140</td><td class="num">2020-11-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1242</td><td class="name">Freya Hughes</td><td>Events Manager</td><td>Marketing</td><td>Leeds</td><td class="email">freya.hughes@brightmoor.example</td><td class="num">3140</td><td class="num">2024-02-19</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1085</td><td class="name">Musa Ibrahim</td><td>Solutions Architect</td><td>Sales</td><td>Bristol</td><td class="email">musa.ibrahim@brightmoor.example</td><td class="num">2105</td><td class="num">2020-05-11</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1174</td><td class="name">Ivy Jameson</td><td>Procurement Officer</td><td>Operations</td><td>Bristol</td><td class="email">ivy.jameson@brightmoor.example</td><td class="num">7020</td><td class="num">2022-04-04</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1125</td><td class="name">Rahul Joshi</td><td>Platform Engineer</td><td>Engineering</td><td>Leeds</td><td class="email">rahul.joshi@brightmoor.example</td><td class="num">4247</td><td class="num">2021-03-29</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1208</td><td class="name">Clara Jung</td><td>UX Researcher</td><td>Engineering</td><td>Dublin</td><td class="email">clara.jung@brightmoor.example</td><td class="num">4325</td><td class="num">2022-12-12</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1060</td><td class="name">Aisha Kamara</td><td>Head of Finance Operations</td><td>Finance</td><td>Leeds</td><td class="email">aisha.kamara@brightmoor.example</td><td class="num">1020</td><td class="num">2019-08-12</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1229</td><td class="name">Max Keller</td><td>Account Executive</td><td>Sales</td><td>Remote</td><td class="email">max.keller@brightmoor.example</td><td class="num">2250</td><td class="num">2023-06-05</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1147</td><td class="name">Niamh Kennedy</td><td>Onboarding Specialist</td><td>Customer Success</td><td>Dublin</td><td class="email">niamh.kennedy@brightmoor.example</td><td class="num">5130</td><td class="num">2021-08-23</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1091</td><td class="name">Samir Khoury</td><td>Senior Backend Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">samir.khoury@brightmoor.example</td><td class="num">4120</td><td class="num">2020-07-27</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1186</td><td class="name">Eva Kowalczyk</td><td>Brand Designer</td><td>Marketing</td><td>Bristol</td><td class="email">eva.kowalczyk@brightmoor.example</td><td class="num">3125</td><td class="num">2022-06-01</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1254</td><td class="name">Jin Lam</td><td>Sales Development Rep</td><td>Sales</td><td>Leeds</td><td class="email">jin.lam@brightmoor.example</td><td class="num">2260</td><td class="num">2025-10-20</td><td><span class="badge new">Starting soon</span></td></tr>
+        <tr><td class="id">BA-1119</td><td class="name">Francesca Lombardi</td><td>HR Business Partner</td><td>People</td><td>Dublin</td><td class="email">francesca.lombardi@brightmoor.example</td><td class="num">6020</td><td class="num">2021-02-15</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1073</td><td class="name">Adam Lowry</td><td>Engineering Manager</td><td>Engineering</td><td>Leeds</td><td class="email">adam.lowry@brightmoor.example</td><td class="num">4020</td><td class="num">2020-01-13</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1203</td><td class="name">Nora MacLeod</td><td>Customer Success Manager</td><td>Customer Success</td><td>Leeds</td><td class="email">nora.macleod@brightmoor.example</td><td class="num">5145</td><td class="num">2022-11-21</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1135</td><td class="name">Tariq Mahmood</td><td>Revenue Accountant</td><td>Finance</td><td>Bristol</td><td class="email">tariq.mahmood@brightmoor.example</td><td class="num">1135</td><td class="num">2021-06-07</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1238</td><td class="name">Julia Marchetti</td><td>Frontend Engineer</td><td>Engineering</td><td>Remote</td><td class="email">julia.marchetti@brightmoor.example</td><td class="num">4342</td><td class="num">2023-11-06</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1045</td><td class="name">Connor McBride</td><td>Enterprise Account Director</td><td>Sales</td><td>Dublin</td><td class="email">connor.mcbride@brightmoor.example</td><td class="num">2010</td><td class="num">2019-04-01</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1169</td><td class="name">Leah Mendel</td><td>Social Media Manager</td><td>Marketing</td><td>Remote</td><td class="email">leah.mendel@brightmoor.example</td><td class="num">3135</td><td class="num">2022-03-07</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1096</td><td class="name">Kofi Mensah</td><td>Senior Data Scientist</td><td>Engineering</td><td>Bristol</td><td class="email">kofi.mensah@brightmoor.example</td><td class="num">4135</td><td class="num">2020-09-07</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1224</td><td class="name">Sara Molina</td><td>People Operations Coordinator</td><td>People</td><td>Bristol</td><td class="email">sara.molina@brightmoor.example</td><td class="num">6125</td><td class="num">2023-04-17</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1152</td><td class="name">Aidan Morrow</td><td>Workplace Assistant</td><td>Operations</td><td>Dublin</td><td class="email">aidan.morrow@brightmoor.example</td><td class="num">7025</td><td class="num">2021-10-18</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1115</td><td class="name">Yuki Nakamura</td><td>Senior Product Designer</td><td>Engineering</td><td>Remote</td><td class="email">yuki.nakamura@brightmoor.example</td><td class="num">4310</td><td class="num">2021-01-25</td><td><span class="badge leave">On leave</span></td></tr>
+        <tr><td class="id">BA-1181</td><td class="name">Chidi Nwosu</td><td>Renewals Manager</td><td>Customer Success</td><td>Leeds</td><td class="email">chidi.nwosu@brightmoor.example</td><td class="num">5150</td><td class="num">2022-05-16</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1027</td><td class="name">Siobhan O'Connell</td><td>Head of Marketing Operations</td><td>Marketing</td><td>Dublin</td><td class="email">siobhan.oconnell@brightmoor.example</td><td class="num">3010</td><td class="num">2018-02-26</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1131</td><td class="name">Emeka Okafor</td><td>Backend Engineer</td><td>Engineering</td><td>Leeds</td><td class="email">emeka.okafor@brightmoor.example</td><td class="num">4253</td><td class="num">2021-05-10</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1215</td><td class="name">Paula Oliveira</td><td>Billing Specialist</td><td>Finance</td><td>Remote</td><td class="email">paula.oliveira@brightmoor.example</td><td class="num">1140</td><td class="num">2023-02-06</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1070</td><td class="name">Magnus Olsen</td><td>Principal Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">magnus.olsen@brightmoor.example</td><td class="num">4025</td><td class="num">2019-11-25</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1196</td><td class="name">Hana Park</td><td>Account Executive</td><td>Sales</td><td>Bristol</td><td class="email">hana.park@brightmoor.example</td><td class="num">2225</td><td class="num">2022-09-19</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1160</td><td class="name">Lorenzo Pellegrini</td><td>Technical Support Engineer</td><td>Customer Success</td><td>Remote</td><td class="email">lorenzo.pellegrini@brightmoor.example</td><td class="num">5220</td><td class="num">2021-12-06</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1107</td><td class="name">Katarina Petrovic</td><td>QA Lead</td><td>Engineering</td><td>Dublin</td><td class="email">katarina.petrovic@brightmoor.example</td><td class="num">4145</td><td class="num">2020-11-23</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1233</td><td class="name">Owen Pritchard</td><td>Marketing Analyst</td><td>Marketing</td><td>Leeds</td><td class="email">owen.pritchard@brightmoor.example</td><td class="num">3145</td><td class="num">2023-08-14</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1040</td><td class="name">Fatima Qureshi</td><td>Legal Counsel</td><td>Operations</td><td>Bristol</td><td class="email">fatima.qureshi@brightmoor.example</td><td class="num">7005</td><td class="num">2018-11-12</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1140</td><td class="name">Lucas Ramos</td><td>Infrastructure Engineer</td><td>Engineering</td><td>Remote</td><td class="email">lucas.ramos@brightmoor.example</td><td class="num">4265</td><td class="num">2021-07-05</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1212</td><td class="name">Megan Rees</td><td>Compensation Analyst</td><td>People</td><td>Bristol</td><td class="email">megan.rees@brightmoor.example</td><td class="num">6130</td><td class="num">2023-01-16</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1078</td><td class="name">Stefan Richter</td><td>Channel Partnerships Manager</td><td>Sales</td><td>Remote</td><td class="email">stefan.richter@brightmoor.example</td><td class="num">2120</td><td class="num">2020-03-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1177</td><td class="name">Bethany Rowe</td><td>Support Team Lead</td><td>Customer Success</td><td>Bristol</td><td class="email">bethany.rowe@brightmoor.example</td><td class="num">5210</td><td class="num">2022-04-19</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1100</td><td class="name">Ana Salgado</td><td>Engineering Manager</td><td>Engineering</td><td>Dublin</td><td class="email">ana.salgado@brightmoor.example</td><td class="num">4030</td><td class="num">2020-10-05</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1247</td><td class="name">Ravi Sharma</td><td>Graduate Analyst</td><td>Finance</td><td>Leeds</td><td class="email">ravi.sharma@brightmoor.example</td><td class="num">1145</td><td class="num">2024-09-02</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1164</td><td class="name">Imogen Sinclair</td><td>Demand Generation Manager</td><td>Marketing</td><td>Bristol</td><td class="email">imogen.sinclair@brightmoor.example</td><td class="num">3115</td><td class="num">2022-01-31</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1123</td><td class="name">Tomasz Sobczak</td><td>Senior Site Reliability Engineer</td><td>Engineering</td><td>Remote</td><td class="email">tomasz.sobczak@brightmoor.example</td><td class="num">4225</td><td class="num">2021-03-15</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1199</td><td class="name">Alice Stanton</td><td>Sales Operations Analyst</td><td>Sales</td><td>Bristol</td><td class="email">alice.stanton@brightmoor.example</td><td class="num">2130</td><td class="num">2022-10-10</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1019</td><td class="name">Edward Sterling</td><td>Chief Executive Officer</td><td>Operations</td><td>Bristol</td><td class="email">edward.sterling@brightmoor.example</td><td class="num">1000</td><td class="num">2016-01-04</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1156</td><td class="name">Mira Svensson</td><td>Frontend Engineer</td><td>Engineering</td><td>Leeds</td><td class="email">mira.svensson@brightmoor.example</td><td class="num">4275</td><td class="num">2021-11-01</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1220</td><td class="name">Joel Tan</td><td>Customer Success Manager</td><td>Customer Success</td><td>Remote</td><td class="email">joel.tan@brightmoor.example</td><td class="num">5155</td><td class="num">2023-03-20</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1083</td><td class="name">Rebecca Thornton</td><td>Treasury Manager</td><td>Finance</td><td>Bristol</td><td class="email">rebecca.thornton@brightmoor.example</td><td class="num">1105</td><td class="num">2020-04-27</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1189</td><td class="name">Nikhil Trivedi</td><td>Data Engineer</td><td>Engineering</td><td>Bristol</td><td class="email">nikhil.trivedi@brightmoor.example</td><td class="num">4150</td><td class="num">2022-07-04</td><td><span class="badge leave">On leave</span></td></tr>
+        <tr><td class="id">BA-1143</td><td class="name">Lotte van Dijk</td><td>Copywriter</td><td>Marketing</td><td>Remote</td><td class="email">lotte.vandijk@brightmoor.example</td><td class="num">3150</td><td class="num">2021-07-26</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1066</td><td class="name">Carlos Vega</td><td>Sales Manager</td><td>Sales</td><td>Leeds</td><td class="email">carlos.vega@brightmoor.example</td><td class="num">2030</td><td class="num">2019-10-14</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1243</td><td class="name">Poppy Walsh</td><td>Workplace Experience Coordinator</td><td>Operations</td><td>Dublin</td><td class="email">poppy.walsh@brightmoor.example</td><td class="num">7030</td><td class="num">2024-03-11</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1111</td><td class="name">Daniel Weber</td><td>Senior Mobile Engineer</td><td>Engineering</td><td>Dublin</td><td class="email">daniel.weber@brightmoor.example</td><td class="num">4255</td><td class="num">2020-12-14</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1171</td><td class="name">Harper Whitfield</td><td>Customer Education Manager</td><td>Customer Success</td><td>Leeds</td><td class="email">harper.whitfield@brightmoor.example</td><td class="num">5160</td><td class="num">2022-03-21</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1207</td><td class="name">Jasper Wilde</td><td>Business Development Rep</td><td>Sales</td><td>Bristol</td><td class="email">jasper.wilde@brightmoor.example</td><td class="num">2255</td><td class="num">2022-12-05</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1127</td><td class="name">Hui Min Wong</td><td>Data Analyst</td><td>Engineering</td><td>Remote</td><td class="email">huimin.wong@brightmoor.example</td><td class="num">4160</td><td class="num">2021-04-12</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1195</td><td class="name">Gemma Wright</td><td>Employee Relations Advisor</td><td>People</td><td>Leeds</td><td class="email">gemma.wright@brightmoor.example</td><td class="num">6135</td><td class="num">2022-08-29</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1256</td><td class="name">Ali Yilmaz</td><td>Backend Engineer</td><td>Engineering</td><td>Leeds</td><td class="email">ali.yilmaz@brightmoor.example</td><td class="num">4365</td><td class="num">2025-11-03</td><td><span class="badge new">Starting soon</span></td></tr>
+        <tr><td class="id">BA-1148</td><td class="name">Sun-hee Yoon</td><td>Partner Marketing Manager</td><td>Marketing</td><td>Dublin</td><td class="email">sunhee.yoon@brightmoor.example</td><td class="num">3155</td><td class="num">2021-08-30</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1105</td><td class="name">Nina Zeller</td><td>Accounts Receivable Lead</td><td>Finance</td><td>Remote</td><td class="email">nina.zeller@brightmoor.example</td><td class="num">1120</td><td class="num">2020-11-09</td><td><span class="badge active">Active</span></td></tr>
+        <tr><td class="id">BA-1234</td><td class="name">Marco Zito</td><td>Support Specialist</td><td>Customer Success</td><td>Leeds</td><td class="email">marco.zito@brightmoor.example</td><td class="num">5240</td><td class="num">2023-09-11</td><td><span class="badge active">Active</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="footer-note">Directory generated 30 September 2025. Missing or out-of-date details? Contact People Operations on ext. 6125.</p>
+</body>
+</html>

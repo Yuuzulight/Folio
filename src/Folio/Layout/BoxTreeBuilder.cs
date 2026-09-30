@@ -302,7 +302,7 @@ internal sealed class BoxTreeBuilder
             return;
 
         _counters.Apply(element, style.Generated.CounterReset, style.Generated.CounterIncrement, style.Generated.CounterSet, false);
-        var text = ContentText(element, style.Generated.Content);
+        var text = ContentText(element, style);
         var display = style.Box.Display;
         if (Container.Kind == FrameKind.Flex || style.Box.Float != FloatSide.None || style.Box.Position is Position.Absolute or Position.Fixed)
             display = Blockified(display);
@@ -313,10 +313,12 @@ internal sealed class BoxTreeBuilder
     }
 
     // https://www.w3.org/TR/css-content-3/#content-property: strings, attr(), counters and quotes.
-    private string ContentText(ElementNode element, ContentValue content)
+    private string ContentText(ElementNode element, ComputedStyle style)
     {
         var text = new StringBuilder();
-        foreach (var item in content.Items)
+        // quotes: auto is English: “ ” then ‘ ’ for nested quotations; deeper ones repeat the last pair.
+        var pairs = style.Quotes.Pairs ?? [("\u201C", "\u201D"), ("\u2018", "\u2019")];
+        foreach (var item in style.Generated.Content.Items)
         {
             switch (item)
             {
@@ -333,18 +335,17 @@ internal sealed class BoxTreeBuilder
                     text.Append(string.Join(c.Separator, _counters.Values(c.Name, element).Select(v => CounterStyles.Format(v, c.Style))));
                     break;
                 case ContentQuote q:
-                    // Quote pairs for quotes: auto in English: “ ” then ‘ ’ for nested quotations.
                     if (q.Open)
                     {
-                        if (q.Emit)
-                            text.Append(_quoteDepth == 0 ? '\u201C' : '\u2018');
+                        if (q.Emit && pairs.Count > 0)
+                            text.Append(pairs[Math.Min(_quoteDepth, pairs.Count - 1)].Open);
                         _quoteDepth++;
                     }
                     else if (_quoteDepth > 0)
                     {
                         _quoteDepth--;
-                        if (q.Emit)
-                            text.Append(_quoteDepth == 0 ? '\u201D' : '\u2019');
+                        if (q.Emit && pairs.Count > 0)
+                            text.Append(pairs[Math.Min(_quoteDepth, pairs.Count - 1)].Close);
                     }
                     break;
             }
@@ -357,7 +358,7 @@ internal sealed class BoxTreeBuilder
     {
         var style = element.PseudoStyle(PseudoElement.Marker) ?? element.ComputedStyle()!;
         var text = style.Generated.Content.Kind == ContentKind.Items
-            ? ContentText(element, style.Generated.Content)
+            ? ContentText(element, style)
             : CounterStyles.Marker(_counters.Value("list-item", element), style.Text.ListStyleType);
         if (text.Length == 0)
             return;
@@ -691,12 +692,27 @@ internal sealed class BoxTreeBuilder
                         }
                         break;
                 }
-                _text.Append(c);
+                _text.Append(style.TextSpacing.Transform == TextTransform.None ? c : Transform(c, style.TextSpacing.Transform, _text.Length > 0 ? _text[^1] : ' '));
                 _afterCollapsibleSpace = false;
                 _hasContent = true;
             }
             Flush(start, style);
         }
+
+        /// <summary>text-transform on one character, after white space processing (https://www.w3.org/TR/css-text-3/#text-transform-property).</summary>
+        // ponytail: one-to-one case mapping, and a word starts after anything but a letter, digit, mark or apostrophe;
+        // full case mapping (SpecialCasing) and UAX #29 word boundaries arrive with the generated case tables.
+        private static char Transform(char c, TextTransform transform, char previous) => transform switch
+        {
+            TextTransform.Uppercase => char.ToUpperInvariant(c),
+            TextTransform.Lowercase => char.ToLowerInvariant(c),
+            TextTransform.Capitalize when !(char.IsLetterOrDigit(previous) || previous is '\'' or '\u2019'
+                                             || char.GetUnicodeCategory(previous) is System.Globalization.UnicodeCategory.NonSpacingMark
+                                                 or System.Globalization.UnicodeCategory.SpacingCombiningMark) => char.ToUpperInvariant(c),
+            // Printable ASCII to its full-width form (U+FF01 to U+FF5E).
+            TextTransform.FullWidth when c is >= '!' and <= '~' => (char)(c - '!' + 0xFF01),
+            _ => c,
+        };
 
         private void Flush(int start, ComputedStyle style)
         {

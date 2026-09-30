@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Sync Notes: Harbor Mobile Team</title>
+<style>
+  :root {
+    --ink: #222;
+    --muted: #6b6b6b;
+    --line: #e4e4e4;
+    --accent: #0f766e;
+    --highlight: #fef08a;
+  }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #fafafa;
+    line-height: 1.55;
+  }
+
+  .wrap {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 28px 24px 40px;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+  }
+
+  h1 { font-size: 1.5rem; margin: 0; }
+  header time { color: var(--muted); font-size: 0.9rem; }
+
+  h2 {
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    margin: 24px 0 8px;
+  }
+
+  dl.attendees {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 16px;
+    margin: 0;
+    font-size: 0.925rem;
+  }
+
+  dl.attendees dt { font-weight: 600; }
+  dl.attendees dd { margin: 0; color: var(--muted); }
+
+  ul, ol { padding-left: 22px; }
+  li { margin: 3px 0; }
+  ul ul { margin: 2px 0; list-style-type: circle; }
+
+  mark {
+    background: var(--highlight);
+    padding: 0 2px;
+  }
+
+  .actions {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .actions li {
+    display: flex;
+    gap: 10px;
+    padding: 10px 14px;
+    margin: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .actions li:last-child { border-bottom: none; }
+
+  .actions li::before {
+    content: "";
+    flex: 0 0 14px;
+    height: 14px;
+    margin-top: 4px;
+    border: 2px solid var(--accent);
+    border-radius: 3px;
+  }
+
+  .actions .who { font-weight: 600; }
+  .actions .due { margin-left: auto; color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+
+  kbd {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.8em;
+    padding: 1px 5px;
+    border: 1px solid #ccc;
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: #fff;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Harbor Mobile: weekly sync</h1>
+    <time datetime="2026-04-08">Wed 8 April, 10:00</time>
+  </header>
+
+  <h2>Attendees</h2>
+  <dl class="attendees">
+    <dt>Lena Ortiz</dt><dd>Engineering lead (facilitator)</dd>
+    <dt>Kwame Asante</dt><dd>iOS</dd>
+    <dt>Mei Tanaka</dt><dd>Android</dd>
+    <dt>Rory Blake</dt><dd>Design</dd>
+    <dt>Sana Qureshi</dt><dd>QA (notes)</dd>
+  </dl>
+
+  <h2>Discussion</h2>
+  <ol>
+    <li><strong>Release 4.12 status</strong>
+      <ul>
+        <li>Build is in beta with 1,240 testers; crash-free sessions at 99.6%.</li>
+        <li>One blocker: the offline banner overlaps the tab bar on small screens.</li>
+      </ul>
+    </li>
+    <li><strong>Search redesign</strong>
+      <ul>
+        <li>Rory shared the new filter sheet. The team liked it but wants <em>fewer</em> chips on first load.</li>
+        <li>Agreed to ship behind a flag and test with 10% of users.</li>
+      </ul>
+    </li>
+    <li><strong>Keyboard shortcuts on tablets</strong>
+      <ul>
+        <li>Mei proposed <kbd>Ctrl</kbd> + <kbd>K</kbd> to open search and <kbd>Esc</kbd> to close sheets.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h2>Decisions</h2>
+  <ul>
+    <li><mark>Release 4.12 slips to Monday 13 April</mark> so the banner fix can land.</li>
+    <li>Search redesign goes to the 10% cohort in 4.13, not 4.12.</li>
+  </ul>
+
+  <h2>Action items</h2>
+  <ul class="actions">
+    <li><span><span class="who">Kwame</span> fix the offline banner overlap and add a screenshot test</span><span class="due">Fri 10 Apr</span></li>
+    <li><span><span class="who">Rory</span> trim the default filter chips to four</span><span class="due">Tue 14 Apr</span></li>
+    <li><span><span class="who">Mei</span> write up the tablet shortcut proposal</span><span class="due">Wed 15 Apr</span></li>
+    <li><span><span class="who">Sana</span> update the regression checklist for 4.12</span><span class="due">Fri 10 Apr</span></li>
+  </ul>
+</div>
+</body>
+</html>
