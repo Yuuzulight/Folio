@@ -28,6 +28,7 @@ internal sealed class StyleBuilder
         Flex = initial.Flex;
         Grid = initial.Grid;
         Decoration = initial.Decoration;
+        Transform = initial.Transform;
     }
 
     public FontGroup Font { get; set; }
@@ -42,6 +43,7 @@ internal sealed class StyleBuilder
     public FlexGroup Flex { get; set; }
     public GridGroup Grid { get; set; }
     public DecorationGroup Decoration { get; set; }
+    public TransformGroup Transform { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -120,6 +122,7 @@ internal sealed class StyleBuilder
             Flex = Share(Flex, initial.Flex, groups),
             Grid = Share(Grid, initial.Grid, groups),
             Decoration = Share(Decoration, initial.Decoration, groups),
+            Transform = Share(Transform, initial.Transform, groups),
             Custom = _custom,
         };
     }

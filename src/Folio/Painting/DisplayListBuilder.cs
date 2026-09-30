@@ -120,7 +120,8 @@ internal static class DisplayListBuilder
         }
     }
 
-    // https://www.w3.org/TR/CSS22/visuren.html#z-index, css-position-3, css-color-4 opacity, compositing-1 isolation.
+    // https://www.w3.org/TR/CSS22/visuren.html#z-index, css-position-3, css-color-4 opacity, compositing-1 isolation,
+    // css-transforms-2 (any transform property other than none).
     private static bool CreatesStackingContext(Box box)
     {
         var style = box.Style.Box;
@@ -128,7 +129,8 @@ internal static class DisplayListBuilder
             || style.Position is Position.Fixed or Position.Sticky
             || style.ZIndex is not null && (style.Position != Position.Static || box.Parent is FlexContainerBox or GridContainerBox)
             || style.Opacity < 1
-            || style.Isolation == Isolation.Isolate;
+            || style.Isolation == Isolation.Isolate
+            || box.Style.Transform.IsTransformed;
     }
 
     // Overflow other than visible clips a box's contents to its padding box (css-overflow-3 §3); an axis left visible

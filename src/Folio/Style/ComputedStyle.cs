@@ -282,6 +282,7 @@ internal sealed class ComputedStyle
     public FlexGroup Flex { get; init; } = FlexGroup.Initial;
     public GridGroup Grid { get; init; } = GridGroup.Initial;
     public DecorationGroup Decoration { get; init; } = DecorationGroup.Initial;
+    public TransformGroup Transform { get; init; } = TransformGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);

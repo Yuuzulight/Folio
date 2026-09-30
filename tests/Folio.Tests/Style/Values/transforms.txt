@@ -1,0 +1,80 @@
+=== transform functions compute to their primitives
+transform: translate(10px, 50%) translateX(1em) rotate(0.25turn) scale(2) skew(10deg) matrix(1, 2, 3, 4, 5, 6)
+---
+transform: translate(10px, 50%) translate(16px, 0px) rotate(90deg) scale(2, 2) skew(10deg, 0deg) matrix(1, 2, 3, 4, 5, 6)
+
+=== 3d transform functions
+transform: translate3d(1px, 2px, 3px) scale3d(1, 2, 3) rotateX(30deg) rotate3d(0, 0, 2, 1rad) perspective(100px) translateZ(4px) scaleZ(50%) rotateY(0) matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 0, 1)
+---
+transform: translate3d(1px, 2px, 3px) scale3d(1, 2, 3) rotate3d(1, 0, 0, 30deg) rotate(57.2958deg) perspective(100px) translate3d(0px, 0px, 4px) scale3d(1, 1, 0.5) rotate3d(0, 1, 0, 0deg) matrix(1, 0, 0, 1, 5, 6)
+
+=== angles in grad and unitless zero in functions, perspective none
+transform: rotate(100grad) skewY(0) perspective(none)
+---
+transform: rotate(90deg) skew(0deg, 0deg) perspective(none)
+
+=== invalid transforms are dropped
+transform: rotate(10deg); transform: rotate(10px); transform: scale(1,); transform: matrix(1, 2, 3); transform: translate(1px) bogus(1)
+---
+transform: rotate(10deg)
+
+=== transform none
+transform: rotate(10deg); transform: none
+---
+transform: none
+
+=== individual transform properties
+translate: 10px 20%; rotate: 45deg; scale: 2 50%
+---
+translate: translate(10px, 20%)
+rotate: rotate(45deg)
+scale: scale(2, 0.5)
+
+=== individual transform properties in 3d
+translate: 1px 2px 3px; rotate: y 90deg; scale: 1 2 3
+---
+translate: translate3d(1px, 2px, 3px)
+rotate: rotate3d(0, 1, 0, 90deg)
+scale: scale3d(1, 2, 3)
+
+=== rotate takes the axis and the angle in either order
+rotate: 90deg 1 1 0
+---
+rotate: rotate3d(1, 1, 0, 90deg)
+
+=== rotate needs a unit and a whole axis
+rotate: 0; rotate: 1 2 45deg; scale: 1 2 3 4; translate: 1px 2px 3%
+---
+rotate: none
+scale: none
+translate: none
+
+=== transform-origin defaults to the centre
+display: block
+---
+transform-origin: 50% 50%
+
+=== transform-origin with one keyword
+transform-origin: top
+---
+transform-origin: 50% 0px
+
+=== transform-origin keywords in either order, and a z offset
+transform-origin: bottom right 10px
+---
+transform-origin: 100% 100% 10px
+
+=== transform-origin with a length and a keyword
+transform-origin: 10px center
+---
+transform-origin: 10px 50%
+
+=== transform-origin centre then a horizontal keyword
+transform-origin: center left
+---
+transform-origin: 0px 50%
+
+=== invalid transform-origin values are dropped
+transform-origin: left; transform-origin: top 10px; transform-origin: left left; transform-origin: 1px 2px 3%
+---
+transform-origin: 0px 50%

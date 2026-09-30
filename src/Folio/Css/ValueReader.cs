@@ -142,6 +142,17 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
         return null;
     }
 
+    /// <summary>Any dimension: its number and its unit as written.</summary>
+    public (float Value, string Unit)? Dimension()
+    {
+        if (Next() is PreservedToken { Token.Kind: CssTokenKind.Dimension } d)
+        {
+            _pos++;
+            return ((float)d.Token.Number, d.Token.Value);
+        }
+        return null;
+    }
+
     /// <summary>A function of this name (ASCII case-insensitive): consumes it and reads its arguments.</summary>
     public ValueReader? Function(string name)
     {
