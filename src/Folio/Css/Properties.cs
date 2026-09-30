@@ -138,6 +138,11 @@ internal enum PropertyId
     ScrollbarWidth,
     ScrollbarColor,
     ListStyleImage,
+    Transform,
+    Translate,
+    Rotate,
+    Scale,
+    TransformOrigin,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -710,6 +715,8 @@ internal static class Properties
             Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
                 s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
         };
+
+        rows.AddRange(TransformProperties.Rows);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)
