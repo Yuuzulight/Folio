@@ -50,6 +50,7 @@ public class SelectorTests
             "p", ".card p", "#app .title", "header > h1", ".shell nav a.link", "li + li", "li ~ .on", "main section:nth-child(2) td",
             "div.dark .num", ".top a:not(.active)", "*", ":root body", "section ul > li:last-child", "svg circle.dot", "nav .missing a",
             ".wide td.num", "h1 ~ nav a", "a[href]", ":is(header, main) .card", "body > div > main > section.card",
+            "section:has(td) .num", "li:has(+ .on)", "nav:has(> a.active) a",
         ];
         var document = TreeBuilder.Parse(html);
         var index = new RuleIndex<string>();

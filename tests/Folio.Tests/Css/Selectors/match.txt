@@ -103,3 +103,47 @@ a
 %selector :hover, :focus, :active
 <a href=x id=a></a>
 ---
+
+=== has with a descendant argument
+%selector div:has(img)
+<div id=a><p><img></p></div><div id=b><p></p></div><div id=c><img></div>
+---
+a
+c
+
+=== has with a child argument
+%selector li:has(> a.active)
+<ul><li id=a><a class=active></a></li><li id=b><span><a class=active></a></span></li><li id=c><a></a></li></ul>
+---
+a
+
+=== has with sibling arguments
+%selector h2:has(+ p), h3:has(~ ul li)
+<h2 id=a></h2><p></p><h2 id=b></h2><div></div><p></p><h3 id=c></h3><div></div><ul><li></li></ul><h3 id=d></h3>
+---
+a
+c
+
+=== has with a sibling chain in the argument
+%selector dt:has(+ dd + dd)
+<dl><dt id=a></dt><dd></dd><dd></dd><dt id=b></dt><dd></dd></dl>
+---
+a
+
+=== has with a deeper relative selector stays inside the anchor
+%selector section:has(> div p)
+<section id=a><div><span><p></p></span></div></section><section id=b><p></p></section><div><section id=c></section><p></p></div>
+---
+a
+
+=== negated has
+%selector li:not(:has(img))
+<ul><li id=a><img></li><li id=b></li></ul>
+---
+b
+
+=== has in a non-rightmost compound
+%selector .card:has(.badge) h3
+<div class=card><h3 id=a></h3><span class=badge></span></div><div class=card><h3 id=b></h3></div>
+---
+a
