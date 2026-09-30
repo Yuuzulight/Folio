@@ -43,6 +43,17 @@ internal static class SvgPainter
                 foreach (var child in container.Children)
                     Emit(child, items);
                 break;
+            case SvgTextNode text:
+                // One run takes the opacity into its colour; several are grouped, as they may overlap.
+                var textFade = text.Opacity;
+                if (textFade < 1 && text.Runs.Count > 1)
+                {
+                    Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: textFade));
+                    textFade = 1;
+                }
+                foreach (var run in text.Runs)
+                    items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: Fade(run.Color, textFade), Glyphs: new GlyphRun(run.Font, run.Size, run.Glyphs, run.Origins)));
+                break;
             case SvgShapeNode shape:
                 // A shape with one paint takes its opacity into the paint's colour; with both, they are grouped.
                 var fade = shape.Opacity;

@@ -299,7 +299,7 @@ internal static class BlockLayout
             OutOfFlow = outOfFlow,
             // ponytail: rebuilt on every layout of the box (flex and grid may lay an item out more than once); cache it per
             // box and size if large SVG shows up in profiles.
-            Svg = box is ReplacedBox { Kind: ReplacedKind.Svg, Node: Dom.ElementNode svg } ? Svg.SvgRenderTree.Build(svg, width, contentHeight) : null,
+            Svg = box is ReplacedBox { Kind: ReplacedKind.Svg, Node: Dom.ElementNode svg } ? Svg.SvgRenderTree.Build(svg, width, contentHeight, context) : null,
         };
     }
 

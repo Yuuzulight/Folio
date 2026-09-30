@@ -659,7 +659,8 @@ internal static class InlineLayout
         return (fragments, strut.Ascent);
     }
 
-    private static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
+    /// <summary>Text shaped in the style's fonts: one run per font the fallback chooses, with letter- and word-spacing applied.</summary>
+    internal static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
         var font = style.Font;
         var faceStyle = FaceStyleOf(font.Style);
@@ -771,6 +772,13 @@ internal static class InlineLayout
     private readonly record struct LineMetrics(float Ascent, float Descent, float Above, float Below, float XHeight, float Size, float LineHeight);
 
     private static LineMetrics Metrics(ComputedStyle style, LayoutContext context) => Metrics(style, PrimaryFace(style, context));
+
+    /// <summary>The ascent, descent (below the baseline, positive) and x-height of the style's first available font, in px.</summary>
+    internal static (float Ascent, float Descent, float XHeight) FontMetrics(ComputedStyle style, LayoutContext context)
+    {
+        var m = Metrics(style, context);
+        return (m.Ascent, m.Descent, m.XHeight);
+    }
 
     private static LineMetrics Metrics(ComputedStyle style, FontFace? face)
     {
