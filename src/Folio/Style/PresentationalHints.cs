@@ -17,9 +17,11 @@ internal static class PresentationalHints
     /// <summary>The element's hints as cascade declarations, or null when it has none.</summary>
     public static List<CascadeDeclaration>? For(ElementNode element)
     {
-        if (element.Name.Namespace != Namespaces.Html)
+        // Cells also take hints from their table's attributes; every other element only from its own.
+        if (element.Name.Namespace != Namespaces.Html || element.Attributes.IsEmpty && element.LocalName is not ("td" or "th"))
             return null;
-        var css = new StringBuilder();
+        var css = t_css ??= new StringBuilder();
+        css.Clear();
         switch (element.LocalName)
         {
             case "table":
@@ -81,6 +83,10 @@ internal static class PresentationalHints
         var (source, block) = CssParser.ParseBlockContents(css.ToString());
         return CascadeData.Parse(source, block.Declarations);
     }
+
+    // Reused for every element: most have no hints, and style resolution runs on one thread per document.
+    [ThreadStatic]
+    private static StringBuilder? t_css;
 
     // The nearest table element above a cell.
     private static ElementNode? Table(ElementNode cell)

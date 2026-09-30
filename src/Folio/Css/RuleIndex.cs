@@ -34,15 +34,28 @@ internal sealed class RuleIndex<T>
         else if (rightmost.OfType<ClassSelector>().FirstOrDefault() is { } c)
             Bucket(_byClass, c.Atom).Add(entry);
         else if (rightmost.OfType<TypeSelector>().FirstOrDefault() is { } type)
+            AddByTag(type, entry);
+        else if (rightmost.OfType<LogicalSelector>().FirstOrDefault(IsTypeList) is { } list)
         {
-            // HTML elements match the lowercased name, others the name as written; no element matches both.
-            Bucket(_byTag, type.Lower).Add(entry);
-            if (type.Exact != type.Lower)
-                Bucket(_byTag, type.Exact).Add(entry);
+            // :is() or :where() over plain tag names (the UA's nested list rules): under each of those tags.
+            foreach (var argument in list.Arguments.Selectors)
+                AddByTag((TypeSelector)argument.Rightmost.Simples[0], entry);
         }
         else
             _universal.Add(entry);
     }
+
+    // HTML elements match the lowercased name, others the name as written; no element matches both.
+    private void AddByTag(TypeSelector type, Entry entry)
+    {
+        Bucket(_byTag, type.Lower).Add(entry);
+        if (type.Exact != type.Lower)
+            Bucket(_byTag, type.Exact).Add(entry);
+    }
+
+    private static bool IsTypeList(LogicalSelector selector) =>
+        selector.Kind is LogicalKind.Is or LogicalKind.Where
+        && selector.Arguments.Selectors.All(s => s.Parts.Count == 1 && s.Rightmost.Simples is [TypeSelector]);
 
     /// <summary>Appends the entries matching <paramref name="element"/> (and <paramref name="pseudoElement"/>), in order of appearance.</summary>
     public void Collect(ElementNode element, PseudoElement pseudoElement, MatchContext context, List<Entry> matches)
@@ -59,8 +72,18 @@ internal sealed class RuleIndex<T>
             CollectFrom(byTag, element, pseudoElement, context, matches);
         CollectFrom(_universal, element, pseudoElement, context, matches);
 
-        matches.Sort(start, matches.Count - start, Comparer<Entry>.Create((x, y) => x.Order.CompareTo(y.Order)));
+        // Entries from one bucket are in order already; only matches from several buckets need sorting.
+        for (var i = start + 1; i < matches.Count; i++)
+        {
+            if (matches[i - 1].Order > matches[i].Order)
+            {
+                matches.Sort(start, matches.Count - start, ByOrder);
+                break;
+            }
+        }
     }
+
+    private static readonly Comparer<Entry> ByOrder = Comparer<Entry>.Create((x, y) => x.Order.CompareTo(y.Order));
 
     // ponytail: quirks-mode documents match ids and classes case-insensitively, so their rules may sit in a bucket
     // this lookup misses; they are rare for artifacts, and the universal bucket would be the fix if they matter.
