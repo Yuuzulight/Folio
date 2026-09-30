@@ -20,7 +20,7 @@ public class ArtifactClassifierTests
     {
         // Interaction-only declarations, hover rules, vendor selectors, print rules, no-op resets and outbound links
         // all leave it static.
-        var (kind, reasons) = ArtifactClassifier.Explain(Report);
+        var (kind, reasons) = ArtifactClassifier.Classify(Report);
 
         Assert.Empty(reasons);
         Assert.Equal(ArtifactKind.Static, kind);
@@ -33,7 +33,7 @@ public class ArtifactClassifierTests
     [InlineData("<a href=\" javascript:void(0)\">x</a>")]
     public void ScriptsMakeItScripted(string html)
     {
-        Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify(html));
+        Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify(html).Kind);
     }
 
     [Theory]
@@ -41,34 +41,34 @@ public class ArtifactClassifierTests
     [InlineData("<a href=\"https://example.com/\">outbound links are fine</a>")]
     public void DataBlocksAndLinksAreStatic(string html)
     {
-        Assert.Equal(ArtifactKind.Static, ArtifactClassifier.Classify(html));
+        Assert.Equal(ArtifactKind.Static, ArtifactClassifier.Classify(html).Kind);
     }
 
     [Theory]
-    [InlineData("<link rel=stylesheet href=\"https://cdn.example.com/a.css\">", "stylesheet not loadable")]
-    [InlineData("<img src=\"photo.png\">", "image not loadable")]
-    [InlineData("<img srcset=\"data:image/png;base64,AA== 1x, big.png 2x\">", "image not loadable")]
-    [InlineData("<style>@import url(\"https://fonts.example.com/css\");</style>", "stylesheet not loadable")]
-    [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "image not loadable")]
-    [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "image format")]
-    [InlineData("<svg width=10 height=10><circle r=5 /></svg>", "inline SVG")]
-    [InlineData("<canvas></canvas>", "<canvas>")]
-    [InlineData("<iframe srcdoc=x></iframe>", "<iframe>")]
-    [InlineData("<div popover>menu</div>", "popover")]
-    [InlineData("<style>.a { background: linear-gradient(red, blue) }</style>", "CSS gradients")]
-    [InlineData("<style>.a { --bg: radial-gradient(red, blue) }</style>", "CSS gradients")]
-    [InlineData("<style>.a { -webkit-background-clip: text }</style>", "CSS property: -webkit-background-clip")]
-    [InlineData("<style>.a { background-clip: text }</style>", "background-clip: text")]
-    [InlineData("<style>.a { mix-blend-mode: multiply }</style>", "CSS property: mix-blend-mode")]
-    [InlineData("<style>.a { display: grid; width: 12 }</style>", "CSS value: width")]
-    [InlineData("<style>input:required { color: red }</style>", "selector")]
-    [InlineData("<style>@font-face { font-family: X; src: url(data:font/woff2;base64,AA==) }</style>", "@font-face")]
-    [InlineData("<style>@container (min-width: 1px) { .a { color: red } }</style>", "@container")]
-    [InlineData("<style>@media (max-width: 600px) { .a { filter: blur(2px) } }</style>", "CSS property: filter")]
-    [InlineData("<style>.a { & .b { box-shadow: 0 1px red } }</style>", "CSS property: box-shadow")]
+    [InlineData("<link rel=stylesheet href=\"https://cdn.example.com/a.css\">", "loads a stylesheet these options do not allow")]
+    [InlineData("<img src=\"photo.png\">", "loads an image these options do not allow")]
+    [InlineData("<img srcset=\"data:image/png;base64,AA== 1x, big.png 2x\">", "loads an image these options do not allow")]
+    [InlineData("<style>@import url(\"https://fonts.example.com/css\");</style>", "loads a stylesheet these options do not allow")]
+    [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
+    [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
+    [InlineData("<svg width=10 height=10><circle r=5 /></svg>", "uses inline SVG")]
+    [InlineData("<canvas></canvas>", "uses <canvas>")]
+    [InlineData("<iframe srcdoc=x></iframe>", "uses <iframe>")]
+    [InlineData("<div popover>menu</div>", "uses popovers")]
+    [InlineData("<style>.a { background: linear-gradient(red, blue) }</style>", "uses CSS gradients")]
+    [InlineData("<style>.a { --bg: radial-gradient(red, blue) }</style>", "uses CSS gradients")]
+    [InlineData("<style>.a { -webkit-background-clip: text }</style>", "uses the CSS property -webkit-background-clip")]
+    [InlineData("<style>.a { background-clip: text }</style>", "uses background-clip: text")]
+    [InlineData("<style>.a { mix-blend-mode: multiply }</style>", "uses the CSS property mix-blend-mode")]
+    [InlineData("<style>.a { display: grid; width: 12 }</style>", "uses a CSS value Folio does not support: width: 12")]
+    [InlineData("<style>input:required { color: red }</style>", "uses a CSS selector Folio does not support: input:required")]
+    [InlineData("<style>@font-face { font-family: X; src: url(data:font/woff2;base64,AA==) }</style>", "uses web fonts (@font-face)")]
+    [InlineData("<style>@container (min-width: 1px) { .a { color: red } }</style>", "uses @container")]
+    [InlineData("<style>@media (max-width: 600px) { .a { filter: blur(2px) } }</style>", "uses the CSS property filter")]
+    [InlineData("<style>.a { & .b { clip-path: circle() } }</style>", "uses the CSS property clip-path")]
     public void UnsupportedContentNeedsTheBrowser(string html, string reason)
     {
-        var (kind, reasons) = ArtifactClassifier.Explain(html);
+        var (kind, reasons) = ArtifactClassifier.Classify(html);
 
         Assert.Equal(ArtifactKind.NeedsBrowser, kind);
         Assert.Contains(reasons, r => r.Contains(reason, StringComparison.Ordinal));
@@ -77,10 +77,10 @@ public class ArtifactClassifierTests
     [Fact]
     public void RoutingOutWinsOverScripting()
     {
-        var (kind, reasons) = ArtifactClassifier.Explain("<script src=\"https://cdn.example.com/lib.js\"></script>");
+        var (kind, reasons) = ArtifactClassifier.Classify("<script src=\"https://cdn.example.com/lib.js\"></script>");
 
         Assert.Equal(ArtifactKind.NeedsBrowser, kind);
-        Assert.Equal(["script not loadable with these options: https://cdn.example.com/lib.js", "script element"], reasons);
+        Assert.Equal(["loads a script these options do not allow: https://cdn.example.com/lib.js", "runs scripts: a script element"], reasons);
     }
 
     [Fact]
@@ -88,6 +88,6 @@ public class ArtifactClassifierTests
     {
         var options = new FolioOptions { Limits = ResourceLimits.Default with { MaxNestingDepth = 4 } };
 
-        Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify("<div><div><div><div><div><div>deep", options));
+        Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify("<div><div><div><div><div><div>deep", options).Kind);
     }
 }

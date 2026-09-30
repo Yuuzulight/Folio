@@ -18,6 +18,13 @@ public enum ArtifactKind
     NeedsBrowser,
 }
 
+/// <summary>Where a host should show an artifact, and why.</summary>
+/// <param name="Reasons">
+/// Short notes a host can show, such as "uses inline SVG" or "uses CSS gradients": what routes the artifact out
+/// first, then what needs scripting. Empty for <see cref="ArtifactKind.Static"/>. Written for people, not for parsing.
+/// </param>
+public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<string> Reasons);
+
 /// <summary>
 /// Decides, without rendering, whether Folio can show an artifact at the current milestone (docs/roadmap.md: until a
 /// milestone lands, artifacts that need it go to the system browser). The scan is conservative: anything Folio would
@@ -44,10 +51,7 @@ public enum ArtifactKind
 /// </remarks>
 public static class ArtifactClassifier
 {
-    public static ArtifactKind Classify(string html, FolioOptions? options = null) => Explain(html, options).Kind;
-
-    /// <summary>The kind, and each reason found: the route-out reasons first, then the scripting ones.</summary>
-    internal static (ArtifactKind Kind, IReadOnlyList<string> Reasons) Explain(string html, FolioOptions? options = null)
+    public static ArtifactClassification Classify(string html, FolioOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(html);
         options ??= new FolioOptions();
@@ -58,7 +62,7 @@ public static class ArtifactClassifier
         var kind = scan.Unsupported.Count > 0 ? ArtifactKind.NeedsBrowser
             : scan.Scripts.Count > 0 ? ArtifactKind.Scripted
             : ArtifactKind.Static;
-        return (kind, [.. scan.Unsupported, .. scan.Scripts]);
+        return new ArtifactClassification(kind, [.. scan.Unsupported, .. scan.Scripts]);
     }
 
     private sealed class Scan(Document document, FolioOptions options)
@@ -109,7 +113,7 @@ public static class ArtifactClassifier
             foreach (var diagnostic in document.Diagnostics)
             {
                 if (diagnostic.Code == DiagnosticCode.LimitExceeded)
-                    Unsupported.Add($"limit: {diagnostic.Message}");
+                    Unsupported.Add($"hits a limit: {diagnostic.Message}");
             }
 
             foreach (var element in document.QuerySelectorAll("*"))
@@ -121,20 +125,20 @@ public static class ArtifactClassifier
             switch (element.NamespaceUri)
             {
                 case Namespaces.SvgUri:
-                    Unsupported.Add("inline SVG");
+                    Unsupported.Add("uses inline SVG");
                     break;
                 case Namespaces.MathMLUri:
-                    Unsupported.Add("MathML");
+                    Unsupported.Add("uses MathML");
                     break;
             }
 
             foreach (var (name, value) in element.Attributes)
             {
                 if (name.Length > 2 && name.StartsWith("on", StringComparison.Ordinal))
-                    Scripts.Add($"event handler attribute {name}");
+                    Scripts.Add($"runs scripts: an {name} attribute");
                 else if (name is "href" or "src" or "action" or "formaction" or "xlink:href"
                          && value.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
-                    Scripts.Add("javascript: URL");
+                    Scripts.Add("runs scripts: a javascript: link");
             }
 
             if (element.GetAttribute("style") is { } style)
@@ -143,25 +147,25 @@ public static class ArtifactClassifier
                 Declarations(source, block.Declarations);
             }
             if (element.GetAttribute("popover") is not null)
-                Unsupported.Add("popover");
+                Unsupported.Add("uses popovers");
 
             if (element.NamespaceUri != Namespaces.HtmlUri)
             {
                 if (element.LocalName == "script")
-                    Scripts.Add("SVG script element");
+                    Scripts.Add("runs scripts: a script element in SVG");
                 return;
             }
 
             var tag = element.LocalName;
             if (BoxOnlyElements.Contains(tag))
-                Unsupported.Add($"<{tag}>");
+                Unsupported.Add($"uses <{tag}>");
 
             switch (tag)
             {
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
-                    Scripts.Add("script element");
+                    Scripts.Add("runs scripts: a script element");
                     if (element.GetAttribute("src") is { } src)
-                        Load(src, "script");
+                        Load(src, "a script");
                     break;
                 case "style":
                     StyleSheet(element.TextContent);
@@ -192,7 +196,7 @@ public static class ArtifactClassifier
         {
             url = url.Trim();
             if (!Loadable(url))
-                Unsupported.Add($"{what} not loadable with these options: {Shorten(url)}");
+                Unsupported.Add($"loads {what} these options do not allow: {Shorten(url)}");
         }
 
         private void Image(string url)
@@ -201,16 +205,16 @@ public static class ArtifactClassifier
             if (url.Length == 0 || url.StartsWith('#'))
                 return; // an empty URL loads nothing; #id points into the document (SVG references)
             if (!Loadable(url))
-                Load(url, "image");
+                Load(url, "an image");
             else if (!DataUrl.TryParse(url, out _, out var type) || type is not ("image/png" or "image/jpeg"))
-                Unsupported.Add($"image format Folio does not decode: {Shorten(url)}");
+                Unsupported.Add($"uses an image format Folio does not decode: {(type.Length > 0 ? type : "unknown")}");
         }
 
         private void LinkedStyleSheet(string url)
         {
             url = url.Trim();
             if (!Loadable(url))
-                Load(url, "stylesheet");
+                Load(url, "a stylesheet");
             else if (DataUrl.TryParse(url, out var data, out _))
                 StyleSheet(Encoding.UTF8.GetString(data));
         }
@@ -218,7 +222,7 @@ public static class ArtifactClassifier
         private void StyleSheet(string css)
         {
             var sheet = CssParser.ParseStyleSheet(css, options.Limits.MaxStyleRules,
-                _ => Unsupported.Add($"limit: a stylesheet has more than {options.Limits.MaxStyleRules} rules"));
+                _ => Unsupported.Add($"hits a limit: a stylesheet has more than {options.Limits.MaxStyleRules} rules"));
             Rules(sheet.Source, sheet.Rules, null);
         }
 
@@ -236,7 +240,7 @@ public static class ArtifactClassifier
                         if (selectors is null)
                         {
                             if (!IsVendorSpecific(text))
-                                Unsupported.Add($"selector: {Shorten(text)}");
+                                Unsupported.Add($"uses a CSS selector Folio does not support: {Shorten(text)}");
                             break;
                         }
                         Block(source, style, selectors);
@@ -268,10 +272,10 @@ public static class ArtifactClassifier
                         LinkedStyleSheet(url);
                     break;
                 case "font-face":
-                    Unsupported.Add("web fonts (@font-face)");
+                    Unsupported.Add("uses web fonts (@font-face)");
                     break;
                 case "container" or "counter-style" or "scope":
-                    Unsupported.Add($"@{at.Name}");
+                    Unsupported.Add($"uses @{at.Name}");
                     break;
                 // @keyframes (used only through animation properties, which are checked), @page, @property,
                 // @charset, @starting-style and the rest change nothing in a still picture Folio would draw.
@@ -299,16 +303,16 @@ public static class ArtifactClassifier
                 if (!known)
                 {
                     if (!NoOpValues.Contains(text.ToLowerInvariant()))
-                        Unsupported.Add($"CSS property: {declaration.Name}");
+                        Unsupported.Add($"uses the CSS property {declaration.Name}");
                 }
                 else if (!Properties.ContainsVar(declaration.Value) && Properties.Parse(source, declaration) is null)
                 {
-                    Unsupported.Add($"CSS value: {declaration.Name}: {Shorten(text)}");
+                    Unsupported.Add($"uses a CSS value Folio does not support: {declaration.Name}: {Shorten(text)}");
                 }
                 else if (declaration.Name is "background" or "background-clip"
                          && declaration.Value.Any(v => v is PreservedToken { Token: { Kind: CssTokenKind.Ident, Value: var ident } } && ident.Equals("text", StringComparison.OrdinalIgnoreCase)))
                 {
-                    Unsupported.Add("background-clip: text");
+                    Unsupported.Add("uses background-clip: text");
                 }
             }
         }
@@ -332,11 +336,11 @@ public static class ArtifactClassifier
                         }
                         else if (lower.EndsWith("-gradient", StringComparison.Ordinal))
                         {
-                            Unsupported.Add("CSS gradients");
+                            Unsupported.Add("uses CSS gradients");
                         }
                         else if (lower is "image-set" or "-webkit-image-set" or "cross-fade" or "element" or "paint")
                         {
-                            Unsupported.Add($"CSS {lower}()");
+                            Unsupported.Add($"uses CSS {lower}()");
                         }
                         Values(function.Arguments, source);
                         break;
