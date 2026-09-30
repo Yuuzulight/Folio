@@ -70,6 +70,24 @@ internal static class SvgGeometry
         return length.Value / 100 * basis;
     }
 
+    /// <summary>
+    /// A list of lengths separated by white space and/or commas, in user units (text x, y, dx and dy); null when missing
+    /// or when any item is invalid.
+    /// </summary>
+    public static List<float>? Lengths(string? text, SvgAxis axis, Vector2 viewport, float fontSize)
+    {
+        if (text is null)
+            return null;
+        var values = new List<float>();
+        foreach (var item in text.Split([' ', '\t', '\n', '\r', '\f', ','], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (ParseLength(item, fontSize) is null)
+                return null;
+            values.Add(Length(item, axis, viewport, fontSize));
+        }
+        return values.Count > 0 ? values : null;
+    }
+
     /// <summary>The normalised diagonal of a viewport, what non-directional percentages (radii, stroke widths) refer to.</summary>
     public static float Diagonal(Vector2 viewport) => MathF.Sqrt((viewport.X * viewport.X + viewport.Y * viewport.Y) / 2);
 

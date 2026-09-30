@@ -116,3 +116,8 @@ text-anchor: middle; dominant-baseline: central
 ---
 text-anchor: middle
 dominant-baseline: central
+
+=== SVG 1.1 dominant-baseline names
+dominant-baseline: text-after-edge
+---
+dominant-baseline: text-bottom

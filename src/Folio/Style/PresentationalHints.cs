@@ -118,9 +118,16 @@ internal static class PresentationalHints
         foreach (var attribute in element.Attributes)
         {
             var name = element.OwnerDocument.TextOf(attribute.Name);
-            if (!attribute.Namespace.IsNone || !(SvgPresentation.Contains(name) || outermost && name is "width" or "height"))
-                continue;
             var value = attribute.Value.Trim();
+            // xml:space from the SVG user-agent style sheet (https://www.w3.org/TR/SVG2/text.html#WhiteSpace).
+            if (name == "xml:space" && value is "preserve" or "default")
+            {
+                (name, value) = ("white-space", value == "preserve" ? "pre" : "normal");
+            }
+            else if (!attribute.Namespace.IsNone || !(SvgPresentation.Contains(name) || outermost && name is "width" or "height"))
+            {
+                continue;
+            }
             // A value cannot end its declaration early or add others.
             if (value.Length == 0 || value.AsSpan().IndexOfAny(";{}!") >= 0)
                 continue;
