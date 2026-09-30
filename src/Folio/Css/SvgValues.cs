@@ -55,6 +55,9 @@ internal static class SvgProperties
                 ["auto"] = DominantBaseline.Auto, ["text-bottom"] = DominantBaseline.TextBottom, ["alphabetic"] = DominantBaseline.Alphabetic,
                 ["ideographic"] = DominantBaseline.Ideographic, ["middle"] = DominantBaseline.Middle, ["central"] = DominantBaseline.Central,
                 ["mathematical"] = DominantBaseline.Mathematical, ["hanging"] = DominantBaseline.Hanging, ["text-top"] = DominantBaseline.TextTop,
+                // SVG 1.1's values, still common in SVG files (https://www.w3.org/TR/SVG11/text.html#DominantBaselineProperty).
+                ["text-before-edge"] = DominantBaseline.TextTop, ["text-after-edge"] = DominantBaseline.TextBottom,
+                ["use-script"] = DominantBaseline.Auto, ["no-change"] = DominantBaseline.Auto, ["reset-size"] = DominantBaseline.Auto,
             },
             s => s.Svg.DominantBaseline, (b, v) => b.Svg = b.Svg with { DominantBaseline = v }),
     ];
