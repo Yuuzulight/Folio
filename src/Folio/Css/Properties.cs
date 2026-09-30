@@ -167,6 +167,10 @@ internal enum PropertyId
     BorderImageWidth,
     BorderImageOutset,
     BorderImageRepeat,
+    AnimationName,
+    AnimationIterationCount,
+    AnimationDirection,
+    AnimationFillMode,
     Fill,
     FillOpacity,
     FillRule,
@@ -260,7 +264,7 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands)
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -783,6 +787,7 @@ internal static class Properties
         rows.Add(ShapeProperties.Row);
         rows.AddRange(MaskProperties.Rows);
         rows.AddRange(BorderImageProperties.Rows);
+        rows.AddRange(AnimationProperties.Rows);
         rows.AddRange(SvgProperties.Rows);
         rows.AddRange(SvgProperties.StopRows);
 

@@ -73,6 +73,9 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
     /// <summary>The <c>@font-face</c> rules that apply, in order of appearance.</summary>
     public List<FontFaceRule> FontFaces { get; } = [];
 
+    /// <summary>The <c>@keyframes</c> rules that apply, by name; a later rule of the same name replaces an earlier one.</summary>
+    public Dictionary<string, List<Keyframe>> Keyframes { get; } = new(StringComparer.Ordinal);
+
     // The URL relative references in the sheet being added resolve against.
     private string? _sheetBase;
 
@@ -214,9 +217,33 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
                 if (FontFaceRule.Parse(source, at, _sheetBase) is { } fontFace)
                     FontFaces.Add(fontFace);
                 break;
-            // @import is handled at a sheet's top level (AddSheet); @keyframes and @page arrive with animations and
-            // printing.
+            case "keyframes" or "-webkit-keyframes" when parent is null && at.HasBlock:
+                AddKeyframes(source, at);
+                break;
+            // @import is handled at a sheet's top level (AddSheet); @page arrives with printing.
         }
+    }
+
+    // https://www.w3.org/TR/css-animations-1/#keyframes: keyframe blocks with an invalid selector are ignored, and so
+    // are !important declarations and the animation properties inside them.
+    // ponytail: custom properties in keyframes are not animated.
+    private void AddKeyframes(string source, AtRule at)
+    {
+        var prelude = new ValueReader(source, at.Prelude);
+        if (AnimationProperties.KeyframesNameOf(prelude) is not { } name || !prelude.AtEnd)
+            return;
+        var blocks = new List<Keyframe>();
+        foreach (var rule in at.Rules)
+        {
+            if (rule is not StyleRule block || AnimationProperties.KeyframeOffsets(new ValueReader(source, block.Prelude)) is not { } offsets)
+                continue;
+            var declarations = Parse(source, block.Declarations, _sheetBase)
+                .Where(d => !d.Important && d.CustomName is null
+                    && d.Id is not (PropertyId.AnimationName or PropertyId.AnimationIterationCount or PropertyId.AnimationDirection or PropertyId.AnimationFillMode))
+                .ToList();
+            blocks.Add(new Keyframe(offsets, declarations));
+        }
+        Keyframes[name] = blocks;
     }
 
     // Declarations directly in a conditional or layer block apply to the enclosing style rule (nesting).
@@ -374,7 +401,8 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
 /// <summary>Finds each property's cascaded value for an element (https://www.w3.org/TR/css-cascade-5/#cascade-sort).</summary>
 internal static class Cascade
 {
-    private readonly record struct Candidate(CascadeDeclaration Declaration, Origin Origin, bool ElementAttached, int[] Layer, Specificity Specificity, int Order, int Index);
+    private readonly record struct Candidate(CascadeDeclaration Declaration, Origin Origin, bool ElementAttached, int[] Layer, Specificity Specificity, int Order, int Index,
+                                             bool Animation = false);
 
     /// <summary>Appends the rules matching an element (or one of its pseudo-elements), origin by origin, each in order of appearance.</summary>
     public static void Match(ElementNode element, List<CascadeData> origins, MatchContext context, PseudoElement pseudoElement,
@@ -388,8 +416,10 @@ internal static class Cascade
     private static readonly int[] StyleAttributeLayer = [int.MaxValue];
 
     /// <summary>The cascaded values from matched rules, the style attribute and presentational hints.</summary>
+    /// <param name="animations">Declarations of the animation origin, later ones winning (<see cref="Animations.EndState"/>).</param>
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
-        List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints)
+        List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints,
+        List<CascadeDeclaration>? animations = null)
     {
         var candidates = new List<Candidate>();
         // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.
@@ -408,6 +438,11 @@ internal static class Cascade
         {
             for (var d = 0; d < styleAttribute.Count; d++)
                 candidates.Add(new Candidate(styleAttribute[d], Origin.Author, true, StyleAttributeLayer, default, styleAttributeOrder, d));
+        }
+        if (animations is not null)
+        {
+            for (var d = 0; d < animations.Count; d++)
+                candidates.Add(new Candidate(animations[d], Origin.Author, false, StyleAttributeLayer, default, 0, d, Animation: true));
         }
 
         // Highest priority first; within one rule, later declarations come first too.
@@ -471,8 +506,9 @@ internal static class Cascade
         return order != 0 ? order : a.Index.CompareTo(b.Index);
     }
 
-    // UA < user < author for normal declarations, reversed for important ones.
-    private static int Rank(Candidate c) => c.Declaration.Important ? 5 - (int)c.Origin : (int)c.Origin;
+    // UA < user < author for normal declarations, then animations, then important declarations in reverse origin order
+    // (https://www.w3.org/TR/css-cascade-5/#cascade-origin).
+    private static int Rank(Candidate c) => c.Animation ? 3 : c.Declaration.Important ? 6 - (int)c.Origin : (int)c.Origin;
 
     private static int CompareLayers(int[] a, int[] b)
     {
