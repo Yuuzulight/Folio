@@ -10,7 +10,8 @@ using Folio.Style;
 namespace Folio.Benchmarks;
 
 /// <summary>Median time of each pipeline stage, and memory, for one document.</summary>
-internal sealed record Measurement(string Name, int Length, TimeSpan[] Stages, long Allocated, long Retained)
+/// <param name="StyleAllocated">Managed memory the style stage allocates on its own.</param>
+internal sealed record Measurement(string Name, int Length, TimeSpan[] Stages, long Allocated, long StyleAllocated, long Retained)
 {
     public static readonly string[] StageNames = ["Parse", "Style", "Boxes", "Layout", "Display list"];
 
@@ -56,34 +57,37 @@ internal static class Benchmark
     public static Measurement Measure(string name, string html, int iterations)
     {
         var marks = new long[Measurement.StageNames.Length + 1];
-        Run(html, marks); // Warm-up: JIT and the process-wide caches (user agent stylesheet, atoms).
+        var allocations = new long[marks.Length];
+        Run(html, marks, allocations); // Warm-up: JIT and the process-wide caches (user agent stylesheet, atoms).
 
         var times = Measurement.StageNames.Select(_ => new TimeSpan[iterations]).ToArray();
         for (var i = 0; i < iterations; i++)
         {
-            Run(html, marks);
+            Run(html, marks, allocations);
             for (var s = 0; s < times.Length; s++)
                 times[s][i] = Stopwatch.GetElapsedTime(marks[s], marks[s + 1]);
         }
 
         var before = GC.GetTotalMemory(forceFullCollection: true);
         var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-        var result = Run(html, marks);
+        var result = Run(html, marks, allocations);
         var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
         var retained = GC.GetTotalMemory(forceFullCollection: true) - before;
         GC.KeepAlive(result);
 
-        return new Measurement(name, html.Length, times.Select(Median).ToArray(), allocated, retained);
+        return new Measurement(name, html.Length, times.Select(Median).ToArray(), allocated, allocations[2] - allocations[1], retained);
     }
 
-    /// <summary>Runs the pipeline, recording a timestamp before the first stage and after each one.</summary>
-    private static object Run(string html, long[] marks)
+    /// <summary>
+    /// Runs the pipeline, recording a timestamp and the bytes allocated so far before the first stage and after each one.
+    /// </summary>
+    private static object Run(string html, long[] marks, long[] allocations)
     {
         marks[0] = Stopwatch.GetTimestamp();
         var document = TreeBuilder.Parse(html);
-        marks[1] = Stopwatch.GetTimestamp();
+        (marks[1], allocations[1]) = (Stopwatch.GetTimestamp(), GC.GetAllocatedBytesForCurrentThread());
         StyleResolver.Resolve(document, Media);
-        marks[2] = Stopwatch.GetTimestamp();
+        (marks[2], allocations[2]) = (Stopwatch.GetTimestamp(), GC.GetAllocatedBytesForCurrentThread());
         var root = BoxTreeBuilder.Build(document);
         marks[3] = Stopwatch.GetTimestamp();
         var fragment = root is null ? null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);

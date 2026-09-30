@@ -220,6 +220,24 @@ internal sealed class LogicalSelector(LogicalKind kind, SelectorList arguments) 
     public override string ToString() => $":{Kind.ToString().ToLowerInvariant()}({Arguments})";
 }
 
+/// <summary>
+/// <c>:has()</c> (https://www.w3.org/TR/selectors-4/#relational): each argument is a relative selector whose first
+/// compound is a <see cref="HasAnchorSelector"/>; specificity is that of the most specific argument.
+/// </summary>
+internal sealed class HasSelector(SelectorList arguments) : SimpleSelector
+{
+    public SelectorList Arguments { get; } = arguments;
+    public override Specificity Specificity => Arguments.MaxSpecificity;
+    public override string ToString() => $":has({string.Join(", ", Arguments.Selectors.Select(s => s.ToString().TrimStart()))})";
+}
+
+/// <summary>The implicit anchor of a <c>:has()</c> argument: matches only the element <c>:has()</c> is tested on.</summary>
+internal sealed class HasAnchorSelector : SimpleSelector
+{
+    public override Specificity Specificity => default;
+    public override string ToString() => "";
+}
+
 /// <summary><c>&amp;</c>: the parent rule's selectors, like <c>:is()</c>; outside nesting, the root.</summary>
 internal sealed class NestingSelector(SelectorList? parent) : SimpleSelector
 {
@@ -240,7 +258,7 @@ internal sealed class CompoundSelector(List<SimpleSelector> simples, PseudoEleme
             text.Append(simple);
         if (PseudoElement != PseudoElement.None)
             text.Append("::").Append(PseudoElement == PseudoElement.Unknown ? "-webkit-unknown" : PseudoElementName(PseudoElement));
-        return text.Length == 0 ? "*" : text.ToString();
+        return Simples.Count == 0 && PseudoElement == PseudoElement.None ? "*" : text.ToString();
     }
 
     private static string PseudoElementName(PseudoElement pe) => pe switch

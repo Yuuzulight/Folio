@@ -1,0 +1,5 @@
+{
+  "prompt": "Compare the nutrition facts of six breakfast cereals per 40g serving in a table, highlight the healthiest value in each row, and add the daily reference intakes and a sugar ranking underneath.",
+  "features": ["comparison-matrix", "zebra-striping", "indented-sub-rows", "best-value-highlight", "status-badges", "multiple-tables", "tabular-nums", "border-collapse-collapse", "overflow-x-scroll", "row-hover", "css-grid-layout", "media-query"],
+  "viewport": 800
+}

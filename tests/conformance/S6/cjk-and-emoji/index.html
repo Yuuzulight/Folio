@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lantern Street Travel Notes</title>
+<style>
+  :root {
+    --paper: #fbf8f2;
+    --ink: #262322;
+    --muted: #7a716a;
+    --accent: #c2410c;
+    --line: #e8e0d4;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.7;
+  }
+
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 40px 24px 60px;
+  }
+
+  h1 {
+    font-size: 30px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+
+  .byline { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+
+  section {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin-bottom: 18px;
+  }
+
+  h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+
+  [lang="ja"], [lang|="zh"] {
+    font-size: 17px;
+    line-height: 1.9;
+    line-break: strict;
+  }
+
+  .jp h3, .zh h3 { font-size: 20px; margin: 0 0 6px; }
+
+  ruby rt {
+    font-size: 0.5em;
+    color: var(--accent);
+  }
+
+  .vertical-wrap {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+
+  .vertical {
+    writing-mode: vertical-rl;
+    height: 220px;
+    padding: 12px;
+    border-inline-start: 3px solid var(--accent);
+    background: #fdf3ea;
+    border-radius: 8px;
+    font-size: 18px;
+    line-height: 1.8;
+  }
+
+  .emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .emoji-card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+
+  .emoji-card .e {
+    display: block;
+    font-size: 34px;
+    line-height: 1.3;
+    font-family: sans-serif;
+  }
+
+  .emoji-card small { color: var(--muted); font-size: 12px; }
+
+  .inline-emoji { font-size: 16px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+
+  th, td {
+    text-align: start;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Lantern Street travel notes</h1>
+    <p class="byline">Collected by Hana Morikawa and Lin Qiaoyu · autumn edition</p>
+
+    <section class="jp" lang="ja">
+      <h2 lang="en">日本語 · Japanese</h2>
+      <h3>春の灯り祭り</h3>
+      <p>「春の灯り祭り」は、毎年四月に川沿いの小さな町で開かれるお祭りです。夕方になると、約三千個の紙<ruby>灯籠<rp>（</rp><rt>とうろう</rt><rp>）</rp></ruby>が並木道に吊るされ、屋台では焼きおにぎりや甘酒が売られます。</p>
+      <p>今年は4月18日（土）から20日（月）までの三日間、雨天でも開催予定です。<ruby>漢<rt>かん</rt>字<rt>じ</rt></ruby>の書き初め体験や、子ども向けの<ruby>折<rt>お</rt>り<rt></rt>紙<rt>がみ</rt></ruby>教室もあります。駅から会場までは徒歩約12分。</p>
+    </section>
+
+    <section class="zh" lang="zh-Hans">
+      <h2 lang="en">中文 · Chinese</h2>
+      <h3>青禾书店</h3>
+      <p>青禾书店位于老城区的一条安静小巷里，店里收藏了两万多本二手书。每周六下午，店主会举办一次读书会，欢迎大家带上自己喜欢的书来分享。</p>
+      <p>营业时间：周二至周日，上午10点到晚上8点。拼音注音示例：<ruby>汉<rp>(</rp><rt>hàn</rt><rp>)</rp>字<rp>(</rp><rt>zì</rt><rp>)</rp></ruby>、<ruby>书<rt>shū</rt>店<rt>diàn</rt></ruby>。</p>
+      <p lang="zh-Hant">茶館的二樓可以俯瞰整條河，是附近居民最喜歡的聚會地點。週末常常客滿，建議提前預約。</p>
+    </section>
+
+    <section>
+      <h2>Vertical text</h2>
+      <div class="vertical-wrap">
+        <p class="vertical" lang="ja">秋の夜長に、<br>温かいお茶と<br>一冊の本を。</p>
+        <p>Japanese and Chinese can also be set top-to-bottom, right-to-left. The panel to the left uses a vertical writing mode, which is common on posters, menus and book covers along Lantern Street.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Emoji we used in the group chat</h2>
+      <div class="emoji-grid">
+        <div class="emoji-card"><span class="e">&#x1F1EF;&#x1F1F5; &#x1F1E8;&#x1F1F3; &#x1F1F0;&#x1F1F7;</span><small>Flags: JP, CN, KR</small></div>
+        <div class="emoji-card"><span class="e">&#x1F1E7;&#x1F1F7; &#x1F1F0;&#x1F1EA; &#x1F1F3;&#x1F1FF;</span><small>Flags: BR, KE, NZ</small></div>
+        <div class="emoji-card"><span class="e">&#x1F44B;&#x1F3FB;&#x1F44B;&#x1F3FD;&#x1F44B;&#x1F3FF;</span><small>Waving, three skin tones</small></div>
+        <div class="emoji-card"><span class="e">&#x1F44D;&#x1F3FC; &#x1F64F;&#x1F3FE;</span><small>Thumbs up, folded hands</small></div>
+        <div class="emoji-card"><span class="e">&#x1F468;&#x200D;&#x1F469;&#x200D;&#x1F467;&#x200D;&#x1F466;</span><small>Family: man, woman, girl, boy</small></div>
+        <div class="emoji-card"><span class="e">&#x1F469;&#x200D;&#x1F469;&#x200D;&#x1F466; &#x1F468;&#x200D;&#x1F468;&#x200D;&#x1F467;</span><small>Two more families</small></div>
+        <div class="emoji-card"><span class="e">&#x1F9D1;&#x1F3FE;&#x200D;&#x1F4BB; &#x1F469;&#x1F3FB;&#x200D;&#x1F373;</span><small>Technologist, cook (toned ZWJ)</small></div>
+        <div class="emoji-card"><span class="e">&#x1F3F3;&#xFE0F;&#x200D;&#x1F308; 1&#xFE0F;&#x20E3; &#x2764;&#xFE0F;</span><small>Rainbow flag, keycap, heart</small></div>
+      </div>
+      <p class="inline-emoji">Inline: 今日は晴れ ☀️、みんなで団子 🍡 を食べました &#x1F468;&#x200D;&#x1F469;&#x200D;&#x1F467;。我们在书店拍了合照 📸&#x1F44D;&#x1F3FD;！</p>
+    </section>
+
+    <section>
+      <h2>Mixed-script itinerary</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Place</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>09:30</td><td lang="ja">朝市（あさいち）</td><td>Try the grilled rice balls 🍙</td></tr>
+          <tr><td>13:00</td><td lang="zh-Hans">青禾书店读书会</td><td>Bring one book to swap 📚</td></tr>
+          <tr><td>18:45</td><td lang="ja">灯籠流し</td><td>Meet at the east bridge &#x1F309;</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

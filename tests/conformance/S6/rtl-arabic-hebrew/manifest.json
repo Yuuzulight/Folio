@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a community notice board page with an Arabic announcement and a Hebrew announcement laid out right-to-left, sentences that mix in English words, dates, prices and phone numbers, and a leaderboard of usernames in mixed scripts isolated with bdi.",
+  "features": ["rtl", "bidi", "bdi", "dir-attribute", "arabic", "hebrew", "lang-attribute", "logical-properties", "flex", "grid"],
+  "viewport": 800
+}

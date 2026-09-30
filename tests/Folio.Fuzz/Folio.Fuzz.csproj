@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <Compile Include="..\Folio.RenderTests\RepoPaths.cs" Link="RepoPaths.cs" />
+    <Compile Include="..\Folio.Tests\Typography\WebFontWriter.cs" Link="WebFontWriter.cs" />
   </ItemGroup>
 
 </Project>

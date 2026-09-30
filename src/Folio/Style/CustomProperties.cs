@@ -4,8 +4,11 @@ using Folio.Css;
 
 namespace Folio.Style;
 
-/// <summary>A registration from <c>@property</c> (https://www.w3.org/TR/css-properties-values-api-1/#at-property-rule).</summary>
-internal sealed record RegisteredProperty(bool Inherits, string? InitialValue);
+/// <summary>
+/// A registration from <c>@property</c> (https://www.w3.org/TR/css-properties-values-api-1/#at-property-rule); the
+/// initial value is already computed for the syntax.
+/// </summary>
+internal sealed record RegisteredProperty(bool Inherits, string? InitialValue, PropertySyntax Syntax);
 
 /// <summary>
 /// Custom properties and <c>var()</c> (https://www.w3.org/TR/css-variables-1/): values are token text, inherited
@@ -24,8 +27,11 @@ internal static class CustomProperties
         var map = parent;
         foreach (var (name, registration) in registered)
         {
+            // A registered property always has a value: its initial one where nothing is inherited.
             if (!registration.Inherits)
                 map = registration.InitialValue is { } initial ? map.SetItem(name, initial) : map.Remove(name);
+            else if (registration.InitialValue is { } initial && !map.ContainsKey(name))
+                map = map.SetItem(name, initial);
         }
         if (declared.Count == 0)
             return map;
@@ -74,6 +80,34 @@ internal static class CustomProperties
         {
             var value = Resolve(name);
             map = value is null ? map.Remove(name) : map.SetItem(name, value);
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Computes the element's registered custom properties for their syntax, once its font size and colour are known
+    /// (https://www.w3.org/TR/css-properties-values-api-1/#calculation-of-computed-values). A value that does not
+    /// match is invalid at computed-value time: the property is then inherited or initial, as if unset.
+    /// </summary>
+    public static ImmutableDictionary<string, string> ApplySyntax(ImmutableDictionary<string, string> map, ImmutableDictionary<string, string> parent,
+                                                                   IReadOnlyDictionary<string, RegisteredProperty> registered, ComputeContext context)
+    {
+        foreach (var (name, registration) in registered)
+        {
+            if (registration.Syntax.IsUniversal)
+                continue;
+            var unset = registration.Inherits ? parent.GetValueOrDefault(name) ?? registration.InitialValue : registration.InitialValue;
+            if (!map.TryGetValue(name, out var value))
+            {
+                if (unset is not null)
+                    map = map.SetItem(name, unset);
+                continue;
+            }
+            // Inherited and initial values are computed already.
+            if (value == registration.InitialValue || (registration.Inherits && value == parent.GetValueOrDefault(name)))
+                continue;
+            var computed = registration.Syntax.Compute(value, context) ?? unset;
+            map = computed is null ? map.Remove(name) : map.SetItem(name, computed);
         }
         return map;
     }

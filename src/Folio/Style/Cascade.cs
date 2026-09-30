@@ -70,6 +70,12 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
     public RuleIndex<CascadeRule> Rules { get; } = new();
     public Dictionary<string, RegisteredProperty> Registered { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>The <c>@font-face</c> rules that apply, in order of appearance.</summary>
+    public List<FontFaceRule> FontFaces { get; } = [];
+
+    // The URL relative references in the sheet being added resolve against.
+    private string? _sheetBase;
+
     /// <summary>Order-of-appearance counter shared by all origins and the style attribute.</summary>
     public int NextOrder() => _order++;
 
@@ -92,6 +98,7 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             }
             if (rule is not (AtRule { Name: "charset" } or AtRule { Name: "layer", HasBlock: false }))
                 importsAllowed = false;
+            _sheetBase = baseUrl;
             AddRules(source, [rule], null, layer, layerNode);
         }
     }
@@ -203,8 +210,12 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             case "property" when parent is null && at.HasBlock:
                 Register(source, at);
                 break;
-            // @import is handled at a sheet's top level (AddSheet); @font-face, @keyframes and @page arrive with web
-            // fonts, animations and printing.
+            case "font-face" when parent is null && at.HasBlock:
+                if (FontFaceRule.Parse(source, at, _sheetBase) is { } fontFace)
+                    FontFaces.Add(fontFace);
+                break;
+            // @import is handled at a sheet's top level (AddSheet); @keyframes and @page arrive with animations and
+            // printing.
         }
     }
 
@@ -256,6 +267,9 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
         return result;
     }
 
+    // https://www.w3.org/TR/css-properties-values-api-1/#the-property-rule: syntax and inherits are required, and so is
+    // an initial value that matches the syntax and is computationally independent, unless the syntax is "*".
+    // An invalid rule registers nothing.
     private void Register(string source, AtRule at)
     {
         if (at.Prelude.FirstOrDefault(v => v is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }) is not PreservedToken { Token.Kind: CssTokenKind.Ident } name
@@ -263,6 +277,7 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             return;
         bool? inherits = null;
         string? initial = null;
+        PropertySyntax? syntax = null;
         foreach (var declaration in at.Declarations)
         {
             var text = declaration.Value.Count == 0 ? "" : source[declaration.Value[0].Start..declaration.Value[^1].End].Trim();
@@ -270,9 +285,18 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
                 inherits = text.ToLowerInvariant() switch { "true" => true, "false" => false, _ => null };
             else if (declaration.Name == "initial-value")
                 initial = text;
+            else if (declaration.Name == "syntax")
+                syntax = new ValueReader(source, declaration.Value) is var reader && reader.String() is { } written && reader.AtEnd ? PropertySyntax.Parse(written) : null;
         }
-        if (inherits is { } i)
-            Registered[name.Token.Value] = new RegisteredProperty(i, initial); // syntax checking arrives in M2
+        if (inherits is not { } i || syntax is null)
+            return;
+        if (!syntax.IsUniversal)
+        {
+            if (initial is null || initial.Contains("var(", StringComparison.OrdinalIgnoreCase) || syntax.Compute(initial, null) is not { } typed)
+                return;
+            initial = typed;
+        }
+        Registered[name.Token.Value] = new RegisteredProperty(i, initial, syntax);
     }
 
     private static List<string>? LayerNames(string source, List<ComponentValue> prelude)
@@ -335,33 +359,38 @@ internal static class Cascade
 {
     private readonly record struct Candidate(CascadeDeclaration Declaration, Origin Origin, bool ElementAttached, int[] Layer, Specificity Specificity, int Order, int Index);
 
+    /// <summary>Appends the rules matching an element (or one of its pseudo-elements), origin by origin, each in order of appearance.</summary>
+    public static void Match(ElementNode element, List<CascadeData> origins, MatchContext context, PseudoElement pseudoElement,
+                             List<RuleIndex<CascadeRule>.Entry> matched)
+    {
+        foreach (var data in origins)
+            data.Rules.Collect(element, pseudoElement, context, matched);
+    }
+
+    private static readonly int[] HintLayer = [-1];
+    private static readonly int[] StyleAttributeLayer = [int.MaxValue];
+
+    /// <summary>The cascaded values from matched rules, the style attribute and presentational hints.</summary>
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
-        ElementNode element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context,
-        PseudoElement pseudoElement = PseudoElement.None, List<CascadeDeclaration>? hints = null)
+        List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints)
     {
         var candidates = new List<Candidate>();
         // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.
         if (hints is not null)
         {
             for (var d = 0; d < hints.Count; d++)
-                candidates.Add(new Candidate(hints[d], Origin.Author, false, [-1], default, -1, d));
+                candidates.Add(new Candidate(hints[d], Origin.Author, false, HintLayer, default, -1, d));
         }
-        var matches = new List<RuleIndex<CascadeRule>.Entry>();
-        foreach (var data in origins)
+        foreach (var match in matched)
         {
-            matches.Clear();
-            data.Rules.Collect(element, pseudoElement, context, matches);
-            foreach (var match in matches)
-            {
-                var declarations = match.Data.Declarations;
-                for (var d = 0; d < declarations.Count; d++)
-                    candidates.Add(new Candidate(declarations[d], data.Origin, false, match.Data.Layer, match.Selector.Specificity, match.Data.Order, d));
-            }
+            var declarations = match.Data.Declarations;
+            for (var d = 0; d < declarations.Count; d++)
+                candidates.Add(new Candidate(declarations[d], match.Data.Origin, false, match.Data.Layer, match.Selector.Specificity, match.Data.Order, d));
         }
         if (styleAttribute is not null)
         {
             for (var d = 0; d < styleAttribute.Count; d++)
-                candidates.Add(new Candidate(styleAttribute[d], Origin.Author, true, [int.MaxValue], default, styleAttributeOrder, d));
+                candidates.Add(new Candidate(styleAttribute[d], Origin.Author, true, StyleAttributeLayer, default, styleAttributeOrder, d));
         }
 
         // Highest priority first; within one rule, later declarations come first too.
@@ -369,13 +398,12 @@ internal static class Cascade
 
         var values = new Dictionary<PropertyId, CssValue>();
         var custom = new Dictionary<string, CustomProperties.Declared>(StringComparer.Ordinal);
-        var rollbacks = new Dictionary<object, Func<Candidate, bool>>();
+        Dictionary<object, Func<Candidate, bool>>? rollbacks = null; // only revert and revert-layer need them
         for (var i = 0; i < candidates.Count; i++)
         {
             var c = candidates[i];
-            object key = c.Declaration.CustomName is { } name ? name : c.Declaration.Id;
             if ((c.Declaration.CustomName is { } n ? custom.ContainsKey(n) : values.ContainsKey(c.Declaration.Id))
-                || (rollbacks.TryGetValue(key, out var skip) && skip(c)))
+                || (rollbacks is not null && rollbacks.TryGetValue(KeyOf(c), out var skip) && skip(c)))
                 continue;
 
             var keyword = c.Declaration.CustomName is not null ? c.Declaration.Custom.Keyword : (c.Declaration.Value as CssWideValue)?.Keyword;
@@ -385,14 +413,14 @@ internal static class Cascade
             {
                 // Roll back to the previous origin: ignore the rest of this origin, both importances.
                 var origin = c.Origin;
-                rollbacks[key] = other => other.Origin == origin;
+                (rollbacks ??= [])[KeyOf(c)] = other => other.Origin == origin;
                 continue;
             }
             if (keyword == CssWideKeyword.RevertLayer)
             {
                 // Roll back to the previous layer of the same origin and importance.
                 var (origin, important, layer) = (c.Origin, c.Declaration.Important, c.Layer);
-                rollbacks[key] = other => other.Origin == origin && other.Declaration.Important == important && other.Layer.SequenceEqual(layer);
+                (rollbacks ??= [])[KeyOf(c)] = other => other.Origin == origin && other.Declaration.Important == important && other.Layer.SequenceEqual(layer);
                 continue;
             }
 
@@ -404,6 +432,9 @@ internal static class Cascade
         }
         return (values, custom);
     }
+
+    // A property's key for rollbacks: its id, or a custom property's name.
+    private static object KeyOf(Candidate c) => c.Declaration.CustomName is { } name ? name : c.Declaration.Id;
 
     // Origin and importance, then element-attached (style attribute), then layer, specificity, order.
     private static int Compare(Candidate a, Candidate b)

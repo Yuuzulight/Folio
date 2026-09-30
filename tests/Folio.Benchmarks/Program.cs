@@ -28,14 +28,14 @@ public static class Program
         var table = new StringBuilder()
             .AppendLine($"Parse to display list, median of {iterations} runs; typical-artifact targets: {Benchmark.TimeTarget.TotalMilliseconds} ms and {Mb(Benchmark.MemoryTarget)} MB for the whole first paint.")
             .AppendLine()
-            .AppendLine($"| Document | KB | {string.Concat(Measurement.StageNames.Select(n => n + " ms | "))}Total ms | Allocated MB | Retained MB |")
-            .AppendLine($"|---|--:|{string.Concat(Measurement.StageNames.Select(_ => "--:|"))}--:|--:|--:|");
+            .AppendLine($"| Document | KB | {string.Concat(Measurement.StageNames.Select(n => n + " ms | "))}Total ms | Allocated MB | Style allocated MB | Retained MB |")
+            .AppendLine($"|---|--:|{string.Concat(Measurement.StageNames.Select(_ => "--:|"))}--:|--:|--:|--:|");
         var warnings = new List<string>();
         foreach (var (name, html) in Benchmark.Documents())
         {
             var m = Benchmark.Measure(name, html, iterations);
             table.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                $"| {m.Name} | {m.Length / 1024} | {string.Concat(m.Stages.Select(t => Ms(t) + " | "))}{Ms(m.Total)} | {Mb(m.Allocated)} | {Mb(m.Retained)} |"));
+                $"| {m.Name} | {m.Length / 1024} | {string.Concat(m.Stages.Select(t => Ms(t) + " | "))}{Ms(m.Total)} | {Mb(m.Allocated)} | {Mb(m.StyleAllocated)} | {Mb(m.Retained)} |"));
             if (m.Total > Benchmark.TimeTarget || m.Retained > Benchmark.MemoryTarget)
                 warnings.Add($"{m.Name} is over a typical-artifact target: {Ms(m.Total)} ms, {Mb(m.Retained)} MB retained");
         }

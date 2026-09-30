@@ -59,7 +59,7 @@
 #b color: rgb(0, 0, 0)
 #c color: rgb(255, 0, 0)
 #d color: rgb(255, 0, 0)
-#e color: rgb(0, 0, 0)
+#e color: rgb(255, 0, 0)
 
 === light-dark uses the preferred scheme when the element supports it
 %dark

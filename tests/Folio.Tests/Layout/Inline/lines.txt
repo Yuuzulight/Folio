@@ -113,3 +113,38 @@ html 0,0 800x36
     p 0,10 800x16
       line 0,10 800x16
         text "a" 0,10 16x16
+
+=== blank lines in pre keep their height
+<!DOCTYPE html><style>body, pre { margin: 0 }</style><pre>aa
+
+bb
+
+
+cc</pre>
+---
+html 0,0 800x96
+  body 0,0 800x96
+    pre 0,0 800x96
+      line 0,0 800x16
+        text "aa" 0,0 32x16
+      line 0,16 800x16
+      line 0,32 800x16
+        text "bb" 0,32 32x16
+      line 0,48 800x16
+      line 0,64 800x16
+      line 0,80 800x16
+        text "cc" 0,80 32x16
+
+=== a br on its own makes a line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<br><br>b</p><p><br></p>
+---
+html 0,0 800x64
+  body 0,0 800x64
+    p 0,0 800x48
+      line 0,0 800x16
+        text "a" 0,0 16x16
+      line 0,16 800x16
+      line 0,32 800x16
+        text "b" 0,32 16x16
+    p 0,48 800x16
+      line 0,48 800x16

@@ -92,6 +92,10 @@ internal static class CounterStyles
                 return "\u25E6";
             case "square":
                 return "\u25AA";
+            case "disclosure-closed":
+                return "\u25B8";
+            case "disclosure-open":
+                return "\u25BE";
             case "decimal-leading-zero":
                 return value is >= 0 and < 10 ? "0" + value : Decimal(value);
             case "lower-alpha" or "lower-latin":
@@ -117,7 +121,7 @@ internal static class CounterStyles
         if (type.CounterStyle is not { } style || style == "none")
             return "";
         var text = Format(value, style);
-        return style is "disc" or "circle" or "square" ? text + " " : text + ". ";
+        return style is "disc" or "circle" or "square" or "disclosure-closed" or "disclosure-open" ? text + " " : text + ". ";
     }
 
     private static string Decimal(int value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);

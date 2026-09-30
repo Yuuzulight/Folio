@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shipments API Reference: Parcelpoint</title>
+<style>
+  :root {
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --soft: #f8fafc;
+    --brand: #4f46e5;
+    --get: #059669;
+    --post: #2563eb;
+    --patch: #d97706;
+    --delete: #dc2626;
+    --code-bg: #1e1b4b;
+    --code-ink: #e0e7ff;
+    --mono: ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #fff;
+    line-height: 1.6;
+    font-size: 15px;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--soft);
+  }
+
+  .topbar .brand { font-weight: 800; color: var(--brand); }
+  .topbar .version {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    padding: 1px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+  }
+
+  .topbar nav { margin-left: auto; display: flex; gap: 16px; font-size: 0.875rem; }
+
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 24px 64px;
+  }
+
+  h1 { font-size: 1.9rem; margin: 0 0 8px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 24px 0 8px; }
+  h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 20px 0 6px; }
+
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .lead { font-size: 1.05rem; color: var(--muted); }
+
+  .toc {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 24px;
+    padding: 14px 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    list-style: none;
+    margin: 20px 0;
+    font-size: 0.9rem;
+  }
+
+  .toc a { display: flex; align-items: center; gap: 8px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: #eef2ff;
+    color: #3730a3;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  .endpoint {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+  }
+
+  .method {
+    display: inline-block;
+    min-width: 58px;
+    padding: 1px 0;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: center;
+    font-family: system-ui, sans-serif;
+    letter-spacing: 0.04em;
+  }
+
+  .get { background: var(--get); }
+  .post { background: var(--post); }
+  .patch { background: var(--patch); }
+  .delete { background: var(--delete); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  td:first-child { white-space: nowrap; }
+  td .type { color: var(--muted); font-family: var(--mono); font-size: 0.8rem; }
+  .required {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--delete);
+    text-transform: uppercase;
+  }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    position: relative;
+  }
+
+  pre[data-lang]::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #a5b4fc;
+  }
+
+  pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+
+  .j-key { color: #93c5fd; }
+  .j-str { color: #bbf7d0; }
+  .j-num { color: #fcd34d; }
+  .j-bool { color: #f9a8d4; }
+  .j-null { color: #c4b5fd; }
+  .h-verb { color: #fda4af; font-weight: bold; }
+  .h-hdr { color: #a5b4fc; }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    margin: 16px 0;
+    font-size: 0.9rem;
+  }
+
+  .callout::before {
+    flex: 0 0 22px;
+    height: 22px;
+    line-height: 22px;
+    border-radius: 50%;
+    text-align: center;
+    font-weight: 800;
+    color: #fff;
+  }
+
+  .callout.info { background: #eff6ff; border: 1px solid #bfdbfe; }
+  .callout.info::before { content: "i"; background: var(--post); font-family: Georgia, serif; font-style: italic; }
+  .callout.warn { background: #fffbeb; border: 1px solid #fde68a; }
+  .callout.warn::before { content: "!"; background: var(--patch); }
+
+  dl.errors {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    gap: 8px 16px;
+    margin: 0;
+  }
+
+  dl.errors dt {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--delete);
+  }
+
+  dl.errors dd { margin: 0; }
+
+  @media (max-width: 640px) {
+    .toc { grid-template-columns: 1fr; }
+    .topbar nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">Parcelpoint</span>
+  <span class="version">v3</span>
+  <nav>
+    <a href="#">Guides</a>
+    <a href="#">API reference</a>
+    <a href="#">Changelog</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Shipments</h1>
+  <p class="lead">Create, track and cancel shipments. A shipment represents one parcel travelling from a sender to a recipient with a single carrier.</p>
+
+  <ul class="toc">
+    <li><a href="#auth">Authentication</a></li>
+    <li><a href="#create"><span class="method post">POST</span> Create a shipment</a></li>
+    <li><a href="#object">The shipment object</a></li>
+    <li><a href="#retrieve"><span class="method get">GET</span> Retrieve a shipment</a></li>
+    <li><a href="#errors">Errors</a></li>
+    <li><a href="#cancel"><span class="method delete">DELETE</span> Cancel a shipment</a></li>
+  </ul>
+
+  <h2 id="auth">Authentication</h2>
+  <p>
+    Every request must include your secret key in the <code>Authorization</code> header
+    as a bearer token. Keys starting with <code>pp_test_</code> work only in the sandbox;
+    keys starting with <code>pp_live_</code> create real shipments and incur charges.
+  </p>
+  <pre data-lang="http"><code><span class="h-verb">GET</span> /v3/shipments/shp_8KqT2mZ HTTP/1.1
+<span class="h-hdr">Host:</span> api.parcelpoint.example
+<span class="h-hdr">Authorization:</span> Bearer pp_test_&lt;your key&gt;
+<span class="h-hdr">Accept:</span> application/json</code></pre>
+
+  <div class="callout warn">
+    <div>Never embed a live key in client-side code or a mobile app. Anyone who has the key can create shipments billed to your account.</div>
+  </div>
+
+  <h2 id="object">The shipment object</h2>
+  <table>
+    <thead><tr><th>Field</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code><br><span class="type">string</span></td><td>Unique identifier, prefixed with <code>shp_</code>.</td></tr>
+      <tr><td><code>status</code><br><span class="type">enum</span></td><td>One of <code>created</code>, <code>label_ready</code>, <code>in_transit</code>, <code>delivered</code>, <code>cancelled</code>.</td></tr>
+      <tr><td><code>carrier</code><br><span class="type">string</span></td><td>Carrier code, for example <code>swiftpost</code>.</td></tr>
+      <tr><td><code>weight_g</code><br><span class="type">integer</span></td><td>Parcel weight in grams.</td></tr>
+      <tr><td><code>tracking_number</code><br><span class="type">string | null</span></td><td>Set once a label is generated.</td></tr>
+      <tr><td><code>created_at</code><br><span class="type">timestamp</span></td><td>ISO 8601 timestamp in UTC.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="create">Create a shipment</h2>
+  <div class="endpoint"><span class="method post">POST</span> /v3/shipments</div>
+  <p>Creates a shipment and, if <code>buy_label</code> is true, purchases a shipping label immediately.</p>
+
+  <h4>Body parameters</h4>
+  <table>
+    <thead><tr><th>Name</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>from</code> <span class="required">required</span><br><span class="type">address</span></td><td>Sender address. See the address guide for the required fields per country.</td></tr>
+      <tr><td><code>to</code> <span class="required">required</span><br><span class="type">address</span></td><td>Recipient address.</td></tr>
+      <tr><td><code>weight_g</code> <span class="required">required</span><br><span class="type">integer</span></td><td>Weight in grams, between 1 and 30,000.</td></tr>
+      <tr><td><code>carrier</code><br><span class="type">string</span></td><td>Carrier code. If omitted, we choose the cheapest carrier that meets <code>service_level</code>.</td></tr>
+      <tr><td><code>service_level</code><br><span class="type">enum</span></td><td><code>economy</code>, <code>standard</code> (default) or <code>express</code>.</td></tr>
+      <tr><td><code>buy_label</code><br><span class="type">boolean</span></td><td>Defaults to <code>false</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Example request</h4>
+  <pre data-lang="json"><code>{
+  <span class="j-key">"from"</span>: { <span class="j-key">"postcode"</span>: <span class="j-str">"EH1 1YZ"</span>, <span class="j-key">"country"</span>: <span class="j-str">"GB"</span> },
+  <span class="j-key">"to"</span>:   { <span class="j-key">"postcode"</span>: <span class="j-str">"M1 4BT"</span>,  <span class="j-key">"country"</span>: <span class="j-str">"GB"</span> },
+  <span class="j-key">"weight_g"</span>: <span class="j-num">1250</span>,
+  <span class="j-key">"service_level"</span>: <span class="j-str">"standard"</span>,
+  <span class="j-key">"buy_label"</span>: <span class="j-bool">true</span>
+}</code></pre>
+
+  <h4>Example response</h4>
+  <pre data-lang="json"><code>{
+  <span class="j-key">"id"</span>: <span class="j-str">"shp_8KqT2mZ"</span>,
+  <span class="j-key">"status"</span>: <span class="j-str">"label_ready"</span>,
+  <span class="j-key">"carrier"</span>: <span class="j-str">"swiftpost"</span>,
+  <span class="j-key">"weight_g"</span>: <span class="j-num">1250</span>,
+  <span class="j-key">"price"</span>: { <span class="j-key">"amount"</span>: <span class="j-num">4.85</span>, <span class="j-key">"currency"</span>: <span class="j-str">"GBP"</span> },
+  <span class="j-key">"tracking_number"</span>: <span class="j-str">"SP4410982273GB"</span>,
+  <span class="j-key">"cancelled_at"</span>: <span class="j-null">null</span>,
+  <span class="j-key">"created_at"</span>: <span class="j-str">"2026-09-18T10:42:07Z"</span>
+}</code></pre>
+
+  <div class="callout info">
+    <div>Requests are idempotent if you send an <code>Idempotency-Key</code> header. Retrying with the same key within 24 hours returns the original shipment instead of creating a second one.</div>
+  </div>
+
+  <h2 id="retrieve">Retrieve a shipment</h2>
+  <div class="endpoint"><span class="method get">GET</span> /v3/shipments/{id}</div>
+  <p>Returns the shipment object. Tracking updates are reflected in <code>status</code> within about two minutes of the carrier reporting them.</p>
+
+  <h2 id="cancel">Cancel a shipment</h2>
+  <div class="endpoint"><span class="method delete">DELETE</span> /v3/shipments/{id}</div>
+  <p>
+    Cancels the shipment and refunds the label cost. Only shipments with status
+    <code>created</code> or <code>label_ready</code> can be cancelled. Once the carrier has
+    scanned the parcel, cancellation returns a <code>409</code>.
+  </p>
+
+  <h2 id="errors">Errors</h2>
+  <p>Errors use standard HTTP status codes and return a body with a machine-readable <code>code</code> and a human-readable <code>message</code>.</p>
+  <dl class="errors">
+    <dt>400</dt><dd>The request body is malformed or a parameter is out of range.</dd>
+    <dt>401</dt><dd>The API key is missing, revoked, or for the wrong environment.</dd>
+    <dt>404</dt><dd>No shipment exists with that ID on your account.</dd>
+    <dt>409</dt><dd>The shipment is in a state that does not allow this action.</dd>
+    <dt>429</dt><dd>Too many requests. The limit is 100 requests per second per key; see the <code>Retry-After</code> header.</dd>
+  </dl>
+</main>
+</body>
+</html>

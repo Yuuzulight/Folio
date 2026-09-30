@@ -51,7 +51,7 @@ public class BlockLayoutTests
     internal static Fragment LayOut(string html, float width = 800, float height = 600)
     {
         var document = TreeBuilder.Parse(html);
-        StyleResolver.Resolve(document, new MediaContext(width, height));
+        StyleResolver.Resolve(document, new MediaContext(width, height), measure: InlineLayout.MeasureWith(BoxFont.Value));
         return LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, width, height, BoxFont.Value);
     }
 
@@ -80,7 +80,9 @@ public class BlockLayoutTests
 
     private static string Text(Fragment fragment)
     {
-        var (run, text) = (fragment.Text!.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
+        if (fragment.Text!.Replacement is { } replacement)
+            return replacement;
+        var (run, text) = (fragment.Text.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
         var (start, end) = (run.Clusters[fragment.Text.GlyphStart], run.Clusters[fragment.Text.GlyphEnd - 1] + 1);
         return text[start..end];
     }

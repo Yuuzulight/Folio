@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a pricing page with three plan cards for a note-taking app. Highlight the middle plan with a gradient border and a 'Most popular' badge.",
+  "features": ["flex", "custom-properties", "border-radius", "box-shadow", "linear-gradient", "radial-gradient", "background-clip", "transform", "pseudo-elements"],
+  "viewport": 800
+}

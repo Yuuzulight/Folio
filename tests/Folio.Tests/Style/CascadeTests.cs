@@ -31,9 +31,49 @@ public class CascadeTests
             var space = line.IndexOf(' ');
             var (label, property) = (line[..space], line[(space + 1)..line.IndexOf(':')]);
             var style = Find(document, label).ComputedStyle()!;
-            return $"{label} {property}: {Properties.Find(property)!.Describe(style)}";
+            // Custom properties print their computed text, or "none" when they have no value.
+            var value = property.StartsWith("--", StringComparison.Ordinal)
+                ? style.Custom.GetValueOrDefault(property) ?? "none"
+                : Properties.Find(property)!.Describe(style);
+            return $"{label} {property}: {value}";
         });
         Assert.Equal(test.Expected, actual);
+    }
+
+    [Fact]
+    public void ElementsMatchingTheSameRulesUnderTheSameParentStyleShareOneStyle()
+    {
+        var document = TreeBuilder.Parse("<!DOCTYPE html><style>tr:nth-child(odd) td { color: red } .x { background-color: blue }</style><table>" +
+            "<tr id=r1><td id=a>1<td id=b>2<tr id=r2><td id=c>3<td id=d style='color: lime'>4<tr id=r3><td id=e>5<td id=f class=x>6</table>");
+
+        StyleResolver.Resolve(document, new MediaContext(800, 600));
+
+        ComputedStyle Style(string id) => Find(document, "#" + id).ComputedStyle()!;
+        Assert.Same(Style("r1"), Style("r2"));                // same rules, same parent: one style
+        Assert.Same(Style("a"), Style("b"));
+        Assert.Same(Style("a"), Style("e"));                  // cousins, through the shared row style
+        Assert.NotSame(Style("a"), Style("c"));               // an even row's cells match other rules
+        Assert.Equal(new CssColor(1, 0, 0, 1), Style("a").Inherited.Color);
+        Assert.Equal(new CssColor(0, 0, 0, 1), Style("c").Inherited.Color);
+        Assert.Equal(new CssColor(0, 1, 0, 1), Style("d").Inherited.Color); // a style attribute is never shared
+        Assert.NotSame(Style("e"), Style("f"));                // another class, another rule
+        Assert.Equal(new CssColor(0, 0, 1, 1), Style("f").Background.Color);
+        Assert.Equal(CssColor.Transparent, Style("e").Background.Color);
+    }
+
+    [Fact]
+    public void IsOverTagNamesMatchesThoseTags()
+    {
+        var document = TreeBuilder.Parse("<!DOCTYPE html><style>div :is(p, span) { color: red } :where(em) { color: blue }</style>" +
+            "<div><p id=a>1</p><span id=b>2</span><b id=c>3</b><em id=d>4</em></div><p id=e>5</p>");
+
+        StyleResolver.Resolve(document, new MediaContext(800, 600));
+
+        Assert.Equal(new CssColor(1, 0, 0, 1), Find(document, "#a").ComputedStyle()!.Inherited.Color);
+        Assert.Equal(new CssColor(1, 0, 0, 1), Find(document, "#b").ComputedStyle()!.Inherited.Color);
+        Assert.Equal(new CssColor(0, 0, 0, 1), Find(document, "#c").ComputedStyle()!.Inherited.Color);
+        Assert.Equal(new CssColor(0, 0, 1, 1), Find(document, "#d").ComputedStyle()!.Inherited.Color);
+        Assert.Equal(new CssColor(0, 0, 0, 1), Find(document, "#e").ComputedStyle()!.Inherited.Color);
     }
 
     [Fact]

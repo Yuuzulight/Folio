@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account Settings</title>
+<style>
+  :root {
+    --bg: #f3f4f8;
+    --card: #fff;
+    --ink: #1c2230;
+    --muted: #697086;
+    --line: #e2e5ee;
+    --brand: #2f6fed;
+    --brand-soft: #e8effe;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 36px 20px 60px;
+  }
+
+  h1 { font-size: 26px; margin: 0 0 20px; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(28, 34, 48, 0.05);
+    overflow: hidden;
+  }
+
+  [role="tablist"] {
+    display: flex;
+    gap: 4px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  [role="tab"] {
+    appearance: none;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 14px 14px 12px;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+
+  [role="tab"][aria-selected="true"] {
+    color: var(--brand);
+    border-bottom-color: var(--brand);
+  }
+
+  [role="tab"]:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; border-radius: 6px; }
+
+  [role="tabpanel"] { padding: 22px 24px; }
+  [role="tabpanel"][hidden] { display: none; }
+
+  .field {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .field:last-of-type { border-bottom: none; }
+
+  label, .label { font-size: 14px; font-weight: 600; }
+  .hint { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+
+  input[type="text"], input[type="email"], select {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+
+  input:focus, select:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+
+  .switch {
+    position: relative;
+    width: 42px;
+    height: 24px;
+    justify-self: start;
+  }
+
+  .switch input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+
+  .switch span {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: #cfd4e0;
+    transition: background 0.2s;
+    pointer-events: none;
+  }
+
+  .switch span::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s;
+  }
+
+  .switch input:checked + span { background: var(--brand); }
+  .switch input:checked + span::after { transform: translateX(18px); }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .toast { font-size: 13px; color: #15803d; opacity: 0; transition: opacity 0.3s; }
+  .toast.show { opacity: 1; }
+
+  .btn {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--brand);
+    background: var(--brand);
+    color: #fff;
+    cursor: pointer;
+  }
+
+  .btn.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+
+  h2 { font-size: 18px; margin: 34px 0 12px; }
+
+  .faq { display: flex; flex-direction: column; gap: 8px; }
+
+  .faq-item {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  .faq-q {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .chev {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg);
+    transition: transform 0.2s;
+  }
+
+  .faq-q[aria-expanded="true"] .chev { transform: rotate(-135deg); }
+
+  .faq-a {
+    padding: 0 16px 14px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .faq-a[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Settings</h1>
+
+    <div class="panel">
+      <div role="tablist" aria-label="Settings sections">
+        <button role="tab" id="tab-profile" aria-controls="panel-profile" aria-selected="true">Profile</button>
+        <button role="tab" id="tab-notify" aria-controls="panel-notify" aria-selected="false" tabindex="-1">Notifications</button>
+        <button role="tab" id="tab-privacy" aria-controls="panel-privacy" aria-selected="false" tabindex="-1">Privacy</button>
+        <button role="tab" id="tab-billing" aria-controls="panel-billing" aria-selected="false" tabindex="-1">Billing</button>
+      </div>
+
+      <form id="settings-form">
+        <section role="tabpanel" id="panel-profile" aria-labelledby="tab-profile">
+          <div class="field"><label for="name">Display name</label><input id="name" type="text" value="Rosalind Achterberg"></div>
+          <div class="field"><label for="email">Email<span class="hint">Used for sign-in and receipts</span></label><input id="email" type="email" value="rosalind@example.com"></div>
+          <div class="field">
+            <label for="tz">Time zone</label>
+            <select id="tz">
+              <option>UTC−08:00 Pacific</option>
+              <option selected>UTC+01:00 Central Europe</option>
+              <option>UTC+05:30 India</option>
+              <option>UTC+09:00 Japan</option>
+            </select>
+          </div>
+        </section>
+
+        <section role="tabpanel" id="panel-notify" aria-labelledby="tab-notify" hidden>
+          <div class="field"><span class="label">Weekly digest<span class="hint">A summary every Monday morning</span></span><span class="switch"><input type="checkbox" checked aria-label="Weekly digest"><span></span></span></div>
+          <div class="field"><span class="label">Mentions<span class="hint">When someone @mentions you</span></span><span class="switch"><input type="checkbox" checked aria-label="Mentions"><span></span></span></div>
+          <div class="field"><span class="label">Product news<span class="hint">New features, at most once a month</span></span><span class="switch"><input type="checkbox" aria-label="Product news"><span></span></span></div>
+        </section>
+
+        <section role="tabpanel" id="panel-privacy" aria-labelledby="tab-privacy" hidden>
+          <div class="field">
+            <label for="visibility">Profile visibility</label>
+            <select id="visibility"><option>Everyone</option><option selected>Team members only</option><option>Only me</option></select>
+          </div>
+          <div class="field"><span class="label">Show online status</span><span class="switch"><input type="checkbox" checked aria-label="Show online status"><span></span></span></div>
+          <div class="field"><span class="label">Share usage analytics<span class="hint">Anonymous, helps us improve</span></span><span class="switch"><input type="checkbox" aria-label="Share usage analytics"><span></span></span></div>
+        </section>
+
+        <section role="tabpanel" id="panel-billing" aria-labelledby="tab-billing" hidden>
+          <div class="field"><span class="label">Plan</span><span>Team · 6 seats · $48/month</span></div>
+          <div class="field"><span class="label">Next invoice</span><span>1 October 2026</span></div>
+          <div class="field"><label for="vat">VAT number</label><input id="vat" type="text" placeholder="e.g. NL123456789B01"></div>
+        </section>
+
+        <div class="actions" style="padding: 0 24px 22px">
+          <span class="toast" id="toast" role="status">Settings saved</span>
+          <button type="reset" class="btn secondary">Discard</button>
+          <button type="submit" class="btn">Save changes</button>
+        </div>
+      </form>
+    </div>
+
+    <h2>Frequently asked questions</h2>
+    <div class="faq" id="faq">
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="true" aria-controls="a1">Can I change my email address?<span class="chev"></span></button>
+        <div class="faq-a" id="a1">Yes. Update it on the Profile tab and we'll send a confirmation link to the new address. Your old address keeps working until you click it.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false" aria-controls="a2">Who can see my profile?<span class="chev"></span></button>
+        <div class="faq-a" id="a2" hidden>By default only members of your team. You can widen or narrow this on the Privacy tab.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false" aria-controls="a3">How do I add more seats?<span class="chev"></span></button>
+        <div class="faq-a" id="a3" hidden>Invite a teammate from the Members page. Seats are prorated to the day and appear on your next invoice.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false" aria-controls="a4">Can I pause notifications while on holiday?<span class="chev"></span></button>
+        <div class="faq-a" id="a4" hidden>Turn off the switches on the Notifications tab. Mentions will still collect in your inbox, they just won't ping you.</div>
+      </div>
+    </div>
+  </main>
+
+<script>
+  // Tabs: click and arrow-key navigation
+  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+
+  function selectTab(tab) {
+    tabs.forEach((t) => {
+      const selected = t === tab;
+      t.setAttribute('aria-selected', String(selected));
+      t.tabIndex = selected ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !selected;
+    });
+    tab.focus();
+  }
+
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => selectTab(tab));
+    tab.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') selectTab(tabs[(i + 1) % tabs.length]);
+      if (e.key === 'ArrowLeft') selectTab(tabs[(i - 1 + tabs.length) % tabs.length]);
+      if (e.key === 'Home') selectTab(tabs[0]);
+      if (e.key === 'End') selectTab(tabs[tabs.length - 1]);
+    });
+  });
+
+  // Fake save with a status toast
+  const form = document.getElementById('settings-form');
+  const toast = document.getElementById('toast');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2000);
+  });
+
+  // Accordion: one item open at a time
+  const questions = document.querySelectorAll('.faq-q');
+  questions.forEach((q) => {
+    q.addEventListener('click', () => {
+      const willOpen = q.getAttribute('aria-expanded') !== 'true';
+      questions.forEach((other) => {
+        other.setAttribute('aria-expanded', 'false');
+        document.getElementById(other.getAttribute('aria-controls')).hidden = true;
+      });
+      if (willOpen) {
+        q.setAttribute('aria-expanded', 'true');
+        document.getElementById(q.getAttribute('aria-controls')).hidden = false;
+      }
+    });
+  });
+</script>
+</body>
+</html>

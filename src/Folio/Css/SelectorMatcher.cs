@@ -14,6 +14,9 @@ internal sealed class MatchContext
     /// <summary>Holds the current element's ancestors, or null when the caller does not maintain one.</summary>
     public AncestorFilter? Filter { get; set; }
 
+    /// <summary>The element a <c>:has()</c> argument is being matched relative to; see <see cref="HasAnchorSelector"/>.</summary>
+    public ElementNode? HasAnchor { get; set; }
+
     public int IndexAmongSiblings(ElementNode element, bool fromEnd)
     {
         var parent = element.Parent!;
@@ -187,11 +190,84 @@ internal static class SelectorMatcher
             case LogicalSelector logical:
                 var any = Matches(logical.Arguments, element, context);
                 return logical.Kind == LogicalKind.Not ? !any : any;
+            case HasSelector has:
+                return MatchesHas(has, element, context);
+            case HasAnchorSelector:
+                return element == context.HasAnchor;
             case NestingSelector nesting:
                 return nesting.Parent is null ? IsRoot(element) : Matches(nesting.Parent, element, context);
             default:
                 return false;
         }
+    }
+
+    // https://www.w3.org/TR/selectors-4/#relational: some element reachable from the anchor through the relative
+    // selector's combinators matches it. A leading descendant or child combinator keeps every match inside the anchor's
+    // subtree; a leading sibling combinator keeps it among the following siblings (and their subtrees, if a descendant
+    // or child combinator comes later).
+    // ponytail: no result cache, so a :has() rule costs one subtree walk per candidate element on a full restyle;
+    // cache per restyle pass if the benchmark shows it, and upward invalidation arrives with incremental restyle (M3).
+    private static bool MatchesHas(HasSelector has, ElementNode element, MatchContext context)
+    {
+        var outer = context.HasAnchor;
+        context.HasAnchor = element;
+        try
+        {
+            foreach (var relative in has.Arguments.Selectors)
+            {
+                var last = relative.Parts.Count - 1;
+                var leading = relative.Parts[1].Combinator;
+                if (leading is Combinator.Descendant or Combinator.Child)
+                {
+                    // ":has(> a)" only needs the children.
+                    var childrenOnly = leading == Combinator.Child && last == 1;
+                    for (var node = FirstChildElement(element); node is not null; node = childrenOnly ? NextElement(node) : NextElementInTree(node, element))
+                    {
+                        if (MatchFrom(relative, last, node, context))
+                            return true;
+                    }
+                }
+                else
+                {
+                    var intoSubtrees = relative.Parts.Skip(2).Any(p => p.Combinator is Combinator.Descendant or Combinator.Child);
+                    for (var sibling = NextElement(element); sibling is not null; sibling = NextElement(sibling))
+                    {
+                        if (MatchFrom(relative, last, sibling, context))
+                            return true;
+                        for (var node = intoSubtrees ? FirstChildElement(sibling) : null; node is not null; node = NextElementInTree(node, sibling))
+                        {
+                            if (MatchFrom(relative, last, node, context))
+                                return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        finally
+        {
+            context.HasAnchor = outer;
+        }
+    }
+
+    private static ElementNode? FirstChildElement(ElementNode element)
+    {
+        foreach (var child in element.Children)
+        {
+            if (child is ElementNode e)
+                return e;
+        }
+        return null;
+    }
+
+    private static ElementNode? NextElementInTree(Node node, ElementNode root)
+    {
+        for (var next = node.NextInTree(root); next is not null; next = next.NextInTree(root))
+        {
+            if (next is ElementNode e)
+                return e;
+        }
+        return null;
     }
 
     private static bool IsRoot(ElementNode element) => element.Parent is DocumentNode;

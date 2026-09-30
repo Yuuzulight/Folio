@@ -142,6 +142,24 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
         return null;
     }
 
+    /// <summary>The source text of the values read since <paramref name="mark"/>, without surrounding whitespace.</summary>
+    public string TextSince(int mark)
+    {
+        var read = values.Skip(mark).Take(_pos - mark).Where(v => v is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }).ToList();
+        return read.Count == 0 ? "" : source[read[0].Start..read[^1].End];
+    }
+
+    /// <summary>Any dimension: its number and its unit as written.</summary>
+    public (float Value, string Unit)? Dimension()
+    {
+        if (Next() is PreservedToken { Token.Kind: CssTokenKind.Dimension } d)
+        {
+            _pos++;
+            return ((float)d.Token.Number, d.Token.Value);
+        }
+        return null;
+    }
+
     /// <summary>A function of this name (ASCII case-insensitive): consumes it and reads its arguments.</summary>
     public ValueReader? Function(string name)
     {
@@ -595,7 +613,8 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
 
     private static CssColor? Hex(string digits)
     {
-        if (digits.Length is not (3 or 4 or 6 or 8) || !int.TryParse(digits, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+        // Only hex digits: a hash token can hold other characters through escapes, which number parsing would skip.
+        if (digits.Length is not (3 or 4 or 6 or 8) || !digits.All(char.IsAsciiHexDigit))
             return null;
         int Digit(int i) => Convert.ToInt32(digits.Substring(i, 1), 16);
         int Pair(int i) => Convert.ToInt32(digits.Substring(i, 2), 16);

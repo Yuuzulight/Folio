@@ -1,0 +1,5 @@
+{
+  "prompt": "Build an SVG line chart from a JavaScript data array of monthly website visitors and newsletter sign-ups, with gridlines, axis labels, shaded areas, and a tooltip plus a vertical guide line when I hover a month.",
+  "features": ["script", "svg", "create-element-ns", "dom-events", "hover", "get-bounding-client-rect", "absolute-position", "template-literals", "flex", "transitions"],
+  "viewport": 800
+}

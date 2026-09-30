@@ -1,0 +1,5 @@
+{
+  "prompt": "Write a technical design doc proposing hot/warm/cold tiered storage for our analytics event data, with a table of contents, a diagram, code samples, and a rollout plan.",
+  "features": ["headings", "table-of-contents", "anchor-links", "counters", "code-blocks", "syntax-highlighting", "tables", "admonitions", "figure", "css-drawn-figure", "details-summary", "definition-lists", "blockquote", "hr", "flexbox", "pseudo-elements", "media-queries", "custom-properties"],
+  "viewport": 800
+}

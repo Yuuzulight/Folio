@@ -1,0 +1,5 @@
+{
+  "prompt": "Make an employee directory page for our company listing everyone with ID, name, job title, department, location, email, phone extension, start date and status. Keep the header row visible while scrolling through the long list.",
+  "features": ["long-table", "sticky-header", "zebra-striping", "row-hover", "status-badges", "border-collapse-separate", "rounded-container", "box-shadow", "tabular-nums", "overflow-x-scroll", "media-query"],
+  "viewport": 800
+}

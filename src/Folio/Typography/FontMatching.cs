@@ -68,6 +68,7 @@ internal sealed class FontCollection(IFontSource? source = null)
     private readonly Dictionary<string, List<FontFace>> _families = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _opened = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, string?> _characterFallbacks = [];
+    private readonly Dictionary<string, List<WebFace>> _webFamilies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A collection for a document's font settings.</summary>
     public static FontCollection For(FontSettings settings)
@@ -110,9 +111,51 @@ internal sealed class FontCollection(IFontSource? source = null)
         return collection;
     }
 
-    /// <summary>The best face of a family (generic families resolve through <see cref="GenericFamilies"/>).</summary>
-    public FontFace? Match(string family, FaceStyle style, int weight, float stretch)
+    /// <summary>
+    /// Makes a family name an <c>@font-face</c> family: from now on it matches only faces added with
+    /// <see cref="AddWebFace"/>, never an installed family of the same name (https://www.w3.org/TR/css-fonts-4/#font-matching-algorithm).
+    /// </summary>
+    public void DeclareWebFamily(string family)
     {
+        if (!_webFamilies.ContainsKey(family))
+            _webFamilies[family] = [];
+    }
+
+    public void AddWebFace(WebFace face)
+    {
+        DeclareWebFamily(face.Rule.Family);
+        _webFamilies[face.Rule.Family].Add(face);
+    }
+
+    /// <summary>An installed face for <c>local()</c>: its full name, else the regular face of a family of that name.</summary>
+    // ponytail: looks the name up as a family, so local("Family Bold") only works when the source lists it that way.
+    public FontFace? MatchInstalled(string name)
+    {
+        Open(name);
+        return _families.TryGetValue(name, out var faces)
+            ? faces.FirstOrDefault(f => f.FullName.Equals(name, StringComparison.OrdinalIgnoreCase))
+              ?? FontMatcher.Match(faces, f => new FaceTraits(f.Weight, f.Style, f.Stretch), 100, FaceStyle.Normal, 400)
+            : null;
+    }
+
+    /// <summary>The best face of a family (generic families resolve through <see cref="GenericFamilies"/>).</summary>
+    /// <param name="cluster">When given, <c>@font-face</c> faces whose <c>unicode-range</c> misses a character of it are skipped.</param>
+    public FontFace? Match(string family, FaceStyle style, int weight, float stretch, ReadOnlySpan<char> cluster = default)
+    {
+        if (_webFamilies.TryGetValue(family, out var webFaces))
+        {
+            var candidates = webFaces;
+            if (!cluster.IsEmpty)
+            {
+                candidates = [];
+                foreach (var face in webFaces)
+                {
+                    if (InRange(face.Rule, cluster))
+                        candidates.Add(face);
+                }
+            }
+            return FontMatcher.Match(candidates, f => f.TraitsFor(weight, stretch), stretch, style, weight)?.Face;
+        }
         foreach (var name in Resolve(family))
         {
             Open(name);
@@ -156,7 +199,7 @@ internal sealed class FontCollection(IFontSource? source = null)
             candidates = candidates.Concat(fallbacks);
         foreach (var family in candidates)
         {
-            if (Match(family, style, weight, stretch) is { } face && CoversAll(face, cluster))
+            if (Match(family, style, weight, stretch, cluster) is { } face && CoversAll(face, cluster))
                 return face;
         }
         // Step 3: the source's own choice for the cluster's first character.
@@ -202,6 +245,16 @@ internal sealed class FontCollection(IFontSource? source = null)
                 return true;
         }
         return false;
+    }
+
+    private static bool InRange(Style.FontFaceRule rule, ReadOnlySpan<char> cluster)
+    {
+        foreach (var rune in cluster.EnumerateRunes())
+        {
+            if (rune.Value is not (0x200D or (>= 0xFE00 and <= 0xFE0F)) && !rule.Covers(rune.Value))
+                return false;
+        }
+        return true;
     }
 
     private static bool CoversAll(FontFace face, ReadOnlySpan<char> cluster)

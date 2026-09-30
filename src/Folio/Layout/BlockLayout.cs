@@ -42,6 +42,14 @@ internal static class BlockLayout
             : ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
         var minHeight = space.FixedHeight is null ? ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0 : 0;
         var maxHeight = space.FixedHeight is null ? ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity : float.PositiveInfinity;
+        // aspect-ratio (css-sizing-4 §5.1): an auto height follows the width through the ratio, in the box-sizing box. It
+        // is still at least the content's height unless the box scrolls or clips (the automatic minimum size).
+        var fromRatio = false;
+        if (height is null && style.Size.AspectRatio is { } ratio && box is not ReplacedBox)
+        {
+            height = borderBox ? Math.Max(0, (width + frameX) / ratio - frameY) : width / ratio;
+            fromRatio = style.Box.OverflowX == Overflow.Visible && style.Box.OverflowY == Overflow.Visible;
+        }
         var definiteHeight = height is { } h ? Clamp(h, minHeight, maxHeight) : (float?)null;
 
         var independent = EstablishesIndependentFormattingContext(box);
@@ -80,8 +88,8 @@ internal static class BlockLayout
             var (ml, mr) = (Margin(spacing.MarginLeft, width), Margin(spacing.MarginRight, width));
             var (mt, mb) = (Margin(spacing.MarginTop, width), Margin(spacing.MarginBottom, width));
             var (outerWidth, outerHeight) = (ml + fragment.Width + mr, mt + fragment.Height + mb);
-            var side = child.Style.Box.Float is FloatSide.Right or FloatSide.InlineEnd ? FloatSide.Right : FloatSide.Left;
-            var minTop = Math.Max(contentY + top, exclusions.ClearEdge(child.Style.Box.Clear) ?? float.NegativeInfinity);
+            var side = PhysicalFloat(child.Style.Box.Float, style.Text.Direction);
+            var minTop = Math.Max(contentY + top, exclusions.ClearEdge(PhysicalClear(child.Style.Box.Clear, style.Text.Direction)) ?? float.NegativeInfinity);
             var (fx, fy) = exclusions.PlaceFloat(side, outerWidth, outerHeight, minTop, contentX, contentX + width);
             exclusions = exclusions.Add(new FloatArea(side, fx, fy, fx + outerWidth, fy + outerHeight));
             Place(child, fragment, fx + ml - boxX, fy + mt - boxY);
@@ -156,7 +164,7 @@ internal static class BlockLayout
 
             // Clearance (§9.5.2): the border box goes below the floats it clears, and margins stop collapsing across.
             var clearance = false;
-            if (exclusions.ClearEdge(child.Style.Box.Clear) is { } edge && contentY + y < edge)
+            if (exclusions.ClearEdge(PhysicalClear(child.Style.Box.Clear, style.Text.Direction)) is { } edge && contentY + y < edge)
                 (y, clearance) = (edge - contentY, true);
 
             Fragment fragment;
@@ -233,12 +241,12 @@ internal static class BlockLayout
         // Height: auto is the flow's extent; min and max apply either way (§10.6.3, §10.7). An independent formatting
         // context's auto height also contains its floats (§10.6.7).
         var flowHeight = cursor;
-        var contentHeight = Clamp(height ?? flowHeight, minHeight, maxHeight);
+        var contentHeight = Clamp(fromRatio ? Math.Max(height!.Value, flowHeight) : height ?? flowHeight, minHeight, maxHeight);
         if (collapseBottom && contentHeight != flowHeight)
             collapseBottom = false; // min-height or max-height moved the bottom edge away from the last child
         if (!collapseBottom && !atTop)
         {
-            contentHeight = Clamp(height ?? flowHeight + pending.Resolve(), minHeight, maxHeight);
+            contentHeight = Clamp(fromRatio ? Math.Max(height!.Value, flowHeight + pending.Resolve()) : height ?? flowHeight + pending.Resolve(), minHeight, maxHeight);
             pending = default;
         }
         if (independent && height is null && !exclusions.IsEmpty)
@@ -272,6 +280,9 @@ internal static class BlockLayout
             }
         }
 
+        if (box is BlockContainerBox { Marker: { } marker })
+            PlaceMarker(marker, children, border.LeftWidth + padding.Left, border.TopWidth + padding.Top, width, context);
+
         return new Fragment(box, width + frameX, contentHeight + frameY, children)
         {
             MarginLeft = marginLeft,
@@ -282,6 +293,53 @@ internal static class BlockLayout
             Exclusions = independent ? space.Exclusions : exclusions,
             OutOfFlow = outOfFlow,
         };
+    }
+
+    // float and clear: inline-start and inline-end are left and right in a left-to-right containing block, and the other
+    // way round in a right-to-left one (css-logical-1 §3.1).
+    internal static FloatSide PhysicalFloat(FloatSide side, Direction direction) =>
+        side is FloatSide.Right || side == (direction == Direction.Rtl ? FloatSide.InlineStart : FloatSide.InlineEnd) ? FloatSide.Right : FloatSide.Left;
+
+    private static Clear PhysicalClear(Clear clear, Direction direction) => clear switch
+    {
+        Clear.InlineStart => direction == Direction.Rtl ? Clear.Right : Clear.Left,
+        Clear.InlineEnd => direction == Direction.Rtl ? Clear.Left : Clear.Right,
+        _ => clear,
+    };
+
+    /// <summary>
+    /// Places an outside list marker (https://www.w3.org/TR/css-lists-3/#list-style-position-property): its text ends
+    /// where the first line box starts (or begins where it ends, right to left), on that line's baseline. The first
+    /// line may be in a descendant block; with no line at all, the marker sits at the top of the content box.
+    /// </summary>
+    private static void PlaceMarker(MarkerBox marker, List<ChildFragment> children, float contentX, float contentY, float contentWidth, LayoutContext context)
+    {
+        var (runs, ascent) = InlineLayout.MarkerText(marker, context);
+        if (runs.Count == 0)
+            return;
+        var markerWidth = runs.Sum(r => r.Width);
+        var (lineX, lineY, lineWidth, baseline) = FirstLine(children, 0, 0) ?? (contentX, contentY, contentWidth, ascent);
+        var rtl = marker.Style.Text.Direction == Style.Direction.Rtl;
+        var x = rtl ? lineX + lineWidth : lineX - markerWidth;
+        foreach (var run in runs)
+        {
+            children.Add(new ChildFragment(x, lineY + baseline - run.Text!.Ascent, run));
+            x += run.Width;
+        }
+
+        // The first line box in flow order, through in-flow block children, as its box-relative position and baseline.
+        static (float X, float Y, float Width, float Baseline)? FirstLine(IReadOnlyList<ChildFragment> fragments, float dx, float dy)
+        {
+            foreach (var child in fragments)
+            {
+                if (child.Fragment.Kind == FragmentKind.Line && child.Fragment.Height > 0)
+                    return (dx + child.X, dy + child.Y, child.Fragment.Width, child.Fragment.Baseline);
+                if (child.Fragment is { Kind: FragmentKind.Box, Box: BlockContainerBox { IsFloat: false, IsAbsolutelyPositioned: false, IsAtomicInline: false } }
+                    && FirstLine(child.Fragment.Children, dx + child.X, dy + child.Y) is { } inner)
+                    return inner;
+            }
+            return null;
+        }
     }
 
     // The floats after a child that joined this formatting context, with the ones it placed moved by dy: the child
@@ -380,6 +438,8 @@ internal static class BlockLayout
                                                                                  LayoutContext? context = null)
     {
         var style = box.Style;
+        // Which margin gives way when the widths do not add up: the end one of the containing block (§10.3.3).
+        var rtl = (box.Parent?.Style ?? style).Text.Direction == Direction.Rtl;
         var available = cbWidth - Margin(style.Spacing.MarginLeft, cbWidth) - Margin(style.Spacing.MarginRight, cbWidth) - frameX;
         float? Size(SizeValue value) =>
             ContentSize(value, cbWidth, frameX, borderBox) ?? IntrinsicSizes.Keyword(value, box, available, context);
@@ -402,19 +462,21 @@ internal static class BlockLayout
             var mr = Margin(right, cbWidth);
             if (specified is not { } w)
             {
-                // Auto margins are zero; the width fills the rest, and if that is negative the right margin gives way.
+                // Auto margins are zero; the width fills the rest, and if that is negative the end margin gives way.
                 var fill = Math.Max(0, cbWidth - ml - mr - frameX);
-                return (fill, ml, cbWidth - ml - frameX - fill);
+                return rtl ? (fill, cbWidth - mr - frameX - fill, mr) : (fill, ml, cbWidth - ml - frameX - fill);
             }
 
             var remaining = cbWidth - w - frameX;
+            var half = Math.Max(0, remaining / 2);
             return (left.Kind == SizeKind.Auto, right.Kind == SizeKind.Auto) switch
             {
-                // Centred, unless the box is wider than its containing block (then the left margin is zero).
-                (true, true) => (w, Math.Max(0, remaining / 2), remaining - Math.Max(0, remaining / 2)),
+                // Centred, unless the box is wider than its containing block (then the start margin is zero).
+                (true, true) => rtl ? (w, remaining - half, half) : (w, half, remaining - half),
                 (true, false) => (w, remaining - mr, mr),
-                // Over-constrained or only the right margin auto: the right margin takes what is left (ltr).
-                _ => (w, ml, remaining - ml),
+                (false, true) => (w, ml, remaining - ml),
+                // Over-constrained: the end margin takes what is left.
+                _ => rtl ? (w, remaining - mr, mr) : (w, ml, remaining - ml),
             };
         }
     }

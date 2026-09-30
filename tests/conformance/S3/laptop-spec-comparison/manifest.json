@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a table comparing 6 thin-and-light laptops on price, weight, battery, display, processor, RAM, storage and ports, highlight the best value in each column, and then show a full spec sheet for the one you'd recommend.",
+  "features": ["comparison-matrix", "check-cross-marks", "key-value-spec-sheet", "multiple-tables", "wide-table", "overflow-x-scroll", "sticky-column", "colgroup", "col-span-attribute", "colspan", "rowspan", "grouped-headers", "best-value-highlight", "zebra-striping", "border-collapse-separate", "caption", "status-badges", "box-shadow", "rounded-container"],
+  "viewport": 800
+}

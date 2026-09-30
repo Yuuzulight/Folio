@@ -8,10 +8,10 @@ namespace Folio.Layout;
 /// An inline formatting context (docs/study/06-layout-block-and-inline.md, inline layout steps 3 to 6): text shaped
 /// per font run with per-cluster fallback, break opportunities from UAX #14 tailored by <c>white-space</c>, greedy
 /// line filling beside floats, line boxes sized from the strut and each piece's font and <c>line-height</c> with
-/// everything on the baseline, and <c>text-align</c>.
+/// everything on the baseline, <c>text-indent</c>, <c>text-align</c> with justification, and hyphens shown where lines
+/// break at soft hyphens.
 /// </summary>
-// ponytail: justification (as start), text-indent, soft hyphens shown at breaks, and bidi's L1 reset of whitespace
-// at soft line ends are not done yet.
+// ponytail: bidi's L1 reset of whitespace at soft line ends is not done yet.
 internal static class InlineLayout
 {
     /// <summary>What the enclosing block layout provides: floats and positioned boxes are its to place.</summary>
@@ -37,11 +37,26 @@ internal static class InlineLayout
         var placedFloats = new HashSet<Box>();
         var openBoxes = new List<(InlineBox Box, ComputedStyle Style)>();
         var y = top;
+        var indent = block.Node is Dom.ElementNode ? block.Style.Text.TextIndent : default; // not in anonymous blocks
+        var rtl = levels.Paragraph == 1;
+        var afterForcedBreak = true;
 
-        for (var u = 0; u < units.Count;)
+        // line-clamp (css-overflow-4 §4): only that many lines are laid out; the last one ends with an ellipsis when
+        // content was left out.
+        var clamp = block.Style.Box.LineClamp;
+        for (var u = 0; u < units.Count && (clamp is not { } most || lines.Count < most);)
         {
             var bandHeight = strut.Above + strut.Below;
-            var (left, right) = environment.Available(y, y + bandHeight);
+            // text-indent moves the first line's start edge (or every other line's, when hanging; each-line counts lines
+            // after forced breaks as first lines too).
+            var first = lines.Count == 0 || indent.EachLine && afterForcedBreak;
+            var shift = first != indent.Hanging ? indent.Length.Resolve(width) : 0;
+            (float Left, float Right) Band()
+            {
+                var (l, r) = environment.Available(y, y + bandHeight);
+                return rtl ? (l, r - shift) : (l + shift, r);
+            }
+            var (left, right) = Band();
             var lineUnits = new List<Unit>();
             var x = 0f;
             while (u < units.Count)
@@ -52,18 +67,24 @@ internal static class InlineLayout
                     if (piece.Kind == PieceKind.Float && placedFloats.Add(piece.Box!))
                     {
                         environment.PlaceFloat(piece.Box!, y);
-                        (left, right) = environment.Available(y, y + bandHeight);
+                        (left, right) = Band();
                     }
                 }
-                var fits = x + unit.Width - unit.TrailingSpace <= right - left + 0.01f;
+                var fits = x + unit.Width - unit.TrailingSpace + unit.HyphenWidth <= right - left + 0.01f;
                 if (!fits && lineUnits.Count > 0)
                     break;
                 if (!fits && environment.NextFloatBottom(y, y + bandHeight) is { } below)
                 {
                     // Too wide beside the floats: the line moves down past them.
                     y = below;
-                    (left, right) = environment.Available(y, y + bandHeight);
+                    (left, right) = Band();
                     continue;
+                }
+                if (!fits && SplitToFit(unit, right - left) is var (head, tail))
+                {
+                    // Alone and still too wide: overflow-wrap breaks it where it would otherwise overflow.
+                    (units[u], unit) = (head, head);
+                    units.Insert(u + 1, tail);
                 }
                 lineUnits.Add(unit);
                 x += unit.Width;
@@ -72,7 +93,10 @@ internal static class InlineLayout
                     break;
             }
 
-            var line = BuildLine(block, lineUnits, openBoxes, right - left, width, strut, levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y));
+            afterForcedBreak = lineUnits.Count > 0 && lineUnits[^1].MandatoryBreakAfter;
+            var clipped = clamp is { } limit && lines.Count == limit - 1 && u < units.Count;
+            var line = BuildLine(block, ifc.Text, lineUnits, u == units.Count || afterForcedBreak, openBoxes, right - left, width, strut,
+                levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y), clipped);
             if (line.Height > 0 || line.Children.Count > 0)
             {
                 hasLineBoxes |= line.Height > 0;
@@ -83,6 +107,8 @@ internal static class InlineLayout
         return (lines, y, hasLineBoxes);
     }
 
+    private const char SoftHyphen = '\u00AD';
+
     private enum PieceKind { Text, BoxStart, BoxEnd, Atomic, Float, OutOfFlow }
 
     // One piece of line content: glyphs of a run, an inline box edge, an atomic inline, or a marker.
@@ -90,7 +116,7 @@ internal static class InlineLayout
     {
         public PieceKind Kind { get; } = kind;
         public ComputedStyle Style { get; } = style;
-        public float Width { get; } = width;
+        public float Width { get; set; } = width;
         public Box? Box { get; init; }
         public ShapedRun? Run { get; init; }
         public int GlyphStart { get; init; }
@@ -101,6 +127,7 @@ internal static class InlineLayout
         public float AtomicMarginBottom { get; init; }
         public bool Visible { get; init; } // content that makes the line box a real one
         public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
+        public string? Replacement { get; init; } // text of an inserted ellipsis, whose run is not the context's text
     }
 
     // Content between two break opportunities: never broken inside.
@@ -110,6 +137,11 @@ internal static class InlineLayout
         public float Width { get; set; }
         public float TrailingSpace { get; set; } // collapsible or preserved spaces at the end, which hang at a line end
         public bool MandatoryBreakAfter { get; set; }
+
+        // A unit ending at a soft hyphen: the text piece with it, and the hyphen shown there if the line breaks here.
+        public Piece? Hyphen { get; set; }
+        public ushort HyphenGlyph { get; set; }
+        public float HyphenWidth { get; set; }
     }
 
     // Break the content into units; atomic inlines are laid out only for layout, not for measuring.
@@ -119,15 +151,37 @@ internal static class InlineLayout
         var text = ifc.Text;
         var breaks = LineBreaker.Find(text);
         var nowrap = new bool[text.Length];
+        var noHyphens = new bool[text.Length];
+        var wordBreak = new WordBreakStyle[text.Length];
         foreach (var item in ifc.Items)
         {
-            if (item.Kind == InlineItemKind.Text && item.Style.Text.TextWrapMode == TextWrapMode.Nowrap)
+            if (item.Kind != InlineItemKind.Text)
+                continue;
+            if (item.Style.Text.TextWrapMode == TextWrapMode.Nowrap)
                 Array.Fill(nowrap, true, item.Start, item.Length);
+            if (item.Style.Text.Hyphens == Hyphens.None)
+                Array.Fill(noHyphens, true, item.Start, item.Length);
+            Array.Fill(wordBreak, item.Style.TextSpacing.WordBreak, item.Start, item.Length);
         }
-        // A soft wrap opportunity at an offset, unless the text before it does not wrap; hard breaks always count.
-        BreakKind BreakAt(int offset) => offset <= 0 || offset >= text.Length ? BreakKind.None
-            : breaks[offset] == BreakKind.Mandatory ? BreakKind.Mandatory
-            : breaks[offset] == BreakKind.Allowed && !nowrap[offset - 1] ? BreakKind.Allowed : BreakKind.None;
+        // A soft wrap opportunity at an offset, unless the text before it does not wrap (or is a soft hyphen with
+        // hyphens: none, https://www.w3.org/TR/css-text-3/#hyphens-property); hard breaks always count. word-break
+        // (css-text-3 §5.2): break-all adds one between any two letters, keep-all removes those between letters.
+        BreakKind BreakAt(int offset)
+        {
+            if (offset <= 0 || offset >= text.Length)
+                return BreakKind.None;
+            if (breaks[offset] == BreakKind.Mandatory)
+                return BreakKind.Mandatory;
+            if (nowrap[offset - 1] || text[offset - 1] == SoftHyphen && noHyphens[offset - 1])
+                return BreakKind.None;
+            var (before, after) = (text[offset - 1], text[offset]);
+            var letters = !char.IsWhiteSpace(before) && !char.IsWhiteSpace(after) && !char.IsLowSurrogate(after)
+                          && CharUnicodeInfo.GetUnicodeCategory(after) is not (UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark
+                              or UnicodeCategory.EnclosingMark or UnicodeCategory.Format);
+            return breaks[offset] == BreakKind.Allowed ? (wordBreak[offset - 1] == WordBreakStyle.KeepAll && letters && char.IsLetterOrDigit(before) && char.IsLetterOrDigit(after) ? BreakKind.None : BreakKind.Allowed)
+                : wordBreak[offset - 1] == WordBreakStyle.BreakAll && letters ? BreakKind.Allowed
+                : BreakKind.None;
+        }
 
         var units = new List<Unit>();
         var unit = new Unit();
@@ -139,6 +193,20 @@ internal static class InlineLayout
                 units.Add(unit);
             unit = new Unit();
         }
+        // Closes the unit at a break opportunity. One right after a soft hyphen shows a hyphen if the line breaks there,
+        // from the soft hyphen's font: U+2010, else U+002D.
+        void Break(BreakKind kind)
+        {
+            if (kind == BreakKind.Allowed && unit.Pieces.LastOrDefault(p => p.Kind == PieceKind.Text) is { Run.Face: { } face } last
+                && text[last.Run.Clusters[last.GlyphEnd - 1]] == SoftHyphen
+                && (face.Covers(0x2010) ? face.GlyphFor(0x2010) : face.GlyphFor('-')) is var hyphen and not 0)
+            {
+                unit.Hyphen = last;
+                unit.HyphenGlyph = hyphen;
+                unit.HyphenWidth = face.Advance(hyphen) * last.Run.Size / face.UnitsPerEm;
+            }
+            Close(kind == BreakKind.Mandatory);
+        }
         void Add(Piece piece)
         {
             unit.Pieces.Add(piece);
@@ -146,19 +214,25 @@ internal static class InlineLayout
             unit.TrailingSpace = 0;
         }
 
+        // The styles of the inline boxes open at each point: whether the content around an atomic inline may wrap is
+        // its parent's white-space (css-text-3 §5.1: the nearest common ancestor of the two sides).
+        var open = new Stack<ComputedStyle>();
+        bool Wraps() => (open.Count > 0 ? open.Peek() : block.Style).Text.TextWrapMode == TextWrapMode.Wrap;
         foreach (var item in ifc.Items)
         {
             switch (item.Kind)
             {
                 case InlineItemKind.OpenBox:
+                    open.Push(item.Style);
                     if (BreakAt(item.Start) is var b && b != BreakKind.None && brokeAt != item.Start)
                     {
-                        Close(b == BreakKind.Mandatory);
+                        Break(b);
                         brokeAt = item.Start;
                     }
                     Add(new Piece(PieceKind.BoxStart, item.Style, item.Continuation ? 0 : InlineStart(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineStart(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.CloseBox:
+                    open.TryPop(out _);
                     Add(new Piece(PieceKind.BoxEnd, item.Style, item.Continuation ? 0 : InlineEnd(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineEnd(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.Text:
@@ -175,7 +249,7 @@ internal static class InlineLayout
                                     AddGlyphs(run, start, g, item.Style, levels.Text[run.Clusters[start]]);
                                 if (kind != BreakKind.None)
                                 {
-                                    Close(kind == BreakKind.Mandatory);
+                                    Break(kind);
                                     brokeAt = offset;
                                 }
                                 start = g;
@@ -185,12 +259,16 @@ internal static class InlineLayout
                     break;
                 case InlineItemKind.Atomic:
                 {
-                    Close();
+                    // An atomic inline is a break opportunity on both sides, unless the text there does not wrap.
+                    var wraps = Wraps();
+                    if (wraps)
+                        Close();
                     var box = item.Box!;
                     if (!layOutAtomics)
                     {
                         Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true, Level = levels.Atomics.GetValueOrDefault(box) });
-                        Close();
+                        if (wraps)
+                            Close();
                         break;
                     }
                     var fragment = BlockLayout.Layout(box, new ConstraintSpace(width, null), context);
@@ -202,7 +280,8 @@ internal static class InlineLayout
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
                         Level = levels.Atomics.GetValueOrDefault(box),
                     });
-                    Close();
+                    if (wraps)
+                        Close();
                     break;
                 }
                 case InlineItemKind.ForcedBreak:
@@ -240,6 +319,129 @@ internal static class InlineLayout
         }
     }
 
+    // Whether overflow-wrap (or word-break: break-word) lets the text break where it would otherwise overflow.
+    private static bool WrapsAnywhere(ComputedStyle style, bool forMinContent = false) =>
+        style.TextSpacing.OverflowWrap == OverflowWrap.Anywhere || style.TextSpacing.WordBreak == WordBreakStyle.BreakWord
+        || !forMinContent && style.TextSpacing.OverflowWrap == OverflowWrap.BreakWord;
+
+    /// <summary>
+    /// Splits a unit that is too wide for an empty line at the last character boundary that fits, inside text that
+    /// may wrap anywhere (https://www.w3.org/TR/css-text-3/#overflow-wrap-property), keeping at least one character.
+    /// Null when no such text is where the unit overflows.
+    /// </summary>
+    private static (Unit Head, Unit Tail)? SplitToFit(Unit unit, float available)
+    {
+        var x = 0f;
+        for (var i = 0; i < unit.Pieces.Count; i++)
+        {
+            var piece = unit.Pieces[i];
+            if (x + piece.Width <= available || piece.Kind != PieceKind.Text || !WrapsAnywhere(piece.Style))
+            {
+                x += piece.Width;
+                continue;
+            }
+            var run = piece.Run!;
+            // The last boundary between characters (not inside a cluster) that fits, else the first one.
+            var (split, first, width) = (-1, -1, x);
+            for (var g = piece.GlyphStart + 1; g < piece.GlyphEnd; g++)
+            {
+                width += run.Advances[g - 1];
+                if (run.Clusters[g] == run.Clusters[g - 1])
+                    continue;
+                if (first < 0)
+                    first = g;
+                if (width > available)
+                    break;
+                split = g;
+            }
+            split = split < 0 ? first : split;
+            if (split < 0)
+                return null;
+            var (headWidth, tailWidth) = (0f, 0f);
+            for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
+            {
+                if (g < split)
+                    headWidth += run.Advances[g];
+                else
+                    tailWidth += run.Advances[g];
+            }
+            var head = new Unit();
+            var tail = new Unit { TrailingSpace = unit.TrailingSpace, MandatoryBreakAfter = unit.MandatoryBreakAfter, Hyphen = unit.Hyphen,
+                HyphenGlyph = unit.HyphenGlyph, HyphenWidth = unit.HyphenWidth };
+            head.Pieces.AddRange(unit.Pieces.Take(i));
+            head.Pieces.Add(new Piece(PieceKind.Text, piece.Style, headWidth) { Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = true, Level = piece.Level });
+            tail.Pieces.Add(new Piece(PieceKind.Text, piece.Style, tailWidth) { Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = piece.Visible, Level = piece.Level });
+            tail.Pieces.AddRange(unit.Pieces.Skip(i + 1));
+            head.Width = head.Pieces.Sum(p => p.Width);
+            tail.Width = tail.Pieces.Sum(p => p.Width);
+            return (head, tail);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Ends the line with an ellipsis in the block's font (https://www.w3.org/TR/css-overflow-3/#text-overflow): text
+    /// and atomic inlines are cut at the last character boundary that leaves room for it. Inline box edges stay, so
+    /// boxes still open and close.
+    /// </summary>
+    // ponytail: the ellipsis goes at the logical end, which is the visual end except in mixed-direction lines.
+    private static void Ellipsize(List<Piece> pieces, float available, ComputedStyle style, LayoutContext context, int paragraphLevel)
+    {
+        const string Ellipsis = "\u2026";
+        var runs = Shape(Ellipsis, 0, Ellipsis.Length, style, context);
+        if (runs is not [var run] || run.Face is { } face && !face.Covers(0x2026))
+            runs = Shape("...", 0, 3, style, context);
+        var ellipsisRun = runs[0];
+        var room = available - ellipsisRun.Width;
+
+        var x = 0f;
+        var cut = pieces.Count;
+        for (var i = 0; i < pieces.Count; i++)
+        {
+            var piece = pieces[i];
+            if (piece.Kind is not (PieceKind.Text or PieceKind.Atomic) || x + piece.Width <= room)
+            {
+                x += piece.Width;
+                continue;
+            }
+            cut = i;
+            if (piece.Kind == PieceKind.Text)
+            {
+                // Keep the characters that fit, whole clusters only.
+                var (end, width, kept) = (piece.GlyphStart, x, x);
+                for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
+                {
+                    width += piece.Run!.Advances[g];
+                    var boundary = g + 1 == piece.GlyphEnd || piece.Run.Clusters[g + 1] != piece.Run.Clusters[g];
+                    if (width > room)
+                        break;
+                    if (boundary)
+                        (end, kept) = (g + 1, width);
+                }
+                if (end > piece.GlyphStart)
+                {
+                    pieces[i] = new Piece(PieceKind.Text, piece.Style, kept - x)
+                    {
+                        Run = piece.Run, GlyphStart = piece.GlyphStart, GlyphEnd = end, Visible = true, Level = piece.Level,
+                    };
+                    cut = i + 1;
+                }
+            }
+            break;
+        }
+        // Drop the content after the cut, keeping inline box edges (with their margins, borders and padding).
+        for (var i = pieces.Count - 1; i >= cut; i--)
+        {
+            if (pieces[i].Kind is PieceKind.Text or PieceKind.Atomic)
+                pieces.RemoveAt(i);
+        }
+        pieces.Insert(Math.Min(cut, pieces.Count), new Piece(PieceKind.Text, style, ellipsisRun.Width)
+        {
+            Run = ellipsisRun, GlyphStart = 0, GlyphEnd = ellipsisRun.Glyphs.Length, Visible = true, Level = (byte)paragraphLevel,
+            Replacement = ellipsisRun.Glyphs.Length == 1 ? Ellipsis : "...",
+        });
+    }
+
     /// <summary>
     /// Min-content (the widest unit) and max-content (the widest line with only forced breaks) widths
     /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own.
@@ -247,9 +449,21 @@ internal static class InlineLayout
     public static (float Min, float Max) Measure(BlockContainerBox block, InlineFormattingContext ifc, LayoutContext context)
     {
         float min = 0, max = 0, line = 0;
+        var first = true;
         foreach (var unit in Units(block, ifc, 0, context, BidiLevels(block, ifc), layOutAtomics: false))
         {
-            var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace, unit.Width);
+            var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace + unit.HyphenWidth, unit.Width);
+            // overflow-wrap: anywhere (and word-break: break-word) may break between any two characters for min-content;
+            // break-word only when laying out.
+            if (unit.Pieces.Any(p => p.Kind == PieceKind.Text && WrapsAnywhere(p.Style, forMinContent: true)))
+                unitMin = unit.Pieces.Where(p => p.Kind == PieceKind.Text).SelectMany(p => p.Run!.Advances[p.GlyphStart..p.GlyphEnd]).DefaultIfEmpty().Max();
+            if (first && block.Node is Dom.ElementNode && !block.Style.Text.TextIndent.Hanging)
+            {
+                // The first line's indent (percentages count as zero with no width to resolve them against).
+                var indent = block.Style.Text.TextIndent.Length.Resolve(0);
+                (unitMin, line) = (unitMin + indent, line + indent);
+            }
+            first = false;
             foreach (var piece in unit.Pieces)
             {
                 if (piece.Kind is PieceKind.Atomic or PieceKind.Float)
@@ -422,6 +636,29 @@ internal static class InlineLayout
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
     // the first family's .notdef, or half-em blanks when no font is available at all.
+    /// <summary>
+    /// An outside marker's text as text fragments, one per font run, each showing its part of the marker text, and the
+    /// ascent of the marker's font (for placing it on a baseline).
+    /// </summary>
+    public static (List<Fragment> Runs, float Ascent) MarkerText(MarkerBox marker, LayoutContext context)
+    {
+        var style = marker.Style;
+        var strut = Metrics(style, context);
+        var fragments = new List<Fragment>();
+        foreach (var run in Shape(marker.Text, 0, marker.Text.Length, style, context))
+        {
+            var m = Metrics(style, run.Face);
+            var (from, to) = (run.Clusters[0], run.Clusters.Length > 0 ? run.Clusters[^1] + 1 : 0);
+            var fragment = new Fragment(marker, run.Width, m.Ascent + m.Descent, [])
+            {
+                Kind = FragmentKind.Text,
+                Text = new TextRun(run, 0, run.Glyphs.Length, m.Ascent, false, style, marker.Text[from..Math.Min(to, marker.Text.Length)]),
+            };
+            fragments.Add(fragment);
+        }
+        return (fragments, strut.Ascent);
+    }
+
     private static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
         var font = style.Font;
@@ -437,19 +674,20 @@ internal static class InlineLayout
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
             if (i > runStart && face != runFace)
             {
-                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, font.Size, context, rightToLeft));
+                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, style, context, rightToLeft));
                 runStart = i;
             }
             runFace = face;
             i += clusterLength;
         }
         if (end > runStart)
-            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, font.Size, context, rightToLeft));
+            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, style, context, rightToLeft));
         return runs;
     }
 
-    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, float size, LayoutContext context, bool rightToLeft)
+    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft)
     {
+        var size = style.Font.Size;
         ShapedRun run;
         if (face is null)
         {
@@ -464,14 +702,26 @@ internal static class InlineLayout
         {
             run = SimpleShaper.Shape(text, start, length, face, size);
         }
-        // Controls and format characters take no space; a tab is eight spaces (tab-size's initial value).
+        // Controls and format characters take no space; a tab is tab-size spaces or a length. letter-spacing follows
+        // every typographic character unit and word-spacing every word separator (css-text-3 §8.1, css-text-4 §9).
+        // ponytail: tabs are a fixed width, not stops measured from the line start.
+        var spacing = style.TextSpacing;
+        var space = face is not null ? face.Advance(face.GlyphFor(' ')) * size / face.UnitsPerEm : size / 2;
         for (var g = 0; g < run.Glyphs.Length; g++)
         {
             var c = text[run.Clusters[g]];
+            var lastOfCluster = g + 1 == run.Glyphs.Length || run.Clusters[g + 1] != run.Clusters[g];
+            if (c == '\t')
+                run.Advances[g] = spacing.TabSize.IsLength ? spacing.TabSize.Value : spacing.TabSize.Value * (space + spacing.LetterSpacing + spacing.WordSpacing);
+            else if (lastOfCluster && !(c is '\n' or '\r' || char.GetUnicodeCategory(c) == UnicodeCategory.Format))
+                run.Advances[g] += spacing.LetterSpacing + (c is ' ' or '\u00A0' or '\u3000' ? spacing.WordSpacing : 0);
             if (c is '\n' or '\r' || char.GetUnicodeCategory(c) == UnicodeCategory.Format)
+            {
+                // Nothing is drawn for them either: the space glyph stands in for whatever the font has there.
                 run.Advances[g] = 0;
-            else if (c == '\t')
-                run.Advances[g] = 8 * (face is not null ? face.Advance(face.GlyphFor(' ')) * size / face.UnitsPerEm : size / 2);
+                if (face is not null && face.GlyphFor(' ') is var blank and not 0)
+                    run.Glyphs[g] = blank;
+            }
         }
         return run;
     }
@@ -482,6 +732,29 @@ internal static class InlineLayout
         Style.FontStyle.Oblique => FaceStyle.Oblique,
         _ => FaceStyle.Normal,
     };
+
+    /// <summary>
+    /// ex and ch for style computation (https://www.w3.org/TR/css-values-4/#font-relative-lengths): the x-height and
+    /// the advance of "0" of each font group's first available font, measured once per group.
+    /// </summary>
+    public static FontMeasure MeasureWith(FontCollection fonts)
+    {
+        var measured = new Dictionary<FontGroup, (float, float)?>();
+        return font =>
+        {
+            if (measured.TryGetValue(font, out var metrics))
+                return metrics;
+            FontFace? face = null;
+            foreach (var family in font.Family)
+            {
+                if ((face = fonts.Match(family, FaceStyleOf(font.Style), font.Weight, font.Stretch)) is not null)
+                    break;
+            }
+            var em = face?.UnitsPerEm ?? 1f;
+            return measured[font] = face is null ? null
+                : (face.XHeight / em, face.Covers('0') ? face.Advance(face.GlyphFor('0')) / em : 0);
+        };
+    }
 
     private static FontFace? PrimaryFace(ComputedStyle style, LayoutContext context)
     {
@@ -534,16 +807,40 @@ internal static class InlineLayout
         public float Baseline { get; set; }
     }
 
-    private static Fragment BuildLine(BlockContainerBox block, List<Unit> units, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
+    /// <param name="lastLine">The paragraph's last line, or one ending at a forced break: text-align-last applies.</param>
+    private static Fragment BuildLine(BlockContainerBox block, string text, List<Unit> units, bool lastLine, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
                                       float available, float cbWidth, LineMetrics strut, int paragraphLevel, LayoutContext context,
-                                      Action<Box, float> addOutOfFlow)
+                                      Action<Box, float> addOutOfFlow, bool clamped = false)
     {
+        // A line broken at a soft hyphen ends with a hyphen, drawn in place of the soft hyphen's glyph.
+        if (!lastLine && units is [.., { Hyphen: { } hyphenated } hyphenUnit])
+        {
+            var g = hyphenated.GlyphEnd - 1;
+            hyphenated.Run!.Glyphs[g] = hyphenUnit.HyphenGlyph;
+            hyphenated.Run.Advances[g] = hyphenUnit.HyphenWidth;
+            hyphenated.Width += hyphenUnit.HyphenWidth;
+            hyphenUnit.Width += hyphenUnit.HyphenWidth;
+        }
         var pieces = units.SelectMany(u => u.Pieces).ToList();
         var contentWidth = units.Sum(u => u.Width) - (units.Count > 0 ? units[^1].TrailingSpace : 0);
-        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
+        // text-overflow: ellipsis on a box that clips its inline overflow, and the last line of a clamped block.
+        var clips = block.Style.Box.OverflowX != Overflow.Visible;
+        if (clamped || clips && block.Style.Box.TextOverflow == TextOverflow.Ellipsis && contentWidth > available + 0.01f)
+        {
+            Ellipsize(pieces, available, block.Style, context, paragraphLevel);
+            contentWidth = pieces.Sum(p => p.Width);
+        }
+        // A line ended by a forced break (br, or a preserved segment break) is not empty, even with nothing on it
+        // (CSS 2.2 §9.4.2), so blank lines in pre keep their height.
+        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text)
+                      || units.Count > 0 && units[^1].MandatoryBreakAfter;
         var free = available - contentWidth;
         var rtl = paragraphLevel == 1;
-        var align = block.Style.Text.TextAlign;
+        var textStyle = block.Style.Text;
+        var align = !lastLine ? textStyle.TextAlign
+            : textStyle.TextAlignLast ?? (textStyle.TextAlign == TextAlign.Justify ? TextAlign.Start : textStyle.TextAlign);
+        if (align == TextAlign.Justify && free > 0 && Justify(pieces, text, free))
+            free = 0;
         var x = align == TextAlign.Center ? free / 2
             : align == TextAlign.Right || align == TextAlign.End && !rtl || align is TextAlign.Start or TextAlign.Justify && rtl ? free
             : 0;
@@ -768,7 +1065,7 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style),
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement),
                     }));
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)
@@ -777,6 +1074,53 @@ internal static class InlineLayout
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Shares the free space out among the line's word separators (spaces and no-break spaces), widening their glyphs
+    /// (https://www.w3.org/TR/css-text-3/#justify-algos, text-justify: auto). Spaces hanging at the end do not count.
+    /// Returns false when there is nothing to widen.
+    /// </summary>
+    // ponytail: no expansion between letters of scripts without word separators (CJK), and none in atomic inlines.
+    private static bool Justify(List<Piece> pieces, string text, float free)
+    {
+        var separators = new List<(Piece Piece, int Glyph)>();
+        foreach (var piece in pieces)
+        {
+            if (piece.Kind != PieceKind.Text)
+                continue;
+            for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
+            {
+                if (text[piece.Run!.Clusters[g]] is ' ' or '\u00A0')
+                    separators.Add((piece, g));
+            }
+        }
+        // Drop the trailing spaces: separators after the last other glyph or atomic inline.
+        for (var i = pieces.Count - 1; i >= 0; i--)
+        {
+            var piece = pieces[i];
+            if (piece.Kind == PieceKind.Atomic)
+                break;
+            if (piece.Kind != PieceKind.Text)
+                continue;
+            var g = piece.GlyphEnd - 1;
+            while (g >= piece.GlyphStart && separators.Count > 0 && separators[^1] == (piece, g))
+            {
+                separators.RemoveAt(separators.Count - 1);
+                g--;
+            }
+            if (g >= piece.GlyphStart)
+                break;
+        }
+        if (separators.Count == 0)
+            return false;
+        var extra = free / separators.Count;
+        foreach (var (piece, g) in separators)
+        {
+            piece.Run!.Advances[g] += extra;
+            piece.Width += extra;
+        }
+        return true;
     }
 
     // The baseline of an inline-block: its last in-flow line box's, from its top; none when it has no line boxes or
