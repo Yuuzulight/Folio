@@ -168,6 +168,7 @@ internal sealed class XmlParser
         _pos++;
         var name = Name();
         var attributes = new List<(string Name, string Value)>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
         var selfClosing = false;
         while (true)
         {
@@ -215,10 +216,10 @@ internal sealed class XmlParser
             var value = new StringBuilder();
             Decode(_text.AsSpan(_pos, close - _pos), value, attribute: true);
             _pos = Math.Min(_text.Length, close + 1);
-            if (attributes.Any(a => a.Name == attributeName))
-                Error("duplicate-attribute");
-            else
+            if (names.Add(attributeName))
                 attributes.Add((attributeName, value.ToString()));
+            else
+                Error("duplicate-attribute");
         }
 
         // Namespace declarations first, then the element's and attributes' prefixes resolve through them.
