@@ -25,6 +25,10 @@ public class Reftests
     [InlineData("css-masking/mask-image-opaque-001")]
     [InlineData("css-masking/mask-image-hard-stop-001")]
     [InlineData("css-backgrounds/background-image-url-repeat-001")]
+    [InlineData("css-backgrounds/border-image-repeat-stretch-001")]
+    [InlineData("css-backgrounds/border-image-repeat-repeat-001")]
+    [InlineData("css-backgrounds/border-image-repeat-round-001")]
+    [InlineData("css-backgrounds/border-image-repeat-space-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

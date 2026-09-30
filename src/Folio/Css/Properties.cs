@@ -162,6 +162,11 @@ internal enum PropertyId
     MaskOrigin,
     MaskClip,
     MaskComposite,
+    BorderImageSource,
+    BorderImageSlice,
+    BorderImageWidth,
+    BorderImageOutset,
+    BorderImageRepeat,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -761,6 +766,7 @@ internal static class Properties
         rows.AddRange(FilterProperties.Rows);
         rows.Add(ShapeProperties.Row);
         rows.AddRange(MaskProperties.Rows);
+        rows.AddRange(BorderImageProperties.Rows);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)
@@ -1146,6 +1152,8 @@ internal static class Properties
         ["border-bottom"] = Border(Side.Bottom),
         ["border-left"] = Border(Side.Left),
         ["border"] = Border(Side.Top, Side.Right, Side.Bottom, Side.Left),
+        // https://drafts.csswg.org/css-backgrounds-3/#border-image
+        ["border-image"] = new(BorderImageProperties.Longhands, BorderImageProperties.Shorthand),
         // https://www.w3.org/TR/css-backgrounds-3/#border-radius: 1-4 horizontal radii, optionally "/" and 1-4 vertical.
         ["border-radius"] = new([PropertyId.BorderTopLeftRadius, PropertyId.BorderTopRightRadius, PropertyId.BorderBottomRightRadius, PropertyId.BorderBottomLeftRadius],
             r => BorderRadii(r) is { } radii ? radii.Select((radius, i) => (PropertyId.BorderTopLeftRadius + i, (CssValue)radius)).ToList() : null),
@@ -1465,7 +1473,9 @@ internal static class Properties
         PropertyId WidthOf(Side s) => PropertyId.BorderTopWidth + (int)s;
         PropertyId StyleOf(Side s) => PropertyId.BorderTopStyle + (int)s;
         PropertyId ColorOf(Side s) => PropertyId.BorderTopColor + (int)s;
-        var longhands = sides.SelectMany(s => new[] { WidthOf(s), StyleOf(s), ColorOf(s) }).ToArray();
+        // The border shorthand also resets border-image (https://drafts.csswg.org/css-backgrounds-3/#border-shorthands).
+        var resetsImage = sides.Length == 4;
+        var longhands = sides.SelectMany(s => new[] { WidthOf(s), StyleOf(s), ColorOf(s) }).Concat(resetsImage ? BorderImageProperties.Longhands : []).ToArray();
 
         return new(longhands, r =>
         {
@@ -1491,6 +1501,8 @@ internal static class Properties
                 result.Add((StyleOf(side), style ?? Get(StyleOf(side)).Initial));
                 result.Add((ColorOf(side), color ?? Get(ColorOf(side)).Initial));
             }
+            if (resetsImage)
+                result.AddRange(BorderImageProperties.Longhands.Select(id => (id, Get(id).Initial)));
             return result;
         });
     }

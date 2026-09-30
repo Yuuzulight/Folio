@@ -37,6 +37,7 @@ internal sealed class StyleBuilder
         Replaced = initial.Replaced;
         Effects = initial.Effects;
         Mask = initial.Mask;
+        BorderImage = initial.BorderImage;
     }
 
     public FontGroup Font { get; set; }
@@ -60,6 +61,7 @@ internal sealed class StyleBuilder
     public ReplacedGroup Replaced { get; set; }
     public EffectsGroup Effects { get; set; }
     public MaskGroup Mask { get; set; }
+    public BorderImageGroup BorderImage { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -157,6 +159,7 @@ internal sealed class StyleBuilder
             Replaced = Share(Replaced, initial.Replaced, groups),
             Effects = Share(Effects, initial.Effects, groups),
             Mask = Share(Mask, initial.Mask, groups),
+            BorderImage = Share(BorderImage, initial.BorderImage, groups),
             Custom = _custom,
         };
     }

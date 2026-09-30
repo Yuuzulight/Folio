@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>border-image-repeat: stretch with fill places the slices of a generated image like the reference</title>
+<link rel="help" href="https://drafts.csswg.org/css-backgrounds-3/#border-image-process">
+<style>
+  body { margin: 0; }
+  div { position: absolute; left: 0; top: 0; width: 32px; height: 16px; border: 8px solid transparent; image-rendering: pixelated;
+        border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAALUlEQVR42mP4z8DwH4LBCIjhEKfEf4jIUgYIhvIZYOIwCRifAZkCs9BNRpcAANyQXjnaKx/iAAAAAElFTkSuQmCC) 2 fill stretch; }
+</style>
+<div></div>

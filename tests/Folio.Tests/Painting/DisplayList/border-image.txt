@@ -1,0 +1,55 @@
+=== a gradient border image is drawn at the size of the area and cut into its corners and edges
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 10px; border: 5px solid rgb(1, 0, 0); border-image: linear-gradient(red, blue) 10"></div>
+---
+fill 0,0 5x5 linear gradient, 2 stops
+fill 25,0 5x5 linear gradient, 2 stops
+fill 25,15 5x5 linear gradient, 2 stops
+fill 0,15 5x5 linear gradient, 2 stops
+fill 5,0 20x5 linear gradient, 2 stops
+fill 5,15 20x5 linear gradient, 2 stops
+
+=== an image's slices are drawn clipped to their tiles, the whole image placed so the slice lands on the tile
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 8px; height: 4px; border: 4px solid; border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAALUlEQVR42mP4z8DwH4LBCIjhEKfEf4jIUgYIhvIZYOIwCRifAZkCs9BNRpcAANyQXjnaKx/iAAAAAElFTkSuQmCC) 2 fill"></div>
+---
+clip 0,0 4x4
+image 0,0 12x12 6x6 smooth
+pop
+clip 12,0 4x4
+image 4,0 12x12 6x6 smooth
+pop
+clip 12,8 4x4
+image 4,0 12x12 6x6 smooth
+pop
+clip 0,8 4x4
+image 0,0 12x12 6x6 smooth
+pop
+clip 4,0 8x4
+image -4,0 24x12 6x6 smooth
+pop
+clip 4,8 8x4
+image -4,0 24x12 6x6 smooth
+pop
+clip 0,4 4x4
+image 0,0 12x12 6x6 smooth
+pop
+clip 12,4 4x4
+image 4,0 12x12 6x6 smooth
+pop
+clip 4,4 8x4
+image -4,0 24x12 6x6 smooth
+pop
+
+=== outset grows the area and the width sets the regions, scaled down when opposite ones overlap
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="margin: 10px; width: 10px; height: 10px; border: 2px solid; border-image: linear-gradient(red, blue) 30% / 20px 1 / 1px 0"></div>
+---
+fill 10,9 0.8x8 linear gradient, 2 stops
+fill 23.2,9 0.8x8 linear gradient, 2 stops
+fill 23.2,17 0.8x8 linear gradient, 2 stops
+fill 10,17 0.8x8 linear gradient, 2 stops
+fill 10.8,9 12.4x8 linear gradient, 2 stops
+fill 10.8,17 12.4x8 linear gradient, 2 stops
+
+=== an image that does not load leaves the border styles
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 10px; border: 1px solid rgb(1, 0, 0); border-image: url(data:text/plain,x) 1"></div>
+---
+border 0,0 12x12 1 solid rgb(1, 0, 0)

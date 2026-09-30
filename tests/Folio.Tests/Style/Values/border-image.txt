@@ -1,0 +1,67 @@
+=== border images have their initial values
+display: block
+---
+border-image-source: none
+border-image-slice: 100% 100% 100% 100%
+border-image-width: 1 1 1 1
+border-image-outset: 0 0 0 0
+border-image-repeat: stretch
+
+=== slices take numbers and percentages like margins, and fill anywhere
+border-image-slice: fill 30 10%
+---
+border-image-slice: 30 10% 30 10% fill
+
+=== widths take numbers, length-percentages and auto; a unitless zero is a number
+border-image-width: 2 1em 25% auto; border-image-outset: 0 1px 0.5
+---
+border-image-width: 2 16px 25% auto
+border-image-outset: 0 1px 0.5 1px
+
+=== repeat takes one or two keywords
+border-image-repeat: round space
+---
+border-image-repeat: round space
+
+=== the shorthand with width and outset
+border-image: linear-gradient(red, blue) 27 fill / 1 2px / 3 round
+---
+border-image-source: linear-gradient(red, blue)
+border-image-slice: 27 27 27 27 fill
+border-image-width: 1 2px 1 2px
+border-image-outset: 3 3 3 3
+border-image-repeat: round
+
+=== the shorthand with an outset and no width
+border-image: repeat 10% / / 4px linear-gradient(red, blue)
+---
+border-image-slice: 10% 10% 10% 10%
+border-image-width: 1 1 1 1
+border-image-outset: 4px 4px 4px 4px
+border-image-repeat: repeat
+
+=== the shorthand resets what it leaves out
+border-image-width: 3; border-image-repeat: space; border-image: none
+---
+border-image-source: none
+border-image-width: 1 1 1 1
+border-image-repeat: stretch
+
+=== the border shorthand resets border images
+border-image: linear-gradient(red, blue) 10; border: 2px solid
+---
+border-image-source: none
+border-image-slice: 100% 100% 100% 100%
+
+=== border-top leaves border images alone
+border-image-slice: 10; border-top: 2px solid
+---
+border-image-slice: 10 10 10 10
+
+=== invalid border images are dropped
+border-image-slice: 5; border-image-slice: -1; border-image-slice: 1px; border-image-slice: fill; border-image-slice: 1 2 3 4 5; border-image-width: -1; border-image-outset: 10%; border-image-outset: auto; border-image-repeat: stretch stretch stretch; border-image: 10 / ; border-image: red
+---
+border-image-slice: 5 5 5 5
+border-image-width: 1 1 1 1
+border-image-outset: 0 0 0 0
+border-image-repeat: stretch
