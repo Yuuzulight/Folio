@@ -149,6 +149,8 @@ internal enum PropertyId
     ObjectPosition,
     ImageRendering,
     TextDecorationSkipInk,
+    Filter,
+    BackdropFilter,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -745,6 +747,7 @@ internal static class Properties
         };
 
         rows.AddRange(TransformProperties.Rows);
+        rows.AddRange(FilterProperties.Rows);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)
@@ -1327,6 +1330,8 @@ internal static class Properties
         }),
         // The prefixed name artifacts use with display: -webkit-box.
         ["-webkit-line-clamp"] = new([PropertyId.LineClamp], r => Get(PropertyId.LineClamp).Parse(r) is { } clamp ? [(PropertyId.LineClamp, clamp)] : null),
+        // The prefixed name artifacts write for older engines.
+        ["-webkit-backdrop-filter"] = new([PropertyId.BackdropFilter], r => Get(PropertyId.BackdropFilter).Parse(r) is { } filter ? [(PropertyId.BackdropFilter, filter)] : null),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {
             var x = Get(PropertyId.OverflowX).Parse(r.OneValue());

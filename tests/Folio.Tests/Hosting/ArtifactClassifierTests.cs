@@ -64,7 +64,7 @@ public class ArtifactClassifierTests
     [InlineData("<style>input:required { color: red }</style>", "uses a CSS selector Folio does not support: input:required")]
     [InlineData("<style>@font-face { font-family: X; src: url(data:font/woff2;base64,AA==) }</style>", "uses web fonts (@font-face)")]
     [InlineData("<style>@container (min-width: 1px) { .a { color: red } }</style>", "uses @container")]
-    [InlineData("<style>@media (max-width: 600px) { .a { filter: blur(2px) } }</style>", "uses the CSS property filter")]
+    [InlineData("<style>@media (max-width: 600px) { .a { filter: url(#glow) } }</style>", "uses a CSS value Folio does not support: filter: url(#glow)")]
     [InlineData("<style>.a { & .b { clip-path: circle() } }</style>", "uses the CSS property clip-path")]
     public void UnsupportedContentNeedsTheBrowser(string html, string reason)
     {

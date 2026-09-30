@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<title>Frosted glass</title>
+<style>
+  body { margin: 0; font-size: 18px; }
+  .scene { position: relative; height: 320px; background: linear-gradient(120deg, #0ea5e9, #6366f1 45%, #e11d48); overflow: hidden; }
+  .blob { position: absolute; border-radius: 50%; }
+  .glass { position: absolute; left: 60px; top: 70px; width: 300px; height: 170px; padding: 20px; box-sizing: border-box; border-radius: 20px;
+           background: rgb(255 255 255 / 0.18); border: 1px solid rgb(255 255 255 / 0.5); color: white;
+           -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%); }
+  .tint { position: absolute; left: 400px; top: 40px; width: 160px; height: 240px; border-radius: 12px; backdrop-filter: grayscale(1) brightness(1.2); }
+</style>
+<div class="scene">
+  <div class="blob" style="left: 40px; top: 30px; width: 140px; height: 140px; background: #f59e0b"></div>
+  <div class="blob" style="left: 240px; top: 150px; width: 180px; height: 180px; background: #22c55e"></div>
+  <div class="blob" style="left: 470px; top: 90px; width: 120px; height: 120px; background: #facc15"></div>
+  <p style="position: absolute; left: 90px; top: 200px; margin: 0; font-size: 40px; font-weight: bold; color: #0f172a">Behind the glass</p>
+  <div class="glass"><strong>Frosted panel</strong><br>blur(12px) saturate(160%)</div>
+  <div class="tint"></div>
+</div>

@@ -39,6 +39,16 @@ internal abstract class Box(ComputedStyle style, Node? node, PseudoElement pseud
     public bool IsTransformed => Style.Transform.IsTransformed
         && this is not (InlineBox or MarkerBox or TablePartBox { Part: TablePart.Table or TablePart.Column or TablePart.ColumnGroup });
 
+    /// <summary>
+    /// The box is the containing block of its fixed positioned descendants as well as its absolute ones: it is
+    /// transformed (https://www.w3.org/TR/css-transforms-1/#transform-rendering), or it has a filter and is not the root
+    /// (https://drafts.csswg.org/filter-effects-1/#FilterProperty). Like transforms, filters make none of a non-atomic
+    /// inline box, a marker, a table column or the table grid box (its wrapper takes them).
+    /// </summary>
+    public bool ContainsFixed => IsTransformed
+        || !Style.Effects.Filter.IsNone && Node?.Parent is not DocumentNode
+           && this is not (InlineBox or MarkerBox or TablePartBox { Part: TablePart.Table or TablePart.Column or TablePart.ColumnGroup });
+
     public void Add(Box child)
     {
         child.Parent = this;

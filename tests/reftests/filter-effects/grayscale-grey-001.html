@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>grayscale(1) leaves grey unchanged</title>
+<link rel="help" href="https://drafts.csswg.org/filter-effects-1/#funcdef-filter-grayscale">
+<style>
+  body { margin: 0; }
+  div { width: 60px; height: 30px; border: 5px solid rgb(40, 40, 40); }
+</style>
+<div style="filter: grayscale(1); background: rgb(128, 128, 128)"></div>
+<div style="filter: grayscale(100%); background: linear-gradient(white, black)"></div>
+<div style="filter: grayscale(1); background: rgb(200 200 200 / 0.5)"></div>

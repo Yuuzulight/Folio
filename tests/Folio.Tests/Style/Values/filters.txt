@@ -1,0 +1,50 @@
+=== filter is none by default
+display: block
+---
+filter: none
+backdrop-filter: none
+
+=== filter functions compute to numbers, px and degrees
+filter: blur(1em) brightness(50%) contrast(2) grayscale(100%) hue-rotate(0.5turn) invert(.25) opacity(0%) saturate(300%) sepia(1)
+---
+filter: blur(16px) brightness(0.5) contrast(2) grayscale(1) hue-rotate(180deg) invert(0.25) opacity(0) saturate(3) sepia(1)
+
+=== omitted arguments take their defaults
+filter: blur() brightness() contrast() grayscale() hue-rotate() invert() opacity() saturate() sepia()
+---
+filter: blur(0px) brightness(1) contrast(1) grayscale(1) hue-rotate(0deg) invert(1) opacity(1) saturate(1) sepia(1)
+
+=== amounts above one are kept
+filter: grayscale(2) brightness(150%)
+---
+filter: grayscale(2) brightness(1.5)
+
+=== drop-shadow takes its colour before or after the lengths, currentcolor when omitted
+filter: drop-shadow(1px 2px) drop-shadow(red 1px 2px 3px) drop-shadow(-1px -2px 0 rgb(0 0 255 / 50%))
+---
+filter: drop-shadow(currentcolor 1px 2px 0px) drop-shadow(rgb(255, 0, 0) 1px 2px 3px) drop-shadow(rgba(0, 0, 255, 0.5) -1px -2px 0px)
+
+=== hue-rotate takes a unitless zero and negative angles
+filter: hue-rotate(0) hue-rotate(-90deg)
+---
+filter: hue-rotate(0deg) hue-rotate(-90deg)
+
+=== function names are case-insensitive
+filter: BLUR(2px) Drop-Shadow(1px 1px)
+---
+filter: blur(2px) drop-shadow(currentcolor 1px 1px 0px)
+
+=== invalid filters are dropped
+filter: blur(1px); filter: blur(-1px); filter: blur(10%); filter: brightness(-1); filter: hue-rotate(10px); filter: drop-shadow(1px); filter: drop-shadow(1px 1px -1px); filter: drop-shadow(red 1px 1px blue); filter: grayscale(1, 2); filter: blur(1px) bogus(1); filter: url(#f)
+---
+filter: blur(1px)
+
+=== backdrop-filter takes the same functions
+backdrop-filter: blur(10px) saturate(180%)
+---
+backdrop-filter: blur(10px) saturate(1.8)
+
+=== the prefixed backdrop-filter
+-webkit-backdrop-filter: brightness(0.9)
+---
+backdrop-filter: brightness(0.9)

@@ -267,7 +267,7 @@ internal static class BlockLayout
 
         // Positioned descendants this box is the containing block of are laid out against its padding box now that its
         // size is known; the others go on up.
-        if ((style.Box.Position != Position.Static || box.IsTransformed) && outOfFlow.Count > 0)
+        if ((style.Box.Position != Position.Static || box.ContainsFixed) && outOfFlow.Count > 0)
         {
             var carried = outOfFlow.ToList();
             outOfFlow.Clear();
@@ -300,10 +300,10 @@ internal static class BlockLayout
     }
 
     // A positioned box is the containing block of its absolutely positioned descendants (CSS 2.2 §10.1); a transformed
-    // box is the containing block of its fixed ones too (https://www.w3.org/TR/css-transforms-1/#transform-rendering).
-    // Fixed boxes otherwise go on up to the viewport.
+    // or filtered box is the containing block of its fixed ones too (Box.ContainsFixed). Fixed boxes otherwise go on up
+    // to the viewport.
     private static bool IsContainingBlock(Box box, Box positioned) =>
-        box.IsTransformed || box.Style.Box.Position != Position.Static && positioned.Style.Box.Position == Position.Absolute;
+        box.ContainsFixed || box.Style.Box.Position != Position.Static && positioned.Style.Box.Position == Position.Absolute;
 
     // float and clear: inline-start and inline-end are left and right in a left-to-right containing block, and the other
     // way round in a right-to-left one (css-logical-1 §3.1).

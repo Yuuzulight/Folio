@@ -14,6 +14,14 @@ public class DisplayListPlayerTests
     }
 
     [Fact]
+    public void FilterLayersCarryTheirPrimitivesAndTheBackdropClip()
+    {
+        var calls = Replay("<style>body { margin: 0 }</style><div style='filter: blur(1px) invert(1); backdrop-filter: blur(2px); width: 20px; height: 10px'></div>");
+
+        Assert.Equal(["layer 1 filters 2 backdrop 1 20x10", "pop-layer"], calls);
+    }
+
+    [Fact]
     public void TransformsBecomeSaveTransformRestorePairs()
     {
         var calls = Replay("<style>body { margin: 0 }</style><div style='transform: translate(2px, 3px); height: 10px; background: red'></div>");
@@ -73,7 +81,8 @@ public class DisplayListPlayerTests
             Calls.Add($"glyphs {glyphs.Length}");
         public void DrawImage(Folio.Imaging.IImageHandle image, in RectF destination, ImageSampling sampling) =>
             Calls.Add($"image {image.Width}x{image.Height} {sampling}");
-        public void PushLayer(in LayerOptions options) => Calls.Add($"layer {options.Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        public void PushLayer(in LayerOptions options) => Calls.Add($"layer {options.Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            + (options.Filters is { } f ? $" filters {f.Count}" : "") + (options.Backdrop is { } b ? $" backdrop {b.Count} {options.BackdropClip.Rect.Width}x{options.BackdropClip.Rect.Height}" : ""));
         public void PopLayer() => Calls.Add("pop-layer");
     }
 }

@@ -85,8 +85,36 @@ public enum ImageSampling
     Pixelated,
 }
 
-/// <summary>Options for a compositing layer; the layer is blended back when popped.</summary>
-public readonly record struct LayerOptions(float Opacity);
+/// <summary>
+/// Options for a compositing layer; the layer is blended back when popped. What is drawn into it is filtered by
+/// <paramref name="Filters"/>, then composited with <paramref name="Opacity"/>. With <paramref name="Backdrop"/>, the
+/// layer starts as what lies under it, filtered by those filters (their blur reading mirrored edges at the clip) and
+/// clipped to <paramref name="BackdropClip"/>, instead of empty (https://drafts.csswg.org/filter-effects-2/#backdrop-filter-operation).
+/// </summary>
+public readonly record struct LayerOptions(float Opacity, IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null,
+                                           RoundedRect BackdropClip = default);
+
+public enum FilterKind
+{
+    /// <summary>A Gaussian blur of <see cref="Filter.StdDeviation"/>.</summary>
+    Blur,
+
+    /// <summary>A colour matrix (<see cref="Filter.Matrix"/>).</summary>
+    ColorMatrix,
+
+    /// <summary>
+    /// A drop shadow: the alpha moved by <see cref="Filter.Offset"/>, blurred by <see cref="Filter.StdDeviation"/> and
+    /// filled with <see cref="Filter.Color"/>, drawn under the input.
+    /// </summary>
+    DropShadow,
+}
+
+/// <summary>
+/// One filter primitive (https://drafts.csswg.org/filter-effects-1/#FilterPrimitivesOverview), applied to the output
+/// of the one before it, with results clamped. A colour matrix has 20 values, row by row: R', G', B' and A' from R, G,
+/// B, A and 1, on straight-alpha sRGB colours from 0 to 1. Lengths are CSS pixels.
+/// </summary>
+public sealed record Filter(FilterKind Kind, float StdDeviation = 0, IReadOnlyList<float>? Matrix = null, Vector2 Offset = default, Rgba Color = default);
 
 public enum PathVerb
 {
