@@ -220,7 +220,9 @@ public sealed class Document : IDisposable
     internal (DisplayList List, float Height) Paint(float viewportWidth, float viewportHeight, float deviceScale = 1, ITextShaper? shaper = null)
     {
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark);
-        StyleResolver.Resolve(Node, media, Options.UserStyleSheet, new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri));
+        _fonts ??= FontCollection.For(Options.Fonts);
+        StyleResolver.Resolve(Node, media, Options.UserStyleSheet, new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri),
+            InlineLayout.MeasureWith(_fonts));
         if (BoxTreeBuilder.Build(Node) is not { } root)
             return (new DisplayList(), 0);
         _fonts ??= FontCollection.For(Options.Fonts);
