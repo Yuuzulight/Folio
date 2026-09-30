@@ -164,3 +164,35 @@ text-decoration-line: none
 text-decoration: overline; text-decoration: underline underline
 ---
 text-decoration-line: overline
+
+=== outline in any order; auto colour is currentcolor
+outline: red 2px dashed
+---
+outline-width: 2
+outline-style: dashed
+outline-color: rgb(255, 0, 0)
+
+=== outline resets what it omits
+outline-color: red; outline: auto
+---
+outline-width: 3
+outline-style: auto
+outline-color: currentcolor
+
+=== list-style with an image
+list-style: url(dot.png) inside square
+---
+list-style-type: square
+list-style-position: inside
+list-style-image: url("dot.png")
+
+=== list-style none with an image sets the type to none
+list-style: none url(dot.png)
+---
+list-style-type: none
+list-style-image: url("dot.png")
+
+=== -webkit-line-clamp is line-clamp
+-webkit-line-clamp: 3
+---
+line-clamp: 3

@@ -1,0 +1,33 @@
+aspect-ratio for boxes without natural dimensions (CSS Sizing 4 section 5): an auto height follows the width through
+the ratio in the box-sizing box, and grows to fit the content unless the box clips it.
+
+=== an auto height follows the width
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 100px; aspect-ratio: 2"></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div 0,0 100x50
+
+=== the ratio is of the border box with border-box sizing
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 100px; padding: 10px; box-sizing: border-box; aspect-ratio: 1 / 1"></div>
+---
+html 0,0 800x100
+  body 0,0 800x100
+    div 0,0 100x100
+
+=== content taller than the ratio makes the box taller; clipping keeps the ratio
+<!DOCTYPE html><style>body { margin: 0 } div { width: 100px; aspect-ratio: 10 } p { margin: 0; height: 30px }</style><div id=a><p></p></div><div id=b style="overflow: hidden"><p></p></div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div#a 0,0 100x30
+      p 0,0 100x30
+    div#b 0,30 100x10
+      p 0,30 100x30
+
+=== a specified height wins over the ratio
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 100px; height: 20px; aspect-ratio: 1"></div>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    div 0,0 100x20

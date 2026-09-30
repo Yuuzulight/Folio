@@ -80,7 +80,9 @@ public class BlockLayoutTests
 
     private static string Text(Fragment fragment)
     {
-        var (run, text) = (fragment.Text!.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
+        if (fragment.Text!.Replacement is { } replacement)
+            return replacement;
+        var (run, text) = (fragment.Text.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
         var (start, end) = (run.Clusters[fragment.Text.GlyphStart], run.Clusters[fragment.Text.GlyphEnd - 1] + 1);
         return text[start..end];
     }

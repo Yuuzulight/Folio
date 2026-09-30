@@ -86,6 +86,29 @@ internal sealed record SpacingTextGroup(float LetterSpacing, float WordSpacing, 
     public static SpacingTextGroup Initial { get; } = new(0, 0, new TabSize(8, false), WordBreakStyle.Normal, OverflowWrap.Normal, TextTransform.None);
 }
 
+/// <summary>https://www.w3.org/TR/css-ui-4/#outline-style (auto draws as solid)</summary>
+internal enum OutlineStyle { Auto, None, Dotted, Dashed, Solid, Double, Groove, Ridge, Inset, Outset }
+
+/// <summary>https://www.w3.org/TR/css-overflow-3/#text-overflow (a string value is drawn as the ellipsis)</summary>
+internal enum TextOverflow { Clip, Ellipsis }
+
+/// <summary>Outlines (not inherited). The width reads as zero when the style is none, as for borders.</summary>
+internal sealed record OutlineGroup(float WidthPx, OutlineStyle Style, CssColor Color, float Offset)
+{
+    public static OutlineGroup Initial { get; } = new(3, OutlineStyle.None, CssColor.CurrentColor, 0);
+
+    public float Width => Style == OutlineStyle.None ? 0 : WidthPx;
+}
+
+/// <summary>
+/// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color and
+/// scrollbar-color (null is auto).
+/// </summary>
+internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor)
+{
+    public static UiGroup Initial { get; } = new("auto", null, "auto");
+}
+
 internal enum Hyphens { Manual, None, Auto }
 
 /// <summary>A computed <c>text-indent</c> (https://www.w3.org/TR/css-text-3/#text-indent-property).</summary>
@@ -204,7 +227,8 @@ internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, Col
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
-    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto);
+    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto,
+    TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto");
 
 /// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
 internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
@@ -212,7 +236,9 @@ internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentag
     public override string ToString() => X == Y ? X.ToString() : $"{X} {Y}";
 }
 
-internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight);
+/// <param name="AspectRatio">The preferred aspect ratio (width / height) from aspect-ratio; null for auto.</param>
+internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight,
+                                 float? AspectRatio = null);
 
 /// <summary>Margins, paddings and insets, each top/right/bottom/left.</summary>
 internal sealed record SpacingGroup(
@@ -268,7 +294,8 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  BorderCollapse BorderCollapse = BorderCollapse.Separate, float BorderSpacingX = 0, float BorderSpacingY = 0,
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
                                  float? UnderlineOffset = null,
-                                 TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual);
+                                 TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual,
+                                 ImageValue? ListStyleImage = null);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
@@ -317,6 +344,8 @@ internal sealed class ComputedStyle
     public GridGroup Grid { get; init; } = GridGroup.Initial;
     public SpacingTextGroup TextSpacing { get; init; } = SpacingTextGroup.Initial;
     public QuotesGroup Quotes { get; init; } = QuotesGroup.Initial;
+    public OutlineGroup Outline { get; init; } = OutlineGroup.Initial;
+    public UiGroup Ui { get; init; } = UiGroup.Initial;
     public DecorationGroup Decoration { get; init; } = DecorationGroup.Initial;
     public TransformGroup Transform { get; init; } = TransformGroup.Initial;
 

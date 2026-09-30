@@ -260,3 +260,61 @@ quotes: "<" ">" "[" "]"
 quotes: none; quotes: "<"
 ---
 quotes: none
+=== outline-offset and outline widths
+outline-width: thin; outline-offset: -2px
+---
+outline-width: 1
+outline-offset: -2
+
+=== aspect-ratio as a ratio or a number
+aspect-ratio: 16 / 9
+---
+aspect-ratio: 1.778
+
+=== aspect-ratio with auto keeps the ratio
+aspect-ratio: auto 2
+---
+aspect-ratio: 2
+
+=== aspect-ratio auto and degenerate ratios
+aspect-ratio: 0 / 1
+---
+aspect-ratio: auto
+
+=== text-overflow and line-clamp
+text-overflow: ellipsis; line-clamp: 2
+---
+text-overflow: ellipsis
+line-clamp: 2
+
+=== text-overflow strings draw as the ellipsis; line-clamp must be positive
+text-overflow: "--"; line-clamp: 0
+---
+text-overflow: ellipsis
+line-clamp: auto
+
+=== cursor keeps its keyword after image fallbacks
+cursor: url(hand.cur) 2 3, url(hand.png), pointer
+---
+cursor: pointer
+
+=== cursor needs a keyword at the end
+cursor: help; cursor: url(hand.cur)
+---
+cursor: help
+
+=== accent-color, scrollbar-gutter, scrollbar-width and scrollbar-color
+accent-color: red; scrollbar-gutter: both-edges stable; scrollbar-width: thin; scrollbar-color: red blue
+---
+accent-color: rgb(255, 0, 0)
+scrollbar-gutter: stable both-edges
+scrollbar-width: thin
+scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)
+
+=== cursor, accent-color and scrollbar-color inherit
+%parent cursor: pointer; accent-color: blue; scrollbar-color: red blue
+color: red
+---
+cursor: pointer
+accent-color: rgb(0, 0, 255)
+scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)

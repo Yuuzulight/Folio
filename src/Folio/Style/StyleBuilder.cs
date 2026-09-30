@@ -29,6 +29,8 @@ internal sealed class StyleBuilder
         Grid = initial.Grid;
         TextSpacing = parent.TextSpacing;
         Quotes = parent.Quotes;
+        Outline = initial.Outline;
+        Ui = parent.Ui;
         Decoration = initial.Decoration;
         Transform = initial.Transform;
     }
@@ -46,6 +48,8 @@ internal sealed class StyleBuilder
     public GridGroup Grid { get; set; }
     public SpacingTextGroup TextSpacing { get; set; }
     public QuotesGroup Quotes { get; set; }
+    public OutlineGroup Outline { get; set; }
+    public UiGroup Ui { get; set; }
     public DecorationGroup Decoration { get; set; }
     public TransformGroup Transform { get; set; }
 
@@ -127,6 +131,8 @@ internal sealed class StyleBuilder
             Grid = Share(Grid, initial.Grid, groups),
             TextSpacing = Share(TextSpacing, _parent.TextSpacing, groups),
             Quotes = Share(Quotes, _parent.Quotes, groups),
+            Outline = Share(Outline, initial.Outline, groups),
+            Ui = Share(Ui, _parent.Ui, groups),
             Decoration = Share(Decoration, initial.Decoration, groups),
             Transform = Share(Transform, initial.Transform, groups),
             Custom = _custom,
