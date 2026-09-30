@@ -21,7 +21,7 @@ public sealed record ResourceLimits
     /// <summary>DOM nodes created by the parser.</summary>
     public int MaxNodes { get; init; } = 200_000;
 
-    /// <summary>Element nesting depth; deeper content attaches to the deepest allowed element.</summary>
+    /// <summary>ElementNode nesting depth; deeper content attaches to the deepest allowed element.</summary>
     public int MaxNestingDepth { get; init; } = 512;
 
     /// <summary>Rules per stylesheet.</summary>

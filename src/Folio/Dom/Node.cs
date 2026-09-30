@@ -78,7 +78,7 @@ internal abstract class Node
     }
 }
 
-/// <summary>A node that can have children: <see cref="DocumentNode"/>, <see cref="DocumentFragment"/>, <see cref="Element"/>.</summary>
+/// <summary>A node that can have children: <see cref="DocumentNode"/>, <see cref="DocumentFragment"/>, <see cref="ElementNode"/>.</summary>
 internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerDocument)
 {
     public Node? FirstChild { get; private set; }

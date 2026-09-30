@@ -38,8 +38,8 @@ public sealed class Document : IDisposable
         {
             for (Node? node = Node; node is not null; node = node.NextInTree(Node))
             {
-                if (node is Element { LocalName: "title" } title && title.Name.Namespace == Namespaces.Html)
-                    return string.Join(' ', (title.TextContent ?? "").Split(Element.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
+                if (node is ElementNode { LocalName: "title" } title && title.Name.Namespace == Namespaces.Html)
+                    return string.Join(' ', (title.TextContent ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
             }
             return "";
         }
@@ -114,6 +114,59 @@ public sealed class Document : IDisposable
         new(DiagnosticCode.LimitExceeded, Severity.Warning, message, at, null);
 
     private FontCollection? _fonts;
+    private readonly Dictionary<ElementNode, Element> _elements = [];
+
+    /// <summary>The root element, or null for an empty document.</summary>
+    public Element? DocumentElement => Node.DocumentElement is { } root ? Wrap(root) : null;
+
+    /// <summary>The first element in tree order with this id (https://dom.spec.whatwg.org/#dom-nonelementparentnode-getelementbyid).</summary>
+    public Element? GetElementById(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        if (id.Length == 0)
+            return null;
+        for (Node? node = Node; node is not null; node = node.NextInTree(Node))
+        {
+            if (node is ElementNode element && element.GetAttribute("id") == id)
+                return Wrap(element);
+        }
+        return null;
+    }
+
+    /// <summary>The first element matching a selector list.</summary>
+    /// <exception cref="ArgumentException">The selector list is not valid.</exception>
+    public Element? QuerySelector(string selectors) => Query(Node, selectors).FirstOrDefault();
+
+    /// <summary>Every element matching a selector list, in tree order.</summary>
+    /// <exception cref="ArgumentException">The selector list is not valid.</exception>
+    public IReadOnlyList<Element> QuerySelectorAll(string selectors) => Query(Node, selectors).ToList();
+
+    internal Element Wrap(ElementNode node)
+    {
+        if (!_elements.TryGetValue(node, out var element))
+            _elements[node] = element = new Element(this, node);
+        return element;
+    }
+
+    // The descendants of a node that match a selector list, in tree order.
+    internal IEnumerable<Element> Query(ContainerNode scope, string selectors)
+    {
+        ArgumentNullException.ThrowIfNull(selectors);
+        var (source, values) = CssParser.ParseComponentValues(selectors);
+        var list = SelectorParser.Parse(source, values, Node.Intern)
+            ?? throw new ArgumentException($"\"{selectors}\" is not a valid selector list.", nameof(selectors));
+        return Matches(scope, list);
+
+        IEnumerable<Element> Matches(ContainerNode root, SelectorList selectorList)
+        {
+            var context = new MatchContext();
+            for (var node = root.NextInTree(root); node is not null; node = node.NextInTree(root))
+            {
+                if (node is ElementNode element && SelectorMatcher.Matches(selectorList, element, context))
+                    yield return Wrap(element);
+            }
+        }
+    }
     private Fragment? _page;
 
     /// <summary>
@@ -121,11 +174,11 @@ public sealed class Document : IDisposable
     /// border box holds it, later boxes (painted on top) first. Null outside every box or before painting.
     /// </summary>
     // ponytail: hit testing follows fragment order, not the stacking tree, and ignores clipping (study 15 comes in M3).
-    internal Element? ElementAt(float x, float y)
+    internal ElementNode? ElementAt(float x, float y)
     {
         return _page is null ? null : Find(_page, 0, 0);
 
-        Element? Find(Fragment fragment, float left, float top)
+        ElementNode? Find(Fragment fragment, float left, float top)
         {
             for (var i = fragment.Children.Count - 1; i >= 0; i--)
             {
@@ -138,7 +191,7 @@ public sealed class Document : IDisposable
                 }
                 if (child.Kind == FragmentKind.Text || x < cx || y < cy || x >= cx + child.Width || y >= cy + child.Height)
                     continue;
-                return Find(child, cx, cy) ?? (child.Box?.Node as Element);
+                return Find(child, cx, cy) ?? (child.Box?.Node as ElementNode);
             }
             return null;
         }
@@ -149,7 +202,7 @@ public sealed class Document : IDisposable
     {
         for (Node? node = ElementAt(x, y); node is not null; node = node.Parent)
         {
-            if (node is Element { LocalName: "a" or "area" } link && link.Name.Namespace == Namespaces.Html && link.GetAttribute("href") is { } href)
+            if (node is ElementNode { LocalName: "a" or "area" } link && link.Name.Namespace == Namespaces.Html && link.GetAttribute("href") is { } href)
             {
                 href = href.Trim();
                 return Uri.TryCreate(href, UriKind.Absolute, out var absolute) ? absolute

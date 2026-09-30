@@ -85,11 +85,11 @@ public class SelectorTests
         Assert.Equal([".x::before"], before.Select(e => e.Data));
     }
 
-    private static void Walk(Element element, AncestorFilter filter, Action<Element> visit)
+    private static void Walk(ElementNode element, AncestorFilter filter, Action<ElementNode> visit)
     {
         visit(element);
         filter.Push(element);
-        foreach (var child in element.Children.OfType<Element>())
+        foreach (var child in element.Children.OfType<ElementNode>())
             Walk(child, filter, visit);
         filter.Pop(element);
     }
@@ -104,15 +104,15 @@ public class SelectorTests
         return SelectorParser.Parse(source, values, document.Intern, parent, nested: parent is not null);
     }
 
-    private static IEnumerable<Element> Elements(DocumentNode document)
+    private static IEnumerable<ElementNode> Elements(DocumentNode document)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {
-            if (node is Element element)
+            if (node is ElementNode element)
                 yield return element;
         }
     }
 
-    private static string Label(Element element) =>
+    private static string Label(ElementNode element) =>
         element.Id.IsNone ? element.LocalName : element.OwnerDocument.TextOf(element.Id);
 }

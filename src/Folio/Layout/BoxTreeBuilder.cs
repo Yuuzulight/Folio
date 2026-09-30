@@ -53,7 +53,7 @@ internal sealed class BoxTreeBuilder
         public InlineRun? Run { get; set; }
 
         /// <summary>For Inline frames: the element whose box it is (closes it on leave).</summary>
-        public Node? Element { get; init; }
+        public Node? ElementNode { get; init; }
 
         public bool CollectsChildren => Kind is FrameKind.Block or FrameKind.Flex or FrameKind.Table;
     }
@@ -80,16 +80,16 @@ internal sealed class BoxTreeBuilder
     // ---------------------------------------------------------------- walk
 
     // Pre-order walk with enter/leave events and no recursion.
-    private void Walk(Element root)
+    private void Walk(ElementNode root)
     {
         var stack = new Stack<(Node Node, bool Leaving)>();
         stack.Push((root, false));
         while (stack.TryPop(out var item))
         {
-            if (item.Node is not Element element)
+            if (item.Node is not ElementNode element)
             {
                 if (item.Node is Text text)
-                    AddText(text.Data, text.Parent is Element p ? p.ComputedStyle() : null);
+                    AddText(text.Data, text.Parent is ElementNode p ? p.ComputedStyle() : null);
                 continue;
             }
             if (item.Leaving)
@@ -102,14 +102,14 @@ internal sealed class BoxTreeBuilder
             stack.Push((element, true));
             for (var child = element.LastChild; child is not null; child = child.PreviousSibling)
             {
-                if (child is Element or Text)
+                if (child is ElementNode or Text)
                     stack.Push((child, false));
             }
         }
     }
 
     /// <returns>Whether the element's children should be visited.</returns>
-    private bool Enter(Element element)
+    private bool Enter(ElementNode element)
     {
         var style = element.ComputedStyle();
         if (style is null)
@@ -135,7 +135,7 @@ internal sealed class BoxTreeBuilder
 
         if (display == Display.Contents)
         {
-            Push(new Frame(FrameKind.Contents, null, style) { Element = element });
+            Push(new Frame(FrameKind.Contents, null, style) { ElementNode = element });
             AddPseudo(element, PseudoElement.Before);
             return true;
         }
@@ -162,7 +162,7 @@ internal sealed class BoxTreeBuilder
         return true;
     }
 
-    private void Leave(Element element)
+    private void Leave(ElementNode element)
     {
         AddPseudo(element, PseudoElement.After);
         var frame = Pop();
@@ -178,7 +178,7 @@ internal sealed class BoxTreeBuilder
             case Display.Inline or Display.Contents:
                 var inline = new InlineBox(style, node, pseudo);
                 RunOf(Container).Open(inline);
-                return new Frame(FrameKind.Inline, inline, style) { Element = node };
+                return new Frame(FrameKind.Inline, inline, style) { ElementNode = node };
             case Display.InlineBlock or Display.Block or Display.FlowRoot or Display.ListItem:
                 var block = new BlockContainerBox(style, node, pseudo) { IsAtomicInline = display == Display.InlineBlock };
                 Place(block, display == Display.InlineBlock);
@@ -295,7 +295,7 @@ internal sealed class BoxTreeBuilder
         RunOf(Container).AddText(text, style);
     }
 
-    private void AddPseudo(Element element, PseudoElement pseudo)
+    private void AddPseudo(ElementNode element, PseudoElement pseudo)
     {
         var style = element.PseudoStyle(pseudo);
         if (style is null || style.Box.Display == Display.None || style.Generated.Content.Kind != ContentKind.Items)
@@ -313,7 +313,7 @@ internal sealed class BoxTreeBuilder
     }
 
     // https://www.w3.org/TR/css-content-3/#content-property: strings, attr(), counters and quotes.
-    private string ContentText(Element element, ContentValue content)
+    private string ContentText(ElementNode element, ContentValue content)
     {
         var text = new StringBuilder();
         foreach (var item in content.Items)
@@ -353,7 +353,7 @@ internal sealed class BoxTreeBuilder
     }
 
     // https://www.w3.org/TR/css-lists-3/#marker-pseudo: outside markers are boxes of their own, inside ones inline text.
-    private void AddMarker(Element element)
+    private void AddMarker(ElementNode element)
     {
         var style = element.PseudoStyle(PseudoElement.Marker) ?? element.ComputedStyle()!;
         var text = style.Generated.Content.Kind == ContentKind.Items
@@ -379,7 +379,7 @@ internal sealed class BoxTreeBuilder
 
     // HTML list attributes (https://html.spec.whatwg.org/multipage/grouping-content.html#the-ol-element): ol start sets
     // where list-item counting begins, li value sets the item's number.
-    private static (IReadOnlyList<CounterChange> Reset, IReadOnlyList<CounterChange> Set) ListAttributes(Element element, ComputedStyle style)
+    private static (IReadOnlyList<CounterChange> Reset, IReadOnlyList<CounterChange> Set) ListAttributes(ElementNode element, ComputedStyle style)
     {
         var reset = style.Generated.CounterReset;
         var set = style.Generated.CounterSet;
@@ -387,7 +387,7 @@ internal sealed class BoxTreeBuilder
         {
             reset = reset.Select(c => c.Name == "list-item" ? c with { Value = c.Reversed ? start + 1 : start - 1 } : c).ToList();
         }
-        if (IsHtml(element, "li") && element.Parent is Element { LocalName: "ol" } && int.TryParse(element.GetAttribute("value"), out var value)
+        if (IsHtml(element, "li") && element.Parent is ElementNode { LocalName: "ol" } && int.TryParse(element.GetAttribute("value"), out var value)
             && !set.Any(c => c.Name == "list-item"))
         {
             set = [.. set, new CounterChange("list-item", value)];
@@ -396,21 +396,21 @@ internal sealed class BoxTreeBuilder
     }
 
     // HTML: ol reversed without start counts down from its number of list items (https://html.spec.whatwg.org/multipage/grouping-content.html#the-ol-element).
-    private static int ReversedStart(Element element, string counter) =>
+    private static int ReversedStart(ElementNode element, string counter) =>
         counter == "list-item"
-            ? element.Children.OfType<Element>().Count(e => e.ComputedStyle()?.Box.Display == Display.ListItem) + 1
+            ? element.Children.OfType<ElementNode>().Count(e => e.ComputedStyle()?.Box.Display == Display.ListItem) + 1
             : 0;
 
     // ---------------------------------------------------------------- helpers
 
-    private static bool IsHtml(Element element, string name) => element.Name.Namespace == Namespaces.Html && element.LocalName == name;
+    private static bool IsHtml(ElementNode element, string name) => element.Name.Namespace == Namespaces.Html && element.LocalName == name;
 
     // Elements whose content comes from outside CSS (docs/study/05-box-tree.md, replaced elements).
-    private static ReplacedKind? ReplacedKindOf(Element element)
+    private static ReplacedKind? ReplacedKindOf(ElementNode element)
     {
         // The outermost svg element is a replaced box; SVG rendering itself arrives in M2 (study 13).
         if (element.Name.Namespace == Namespaces.Svg)
-            return element.LocalName == "svg" && (element.Parent as Element)?.Name.Namespace != Namespaces.Svg ? ReplacedKind.Svg : null;
+            return element.LocalName == "svg" && (element.Parent as ElementNode)?.Name.Namespace != Namespaces.Svg ? ReplacedKind.Svg : null;
         if (element.Name.Namespace != Namespaces.Html)
             return null;
         return element.LocalName switch

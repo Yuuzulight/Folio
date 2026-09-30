@@ -8,13 +8,13 @@ namespace Folio.Css;
 /// </summary>
 internal sealed class MatchContext
 {
-    private readonly Dictionary<Element, int> _childIndex = [];
+    private readonly Dictionary<ElementNode, int> _childIndex = [];
     private readonly Dictionary<ContainerNode, int> _childCount = [];
 
     /// <summary>Holds the current element's ancestors, or null when the caller does not maintain one.</summary>
     public AncestorFilter? Filter { get; set; }
 
-    public int IndexAmongSiblings(Element element, bool fromEnd)
+    public int IndexAmongSiblings(ElementNode element, bool fromEnd)
     {
         var parent = element.Parent!;
         if (!_childIndex.TryGetValue(element, out var index))
@@ -22,7 +22,7 @@ internal sealed class MatchContext
             var i = 0;
             foreach (var child in parent.Children)
             {
-                if (child is Element e)
+                if (child is ElementNode e)
                     _childIndex[e] = ++i;
             }
             _childCount[parent] = i;
@@ -42,9 +42,9 @@ internal sealed class AncestorFilter
     private const int Mask = (1 << Bits) - 1;
     private readonly byte[] _counts = new byte[1 << Bits];
 
-    public void Push(Element element) => Update(element, +1);
+    public void Push(ElementNode element) => Update(element, +1);
 
-    public void Pop(Element element) => Update(element, -1);
+    public void Pop(ElementNode element) => Update(element, -1);
 
     public bool MightContainAll(int[] hashes)
     {
@@ -58,7 +58,7 @@ internal sealed class AncestorFilter
 
     public static int Hash(Atom atom) => (int)((uint)atom.Value * 2654435761u >> 8);
 
-    private void Update(Element element, int delta)
+    private void Update(ElementNode element, int delta)
     {
         Add(Hash(element.Name.LocalName), delta);
         if (!element.Id.IsNone)
@@ -82,14 +82,14 @@ internal sealed class AncestorFilter
 /// <summary>Right-to-left selector matching (https://www.w3.org/TR/selectors-4/).</summary>
 internal static class SelectorMatcher
 {
-    public static bool Matches(SelectorList list, Element element, MatchContext context) =>
+    public static bool Matches(SelectorList list, ElementNode element, MatchContext context) =>
         list.Selectors.Exists(s => Matches(s, element, context));
 
     /// <summary>Matches ignoring the pseudo-element; callers compare <see cref="ComplexSelector.PseudoElement"/>.</summary>
-    public static bool Matches(ComplexSelector selector, Element element, MatchContext context) =>
+    public static bool Matches(ComplexSelector selector, ElementNode element, MatchContext context) =>
         selector.PseudoElement != PseudoElement.Unknown && MatchFrom(selector, selector.Parts.Count - 1, element, context);
 
-    private static bool MatchFrom(ComplexSelector selector, int index, Element element, MatchContext context)
+    private static bool MatchFrom(ComplexSelector selector, int index, ElementNode element, MatchContext context)
     {
         var (combinator, compound) = selector.Parts[index];
         if (!MatchesCompound(compound, element, context))
@@ -100,14 +100,14 @@ internal static class SelectorMatcher
         switch (combinator)
         {
             case Combinator.Descendant:
-                for (var ancestor = element.Parent as Element; ancestor is not null; ancestor = ancestor.Parent as Element)
+                for (var ancestor = element.Parent as ElementNode; ancestor is not null; ancestor = ancestor.Parent as ElementNode)
                 {
                     if (MatchFrom(selector, index - 1, ancestor, context))
                         return true;
                 }
                 return false;
             case Combinator.Child:
-                return element.Parent is Element parent && MatchFrom(selector, index - 1, parent, context);
+                return element.Parent is ElementNode parent && MatchFrom(selector, index - 1, parent, context);
             case Combinator.NextSibling:
                 return PreviousElement(element) is { } previous && MatchFrom(selector, index - 1, previous, context);
             case Combinator.SubsequentSibling:
@@ -122,27 +122,27 @@ internal static class SelectorMatcher
         }
     }
 
-    private static Element? PreviousElement(Node node)
+    private static ElementNode? PreviousElement(Node node)
     {
         for (var sibling = node.PreviousSibling; sibling is not null; sibling = sibling.PreviousSibling)
         {
-            if (sibling is Element e)
+            if (sibling is ElementNode e)
                 return e;
         }
         return null;
     }
 
-    private static Element? NextElement(Node node)
+    private static ElementNode? NextElement(Node node)
     {
         for (var sibling = node.NextSibling; sibling is not null; sibling = sibling.NextSibling)
         {
-            if (sibling is Element e)
+            if (sibling is ElementNode e)
                 return e;
         }
         return null;
     }
 
-    private static bool MatchesCompound(CompoundSelector compound, Element element, MatchContext context)
+    private static bool MatchesCompound(CompoundSelector compound, ElementNode element, MatchContext context)
     {
         foreach (var simple in compound.Simples)
         {
@@ -152,11 +152,11 @@ internal static class SelectorMatcher
         return true;
     }
 
-    private static bool IsHtml(Element element) => element.Name.Namespace == Namespaces.Html;
+    private static bool IsHtml(ElementNode element) => element.Name.Namespace == Namespaces.Html;
 
-    private static bool Quirks(Element element) => element.OwnerDocument.Mode == DocumentMode.Quirks;
+    private static bool Quirks(ElementNode element) => element.OwnerDocument.Mode == DocumentMode.Quirks;
 
-    private static bool MatchesSimple(SimpleSelector simple, Element element, MatchContext context)
+    private static bool MatchesSimple(SimpleSelector simple, ElementNode element, MatchContext context)
     {
         switch (simple)
         {
@@ -194,9 +194,9 @@ internal static class SelectorMatcher
         }
     }
 
-    private static bool IsRoot(Element element) => element.Parent is DocumentNode;
+    private static bool IsRoot(ElementNode element) => element.Parent is DocumentNode;
 
-    private static int IndexOfType(Element element, bool fromEnd)
+    private static int IndexOfType(ElementNode element, bool fromEnd)
     {
         var index = 1;
         for (var sibling = fromEnd ? NextElement(element) : PreviousElement(element);
@@ -209,7 +209,7 @@ internal static class SelectorMatcher
         return index;
     }
 
-    private static bool MatchesPseudoClass(PseudoClass kind, Element element)
+    private static bool MatchesPseudoClass(PseudoClass kind, ElementNode element)
     {
         switch (kind)
         {
@@ -266,28 +266,28 @@ internal static class SelectorMatcher
         }
     }
 
-    private static bool IsFormControl(Element element) =>
+    private static bool IsFormControl(ElementNode element) =>
         IsHtml(element) && element.LocalName is "button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset";
 
     // https://html.spec.whatwg.org/multipage/semantics-other.html#concept-element-disabled
-    private static bool IsDisabled(Element element)
+    private static bool IsDisabled(ElementNode element)
     {
         if (!IsFormControl(element))
             return false;
         if (element.GetAttribute("disabled") is not null)
             return true;
-        if (element.LocalName == "option" && element.Parent is Element { LocalName: "optgroup" } group && group.GetAttribute("disabled") is not null)
+        if (element.LocalName == "option" && element.Parent is ElementNode { LocalName: "optgroup" } group && group.GetAttribute("disabled") is not null)
             return true;
         if (element.LocalName is "optgroup" or "option")
             return false;
 
         // Inside a disabled fieldset, except within its first legend.
         Node child = element;
-        for (var ancestor = element.Parent as Element; ancestor is not null; child = ancestor, ancestor = ancestor.Parent as Element)
+        for (var ancestor = element.Parent as ElementNode; ancestor is not null; child = ancestor, ancestor = ancestor.Parent as ElementNode)
         {
             if (IsHtml(ancestor) && ancestor.LocalName == "fieldset" && ancestor.GetAttribute("disabled") is not null)
             {
-                var firstLegend = ancestor.Children.OfType<Element>().FirstOrDefault(e => IsHtml(e) && e.LocalName == "legend");
+                var firstLegend = ancestor.Children.OfType<ElementNode>().FirstOrDefault(e => IsHtml(e) && e.LocalName == "legend");
                 if (child != firstLegend)
                     return true;
             }
@@ -296,10 +296,10 @@ internal static class SelectorMatcher
     }
 
     // https://www.w3.org/TR/selectors-4/#the-lang-pseudo (basic filtering on the element's language).
-    private static bool MatchesLang(LangSelector lang, Element element)
+    private static bool MatchesLang(LangSelector lang, ElementNode element)
     {
         string? language = null;
-        for (var e = element; e is not null && language is null; e = e.Parent as Element)
+        for (var e = element; e is not null && language is null; e = e.Parent as ElementNode)
             language = e.GetAttribute("xml:lang") ?? e.GetAttribute("lang");
         if (language is null)
             return false;
@@ -314,9 +314,9 @@ internal static class SelectorMatcher
 
     // https://html.spec.whatwg.org/multipage/dom.html#the-directionality: the nearest dir="ltr|rtl" wins.
     // ponytail: dir="auto" and bdi resolve as ltr until text direction analysis exists (study 11).
-    private static bool IsRtl(Element element)
+    private static bool IsRtl(ElementNode element)
     {
-        for (var e = element; e is not null; e = e.Parent as Element)
+        for (var e = element; e is not null; e = e.Parent as ElementNode)
         {
             var dir = e.GetAttribute("dir");
             if (dir is not null && dir.Equals("rtl", StringComparison.OrdinalIgnoreCase))
@@ -327,7 +327,7 @@ internal static class SelectorMatcher
         return false;
     }
 
-    private static bool MatchesAttribute(AttributeSelector selector, Element element)
+    private static bool MatchesAttribute(AttributeSelector selector, ElementNode element)
     {
         var html = IsHtml(element);
         string? value = null;
@@ -355,8 +355,8 @@ internal static class SelectorMatcher
         return selector.Operator switch
         {
             AttributeOperator.Equals => value.Equals(wanted, comparison),
-            AttributeOperator.Includes => wanted.Length > 0 && wanted.IndexOfAny(Element.AsciiWhitespace) < 0
-                && value.Split(Element.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries).Any(v => v.Equals(wanted, comparison)),
+            AttributeOperator.Includes => wanted.Length > 0 && wanted.IndexOfAny(ElementNode.AsciiWhitespace) < 0
+                && value.Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries).Any(v => v.Equals(wanted, comparison)),
             AttributeOperator.DashMatch => value.Equals(wanted, comparison)
                 || (value.StartsWith(wanted, comparison) && value.Length > wanted.Length && value[wanted.Length] == '-'),
             AttributeOperator.Prefix => wanted.Length > 0 && value.StartsWith(wanted, comparison),

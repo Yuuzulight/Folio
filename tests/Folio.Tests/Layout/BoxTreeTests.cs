@@ -132,6 +132,6 @@ public class BoxTreeTests
         PseudoElement.Before => "::before",
         PseudoElement.After => "::after",
         PseudoElement.Marker => "::marker",
-        _ => box.Node is Element e ? e.LocalName : "(anonymous)",
+        _ => box.Node is ElementNode e ? e.LocalName : "(anonymous)",
     };
 }

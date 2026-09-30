@@ -15,7 +15,7 @@ namespace Folio.Style;
 internal static class PresentationalHints
 {
     /// <summary>The element's hints as cascade declarations, or null when it has none.</summary>
-    public static List<CascadeDeclaration>? For(Element element)
+    public static List<CascadeDeclaration>? For(ElementNode element)
     {
         if (element.Name.Namespace != Namespaces.Html)
             return null;
@@ -83,18 +83,18 @@ internal static class PresentationalHints
     }
 
     // The nearest table element above a cell.
-    private static Element? Table(Element cell)
+    private static ElementNode? Table(ElementNode cell)
     {
         for (var node = cell.Parent; node is not null; node = node.Parent)
         {
-            if (node is Element { LocalName: "table" } table && table.Name.Namespace == Namespaces.Html)
+            if (node is ElementNode { LocalName: "table" } table && table.Name.Namespace == Namespaces.Html)
                 return table;
         }
         return null;
     }
 
     // align and valign on table parts: text-align and vertical-align.
-    private static void Align(StringBuilder css, Element element)
+    private static void Align(StringBuilder css, ElementNode element)
     {
         var align = element.GetAttribute("align")?.Trim().ToLowerInvariant();
         if (align is "left" or "right" or "center" or "justify")
@@ -106,7 +106,7 @@ internal static class PresentationalHints
 
     // A dimension attribute (https://html.spec.whatwg.org/multipage/rendering.html#maps-to-the-dimension-property):
     // a non-negative number, optionally a percentage.
-    private static void Dimension(StringBuilder css, Element element, string attribute, string property)
+    private static void Dimension(StringBuilder css, ElementNode element, string attribute, string property)
     {
         var text = element.GetAttribute(attribute)?.Trim();
         if (string.IsNullOrEmpty(text))
@@ -121,7 +121,7 @@ internal static class PresentationalHints
     }
 
     // A legacy colour: a CSS colour, or hex digits without the hash.
-    private static void Color(StringBuilder css, Element element, string attribute, string property)
+    private static void Color(StringBuilder css, ElementNode element, string attribute, string property)
     {
         var text = element.GetAttribute(attribute)?.Trim();
         if (string.IsNullOrEmpty(text) || text.Any(c => c is ';' or '{' or '}' or '"' or '\'' or '\\'))

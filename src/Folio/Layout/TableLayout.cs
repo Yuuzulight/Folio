@@ -431,7 +431,7 @@ internal static class TableLayout
 
     // An HTML table attribute (https://html.spec.whatwg.org/multipage/tables.html#attributes-common-to-td-and-th-elements).
     private static int Attribute(TablePartBox box, string name, int fallback, int min, int max) =>
-        box.Node is Element e && e.GetAttribute(name) is { } text && int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+        box.Node is ElementNode e && e.GetAttribute(name) is { } text && int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
             ? Math.Clamp(value, min, max)
             : fallback;
 

@@ -15,10 +15,10 @@ internal sealed class ElementStyles(ComputedStyle style)
 internal static class ElementStyleExtensions
 {
     /// <summary>The element's computed style, once <see cref="StyleResolver"/> has run.</summary>
-    public static ComputedStyle? ComputedStyle(this Element element) => (element.StyleData as ElementStyles)?.Style;
+    public static ComputedStyle? ComputedStyle(this ElementNode element) => (element.StyleData as ElementStyles)?.Style;
 
     /// <summary>A pseudo-element's style: set for ::before/::after when rules target them, and for ::marker on list items.</summary>
-    public static ComputedStyle? PseudoStyle(this Element element, PseudoElement pseudoElement) => element.StyleData is ElementStyles styles
+    public static ComputedStyle? PseudoStyle(this ElementNode element, PseudoElement pseudoElement) => element.StyleData is ElementStyles styles
         ? pseudoElement switch
         {
             PseudoElement.Before => styles.Before,
@@ -97,17 +97,17 @@ internal static class StyleResolver
         var groups = new Dictionary<object, object>();
 
         // Iterative pre-order walk: (element, parent style); a null element marks leaving an element.
-        var stack = new Stack<(Element? Element, Element? Leaving, ComputedStyle Parent)>();
+        var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent)>();
         if (document.DocumentElement is { } root)
             stack.Push((root, null, Style.ComputedStyle.Initial));
         while (stack.TryPop(out var item))
         {
-            if (item.Element is null)
+            if (item.ElementNode is null)
             {
                 filter.Pop(item.Leaving!);
                 continue;
             }
-            var element = item.Element;
+            var element = item.ElementNode;
 
             List<CascadeDeclaration>? inline = null;
             if (element.GetAttribute("style") is { } styleAttribute)
@@ -151,7 +151,7 @@ internal static class StyleResolver
             stack.Push((null, element, style));
             for (var child = element.LastChild; child is not null; child = child.PreviousSibling)
             {
-                if (child is Element e)
+                if (child is ElementNode e)
                     stack.Push((e, null, style));
             }
         }
@@ -160,11 +160,11 @@ internal static class StyleResolver
     // style elements and link rel=stylesheet elements in tree order whose type is CSS
     // (https://html.spec.whatwg.org/multipage/semantics.html#the-style-element, #the-link-element). Alternate
     // stylesheets and disabled links are not applied.
-    private static IEnumerable<Element> StyleSheetElements(DocumentNode document)
+    private static IEnumerable<ElementNode> StyleSheetElements(DocumentNode document)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {
-            if (node is not Element element || element.Name.Namespace != Namespaces.Html
+            if (node is not ElementNode element || element.Name.Namespace != Namespaces.Html
                 || element.GetAttribute("type") is { Length: > 0 } type && !type.Equals("text/css", StringComparison.OrdinalIgnoreCase))
                 continue;
             if (element.LocalName == "style")
@@ -173,7 +173,7 @@ internal static class StyleResolver
             }
             else if (element.LocalName == "link" && element.GetAttribute("disabled") is null && element.GetAttribute("href") is { Length: > 0 })
             {
-                var rel = (element.GetAttribute("rel") ?? "").Split(Element.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries);
+                var rel = (element.GetAttribute("rel") ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries);
                 if (rel.Contains("stylesheet", StringComparer.OrdinalIgnoreCase) && !rel.Contains("alternate", StringComparer.OrdinalIgnoreCase))
                     yield return element;
             }
@@ -185,7 +185,7 @@ internal static class StyleResolver
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {
-            if (node is Element { LocalName: "base" } element && element.Name.Namespace == Namespaces.Html && element.GetAttribute("href") is { } href)
+            if (node is ElementNode { LocalName: "base" } element && element.Name.Namespace == Namespaces.Html && element.GetAttribute("href") is { } href)
                 return Resources.ResourceLoader.Resolve(documentUrl, href) ?? documentUrl;
         }
         return documentUrl;

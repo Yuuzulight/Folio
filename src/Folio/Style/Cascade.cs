@@ -336,7 +336,7 @@ internal static class Cascade
     private readonly record struct Candidate(CascadeDeclaration Declaration, Origin Origin, bool ElementAttached, int[] Layer, Specificity Specificity, int Order, int Index);
 
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
-        Element element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context,
+        ElementNode element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context,
         PseudoElement pseudoElement = PseudoElement.None, List<CascadeDeclaration>? hints = null)
     {
         var candidates = new List<Candidate>();
