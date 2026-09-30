@@ -481,6 +481,9 @@ internal static class DisplayListBuilder
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
+            // A border image that can be drawn replaces the border styles (collapsed table borders have none).
+            if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border))
+                return;
             if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
             {
                 SetClip(box.Clip);
@@ -778,6 +781,146 @@ internal static class DisplayListBuilder
             {
                 var (x, y) = (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y));
                 return new RectF(x, y, Math.Max(a.Right, b.Right) - x, Math.Max(a.Bottom, b.Bottom) - y);
+            }
+        }
+
+        /// <summary>
+        /// A border image (https://drafts.csswg.org/css-backgrounds-3/#border-images): the image, or a gradient drawn at
+        /// the size of the border image area (the border box grown by border-image-outset), is cut into nine parts by
+        /// border-image-slice. The corners are scaled into the corners of the area, border-image-width wide and tall
+        /// (scaled down together when opposite ones overlap); the edges are scaled to their width and tiled along their
+        /// length by border-image-repeat; the middle, kept only with fill, is scaled like the top and left edges and tiled
+        /// both ways (https://drafts.csswg.org/css-backgrounds-3/#border-image-process). False when there is no image to
+        /// draw, so the border styles are used.
+        /// </summary>
+        private bool PaintBorderImage(PaintBox box, BorderGroup border)
+        {
+            var style = box.Box.Style;
+            var borderImage = style.BorderImage;
+            var gradient = borderImage.Source is GradientImage { Computed: { } g } ? g : null;
+            var image = borderImage.Source is UrlImage url ? images?.Load(url.Url, "border-image-source") : null;
+            if (gradient is null && image is null)
+                return false;
+
+            // Outsets are multiples of the border width or lengths.
+            static float Outset(BorderImageSide side, float borderWidth) => side.Number is { } n ? n * borderWidth : side.Length?.Px ?? 0;
+            var o = borderImage.Outset;
+            var area = box.Rect.Inset(-Outset(o.Top, border.TopWidth), -Outset(o.Right, border.RightWidth),
+                -Outset(o.Bottom, border.BottomWidth), -Outset(o.Left, border.LeftWidth));
+            var (imageWidth, imageHeight) = image is not null ? ((float)image.Width, (float)image.Height) : (area.Width, area.Height);
+            if (area.Width <= 0 || area.Height <= 0 || imageWidth <= 0 || imageHeight <= 0)
+                return true;
+
+            var s = borderImage.Slice;
+            var (st, sr, sb, sl) = (s.Top.Resolve(imageHeight), s.Right.Resolve(imageWidth), s.Bottom.Resolve(imageHeight), s.Left.Resolve(imageWidth));
+            // Widths are multiples of the border width, lengths (percentages of the area), or auto: the slice's size
+            // in an image with natural dimensions, the border width in one without.
+            float Width(BorderImageSide side, float borderWidth, float basis, float slice) =>
+                side.Number is { } n ? n * borderWidth : side.Length is { } l ? l.Resolve(basis) : image is not null ? slice : borderWidth;
+            var w = borderImage.Width;
+            var (wt, wr, wb, wl) = (Width(w.Top, border.TopWidth, area.Height, st), Width(w.Right, border.RightWidth, area.Width, sr),
+                Width(w.Bottom, border.BottomWidth, area.Height, sb), Width(w.Left, border.LeftWidth, area.Width, sl));
+            var f = Math.Min(1, Math.Min(wl + wr > 0 ? area.Width / (wl + wr) : 1, wt + wb > 0 ? area.Height / (wt + wb) : 1));
+            (wt, wr, wb, wl) = (wt * f, wr * f, wb * f, wl * f);
+
+            SetClip(box.Clip);
+            var (x0, x1, x2, x3) = (area.X, area.X + wl, area.Right - wr, area.Right);
+            var (y0, y1, y2, y3) = (area.Y, area.Y + wt, area.Bottom - wb, area.Bottom);
+            var (mw, mh) = (imageWidth - sl - sr, imageHeight - st - sb);
+            var sampling = style.Inherited.ImageRendering is ImageRendering.Pixelated or ImageRendering.CrispEdges ? ImageSampling.Pixelated : ImageSampling.Smooth;
+            var repeat = borderImage.Repeat;
+
+            // Corners, scaled to fit.
+            Part(new RectF(0, 0, sl, st), new RectF(x0, y0, wl, wt));
+            Part(new RectF(imageWidth - sr, 0, sr, st), new RectF(x2, y0, wr, wt));
+            Part(new RectF(imageWidth - sr, imageHeight - sb, sr, sb), new RectF(x2, y2, wr, wb));
+            Part(new RectF(0, imageHeight - sb, sl, sb), new RectF(x0, y2, wl, wb));
+            // Edges: as tall (or wide) as their region, tiled along it.
+            float Factor(float to, float from) => from > 0 ? to / from : 0;
+            Tile(new RectF(sl, 0, mw, st), new RectF(x1, y0, x2 - x1, wt), mw * Factor(wt, st), wt, repeat.X, BorderImageRepeat.Stretch);
+            Tile(new RectF(sl, imageHeight - sb, mw, sb), new RectF(x1, y2, x2 - x1, wb), mw * Factor(wb, sb), wb, repeat.X, BorderImageRepeat.Stretch);
+            Tile(new RectF(0, st, sl, mh), new RectF(x0, y1, wl, y2 - y1), wl, mh * Factor(wl, sl), BorderImageRepeat.Stretch, repeat.Y);
+            Tile(new RectF(imageWidth - sr, st, sr, mh), new RectF(x2, y1, wr, y2 - y1), wr, mh * Factor(wr, sr), BorderImageRepeat.Stretch, repeat.Y);
+            // The middle: its width scaled like the top edge (or the bottom one, or not at all), its height like the left
+            // edge (or the right one, or not at all).
+            if (s.Fill)
+            {
+                static float Usable(float factor) => factor > 0 && float.IsFinite(factor) ? factor : 0;
+                var fx = Usable(Factor(wt, st)) is > 0 and var top ? top : Usable(Factor(wb, sb)) is > 0 and var bottom ? bottom : 1;
+                var fy = Usable(Factor(wl, sl)) is > 0 and var left ? left : Usable(Factor(wr, sr)) is > 0 and var right ? right : 1;
+                Tile(new RectF(sl, st, mw, mh), new RectF(x1, y1, x2 - x1, y2 - y1), mw * fx, mh * fy, repeat.X, repeat.Y);
+            }
+            return true;
+
+            // Tiles of one part over its region: stretch fills the region, round fits a whole number of tiles, repeat
+            // centres them, and space spreads the whole tiles that fit with equal gaps around them.
+            void Tile(RectF source, RectF region, float tileWidth, float tileHeight, BorderImageRepeat horizontal, BorderImageRepeat vertical)
+            {
+                if (source.Width <= 0 || source.Height <= 0 || region.Width <= 0 || region.Height <= 0 || tileWidth <= 0 || tileHeight <= 0)
+                    return;
+                var across = Axis(horizontal, region.X, region.Width, tileWidth);
+                var down = Axis(vertical, region.Y, region.Height, tileHeight);
+                // ponytail: a part of more than 1024 tiles is stretched instead.
+                if (across.Count * down.Count > 1024)
+                    (across, down) = (Axis(BorderImageRepeat.Stretch, region.X, region.Width, tileWidth), Axis(BorderImageRepeat.Stretch, region.Y, region.Height, tileHeight));
+                for (var j = 0; j < down.Count; j++)
+                {
+                    for (var i = 0; i < across.Count; i++)
+                        Part(source, new RectF(across.Start + i * across.Step, down.Start + j * down.Step, across.Size, down.Size), region);
+                }
+            }
+
+            // One slice of the image drawn into a tile, clipped to its region: the whole image is placed so the slice
+            // lands on the tile.
+            void Part(RectF source, RectF tile, RectF? region = null)
+            {
+                if (source.Width <= 0 || source.Height <= 0 || tile.Width <= 0 || tile.Height <= 0)
+                    return;
+                var (kx, ky) = (tile.Width / source.Width, tile.Height / source.Height);
+                var whole = new RectF(tile.X - source.X * kx, tile.Y - source.Y * ky, imageWidth * kx, imageHeight * ky);
+                var visible = region is { } r ? Intersect(tile, r) : tile;
+                if (visible.Width <= 0 || visible.Height <= 0)
+                    return;
+                if (image is not null)
+                {
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(visible, default)));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(whole, default), Image: image, Sampling: sampling));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                }
+                else if (GradientGeometry.Build(gradient!, whole, style.Inherited.Color) is { } paint)
+                {
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(visible, default), Gradient: paint));
+                }
+            }
+
+            static RectF Intersect(RectF a, RectF b)
+            {
+                var (x, y) = (Math.Max(a.X, b.X), Math.Max(a.Y, b.Y));
+                return new RectF(x, y, Math.Max(0, Math.Min(a.Right, b.Right) - x), Math.Max(0, Math.Min(a.Bottom, b.Bottom) - y));
+            }
+        }
+
+        // Where the tiles of a border image part go along one axis of its region: the first one's start, the step, how
+        // many, and their size.
+        private static (float Start, float Step, int Count, float Size) Axis(BorderImageRepeat mode, float start, float length, float size)
+        {
+            switch (mode)
+            {
+                case BorderImageRepeat.Stretch:
+                    return (start, length, 1, length);
+                case BorderImageRepeat.Round:
+                    var n = Math.Max(1, MathF.Round(length / size, MidpointRounding.AwayFromZero));
+                    return (start, length / n, (int)n, length / n);
+                case BorderImageRepeat.Space:
+                    var count = MathF.Floor(length / size + 1e-4f);
+                    if (count < 1)
+                        return (start, size, 0, size);
+                    var gap = (length - count * size) / (count + 1);
+                    return (start + gap, size + gap, (int)count, size);
+                default: // repeat: centred
+                    var centred = start + (length - size) / 2;
+                    var first = centred - MathF.Ceiling((centred - start) / size) * size;
+                    return (first, size, (int)MathF.Ceiling((start + length - first) / size - 1e-4f), size);
             }
         }
 

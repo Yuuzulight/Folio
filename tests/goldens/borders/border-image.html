@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<title>Border images</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 28px; margin-bottom: 32px; align-items: flex-start; }
+  .box { width: 100px; height: 60px; border: 12px solid #94a3b8; background: #f8fafc; }
+</style>
+<div class="row">
+  <div class="box" style="border-image: linear-gradient(135deg, #f59e0b, #e11d48, #6366f1) 1"></div>
+  <div class="box" style="border-image: conic-gradient(from 45deg, #22c55e, #0ea5e9, #6366f1, #e11d48, #22c55e) 30"></div>
+  <div class="box" style="border-image: repeating-linear-gradient(45deg, #0f172a 0 6px, #facc15 6px 12px) 12 / 12px / 4px"></div>
+  <div class="box" style="border-width: 8px 20px; border-image: radial-gradient(circle, #6366f1, #22c55e) 25% fill"></div>
+</div>
+<div class="row">
+  <div class="box" style="image-rendering: pixelated; border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAALUlEQVR42mP4z8DwH4LBCIjhEKfEf4jIUgYIhvIZYOIwCRifAZkCs9BNRpcAANyQXjnaKx/iAAAAAElFTkSuQmCC) 2 stretch"></div>
+  <div class="box" style="image-rendering: pixelated; border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAALUlEQVR42mP4z8DwH4LBCIjhEKfEf4jIUgYIhvIZYOIwCRifAZkCs9BNRpcAANyQXjnaKx/iAAAAAElFTkSuQmCC) 2 repeat"></div>
+  <div class="box" style="image-rendering: pixelated; border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAALUlEQVR42mP4z8DwH4LBCIjhEKfEf4jIUgYIhvIZYOIwCRifAZkCs9BNRpcAANyQXjnaKx/iAAAAAElFTkSuQmCC) 2 round"></div>
+  <div class="box" style="image-rendering: pixelated; border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAALUlEQVR42mP4z8DwH4LBCIjhEKfEf4jIUgYIhvIZYOIwCRifAZkCs9BNRpcAANyQXjnaKx/iAAAAAElFTkSuQmCC) 2 fill space"></div>
+</div>
+<div class="row">
+  <div class="box" style="border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 5 / 16px round"></div>
+  <div class="box" style="border-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 5 fill / auto / 6px repeat stretch; border-radius: 20px"></div>
+  <div class="box" style="border-image: url(data:text/plain,x) 5; border-style: dashed"></div>
+</div>
