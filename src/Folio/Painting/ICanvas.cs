@@ -46,7 +46,7 @@ public interface ICanvas
     /// </summary>
     float[] GlyphIntercepts(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, float top, float bottom) => [];
 
-    /// <summary>Starts a layer that is composited with <paramref name="options"/> at the matching <see cref="PopLayer"/>.</summary>
+    /// <summary>Starts a layer that is filtered and composited with <paramref name="options"/> at the matching <see cref="PopLayer"/>.</summary>
     void PushLayer(in LayerOptions options);
 
     void PopLayer();

@@ -162,6 +162,69 @@ public class SkiaCanvasTests
         Assert.Equal(SKColors.Red, bitmap.GetPixel(48, 30));
     }
 
+    [Fact]
+    public void ColourFiltersMapTheBoxesColours()
+    {
+        using var bitmap = Render("<style>body { margin: 0 } div { height: 10px; background: red }</style><div style='background: black; filter: invert(1)'></div>" +
+            "<div style='filter: grayscale(1)'></div><div style='filter: brightness(0.5)'></div><div style='filter: opacity(0.5)'></div><div style='filter: hue-rotate(120deg)'></div>");
+
+        Assert.Equal(SKColors.White, bitmap.GetPixel(5, 5));
+        AssertNear(new SKColor(54, 54, 54), bitmap.GetPixel(5, 15));
+        AssertNear(new SKColor(128, 0, 0), bitmap.GetPixel(5, 25));
+        AssertNear(new SKColor(255, 128, 128), bitmap.GetPixel(5, 35));
+        // Red turned a third of the way round comes out greenish (the matrix is an approximation of a hue rotation).
+        var rotated = bitmap.GetPixel(5, 45);
+        Assert.True(rotated.Green > rotated.Red && rotated.Green > rotated.Blue, rotated.ToString());
+    }
+
+    [Fact]
+    public void BlurSpreadsTheBoxBeyondItsEdges()
+    {
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='margin: 40px; width: 20px; height: 20px; background: blue; filter: blur(3px)'></div>");
+
+        Assert.NotEqual(SKColors.White, bitmap.GetPixel(37, 50));
+        Assert.True(bitmap.GetPixel(50, 50).Red < 40);
+        Assert.Equal(SKColors.White, bitmap.GetPixel(75, 50));
+    }
+
+    [Fact]
+    public void AZeroBlurChangesNothing()
+    {
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='width: 10px; height: 10px; background: red; filter: blur(0) invert(1) blur(0)'></div>");
+
+        Assert.Equal(SKColors.Cyan, bitmap.GetPixel(5, 5));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(15, 5));
+    }
+
+    [Fact]
+    public void DropShadowPaintsTheAlphaMovedUnderTheBox()
+    {
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='width: 10px; height: 10px; background: red; filter: drop-shadow(blue 20px 5px)'></div>");
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(5, 5));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(25, 10));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(15, 5));
+    }
+
+    [Fact]
+    public void BackdropFiltersFilterWhatLiesUnderTheBorderBoxOnly()
+    {
+        // The red box and the white canvas under the panel from x 20 to 60 are inverted; the rest is untouched.
+        using var bitmap = Render("<style>body { margin: 0 } div { position: absolute; top: 0; height: 40px }</style><div style='width: 40px; background: red'></div>" +
+            "<div style='left: 20px; width: 40px; backdrop-filter: invert(1)'></div><div style='top: 50px; width: 40px; backdrop-filter: invert(1); opacity: 0.5'></div>");
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(10, 20));
+        Assert.Equal(SKColors.Cyan, bitmap.GetPixel(30, 20));
+        Assert.Equal(SKColors.Black, bitmap.GetPixel(50, 20));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(70, 20));
+        // Opacity applies to the filtered backdrop as well.
+        AssertNear(new SKColor(128, 128, 128), bitmap.GetPixel(20, 70));
+    }
+
+    private static void AssertNear(SKColor expected, SKColor actual) =>
+        Assert.True(Math.Abs(expected.Red - actual.Red) <= 2 && Math.Abs(expected.Green - actual.Green) <= 2 && Math.Abs(expected.Blue - actual.Blue) <= 2,
+            $"Expected {expected}, got {actual}.");
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {

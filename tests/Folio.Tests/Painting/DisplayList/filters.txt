@@ -1,0 +1,89 @@
+=== a filter makes a layer holding the box, its descendants and its outline
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 10px; background: rgb(1, 0, 0); outline: 1px solid rgb(3, 0, 0); filter: blur(2px)"><div style="height: 5px; background: rgb(2, 0, 0)"></div></div>
+---
+filter blur(2)
+fill 0,0 20x10 rgb(1, 0, 0)
+fill 0,0 20x5 rgb(2, 0, 0)
+border -1,-1 22x12 1 solid rgb(3, 0, 0)
+pop
+
+=== filter functions become primitives in order
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; color: blue; filter: brightness(50%) drop-shadow(1px 2px 3px) grayscale() drop-shadow(red -1px 0)"></div>
+---
+filter matrix(0.5,0,0,0,0,0,0.5,0,0,0,0,0,0.5,0,0,0,0,0,1,0) shadow(1,2,3,0,0,1,1) matrix(0.21,0.72,0.07,0,0,0.21,0.72,0.07,0,0,0.21,0.72,0.07,0,0,0,0,0,1,0) shadow(-1,0,0,1,0,0,1)
+pop
+
+=== opacity and a filter share one layer
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; background: rgb(1, 0, 0); opacity: 0.5; filter: blur(1px)"></div>
+---
+opacity 0.5 filter blur(1)
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+
+=== the filter applies inside the transform
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; background: rgb(1, 0, 0); filter: invert(1); transform: translate(1px)"></div>
+---
+transform 1,0,0,1,1,0
+filter matrix(-1,0,0,0,1,0,-1,0,0,1,0,0,-1,0,1,0,0,0,1,0)
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+pop
+
+=== clips from outside stay outside the filter, the box's own go inside
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="overflow: hidden; height: 10px"><div style="filter: blur(1px); overflow: hidden; height: 20px; background: rgb(1, 0, 0)"><div style="height: 30px; background: rgb(2, 0, 0)"></div></div></div>
+---
+clip 0,0 800x10
+filter blur(1)
+fill 0,0 800x20 rgb(1, 0, 0)
+clip 0,0 800x20
+fill 0,0 800x30 rgb(2, 0, 0)
+pop
+pop
+pop
+
+=== a backdrop filter reads the backdrop in the border box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="margin-left: 10px; width: 20px; height: 10px; border-radius: 3px; background: rgb(1, 0, 0); backdrop-filter: blur(4px) saturate(3)"></div>
+---
+backdrop 10,0 20x10 radius 3 blur(4) matrix(2.57,-1.43,-0.14,0,0,-0.43,1.57,-0.14,0,0,-0.43,-1.43,2.86,0,0,0,0,0,1,0)
+fill 10,0 20x10 radius 3 rgb(1, 0, 0)
+pop
+
+=== a filter, a backdrop filter and opacity share one layer
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 10px; opacity: 0.25; filter: sepia(0); -webkit-backdrop-filter: opacity(50%)"></div>
+---
+opacity 0.25 filter matrix(1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0) backdrop 0,0 20x10 matrix(1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0.5,0)
+pop
+
+=== a filtered box is a stacking context and z-index does not apply to it unpositioned
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="filter: blur(0); z-index: -1; background: rgb(1, 0, 0)"></div><div style="position: relative; z-index: -1; background: rgb(2, 0, 0)"><div style="position: relative; z-index: 5; background: rgb(3, 0, 0)"></div></div><div style="backdrop-filter: blur(1px); margin-top: -20px; background: rgb(4, 0, 0)"><div style="position: relative; z-index: -1; background: rgb(5, 0, 0)"></div></div>
+---
+fill 0,10 800x10 rgb(2, 0, 0)
+fill 0,10 800x10 rgb(3, 0, 0)
+filter blur(0)
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+backdrop 0,0 800x10 blur(1)
+fill 0,0 800x10 rgb(4, 0, 0)
+fill 0,0 800x10 rgb(5, 0, 0)
+pop
+
+=== filter none paints no layer
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; background: rgb(1, 0, 0); filter: blur(1px); filter: none; backdrop-filter: none"></div>
+---
+fill 0,0 800x10 rgb(1, 0, 0)
+
+=== opacity() at the end of the list folds into the layer's opacity
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="opacity: 0.5; filter: blur(1px) opacity(0.5)"></div><div style="filter: opacity(0.5) blur(1px)"></div><div style="filter: opacity(2)"></div>
+---
+opacity 0.25 filter blur(1)
+pop
+filter matrix(1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0.5,0) blur(1)
+pop
+
+=== a filtered table is filtered once, by its wrapper, with its outline inside
+<!DOCTYPE html><style>body { margin: 0 }</style><table style="border-spacing: 0; filter: blur(1px); outline: 1px solid rgb(3, 0, 0); background: rgb(1, 0, 0)"><td style="width: 10px; height: 10px; padding: 0"></td></table>
+---
+filter blur(1)
+fill 0,0 10x10 rgb(1, 0, 0)
+border -1,-1 12x12 1 solid rgb(3, 0, 0)
+pop

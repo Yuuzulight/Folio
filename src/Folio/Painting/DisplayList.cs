@@ -34,8 +34,12 @@ internal enum DisplayItemKind
     /// <summary>Clips what follows to <see cref="DisplayItem.Shape"/> until the matching <see cref="Pop"/>.</summary>
     PushClip,
 
-    /// <summary>Composites what follows with <see cref="DisplayItem.Opacity"/> at the matching <see cref="Pop"/>.</summary>
-    PushOpacity,
+    /// <summary>
+    /// Draws what follows into a layer, filtered by <see cref="DisplayItem.Filters"/> and composited with
+    /// <see cref="DisplayItem.Opacity"/> at the matching <see cref="Pop"/>. With <see cref="DisplayItem.Backdrop"/>,
+    /// the layer starts as the backdrop, filtered by those and clipped to <see cref="DisplayItem.Shape"/>.
+    /// </summary>
+    PushLayer,
 
     /// <summary>Maps what follows by <see cref="DisplayItem.Transform"/>, then the transforms outside it, until the matching <see cref="Pop"/>.</summary>
     PushTransform,
@@ -52,11 +56,14 @@ internal enum DisplayItemKind
 /// <param name="Image">For images: the pixels, drawn with <paramref name="Sampling"/>.</param>
 /// <param name="LineStyle">For decorations: solid, dotted, dashed or wavy (a double line is two solid ones).</param>
 /// <param name="Transform">For transforms: the matrix in row-vector form, in canvas coordinates.</param>
+/// <param name="Filters">For layers: the filter primitives applied to what the layer holds (filter), or null.</param>
+/// <param name="Backdrop">For layers: the filter primitives applied to the backdrop (backdrop-filter), or null.</param>
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
                                             BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
                                             Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth,
                                             float Blur = 0, bool Inset = false, RoundedRect Box = default,
-                                            Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default);
+                                            Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default,
+                                            IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

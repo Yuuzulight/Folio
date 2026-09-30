@@ -33,7 +33,7 @@ public class DisplayListTests
         var depth = 0;
         foreach (var item in list.Items)
         {
-            depth += item.Kind is DisplayItemKind.PushClip or DisplayItemKind.PushOpacity or DisplayItemKind.PushTransform ? 1 : item.Kind == DisplayItemKind.Pop ? -1 : 0;
+            depth += item.Kind is DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform ? 1 : item.Kind == DisplayItemKind.Pop ? -1 : 0;
             Assert.True(depth >= 0);
         }
         Assert.Equal(0, depth);
@@ -49,9 +49,28 @@ public class DisplayListTests
         DisplayItemKind.Decoration => $"decoration {Shape(item.Shape)} {item.LineStyle.ToString().ToLowerInvariant()} {item.Color}{(item.Glyphs is null ? "" : " skip-ink")}",
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
-        DisplayItemKind.PushOpacity => $"opacity {N(item.Opacity)}",
+        DisplayItemKind.PushLayer => Layer(item),
         DisplayItemKind.PushTransform when item.Transform is var m => $"transform {N(m.M11)},{N(m.M12)},{N(m.M21)},{N(m.M22)},{N(m.M31)},{N(m.M32)}",
         _ => "pop",
+    };
+
+    private static string Layer(DisplayItem item)
+    {
+        var parts = new List<string>();
+        if (item.Opacity < 1)
+            parts.Add($"opacity {N(item.Opacity)}");
+        if (item.Filters is { } filters)
+            parts.Add($"filter {string.Join(" ", filters.Select(Filter))}");
+        if (item.Backdrop is { } backdrop)
+            parts.Add($"backdrop {Shape(item.Shape)} {string.Join(" ", backdrop.Select(Filter))}");
+        return parts.Count > 0 ? string.Join(" ", parts) : "layer";
+    }
+
+    private static string Filter(Filter f) => f.Kind switch
+    {
+        FilterKind.Blur => $"blur({N(f.StdDeviation)})",
+        FilterKind.DropShadow => $"shadow({N(f.Offset.X)},{N(f.Offset.Y)},{N(f.StdDeviation)},{N(f.Color.R)},{N(f.Color.G)},{N(f.Color.B)},{N(f.Color.A)})",
+        _ => $"matrix({string.Join(",", f.Matrix!.Select(N))})",
     };
 
     private static string Shape(RoundedRect shape)

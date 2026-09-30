@@ -66,6 +66,26 @@ html 0,0 800x50
         span 0,37.2 0x16
 span#a 0,0 10x10
 
+=== a filtered box is the containing block of its absolute and fixed descendants
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div id=t style="margin-top: 50px; padding: 5px; height: 100px; filter: blur(0)"><div><div id=a style="position: absolute; right: 0; top: 0; width: 10px; height: 10px"></div></div><div id=f style="position: fixed; left: 0; bottom: 0; width: 10px; height: 10px"></div></div>
+---
+html 0,0 800x160
+  body 0,50 800x110
+    div#t 0,50 800x110
+      div 5,55 790x0
+      div#a 790,50 10x10
+      div#f 0,150 10x10
+
+=== a filter on the root does not make it the containing block of fixed boxes, nor does a backdrop filter
+<!DOCTYPE html><style>html { filter: blur(0) } body { margin: 0; backdrop-filter: blur(0) }</style>
+<div style="margin-top: 50px; height: 10px"><div id=f style="position: fixed; left: 0; bottom: 0; width: 10px; height: 10px"></div></div>
+---
+html 0,0 800x60
+  body 0,50 800x10
+    div 0,50 800x10
+div#f 0,590 10x10
+
 === a relatively positioned container moves its absolute children with it
 <!DOCTYPE html><style>body { margin: 0 }</style>
 <div id=p style="position: relative; left: 5px; top: 5px; height: 20px"><div id=a style="position: absolute; left: 0; top: 0; width: 10px; height: 10px"></div></div>

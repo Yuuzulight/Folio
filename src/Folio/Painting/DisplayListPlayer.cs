@@ -42,8 +42,8 @@ internal static class DisplayListPlayer
                     canvas.ClipRoundedRect(item.Shape);
                     open.Push(item.Kind);
                     break;
-                case DisplayItemKind.PushOpacity:
-                    canvas.PushLayer(new LayerOptions(item.Opacity));
+                case DisplayItemKind.PushLayer:
+                    canvas.PushLayer(new LayerOptions(item.Opacity, item.Filters, item.Backdrop, item.Shape));
                     open.Push(item.Kind);
                     break;
                 case DisplayItemKind.PushTransform:
@@ -52,7 +52,7 @@ internal static class DisplayListPlayer
                     open.Push(item.Kind);
                     break;
                 case DisplayItemKind.Pop when open.TryPop(out var kind):
-                    if (kind == DisplayItemKind.PushOpacity)
+                    if (kind == DisplayItemKind.PushLayer)
                         canvas.PopLayer();
                     else
                         canvas.Restore();

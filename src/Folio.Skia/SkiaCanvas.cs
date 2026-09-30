@@ -120,8 +120,55 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void PushLayer(in LayerOptions options)
     {
-        using var skPaint = new SKPaint { Color = SKColors.Black.WithAlpha(ToByte(options.Opacity)) };
-        canvas.SaveLayer(skPaint);
+        var owned = new List<IDisposable>();
+        try
+        {
+            var skPaint = Own(owned, new SKPaint { Color = SKColors.Black.WithAlpha(ToByte(options.Opacity)), ImageFilter = Chain(options.Filters, null, owned) });
+            if (options.Backdrop is not { Count: > 0 } backdrop)
+            {
+                canvas.SaveLayer(skPaint);
+                return;
+            }
+            // The backdrop is read inside the clip only, its edges mirrored for blurs (filter-effects-2 §2.1).
+            var r = options.BackdropClip.Rect;
+            var crop = Own(owned, SKImageFilter.CreateCrop(new SKRect(r.X, r.Y, r.Right, r.Bottom), SKShaderTileMode.Mirror));
+            canvas.SaveLayer(new SKCanvasSaveLayerRec { Paint = skPaint, Backdrop = Chain(backdrop, crop, owned) });
+            // Then it is clipped: everything outside the clip is cleared.
+            using var clip = ToSkia(options.BackdropClip);
+            canvas.Save();
+            canvas.ClipRoundRect(clip, SKClipOperation.Difference, antialias: true);
+            canvas.Clear(SKColors.Transparent);
+            canvas.Restore();
+        }
+        finally
+        {
+            foreach (var o in owned)
+                o.Dispose();
+        }
+    }
+
+    private static T Own<T>(List<IDisposable> owned, T item) where T : IDisposable
+    {
+        owned.Add(item);
+        return item;
+    }
+
+    // Filter primitives chained in order, each taking the one before as its input (the source for the first). Skia may
+    // return no filter for one that does nothing (a zero blur); the input then goes on unchanged.
+    private static SKImageFilter? Chain(IReadOnlyList<Filter>? filters, SKImageFilter? input, List<IDisposable> owned)
+    {
+        foreach (var f in filters ?? [])
+        {
+            var next = f.Kind switch
+            {
+                FilterKind.Blur => SKImageFilter.CreateBlur(f.StdDeviation, f.StdDeviation, input),
+                FilterKind.DropShadow => SKImageFilter.CreateDropShadow(f.Offset.X, f.Offset.Y, f.StdDeviation, f.StdDeviation, ToSkia(f.Color), input),
+                _ => SKImageFilter.CreateColorFilter(Own(owned, SKColorFilter.CreateColorMatrix([.. f.Matrix ?? []])), input),
+            };
+            if (next is not null)
+                input = Own(owned, next);
+        }
+        return input;
     }
 
     public void PopLayer() => canvas.Restore();
