@@ -1,4 +1,5 @@
 using System.Globalization;
+using Folio.Css;
 using Folio.Dom;
 using Folio.Style;
 
@@ -9,8 +10,8 @@ namespace Folio.Layout;
 /// rows, cells (colspan, rowspan) and columns, fixed and auto column widths, row heights, cell vertical alignment,
 /// border-spacing, and captions around the table grid box in the table wrapper.
 /// </summary>
-// ponytail: border-collapse: collapse lays out as separate borders with no spacing until the collapsing border model
-// lands; empty-cells: hide still paints empty cells; percentages of table width in cells act as auto.
+// ponytail: percentages of table width in cells act as auto; with collapsed borders, intrinsic widths use the cells'
+// own borders and conflicts ignore columns and column groups.
 internal static class TableLayout
 {
     private sealed class Cell(TablePartBox box)
@@ -67,6 +68,8 @@ internal static class TableLayout
         var grid = Build(table);
         var (min, max) = ColumnRanges(grid, table.Style, context);
         var (frame, spacing) = Frame(table, 0);
+        if (table.Style.Text.BorderCollapse == BorderCollapse.Collapse)
+            frame = CollapsedFrame(grid, ResolveCollapsedBorders(grid, table));
         var extra = frame.Horizontal + spacing.X * (grid.Columns + 1);
         var captions = wrapper.Children.OfType<TablePartBox>().Where(p => p.Part == TablePart.Caption)
             .Select(c => IntrinsicSizes.Contribution(c, context).Min).DefaultIfEmpty(0).Max();
@@ -97,6 +100,12 @@ internal static class TableLayout
         var style = table.Style;
         var grid = Build(table);
         var (frame, spacing) = Frame(table, width);
+        var collapsed = style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
+        if (collapsed is not null)
+            frame = CollapsedFrame(grid, collapsed);
+        BorderGroup? Half(Cell cell) => collapsed?[cell] is { } b
+            ? b with { TopWidthPx = b.TopWidth / 2, RightWidthPx = b.RightWidth / 2, BottomWidthPx = b.BottomWidth / 2, LeftWidthPx = b.LeftWidth / 2 }
+            : null;
         var n = grid.Columns;
         var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context);
         var tableWidth = Math.Max(width, columns.Sum() + frame.Horizontal + spacing.X * (n + 1));
@@ -113,8 +122,8 @@ internal static class TableLayout
         foreach (var cell in grid.Cells)
         {
             var w = SpanWidth(cell);
-            cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w), context);
-            cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - cell.Box.Style.Border.BottomWidth
+            cell.Fragment = BlockLayout.Layout(cell.Box, new ConstraintSpace(w, null, FixedWidth: w, Border: Half(cell)), context);
+            cell.Baseline = FirstBaseline(cell.Fragment) ?? cell.Fragment.Height - (Half(cell) ?? cell.Box.Style.Border).BottomWidth
                 - BlockLayout.Resolve(cell.Box.Style.Spacing.PaddingBottom, w);
             if (cell.RowSpan == 1 && IsBaseline(cell))
                 ascents[cell.Row] = Math.Max(ascents[cell.Row], cell.Baseline);
@@ -173,18 +182,182 @@ internal static class TableLayout
                         _ when IsBaseline(cell) && cell.RowSpan == 1 => ascents[r] - cell.Baseline,
                         _ => 0,
                     };
-                    var placed = new Fragment(cell.Box, content.Width, height, content.Children.Select(c => c with { Y = c.Y + offset }).ToList());
+                    // empty-cells: hide leaves empty cells undecorated in the separated border model.
+                    var hidden = collapsed is null && cell.Box.Style.Text.EmptyCells == EmptyCells.Hide && content.Children.Count == 0;
+                    var placed = new Fragment(cell.Box, content.Width, height, content.Children.Select(c => c with { Y = c.Y + offset }).ToList())
+                    {
+                        PaintedBorder = collapsed?[cell],
+                        SkipsDecorations = hidden,
+                    };
                     cells.Add(new ChildFragment(columnX[cell.Column] - gridLeft, 0, placed));
                     carried.AddRange(content.OutOfFlow.Select(o => o with { StaticX = o.StaticX + columnX[cell.Column], StaticY = o.StaticY + rowY[r] + offset }));
                 }
-                rowFragments.Add(new ChildFragment(0, rowY[r] - rowY[first], new Fragment(row, gridRight - gridLeft, heights[r], cells)));
+                rowFragments.Add(new ChildFragment(0, rowY[r] - rowY[first],
+                    new Fragment(row, gridRight - gridLeft, heights[r], cells) { PaintedBorder = collapsed is null ? null : ComputedStyle.Initial.Border }));
             }
             if (rows.Count == 0)
                 continue;
             var groupHeight = rowY[rowIndex - 1] + heights[rowIndex - 1] - rowY[first];
-            groupFragments.Add(new ChildFragment(gridLeft, rowY[first], new Fragment(group!, gridRight - gridLeft, groupHeight, rowFragments)));
+            groupFragments.Add(new ChildFragment(gridLeft, rowY[first],
+                new Fragment(group!, gridRight - gridLeft, groupHeight, rowFragments) { PaintedBorder = collapsed is null ? null : ComputedStyle.Initial.Border }));
         }
-        return new Fragment(table, tableWidth, tableHeight, groupFragments) { OutOfFlow = carried };
+        return new Fragment(table, tableWidth, tableHeight, groupFragments)
+        {
+            OutOfFlow = carried,
+            PaintedBorder = collapsed is null ? null : ComputedStyle.Initial.Border,
+        };
+    }
+
+    // The table's border box holds half of each outer collapsed border (CSS 2.2 §17.6.2).
+    private static Edges CollapsedFrame(Grid grid, Dictionary<Cell, BorderGroup> collapsed)
+    {
+        float Outer(Func<Cell, bool> onEdge, Func<BorderGroup, float> width) =>
+            grid.Cells.Where(onEdge).Select(c => width(collapsed[c])).DefaultIfEmpty(0).Max() / 2;
+        return new Edges(Outer(c => c.Column == 0, b => b.LeftWidth), Outer(c => c.Column + c.ColumnSpan == grid.Columns, b => b.RightWidth),
+            Outer(c => c.Row == 0, b => b.TopWidth), Outer(c => c.Row + c.RowSpan == grid.Rows.Count, b => b.BottomWidth));
+    }
+
+    // One side of a border in the collapsing model, with the priority of the box it comes from.
+    private readonly record struct Side(float Width, BorderStyle Style, CssColor Color, int Priority);
+
+    private enum Edge { Top, Right, Bottom, Left }
+
+    private static Side SideOf(Box box, Edge edge, int priority)
+    {
+        var b = box.Style.Border;
+        var current = box.Style.Inherited.Color;
+        return edge switch
+        {
+            Edge.Top => new Side(b.TopWidth, b.TopStyle, b.TopColor.Resolve(current), priority),
+            Edge.Right => new Side(b.RightWidth, b.RightStyle, b.RightColor.Resolve(current), priority),
+            Edge.Bottom => new Side(b.BottomWidth, b.BottomStyle, b.BottomColor.Resolve(current), priority),
+            _ => new Side(b.LeftWidth, b.LeftStyle, b.LeftColor.Resolve(current), priority),
+        };
+    }
+
+    // CSS 2.2 §17.6.2.1: hidden wins, then the wider border, then the style (double down to inset), then the box
+    // (cell, row, row group, table); on a full tie the first one.
+    private static Side Winner(Side a, Side b)
+    {
+        if (a.Style == BorderStyle.Hidden)
+            return a;
+        if (b.Style == BorderStyle.Hidden)
+            return b;
+        if (b.Style == BorderStyle.None)
+            return a;
+        if (a.Style == BorderStyle.None)
+            return b;
+        if (a.Width != b.Width)
+            return a.Width > b.Width ? a : b;
+        if (Rank(a.Style) != Rank(b.Style))
+            return Rank(a.Style) > Rank(b.Style) ? a : b;
+        return b.Priority > a.Priority ? b : a;
+
+        static int Rank(BorderStyle s) => s switch
+        {
+            BorderStyle.Double => 8,
+            BorderStyle.Solid => 7,
+            BorderStyle.Dashed => 6,
+            BorderStyle.Dotted => 5,
+            BorderStyle.Ridge => 4,
+            BorderStyle.Outset => 3,
+            BorderStyle.Groove => 2,
+            BorderStyle.Inset => 1,
+            _ => 0,
+        };
+    }
+
+    // Each cell's collapsed border: every side resolved against the neighbouring cell, the rows and row groups the
+    // edge runs along, and the table at the outer edges.
+    private static Dictionary<Cell, BorderGroup> ResolveCollapsedBorders(Grid grid, TablePartBox table)
+    {
+        var slots = new Dictionary<(int Row, int Column), Cell>();
+        foreach (var cell in grid.Cells)
+        {
+            for (var r = cell.Row; r < cell.Row + cell.RowSpan; r++)
+            {
+                for (var c = cell.Column; c < cell.Column + cell.ColumnSpan; c++)
+                    slots[(r, c)] = cell;
+            }
+        }
+        var groupOf = new Dictionary<int, TablePartBox>();
+        var index = 0;
+        foreach (var (group, rows) in grid.Groups)
+        {
+            foreach (var _ in rows)
+                groupOf[index++] = group!;
+        }
+        var (lastRow, lastColumn) = (grid.Rows.Count - 1, grid.Columns - 1);
+
+        Side Resolve(Cell cell, Edge edge)
+        {
+            var side = SideOf(cell.Box, edge, 4);
+            var (top, bottom) = (cell.Row, cell.Row + cell.RowSpan - 1);
+            var (left, right) = (cell.Column, cell.Column + cell.ColumnSpan - 1);
+            switch (edge)
+            {
+                case Edge.Top:
+                    side = Winner(side, SideOf(grid.Rows[top], Edge.Top, 3));
+                    if (top == 0 || groupOf[top] != groupOf[top - 1])
+                        side = Winner(side, SideOf(groupOf[top], Edge.Top, 2));
+                    if (top > 0)
+                    {
+                        side = Winner(side, SideOf(grid.Rows[top - 1], Edge.Bottom, 3));
+                        if (slots.TryGetValue((top - 1, left), out var above))
+                            side = Winner(side, SideOf(above.Box, Edge.Bottom, 4));
+                        if (groupOf[top] != groupOf[top - 1])
+                            side = Winner(side, SideOf(groupOf[top - 1], Edge.Bottom, 2));
+                    }
+                    else
+                    {
+                        side = Winner(side, SideOf(table, Edge.Top, 0));
+                    }
+                    break;
+                case Edge.Bottom:
+                    side = Winner(side, SideOf(grid.Rows[bottom], Edge.Bottom, 3));
+                    if (bottom == lastRow || groupOf[bottom] != groupOf[bottom + 1])
+                        side = Winner(side, SideOf(groupOf[bottom], Edge.Bottom, 2));
+                    if (bottom < lastRow)
+                    {
+                        side = Winner(side, SideOf(grid.Rows[bottom + 1], Edge.Top, 3));
+                        if (slots.TryGetValue((bottom + 1, left), out var below))
+                            side = Winner(side, SideOf(below.Box, Edge.Top, 4));
+                        if (groupOf[bottom] != groupOf[bottom + 1])
+                            side = Winner(side, SideOf(groupOf[bottom + 1], Edge.Top, 2));
+                    }
+                    else
+                    {
+                        side = Winner(side, SideOf(table, Edge.Bottom, 0));
+                    }
+                    break;
+                case Edge.Left:
+                    if (left > 0 && slots.TryGetValue((top, left - 1), out var before))
+                        side = Winner(side, SideOf(before.Box, Edge.Right, 4));
+                    else if (left == 0)
+                        side = Winner(Winner(Winner(side, SideOf(grid.Rows[top], Edge.Left, 3)), SideOf(groupOf[top], Edge.Left, 2)), SideOf(table, Edge.Left, 0));
+                    break;
+                default:
+                    if (right < lastColumn && slots.TryGetValue((top, right + 1), out var after))
+                        side = Winner(side, SideOf(after.Box, Edge.Left, 4));
+                    else if (right == lastColumn)
+                        side = Winner(Winner(Winner(side, SideOf(grid.Rows[top], Edge.Right, 3)), SideOf(groupOf[top], Edge.Right, 2)), SideOf(table, Edge.Right, 0));
+                    break;
+            }
+            return side;
+        }
+
+        var result = new Dictionary<Cell, BorderGroup>();
+        foreach (var cell in grid.Cells)
+        {
+            var (t, r, b, l) = (Resolve(cell, Edge.Top), Resolve(cell, Edge.Right), Resolve(cell, Edge.Bottom), Resolve(cell, Edge.Left));
+            result[cell] = cell.Box.Style.Border with
+            {
+                TopWidthPx = t.Width, RightWidthPx = r.Width, BottomWidthPx = b.Width, LeftWidthPx = l.Width,
+                TopStyle = t.Style, RightStyle = r.Style, BottomStyle = b.Style, LeftStyle = l.Style,
+                TopColor = t.Color, RightColor = r.Color, BottomColor = b.Color, LeftColor = l.Color,
+            };
+        }
+        return result;
     }
 
     private static bool IsBaseline(Cell cell) =>

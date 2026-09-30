@@ -49,6 +49,26 @@ public class CascadeTests
     }
 
     [Fact]
+    public void PresentationalHintsComeBeforeAuthorRules()
+    {
+        var document = TreeBuilder.Parse("<!DOCTYPE html><style>#b { padding: 0 }</style><table cellpadding=4 border=2><tr>" +
+            "<td id=a bgcolor=ff0000 align=center valign=top width=50%>x<td id=b>y</table>");
+
+        StyleResolver.Resolve(document, new MediaContext(800, 600));
+
+        var (table, a, b) = (Find(document, "table").ComputedStyle()!, Find(document, "#a").ComputedStyle()!, Find(document, "#b").ComputedStyle()!);
+        Assert.Equal(2, table.Border.TopWidth);
+        Assert.Equal(BorderStyle.Outset, table.Border.TopStyle);
+        Assert.Equal(new CssColor(1, 0, 0, 1), a.Background.Color);
+        Assert.Equal(TextAlign.Center, a.Text.TextAlign);
+        Assert.Equal(VerticalAlignKind.Top, a.Box.VerticalAlign.Kind);
+        Assert.Equal("50%", a.Size.Width.ToString());
+        Assert.Equal(4, a.Spacing.PaddingTop.Px);
+        Assert.Equal(1, a.Border.TopWidth);
+        Assert.Equal(0, b.Spacing.PaddingTop.Px); // an author rule beats the hint
+    }
+
+    [Fact]
     public void ElementsWithoutOwnDeclarationsShareStyleGroups()
     {
         var document = TreeBuilder.Parse("<!DOCTYPE html><ul><li id=a>1<li id=b>2</ul>");
