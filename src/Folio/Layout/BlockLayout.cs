@@ -80,8 +80,8 @@ internal static class BlockLayout
             var (ml, mr) = (Margin(spacing.MarginLeft, width), Margin(spacing.MarginRight, width));
             var (mt, mb) = (Margin(spacing.MarginTop, width), Margin(spacing.MarginBottom, width));
             var (outerWidth, outerHeight) = (ml + fragment.Width + mr, mt + fragment.Height + mb);
-            var side = child.Style.Box.Float is FloatSide.Right or FloatSide.InlineEnd ? FloatSide.Right : FloatSide.Left;
-            var minTop = Math.Max(contentY + top, exclusions.ClearEdge(child.Style.Box.Clear) ?? float.NegativeInfinity);
+            var side = PhysicalFloat(child.Style.Box.Float, style.Text.Direction);
+            var minTop = Math.Max(contentY + top, exclusions.ClearEdge(PhysicalClear(child.Style.Box.Clear, style.Text.Direction)) ?? float.NegativeInfinity);
             var (fx, fy) = exclusions.PlaceFloat(side, outerWidth, outerHeight, minTop, contentX, contentX + width);
             exclusions = exclusions.Add(new FloatArea(side, fx, fy, fx + outerWidth, fy + outerHeight));
             Place(child, fragment, fx + ml - boxX, fy + mt - boxY);
@@ -156,7 +156,7 @@ internal static class BlockLayout
 
             // Clearance (§9.5.2): the border box goes below the floats it clears, and margins stop collapsing across.
             var clearance = false;
-            if (exclusions.ClearEdge(child.Style.Box.Clear) is { } edge && contentY + y < edge)
+            if (exclusions.ClearEdge(PhysicalClear(child.Style.Box.Clear, style.Text.Direction)) is { } edge && contentY + y < edge)
                 (y, clearance) = (edge - contentY, true);
 
             Fragment fragment;
@@ -284,6 +284,18 @@ internal static class BlockLayout
         };
     }
 
+    // float and clear: inline-start and inline-end are left and right in a left-to-right containing block, and the other
+    // way round in a right-to-left one (css-logical-1 §3.1).
+    internal static FloatSide PhysicalFloat(FloatSide side, Direction direction) =>
+        side is FloatSide.Right || side == (direction == Direction.Rtl ? FloatSide.InlineStart : FloatSide.InlineEnd) ? FloatSide.Right : FloatSide.Left;
+
+    private static Clear PhysicalClear(Clear clear, Direction direction) => clear switch
+    {
+        Clear.InlineStart => direction == Direction.Rtl ? Clear.Right : Clear.Left,
+        Clear.InlineEnd => direction == Direction.Rtl ? Clear.Left : Clear.Right,
+        _ => clear,
+    };
+
     // The floats after a child that joined this formatting context, with the ones it placed moved by dy: the child
     // was laid out at an expected position that its collapsed margins then changed.
     private static ExclusionSpace MoveFloats(Fragment child, ExclusionSpace before, float dy) =>
@@ -380,6 +392,8 @@ internal static class BlockLayout
                                                                                  LayoutContext? context = null)
     {
         var style = box.Style;
+        // Which margin gives way when the widths do not add up: the end one of the containing block (§10.3.3).
+        var rtl = (box.Parent?.Style ?? style).Text.Direction == Direction.Rtl;
         var available = cbWidth - Margin(style.Spacing.MarginLeft, cbWidth) - Margin(style.Spacing.MarginRight, cbWidth) - frameX;
         float? Size(SizeValue value) =>
             ContentSize(value, cbWidth, frameX, borderBox) ?? IntrinsicSizes.Keyword(value, box, available, context);
@@ -402,19 +416,21 @@ internal static class BlockLayout
             var mr = Margin(right, cbWidth);
             if (specified is not { } w)
             {
-                // Auto margins are zero; the width fills the rest, and if that is negative the right margin gives way.
+                // Auto margins are zero; the width fills the rest, and if that is negative the end margin gives way.
                 var fill = Math.Max(0, cbWidth - ml - mr - frameX);
-                return (fill, ml, cbWidth - ml - frameX - fill);
+                return rtl ? (fill, cbWidth - mr - frameX - fill, mr) : (fill, ml, cbWidth - ml - frameX - fill);
             }
 
             var remaining = cbWidth - w - frameX;
+            var half = Math.Max(0, remaining / 2);
             return (left.Kind == SizeKind.Auto, right.Kind == SizeKind.Auto) switch
             {
-                // Centred, unless the box is wider than its containing block (then the left margin is zero).
-                (true, true) => (w, Math.Max(0, remaining / 2), remaining - Math.Max(0, remaining / 2)),
+                // Centred, unless the box is wider than its containing block (then the start margin is zero).
+                (true, true) => rtl ? (w, remaining - half, half) : (w, half, remaining - half),
                 (true, false) => (w, remaining - mr, mr),
-                // Over-constrained or only the right margin auto: the right margin takes what is left (ltr).
-                _ => (w, ml, remaining - ml),
+                (false, true) => (w, ml, remaining - ml),
+                // Over-constrained: the end margin takes what is left.
+                _ => rtl ? (w, remaining - mr, mr) : (w, ml, remaining - ml),
             };
         }
     }

@@ -173,3 +173,31 @@ color: red
 ---
 text-underline-offset: 3
 text-decoration-thickness: auto
+=== text-indent with its keywords in any order
+text-indent: each-line 2em hanging
+---
+text-indent: 32px hanging each-line
+
+=== text-indent percentages stay percentages
+text-indent: 10%
+---
+text-indent: 10%
+
+=== text-indent needs a length
+text-indent: 5px; text-indent: hanging
+---
+text-indent: 5px
+
+=== text-align-last and hyphens
+text-align-last: justify; hyphens: none
+---
+text-align-last: justify
+hyphens: none
+
+=== text-align-last, text-indent and hyphens inherit
+%parent text-align-last: end; text-indent: 3px; hyphens: auto
+color: red
+---
+text-align-last: end
+text-indent: 3px
+hyphens: auto

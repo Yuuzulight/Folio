@@ -65,6 +65,14 @@ internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
 
+internal enum Hyphens { Manual, None, Auto }
+
+/// <summary>A computed <c>text-indent</c> (https://www.w3.org/TR/css-text-3/#text-indent-property).</summary>
+internal readonly record struct TextIndent(LengthPercentage Length, bool Hanging = false, bool EachLine = false)
+{
+    public override string ToString() => Length + (Hanging ? " hanging" : "") + (EachLine ? " each-line" : "");
+}
+
 internal enum TableLayoutMode { Auto, Fixed }
 
 internal enum BorderCollapse { Separate, Collapse }
@@ -234,7 +242,8 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  TextAlign TextAlign = TextAlign.Start, Direction Direction = Direction.Ltr,
                                  BorderCollapse BorderCollapse = BorderCollapse.Separate, float BorderSpacingX = 0, float BorderSpacingY = 0,
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
-                                 float? UnderlineOffset = null);
+                                 float? UnderlineOffset = null,
+                                 TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
