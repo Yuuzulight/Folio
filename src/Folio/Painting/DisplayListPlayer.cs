@@ -46,11 +46,16 @@ internal static class DisplayListPlayer
                     canvas.PushLayer(new LayerOptions(item.Opacity));
                     open.Push(item.Kind);
                     break;
+                case DisplayItemKind.PushTransform:
+                    canvas.Save();
+                    canvas.Transform(item.Transform);
+                    open.Push(item.Kind);
+                    break;
                 case DisplayItemKind.Pop when open.TryPop(out var kind):
-                    if (kind == DisplayItemKind.PushClip)
-                        canvas.Restore();
-                    else
+                    if (kind == DisplayItemKind.PushOpacity)
                         canvas.PopLayer();
+                    else
+                        canvas.Restore();
                     break;
             }
         }

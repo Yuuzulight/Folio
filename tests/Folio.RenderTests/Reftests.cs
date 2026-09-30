@@ -12,6 +12,9 @@ public class Reftests
     [InlineData("css-text-decor/text-decoration-propagation-001")]
     [InlineData("css-text/hyphens-manual-001")]
     [InlineData("css-text/text-align-justify-001")]
+    [InlineData("css-transforms/translate-001")]
+    [InlineData("css-transforms/rotate-90deg-001")]
+    [InlineData("css-transforms/scale-2-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

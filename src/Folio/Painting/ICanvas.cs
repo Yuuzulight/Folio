@@ -10,10 +10,16 @@ namespace Folio.Painting;
 /// </remarks>
 public interface ICanvas
 {
-    /// <summary>Saves the clip, to be restored by the matching <see cref="Restore"/>.</summary>
+    /// <summary>Saves the clip and transform, to be restored by the matching <see cref="Restore"/>.</summary>
     void Save();
 
     void Restore();
+
+    /// <summary>
+    /// Multiplies the current transform by <paramref name="matrix"/>, in row-vector form (points multiply on the left):
+    /// what is drawn afterwards is mapped by <paramref name="matrix"/> first, then by the current transform.
+    /// </summary>
+    void Transform(in Matrix3x2 matrix);
 
     /// <summary>Intersects the clip with a (rounded) rectangle, antialiased.</summary>
     void ClipRoundedRect(in RoundedRect rect);

@@ -94,15 +94,20 @@ internal static class DisplayListBuilder
             var box = placed.Box;
             var style = box.Style.Box;
             var index = order.GetValueOrDefault(box);
-            if (box.Style.Outline.Width > 0 && box is not TableWrapperBox)
+            // A transformed box's outline is transformed with it, so it paints in the box's own stacking context.
+            var outlined = box.Style.Outline.Width > 0 && box is not TableWrapperBox;
+            if (outlined && !box.IsTransformed)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
             var content = box is ReplacedBox { Image: not null } ? placed : null;
             if (CreatesStackingContext(box))
             {
-                var z = style.ZIndex ?? 0;
+                // A stacking context made by opacity, a transform or the like on a box z-index does not apply to sits at 0.
+                var z = HasZIndex(box) ? style.ZIndex!.Value : 0;
                 var c = new Context(placed, real: true, z, index);
                 (z < 0 ? real.Negative : z > 0 ? real.Positive : real.ZeroOrAuto).Add(c);
+                if (outlined && box.IsTransformed)
+                    c.Outlines.Add(placed);
                 AddContent(c);
                 Collect(c, c, placed, placed.Fragment.Children, order);
             }
@@ -143,11 +148,15 @@ internal static class DisplayListBuilder
     {
         var style = box.Style.Box;
         return style.Position is Position.Fixed or Position.Sticky
-            || style.ZIndex is not null && (style.Position != Position.Static || box.Parent is FlexContainerBox or GridContainerBox)
+            || HasZIndex(box)
             || style.Opacity < 1
             || style.Isolation == Isolation.Isolate
-            || box.Style.Transform.IsTransformed;
+            || box.IsTransformed;
     }
+
+    // z-index applies to positioned boxes and to flex and grid items.
+    private static bool HasZIndex(Box box) =>
+        box.Style.Box.ZIndex is not null && (box.Style.Box.Position != Position.Static || box.Parent is FlexContainerBox or GridContainerBox);
 
     // Overflow other than visible clips a box's contents to its padding box (css-overflow-3 §3); an axis left visible
     // is not clipped.
@@ -221,12 +230,22 @@ internal static class DisplayListBuilder
 
         public void Emit(Context context)
         {
-            var opacity = context.Real && context.Owner is { } owner && owner.Box.Style.Box.Opacity < 1 ? owner.Box.Style.Box.Opacity : 1;
+            var owner = context.Real ? context.Owner : null;
+            var opacity = owner is not null && owner.Box.Style.Box.Opacity < 1 ? owner.Box.Style.Box.Opacity : 1;
+            var transform = owner is not null && owner.Box.IsTransformed ? Transform(owner) : (Matrix3x2?)null;
+            // A transform that cannot be inverted flattens the box to nothing: it and its content are not displayed
+            // (https://www.w3.org/TR/css-transforms-1/#transform-function-lists).
+            if (transform is { } singular && !Matrix3x2.Invert(singular, out _))
+                return;
             var floor = _floor;
-            if (opacity < 1)
+            // The clips outside stay open under the group; the transform and the layer apply to the box and all it holds.
+            if (opacity < 1 || transform is not null)
             {
-                SetClip(context.Owner!.Clip);
-                list.Items.Add(new DisplayItem(DisplayItemKind.PushOpacity, Opacity: opacity));
+                SetClip(owner!.Clip);
+                if (transform is { } matrix)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: matrix));
+                if (opacity < 1)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushOpacity, Opacity: opacity));
                 _floor = _open.Count;
             }
 
@@ -248,13 +267,24 @@ internal static class DisplayListBuilder
             foreach (var box in context.Outlines)
                 PaintOutline(box);
 
-            if (opacity < 1)
+            if (opacity < 1 || transform is not null)
             {
                 PopTo(_floor);
-                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                if (opacity < 1)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                if (transform is not null)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 _floor = floor;
             }
         }
+
+        // A box's transform (css-transforms-2 §6) in canvas coordinates: its matrix is relative to the border box's
+        // top-left corner, the reference box being the border box.
+        // ponytail: 3D functions are flattened to 2D (TransformGroup.Matrix2D); perspective and preserve-3d wait for M2 3D.
+        private static Matrix3x2 Transform(PaintBox box) =>
+            Matrix3x2.CreateTranslation(-box.X, -box.Y)
+            * box.Box.Style.Transform.Matrix2D(box.Fragment.Width, box.Fragment.Height)
+            * Matrix3x2.CreateTranslation(box.X, box.Y);
 
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 

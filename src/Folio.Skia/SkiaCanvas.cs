@@ -15,6 +15,13 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void Restore() => canvas.Restore();
 
+    public void Transform(in Matrix3x2 matrix)
+    {
+        // Skia's matrices map column vectors, so the row-vector form's rows are its columns.
+        var m = new SKMatrix(matrix.M11, matrix.M21, matrix.M31, matrix.M12, matrix.M22, matrix.M32, 0, 0, 1);
+        canvas.Concat(in m);
+    }
+
     public void ClipRoundedRect(in RoundedRect rect)
     {
         using var skRect = ToSkia(rect);

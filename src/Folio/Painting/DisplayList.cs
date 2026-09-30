@@ -37,6 +37,9 @@ internal enum DisplayItemKind
     /// <summary>Composites what follows with <see cref="DisplayItem.Opacity"/> at the matching <see cref="Pop"/>.</summary>
     PushOpacity,
 
+    /// <summary>Maps what follows by <see cref="DisplayItem.Transform"/>, then the transforms outside it, until the matching <see cref="Pop"/>.</summary>
+    PushTransform,
+
     Pop,
 }
 
@@ -48,11 +51,12 @@ internal enum DisplayItemKind
 /// <param name="Blur">For box shadows and glyph runs (text shadows): the Gaussian standard deviation in CSS px.</param>
 /// <param name="Image">For images: the pixels, drawn with <paramref name="Sampling"/>.</param>
 /// <param name="LineStyle">For decorations: solid, dotted, dashed or wavy (a double line is two solid ones).</param>
+/// <param name="Transform">For transforms: the matrix in row-vector form, in canvas coordinates.</param>
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
                                             BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
                                             Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth,
                                             float Blur = 0, bool Inset = false, RoundedRect Box = default,
-                                            Gradient? Gradient = null);
+                                            Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

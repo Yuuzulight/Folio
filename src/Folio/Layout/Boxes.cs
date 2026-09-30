@@ -31,6 +31,14 @@ internal abstract class Box(ComputedStyle style, Node? node, PseudoElement pseud
 
     public bool IsAbsolutelyPositioned => Style.Box.Position is Position.Absolute or Position.Fixed;
 
+    /// <summary>
+    /// A transform property is set on a transformable box (https://www.w3.org/TR/css-transforms-1/#transformable-element):
+    /// not a non-atomic inline box, a marker or a table column. The table grid box shares its wrapper's style and leaves
+    /// the transform to the wrapper.
+    /// </summary>
+    public bool IsTransformed => Style.Transform.IsTransformed
+        && this is not (InlineBox or MarkerBox or TablePartBox { Part: TablePart.Table or TablePart.Column or TablePart.ColumnGroup });
+
     public void Add(Box child)
     {
         child.Parent = this;

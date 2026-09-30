@@ -14,6 +14,14 @@ public class DisplayListPlayerTests
     }
 
     [Fact]
+    public void TransformsBecomeSaveTransformRestorePairs()
+    {
+        var calls = Replay("<style>body { margin: 0 }</style><div style='transform: translate(2px, 3px); height: 10px; background: red'></div>");
+
+        Assert.Equal(["save", "transform 1,0,0,1,2,3", "fill-rrect", "restore"], calls);
+    }
+
+    [Fact]
     public void UniformSolidBordersAreOneRing()
     {
         Assert.Equal(["fill-path EvenOdd"], Replay("<style>body { margin: 0 }</style><div style='border: 2px solid red; height: 10px'></div>"));
@@ -53,6 +61,8 @@ public class DisplayListPlayerTests
 
         public void Save() => Calls.Add("save");
         public void Restore() => Calls.Add("restore");
+        public void Transform(in System.Numerics.Matrix3x2 m) =>
+            Calls.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"transform {m.M11},{m.M12},{m.M21},{m.M22},{m.M31},{m.M32}"));
         public void ClipRoundedRect(in RoundedRect rect) => Calls.Add("clip-rrect");
         public void ClipPath(PathData path, FillRule rule) => Calls.Add($"clip-path {rule}");
         public void FillRoundedRect(in RoundedRect rect, in Paint paint) => Calls.Add("fill-rrect");
