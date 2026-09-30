@@ -38,9 +38,9 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
 /// <item>elements Folio draws only as empty boxes: MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
-/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, <c>use</c> and
-///   <c>symbol</c>: other SVG elements (masks, markers, patterns, images, filters, animation, ...), <c>url()</c>
-///   references in masks, filters and markers (and <c>clip-path: url()</c> in style sheets, which could reach CSS boxes), stroked
+/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, <c>use</c>,
+///   <c>symbol</c> and markers: other SVG elements (masks, patterns, images, filters, animation, ...), <c>url()</c>
+///   references in masks and filters (and <c>clip-path: url()</c> in style sheets, which could reach CSS boxes), stroked
 ///   text and the text attributes Folio does not lay out;</item>
 /// <item>CSS that Folio's property table does not know or cannot parse, gradients, <c>background-clip: text</c>,
 ///   selectors it cannot match, and <c>@font-face</c>, <c>@container</c>, <c>@counter-style</c>, <c>@scope</c>.
@@ -193,12 +193,12 @@ public static class ArtifactClassifier
         private static readonly HashSet<string> SvgElements =
         [
             "svg", "g", "a", "defs", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "tspan", "title",
-            "desc", "metadata", "style", "script", "linearGradient", "radialGradient", "stop", "clipPath", "use", "symbol",
+            "desc", "metadata", "style", "script", "linearGradient", "radialGradient", "stop", "clipPath", "use", "symbol", "marker",
         ];
 
         // Presentation attributes that take a url() reference to something Folio does not draw yet. Paints take url()
         // references to gradients, which draw, or to patterns, which are routed out as elements.
-        private static readonly string[] SvgReferences = ["mask", "filter", "marker-start", "marker-mid", "marker-end"];
+        private static readonly string[] SvgReferences = ["mask", "filter"];
 
         private void Svg(Element element)
         {

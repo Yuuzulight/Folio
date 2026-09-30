@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<title>SVG markers</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 24px; margin-bottom: 24px; align-items: flex-start; }
+  svg { background: #f1f5f9; }
+</style>
+<svg width="0" height="0" style="position: absolute">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#0f172a" />
+    </marker>
+    <marker id="dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5">
+      <circle cx="5" cy="5" r="4" fill="#f8fafc" stroke="#6366f1" stroke-width="2" />
+    </marker>
+    <marker id="tick" markerUnits="userSpaceOnUse" markerWidth="2" markerHeight="12" refX="1" refY="6" orient="auto">
+      <rect width="2" height="12" fill="#e11d48" />
+    </marker>
+  </defs>
+</svg>
+<div class="row">
+  <svg width="160" height="100">
+    <path d="M20 80 C 40 10, 120 10, 140 80" fill="none" stroke="#0f172a" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  </svg>
+  <svg width="160" height="100">
+    <polyline points="10,80 40,40 70,60 100,20 130,50 150,30" fill="none" stroke="#6366f1" stroke-width="3" stroke-linejoin="round"
+              marker-start="url(#dot)" marker-mid="url(#dot)" marker-end="url(#dot)" />
+  </svg>
+  <svg width="160" height="100">
+    <path d="M20 50 H140" stroke="#94a3b8" stroke-width="2" marker-start="url(#tick)" marker-mid="url(#tick)" marker-end="url(#tick)" />
+    <path d="M20 50 H60 H100 H140" fill="none" stroke="none" marker-mid="url(#tick)" />
+  </svg>
+</div>
+<div class="row">
+  <svg width="160" height="120">
+    <g fill="none" stroke="#0f172a" stroke-width="1.5">
+      <rect x="10" y="10" width="50" height="26" rx="4" /><rect x="100" y="10" width="50" height="26" rx="4" /><rect x="55" y="84" width="50" height="26" rx="4" />
+      <line x1="60" y1="23" x2="98" y2="23" marker-end="url(#arrow)" />
+      <path d="M125 36 V60 H80 V82" marker-end="url(#arrow)" />
+      <polygon points="30,40 40,60 20,60" marker-mid="url(#dot)" />
+    </g>
+  </svg>
+</div>

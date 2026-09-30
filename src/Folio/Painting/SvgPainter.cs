@@ -66,9 +66,10 @@ internal static class SvgPainter
                 }
                 break;
             case SvgShapeNode shape:
-                // A shape with one paint takes its opacity into the paint's colour; with both, they are grouped.
+                // A shape with one paint takes its opacity into the paint's colour; with both, or with markers, they are
+                // grouped.
                 var fade = shape.Opacity;
-                if (fade < 1 && shape.Fill is not null && shape.Stroke is not null)
+                if (fade < 1 && (shape.Fill is not null && shape.Stroke is not null || shape.Markers is not null))
                 {
                     Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: fade));
                     fade = 1;
@@ -84,6 +85,8 @@ internal static class SvgPainter
                 }
                 if (!shape.StrokeFirst)
                     StrokeItem(shape, path, fade, items);
+                foreach (var marker in shape.Markers ?? [])
+                    Emit(marker, items);
                 break;
         }
 

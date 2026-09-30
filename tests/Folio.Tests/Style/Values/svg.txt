@@ -140,3 +140,18 @@ stop-opacity: 0.2
 display: block
 ---
 clip-rule: evenodd
+
+=== markers are none by default, take url() references, and are inherited
+%parent marker-start: url(#a); marker-end: url("#b")
+display: block
+---
+marker-start: url(#a)
+marker-mid: none
+marker-end: url(#b)
+
+=== the marker shorthand sets all three
+marker: url(#m)
+---
+marker-start: url(#m)
+marker-mid: url(#m)
+marker-end: url(#m)

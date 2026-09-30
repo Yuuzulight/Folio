@@ -7,11 +7,13 @@ internal sealed record SvgPaintValue(string? Url, CssValue? Color) : CssValue;
 
 internal sealed record DashArrayValue(IReadOnlyList<CssValue> Dashes) : CssValue;
 
+internal sealed record UrlValue(string Url) : CssValue;
+
 /// <summary>
 /// The SVG painting and text properties (https://www.w3.org/TR/SVG2/painting.html, https://www.w3.org/TR/SVG2/text.html),
 /// all inherited. Stroke lengths also accept plain numbers, meaning px.
 /// </summary>
-// ponytail: context-fill and context-stroke (markers and use) are not accepted until markers exist.
+// ponytail: context-fill and context-stroke (for marker and use content) are not accepted yet.
 internal static class SvgProperties
 {
     public static IEnumerable<Property> Rows =>
@@ -22,6 +24,9 @@ internal static class SvgProperties
             s => s.Svg.FillRule, (b, v) => b.Svg = b.Svg with { FillRule = v }),
         Keywords(PropertyId.ClipRule, "clip-rule", "nonzero", new() { ["nonzero"] = SvgFillRule.Nonzero, ["evenodd"] = SvgFillRule.Evenodd },
             s => s.Svg.ClipRule, (b, v) => b.Svg = b.Svg with { ClipRule = v }),
+        Marker(PropertyId.MarkerStart, "marker-start", s => s.Svg.MarkerStart, (b, v) => b.Svg = b.Svg with { MarkerStart = v }),
+        Marker(PropertyId.MarkerMid, "marker-mid", s => s.Svg.MarkerMid, (b, v) => b.Svg = b.Svg with { MarkerMid = v }),
+        Marker(PropertyId.MarkerEnd, "marker-end", s => s.Svg.MarkerEnd, (b, v) => b.Svg = b.Svg with { MarkerEnd = v }),
         Paint(PropertyId.Stroke, "stroke", "none", s => s.Svg.Stroke, (b, v) => b.Svg = b.Svg with { Stroke = v }),
         Opacity(PropertyId.StrokeOpacity, "stroke-opacity", s => s.Svg.StrokeOpacity, (b, v) => b.Svg = b.Svg with { StrokeOpacity = v }),
         Length(PropertyId.StrokeWidth, "stroke-width", "1px", nonNegative: true, s => s.Svg.StrokeWidth, (b, v) => b.Svg = b.Svg with { StrokeWidth = v }),
@@ -88,6 +93,13 @@ internal static class SvgProperties
                     : r.ColorSpecified() is { } fallback ? new SvgPaintValue(url, fallback) : null;
             },
             (v, ctx) => v is SvgPaintValue p ? new SvgPaint(p.Color is null ? null : ctx.Color(p.Color, ctx.CurrentColor), p.Url) : SvgPaint.None,
+            get, set);
+
+    // none | <url>
+    private static Property<MarkerReference> Marker(PropertyId id, string name, Func<ComputedStyle, MarkerReference> get, Action<StyleBuilder, MarkerReference> set) =>
+        new(id, name, true, "none",
+            r => r.Keyword("none") is not null ? new KeywordValue("none") : r.Url() is { } url ? new UrlValue(url) : null,
+            (v, _) => new MarkerReference(v is UrlValue u ? u.Url : null),
             get, set);
 
     // <number> | <percentage>, clamped to [0, 1].

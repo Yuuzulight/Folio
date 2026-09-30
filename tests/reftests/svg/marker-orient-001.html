@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>orient="auto-start-reverse" turns the start marker around; auto follows the line</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/painting.html#OrientAttribute">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><marker id="m" orient="auto-start-reverse" markerUnits="userSpaceOnUse" markerWidth="20" markerHeight="10" refY="5"><rect width="20" height="10" fill="blue" /></marker><line x1="50" y1="50" x2="150" y2="50" stroke="none" marker-start="url(#m)" marker-end="url(#m)" /></svg>

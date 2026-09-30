@@ -39,8 +39,9 @@ internal sealed record SvgStroke(SvgResolvedPaint Paint, float Width, StrokeLine
                                  IReadOnlyList<float>? Dashes, float DashOffset);
 
 /// <summary>A path painted with a fill and/or a stroke, the stroke first when <paramref name="StrokeFirst"/>.</summary>
+/// <param name="Markers">The markers drawn over the shape after its fill and stroke, in its user space.</param>
 internal sealed record SvgShapeNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<PathSegment> Path, SvgFill? Fill, SvgStroke? Stroke,
-                                    bool StrokeFirst = false) : SvgRenderNode(Transform, Opacity);
+                                    bool StrokeFirst = false, IReadOnlyList<SvgRenderNode>? Markers = null) : SvgRenderNode(Transform, Opacity);
 
 /// <summary>
 /// Builds the render tree of an outermost svg element from its DOM subtree and computed styles: viewports and viewBox
@@ -215,18 +216,18 @@ internal static class SvgRenderTree
                 return radiusX > 0 && radiusY > 0 ? Shape(SvgGeometry.Ellipse(X("cx"), Y("cy"), radiusX, radiusY)) : null;
             }
             case "line":
-                return Shape([new PathSegment('M', new(X("x1"), Y("y1"))), new PathSegment('L', new(X("x2"), Y("y2")))], canFill: false);
+                return Shape([new PathSegment('M', new(X("x1"), Y("y1"))), new PathSegment('L', new(X("x2"), Y("y2")))], canFill: false, markable: true);
             case "polyline" or "polygon":
-                return SvgGeometry.Polyline(element.GetAttribute("points"), element.LocalName == "polygon") is { } points ? Shape(points) : null;
+                return SvgGeometry.Polyline(element.GetAttribute("points"), element.LocalName == "polygon") is { } points ? Shape(points, markable: true) : null;
             case "path":
-                return PathDataParser.Parse(element.GetAttribute("d") ?? "", upToError: true) is { } path ? Shape(path) : null;
+                return PathDataParser.Parse(element.GetAttribute("d") ?? "", upToError: true) is { } path ? Shape(path, markable: true) : null;
             case "text":
                 return SvgText.Build(element, style, transform, viewport, context, clipping);
             default:
                 return null;
         }
 
-        SvgShapeNode? Shape(IReadOnlyList<PathSegment> path, bool canFill = true)
+        SvgShapeNode? Shape(IReadOnlyList<PathSegment> path, bool canFill = true, bool markable = false)
         {
             if (style.Inherited.Visibility != Visibility.Visible)
                 return null;
@@ -240,8 +241,84 @@ internal static class SvgRenderTree
                 ? new SvgFill(fillPaint, svg.FillRule == SvgFillRule.Evenodd)
                 : (SvgFill?)null;
             var stroke = Stroke(style, viewport, context, Bounds);
-            return fill is null && stroke is null ? null
-                : new SvgShapeNode(transform, style.Box.Opacity, path, fill, stroke, svg.PaintOrder == PaintOrder.Stroke);
+            var markers = markable ? Markers(path, style, viewport, context) : null;
+            return fill is null && stroke is null && markers is null ? null
+                : new SvgShapeNode(transform, style.Box.Opacity, path, fill, stroke, svg.PaintOrder == PaintOrder.Stroke, markers);
+        }
+    }
+
+    // The markers of a path, line, polyline or polygon (https://www.w3.org/TR/SVG2/painting.html#Markers):
+    // marker-start at the first vertex, marker-end at the last, marker-mid at the others. Null when there are none.
+    private static List<SvgRenderNode>? Markers(IReadOnlyList<PathSegment> path, ComputedStyle style, Vector2 viewport, SvgContext context)
+    {
+        var svg = style.Svg;
+        if (svg.MarkerStart.Url is null && svg.MarkerMid.Url is null && svg.MarkerEnd.Url is null)
+            return null;
+        ElementNode? MarkerElement(MarkerReference reference) =>
+            context.Find(reference.Url) is { LocalName: "marker" } marker && marker.Name.Namespace == Namespaces.Svg ? marker : null;
+        var (start, mid, end) = (MarkerElement(svg.MarkerStart), MarkerElement(svg.MarkerMid), MarkerElement(svg.MarkerEnd));
+        var strokeWidth = svg.StrokeWidth.Resolve(SvgGeometry.Diagonal(viewport));
+        var vertices = SvgGeometry.Vertices(path);
+        var markers = new List<SvgRenderNode>();
+        for (var i = 0; i < vertices.Count; i++)
+        {
+            var (point, incoming, outgoing) = vertices[i];
+            var angle = SvgGeometry.MarkerAngle(incoming, outgoing);
+            if (i == 0 && start is not null && Marker(start, point, angle, true, strokeWidth, context) is { } first)
+                markers.Add(first);
+            if (i > 0 && i < vertices.Count - 1 && mid is not null && Marker(mid, point, angle, false, strokeWidth, context) is { } middle)
+                markers.Add(middle);
+            if (i == vertices.Count - 1 && end is not null && Marker(end, point, angle, false, strokeWidth, context) is { } last)
+                markers.Add(last);
+        }
+        return markers.Count > 0 ? markers : null;
+    }
+
+    // One marker instance (https://www.w3.org/TR/SVG2/painting.html#MarkerElement): its content, in its own style,
+    // mapped by its viewBox into markerWidth by markerHeight (scaled by the stroke width unless markerUnits is
+    // userSpaceOnUse), with (refX, refY) at the vertex, turned by orient, and clipped to that viewport unless overflow
+    // is visible. A marker used inside its own content draws nothing.
+    private static SvgRenderNode? Marker(ElementNode marker, Vector2 vertex, float autoAngle, bool isStart, float strokeWidth, SvgContext context)
+    {
+        if (context.Style(marker) is not { } style || !RuntimeHelpers.TryEnsureSufficientExecutionStack() || !context.Marking.Add(marker))
+            return null;
+        try
+        {
+            var fontSize = style.Font.Size;
+            float Number(string name, float fallback) =>
+                SvgGeometry.ParseLength(marker.GetAttribute(name), fontSize) is { Percent: false } length ? length.Value : fallback;
+            var (width, height) = (Number("markerWidth", 3), Number("markerHeight", 3));
+            var scale = marker.GetAttribute("markerUnits")?.Trim() == "userSpaceOnUse" ? 1 : strokeWidth;
+            var viewBox = SvgGeometry.ParseViewBox(marker.GetAttribute("viewBox"));
+            if (width <= 0 || height <= 0 || scale <= 0 || viewBox is { Width: 0 } or { Height: 0 })
+                return null;
+            var rect = new SvgRect(0, 0, width, height);
+            var map = viewBox is { } box ? SvgGeometry.ViewBoxTransform(box, marker.GetAttribute("preserveAspectRatio"), rect) : Matrix3x2.Identity;
+            var reference = Vector2.Transform(new Vector2(
+                Reference("refX", viewBox?.X ?? 0, viewBox?.Width ?? width, "left", "right"),
+                Reference("refY", viewBox?.Y ?? 0, viewBox?.Height ?? height, "top", "bottom")), map);
+            var angle = marker.GetAttribute("orient")?.Trim() switch
+            {
+                "auto" => autoAngle,
+                "auto-start-reverse" => isStart ? autoAngle + 180 : autoAngle,
+                var orient => SvgGeometry.ParseAngle(orient) ?? 0,
+            };
+            var place = Matrix3x2.CreateTranslation(-reference) * Matrix3x2.CreateScale(scale)
+                        * Matrix3x2.CreateRotation(angle * MathF.PI / 180) * Matrix3x2.CreateTranslation(vertex);
+            var size = viewBox is { } b ? new Vector2(b.Width, b.Height) : new Vector2(width, height);
+            var clips = style.Box.OverflowX != Overflow.Visible || style.Box.OverflowY != Overflow.Visible;
+            return new SvgContainerNode(place, style.Box.Opacity, [new SvgContainerNode(map, 1, Children(marker, size, context))], clips ? rect : null);
+
+            // refX and refY: a number in the viewBox, or a keyword for its start, centre or end.
+            float Reference(string name, float origin, float extent, string startKeyword, string endKeyword)
+            {
+                var value = marker.GetAttribute(name)?.Trim();
+                return value == startKeyword ? origin : value == "center" ? origin + extent / 2 : value == endKeyword ? origin + extent : Number(name, 0);
+            }
+        }
+        finally
+        {
+            context.Marking.Remove(marker);
         }
     }
 

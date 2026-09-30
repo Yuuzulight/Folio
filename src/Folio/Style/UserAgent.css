@@ -121,5 +121,5 @@ details:not([open]) > :not(summary:first-of-type) { display: none; }
 
 /* SVG (https://www.w3.org/TR/SVG2/styling.html#UAStyleSheet): nested viewports clip, and transforms inside SVG turn
    about the user-space origin. */
-svg:not(:root), symbol { overflow: hidden; }
+svg:not(:root), symbol, marker { overflow: hidden; }
 svg * { transform-origin: 0 0; }
