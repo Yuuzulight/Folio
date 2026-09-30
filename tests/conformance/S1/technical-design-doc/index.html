@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design Doc: Tiered Event Storage for Beacon Analytics</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --soft: #f6f8fa;
+    --link: #0969da;
+    --note: #0969da;
+    --note-bg: #ddf4ff;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --danger: #cf222e;
+    --danger-bg: #ffebe9;
+    --mono: ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    counter-reset: h2counter;
+  }
+
+  article {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  .doc-header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+
+  .doc-header h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 12px;
+  }
+
+  .doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  .doc-meta b { color: var(--ink); font-weight: 600; }
+
+  .badge {
+    display: inline-block;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid currentColor;
+  }
+
+  .badge.review { color: var(--warn); background: var(--warn-bg); }
+
+  h2 {
+    font-size: 1.5rem;
+    margin: 48px 0 16px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    counter-increment: h2counter;
+    counter-reset: h3counter;
+  }
+
+  h2::before {
+    content: counter(h2counter) ". ";
+    color: var(--muted);
+  }
+
+  h3 {
+    font-size: 1.2rem;
+    margin: 32px 0 10px;
+    counter-increment: h3counter;
+  }
+
+  h3::before {
+    content: counter(h2counter) "." counter(h3counter) " ";
+    color: var(--muted);
+  }
+
+  h4 {
+    font-size: 1rem;
+    margin: 24px 0 8px;
+    color: var(--muted);
+  }
+
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  nav.toc {
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 24px;
+    margin-bottom: 32px;
+  }
+
+  nav.toc h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 8px;
+    padding: 0;
+    border: none;
+    counter-increment: none;
+  }
+
+  nav.toc h2::before { content: none; }
+
+  nav.toc ol { margin: 0; padding-left: 20px; }
+  nav.toc ol ol { list-style-type: lower-alpha; }
+  nav.toc li { margin: 2px 0; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: rgba(175, 184, 193, 0.2);
+    padding: 0.15em 0.35em;
+    border-radius: 5px;
+  }
+
+  pre {
+    font-family: var(--mono);
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .k { color: #cf222e; }
+  .s { color: #0a3069; }
+  .n { color: #0550ae; }
+  .f { color: #8250df; }
+  .c { color: #6e7781; font-style: italic; }
+  .t { color: #953800; }
+
+  .admonition {
+    border-left: 4px solid;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 20px 0;
+  }
+
+  .admonition > :first-child { margin-top: 0; }
+  .admonition > :last-child { margin-bottom: 0; }
+
+  .admonition .title {
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+  }
+
+  .admonition.note { border-color: var(--note); background: var(--note-bg); }
+  .admonition.note .title { color: var(--note); }
+  .admonition.warning { border-color: var(--warn); background: var(--warn-bg); }
+  .admonition.warning .title { color: var(--warn); }
+  .admonition.danger { border-color: var(--danger); background: var(--danger-bg); }
+  .admonition.danger .title { color: var(--danger); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.9rem;
+  }
+
+  th, td {
+    border: 1px solid var(--line);
+    padding: 6px 12px;
+    text-align: left;
+  }
+
+  th { background: var(--soft); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #fbfcfd; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  figure {
+    margin: 28px 0;
+    padding: 24px 16px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--soft);
+  }
+
+  figcaption {
+    margin-top: 16px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .box {
+    flex: 0 0 auto;
+    min-width: 110px;
+    padding: 10px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 6px;
+    background: #fff;
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.3;
+  }
+
+  .box small { display: block; color: var(--muted); font-size: 0.75rem; }
+  .box.hot { border-color: #cf222e; }
+  .box.warm { border-color: #bc4c00; }
+  .box.cold { border-color: #0969da; }
+
+  .arrow {
+    position: relative;
+    width: 36px;
+    height: 2px;
+    background: var(--ink);
+  }
+
+  .arrow::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: -5px;
+    border-left: 8px solid var(--ink);
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+  }
+
+  .tier-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  details {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 16px;
+    margin: 16px 0;
+  }
+
+  details[open] { padding-bottom: 12px; }
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 10px 0;
+  }
+
+  dl.glossary dt { font-weight: 600; margin-top: 10px; }
+  dl.glossary dd { margin: 2px 0 0 20px; color: var(--muted); }
+
+  blockquote {
+    margin: 16px 0;
+    padding: 0 16px;
+    border-left: 4px solid var(--line);
+    color: var(--muted);
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 40px 0;
+  }
+
+  @media (max-width: 700px) {
+    article { padding: 24px 16px 48px; }
+    .flow { flex-direction: column; }
+    .arrow { width: 2px; height: 24px; }
+    .arrow::after {
+      right: auto; top: auto; left: -5px; bottom: -1px;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 8px solid var(--ink);
+      border-bottom: none;
+    }
+  }
+</style>
+</head>
+<body>
+<article>
+  <header class="doc-header">
+    <h1>Tiered Event Storage for Beacon Analytics</h1>
+    <div class="doc-meta">
+      <span><b>Author:</b> Daniel Okafor</span>
+      <span><b>Reviewers:</b> Hana Lindqvist, Arjun Mehta</span>
+      <span><b>Status:</b> <span class="badge review">In review</span></span>
+      <span><b>Last updated:</b> 22 September</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#context">Context and problem</a></li>
+      <li><a href="#goals">Goals and non-goals</a></li>
+      <li><a href="#design">Proposed design</a>
+        <ol>
+          <li><a href="#tiers">Storage tiers</a></li>
+          <li><a href="#compaction">Compaction pipeline</a></li>
+          <li><a href="#query">Query routing</a></li>
+        </ol>
+      </li>
+      <li><a href="#alternatives">Alternatives considered</a></li>
+      <li><a href="#rollout">Rollout plan</a></li>
+      <li><a href="#risks">Risks and open questions</a></li>
+      <li><a href="#glossary">Glossary</a></li>
+    </ol>
+  </nav>
+
+  <h2 id="context">Context and problem</h2>
+  <p>
+    Beacon ingests about <strong>2.3 billion events per day</strong> from customer
+    websites and apps. Every event is currently written to a single cluster of
+    SSD-backed columnar nodes and kept there for the full retention period, which
+    is 13 months for most plans. Storage now accounts for <strong>61%</strong> of our
+    infrastructure bill, up from 38% eighteen months ago.
+  </p>
+  <p>
+    Query logs tell a clear story: <em>94% of queries touch only the last 30 days</em>,
+    and fewer than 1% reach back further than 90 days. We are paying premium
+    storage prices for data that is almost never read.
+  </p>
+  <blockquote>
+    "We keep a year of data on the fastest disks we own so that a handful of
+    customers can run their annual report once." &mdash; Q2 infrastructure review
+  </blockquote>
+
+  <h2 id="goals">Goals and non-goals</h2>
+  <h4>Goals</h4>
+  <ul>
+    <li>Cut storage cost per retained event by at least 50% within two quarters.</li>
+    <li>Keep p95 latency for queries over the last 30 days under 800&nbsp;ms.</li>
+    <li>Allow queries over older data, accepting latency of up to 10&nbsp;s.</li>
+  </ul>
+  <h4>Non-goals</h4>
+  <ul>
+    <li>Changing the event schema or the ingestion API.</li>
+    <li>Reducing the retention period offered to customers.</li>
+    <li>Real-time queries over data older than 30 days.</li>
+  </ul>
+
+  <h2 id="design">Proposed design</h2>
+  <p>
+    Events move through three tiers as they age. A background compaction pipeline
+    rewrites data into larger, more compressed files as it moves down. A thin
+    routing layer in front of the query service decides which tiers a query needs
+    based on its time range.
+  </p>
+
+  <figure>
+    <div class="flow">
+      <div class="box">Ingest<small>~27k events/s</small></div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="tier-stack">
+        <div class="box hot">Hot tier<small>0&ndash;30 days, SSD</small></div>
+        <div class="box warm">Warm tier<small>31&ndash;90 days, HDD</small></div>
+        <div class="box cold">Cold tier<small>91+ days, object store</small></div>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="box">Query router<small>picks tiers by range</small></div>
+    </div>
+    <figcaption>Figure 1. Events enter the hot tier and age downward; the router reads only the tiers a query's time range covers.</figcaption>
+  </figure>
+
+  <h3 id="tiers">Storage tiers</h3>
+  <table>
+    <thead>
+      <tr><th>Tier</th><th>Age</th><th>Medium</th><th>Cost / TB-month</th><th>Target p95</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Hot</td><td>0&ndash;30 days</td><td>Local NVMe</td><td class="num">$92.00</td><td class="num">400 ms</td></tr>
+      <tr><td>Warm</td><td>31&ndash;90 days</td><td>Network HDD</td><td class="num">$24.50</td><td class="num">2 s</td></tr>
+      <tr><td>Cold</td><td>91+ days</td><td>Object store</td><td class="num">$4.10</td><td class="num">10 s</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Using current volumes, the blended cost drops from <strong>$92.00</strong> to roughly
+    <strong>$19.80</strong> per TB-month, a 78% reduction. Even with a 25% buffer for
+    compaction overhead, we clear the 50% goal comfortably.
+  </p>
+
+  <div class="admonition note">
+    <div class="title">Note</div>
+    <p>
+      The tier boundaries are configuration, not code. We expect to tune the
+      hot/warm boundary per plan once we have a few weeks of production data.
+    </p>
+  </div>
+
+  <h3 id="compaction">Compaction pipeline</h3>
+  <p>
+    A scheduled job runs every hour. For each partition that has crossed a tier
+    boundary, it reads the source files, merges them into files of about
+    <code>512 MB</code>, applies a heavier compression codec, and writes them to the
+    next tier. The source is only deleted after the destination write is verified
+    by row count and checksum.
+  </p>
+  <pre><code><span class="k">function</span> <span class="f">compactPartition</span>(partition, target) {
+  <span class="k">const</span> files = <span class="f">listFiles</span>(partition);
+  <span class="k">if</span> (files.length === <span class="n">0</span>) <span class="k">return</span>;
+
+  <span class="c">// Merge small files into ~512 MB chunks</span>
+  <span class="k">const</span> chunks = <span class="f">groupBySize</span>(files, <span class="n">512</span> * <span class="t">MB</span>);
+  <span class="k">for</span> (<span class="k">const</span> chunk <span class="k">of</span> chunks) {
+    <span class="k">const</span> written = target.<span class="f">write</span>(<span class="f">merge</span>(chunk), { codec: <span class="s">"dense-9"</span> });
+    <span class="k">if</span> (written.rows !== <span class="f">sumRows</span>(chunk)) {
+      <span class="k">throw new</span> <span class="t">Error</span>(<span class="s">`row mismatch in ${partition.id}`</span>);
+    }
+  }
+
+  <span class="f">markMoved</span>(partition, target.tier);
+  <span class="f">scheduleDelete</span>(files, { after: <span class="s">"24h"</span> });  <span class="c">// grace period for rollback</span>
+}</code></pre>
+
+  <h4>Failure handling</h4>
+  <ol>
+    <li>If the write fails, the partition stays in its current tier and is retried next hour.</li>
+    <li>If verification fails, the destination files are deleted and an alert is raised.</li>
+    <li>Deletion of source files is delayed 24 hours so a bad compaction can be rolled back.</li>
+  </ol>
+
+  <div class="admonition warning">
+    <div class="title">Warning</div>
+    <p>
+      Compaction temporarily doubles the storage used by a partition. During the
+      initial backfill of 12 months of data we must throttle the job to at most
+      <strong>40 partitions per hour</strong>, or the warm tier will run out of space.
+    </p>
+  </div>
+
+  <h3 id="query">Query routing</h3>
+  <p>
+    The router inspects the <code>WHERE</code> clause for a time range. If none is
+    present, it assumes the last 30 days, matching the dashboard default. Queries
+    that span tiers are split, run in parallel, and merged.
+  </p>
+  <pre><code><span class="k">SELECT</span> country, <span class="f">count</span>(*) <span class="k">AS</span> visits
+<span class="k">FROM</span> events
+<span class="k">WHERE</span> site_id = <span class="s">'st_4821'</span>
+  <span class="k">AND</span> ts <span class="k">BETWEEN</span> <span class="s">'2026-01-01'</span> <span class="k">AND</span> <span class="s">'2026-06-30'</span>  <span class="c">-- spans all three tiers</span>
+<span class="k">GROUP BY</span> country
+<span class="k">ORDER BY</span> visits <span class="k">DESC</span>
+<span class="k">LIMIT</span> <span class="n">20</span>;</code></pre>
+
+  <details>
+    <summary>How are aggregates merged across tiers?</summary>
+    <p>
+      Each tier returns partial aggregates rather than raw rows. Counts and sums are
+      added; averages are carried as <code>(sum, count)</code> pairs; distinct counts
+      use the same sketch format in every tier so the sketches can be unioned. Exact
+      <code>COUNT(DISTINCT)</code> across tiers is not supported and returns an error
+      suggesting the approximate form.
+    </p>
+  </details>
+
+  <h2 id="alternatives">Alternatives considered</h2>
+  <h3>Shorter retention on the hot cluster only</h3>
+  <p>
+    Simply deleting data after 90 days would save more money, but breaks our
+    retention promise to customers. Rejected.
+  </p>
+  <h3>Vendor-managed tiering</h3>
+  <p>
+    Our current columnar store offers automatic tiering as a paid add-on. It would
+    save about 35%, which misses the goal, and it moves data in fixed 7-day blocks
+    that do not line up with our partitions.
+  </p>
+
+  <h2 id="rollout">Rollout plan</h2>
+  <ol>
+    <li><strong>Weeks 1&ndash;3:</strong> build the router behind a flag; shadow-read against the existing cluster and compare results.</li>
+    <li><strong>Weeks 4&ndash;6:</strong> enable the warm tier for internal sites only.</li>
+    <li><strong>Weeks 7&ndash;10:</strong> backfill the warm and cold tiers for all customers at the throttled rate.</li>
+    <li><strong>Week 11:</strong> switch reads to the router for all customers.</li>
+    <li><strong>Week 12:</strong> shrink the hot cluster from 48 to 14 nodes.</li>
+  </ol>
+
+  <div class="admonition danger">
+    <div class="title">Point of no return</div>
+    <p>
+      Step 5 is the only irreversible step. Before shrinking the cluster we will run
+      a full week with the router serving 100% of reads and the old cluster still
+      warm as a fallback.
+    </p>
+  </div>
+
+  <h2 id="risks">Risks and open questions</h2>
+  <ul>
+    <li><strong>Cold-tier latency variance.</strong> Object store reads have a long tail. We may need a small cache of recently read cold files.</li>
+    <li><strong>Schema changes.</strong> Old partitions will have older schemas. The router must fill missing columns with nulls.</li>
+    <li><strong>Open:</strong> should annual-report customers be able to pin a year of data in the warm tier for an extra fee?</li>
+  </ul>
+
+  <h2 id="glossary">Glossary</h2>
+  <dl class="glossary">
+    <dt>Partition</dt>
+    <dd>All events for one site for one day; the unit of compaction and movement.</dd>
+    <dt>Tier</dt>
+    <dd>A class of storage with its own cost and latency profile.</dd>
+    <dt>Compaction</dt>
+    <dd>Rewriting many small files into fewer large ones, usually with better compression.</dd>
+    <dt>Sketch</dt>
+    <dd>A compact probabilistic summary used to estimate distinct counts.</dd>
+  </dl>
+
+  <hr>
+  <p><small>Comments are welcome in the review thread until 3 October. <a href="#context">Back to top</a></small></p>
+</article>
+</body>
+</html>

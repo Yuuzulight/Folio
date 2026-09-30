@@ -28,9 +28,9 @@ glyphs 0,12.8 16px rgb(0, 0, 0)
 === the contents of inline blocks and floats are not decorated by their ancestors
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline">a<span style="display: inline-block">b</span><span style="float: right">c</span></p>
 ---
+glyphs 784,12.8 16px rgb(0, 0, 0)
 decoration 0,14.4 16x1 solid rgb(0, 0, 0)
 glyphs 0,12.8 16px rgb(0, 0, 0)
-glyphs 784,12.8 16px rgb(0, 0, 0)
 glyphs 16,12.8 16px rgb(0, 0, 0)
 
 === spaces hanging at a line's end are not decorated

@@ -1,0 +1,5 @@
+{
+  "prompt": "Turn my notes from today's mobile team sync into clean meeting notes with attendees, decisions and a list of action items with owners and due dates.",
+  "features": ["headings", "nested-lists", "definition-lists", "mark", "kbd", "flexbox", "grid", "pseudo-elements", "custom-properties"],
+  "viewport": 800
+}

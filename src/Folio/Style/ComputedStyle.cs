@@ -65,6 +65,50 @@ internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
 
+/// <summary>https://www.w3.org/TR/css-text-3/#text-transform-property (full-size-kana is accepted and does nothing)</summary>
+internal enum TextTransform { None, Capitalize, Uppercase, Lowercase, FullWidth, FullSizeKana }
+
+/// <summary>https://www.w3.org/TR/css-text-3/#word-break-property</summary>
+internal enum WordBreakStyle { Normal, BreakAll, KeepAll, BreakWord }
+
+/// <summary>https://www.w3.org/TR/css-text-3/#overflow-wrap-property</summary>
+internal enum OverflowWrap { Normal, BreakWord, Anywhere }
+
+/// <summary>A computed <c>tab-size</c>: a number of spaces, or a length in px.</summary>
+internal readonly record struct TabSize(float Value, bool IsLength)
+{
+    public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + (IsLength ? "px" : "");
+}
+
+/// <summary>Spacing and breaking of text (inherited): letter-spacing, word-spacing, tab-size, word-break, overflow-wrap and text-transform.</summary>
+internal sealed record SpacingTextGroup(float LetterSpacing, float WordSpacing, TabSize TabSize, WordBreakStyle WordBreak, OverflowWrap OverflowWrap, TextTransform Transform)
+{
+    public static SpacingTextGroup Initial { get; } = new(0, 0, new TabSize(8, false), WordBreakStyle.Normal, OverflowWrap.Normal, TextTransform.None);
+}
+
+/// <summary>https://www.w3.org/TR/css-ui-4/#outline-style (auto draws as solid)</summary>
+internal enum OutlineStyle { Auto, None, Dotted, Dashed, Solid, Double, Groove, Ridge, Inset, Outset }
+
+/// <summary>https://www.w3.org/TR/css-overflow-3/#text-overflow (a string value is drawn as the ellipsis)</summary>
+internal enum TextOverflow { Clip, Ellipsis }
+
+/// <summary>Outlines (not inherited). The width reads as zero when the style is none, as for borders.</summary>
+internal sealed record OutlineGroup(float WidthPx, OutlineStyle Style, CssColor Color, float Offset)
+{
+    public static OutlineGroup Initial { get; } = new(3, OutlineStyle.None, CssColor.CurrentColor, 0);
+
+    public float Width => Style == OutlineStyle.None ? 0 : WidthPx;
+}
+
+/// <summary>
+/// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color and
+/// scrollbar-color (null is auto).
+/// </summary>
+internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor)
+{
+    public static UiGroup Initial { get; } = new("auto", null, "auto");
+}
+
 internal enum Hyphens { Manual, None, Auto }
 
 /// <summary>A computed <c>text-indent</c> (https://www.w3.org/TR/css-text-3/#text-indent-property).</summary>
@@ -170,8 +214,12 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 // between elements, replaced whole when any member changes.
 
 /// <summary>Inherited: font properties.</summary>
+/// <remarks>
+/// <see cref="VariantNumeric"/> and <see cref="FeatureSettings"/> keep their keywords and feature tags for the shapers;
+/// neither shaper applies OpenType features yet.
+/// </remarks>
 internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight,
-                                 float Stretch, string VariantCaps);
+                                 float Stretch, string VariantCaps, string VariantNumeric = "normal", string FeatureSettings = "normal");
 
 /// <summary>Inherited: other inherited properties, and the decorations propagated to the element's text.</summary>
 internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme, AppliedDecoration? Decorations = null);
@@ -179,7 +227,8 @@ internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, Col
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
-    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto);
+    VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto,
+    TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto");
 
 /// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
 internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
@@ -187,7 +236,9 @@ internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentag
     public override string ToString() => X == Y ? X.ToString() : $"{X} {Y}";
 }
 
-internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight);
+/// <param name="AspectRatio">The preferred aspect ratio (width / height) from aspect-ratio; null for auto.</param>
+internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight,
+                                 float? AspectRatio = null);
 
 /// <summary>Margins, paddings and insets, each top/right/bottom/left.</summary>
 internal sealed record SpacingGroup(
@@ -243,7 +294,8 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  BorderCollapse BorderCollapse = BorderCollapse.Separate, float BorderSpacingX = 0, float BorderSpacingY = 0,
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
                                  float? UnderlineOffset = null,
-                                 TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual);
+                                 TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual,
+                                 ImageValue? ListStyleImage = null);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
@@ -264,6 +316,15 @@ internal sealed record FlexGroup(
         ContentAlign.Normal, 0, 1, SizeValue.Auto, 0, default, default);
 }
 
+/// <summary>Inherited: the quotation marks of open-quote and close-quote, outermost pair first; null is auto.</summary>
+internal sealed record QuotesGroup(IReadOnlyList<(string Open, string Close)>? Pairs)
+{
+    public static QuotesGroup Initial { get; } = new((IReadOnlyList<(string, string)>?)null);
+
+    public override string ToString() => Pairs is null ? "auto" : Pairs.Count == 0 ? "none"
+        : string.Join(" ", Pairs.Select(p => $"\"{p.Open}\" \"{p.Close}\""));
+}
+
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
@@ -281,7 +342,12 @@ internal sealed class ComputedStyle
     public required GeneratedGroup Generated { get; init; }
     public FlexGroup Flex { get; init; } = FlexGroup.Initial;
     public GridGroup Grid { get; init; } = GridGroup.Initial;
+    public SpacingTextGroup TextSpacing { get; init; } = SpacingTextGroup.Initial;
+    public QuotesGroup Quotes { get; init; } = QuotesGroup.Initial;
+    public OutlineGroup Outline { get; init; } = OutlineGroup.Initial;
+    public UiGroup Ui { get; init; } = UiGroup.Initial;
     public DecorationGroup Decoration { get; init; } = DecorationGroup.Initial;
+    public TransformGroup Transform { get; init; } = TransformGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
@@ -289,6 +355,12 @@ internal sealed class ComputedStyle
     /// <summary>The style of the root's parent: every property at its initial value.</summary>
     public static ComputedStyle Initial { get; } = Properties.InitialStyle();
 }
+
+/// <summary>
+/// The x-height and the advance of the "0" glyph of a font group's first available font, as fractions of the font
+/// size (0 when the font does not have one); null when no font is available. Layout provides it.
+/// </summary>
+internal delegate (float XHeight, float ZeroAdvance)? FontMeasure(FontGroup font);
 
 /// <summary>What computing a value needs besides the value itself.</summary>
 internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, float viewportWidth, float viewportHeight)
@@ -300,6 +372,9 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
 
     /// <summary>The host's preferred colour scheme (prefers-color-scheme).</summary>
     public bool PrefersDark { get; init; }
+
+    /// <summary>The <c>@property</c> registrations in effect, whose custom properties compute for their syntax.</summary>
+    public IReadOnlyDictionary<string, RegisteredProperty>? Registered { get; init; }
 
     /// <summary>Whether the element uses the dark scheme (its color-scheme and the preference), for light-dark().</summary>
     public bool UsesDark { get; set; }
@@ -324,9 +399,13 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
     /// <summary>The element's own computed font size, once font-size has been computed (em units refer to it).</summary>
     public float FontSize { get; set; } = parent.Font.Size;
 
-    /// <summary>Converts a length to px. In font-size itself, em refers to the parent's font size.</summary>
-    // ponytail: ex and ch use the 0.5em fallback the spec allows when font metrics are unavailable;
-    // they switch to real metrics when the font system exists (study 11).
+    /// <summary>Measures the first available font for ex and ch; without one, both are 0.5em.</summary>
+    public FontMeasure? Measure { get; init; }
+
+    /// <summary>The element's own font properties, once computed (ex and ch measure its first available font).</summary>
+    public FontGroup? Font { get; set; }
+
+    /// <summary>Converts a length to px. In font-size itself, em, ex and ch refer to the parent's font.</summary>
     public float ToPx(Length length, bool forFontSize = false)
     {
         var em = forFontSize ? Parent.Font.Size : FontSize;
@@ -335,7 +414,7 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
             LengthUnit.Px => length.Value,
             LengthUnit.Em => length.Value * em,
             LengthUnit.Rem => length.Value * RootFontSize,
-            LengthUnit.Ex or LengthUnit.Ch => length.Value * em / 2,
+            LengthUnit.Ex or LengthUnit.Ch => length.Value * em * FontRatio(length.Unit, forFontSize ? Parent.Font : Font ?? Parent.Font),
             LengthUnit.Vw => length.Value * ViewportWidth / 100,
             LengthUnit.Vh => length.Value * ViewportHeight / 100,
             LengthUnit.Vmin => length.Value * Math.Min(ViewportWidth, ViewportHeight) / 100,
@@ -348,6 +427,16 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
             LengthUnit.Pc => length.Value * 16,
             _ => length.Value,
         };
+    }
+
+    // https://www.w3.org/TR/css-values-4/#font-relative-lengths: the x-height and the advance of "0" of the first
+    // available font, as fractions of its size; 0.5 when it has none or none can be measured.
+    private float FontRatio(LengthUnit unit, FontGroup font)
+    {
+        if (Measure?.Invoke(font) is not { } metrics)
+            return 0.5f;
+        var ratio = unit == LengthUnit.Ex ? metrics.XHeight : metrics.ZeroAdvance;
+        return ratio > 0 ? ratio : 0.5f;
     }
 
     /// <summary>Computes a length, percentage or math function; lengths become px, percentages stay.</summary>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Q3 Business Review: Larkspur Outdoor Co.</title>
+<style>
+  :root {
+    --ink: #1c1917;
+    --muted: #78716c;
+    --line: #e7e5e4;
+    --paper: #ffffff;
+    --brand: #166534;
+    --brand-2: #4d7c0f;
+    --up: #15803d;
+    --down: #b91c1c;
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #f5f5f4;
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.7;
+  }
+
+  .report {
+    max-width: 760px;
+    margin: 0 auto;
+    background: var(--paper);
+    padding: 0 0 48px;
+    box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0, 0, 0, 0.06);
+  }
+
+  .cover {
+    padding: 48px 56px 36px;
+    background: linear-gradient(160deg, var(--brand) 0%, #14532d 60%, #052e16 100%);
+    color: #f0fdf4;
+  }
+
+  .cover .kicker {
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    opacity: 0.8;
+  }
+
+  .cover h1 {
+    font-size: 2.4rem;
+    line-height: 1.15;
+    margin: 10px 0 12px;
+    font-weight: normal;
+  }
+
+  .cover p { margin: 0; opacity: 0.85; font-family: var(--sans); font-size: 0.95rem; }
+
+  .body { padding: 0 56px; }
+
+  h2 {
+    font-family: var(--sans);
+    font-size: 1.3rem;
+    margin: 44px 0 12px;
+    color: var(--brand);
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 1.05rem;
+    margin: 28px 0 6px;
+  }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 32px 0 8px;
+    font-family: var(--sans);
+  }
+
+  .kpi {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .kpi .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .kpi .value { font-size: 1.5rem; font-weight: 700; line-height: 1.3; }
+  .kpi .delta { font-size: 0.8rem; font-weight: 600; }
+  .delta.up { color: var(--up); }
+  .delta.down { color: var(--down); }
+  .delta.up::before { content: "\25B2 "; }
+  .delta.down::before { content: "\25BC "; }
+
+  .pullquote {
+    margin: 32px -24px;
+    padding: 20px 24px;
+    border-top: 3px solid var(--brand);
+    border-bottom: 3px solid var(--brand);
+    font-size: 1.4rem;
+    line-height: 1.4;
+    font-style: italic;
+    text-align: center;
+    color: var(--brand);
+  }
+
+  .pullquote cite {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    font-style: normal;
+    font-family: var(--sans);
+    color: var(--muted);
+  }
+
+  figure {
+    margin: 28px 0;
+    font-family: var(--sans);
+  }
+
+  .chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 18px;
+    height: 200px;
+    padding: 0 12px;
+    border-bottom: 2px solid var(--ink);
+    border-left: 1px solid var(--line);
+    background:
+      linear-gradient(to top, var(--line) 1px, transparent 1px) 0 0 / 100% 25%;
+  }
+
+  .bar-group {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 4px;
+    height: 100%;
+  }
+
+  .bar {
+    width: 22px;
+    border-radius: 3px 3px 0 0;
+    position: relative;
+  }
+
+  .bar.prior { background: #bbf7d0; }
+  .bar.current { background: var(--brand); }
+
+  .bar span {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .axis {
+    display: flex;
+    gap: 18px;
+    padding: 6px 12px 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .axis span { flex: 1; text-align: center; }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 10px;
+    font-size: 0.8rem;
+  }
+
+  .legend i {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+
+  figcaption {
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--sans);
+    font-size: 0.875rem;
+    margin: 16px 0;
+  }
+
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-weight: 600;
+    padding-bottom: 6px;
+  }
+
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { text-align: left; color: var(--muted); font-weight: 600; border-bottom: 2px solid var(--ink); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tfoot td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: none; }
+
+  sup a { text-decoration: none; color: var(--brand); font-family: var(--sans); font-size: 0.75em; }
+  a { color: var(--brand); }
+  a:hover { color: var(--brand-2); }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 40px 0 20px; }
+
+  .footnotes {
+    font-size: 0.85rem;
+    color: var(--muted);
+    font-family: var(--sans);
+  }
+
+  .footnotes ol { padding-left: 20px; }
+
+  @media (max-width: 700px) {
+    .cover, .body { padding-left: 20px; padding-right: 20px; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .pullquote { margin: 24px 0; }
+  }
+</style>
+</head>
+<body>
+<article class="report">
+  <header class="cover">
+    <div class="kicker">Quarterly business review &middot; Q3 FY2026</div>
+    <h1>A strong summer carried by direct sales, with wholesale softening</h1>
+    <p>Prepared by Finance &amp; Strategy for the Larkspur Outdoor Co. board &middot; 9 October</p>
+  </header>
+
+  <div class="body">
+    <div class="kpis">
+      <div class="kpi"><div class="label">Revenue</div><div class="value">$48.2M</div><div class="delta up">14% YoY</div></div>
+      <div class="kpi"><div class="label">Gross margin</div><div class="value">52.8%</div><div class="delta up">1.9 pts</div></div>
+      <div class="kpi"><div class="label">Wholesale</div><div class="value">$17.6M</div><div class="delta down">6% YoY</div></div>
+      <div class="kpi"><div class="label">Active customers</div><div class="value">612k</div><div class="delta up">21% YoY</div></div>
+    </div>
+
+    <h2>Overview</h2>
+    <p>
+      Larkspur closed the third quarter with revenue of <strong>$48.2 million</strong>, up
+      14% on the same quarter last year and 3% ahead of plan. Growth came almost
+      entirely from our direct channels: the online store and our nine retail
+      locations together grew 30%, while wholesale revenue fell 6% as two large
+      outdoor chains reduced their autumn orders.<sup><a href="#fn1" id="ref1">1</a></sup>
+    </p>
+    <p>
+      Gross margin improved to 52.8%, helped by the mix shift toward direct sales and
+      by lower freight costs. Operating expenses rose faster than revenue, mostly
+      because of the new Portland store and a heavier marketing push for the
+      <em>Ridgeline</em> tent launch, but operating income still grew by 9%.
+    </p>
+
+    <figure>
+      <div class="chart" role="img" aria-label="Revenue by month, this year versus last year">
+        <div class="bar-group"><div class="bar prior" style="height: 58%"></div><div class="bar current" style="height: 64%"><span>$14.9M</span></div></div>
+        <div class="bar-group"><div class="bar prior" style="height: 62%"></div><div class="bar current" style="height: 72%"><span>$16.8M</span></div></div>
+        <div class="bar-group"><div class="bar prior" style="height: 60%"></div><div class="bar current" style="height: 70%"><span>$16.5M</span></div></div>
+      </div>
+      <div class="axis"><span>July</span><span>August</span><span>September</span></div>
+      <div class="legend">
+        <span><i style="background: #bbf7d0"></i>Q3 FY2025</span>
+        <span><i style="background: var(--brand)"></i>Q3 FY2026</span>
+      </div>
+      <figcaption>Figure 1. Monthly revenue, Q3 this year versus last year. August was the strongest month on record.</figcaption>
+    </figure>
+
+    <h2>Channel performance</h2>
+    <table>
+      <caption>Revenue by channel ($ millions)</caption>
+      <thead>
+        <tr><th>Channel</th><th class="n">Q3 FY2025</th><th class="n">Q3 FY2026</th><th class="n">Change</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Online store</td><td class="n">15.1</td><td class="n">20.3</td><td class="n">+34%</td></tr>
+        <tr><td>Retail stores</td><td class="n">8.4</td><td class="n">10.3</td><td class="n">+23%</td></tr>
+        <tr><td>Wholesale</td><td class="n">18.7</td><td class="n">17.6</td><td class="n">&minus;6%</td></tr>
+      </tbody>
+      <tfoot>
+        <tr><td>Total</td><td class="n">42.2</td><td class="n">48.2</td><td class="n">+14%</td></tr>
+      </tfoot>
+    </table>
+
+    <h3>Direct to consumer</h3>
+    <p>
+      The online store had its best quarter ever. Conversion rose from 2.6% to 3.1%
+      after the checkout redesign in June, and the average order value held steady at
+      $118. Repeat customers now account for <strong>44%</strong> of online revenue,
+      up from 37%.
+    </p>
+
+    <blockquote class="pullquote">
+      For the first time, more than half of our revenue came from customers who
+      buy directly from us.
+      <cite>&mdash; Maya Castellanos, Chief Executive</cite>
+    </blockquote>
+
+    <h3>Wholesale</h3>
+    <p>
+      Wholesale remains our largest single channel, but it is under pressure. Two
+      national retailers cut their autumn orders by a combined $2.3 million,
+      citing high inventory. Independent specialty shops, by contrast, grew 8%. We
+      expect wholesale to be flat to slightly down in Q4.
+    </p>
+
+    <h2>Products</h2>
+    <p>
+      The <em>Ridgeline</em> two-person tent sold 14,200 units in its first ten weeks,
+      beating its launch forecast by 40%. Apparel was flat, and the footwear line
+      continued to underperform; we are reviewing whether to keep it beyond spring.<sup><a href="#fn2" id="ref2">2</a></sup>
+    </p>
+
+    <h2>Outlook for Q4</h2>
+    <ul>
+      <li>We are raising full-year revenue guidance from $176M to <strong>$181M</strong>.</li>
+      <li>Holiday marketing spend will be 12% higher than last year, weighted toward email and returning customers.</li>
+      <li>The Denver store opens on 14 November, bringing the fleet to ten.</li>
+      <li>Wholesale guidance is lowered to $64M for the year, from $68M.</li>
+    </ul>
+
+    <hr>
+    <section class="footnotes" aria-label="Footnotes">
+      <ol>
+        <li id="fn1">Wholesale figures are shipments, not sell-through. Retailer sell-through for Larkspur products was up 4% in the quarter. <a href="#ref1">&uarr;</a></li>
+        <li id="fn2">Footwear accounted for 3.4% of revenue and had a gross margin of 31%, well below the company average. <a href="#ref2">&uarr;</a></li>
+      </ol>
+    </section>
+  </div>
+</article>
+</body>
+</html>

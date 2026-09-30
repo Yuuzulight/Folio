@@ -16,3 +16,6 @@ tests/fuzz-output/
 
 # Private conformance corpus (local only, never committed)
 tests/conformance-private/
+
+# Reference browser configuration for tools/Folio.RefCapture (local only)
+tools/Folio.RefCapture/refcapture.local.json

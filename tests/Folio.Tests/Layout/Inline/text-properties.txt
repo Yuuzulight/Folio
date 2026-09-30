@@ -1,0 +1,117 @@
+Spacing, case and breaking of text (CSS Text 3 sections 2.1, 5.2, 5.5, 8.1 and 8.2, CSS Text 4 section 9, CSS Content
+3 quotes) in the 16px box font.
+
+=== letter-spacing follows every character
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="letter-spacing: 2px">ab</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "ab" 0,0 36x16
+
+=== word-spacing widens spaces
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="word-spacing: 4px">a b</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "a " 0,0 36x16
+        text "b" 36,0 16x16
+
+=== text-transform changes the text laid out
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-transform: uppercase">ab<span style="text-transform: capitalize"> hello wORLD don't</span></p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        span 32,0 288x16
+        text "AB" 0,0 32x16
+        text " " 32,0 16x16
+        text "Hello " 48,0 96x16
+        text "WORLD " 144,0 96x16
+        text "Don't" 240,0 80x16
+
+=== tab-size sets the width of a tab
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="white-space: pre; tab-size: 2">a	b</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "a\tb" 0,0 64x16
+
+=== word-break: break-all breaks between letters
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; word-break: break-all">aaaaaa</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 50x32
+      line 0,0 50x16
+        text "a" 0,0 16x16
+        text "a" 16,0 16x16
+        text "a" 32,0 16x16
+      line 0,16 50x16
+        text "a" 0,16 16x16
+        text "a" 16,16 16x16
+        text "a" 32,16 16x16
+
+=== word-break: keep-all keeps ideographs together
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 40px; word-break: keep-all">\u4E00\u4E8C\u4E09 \u56DB</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 40x32
+      line 0,0 40x16
+        text "一二三 " 0,0 64x16
+      line 0,16 40x16
+        text "四" 0,16 16x16
+
+=== overflow-wrap breaks a word that would overflow an empty line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 50px; overflow-wrap: break-word">aaaaaa b</p>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    p 0,0 50x48
+      line 0,0 50x16
+        text "aaa" 0,0 48x16
+      line 0,16 50x16
+        text "aaa " 0,16 64x16
+      line 0,32 50x16
+        text "b" 0,32 16x16
+
+=== overflow-wrap: anywhere also narrows min-content; break-word does not
+<!DOCTYPE html><style>body, div { margin: 0 } div { float: left; width: min-content }</style><div style="overflow-wrap: anywhere">aa</div><div style="overflow-wrap: break-word">aa</div>
+---
+html 0,0 800x32
+  body 0,0 800x0
+    div 0,0 16x32
+      line 0,0 16x16
+        text "a" 0,0 16x16
+      line 0,16 16x16
+        text "a" 0,16 16x16
+    div 16,0 32x16
+      line 16,0 32x16
+        text "aa" 16,0 32x16
+
+=== quotes choose the marks of q elements
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style='quotes: "<" ">" "[" "]"'><q>a<q>b</q></q></p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        q 0,0 96x16
+        ::before 0,0 16x16
+        q 32,0 48x16
+        ::before 32,0 16x16
+        ::after 64,0 16x16
+        ::after 80,0 16x16
+        text "<" 0,0 16x16
+        text "a" 16,0 16x16
+        text "[" 32,0 16x16
+        text "b" 48,0 16x16
+        text "]" 64,0 16x16
+        text ">" 80,0 16x16

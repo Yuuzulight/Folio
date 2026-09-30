@@ -6,6 +6,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Folio.Gen/Folio.Gen.csproj" />
+    <Project Path="tools/Folio.RefCapture/Folio.RefCapture.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Folio.Tests/Folio.Tests.csproj" />

@@ -19,3 +19,19 @@ glyphs 16,12.8 0,12.8 16px rgb(0, 0, 0)
 === hidden text is not painted
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="visibility: hidden">a</p>
 ---
+
+=== an inline box's background paints before the line's text
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>aa <span style="background: yellow">bb</span> cc</p>
+---
+fill 48,0 32x16 rgb(255, 255, 0)
+glyphs 0,12.8 16,12.8 32,12.8 16px rgb(0, 0, 0)
+glyphs 48,12.8 64,12.8 16px rgb(0, 0, 0)
+glyphs 80,12.8 16px rgb(0, 0, 0)
+glyphs 96,12.8 112,12.8 16px rgb(0, 0, 0)
+
+=== a float from inline content paints before the line's text
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="float: right; background: lime">b</span></p>
+---
+fill 784,0 16x16 rgb(0, 255, 0)
+glyphs 784,12.8 16px rgb(0, 0, 0)
+glyphs 0,12.8 16px rgb(0, 0, 0)

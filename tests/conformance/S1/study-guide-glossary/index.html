@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Guide: Acids, Bases and pH</title>
+<style>
+  :root {
+    --ink: #1e293b;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --brand: #2563eb;
+    --brand-soft: #eff6ff;
+    --key: #fde68a;
+    --remember: #7c3aed;
+    --remember-bg: #f5f3ff;
+    --pitfall: #dc2626;
+    --pitfall-bg: #fef2f2;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #f8fafc;
+    line-height: 1.65;
+  }
+
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 36px 28px 64px;
+  }
+
+  .course {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--brand);
+  }
+
+  h1 {
+    font-size: 2.1rem;
+    margin: 4px 0 8px;
+    line-height: 1.2;
+  }
+
+  .intro { color: var(--muted); font-size: 1.05rem; margin-top: 0; }
+
+  h2 {
+    font-size: 1.4rem;
+    margin: 40px 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h2 .num {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: #fff;
+    font-size: 0.95rem;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  h3 { font-size: 1.1rem; margin: 24px 0 6px; }
+
+  mark { background: var(--key); padding: 0 3px; border-radius: 2px; }
+
+  abbr[title] {
+    text-decoration: underline dotted;
+    cursor: help;
+  }
+
+  a { color: var(--brand); }
+  a:hover { color: #1e40af; }
+
+  .objectives {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 22px;
+  }
+
+  .objectives h2 { margin: 0 0 6px; font-size: 1rem; }
+  .objectives ul { margin: 0; padding-left: 20px; }
+
+  .box {
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 18px 0;
+  }
+
+  .box.remember { background: var(--remember-bg); border: 1px solid #ddd6fe; }
+  .box.pitfall { background: var(--pitfall-bg); border: 1px solid #fecaca; }
+
+  .box-label {
+    display: block;
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+
+  .remember .box-label { color: var(--remember); }
+  .pitfall .box-label { color: var(--pitfall); }
+
+  .equation {
+    text-align: center;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.2rem;
+    margin: 16px 0;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  figure {
+    margin: 24px 0;
+    padding: 18px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  .ph-scale {
+    display: grid;
+    grid-template-columns: repeat(15, 1fr);
+    height: 42px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: linear-gradient(to right, #dc2626, #f97316, #facc15, #84cc16, #22c55e, #14b8a6, #3b82f6, #6366f1, #7c3aed);
+  }
+
+  .ph-scale span {
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid rgba(255, 255, 255, 0.35);
+  }
+
+  .ph-scale span:last-child { border-right: none; }
+
+  .ph-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  figcaption {
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    font-size: 0.925rem;
+    margin: 12px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+
+  th, td { padding: 8px 12px; text-align: left; }
+  th { background: var(--brand-soft); color: var(--brand); font-size: 0.85rem; }
+  td { border-top: 1px solid var(--line); }
+
+  details {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 10px 0;
+    padding: 10px 16px;
+  }
+
+  summary { cursor: pointer; font-weight: 600; }
+  details[open] summary { margin-bottom: 8px; color: var(--brand); }
+
+  dl.glossary {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  dl.glossary dt, dl.glossary dd {
+    margin: 0;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  dl.glossary dt {
+    font-weight: 700;
+    background: #f1f5f9;
+  }
+
+  dl.glossary dt:nth-last-of-type(1),
+  dl.glossary dd:last-of-type { border-bottom: none; }
+
+  @media (max-width: 600px) {
+    dl.glossary { grid-template-columns: 1fr; }
+    dl.glossary dt { border-bottom: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="course">Chemistry 110 &middot; Unit 6</div>
+  <h1>Acids, Bases and pH</h1>
+  <p class="intro">A one-evening review for the unit test on Thursday. Work through each section, then try the self-check questions without looking at the answers.</p>
+
+  <section class="objectives">
+    <h2>By the end you should be able to</h2>
+    <ul>
+      <li>Define acids and bases using the Br&oslash;nsted&ndash;Lowry model.</li>
+      <li>Calculate pH from [H<sup>+</sup>] and the reverse.</li>
+      <li>Explain why a buffer resists changes in pH.</li>
+    </ul>
+  </section>
+
+  <h2><span class="num">1</span> What makes an acid an acid?</h2>
+  <p>
+    In the Br&oslash;nsted&ndash;Lowry model, an <mark>acid is a proton donor</mark> and a
+    <mark>base is a proton acceptor</mark>. When hydrogen chloride dissolves in water, it
+    gives a proton (H<sup>+</sup>) to a water molecule, forming the hydronium ion:
+  </p>
+  <div class="equation">HCl + H<sub>2</sub>O &rarr; H<sub>3</sub>O<sup>+</sup> + Cl<sup>&minus;</sup></div>
+  <p>
+    Every acid has a <em>conjugate base</em>: whatever is left after it loses its proton.
+    Here, Cl<sup>&minus;</sup> is the conjugate base of HCl. Likewise, H<sub>3</sub>O<sup>+</sup>
+    is the conjugate acid of water.
+  </p>
+
+  <h3>Strong versus weak</h3>
+  <p>
+    A <strong>strong acid</strong> ionises completely in water; a <strong>weak acid</strong>
+    only partly does. Strength is about <em>how much</em> the acid ionises, not how
+    concentrated the solution is.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Acid</th><th>Formula</th><th>Strength</th><th><abbr title="acid dissociation constant, as a negative log">pK<sub>a</sub></abbr></th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Hydrochloric</td><td>HCl</td><td>Strong</td><td>&minus;6.3</td></tr>
+      <tr><td>Nitric</td><td>HNO<sub>3</sub></td><td>Strong</td><td>&minus;1.4</td></tr>
+      <tr><td>Ethanoic (acetic)</td><td>CH<sub>3</sub>COOH</td><td>Weak</td><td>4.76</td></tr>
+      <tr><td>Carbonic</td><td>H<sub>2</sub>CO<sub>3</sub></td><td>Weak</td><td>6.35</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box pitfall">
+    <span class="box-label">Common mistake</span>
+    "Strong" does not mean "concentrated". A 0.001&nbsp;M solution of HCl is dilute
+    but still a strong acid; a 5&nbsp;M solution of ethanoic acid is concentrated but
+    still weak.
+  </div>
+
+  <h2><span class="num">2</span> The pH scale</h2>
+  <p>
+    pH is defined as the negative base-10 logarithm of the hydrogen ion concentration:
+  </p>
+  <div class="equation">pH = &minus;log<sub>10</sub>[H<sup>+</sup>]</div>
+  <p>
+    Because the scale is logarithmic, each step of 1 is a <strong>tenfold</strong>
+    change. A solution at pH&nbsp;3 has 10<sup>2</sup> = 100 times more H<sup>+</sup>
+    than one at pH&nbsp;5.
+  </p>
+
+  <figure>
+    <div class="ph-scale" aria-hidden="true">
+      <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span>
+    </div>
+    <div class="ph-labels">
+      <span>Battery acid</span><span>Lemon juice</span><span>Pure water</span><span>Baking soda</span><span>Drain cleaner</span>
+    </div>
+    <figcaption>Figure 1. The pH scale at 25&nbsp;&deg;C. Below 7 is acidic, above 7 is basic.</figcaption>
+  </figure>
+
+  <h3>Worked example</h3>
+  <p>A solution has [H<sup>+</sup>] = 3.2 &times; 10<sup>&minus;4</sup>&nbsp;mol&nbsp;dm<sup>&minus;3</sup>. Find its pH.</p>
+  <ol>
+    <li>Write the formula: pH = &minus;log<sub>10</sub>(3.2 &times; 10<sup>&minus;4</sup>).</li>
+    <li>Evaluate the log: log<sub>10</sub>(3.2 &times; 10<sup>&minus;4</sup>) &asymp; &minus;3.49.</li>
+    <li>Change the sign: <strong>pH &asymp; 3.49</strong>.</li>
+  </ol>
+
+  <div class="box remember">
+    <span class="box-label">Remember</span>
+    At 25&nbsp;&deg;C, pH + pOH = 14. If you are given [OH<sup>&minus;</sup>], find the
+    pOH first, then subtract from 14.
+  </div>
+
+  <h2><span class="num">3</span> Buffers</h2>
+  <p>
+    A <strong>buffer</strong> is a solution of a weak acid and its conjugate base (or a
+    weak base and its conjugate acid) in similar amounts. Add a little strong acid and
+    the conjugate base mops up the extra H<sup>+</sup>; add a little strong base and the
+    weak acid neutralises the OH<sup>&minus;</sup>. Either way, the pH barely moves.
+  </p>
+  <p>
+    Your blood is buffered by the carbonic acid / hydrogencarbonate pair, which holds
+    it between pH&nbsp;7.35 and 7.45. The pH of a buffer can be estimated with the
+    <abbr title="Henderson&ndash;Hasselbalch">H&ndash;H</abbr> equation:
+  </p>
+  <div class="equation">pH = pK<sub>a</sub> + log<sub>10</sub>( [A<sup>&minus;</sup>] / [HA] )</div>
+
+  <h2><span class="num">4</span> Self-check</h2>
+  <details>
+    <summary>Q1. What is the conjugate base of HNO<sub>3</sub>?</summary>
+    <p>NO<sub>3</sub><sup>&minus;</sup>, the nitrate ion.</p>
+  </details>
+  <details>
+    <summary>Q2. Solution A has pH 2 and solution B has pH 4. How many times more H<sup>+</sup> does A contain?</summary>
+    <p>10<sup>4&minus;2</sup> = <strong>100 times</strong> more.</p>
+  </details>
+  <details>
+    <summary>Q3. Why can't a strong acid and its conjugate base form a useful buffer?</summary>
+    <p>The conjugate base of a strong acid is so weak that it does not accept protons in any useful amount, so it cannot absorb added H<sup>+</sup>.</p>
+  </details>
+
+  <h2><span class="num">5</span> Glossary</h2>
+  <dl class="glossary">
+    <dt>Acid</dt>
+    <dd>A species that donates a proton (H<sup>+</sup>).</dd>
+    <dt>Base</dt>
+    <dd>A species that accepts a proton.</dd>
+    <dt>Conjugate pair</dt>
+    <dd>Two species that differ by exactly one proton, such as NH<sub>4</sub><sup>+</sup> and NH<sub>3</sub>.</dd>
+    <dt>Hydronium ion</dt>
+    <dd>H<sub>3</sub>O<sup>+</sup>; the form H<sup>+</sup> takes in water.</dd>
+    <dt>K<sub>a</sub></dt>
+    <dd>The acid dissociation constant. A larger K<sub>a</sub> means a stronger acid.</dd>
+    <dt>Buffer</dt>
+    <dd>A solution that resists changes in pH when small amounts of acid or base are added.</dd>
+    <dt>Neutralisation</dt>
+    <dd>The reaction of an acid with a base to form a salt and water.</dd>
+  </dl>
+
+  <p style="margin-top: 32px; color: var(--muted); font-size: 0.875rem;">
+    Prepared by Ms Adeyemi for Year 11. See also the <a href="#">Unit 6 practice paper</a>.
+  </p>
+</div>
+</body>
+</html>

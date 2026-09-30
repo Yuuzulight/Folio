@@ -1,0 +1,5 @@
+{
+  "prompt": "Make me a printable recipe card for a roasted squash and sage galette, with ingredients on one side and numbered steps on the other.",
+  "features": ["headings", "ordered-list-start", "unordered-lists", "list-marker", "pseudo-elements", "grid", "flexbox", "repeating-gradient", "box-shadow", "print-styles", "media-queries", "serif-fonts", "custom-properties"],
+  "viewport": 800
+}

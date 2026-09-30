@@ -20,17 +20,25 @@ internal sealed record WebFace(FontFace Face, FontFaceRule Rule)
 /// </summary>
 internal static class WebFonts
 {
-    public static void Load(IEnumerable<FontFaceRule> rules, FontCollection fonts, ResourceLoader loader, Action<string>? report = null)
+    /// <returns>How many faces loaded.</returns>
+    public static int Load(IEnumerable<FontFaceRule> rules, FontCollection fonts, ResourceLoader loader, Action<string>? report = null)
     {
+        var loaded = 0;
         foreach (var rule in rules)
         {
             fonts.DeclareWebFamily(rule.Family);
             var face = rule.Sources.Select(source => Open(source, fonts, loader, report)).FirstOrDefault(f => f is not null);
             if (face is not null)
+            {
                 fonts.AddWebFace(new WebFace(face, rule));
+                loaded++;
+            }
             else
+            {
                 report?.Invoke($"No source of the font \"{rule.Family}\" could be used; the next family in the list is used instead.");
+            }
         }
+        return loaded;
     }
 
     private static FontFace? Open(FontFaceSource source, FontCollection fonts, ResourceLoader loader, Action<string>? report)

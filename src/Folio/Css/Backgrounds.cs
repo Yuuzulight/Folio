@@ -3,6 +3,9 @@ namespace Folio.Css;
 /// <summary>An <c>&lt;image&gt;</c>: none, a URL, or a gradient (kept as text until gradients are painted in M2).</summary>
 internal abstract record ImageValue;
 
+/// <summary>A single specified image (list-style-image).</summary>
+internal sealed record ImageSpecified(ImageValue Image) : CssValue;
+
 internal sealed record NoImage : ImageValue
 {
     public static NoImage Instance { get; } = new();

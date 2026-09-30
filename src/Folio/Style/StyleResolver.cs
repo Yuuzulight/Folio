@@ -51,8 +51,10 @@ internal static class StyleResolver
     /// <param name="sources">
     /// Where link elements and @import load from; by default only data: URLs, with no base URL.
     /// </param>
+    /// <param name="measure">Measures fonts for ex and ch; without it they are 0.5em.</param>
     /// <returns>The <c>@font-face</c> rules of the user and author stylesheets, in that order.</returns>
-    public static List<FontFaceRule> Resolve(DocumentNode document, MediaContext media, string? userStyleSheet = null, StyleSources? sources = null)
+    public static List<FontFaceRule> Resolve(DocumentNode document, MediaContext media, string? userStyleSheet = null, StyleSources? sources = null,
+                                             FontMeasure? measure = null)
     {
         sources ??= new StyleSources(Resources.ResourceLoader.DataUrlsOnly, null);
         sources = sources with
@@ -130,7 +132,9 @@ internal static class StyleResolver
                 var computeContext = new ComputeContext(item.Parent, rootFontSize, media.Width, media.Height)
                 {
                     PrefersDark = media.DarkColorScheme,
+                    Measure = measure,
                     Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
+                    Registered = registered,
                 };
                 style = StyleBuilder.Compute(values, computeContext, groups);
                 if (sharable)
@@ -153,7 +157,9 @@ internal static class StyleResolver
                     var pseudoContext = new ComputeContext(style, rootFontSize, media.Width, media.Height)
                     {
                         PrefersDark = media.DarkColorScheme,
+                        Measure = measure,
                         Custom = CustomProperties.Compute(style.Custom, pseudoCustom, registered),
+                        Registered = registered,
                     };
                     return StyleBuilder.Compute(pseudoValues, pseudoContext, groups);
                 }

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coastal League Standings</title>
+<style>
+  :root {
+    --navy: #13294b;
+    --navy-2: #1d3a66;
+    --bg: #eef1f5;
+    --card: #ffffff;
+    --text: #1a2233;
+    --muted: #6a7488;
+    --line: #e1e5ec;
+    --stripe: #f7f9fc;
+    --promo: #1f9d55;
+    --playoff: #3b82f6;
+    --releg: #d64545;
+    --win: #1f9d55;
+    --draw: #9aa3b2;
+    --loss: #d64545;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 28px 20px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 26px;
+    color: var(--navy);
+  }
+
+  .lede {
+    margin: 6px 0 20px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .table-card {
+    background: var(--card);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(19, 41, 75, 0.06), 0 8px 24px rgba(19, 41, 75, 0.08);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  caption {
+    caption-side: top;
+    text-align: left;
+    padding: 14px 16px;
+    background: var(--navy);
+    color: #fff;
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+  caption small {
+    display: block;
+    font-weight: 400;
+    font-size: 12px;
+    opacity: 0.75;
+  }
+
+  thead th {
+    background: var(--navy-2);
+    color: #dbe4f3;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 9px 8px;
+  }
+
+  th, td {
+    padding: 9px 8px;
+    text-align: center;
+  }
+
+  td.num, th.num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  th.club, td.club { text-align: left; }
+
+  td.club { font-weight: 600; }
+
+  tbody tr { border-bottom: 1px solid var(--line); }
+  tbody tr:nth-child(even) { background: var(--stripe); }
+  tbody tr:hover { background: #eaf1ff; }
+
+  td.pos {
+    width: 44px;
+    font-weight: 700;
+    color: var(--muted);
+    border-left: 4px solid transparent;
+  }
+
+  tr.promo td.pos { border-left-color: var(--promo); }
+  tr.playoff td.pos { border-left-color: var(--playoff); }
+  tr.releg td.pos { border-left-color: var(--releg); }
+
+  tr.cutoff { border-bottom: 2px dashed #b8c1d1; }
+
+  td.pts {
+    font-weight: 800;
+    color: var(--navy);
+  }
+
+  .pos-gd { color: var(--promo); }
+  .neg-gd { color: var(--releg); }
+
+  .form {
+    white-space: nowrap;
+  }
+
+  .form span {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    margin: 0 1px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .form .w { background: var(--win); }
+  .form .d { background: var(--draw); }
+  .form .l { background: var(--loss); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .legend i {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
+    border-radius: 2px;
+    vertical-align: -1px;
+  }
+
+  @media (max-width: 620px) {
+    .hide-sm { display: none; }
+    th, td { padding: 8px 5px; }
+    .form span { width: 16px; height: 16px; line-height: 16px; font-size: 9px; }
+    h1 { font-size: 21px; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Coastal Premier League &mdash; 2025 Final Table</h1>
+    <p class="lede">All 132 fixtures have been played. Port Ellery finish four points clear to take the title, while Dunmore Park and Fenwick Albion drop to the Coastal Championship.</p>
+
+    <div class="table-card">
+      <table>
+        <caption>
+          Final standings
+          <small>3 points for a win, 1 for a draw. Ties broken by goal difference, then goals scored.</small>
+        </caption>
+        <thead>
+          <tr>
+            <th class="num" title="Position">#</th>
+            <th class="club">Club</th>
+            <th class="num">P</th>
+            <th class="num">W</th>
+            <th class="num">D</th>
+            <th class="num">L</th>
+            <th class="num hide-sm">GF</th>
+            <th class="num hide-sm">GA</th>
+            <th class="num">GD</th>
+            <th class="num">Pts</th>
+            <th>Last 5</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="promo">
+            <td class="pos num">1</td>
+            <td class="club">Port Ellery</td>
+            <td class="num">22</td><td class="num">13</td><td class="num">4</td><td class="num">5</td>
+            <td class="num hide-sm">43</td><td class="num hide-sm">25</td>
+            <td class="num pos-gd">+18</td><td class="num pts">43</td>
+            <td class="form"><span class="l">L</span><span class="w">W</span><span class="w">W</span><span class="l">L</span><span class="d">D</span></td>
+          </tr>
+          <tr class="promo cutoff">
+            <td class="pos num">2</td>
+            <td class="club">Bramwell Athletic</td>
+            <td class="num">22</td><td class="num">11</td><td class="num">6</td><td class="num">5</td>
+            <td class="num hide-sm">37</td><td class="num hide-sm">32</td>
+            <td class="num pos-gd">+5</td><td class="num pts">39</td>
+            <td class="form"><span class="w">W</span><span class="w">W</span><span class="w">W</span><span class="w">W</span><span class="l">L</span></td>
+          </tr>
+          <tr class="playoff">
+            <td class="pos num">3</td>
+            <td class="club">Tidewater FC</td>
+            <td class="num">22</td><td class="num">11</td><td class="num">5</td><td class="num">6</td>
+            <td class="num hide-sm">33</td><td class="num hide-sm">24</td>
+            <td class="num pos-gd">+9</td><td class="num pts">38</td>
+            <td class="form"><span class="w">W</span><span class="w">W</span><span class="w">W</span><span class="w">W</span><span class="w">W</span></td>
+          </tr>
+          <tr class="playoff">
+            <td class="pos num">4</td>
+            <td class="club">Harbour City</td>
+            <td class="num">22</td><td class="num">10</td><td class="num">6</td><td class="num">6</td>
+            <td class="num hide-sm">40</td><td class="num hide-sm">29</td>
+            <td class="num pos-gd">+11</td><td class="num pts">36</td>
+            <td class="form"><span class="l">L</span><span class="w">W</span><span class="l">L</span><span class="w">W</span><span class="w">W</span></td>
+          </tr>
+          <tr class="cutoff">
+            <td class="pos num">5</td>
+            <td class="club">Kingsreach United</td>
+            <td class="num">22</td><td class="num">11</td><td class="num">3</td><td class="num">8</td>
+            <td class="num hide-sm">30</td><td class="num hide-sm">23</td>
+            <td class="num pos-gd">+7</td><td class="num pts">36</td>
+            <td class="form"><span class="l">L</span><span class="w">W</span><span class="l">L</span><span class="w">W</span><span class="l">L</span></td>
+          </tr>
+          <tr>
+            <td class="pos num">6</td>
+            <td class="club">Saltmarsh Rovers</td>
+            <td class="num">22</td><td class="num">10</td><td class="num">5</td><td class="num">7</td>
+            <td class="num hide-sm">35</td><td class="num hide-sm">28</td>
+            <td class="num pos-gd">+7</td><td class="num pts">35</td>
+            <td class="form"><span class="d">D</span><span class="l">L</span><span class="l">L</span><span class="w">W</span><span class="l">L</span></td>
+          </tr>
+          <tr>
+            <td class="pos num">7</td>
+            <td class="club">Lymington Vale</td>
+            <td class="num">22</td><td class="num">11</td><td class="num">2</td><td class="num">9</td>
+            <td class="num hide-sm">22</td><td class="num hide-sm">18</td>
+            <td class="num pos-gd">+4</td><td class="num pts">35</td>
+            <td class="form"><span class="l">L</span><span class="l">L</span><span class="w">W</span><span class="l">L</span><span class="w">W</span></td>
+          </tr>
+          <tr>
+            <td class="pos num">8</td>
+            <td class="club">Greystone Wanderers</td>
+            <td class="num">22</td><td class="num">8</td><td class="num">6</td><td class="num">8</td>
+            <td class="num hide-sm">29</td><td class="num hide-sm">32</td>
+            <td class="num neg-gd">&minus;3</td><td class="num pts">30</td>
+            <td class="form"><span class="d">D</span><span class="d">D</span><span class="w">W</span><span class="l">L</span><span class="l">L</span></td>
+          </tr>
+          <tr>
+            <td class="pos num">9</td>
+            <td class="club">Cobble Bay</td>
+            <td class="num">22</td><td class="num">5</td><td class="num">6</td><td class="num">11</td>
+            <td class="num hide-sm">23</td><td class="num hide-sm">33</td>
+            <td class="num neg-gd">&minus;10</td><td class="num pts">21</td>
+            <td class="form"><span class="l">L</span><span class="w">W</span><span class="d">D</span><span class="l">L</span><span class="l">L</span></td>
+          </tr>
+          <tr class="cutoff">
+            <td class="pos num">10</td>
+            <td class="club">Northcliff Town</td>
+            <td class="num">22</td><td class="num">4</td><td class="num">8</td><td class="num">10</td>
+            <td class="num hide-sm">15</td><td class="num hide-sm">29</td>
+            <td class="num neg-gd">&minus;14</td><td class="num pts">20</td>
+            <td class="form"><span class="w">W</span><span class="l">L</span><span class="l">L</span><span class="d">D</span><span class="w">W</span></td>
+          </tr>
+          <tr class="releg">
+            <td class="pos num">11</td>
+            <td class="club">Fenwick Albion</td>
+            <td class="num">22</td><td class="num">3</td><td class="num">9</td><td class="num">10</td>
+            <td class="num hide-sm">12</td><td class="num hide-sm">24</td>
+            <td class="num neg-gd">&minus;12</td><td class="num pts">18</td>
+            <td class="form"><span class="d">D</span><span class="l">L</span><span class="d">D</span><span class="l">L</span><span class="l">L</span></td>
+          </tr>
+          <tr class="releg">
+            <td class="pos num">12</td>
+            <td class="club">Dunmore Park</td>
+            <td class="num">22</td><td class="num">2</td><td class="num">6</td><td class="num">14</td>
+            <td class="num hide-sm">19</td><td class="num hide-sm">41</td>
+            <td class="num neg-gd">&minus;22</td><td class="num pts">12</td>
+            <td class="form"><span class="l">L</span><span class="l">L</span><span class="w">W</span><span class="l">L</span><span class="d">D</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span><i style="background: var(--promo)"></i>Continental Shield qualification</span>
+      <span><i style="background: var(--playoff)"></i>Coastal Cup play-off</span>
+      <span><i style="background: var(--releg)"></i>Relegation</span>
+      <span>Form reads oldest &rarr; newest</span>
+    </div>
+  </div>
+</body>
+</html>

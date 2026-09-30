@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lisbon and Porto: 6-Day Itinerary</title>
+<style>
+  :root {
+    --sea: #0e7490;
+    --sea-soft: #ecfeff;
+    --tile: #1e3a8a;
+    --sun: #f59e0b;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #f9fafb;
+    line-height: 1.6;
+  }
+
+  .trip {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 24px 56px;
+  }
+
+  .trip-header {
+    padding: 28px 28px 24px;
+    border-radius: var(--radius);
+    color: #fff;
+    background: linear-gradient(120deg, var(--tile) 0%, var(--sea) 100%);
+    box-shadow: 0 8px 24px rgba(14, 116, 144, 0.25);
+  }
+
+  .trip-header h1 { margin: 0 0 6px; font-size: 2rem; }
+  .trip-header p { margin: 0; opacity: 0.9; }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    margin-top: 20px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .summary div {
+    background: rgba(0, 0, 0, 0.15);
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .summary b { display: block; font-size: 1rem; }
+
+  h2 {
+    font-size: 1.2rem;
+    margin: 36px 0 12px;
+  }
+
+  .day {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    margin-bottom: 16px;
+  }
+
+  .day-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .day-num {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    background: var(--sea);
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.05em;
+  }
+
+  .day h3 { margin: 0; font-size: 1.1rem; }
+  .day-date { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+
+  .timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 18px;
+    border-left: 2px solid var(--line);
+  }
+
+  .timeline > li {
+    position: relative;
+    padding: 4px 0 10px 10px;
+  }
+
+  .timeline > li::before {
+    content: "";
+    position: absolute;
+    left: -25px;
+    top: 11px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--sea);
+  }
+
+  .time {
+    display: inline-block;
+    min-width: 52px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--sea);
+  }
+
+  .timeline ul {
+    margin: 4px 0 0;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 0.925rem;
+  }
+
+  .note {
+    background: var(--sea-soft);
+    border-left: 4px solid var(--sea);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.925rem;
+    margin: 10px 0 0;
+  }
+
+  .note.warn { background: #fffbeb; border-color: var(--sun); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+  }
+
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { background: #f3f4f6; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  .ref { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85em; }
+
+  hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--line), transparent);
+    margin: 36px 0;
+  }
+
+  .packing {
+    columns: 2;
+    column-gap: 32px;
+    padding-left: 20px;
+  }
+
+  a { color: var(--sea); }
+  a:hover { color: var(--tile); }
+
+  @media (max-width: 600px) {
+    .summary { grid-template-columns: 1fr; }
+    .packing { columns: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="trip">
+  <header class="trip-header">
+    <h1>Lisbon &amp; Porto</h1>
+    <p>Six days for two, 12&ndash;17 May. Trams, tiles, custard tarts and a slow train north.</p>
+    <div class="summary">
+      <div><b>6 days</b>3 nights Lisbon, 2 nights Porto</div>
+      <div><b>&euro;1,860</b>estimated total for two</div>
+      <div><b>Mild</b>18&ndash;23&nbsp;&deg;C, low rain chance</div>
+    </div>
+  </header>
+
+  <h2>Day by day</h2>
+
+  <section class="day">
+    <div class="day-head"><span class="day-num">DAY 1</span><h3>Arrive and wander Alfama</h3><span class="day-date">Tue 12 May</span></div>
+    <ol class="timeline">
+      <li><span class="time">11:40</span> Land at Lisbon airport; metro red line to Alameda, then green line to Baixa-Chiado (about 35 min).</li>
+      <li><span class="time">14:00</span> Check in at <strong>Casa do Largo</strong>, Alfama.</li>
+      <li><span class="time">15:30</span> Walk up to the Miradouro de Santa Luzia.
+        <ul>
+          <li>Continue to the castle if energy allows (&euro;15 each).</li>
+          <li>Otherwise, coffee on the terrace at Portas do Sol.</li>
+        </ul>
+      </li>
+      <li><span class="time">20:00</span> Dinner and live fado at a small tasca. Reservation under "Morgan".</li>
+    </ol>
+  </section>
+
+  <section class="day">
+    <div class="day-head"><span class="day-num">DAY 2</span><h3>Bel&eacute;m by tram</h3><span class="day-date">Wed 13 May</span></div>
+    <ol class="timeline">
+      <li><span class="time">09:00</span> Tram 15 from Pra&ccedil;a da Figueira to Bel&eacute;m.</li>
+      <li><span class="time">09:45</span> Jer&oacute;nimos Monastery (timed ticket, 10:00 entry).</li>
+      <li><span class="time">12:00</span> Custard tarts at the famous bakery, eaten warm with cinnamon.</li>
+      <li><span class="time">14:00</span> Riverside walk to the Monument to the Discoveries and the tower.</li>
+      <li><span class="time">19:30</span> Sunset drinks in Bairro Alto.</li>
+    </ol>
+    <p class="note warn"><strong>Heads up:</strong> the monastery is closed on Mondays, which is why Bel&eacute;m is on a Wednesday.</p>
+  </section>
+
+  <section class="day">
+    <div class="day-head"><span class="day-num">DAY 3</span><h3>Day trip to Sintra</h3><span class="day-date">Thu 14 May</span></div>
+    <ol class="timeline">
+      <li><span class="time">08:30</span> Train from Rossio station (40 min, &euro;2.40 each way).</li>
+      <li><span class="time">09:30</span> Bus 434 up the hill.
+        <ol type="a">
+          <li>Pena Palace first, before the crowds.</li>
+          <li>Walk down through the park to the Moorish Castle.</li>
+          <li>Lunch in the old town.</li>
+        </ol>
+      </li>
+      <li><span class="time">15:00</span> Quinta da Regaleira and its initiation well.</li>
+      <li><span class="time">18:30</span> Train back to Lisbon; early night.</li>
+    </ol>
+  </section>
+
+  <section class="day">
+    <div class="day-head"><span class="day-num">DAY 4</span><h3>North to Porto</h3><span class="day-date">Fri 15 May</span></div>
+    <ol class="timeline">
+      <li><span class="time">09:39</span> Fast train from Santa Apol&oacute;nia to Porto Campanh&atilde; (2 h 50 min). Sit on the left for river views near Coimbra.</li>
+      <li><span class="time">13:30</span> Check in at <strong>Rua das Flores Guesthouse</strong>.</li>
+      <li><span class="time">15:00</span> S&atilde;o Bento station to see the blue-and-white tile panels, then down to the Ribeira waterfront.</li>
+      <li><span class="time">20:00</span> Dinner: grilled sardines and vinho verde.</li>
+    </ol>
+  </section>
+
+  <section class="day">
+    <div class="day-head"><span class="day-num">DAY 5</span><h3>Port lodges and the Douro</h3><span class="day-date">Sat 16 May</span></div>
+    <ol class="timeline">
+      <li><span class="time">10:00</span> Walk across the upper deck of the Dom Lu&iacute;s I bridge to Vila Nova de Gaia.</li>
+      <li><span class="time">11:00</span> Cellar tour and tasting (booked, 11:00 English tour).</li>
+      <li><span class="time">14:30</span> Six-bridges river cruise, 50 minutes.</li>
+      <li><span class="time">17:00</span> Livraria Lello, if the queue is under 20 minutes.</li>
+    </ol>
+  </section>
+
+  <section class="day">
+    <div class="day-head"><span class="day-num">DAY 6</span><h3>Foz and fly home</h3><span class="day-date">Sun 17 May</span></div>
+    <ol class="timeline">
+      <li><span class="time">09:30</span> Tram 1 along the river to Foz do Douro for a seaside breakfast.</li>
+      <li><span class="time">13:00</span> Collect bags; metro violet line to the airport (35 min).</li>
+      <li><span class="time">16:25</span> Flight home.</li>
+    </ol>
+    <p class="note">Allow extra time on Sunday: the metro runs every 20 minutes instead of 10.</p>
+  </section>
+
+  <hr>
+
+  <h2>Bookings</h2>
+  <table>
+    <thead>
+      <tr><th>What</th><th>When</th><th>Reference</th><th>Cost</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Casa do Largo, 3 nights</td><td>12&ndash;15 May</td><td class="ref">CDL-44810</td><td>&euro;396</td></tr>
+      <tr><td>Train Lisbon &rarr; Porto</td><td>15 May, 09:39</td><td class="ref">AP 7XK2Q</td><td>&euro;62</td></tr>
+      <tr><td>Rua das Flores Guesthouse, 2 nights</td><td>15&ndash;17 May</td><td class="ref">RF-2093</td><td>&euro;248</td></tr>
+      <tr><td>Cellar tour and tasting</td><td>16 May, 11:00</td><td class="ref">GAIA-551</td><td>&euro;50</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Packing reminders</h2>
+  <ul class="packing">
+    <li>Comfortable shoes with grip (the pavements are polished stone)</li>
+    <li>Light rain jacket</li>
+    <li>Travel adaptor, type F</li>
+    <li>Refillable water bottle</li>
+    <li>Contactless card for the metro</li>
+    <li>Sun hat and sunscreen</li>
+    <li>Printed booking confirmations</li>
+    <li>Small daypack for Sintra</li>
+  </ul>
+</div>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "prompt": "Turn this sprint's bug tracker export for our mobile app into a readable HTML table: key, summary, type, priority, status, assignee, component, created, updated and story points. Add a summary bar at the top and a section for reopened issues (there weren't any this sprint).",
+  "features": ["long-table", "sticky-header", "zebra-striping", "row-hover", "status-badges", "empty-state-row", "colspan", "multiple-tables", "border-collapse-separate", "rounded-container", "tabular-nums", "media-query-hide-columns"],
+  "viewport": 800
+}

@@ -201,3 +201,120 @@ color: red
 text-align-last: end
 text-indent: 3px
 hyphens: auto
+
+=== letter-spacing and word-spacing are lengths or ems; normal is zero
+font-size: 20px; letter-spacing: 0.1em; word-spacing: normal
+---
+letter-spacing: 2
+word-spacing: 0
+
+=== tab-size takes a number of spaces or a length
+tab-size: 4
+---
+tab-size: 4
+
+=== tab-size as a length
+tab-size: 2em
+---
+tab-size: 32px
+
+=== word-break, overflow-wrap and text-transform keywords
+word-break: break-all; overflow-wrap: anywhere; text-transform: full-width
+---
+word-break: break-all
+overflow-wrap: anywhere
+text-transform: full-width
+
+=== word-wrap is a legacy name for overflow-wrap
+word-wrap: break-word
+---
+overflow-wrap: break-word
+
+=== text properties inherit
+%parent letter-spacing: 3px; word-spacing: 1px; tab-size: 2; word-break: keep-all; overflow-wrap: break-word; text-transform: uppercase
+color: red
+---
+letter-spacing: 3
+word-spacing: 1
+tab-size: 2
+word-break: keep-all
+overflow-wrap: break-word
+text-transform: uppercase
+
+=== font-variant-numeric keeps one keyword from each group
+font-variant-numeric: tabular-nums slashed-zero; font-variant-numeric: tabular-nums proportional-nums
+---
+font-variant-numeric: tabular-nums slashed-zero
+
+=== font-feature-settings normalises values
+font-feature-settings: "liga" off, "tnum", "ss01" 2; font-feature-settings: "toolong" 1
+---
+font-feature-settings: "liga" 0, "tnum" 1, "ss01" 2
+
+=== quotes as pairs of strings, or none
+quotes: "<" ">" "[" "]"
+---
+quotes: "<" ">" "[" "]"
+
+=== quotes need whole pairs
+quotes: none; quotes: "<"
+---
+quotes: none
+=== outline-offset and outline widths
+outline-width: thin; outline-offset: -2px
+---
+outline-width: 1
+outline-offset: -2
+
+=== aspect-ratio as a ratio or a number
+aspect-ratio: 16 / 9
+---
+aspect-ratio: 1.778
+
+=== aspect-ratio with auto keeps the ratio
+aspect-ratio: auto 2
+---
+aspect-ratio: 2
+
+=== aspect-ratio auto and degenerate ratios
+aspect-ratio: 0 / 1
+---
+aspect-ratio: auto
+
+=== text-overflow and line-clamp
+text-overflow: ellipsis; line-clamp: 2
+---
+text-overflow: ellipsis
+line-clamp: 2
+
+=== text-overflow strings draw as the ellipsis; line-clamp must be positive
+text-overflow: "--"; line-clamp: 0
+---
+text-overflow: ellipsis
+line-clamp: auto
+
+=== cursor keeps its keyword after image fallbacks
+cursor: url(hand.cur) 2 3, url(hand.png), pointer
+---
+cursor: pointer
+
+=== cursor needs a keyword at the end
+cursor: help; cursor: url(hand.cur)
+---
+cursor: help
+
+=== accent-color, scrollbar-gutter, scrollbar-width and scrollbar-color
+accent-color: red; scrollbar-gutter: both-edges stable; scrollbar-width: thin; scrollbar-color: red blue
+---
+accent-color: rgb(255, 0, 0)
+scrollbar-gutter: stable both-edges
+scrollbar-width: thin
+scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)
+
+=== cursor, accent-color and scrollbar-color inherit
+%parent cursor: pointer; accent-color: blue; scrollbar-color: red blue
+color: red
+---
+cursor: pointer
+accent-color: rgb(0, 0, 255)
+scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)

@@ -59,3 +59,45 @@
 <!DOCTYPE html><style>:root { --c: blue }</style><p id=a style="color: var(--c)">x</p>
 ---
 #a color: rgb(0, 0, 255)
+
+=== registered lengths compute to px on the element that declares them
+<!DOCTYPE html><style>@property --len { syntax: '<length>'; inherits: true; initial-value: 0px } div { font-size: 10px; --len: 2em } p { font-size: 20px; margin-top: var(--len) }</style><div id=d><p id=a>x</p></div>
+---
+#d --len: 20px
+#a --len: 20px
+#a margin-top: 20px
+
+=== unregistered lengths are substituted as written
+<!DOCTYPE html><style>div { font-size: 10px; --len: 2em } p { font-size: 20px; margin-top: var(--len) }</style><div><p id=a>x</p></div>
+---
+#a margin-top: 40px
+
+=== a registered property has its initial value where nothing sets it
+<!DOCTYPE html><style>@property --gap { syntax: '<length>'; inherits: true; initial-value: 1in } p { margin-top: var(--gap) }</style><p id=a>x</p>
+---
+#a --gap: 96px
+#a margin-top: 96px
+
+=== a value that does not match the syntax is inherited or initial
+<!DOCTYPE html><style>@property --in { syntax: '<length>'; inherits: true; initial-value: 1px } @property --own { syntax: '<color>'; inherits: false; initial-value: red } div { --in: 5px } p { --in: blue; --own: 10px }</style><div><p id=a>x</p></div>
+---
+#a --in: 5px
+#a --own: rgb(255, 0, 0)
+
+=== invalid registrations register nothing
+<!DOCTYPE html><style>@property --a { syntax: '<length>'; inherits: true } @property --b { syntax: '<length>'; inherits: true; initial-value: 1em } @property --c { syntax: '<size>'; inherits: true; initial-value: 1px } @property --d { syntax: '<length>'; initial-value: 1px } p { --a: 2em; --b: 2em; --c: 2em; --d: 2em }</style><p id=a>x</p>
+---
+#a --a: 2em
+#a --b: 2em
+#a --c: 2em
+#a --d: 2em
+
+=== registered syntaxes: alternatives, lists, keywords and other types
+<!DOCTYPE html><style>@property --x { syntax: '<length> | auto'; inherits: false; initial-value: auto } @property --list { syntax: '<number>+'; inherits: false; initial-value: 0 } @property --commas { syntax: '<color>#'; inherits: false; initial-value: red } @property --t { syntax: '<time>'; inherits: false; initial-value: 0s } @property --turn { syntax: '<angle>'; inherits: false; initial-value: 0deg } @property --any { syntax: '*'; inherits: false } p { font-size: 10px; --x: 3em; --list: 1 2.5 3; --commas: blue, rgb(0 128 0); --t: 250ms; --turn: 0.5turn; --any: foo( bar ) }</style><p id=a>x</p>
+---
+#a --x: 30px
+#a --list: 1 2.5 3
+#a --commas: rgb(0, 0, 255), rgb(0, 128, 0)
+#a --t: 0.25s
+#a --turn: 180deg
+#a --any: foo( bar )

@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a final league table for a 12-team football league with played, won, drawn, lost, goals for/against, goal difference, points and last-5 form, and colour the promotion and relegation zones.",
+  "features": ["caption", "zebra-striping", "row-hover", "status-badges", "tabular-nums", "border-collapse-collapse", "rounded-container", "box-shadow", "media-query-hide-columns", "zone-markers"],
+  "viewport": 800
+}

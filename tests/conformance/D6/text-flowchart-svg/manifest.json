@@ -1,0 +1,5 @@
+{
+  "prompt": "I want to write flowcharts as plain text inside a <pre class=\"diagram\"> block, like \"Start -> Validate -> Save\", with optional edge labels after a colon. Write a script that parses those blocks and draws the boxes and arrows as SVG under each one.",
+  "features": ["script", "svg", "create-element-ns", "svg-marker", "svg-path", "text-parsing", "graph-layout", "pre", "error-handling"],
+  "viewport": 800
+}

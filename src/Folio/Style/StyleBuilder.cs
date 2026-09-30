@@ -27,7 +27,12 @@ internal sealed class StyleBuilder
         Generated = initial.Generated;
         Flex = initial.Flex;
         Grid = initial.Grid;
+        TextSpacing = parent.TextSpacing;
+        Quotes = parent.Quotes;
+        Outline = initial.Outline;
+        Ui = parent.Ui;
         Decoration = initial.Decoration;
+        Transform = initial.Transform;
     }
 
     public FontGroup Font { get; set; }
@@ -41,7 +46,12 @@ internal sealed class StyleBuilder
     public GeneratedGroup Generated { get; set; }
     public FlexGroup Flex { get; set; }
     public GridGroup Grid { get; set; }
+    public SpacingTextGroup TextSpacing { get; set; }
+    public QuotesGroup Quotes { get; set; }
+    public OutlineGroup Outline { get; set; }
+    public UiGroup Ui { get; set; }
     public DecorationGroup Decoration { get; set; }
+    public TransformGroup Transform { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -60,13 +70,23 @@ internal sealed class StyleBuilder
         if (cascaded.TryGetValue(PropertyId.FontSize, out var fontSize))
             builder.Apply(Properties.Get(PropertyId.FontSize), fontSize, context);
         context.FontSize = builder.Font.Size;
+        // The rest of the font too, so ex and ch in other properties measure the element's own first available font.
+        foreach (var id in (ReadOnlySpan<PropertyId>)[PropertyId.FontFamily, PropertyId.FontWeight, PropertyId.FontStyle, PropertyId.FontStretch])
+        {
+            if (cascaded.TryGetValue(id, out var value))
+                builder.Apply(Properties.Get(id), value, context);
+        }
+        context.Font = builder.Font;
         if (cascaded.TryGetValue(PropertyId.Color, out var color))
             builder.Apply(Properties.Get(PropertyId.Color), color, context);
         context.CurrentColor = builder.Inherited.Color;
+        if (context.Registered is { Count: > 0 } registered)
+            context.Custom = builder._custom = CustomProperties.ApplySyntax(context.Custom, context.Parent.Custom, registered, context);
 
         foreach (var (id, value) in cascaded)
         {
-            if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme))
+            if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme or PropertyId.FontFamily or PropertyId.FontWeight
+                    or PropertyId.FontStyle or PropertyId.FontStretch))
                 builder.Apply(Properties.Get(id), value, context);
         }
         builder.PropagateDecorations();
@@ -119,7 +139,12 @@ internal sealed class StyleBuilder
             Generated = Share(Generated, initial.Generated, groups),
             Flex = Share(Flex, initial.Flex, groups),
             Grid = Share(Grid, initial.Grid, groups),
+            TextSpacing = Share(TextSpacing, _parent.TextSpacing, groups),
+            Quotes = Share(Quotes, _parent.Quotes, groups),
+            Outline = Share(Outline, initial.Outline, groups),
+            Ui = Share(Ui, _parent.Ui, groups),
             Decoration = Share(Decoration, initial.Decoration, groups),
+            Transform = Share(Transform, initial.Transform, groups),
             Custom = _custom,
         };
     }

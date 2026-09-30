@@ -1,0 +1,5 @@
+{
+  "prompt": "Draw a bar chart of a bakery's daily loaf sales on a canvas that grows in with an easing animation using requestAnimationFrame. Add buttons to switch between bread types (bars animate to the new values), a dashed goal line, and handle high-DPI screens.",
+  "features": ["script", "canvas-2d", "request-animation-frame", "canvas-gradient", "canvas-text", "canvas-shadow", "line-dash", "device-pixel-ratio", "get-bounding-client-rect", "flex"],
+  "viewport": 800
+}
