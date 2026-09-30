@@ -70,6 +70,12 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
     public RuleIndex<CascadeRule> Rules { get; } = new();
     public Dictionary<string, RegisteredProperty> Registered { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>The <c>@font-face</c> rules that apply, in order of appearance.</summary>
+    public List<FontFaceRule> FontFaces { get; } = [];
+
+    // The URL relative references in the sheet being added resolve against.
+    private string? _sheetBase;
+
     /// <summary>Order-of-appearance counter shared by all origins and the style attribute.</summary>
     public int NextOrder() => _order++;
 
@@ -92,6 +98,7 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             }
             if (rule is not (AtRule { Name: "charset" } or AtRule { Name: "layer", HasBlock: false }))
                 importsAllowed = false;
+            _sheetBase = baseUrl;
             AddRules(source, [rule], null, layer, layerNode);
         }
     }
@@ -203,8 +210,12 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             case "property" when parent is null && at.HasBlock:
                 Register(source, at);
                 break;
-            // @import is handled at a sheet's top level (AddSheet); @font-face, @keyframes and @page arrive with web
-            // fonts, animations and printing.
+            case "font-face" when parent is null && at.HasBlock:
+                if (FontFaceRule.Parse(source, at, _sheetBase) is { } fontFace)
+                    FontFaces.Add(fontFace);
+                break;
+            // @import is handled at a sheet's top level (AddSheet); @keyframes and @page arrive with animations and
+            // printing.
         }
     }
 

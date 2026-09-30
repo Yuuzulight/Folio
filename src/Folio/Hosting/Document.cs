@@ -220,10 +220,16 @@ public sealed class Document : IDisposable
     internal (DisplayList List, float Height) Paint(float viewportWidth, float viewportHeight, float deviceScale = 1, ITextShaper? shaper = null)
     {
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark);
-        StyleResolver.Resolve(Node, media, Options.UserStyleSheet, new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri));
+        var sources = new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+        var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources);
         if (BoxTreeBuilder.Build(Node) is not { } root)
             return (new DisplayList(), 0);
-        _fonts ??= FontCollection.For(Options.Fonts);
+        if (_fonts is null)
+        {
+            // Web fonts load once, synchronously, before the first layout, so font-display never has a swap to do.
+            _fonts = FontCollection.For(Options.Fonts);
+            WebFonts.Load(fontFaces, _fonts, sources.Loader);
+        }
         var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
