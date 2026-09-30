@@ -20,7 +20,7 @@ public enum ArtifactKind
 
 /// <summary>Where a host should show an artifact, and why.</summary>
 /// <param name="Reasons">
-/// Short notes a host can show, such as "uses inline SVG" or "uses CSS gradients": what routes the artifact out
+/// Short notes a host can show, such as "uses SVG <mask>" or "uses MathML": what routes the artifact out
 /// first, then what needs scripting. Empty for <see cref="ArtifactKind.Static"/>. Written for people, not for parsing.
 /// </param>
 public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<string> Reasons);
@@ -36,8 +36,11 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>a resource the options' loader would refuse: stylesheets, images, scripts, <c>@import</c> and CSS
 ///   <c>url()</c>s other than <c>data:</c> URLs (the only loads the default options allow);</item>
 /// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
-/// <item>elements Folio draws only as empty boxes: inline SVG, MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>,
-///   <c>iframe</c>, <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
+/// <item>elements Folio draws only as empty boxes: MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>, <c>iframe</c>,
+///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
+/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths and text: other SVG elements (gradients,
+///   clipping, masks, markers, <c>use</c>, images, filters, animation, ...), <c>url()</c> references in paints and
+///   effects, stroked text and the text attributes Folio does not lay out;</item>
 /// <item>CSS that Folio's property table does not know or cannot parse, gradients, <c>background-clip: text</c>,
 ///   selectors it cannot match, and <c>@font-face</c>, <c>@container</c>, <c>@counter-style</c>, <c>@scope</c>.
 ///   Not counted: declarations that only matter to interaction (<c>cursor</c>, <c>transition</c>, ...), rules
@@ -125,7 +128,7 @@ public static class ArtifactClassifier
             switch (element.NamespaceUri)
             {
                 case Namespaces.SvgUri:
-                    Unsupported.Add("uses inline SVG");
+                    Svg(element);
                     break;
                 case Namespaces.MathMLUri:
                     Unsupported.Add("uses MathML");
@@ -153,6 +156,8 @@ public static class ArtifactClassifier
             {
                 if (element.LocalName == "script")
                     Scripts.Add("runs scripts: a script element in SVG");
+                else if (element.LocalName == "style" && element.NamespaceUri == Namespaces.SvgUri)
+                    StyleSheet(element.TextContent);
                 return;
             }
 
@@ -179,6 +184,49 @@ public static class ArtifactClassifier
                     foreach (var candidate in (element.GetAttribute("srcset") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         Image(candidate.Split(' ', 2)[0]);
                     break;
+            }
+        }
+
+        // What SVG stage 1 draws (docs/study/13-svg.md); defs, title, desc and metadata draw nothing themselves, and
+        // style and script are checked like HTML's.
+        private static readonly HashSet<string> SvgElements =
+        [
+            "svg", "g", "a", "defs", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "tspan", "title",
+            "desc", "metadata", "style", "script",
+        ];
+
+        // Presentation attributes that take a url() reference to something Folio does not draw yet.
+        private static readonly string[] SvgReferences = ["fill", "stroke", "clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end"];
+
+        private void Svg(Element element)
+        {
+            var name = element.LocalName;
+            if (!SvgElements.Contains(name))
+                Unsupported.Add($"uses SVG <{name}>");
+            foreach (var attribute in SvgReferences)
+            {
+                if (element.GetAttribute(attribute)?.Contains("url(", StringComparison.OrdinalIgnoreCase) == true)
+                    Unsupported.Add($"uses an SVG {attribute} reference");
+            }
+            if (element.GetAttribute("vector-effect") is { } effect && effect.Trim() != "none")
+                Unsupported.Add("uses vector-effect");
+            if (name is not ("text" or "tspan"))
+                return;
+            foreach (var attribute in (ReadOnlySpan<string>)["rotate", "textLength", "lengthAdjust"])
+            {
+                if (element.GetAttribute(attribute) is not null)
+                    Unsupported.Add($"uses the SVG text attribute {attribute}");
+            }
+            // The stroke is inherited, so an ancestor's counts too.
+            // ponytail: strokes set on text by CSS rules are not seen.
+            for (var e = element; e is not null && e.NamespaceUri == Namespaces.SvgUri; e = e.Parent)
+            {
+                if (e.GetAttribute("stroke") is { } stroke)
+                {
+                    if (stroke.Trim() != "none")
+                        Unsupported.Add("uses stroked SVG text");
+                    break;
+                }
             }
         }
 
@@ -308,6 +356,10 @@ public static class ArtifactClassifier
                 else if (!Properties.ContainsVar(declaration.Value) && Properties.Parse(source, declaration) is null)
                 {
                     Unsupported.Add($"uses a CSS value Folio does not support: {declaration.Name}: {Shorten(text)}");
+                }
+                else if (declaration.Name is "fill" or "stroke" && Text(source, declaration.Value).Contains("url(", StringComparison.OrdinalIgnoreCase))
+                {
+                    Unsupported.Add($"uses an SVG {declaration.Name} reference");
                 }
                 else if (declaration.Name is "background" or "background-clip"
                          && declaration.Value.Any(v => v is PreservedToken { Token: { Kind: CssTokenKind.Ident, Value: var ident } } && ident.Equals("text", StringComparison.OrdinalIgnoreCase)))

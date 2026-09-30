@@ -18,7 +18,7 @@ internal static class PresentationalHints
     public static List<CascadeDeclaration>? For(ElementNode element)
     {
         if (element.Name.Namespace == Namespaces.Svg)
-            return element.Attributes.IsEmpty ? null : SvgPresentationAttributes(element);
+            return element.Attributes.IsEmpty && element.Parent is not DocumentNode ? null : SvgPresentationAttributes(element);
         // Cells also take hints from their table's attributes; every other element only from its own.
         if (element.Name.Namespace != Namespaces.Html || element.Attributes.IsEmpty && element.LocalName is not ("td" or "th"))
             return null;
@@ -135,6 +135,18 @@ internal static class PresentationalHints
                 value += "px";
             var (source, block) = CssParser.ParseBlockContents($"{name}:{value}");
             (hints ??= []).AddRange(CascadeData.Parse(source, block.Declarations));
+        }
+        // The root of a standalone SVG document fills the viewport unless it says otherwise.
+        if (element.LocalName == "svg" && element.Parent is DocumentNode)
+        {
+            foreach (var side in (ReadOnlySpan<string>)["width", "height"])
+            {
+                if (element.GetAttribute(side) is null)
+                {
+                    var (source, block) = CssParser.ParseBlockContents($"{side}:100%");
+                    (hints ??= []).AddRange(CascadeData.Parse(source, block.Declarations));
+                }
+            }
         }
         return hints is { Count: > 0 } ? hints : null;
     }

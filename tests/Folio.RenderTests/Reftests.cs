@@ -38,6 +38,7 @@ public class Reftests
     [InlineData("svg/sizing-001")]
     [InlineData("svg/opacity-001")]
     [InlineData("svg/currentcolor-001")]
+    [InlineData("svg/standalone-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

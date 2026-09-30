@@ -9,7 +9,10 @@ using Folio.Typography;
 
 namespace Folio;
 
-/// <summary>A parsed HTML document (docs/architecture.md, public API sketch).</summary>
+/// <summary>
+/// A parsed HTML document, or a standalone SVG document when the text is one (an <c>svg</c> root element declared
+/// as XML or in the SVG namespace), parsed as XML (docs/architecture.md, public API sketch).
+/// </summary>
 public sealed class Document : IDisposable
 {
     private readonly List<Diagnostic> _diagnostics;
@@ -30,18 +33,25 @@ public sealed class Document : IDisposable
     /// <summary>All allowed loads finished or failed. Nothing is loaded yet, so it is always complete.</summary>
     public Task ResourcesSettled => Task.CompletedTask;
 
-    /// <summary>https://html.spec.whatwg.org/multipage/dom.html#document.title: the first title element's text,
-    /// ASCII whitespace stripped and collapsed.</summary>
+    /// <summary>https://html.spec.whatwg.org/multipage/dom.html#document.title: the first title element's text (for an
+    /// SVG document, the root's first title child), ASCII whitespace stripped and collapsed.</summary>
     public string Title
     {
         get
         {
+            if (Node.DocumentElement is { LocalName: "svg" } svg && svg.Name.Namespace == Namespaces.Svg)
+            {
+                var first = svg.Children.OfType<ElementNode>().FirstOrDefault(e => e.LocalName == "title" && e.Name.Namespace == Namespaces.Svg);
+                return Collapse(first?.TextContent);
+            }
             for (Node? node = Node; node is not null; node = node.NextInTree(Node))
             {
                 if (node is ElementNode { LocalName: "title" } title && title.Name.Namespace == Namespaces.Html)
-                    return string.Join(' ', (title.TextContent ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
+                    return Collapse(title.TextContent);
             }
             return "";
+
+            static string Collapse(string? text) => string.Join(' ', (text ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
         }
     }
 
@@ -91,7 +101,12 @@ public sealed class Document : IDisposable
 
         var lines = new LineMap(html);
         var limits = new ParserLimits(options.Limits.MaxNestingDepth, options.Limits.MaxNodes);
-        var node = TreeBuilder.Parse(html, limits, (code, offset) =>
+        // A standalone SVG file goes through the XML parser; everything else is HTML.
+        var svg = Xml.XmlParser.IsSvgDocument(html);
+        var node = svg ? Xml.XmlParser.Parse(html, limits, Report) : TreeBuilder.Parse(html, limits, Report);
+        return new Document(node, options, diagnostics);
+
+        void Report(string code, int offset)
         {
             switch (code)
             {
@@ -103,11 +118,14 @@ public sealed class Document : IDisposable
                     break;
                 default:
                     if (options.CollectDiagnostics)
-                        diagnostics.Add(new Diagnostic(DiagnosticCode.ParseError, Severity.Info, $"HTML parse error: {code}", lines.At(offset), "html-parsing"));
+                    {
+                        diagnostics.Add(svg
+                            ? new Diagnostic(DiagnosticCode.ParseError, Severity.Info, $"XML parse error: {code}", lines.At(offset), "xml-parsing")
+                            : new Diagnostic(DiagnosticCode.ParseError, Severity.Info, $"HTML parse error: {code}", lines.At(offset), "html-parsing"));
+                    }
                     break;
             }
-        });
-        return new Document(node, options, diagnostics);
+        }
     }
 
     private static Diagnostic Limit(string message, SourceLocation? at = null) =>

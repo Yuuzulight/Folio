@@ -51,7 +51,15 @@ public class ArtifactClassifierTests
     [InlineData("<style>@import url(\"https://fonts.example.com/css\");</style>", "loads a stylesheet these options do not allow")]
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
     [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
-    [InlineData("<svg width=10 height=10><circle r=5 /></svg>", "uses inline SVG")]
+    [InlineData("<svg><defs><linearGradient id=g /></defs><rect fill=\"url(#g)\" /></svg>", "uses SVG <linearGradient>")]
+    [InlineData("<svg><defs><linearGradient id=g /></defs><rect fill=\"url(#g)\" /></svg>", "uses an SVG fill reference")]
+    [InlineData("<svg><style>rect { stroke: url(#g) }</style><rect /></svg>", "uses an SVG stroke reference")]
+    [InlineData("<svg><use href=\"#a\" /></svg>", "uses SVG <use>")]
+    [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
+    [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
+    [InlineData("<svg><text rotate=\"10\">a</text></svg>", "uses the SVG text attribute rotate")]
+    [InlineData("<svg><g stroke=\"red\"><text>a</text></g></svg>", "uses stroked SVG text")]
+    [InlineData("<svg><path vector-effect=\"non-scaling-stroke\" /></svg>", "uses vector-effect")]
     [InlineData("<canvas></canvas>", "uses <canvas>")]
     [InlineData("<iframe srcdoc=x></iframe>", "uses <iframe>")]
     [InlineData("<div popover>menu</div>", "uses popovers")]
@@ -72,6 +80,30 @@ public class ArtifactClassifierTests
 
         Assert.Equal(ArtifactKind.NeedsBrowser, kind);
         Assert.Contains(reasons, r => r.Contains(reason, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("<p>Icon <svg width=16 height=16 viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=2><title>t</title>"
+        + "<path d=\"M3 12h18\" /><circle cx=12 cy=12 r=9 /></svg></p>")]
+    [InlineData("<svg viewBox=\"0 0 100 50\"><defs><style>.bar { fill: #6366f1 }</style></defs><g><rect class=bar width=10 height=40 />"
+        + "<text x=5 y=48 text-anchor=middle dominant-baseline=hanging font-size=8>Q1</text></g></svg>")]
+    [InlineData("<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" /></svg>")]
+    public void SvgShapesPathsAndTextAreStatic(string artifact)
+    {
+        var (kind, reasons) = ArtifactClassifier.Classify(artifact);
+
+        Assert.Empty(reasons);
+        Assert.Equal(ArtifactKind.Static, kind);
+    }
+
+    [Fact]
+    public void AStandaloneSvgWithAScriptIsScripted()
+    {
+        var (kind, reasons) = ArtifactClassifier.Classify(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script><rect width=\"5\" height=\"5\" /></svg>");
+
+        Assert.Equal(ArtifactKind.Scripted, kind);
+        Assert.Equal(["runs scripts: a script element in SVG"], reasons);
     }
 
     [Fact]

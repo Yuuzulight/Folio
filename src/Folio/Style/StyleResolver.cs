@@ -236,13 +236,15 @@ internal static class StyleResolver
     }
 
     // style elements and link rel=stylesheet elements in tree order whose type is CSS
-    // (https://html.spec.whatwg.org/multipage/semantics.html#the-style-element, #the-link-element). Alternate
-    // stylesheets and disabled links are not applied.
+    // (https://html.spec.whatwg.org/multipage/semantics.html#the-style-element, #the-link-element), and SVG style
+    // elements (https://www.w3.org/TR/SVG2/styling.html#StyleElement). Alternate stylesheets and disabled links are
+    // not applied.
     private static IEnumerable<ElementNode> StyleSheetElements(DocumentNode document)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {
-            if (node is not ElementNode element || element.Name.Namespace != Namespaces.Html
+            if (node is not ElementNode element
+                || element.Name.Namespace != Namespaces.Html && !(element.Name.Namespace == Namespaces.Svg && element.LocalName == "style")
                 || element.GetAttribute("type") is { Length: > 0 } type && !type.Equals("text/css", StringComparison.OrdinalIgnoreCase))
                 continue;
             if (element.LocalName == "style")
