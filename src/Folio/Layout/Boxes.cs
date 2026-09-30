@@ -136,6 +136,9 @@ internal sealed class TablePartBox(ComputedStyle style, Node? node, TablePart pa
 internal sealed class MarkerBox(ComputedStyle style, Node node, string text) : Box(style, node, PseudoElement.Marker)
 {
     public string Text { get; } = text;
+
+    /// <summary>The list-style-image the marker shows before its text, when it loaded.</summary>
+    public ReplacedBox? Image { get; init; }
 }
 
 internal enum InlineItemKind

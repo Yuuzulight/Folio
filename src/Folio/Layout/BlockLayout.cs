@@ -320,22 +320,32 @@ internal static class BlockLayout
     /// <summary>
     /// Places an outside list marker (https://www.w3.org/TR/css-lists-3/#list-style-position-property): its text ends
     /// where the first line box starts (or begins where it ends, right to left), on that line's baseline. The first
-    /// line may be in a descendant block; with no line at all, the marker sits at the top of the content box.
+    /// line may be in a descendant block; with no line at all, the marker sits at the top of the content box. An image
+    /// marker comes before its text, its bottom edge on the baseline like an inline image's.
     /// </summary>
     private static void PlaceMarker(MarkerBox marker, List<ChildFragment> children, float contentX, float contentY, float contentWidth, LayoutContext context)
     {
         var (runs, ascent) = InlineLayout.MarkerText(marker, context);
-        if (runs.Count == 0)
+        var image = marker.Image is { } imageBox ? Layout(imageBox, new ConstraintSpace(contentWidth, null), context) : null;
+        if (runs.Count == 0 && image is null)
             return;
-        var markerWidth = runs.Sum(r => r.Width);
-        var (lineX, lineY, lineWidth, baseline) = FirstLine(children, 0, 0) ?? (contentX, contentY, contentWidth, ascent);
+        var markerWidth = runs.Sum(r => r.Width) + (image?.Width ?? 0);
+        var (lineX, lineY, lineWidth, baseline) = FirstLine(children, 0, 0) ?? (contentX, contentY, contentWidth, Math.Max(ascent, image?.Height ?? 0));
         var rtl = marker.Style.Text.Direction == Style.Direction.Rtl;
         var x = rtl ? lineX + lineWidth : lineX - markerWidth;
+        // The image is on the far side of the text from the line: first left to right, last right to left.
+        if (image is not null && !rtl)
+        {
+            children.Add(new ChildFragment(x, lineY + baseline - image.Height, image));
+            x += image.Width;
+        }
         foreach (var run in runs)
         {
             children.Add(new ChildFragment(x, lineY + baseline - run.Text!.Ascent, run));
             x += run.Width;
         }
+        if (image is not null && rtl)
+            children.Add(new ChildFragment(x, lineY + baseline - image.Height, image));
 
         // The first line box in flow order, through in-flow block children, as its box-relative position and baseline.
         static (float X, float Y, float Width, float Baseline)? FirstLine(IReadOnlyList<ChildFragment> fragments, float dx, float dy)

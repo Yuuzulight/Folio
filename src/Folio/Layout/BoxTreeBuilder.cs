@@ -364,11 +364,17 @@ internal sealed class BoxTreeBuilder
     }
 
     // https://www.w3.org/TR/css-lists-3/#marker-pseudo: outside markers are boxes of their own, inside ones inline text.
+    // A list-style-image that loads is the marker instead of the list-style-type text, followed by a space like the
+    // symbolic markers (https://www.w3.org/TR/css-lists-3/#image-markers).
+    // ponytail: gradient list-style-images fall back to the list-style-type marker.
     private void AddMarker(ElementNode element)
     {
         var style = element.PseudoStyle(PseudoElement.Marker) ?? element.ComputedStyle()!;
-        var text = style.Generated.Content.Kind == ContentKind.Items
-            ? ContentText(element, style)
+        var image = style.Generated.Content.Kind != ContentKind.Items && style.Text.ListStyleImage is UrlImage url
+            ? _images?.Load(url.Url, "list-style-image") : null;
+        var imageBox = image is null ? null : new ReplacedBox(style, element, ReplacedKind.Image) { IsAtomicInline = true, Image = image };
+        var text = imageBox is not null ? " "
+            : style.Generated.Content.Kind == ContentKind.Items ? ContentText(element, style)
             : CounterStyles.Marker(_counters.Value("list-item", element), style.Text.ListStyleType);
         if (text.Length == 0)
             return;
@@ -379,12 +385,16 @@ internal sealed class BoxTreeBuilder
             var marker = new InlineBox(style, element, PseudoElement.Marker);
             var run = RunOf(container);
             run.Open(marker);
+            if (imageBox is not null)
+                run.AddAtomic(imageBox);
             run.AddText(text, style, preserve: true);
             run.Close(marker);
         }
         else if (container.Box is BlockContainerBox block)
         {
-            block.Marker = new MarkerBox(style, element, text) { Parent = block };
+            block.Marker = new MarkerBox(style, element, text) { Parent = block, Image = imageBox };
+            if (imageBox is not null)
+                imageBox.Parent = block.Marker;
         }
     }
 

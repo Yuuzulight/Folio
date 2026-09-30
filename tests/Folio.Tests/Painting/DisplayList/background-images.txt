@@ -1,0 +1,164 @@
+=== a url() image keeps its natural size, placed at the top left of the padding box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 6px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat"></div>
+---
+clip 0,0 10x6
+image 0,0 4x2 4x2 smooth
+pop
+
+=== repeated tiles cover the clip box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 4px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC)"></div>
+---
+clip 0,0 10x4
+image 0,0 4x2 4x2 smooth
+image 4,0 4x2 4x2 smooth
+image 8,0 4x2 4x2 smooth
+image 0,2 4x2 4x2 smooth
+image 4,2 4x2 4x2 smooth
+image 8,2 4x2 4x2 smooth
+pop
+
+=== background-size keeps the natural ratio for an auto side, and contains or covers
+<!DOCTYPE html><style>body { margin: 0 } div { width: 10px; height: 10px }</style><div style="background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat 0 0 / 8px"></div><div style="background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat center / contain"></div><div style="background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat center / cover"></div><div style="background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat 0 0 / auto 4px"></div>
+---
+clip 0,0 10x10
+image 0,0 8x4 4x2 smooth
+pop
+clip 0,10 10x10
+image 0,12.5 10x5 4x2 smooth
+pop
+clip 0,20 10x10
+image -5,20 20x10 4x2 smooth
+pop
+clip 0,30 10x10
+image 0,30 8x4 4x2 smooth
+pop
+
+=== background-position places the tile in the area left over
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 6px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat right bottom"></div>
+---
+clip 0,0 10x6
+image 6,4 4x2 4x2 smooth
+pop
+
+=== round fits whole tiles and scales an auto height with the width
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 6px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) round no-repeat"></div>
+---
+clip 0,0 10x6
+image 0,0 3.33x1.67 4x2 smooth
+image 3.33,0 3.33x1.67 4x2 smooth
+image 6.67,0 3.33x1.67 4x2 smooth
+pop
+
+=== round in both directions rounds each on its own, keeping no ratio
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 2px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) round"></div>
+---
+clip 0,0 10x2
+image 0,0 3.33x2 4x2 smooth
+image 3.33,0 3.33x2 4x2 smooth
+image 6.67,0 3.33x2 4x2 smooth
+pop
+
+=== space spreads whole tiles to the edges and ignores the position
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 6px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) space no-repeat 50% 0"></div>
+---
+clip 0,0 10x6
+image 0,0 4x2 4x2 smooth
+image 6,0 4x2 4x2 smooth
+pop
+
+=== space with room for one tile places it by the position
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 6px; height: 6px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) space no-repeat 100% 0"></div>
+---
+clip 0,0 6x6
+image 2,0 4x2 4x2 smooth
+pop
+
+=== background-origin places and background-clip clips
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 4px; height: 2px; padding: 2px; border: 1px solid rgb(1, 0, 0); background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat content-box padding-box"></div>
+---
+clip 1,1 8x6
+image 3,3 4x2 4x2 smooth
+pop
+border 0,0 10x8 1 solid rgb(1, 0, 0)
+
+=== image-rendering applies to background images
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 4px; height: 2px; image-rendering: pixelated; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC)"></div>
+---
+clip 0,0 4x2
+image 0,0 4x2 4x2 pixelated
+pop
+
+=== url() layers and gradients mix, the last written lowest
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 4px; height: 2px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat, linear-gradient(red, blue)"></div>
+---
+clip 0,0 4x2
+fill 0,0 4x2 linear gradient, 2 stops
+pop
+clip 0,0 4x2
+image 0,0 4x2 4x2 smooth
+pop
+
+=== an image that does not load paints nothing
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 2px; background: url(data:text/plain,x) rgb(1, 0, 0)"></div><div style="height: 2px; background-image: url(missing.png)"></div>
+---
+fill 0,0 800x2 rgb(1, 0, 0)
+
+=== the root's images paint over the whole canvas, placed for the root
+<!DOCTYPE html><html style="background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat 3px 4px"><body style="margin: 0; height: 10px">
+---
+clip 0,0 800x600
+image 3,4 4x2 4x2 smooth
+pop
+
+=== the body's images move to the canvas when the root has no background, still placed for the root
+<!DOCTYPE html><body style="margin: 5px; height: 10px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat">
+---
+clip 0,0 800x600
+image 0,0 4x2 4x2 smooth
+pop
+
+=== the body's images stay on the body when the root has an image
+<!DOCTYPE html><html style="background: url(data:text/plain,x)"><body style="margin: 5px; height: 10px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) no-repeat">
+---
+clip 5,5 790x10
+image 5,5 4x2 4x2 smooth
+pop
+
+=== a list-style-image is the outside marker, with a space after it, its bottom on the baseline
+<!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-left: 30px; list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>
+---
+glyphs 30,12.8 16px rgb(0, 0, 0)
+image 10,10.8 4x2 4x2 smooth
+glyphs 14,12.8 16px rgb(0, 0, 0)
+
+=== a list-style-image as an inside marker
+<!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding: 0; list-style: inside url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>
+---
+image 0,10.8 4x2 4x2 smooth
+glyphs 4,12.8 16px rgb(0, 0, 0)
+glyphs 20,12.8 16px rgb(0, 0, 0)
+
+=== a list-style-image that does not load leaves the list-style-type marker
+<!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-left: 30px; list-style-image: url(data:text/plain,x) }</style><ul><li>a</li></ul>
+---
+glyphs 30,12.8 16px rgb(0, 0, 0)
+glyphs -2,12.8 14,12.8 16px rgb(0, 0, 0)
+
+=== right to left, the image marker is on the far side of its space
+<!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-right: 30px; direction: rtl; list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>
+---
+glyphs 754,12.8 16px rgb(0, 0, 0)
+glyphs 770,12.8 16px rgb(0, 0, 0)
+image 786,10.8 4x2 4x2 smooth
+
+=== a blended url() layer is a layer blending with the colour, in the background's isolated group
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 4px; height: 2px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) rgb(1, 0, 0); background-blend-mode: multiply"></div>
+---
+layer
+fill 0,0 4x2 rgb(1, 0, 0)
+clip 0,0 4x2
+blend multiply
+image 0,0 4x2 4x2 smooth
+pop
+pop
+pop

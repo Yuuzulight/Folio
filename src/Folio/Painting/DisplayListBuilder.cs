@@ -11,8 +11,8 @@ namespace Folio.Painting;
 /// (docs/study/10-layout-positioning-overflow-stacking.md, option A), then its paint order per CSS 2.2 Appendix E.
 /// Every painted box carries the clip chain of its containing blocks' overflow clips.
 /// </summary>
-// ponytail: M1 paints background colours and gradients, borders, text and its decorations, and images; url()
-// background images come with their own work.
+// ponytail: M1 paints background colours, gradients and url() images, borders, text and its decorations, and images;
+// background-attachment: fixed paints like scroll.
 internal static class DisplayListBuilder
 {
     // A box's border box on the canvas, with the overflow clips it is painted under. LineEnd marks text that ends its line.
@@ -52,7 +52,8 @@ internal static class DisplayListBuilder
         public bool Isolated { get; set; }
     }
 
-    public static DisplayList Build(Fragment initialContainingBlock)
+    /// <param name="images">Loads url() images for backgrounds; without one, they are not painted.</param>
+    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null)
     {
         var list = new DisplayList();
         if (initialContainingBlock.Children is not [var rootPlaced, ..])
@@ -75,7 +76,10 @@ internal static class DisplayListBuilder
         if (canvasColor.A > 0)
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(canvas, default), canvasColor));
 
-        var emitter = new Emitter(list, canvasBox);
+        var emitter = new Emitter(list, canvasBox, images);
+        // Its images are placed as for the root element and painted over the whole canvas.
+        if (canvasBox is not null)
+            emitter.PaintBackgroundImages(canvasBox.Style, rootBox, BorderBox(rootBox), new RoundedRect(canvas, default));
         emitter.Emit(rootContext);
         emitter.Finish();
         return list;
@@ -229,10 +233,11 @@ internal static class DisplayListBuilder
         return new CornerRadii(tl * f, tr * f, br * f, bl * f);
     }
 
+    // The body's background moves to the canvas only when the root has none: a transparent colour and no images.
     private static (Box? Owner, CssColor Color) CanvasBackground(Box root)
     {
         var rootColor = root.Style.Background.Color.Resolve(root.Style.Inherited.Color);
-        if (rootColor.A > 0 || root.Node is not ElementNode { LocalName: "html" })
+        if (rootColor.A > 0 || root.Style.Background.Images.Any(i => i is not NoImage) || root.Node is not ElementNode { LocalName: "html" })
             return (root, rootColor);
         var body = root.Children.FirstOrDefault(b => b.Node is ElementNode { LocalName: "body" } e && e.Name.Namespace == Namespaces.Html);
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
@@ -253,7 +258,7 @@ internal static class DisplayListBuilder
         return order;
     }
 
-    private sealed class Emitter(DisplayList list, Box? canvasBox)
+    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images)
     {
         private readonly List<ClipNode> _open = [];
         private int _floor; // clips below this index belong to an enclosing opacity layer and stay open
@@ -449,7 +454,7 @@ internal static class DisplayListBuilder
             // Blended background layers blend with each other and the colour only, in an isolated group
             // (https://drafts.csswg.org/compositing-2/#background-blend-mode).
             var modes = style.Effects.BackgroundBlendModes;
-            var blended = box.Box != canvasBox && style.Background.Images.Where((image, i) => image is GradientImage && modes[i % modes.Count] != Style.BlendMode.Normal).Any();
+            var blended = box.Box != canvasBox && style.Background.Images.Where((image, i) => image is GradientImage or UrlImage && modes[i % modes.Count] != Style.BlendMode.Normal).Any();
             if (blended)
             {
                 SetClip(box.Clip);
@@ -461,7 +466,7 @@ internal static class DisplayListBuilder
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BackgroundArea(shape, style, box.Fragment), color));
             }
             if (box.Box != canvasBox)
-                PaintBackgroundImages(box, shape);
+                PaintBackgroundImages(style, box, shape);
             if (blended)
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
             if (style.Shadows.Box.Count > 0)
@@ -648,50 +653,129 @@ internal static class DisplayListBuilder
         }
 
         /// <summary>
-        /// Gradient background layers, bottom layer first (css-backgrounds-3 §3): each sized by background-size in its
-        /// background-origin box (a gradient has no size of its own, so auto, cover and contain fill the box), placed by
-        /// background-position, repeated by background-repeat, and clipped to its background-clip box.
+        /// Background image layers, bottom layer first (css-backgrounds-3 §3): url() images and gradients, each sized by
+        /// background-size in its background-origin box (auto keeps an image's natural size and ratio; a gradient has no
+        /// size of its own, so it fills the box), placed by background-position, tiled by background-repeat, and
+        /// clipped to its background-clip box. <paramref name="geometry"/> gives the boxes; <paramref name="paintingArea"/>,
+        /// when given, replaces the clip box (the canvas).
         /// </summary>
-        // ponytail: space and round repeat like repeat; url() layers are drawn once images load.
-        private void PaintBackgroundImages(PaintBox box, RoundedRect borderBox)
+        // ponytail: a layer of more than 4096 tiles paints one tile; url() images that fail to load paint nothing.
+        public void PaintBackgroundImages(ComputedStyle style, PaintBox geometry, RoundedRect borderBox, RoundedRect? paintingArea = null)
         {
-            var style = box.Box.Style;
             var background = style.Background;
+            var sampling = style.Inherited.ImageRendering is ImageRendering.Pixelated or ImageRendering.CrispEdges ? ImageSampling.Pixelated : ImageSampling.Smooth;
             for (var i = background.Images.Count - 1; i >= 0; i--)
             {
-                if (background.Images[i] is not GradientImage { Computed: { } gradient })
+                var gradient = background.Images[i] is GradientImage { Computed: { } g } ? g : null;
+                var image = background.Images[i] is UrlImage url ? images?.Load(url.Url, "background-image") : null;
+                if (gradient is null && image is null)
                     continue;
-                var origin = Area(borderBox, style, box.Fragment, background.Origins[i % background.Origins.Count]).Rect;
-                var clip = Area(borderBox, style, box.Fragment, background.Clips[i % background.Clips.Count]);
-                var size = background.Sizes[i % background.Sizes.Count];
-                var (w, h) = size.Kind != BackgroundSizeKind.Explicit ? (origin.Width, origin.Height)
-                    : (size.Width.Kind == SizeKind.Length ? size.Width.Length.Resolve(origin.Width) : origin.Width,
-                       size.Height.Kind == SizeKind.Length ? size.Height.Length.Resolve(origin.Height) : origin.Height);
+                var origin = Area(borderBox, geometry.Box.Style, geometry.Fragment, background.Origins[i % background.Origins.Count]).Rect;
+                var clip = paintingArea ?? Area(borderBox, geometry.Box.Style, geometry.Fragment, background.Clips[i % background.Clips.Count]);
+                var repeat = background.Repeats[i % background.Repeats.Count];
+                var (w, h) = TileSize(background.Sizes[i % background.Sizes.Count], origin, image is null ? null : (image.Width, image.Height), repeat);
                 if (w <= 0 || h <= 0)
                     continue;
                 var position = background.Positions[i % background.Positions.Count];
                 var (x, y) = (origin.X + position.X.Resolve(origin.Width - w), origin.Y + position.Y.Resolve(origin.Height - h));
-                var repeat = background.Repeats[i % background.Repeats.Count];
                 var blend = Blend(style.Effects.BackgroundBlendModes[i % style.Effects.BackgroundBlendModes.Count]);
-                // Tiles cover the clip box in the axes that repeat, starting from one that touches the placed tile.
-                var (x0, x1) = repeat.X == BackgroundRepeat.NoRepeat ? (x, x + w) : (x - MathF.Ceiling((x - clip.Rect.X) / w) * w, clip.Rect.Right);
-                var (y0, y1) = repeat.Y == BackgroundRepeat.NoRepeat ? (y, y + h) : (y - MathF.Ceiling((y - clip.Rect.Y) / h) * h, clip.Rect.Bottom);
-                if ((x1 - x0) / w * ((y1 - y0) / h) > 4096)
-                    (x0, x1, y0, y1) = (x, x + w, y, y + h);
+                var across = Tiles(repeat.X, x, w, origin.X, origin.Width, clip.Rect.X, clip.Rect.Right);
+                var down = Tiles(repeat.Y, y, h, origin.Y, origin.Height, clip.Rect.Y, clip.Rect.Bottom);
+                if ((across.End - across.Start) / across.Step * ((down.End - down.Start) / down.Step) > 4096)
+                    (across, down) = ((x, w, x + w), (y, h, y + h));
 
-                SetClip(box.Clip);
+                SetClip(geometry.Clip);
                 list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, clip));
-                for (var ty = y0; ty < y1 - 0.01f; ty += h)
+                // Images have no paint to blend with, so a blended image layer is a layer of its own.
+                var imageBlend = image is not null && blend != BlendMode.Normal;
+                if (imageBlend)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: blend));
+                for (var ty = down.Start; ty < down.End - 0.01f; ty += down.Step)
                 {
-                    for (var tx = x0; tx < x1 - 0.01f; tx += w)
+                    for (var tx = across.Start; tx < across.End - 0.01f; tx += across.Step)
                     {
                         var tile = new RectF(tx, ty, w, h);
-                        if (GradientGeometry.Build(gradient, tile, style.Inherited.Color) is { } paint)
+                        if (image is not null)
+                            list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(tile, default), Image: image, Sampling: sampling));
+                        else if (GradientGeometry.Build(gradient!, tile, style.Inherited.Color) is { } paint)
                             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint, Blend: blend));
                     }
                 }
+                if (imageBlend)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
             }
+        }
+
+        /// <summary>
+        /// A layer's tile size (https://www.w3.org/TR/css-backgrounds-3/#background-size) in its positioning area:
+        /// cover and contain scale the natural size, an auto side follows the other through the natural ratio, and
+        /// both auto is the natural size; without natural dimensions (gradients) auto is the area's. round then
+        /// rescales each rounding side to fit a whole number of tiles, and an auto other side keeps the ratio.
+        /// </summary>
+        private static (float Width, float Height) TileSize(BackgroundSize size, RectF area, (float Width, float Height)? natural, RepeatStyle repeat)
+        {
+            var (areaWidth, areaHeight) = (area.Width, area.Height);
+            float? width = size.Kind == BackgroundSizeKind.Explicit && size.Width.Kind == SizeKind.Length ? size.Width.Length.Resolve(areaWidth) : null;
+            float? height = size.Kind == BackgroundSizeKind.Explicit && size.Height.Kind == SizeKind.Length ? size.Height.Length.Resolve(areaHeight) : null;
+            float w, h;
+            if (natural is not ({ } nw, { } nh) || nw <= 0 || nh <= 0)
+            {
+                (w, h) = size.Kind == BackgroundSizeKind.Explicit ? (width ?? areaWidth, height ?? areaHeight) : (areaWidth, areaHeight);
+            }
+            else if (size.Kind != BackgroundSizeKind.Explicit)
+            {
+                var scale = size.Kind == BackgroundSizeKind.Cover ? Math.Max(areaWidth / nw, areaHeight / nh) : Math.Min(areaWidth / nw, areaHeight / nh);
+                (w, h) = (nw * scale, nh * scale);
+            }
+            else
+            {
+                (w, h) = (width, height) switch
+                {
+                    ({ } a, { } b) => (a, b),
+                    ({ } a, null) => (a, a * nh / nw),
+                    (null, { } b) => (b * nw / nh, b),
+                    _ => (nw, nh),
+                };
+            }
+
+            // https://www.w3.org/TR/css-backgrounds-3/#valdef-background-repeat-round
+            var autoWidth = size.Kind == BackgroundSizeKind.Explicit && width is null;
+            var autoHeight = size.Kind == BackgroundSizeKind.Explicit && height is null;
+            if (repeat.X == BackgroundRepeat.Round && w > 0 && areaWidth > 0)
+            {
+                var rounded = areaWidth / Math.Max(1, MathF.Round(areaWidth / w, MidpointRounding.AwayFromZero));
+                if (repeat.Y != BackgroundRepeat.Round && autoHeight)
+                    h *= rounded / w;
+                w = rounded;
+            }
+            if (repeat.Y == BackgroundRepeat.Round && h > 0 && areaHeight > 0)
+            {
+                var rounded = areaHeight / Math.Max(1, MathF.Round(areaHeight / h, MidpointRounding.AwayFromZero));
+                if (repeat.X != BackgroundRepeat.Round && autoWidth)
+                    w *= rounded / h;
+                h = rounded;
+            }
+            return (w, h);
+        }
+
+        /// <summary>
+        /// Where tiles go along one axis (https://www.w3.org/TR/css-backgrounds-3/#background-repeat): one at the
+        /// placed position, or every tile size from one that reaches into the painting area to its end. space spreads
+        /// as many whole tiles as fit over the positioning area, the first and last touching its edges, and ignores the
+        /// position; with room for fewer than two it places one like no-repeat.
+        /// </summary>
+        private static (float Start, float Step, float End) Tiles(BackgroundRepeat mode, float placed, float size, float areaStart, float areaLength,
+                                                                   float paintStart, float paintEnd)
+        {
+            if (mode == BackgroundRepeat.Space && MathF.Floor(areaLength / size) is var count and >= 2)
+            {
+                var step = size + (areaLength - count * size) / (count - 1);
+                return (areaStart - MathF.Ceiling((areaStart - paintStart) / step) * step, step, paintEnd);
+            }
+            return mode is BackgroundRepeat.NoRepeat or BackgroundRepeat.Space
+                ? (placed, size, placed + size)
+                : (placed - MathF.Ceiling((placed - paintStart) / size) * size, size, paintEnd);
         }
 
         // A background box of the border box: border-box, padding-box or content-box (text clips as border-box).

@@ -229,7 +229,7 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
 
     private void AddDeclarations(string source, List<Declaration> declarations, SelectorList selectors, int[] layer)
     {
-        var parsed = Parse(source, declarations);
+        var parsed = Parse(source, declarations, _sheetBase);
         if (parsed.Count == 0)
             return;
         var rule = new CascadeRule(parsed, Origin, Complete(layer), NextOrder());
@@ -238,7 +238,11 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
     }
 
     /// <summary>Parses declarations into longhands and custom properties, dropping invalid ones.</summary>
-    public static List<CascadeDeclaration> Parse(string source, List<Declaration> declarations)
+    /// <param name="baseUrl">
+    /// What relative image URLs resolve against: the URL of the stylesheet they are written in, or the document's for
+    /// inline styles (https://www.w3.org/TR/css-values-4/#relative-urls). Without one they are left relative.
+    /// </param>
+    public static List<CascadeDeclaration> Parse(string source, List<Declaration> declarations, string? baseUrl = null)
     {
         var result = new List<CascadeDeclaration>();
         foreach (var declaration in declarations)
@@ -261,10 +265,23 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             if (Properties.Parse(source, declaration) is { } values)
             {
                 foreach (var (id, value) in values)
-                    result.Add(new CascadeDeclaration(id, value, null, default, declaration.Important));
+                    result.Add(new CascadeDeclaration(id, ResolveUrls(value, baseUrl), null, default, declaration.Important));
             }
         }
         return result;
+    }
+
+    // Image URLs made absolute, where they have a base to resolve against.
+    private static CssValue ResolveUrls(CssValue value, string? baseUrl)
+    {
+        ImageValue Resolve(ImageValue image) =>
+            image is UrlImage url && Resources.ResourceLoader.Resolve(baseUrl, url.Url) is { } absolute ? new UrlImage(absolute) : image;
+        return baseUrl is null ? value : value switch
+        {
+            LayerListValue<ImageValue> layers when layers.Items.Any(i => i is UrlImage) => new LayerListValue<ImageValue>([.. layers.Items.Select(Resolve)]),
+            ImageSpecified { Image: UrlImage } single => new ImageSpecified(Resolve(single.Image)),
+            _ => value,
+        };
     }
 
     // https://www.w3.org/TR/css-properties-values-api-1/#the-property-rule: syntax and inherits are required, and so is

@@ -119,7 +119,7 @@ internal static class StyleResolver
             if (element.GetAttribute("style") is { } styleAttribute)
             {
                 var (source, block) = CssParser.ParseBlockContents(styleAttribute);
-                inline = CascadeData.Parse(source, block.Declarations);
+                inline = CascadeData.Parse(source, block.Declarations, sources.BaseUrl);
             }
             matched.Clear();
             Cascade.Match(element, origins, context, PseudoElement.None, matched);

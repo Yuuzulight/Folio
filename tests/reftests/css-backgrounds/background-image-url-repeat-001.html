@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<title>A url() background image repeats, spaces and rounds like images placed one by one</title>
+<link rel="help" href="https://www.w3.org/TR/css-backgrounds-3/#background-repeat">
+<style>
+  body { margin: 0; }
+  div { height: 8px; margin-bottom: 4px; image-rendering: pixelated; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) 0 0 / 16px 8px; }
+</style>
+<div style="width: 40px"></div>
+<div style="width: 40px; background-repeat: space no-repeat"></div>
+<div style="width: 36px; height: 9px; background-repeat: round no-repeat"></div>
+<div style="width: 16px; height: 8px; background-position: 100% 0; background-size: 8px 4px; background-repeat: no-repeat"></div>
