@@ -1,4 +1,4 @@
-# Folio Browser
+# Folio Artifacts
 
 A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
