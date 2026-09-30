@@ -38,6 +38,7 @@ internal sealed class StyleBuilder
         Effects = initial.Effects;
         Mask = initial.Mask;
         BorderImage = initial.BorderImage;
+        Animation = initial.Animation;
         Svg = parent.Svg;
         SvgStop = initial.SvgStop;
     }
@@ -64,6 +65,7 @@ internal sealed class StyleBuilder
     public EffectsGroup Effects { get; set; }
     public MaskGroup Mask { get; set; }
     public BorderImageGroup BorderImage { get; set; }
+    public AnimationGroup Animation { get; set; }
     public SvgGroup Svg { get; set; }
     public SvgStopGroup SvgStop { get; set; }
 
@@ -164,6 +166,7 @@ internal sealed class StyleBuilder
             Effects = Share(Effects, initial.Effects, groups),
             Mask = Share(Mask, initial.Mask, groups),
             BorderImage = Share(BorderImage, initial.BorderImage, groups),
+            Animation = Share(Animation, initial.Animation, groups),
             Svg = Share(Svg, _parent.Svg, groups),
             SvgStop = Share(SvgStop, initial.SvgStop, groups),
             Custom = _custom,
