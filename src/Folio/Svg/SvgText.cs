@@ -11,8 +11,9 @@ namespace Folio.Svg;
 /// <summary>Glyphs of one font at one size and colour, each at its baseline origin in user units.</summary>
 internal sealed record SvgGlyphRun(IFontHandle Font, float Size, ushort[] Glyphs, Vector2[] Origins, CssColor Color);
 
-/// <summary>A text element's glyphs, positioned and anchored.</summary>
-internal sealed record SvgTextNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgGlyphRun> Runs) : SvgRenderNode(Transform, Opacity);
+/// <summary>A text element's glyphs, positioned and anchored, and the box of their cells (its bounding box).</summary>
+internal sealed record SvgTextNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgGlyphRun> Runs, SvgRect? Bounds = null)
+    : SvgRenderNode(Transform, Opacity);
 
 /// <summary>
 /// Lays out a text element (https://www.w3.org/TR/SVG2/text.html#TextLayoutAlgorithm) on one line: the characters of
@@ -32,7 +33,8 @@ internal static class SvgText
 
     private sealed record Span(int Start, int End, ComputedStyle Style, ElementNode Element);
 
-    public static SvgTextNode? Build(ElementNode text, ComputedStyle style, Matrix3x2 transform, Vector2 viewport, LayoutContext context)
+    /// <param name="clipping">Building a clip path's text: every visible glyph is drawn opaque, whatever its fill.</param>
+    public static SvgTextNode? Build(ElementNode text, ComputedStyle style, Matrix3x2 transform, Vector2 viewport, SvgContext context, bool clipping = false)
     {
         var chars = new StringBuilder();
         var spans = new List<Span>();
@@ -68,15 +70,16 @@ internal static class SvgText
         }
 
         var content = chars.ToString();
-        var glyphs = new List<(FontFace? Face, float Size, ushort Glyph, Vector2 Origin, CssColor? Color, int Chunk)>();
+        var glyphs = new List<(FontFace? Face, float Size, ushort Glyph, Vector2 Origin, CssColor? Color, int Chunk, float Advance, float Ascent, float Descent)>();
         var chunks = new List<(float Start, float End, TextAnchor Anchor)>();
         var pen = Vector2.Zero;
         foreach (var span in spans)
         {
             var spanStyle = span.Style;
-            var color = spanStyle.Inherited.Visibility == Visibility.Visible ? Paint(spanStyle) : null;
-            var shift = BaselineShift(spanStyle, AlignmentBaseline(span.Element, text) ?? spanStyle.Svg.DominantBaseline, context);
-            foreach (var run in InlineLayout.Shape(content, span.Start, span.End - span.Start, spanStyle, context))
+            var color = spanStyle.Inherited.Visibility != Visibility.Visible ? null : clipping ? CssColor.Black : Paint(spanStyle);
+            var shift = BaselineShift(spanStyle, AlignmentBaseline(span.Element, text) ?? spanStyle.Svg.DominantBaseline, context.Layout);
+            var (ascent, descent, _) = InlineLayout.FontMetrics(spanStyle, context.Layout);
+            foreach (var run in InlineLayout.Shape(content, span.Start, span.End - span.Start, spanStyle, context.Layout))
             {
                 for (var g = 0; g < run.Glyphs.Length; g++)
                 {
@@ -90,7 +93,8 @@ internal static class SvgText
                         pen = new Vector2(p.X ?? pen.X, p.Y ?? pen.Y) + new Vector2(p.Dx ?? 0, p.Dy ?? 0);
                     }
                     var origin = pen + new Vector2(0, shift) + (run.Offsets?[g] ?? Vector2.Zero);
-                    glyphs.Add((run.Face, run.Size, run.Glyphs[g], origin, color, chunks.Count - 1));
+                    // The glyph's cell: its advance across, and the font's ascent above and descent below the baseline.
+                    glyphs.Add((run.Face, run.Size, run.Glyphs[g], origin, color, chunks.Count - 1, run.Advances[g], ascent, descent));
                     pen.X += run.Advances[g];
                     chunks[^1] = chunks[^1] with { End = pen.X };
                 }
@@ -101,6 +105,7 @@ internal static class SvgText
         var runs = new List<SvgGlyphRun>();
         var pending = new List<(ushort Glyph, Vector2 Origin)>();
         (FontFace Face, float Size, CssColor Color)? current = null;
+        var (min, max) = (new Vector2(float.PositiveInfinity), new Vector2(float.NegativeInfinity));
         foreach (var glyph in glyphs)
         {
             var chunk = chunks[glyph.Chunk];
@@ -110,6 +115,9 @@ internal static class SvgText
                 TextAnchor.End => chunk.Start - chunk.End,
                 _ => 0,
             };
+            // The bounding box takes every glyph cell, painted or not.
+            var cell = glyph.Origin + new Vector2(offset, 0);
+            (min, max) = (Vector2.Min(min, cell - new Vector2(0, glyph.Ascent)), Vector2.Max(max, cell + new Vector2(glyph.Advance, glyph.Descent)));
             if (glyph.Face is not { } face || glyph.Color is not { } fill)
                 continue;
             if (current != (face, glyph.Size, fill))
@@ -120,7 +128,8 @@ internal static class SvgText
             pending.Add((glyph.Glyph, glyph.Origin + new Vector2(offset, 0)));
         }
         Flush();
-        return runs.Count > 0 ? new SvgTextNode(transform, style.Box.Opacity, runs) : null;
+        var bounds = float.IsFinite(min.X) ? new SvgRect(min.X, min.Y, max.X - min.X, max.Y - min.Y) : (SvgRect?)null;
+        return runs.Count > 0 ? new SvgTextNode(transform, clipping ? 1 : style.Box.Opacity, runs, bounds) : null;
 
         void Flush()
         {

@@ -59,15 +59,18 @@ internal sealed record PathShape(bool EvenOdd, string Data, IReadOnlyList<PathSe
 /// A computed <c>clip-path</c>: a basic shape in a reference box (the border box when <see cref="Box"/> is null), the
 /// box's own shape, or neither for none.
 /// </summary>
-internal sealed record ClipPath(BasicShape? Shape, GeometryBox? Box)
+/// <param name="Url">A reference to an SVG clipPath element (the text inside url()), instead of a shape or box.</param>
+internal sealed record ClipPath(BasicShape? Shape, GeometryBox? Box, string? Url = null)
 {
     public static ClipPath None { get; } = new(null, null);
 
+    /// <summary>Whether nothing clips a CSS box: no shape and no box. A url() reference clips SVG content only.</summary>
+    // ponytail: url() references on CSS boxes clip nothing until #92 applies SVG clip paths to boxes.
     public bool IsNone => Shape is null && Box is null;
 
     public override string ToString()
     {
         var box = Box is { } b ? string.Concat(b.ToString().Select((c, i) => char.IsUpper(c) && i > 0 ? $"-{char.ToLowerInvariant(c)}" : $"{char.ToLowerInvariant(c)}")) : null;
-        return IsNone ? "none" : string.Join(" ", new[] { Shape?.ToString(), box }.Where(t => t is not null));
+        return Url is not null ? $"url({Url})" : IsNone ? "none" : string.Join(" ", new[] { Shape?.ToString(), box }.Where(t => t is not null));
     }
 }

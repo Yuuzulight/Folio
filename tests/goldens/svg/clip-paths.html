@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<title>SVG clip paths</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 24px; margin-bottom: 24px; align-items: flex-start; }
+  svg { background: #f1f5f9; }
+</style>
+<div class="row">
+  <svg width="140" height="100">
+    <clipPath id="round"><circle cx="70" cy="50" r="40" /></clipPath>
+    <g clip-path="url(#round)">
+      <rect width="140" height="50" fill="#f59e0b" /><rect y="50" width="140" height="50" fill="#6366f1" />
+      <path d="M0 100 L140 0" stroke="#0f172a" stroke-width="8" />
+    </g>
+  </svg>
+  <svg width="140" height="100">
+    <clipPath id="letters"><text x="70" y="70" text-anchor="middle" font-size="64" font-weight="bold">Ab</text></clipPath>
+    <rect width="140" height="100" fill="#e11d48" clip-path="url(#letters)" />
+  </svg>
+  <svg width="140" height="100">
+    <clipPath id="ring" clipPathUnits="objectBoundingBox">
+      <path d="M0.5 0 A0.5 0.5 0 1 1 0.5 1 A0.5 0.5 0 1 1 0.5 0 Z M0.5 0.25 A0.25 0.25 0 1 0 0.5 0.75 A0.25 0.25 0 1 0 0.5 0.25 Z" clip-rule="evenodd" />
+    </clipPath>
+    <rect x="30" y="10" width="80" height="80" fill="#22c55e" clip-path="url(#ring)" />
+  </svg>
+</div>
+<div class="row">
+  <svg width="140" height="100">
+    <clipPath id="plot"><rect x="10" y="10" width="120" height="80" rx="10" /></clipPath>
+    <polyline clip-path="url(#plot)" points="0,90 30,40 60,70 90,5 120,60 150,20" fill="none" stroke="#0ea5e9" stroke-width="6" stroke-linejoin="round" />
+    <rect x="10" y="10" width="120" height="80" rx="10" fill="none" stroke="#94a3b8" />
+  </svg>
+  <svg width="140" height="100">
+    <clipPath id="band"><rect y="30" width="140" height="40" /></clipPath>
+    <clipPath id="both" clip-path="url(#band)"><circle cx="50" cy="50" r="40" /><circle cx="90" cy="50" r="40" /></clipPath>
+    <rect width="140" height="100" fill="#a855f7" clip-path="url(#both)" />
+  </svg>
+  <svg width="140" height="100">
+    <clipPath id="tilt" transform="rotate(15 70 50)"><rect x="30" y="25" width="80" height="50" /></clipPath>
+    <rect width="140" height="100" fill="#14b8a6" clip-path="url(#tilt)" opacity="0.7" />
+  </svg>
+</div>

@@ -10,7 +10,7 @@ internal sealed record ShapeFunctionValue(string Name, IReadOnlyList<CssValue> A
                                           bool EvenOdd = false, string? Data = null, IReadOnlyList<PathSegment>? Segments = null) : CssValue;
 
 /// <summary>A specified <c>clip-path</c>: a shape, a reference box, both, or neither for none.</summary>
-internal sealed record ClipPathValue(ShapeFunctionValue? Shape, GeometryBox? Box) : CssValue;
+internal sealed record ClipPathValue(ShapeFunctionValue? Shape, GeometryBox? Box, string? Url = null) : CssValue;
 
 /// <summary>
 /// <c>clip-path</c> (https://drafts.csswg.org/css-masking-1/#the-clip-path) with the basic shapes of
@@ -20,7 +20,9 @@ internal sealed record ClipPathValue(ShapeFunctionValue? Shape, GeometryBox? Box
 internal static class ShapeProperties
 {
     public static Property Row { get; } = new Property<ClipPath>(PropertyId.ClipPath, "clip-path", false, "none", ParseClipPath,
-        (v, ctx) => v is ClipPathValue { Shape: var shape, Box: var box } ? new ClipPath(shape is null ? null : Compute(shape, ctx), box) : Style.ClipPath.None,
+        (v, ctx) => v is ClipPathValue { Shape: var shape, Box: var box, Url: var url }
+            ? new ClipPath(shape is null ? null : Compute(shape, ctx), box, url)
+            : Style.ClipPath.None,
         s => s.Effects.ClipPath, (b, v) => b.Effects = b.Effects with { ClipPath = v });
 
     private static readonly Dictionary<string, GeometryBox> Boxes = new()
@@ -30,11 +32,13 @@ internal static class ShapeProperties
         ["view-box"] = GeometryBox.ViewBox,
     };
 
-    // none | <basic-shape> || <geometry-box>
+    // <url> | none | <basic-shape> || <geometry-box>
     private static CssValue? ParseClipPath(ValueReader r)
     {
         if (r.Keyword("none") is not null)
             return new ClipPathValue(null, null);
+        if (r.Url() is { } url)
+            return new ClipPathValue(null, null, url);
         ShapeFunctionValue? shape = null;
         GeometryBox? box = null;
         while (!r.AtEnd)

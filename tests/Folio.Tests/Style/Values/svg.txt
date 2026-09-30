@@ -121,3 +121,9 @@ dominant-baseline: central
 dominant-baseline: text-after-edge
 ---
 dominant-baseline: text-bottom
+
+=== clip-rule is inherited
+%parent clip-rule: evenodd
+display: block
+---
+clip-rule: evenodd

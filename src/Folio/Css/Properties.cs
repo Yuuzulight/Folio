@@ -181,6 +181,7 @@ internal enum PropertyId
     PaintOrder,
     TextAnchor,
     DominantBaseline,
+    ClipRule,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>

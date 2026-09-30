@@ -38,9 +38,10 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
 /// <item>elements Folio draws only as empty boxes: MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
-/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths and text: other SVG elements (gradients,
-///   clipping, masks, markers, <c>use</c>, images, filters, animation, ...), <c>url()</c> references in paints and
-///   effects, stroked text and the text attributes Folio does not lay out;</item>
+/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text and clip paths: other SVG elements
+///   (gradients, masks, markers, <c>use</c>, images, filters, animation, ...), <c>url()</c> references in paints,
+///   masks, filters and markers (and <c>clip-path: url()</c> in style sheets, which could reach CSS boxes), stroked
+///   text and the text attributes Folio does not lay out;</item>
 /// <item>CSS that Folio's property table does not know or cannot parse, gradients, <c>background-clip: text</c>,
 ///   selectors it cannot match, and <c>@font-face</c>, <c>@container</c>, <c>@counter-style</c>, <c>@scope</c>.
 ///   Not counted: declarations that only matter to interaction (<c>cursor</c>, <c>transition</c>, ...), rules
@@ -192,11 +193,11 @@ public static class ArtifactClassifier
         private static readonly HashSet<string> SvgElements =
         [
             "svg", "g", "a", "defs", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "tspan", "title",
-            "desc", "metadata", "style", "script",
+            "desc", "metadata", "style", "script", "clipPath",
         ];
 
         // Presentation attributes that take a url() reference to something Folio does not draw yet.
-        private static readonly string[] SvgReferences = ["fill", "stroke", "clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end"];
+        private static readonly string[] SvgReferences = ["fill", "stroke", "mask", "filter", "marker-start", "marker-mid", "marker-end"];
 
         private void Svg(Element element)
         {
@@ -356,6 +357,11 @@ public static class ArtifactClassifier
                 else if (!Properties.ContainsVar(declaration.Value) && Properties.Parse(source, declaration) is null)
                 {
                     Unsupported.Add($"uses a CSS value Folio does not support: {declaration.Name}: {Shorten(text)}");
+                }
+                else if (declaration.Name is "clip-path" && Text(source, declaration.Value).Contains("url(", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Style sheets cannot tell SVG elements, whose clip paths draw, from CSS boxes, whose do not yet.
+                    Unsupported.Add("uses clip-path: url() in CSS");
                 }
                 else if (declaration.Name is "fill" or "stroke" && Text(source, declaration.Value).Contains("url(", StringComparison.OrdinalIgnoreCase))
                 {

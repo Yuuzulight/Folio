@@ -41,6 +41,8 @@ public class Reftests
     [InlineData("svg/stroke-linecap-square-001")]
     [InlineData("svg/stroke-dashoffset-001")]
     [InlineData("svg/standalone-001")]
+    [InlineData("svg/clip-path-001")]
+    [InlineData("svg/clip-path-union-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

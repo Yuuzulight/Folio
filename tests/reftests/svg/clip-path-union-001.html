@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>A clip path of several shapes clips to their union, in object bounding box units</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#element-attrdef-clippath-clippathunits">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><clipPath id="c" clipPathUnits="objectBoundingBox"><rect width="0.25" height="0.5" /><rect x="0.5" y="0.5" width="0.5" height="0.5" /></clipPath><rect x="20" y="10" width="80" height="60" fill="blue" clip-path="url(#c)" /></svg>

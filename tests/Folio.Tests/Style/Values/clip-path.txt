@@ -69,6 +69,11 @@ clip-path: margin-box inset(1px)
 clip-path: inset(1px 1px 1px 1px) margin-box
 
 === invalid clip paths are dropped
-clip-path: circle(5px); clip-path: circle(-10px); clip-path: circle(1px 2px); clip-path: ellipse(10px); clip-path: inset(); clip-path: inset(1px round); clip-path: rect(1px 2px 3px); clip-path: xywh(0 0 -1px 1px); clip-path: polygon(); clip-path: polygon(1px); clip-path: polygon(evenodd 0 0); clip-path: path("M 0 0 L"); clip-path: path("L 0 0"); clip-path: path(""); clip-path: url(#clip); clip-path: circle() circle(); clip-path: border-box padding-box
+clip-path: circle(5px); clip-path: circle(-10px); clip-path: circle(1px 2px); clip-path: ellipse(10px); clip-path: inset(); clip-path: inset(1px round); clip-path: rect(1px 2px 3px); clip-path: xywh(0 0 -1px 1px); clip-path: polygon(); clip-path: polygon(1px); clip-path: polygon(evenodd 0 0); clip-path: path("M 0 0 L"); clip-path: path("L 0 0"); clip-path: path(""); clip-path: url(#clip) border-box; clip-path: circle() circle(); clip-path: border-box padding-box
 ---
 clip-path: circle(5px at 50% 50%)
+
+=== a url() reference to an SVG clip path
+clip-path: url(#c)
+---
+clip-path: url(#c)

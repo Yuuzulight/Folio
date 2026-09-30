@@ -55,6 +55,7 @@ public class ArtifactClassifierTests
     [InlineData("<svg><defs><linearGradient id=g /></defs><rect fill=\"url(#g)\" /></svg>", "uses an SVG fill reference")]
     [InlineData("<svg><style>rect { stroke: url(#g) }</style><rect /></svg>", "uses an SVG stroke reference")]
     [InlineData("<svg><use href=\"#a\" /></svg>", "uses SVG <use>")]
+    [InlineData("<style>.a { clip-path: url(#c) }</style><div class=a></div>", "uses clip-path: url() in CSS")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
     [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
     [InlineData("<svg><text rotate=\"10\">a</text></svg>", "uses the SVG text attribute rotate")]
@@ -88,6 +89,7 @@ public class ArtifactClassifierTests
     [InlineData("<svg viewBox=\"0 0 100 50\"><defs><style>.bar { fill: #6366f1 }</style></defs><g><rect class=bar width=10 height=40 />"
         + "<text x=5 y=48 text-anchor=middle dominant-baseline=hanging font-size=8>Q1</text></g></svg>")]
     [InlineData("<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" /></svg>")]
+    [InlineData("<svg><clipPath id=c clipPathUnits=objectBoundingBox><circle cx=.5 cy=.5 r=.5 clip-rule=evenodd /></clipPath><rect width=5 height=5 clip-path=\"url(#c)\" /></svg>")]
     public void SvgShapesPathsAndTextAreStatic(string artifact)
     {
         var (kind, reasons) = ArtifactClassifier.Classify(artifact);

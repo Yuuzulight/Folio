@@ -11,7 +11,21 @@ namespace Folio.Svg;
 /// link back to the DOM, so other producers (diagrams) can build one too. <see cref="Transform"/> maps the node's user
 /// space into its parent's, in row-vector form; <see cref="Opacity"/> below 1 composites the node as a group.
 /// </summary>
-internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity);
+internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
+{
+    /// <summary>What clips the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
+    public SvgClipPath? ClipPath { get; init; }
+}
+
+/// <summary>
+/// A clip region (https://drafts.csswg.org/css-masking-1/#svg-clipping-paths): the union of <paramref name="Children"/>
+/// (shapes filled opaque with their clip-rule, and text), which <paramref name="Transform"/> maps into the clipped
+/// node's user space, itself clipped by <paramref name="ClipPath"/>. No children clip everything away.
+/// </summary>
+internal sealed record SvgClipPath(IReadOnlyList<SvgRenderNode> Children, Matrix3x2 Transform, SvgClipPath? ClipPath = null)
+{
+    public static SvgClipPath Everything { get; } = new([], Matrix3x2.Identity);
+}
 
 /// <summary>A group of nodes in paint order, clipped to <paramref name="Clip"/> (in the node's own user space, after its transform) when given.</summary>
 internal sealed record SvgContainerNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgRenderNode> Children, SvgRect? Clip = null)
@@ -33,8 +47,8 @@ internal sealed record SvgShapeNode(Matrix3x2 Transform, float Opacity, IReadOnl
 /// (https://www.w3.org/TR/SVG2/coords.html), transforms, the basic shapes and paths, and their fills and strokes
 /// (https://www.w3.org/TR/SVG2/painting.html).
 /// </summary>
-// ponytail: stage 1 draws structure (svg, g, a), shapes, paths and text; defs, use, gradients, clipping, markers and
-// the other elements are not rendered yet (issue #97).
+// ponytail: structure (svg, g, a), shapes, paths and text, with clip paths; use, gradients, markers, masks and the
+// other elements are not rendered yet (issue #97).
 internal static class SvgRenderTree
 {
     /// <summary>
@@ -53,17 +67,18 @@ internal static class SvgRenderTree
     }
 
     /// <summary>The render tree of an outermost svg element laid out in a content box of this size, or null when nothing shows.</summary>
-    public static SvgContainerNode? Build(ElementNode svg, float width, float height, Layout.LayoutContext context)
+    public static SvgContainerNode? Build(ElementNode svg, float width, float height, Layout.LayoutContext layout)
     {
         var style = svg.ComputedStyle();
-        // Its transform and opacity belong to its CSS box, which paints them.
+        var context = new SvgContext(layout, svg.OwnerDocument);
+        // Its transform, opacity and clip path belong to its CSS box, which paints them.
         return style is null ? null : Viewport(svg, style, new SvgRect(0, 0, width, height), Matrix3x2.Identity, 1, context);
     }
 
     // An svg element's viewport: its viewBox mapped into the rectangle, the content clipped to it unless overflow is
     // visible. A viewBox with a zero size disables rendering (https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute).
     private static SvgContainerNode? Viewport(ElementNode svg, ComputedStyle style, SvgRect rect, Matrix3x2 transform, float opacity,
-                                               Layout.LayoutContext context)
+                                               SvgContext context)
     {
         var viewBox = SvgGeometry.ParseViewBox(svg.GetAttribute("viewBox"));
         if (viewBox is { Width: 0 } or { Height: 0 } || rect.Width <= 0 || rect.Height <= 0)
@@ -79,7 +94,7 @@ internal static class SvgRenderTree
         return new SvgContainerNode(transform, opacity, [new SvgContainerNode(map, 1, Children(svg, size, context))], clips ? rect : null);
     }
 
-    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, Layout.LayoutContext context)
+    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, SvgContext context)
     {
         var nodes = new List<SvgRenderNode>();
         // Content that nests deeper than the stack allows is left out (study 16: limits stop work gracefully).
@@ -95,7 +110,65 @@ internal static class SvgRenderTree
         return nodes;
     }
 
-    private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport, Layout.LayoutContext context)
+    private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport, SvgContext context, bool clipping = false)
+    {
+        var node = Unclipped(element, style, viewport, context, clipping);
+        if (node is null || style.Effects.ClipPath.Url is not { } url)
+            return node;
+        return context.Find(url) is { LocalName: "clipPath" } clip && clip.Name.Namespace == Namespaces.Svg
+            ? node with { ClipPath = ClipPath(clip, node, viewport, context) }
+            : node;
+    }
+
+    // The clip path an element references (https://drafts.csswg.org/css-masking-1/#ClipPathElement): its shapes and
+    // text, in user space or the clipped node's bounding box, and its own clip path. A reference back to a clip path
+    // being built, or a bounding box with no area in bounding box units, clips everything, so the element is not shown.
+    private static SvgClipPath ClipPath(ElementNode clip, SvgRenderNode clipped, Vector2 viewport, SvgContext context)
+    {
+        if (!context.Clipping.Add(clip) || !RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            return SvgClipPath.Everything;
+        try
+        {
+            var style = clip.ComputedStyle();
+            var toUser = SvgGeometry.ParseTransform(clip.GetAttribute("transform")) ?? Matrix3x2.Identity;
+            if (clip.GetAttribute("clipPathUnits")?.Trim() == "objectBoundingBox")
+            {
+                if (Bounds(clipped) is not { Width: > 0, Height: > 0 } box)
+                    return SvgClipPath.Everything;
+                toUser *= new Matrix3x2(box.Width, 0, 0, box.Height, box.X, box.Y);
+                viewport = Vector2.One;
+            }
+            var children = new List<SvgRenderNode>();
+            for (var child = clip.FirstChild; child is not null; child = child.NextSibling)
+            {
+                if (child is ElementNode { Name.Namespace: var ns, LocalName: "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "text" } element
+                    && ns == Namespaces.Svg && element.ComputedStyle() is { Box.Display: not Display.None } childStyle
+                    && Node(element, childStyle, viewport, context, clipping: true) is { } node)
+                    children.Add(node);
+            }
+            // The clipPath's own clip path clips its region.
+            var own = style?.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } next && next.Name.Namespace == Namespaces.Svg
+                ? ClipPath(next, clipped, viewport, context)
+                : null;
+            return new SvgClipPath(children, toUser, own);
+        }
+        finally
+        {
+            context.Clipping.Remove(clip);
+        }
+    }
+
+    /// <summary>A node's bounding box in its own user space (https://www.w3.org/TR/SVG2/coords.html#BoundingBoxes).</summary>
+    public static SvgRect? Bounds(SvgRenderNode node) => node switch
+    {
+        SvgShapeNode shape => SvgGeometry.Bounds(shape.Path),
+        SvgTextNode text => text.Bounds,
+        SvgContainerNode container => container.Children.Select(c => Bounds(c) is { } b ? SvgGeometry.Transform(b, c.Transform) : (SvgRect?)null)
+            .Aggregate((SvgRect?)null, SvgGeometry.Union),
+        _ => null,
+    };
+
+    private static SvgRenderNode? Unclipped(ElementNode element, ComputedStyle style, Vector2 viewport, SvgContext context, bool clipping)
     {
         var transform = Transform(element, style, viewport);
         // A transform that cannot be inverted draws nothing.
@@ -146,7 +219,7 @@ internal static class SvgRenderTree
             case "path":
                 return PathDataParser.Parse(element.GetAttribute("d") ?? "", upToError: true) is { } path ? Shape(path) : null;
             case "text":
-                return SvgText.Build(element, style, transform, viewport, context);
+                return SvgText.Build(element, style, transform, viewport, context, clipping);
             default:
                 return null;
         }
@@ -156,6 +229,9 @@ internal static class SvgRenderTree
             if (style.Inherited.Visibility != Visibility.Visible)
                 return null;
             var svg = style.Svg;
+            // In a clip path only the geometry counts, filled with the clip rule.
+            if (clipping)
+                return new SvgShapeNode(transform, 1, path, new SvgFill(CssColor.Black, svg.ClipRule == SvgFillRule.Evenodd), null);
             var fill = canFill && Color(svg.Fill, svg.FillOpacity, style) is { } fillColor
                 ? new SvgFill(fillColor, svg.FillRule == SvgFillRule.Evenodd)
                 : (SvgFill?)null;
