@@ -18,7 +18,7 @@ public class DisplayListTests
     {
         var test = AllCases.Value[id];
 
-        var list = DisplayListBuilder.Build(BlockLayoutTests.LayOut(test.Input));
+        var list = DisplayListBuilder.Build(BlockLayoutTests.LayOut(test.Input), new Folio.Imaging.ImageLoader(Folio.Resources.ResourceLoader.DataUrlsOnly, null));
 
         Assert.Equal(test.Expected, list.Items.Select(Dump).ToList());
     }

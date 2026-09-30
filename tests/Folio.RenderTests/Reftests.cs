@@ -22,6 +22,7 @@ public class Reftests
     [InlineData("compositing/isolation-isolate-001")]
     [InlineData("css-masking/clip-path-inset-001")]
     [InlineData("css-masking/clip-path-circle-001")]
+    [InlineData("css-backgrounds/background-image-url-repeat-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

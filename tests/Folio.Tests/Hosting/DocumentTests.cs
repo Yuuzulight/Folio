@@ -168,6 +168,21 @@ public class DocumentTests
     }
 
     [Fact]
+    public void LoadsCssImagesThroughTheSameLoaderAndReportsWhatUsedThem()
+    {
+        using var document = Document.Parse("<!DOCTYPE html><div style='height: 10px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC)'></div>" +
+            "<div style='height: 10px; background: url(bg.png)'></div><ul style='list-style-image: url(\"data:text/plain,x\")'><li>a</ul>", BoxFont);
+
+        document.Paint(800, 600);
+        document.Paint(800, 600);
+
+        var reports = document.Diagnostics.Where(d => d.Code == DiagnosticCode.ResourceNotLoaded).ToList();
+        Assert.Equal(2, reports.Count);
+        Assert.Contains(reports, d => d.Feature == "background-image" && d.Message.Contains("https://example.invalid/docs/bg.png"));
+        Assert.Contains(reports, d => d.Feature == "list-style-image" && d.Message.Contains("not a PNG or JPEG"));
+    }
+
+    [Fact]
     public void ExposesElementsReadOnly()
     {
         using var document = Document.Parse("<div id=main CLASS='a b'><p>One <b>two</b></p><p lang=en>Three</p></div><p id=main>late");

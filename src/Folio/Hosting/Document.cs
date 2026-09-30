@@ -235,13 +235,13 @@ public sealed class Document : IDisposable
         }
         // Images load once per document (docs/study/16-resources-and-security.md: data: URLs only by default).
         _images ??= new Imaging.ImageLoader(sources.Loader, StyleResolver.BaseUrl(Node, Options.BaseUri?.AbsoluteUri),
-            message => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, "img")));
+            (message, feature) => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, feature)));
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (new DisplayList(), 0);
         var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
-        return (DisplayListBuilder.Build(page), height);
+        return (DisplayListBuilder.Build(page, _images), height);
     }
 
     public void Dispose()

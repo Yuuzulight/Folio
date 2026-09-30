@@ -725,7 +725,7 @@ internal static class Properties
                     : r.ColorSpecified() is { } thumb && r.ColorSpecified() is { } track ? new RadiusValue(thumb, track) : null,
                 (v, ctx) => v is RadiusValue pair ? $"{ctx.Color(pair.X, ctx.CurrentColor).Resolve(ctx.CurrentColor)} {ctx.Color(pair.Y, ctx.CurrentColor).Resolve(ctx.CurrentColor)}" : "auto",
                 s => s.Ui.ScrollbarColor, (b, v) => b.Ui = b.Ui with { ScrollbarColor = v }),
-            // https://www.w3.org/TR/css-lists-3/#image-markers: recorded; image markers are drawn once list images load.
+            // https://www.w3.org/TR/css-lists-3/#image-markers: a url() image that loads is the marker.
             new Property<ImageValue>(PropertyId.ListStyleImage, "list-style-image", true, "none",
                 r => r.Keyword("none") is not null ? new ImageSpecified(NoImage.Instance) : BackgroundParsing.Image(r) is { } image ? new ImageSpecified(image) : null,
                 (v, _) => ((ImageSpecified)v).Image,

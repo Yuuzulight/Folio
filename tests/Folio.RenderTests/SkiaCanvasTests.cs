@@ -267,6 +267,20 @@ public class SkiaCanvasTests
         Assert.True(Math.Abs(expected.Red - actual.Red) <= tolerance && Math.Abs(expected.Green - actual.Green) <= tolerance
                     && Math.Abs(expected.Blue - actual.Blue) <= tolerance, $"Expected {expected}, got {actual}.");
 
+    [Fact]
+    public void BackgroundImagesTileTheirPixels()
+    {
+        // The test image's left half is red and its right half green; doubled, each half is 4px wide.
+        using var bitmap = Render("<style>body { margin: 0 } div { width: 20px; height: 4px; image-rendering: pixelated; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) 0 0 / 8px 4px }</style><div></div>");
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(1, 1));
+        Assert.Equal(new SKColor(0, 255, 0), bitmap.GetPixel(5, 1));
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(9, 1));
+        Assert.Equal(new SKColor(0, 255, 0), bitmap.GetPixel(13, 1));
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(17, 1));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(21, 1));
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {
@@ -274,7 +288,7 @@ public class SkiaCanvasTests
         StyleResolver.Resolve(document, new MediaContext(100, 100));
         var images = new Folio.Imaging.ImageLoader(Folio.Resources.ResourceLoader.DataUrlsOnly, null);
         var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 100, 100, BoxFont.Value);
-        var list = DisplayListBuilder.Build(fragment);
+        var list = DisplayListBuilder.Build(fragment, images);
 
         var bitmap = new SKBitmap(new SKImageInfo(100, 100, SKColorType.Bgra8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<title>Background images</title>
+<style>
+  body { margin: 24px; background: #f8fafc url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 0 0 / 48px repeat-x; }
+  .row { display: flex; gap: 24px; margin-bottom: 28px; align-items: flex-start; }
+  .box { width: 120px; height: 80px; border: 4px dashed #0f172a; padding: 6px; background-color: #e2e8f0; border-radius: 10px; }
+  ul { margin: 0; padding-left: 40px; font-size: 20px; list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=); }
+</style>
+<div class="row">
+  <div class="box" style="background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=)"></div>
+  <div class="box" style="background: #e2e8f0 url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) no-repeat center / 40px"></div>
+  <div class="box" style="background: #e2e8f0 url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) no-repeat center / contain"></div>
+  <div class="box" style="background: #e2e8f0 url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) no-repeat center / cover; image-rendering: pixelated"></div>
+</div>
+<div class="row">
+  <div class="box" style="background: #e2e8f0 url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 0 0 / 28px space"></div>
+  <div class="box" style="background: #e2e8f0 url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 0 0 / 28px round"></div>
+  <div class="box" style="background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) no-repeat right 8px bottom 8px / 24px content-box, linear-gradient(135deg, #22c55e, #0ea5e9) border-box"></div>
+  <div class="box" style="background: #e2e8f0 url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) repeat-y 50% 0 / 20px padding-box; image-rendering: pixelated"></div>
+</div>
+<ul>
+  <li>Image markers</li>
+  <li style="list-style-position: inside">Inside marker</li>
+  <li style="list-style-image: url(data:text/plain,x)">Fallback disc</li>
+</ul>
