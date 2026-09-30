@@ -23,7 +23,7 @@ internal static class BlockLayout
 
         // A table wrapper has the table's style, but its border and padding belong to the table grid box inside it.
         var wrapper = box is TableWrapperBox;
-        var border = wrapper ? ComputedStyle.Initial.Border : style.Border;
+        var border = wrapper ? ComputedStyle.Initial.Border : space.Border ?? style.Border;
         var padding = wrapper ? (Top: 0f, Right: 0f, Bottom: 0f, Left: 0f) : (
             Top: Resolve(style.Spacing.PaddingTop, cbWidth), Right: Resolve(style.Spacing.PaddingRight, cbWidth),
             Bottom: Resolve(style.Spacing.PaddingBottom, cbWidth), Left: Resolve(style.Spacing.PaddingLeft, cbWidth));

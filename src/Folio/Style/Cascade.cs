@@ -337,9 +337,15 @@ internal static class Cascade
 
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
         Element element, IEnumerable<CascadeData> origins, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, MatchContext context,
-        PseudoElement pseudoElement = PseudoElement.None)
+        PseudoElement pseudoElement = PseudoElement.None, List<CascadeDeclaration>? hints = null)
     {
         var candidates = new List<Candidate>();
+        // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.
+        if (hints is not null)
+        {
+            for (var d = 0; d < hints.Count; d++)
+                candidates.Add(new Candidate(hints[d], Origin.Author, false, [-1], default, -1, d));
+        }
         var matches = new List<RuleIndex<CascadeRule>.Entry>();
         foreach (var data in origins)
         {

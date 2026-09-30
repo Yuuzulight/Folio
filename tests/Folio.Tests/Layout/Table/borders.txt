@@ -1,0 +1,28 @@
+=== collapsed borders: the wider border wins and cells lay out with half of it
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-collapse: collapse"><tr><td style="border: 2px solid">a</td><td style="border: 4px solid">b</td></tr></table>
+---
+html 0,0 800x24
+  body 0,0 800x24
+    table 0,0 47x24
+      table 0,0 47x24
+        tbody 1,2 44x20
+          tr 1,2 44x20
+            td 1,2 20x20
+              line 2,4 17x16
+                text "a" 2,4 16x16
+            td 21,2 24x20
+              line 23,4 20x16
+                text "b" 23,4 16x16
+
+=== the border, cellspacing and cellpadding attributes
+<!DOCTYPE html><style>body { margin: 0 }</style><table border=1 cellspacing=0 cellpadding=3><tr><td>a</td></tr></table>
+---
+html 0,0 800x26
+  body 0,0 800x26
+    table 0,0 26x26
+      table 0,0 26x26
+        tbody 1,1 24x24
+          tr 1,1 24x24
+            td 1,1 24x24
+              line 5,5 16x16
+                text "a" 5,5 16x16
