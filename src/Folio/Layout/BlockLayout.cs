@@ -10,7 +10,8 @@ namespace Folio.Layout;
 /// </summary>
 internal static class BlockLayout
 {
-    // ponytail: until their own layout lands, replaced boxes are sized from their width and height properties only.
+    // ponytail: replaced boxes without natural dimensions (canvas, video, iframe, images that did not load) are still
+    // sized from their width and height properties only.
     public static Fragment Layout(Box box, ConstraintSpace space, LayoutContext context)
     {
         var style = box.Style;
@@ -31,15 +32,18 @@ internal static class BlockLayout
         var frameY = border.TopWidth + padding.Top + padding.Bottom + border.BottomWidth;
         var borderBox = style.Box.BoxSizing == BoxSizing.BorderBox;
 
+        var replaced = box is ReplacedBox replacedBox
+            ? ReplacedSize(replacedBox, cbWidth, space.ContainingHeight, frameX, frameY, space.FixedWidth - frameX)
+            : null;
         var (width, marginLeft, marginRight) = space.FixedWidth is { } fixedWidth
             ? (Math.Max(0, fixedWidth - frameX), 0f, 0f)
-            : SolveWidth(box, cbWidth, frameX, borderBox, context);
+            : SolveWidth(box, cbWidth, frameX, borderBox, context, replaced?.Width);
         var marginTop = Margin(style.Spacing.MarginTop, cbWidth);
         var marginBottom = Margin(style.Spacing.MarginBottom, cbWidth);
 
         var height = space.FixedHeight is { } fixedHeight
             ? Math.Max(0, fixedHeight - frameY)
-            : ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
+            : replaced?.Height ?? ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
         var minHeight = space.FixedHeight is null ? ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0 : 0;
         var maxHeight = space.FixedHeight is null ? ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity : float.PositiveInfinity;
         // aspect-ratio (css-sizing-4 §5.1): an auto height follows the width through the ratio, in the box-sizing box. It
@@ -434,8 +438,9 @@ internal static class BlockLayout
     /// With a layout context, auto widths of floats and inline-blocks shrink to fit (§10.3.5) and the sizing keywords
     /// resolve; without one (structural estimates), they act as auto.
     /// </remarks>
+    /// <param name="replacedWidth">A replaced box's used width (<see cref="ReplacedSize"/>), min and max already applied.</param>
     private static (float Width, float MarginLeft, float MarginRight) SolveWidth(Box box, float cbWidth, float frameX, bool borderBox,
-                                                                                 LayoutContext? context = null)
+                                                                                 LayoutContext? context = null, float? replacedWidth = null)
     {
         var style = box.Style;
         // Which margin gives way when the widths do not add up: the end one of the containing block (§10.3.3).
@@ -447,6 +452,8 @@ internal static class BlockLayout
             ?? (context is not null && (box.IsFloat || box is BlockContainerBox { IsAtomicInline: true } || box is TableWrapperBox)
                 ? IntrinsicSizes.FitContent(box, available, context)
                 : null);
+        if (replacedWidth is { } used)
+            return Solve(used);
         var result = Solve(width);
         if (Size(style.Size.MaxWidth) is { } max && result.Width > max)
             result = Solve(max);
@@ -478,6 +485,60 @@ internal static class BlockLayout
                 // Over-constrained: the end margin takes what is left.
                 _ => rtl ? (w, remaining - mr, mr) : (w, ml, remaining - ml),
             };
+        }
+    }
+
+    /// <summary>
+    /// The used content-box size of a replaced box with natural dimensions (CSS 2.2 §10.3.2 and §10.6.2): an auto size
+    /// follows the other through the natural aspect ratio, or is the natural size, and min and max sizes apply as
+    /// §10.4's table says, keeping the ratio when both sizes are auto. Null for boxes without natural dimensions.
+    /// </summary>
+    /// <param name="usedWidth">A width already decided by the parent's algorithm (content box), which the height follows.</param>
+    internal static (float Width, float Height)? ReplacedSize(ReplacedBox box, float cbWidth, float? cbHeight, float frameX, float frameY,
+                                                            float? usedWidth = null)
+    {
+        if (box.NaturalSize is not { } natural)
+            return null;
+        var (naturalWidth, naturalHeight) = natural;
+        var size = box.Style.Size;
+        var borderBox = box.Style.Box.BoxSizing == BoxSizing.BorderBox;
+        float? W(SizeValue v) => ContentSize(v, cbWidth, frameX, borderBox);
+        float? H(SizeValue v) => ContentSize(v, cbHeight, frameY, borderBox);
+        var (minW, maxW) = (W(size.MinWidth) ?? 0, W(size.MaxWidth) ?? float.PositiveInfinity);
+        var (minH, maxH) = (H(size.MinHeight) ?? 0, H(size.MaxHeight) ?? float.PositiveInfinity);
+        var ratio = naturalWidth > 0 && naturalHeight > 0 ? naturalWidth / naturalHeight : (float?)null;
+
+        var (width, height) = (usedWidth ?? W(size.Width), H(size.Height));
+        if (width is null && height is null && ratio is { } r)
+            return Constrain(naturalWidth, naturalHeight, r);
+        var w = width ?? (height is { } hh && ratio is { } r1 ? Clamp(hh, minH, maxH) * r1 : naturalWidth);
+        if (usedWidth is null)
+            w = Clamp(w, minW, maxW);
+        var h = height ?? (ratio is { } r2 ? w / r2 : naturalHeight);
+        return (w, Clamp(h, minH, maxH));
+
+        // §10.4, the table for both sizes auto: each violation is resolved keeping the ratio where the other limits allow.
+        (float, float) Constrain(float w, float h, float r)
+        {
+            maxW = Math.Max(minW, maxW);
+            maxH = Math.Max(minH, maxH);
+            if (w > maxW && h > maxH)
+                return maxW / w <= maxH / h ? (maxW, Math.Max(minH, maxW / r)) : (Math.Max(minW, maxH * r), maxH);
+            if (w < minW && h < minH)
+                return minW / w <= minH / h ? (Math.Min(maxW, minH * r), minH) : (minW, Math.Min(maxH, minW / r));
+            if (w < minW && h > maxH)
+                return (minW, maxH);
+            if (w > maxW && h < minH)
+                return (maxW, minH);
+            if (w > maxW)
+                return (maxW, Math.Max(maxW / r, minH));
+            if (w < minW)
+                return (minW, Math.Min(minW / r, maxH));
+            if (h > maxH)
+                return (Math.Max(maxH * r, minW), maxH);
+            if (h < minH)
+                return (Math.Min(minH * r, maxW), minH);
+            return (w, h);
         }
     }
 

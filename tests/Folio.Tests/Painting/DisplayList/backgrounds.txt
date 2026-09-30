@@ -64,3 +64,16 @@ fill -10,0 20x10 linear gradient, 2 stops
 fill 10,0 20x10 linear gradient, 2 stops
 fill 30,0 20x10 linear gradient, 2 stops
 pop
+=== outer shadows go under the background, the first written on top; inset ones over it
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 20px; border: 2px solid; background: white; box-shadow: 4px 4px red, 0 0 6px 2px blue, inset 1px 1px 2px lime"></div>
+---
+shadow -2,-2 28x28 rgb(0, 0, 255) blur 3 outside 0,0 24x24
+shadow 4,4 24x24 rgb(255, 0, 0) blur 0 outside 0,0 24x24
+fill 0,0 24x24 rgb(255, 255, 255)
+shadow 3,3 20x20 rgb(0, 255, 0) blur 1 inside 2,2 20x20
+border 0,0 24x24 2 solid rgb(0, 0, 0)
+
+=== shadows follow rounded corners, grown by their spread
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 20px; border-radius: 5px; box-shadow: 0 0 0 3px red"></div>
+---
+shadow -3,-3 26x26 radius 8 rgb(255, 0, 0) blur 0 outside 0,0 20x20 radius 5

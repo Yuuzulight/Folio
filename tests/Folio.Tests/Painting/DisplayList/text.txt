@@ -40,3 +40,10 @@ glyphs 0,12.8 16px rgb(0, 0, 0)
 ---
 glyphs 40,12.8 16px rgb(0, 0, 255)
 glyphs 8,12.8 24,12.8 16px rgb(0, 0, 255)
+
+=== text shadows go under the text, the last written lowest
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-shadow: 1px 1px red, 2px 2px 4px blue">a</p>
+---
+glyphs 2,14.8 16px rgb(0, 0, 255) blur 2
+glyphs 1,13.8 16px rgb(255, 0, 0)
+glyphs 0,12.8 16px rgb(0, 0, 0)

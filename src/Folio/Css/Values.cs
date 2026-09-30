@@ -97,6 +97,12 @@ internal sealed record ColorValue(CssColor Color) : CssValue;
 /// <summary>A specified corner radius: horizontal and vertical length-percentages.</summary>
 internal sealed record RadiusValue(CssValue X, CssValue Y) : CssValue;
 
+/// <summary>One specified shadow: two to four lengths, an optional colour, and inset.</summary>
+internal sealed record ShadowSpecified(IReadOnlyList<CssValue> Lengths, CssValue? Color, bool Inset);
+
+/// <summary>A specified shadow list; empty for none.</summary>
+internal sealed record ShadowListValue(IReadOnlyList<ShadowSpecified> Shadows) : CssValue;
+
 /// <summary>A specified <c>quotes</c> list of pairs.</summary>
 internal sealed record QuotesValue(Style.QuotesGroup Quotes) : CssValue;
 

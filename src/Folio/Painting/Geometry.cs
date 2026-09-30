@@ -35,7 +35,8 @@ public readonly record struct RoundedRect(RectF Rect, CornerRadii Radii)
 public readonly record struct Rgba(float R, float G, float B, float A);
 
 /// <summary>What a fill or stroke paints with: a solid colour, or a gradient when one is given.</summary>
-public readonly record struct Paint(Rgba Color, Gradient? Gradient = null);
+/// <param name="Blur">The standard deviation, in CSS pixels, of a Gaussian blur applied to what is painted (shadows); 0 for none.</param>
+public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradient = null);
 
 public enum GradientKind
 {
@@ -73,6 +74,16 @@ public enum LineCap
 
 /// <summary>How a path is stroked: its width, cap, and an optional dash pattern (on, off, ... lengths).</summary>
 public readonly record struct Stroke(float Width, LineCap Cap = LineCap.Butt, IReadOnlyList<float>? Dashes = null);
+
+/// <summary>How image pixels are sampled when an image is drawn larger or smaller than its pixel size.</summary>
+public enum ImageSampling
+{
+    /// <summary>Smoothly interpolated.</summary>
+    Smooth,
+
+    /// <summary>Nearest pixel, so enlarged pixels stay square (image-rendering: pixelated and crisp-edges).</summary>
+    Pixelated,
+}
 
 /// <summary>Options for a compositing layer; the layer is blended back when popped.</summary>
 public readonly record struct LayerOptions(float Opacity);
