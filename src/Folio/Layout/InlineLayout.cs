@@ -636,6 +636,29 @@ internal static class InlineLayout
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
     // the first family's .notdef, or half-em blanks when no font is available at all.
+    /// <summary>
+    /// An outside marker's text as text fragments, one per font run, each showing its part of the marker text, and the
+    /// ascent of the marker's font (for placing it on a baseline).
+    /// </summary>
+    public static (List<Fragment> Runs, float Ascent) MarkerText(MarkerBox marker, LayoutContext context)
+    {
+        var style = marker.Style;
+        var strut = Metrics(style, context);
+        var fragments = new List<Fragment>();
+        foreach (var run in Shape(marker.Text, 0, marker.Text.Length, style, context))
+        {
+            var m = Metrics(style, run.Face);
+            var (from, to) = (run.Clusters[0], run.Clusters.Length > 0 ? run.Clusters[^1] + 1 : 0);
+            var fragment = new Fragment(marker, run.Width, m.Ascent + m.Descent, [])
+            {
+                Kind = FragmentKind.Text,
+                Text = new TextRun(run, 0, run.Glyphs.Length, m.Ascent, false, style, marker.Text[from..Math.Min(to, marker.Text.Length)]),
+            };
+            fragments.Add(fragment);
+        }
+        return (fragments, strut.Ascent);
+    }
+
     private static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
         var font = style.Font;
