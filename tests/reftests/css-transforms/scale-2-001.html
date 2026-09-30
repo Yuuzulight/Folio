@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>scale(2) from the top-left corner doubles the box, its border and its content</title>
+<link rel="help" href="https://www.w3.org/TR/css-transforms-1/#funcdef-transform-scale">
+<style>
+  body { margin: 0; }
+  div { width: 20px; height: 20px; background: blue; border: 2px solid green; transform-origin: 0 0; }
+  span { display: block; width: 5px; height: 5px; background: orange; }
+</style>
+<div style="transform: scale(2)"><span></span></div>
+<div style="margin: 30px 0 0 10px; scale: 2"><span></span></div>

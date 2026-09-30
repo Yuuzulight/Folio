@@ -27,13 +27,13 @@ public class DisplayListTests
     public void PushesAndPopsBalance()
     {
         var list = DisplayListBuilder.Build(BlockLayoutTests.LayOut(
-            "<div style='overflow: hidden; opacity: .5; height: 10px'><div style='overflow: hidden; height: 5px'>" +
+            "<div style='overflow: hidden; opacity: .5; rotate: 5deg; height: 10px'><div style='overflow: hidden; height: 5px'>" +
             "<div style='background: red; height: 20px'></div></div></div><div style='position: fixed; background: blue; height: 1px'></div>"));
 
         var depth = 0;
         foreach (var item in list.Items)
         {
-            depth += item.Kind is DisplayItemKind.PushClip or DisplayItemKind.PushOpacity ? 1 : item.Kind == DisplayItemKind.Pop ? -1 : 0;
+            depth += item.Kind is DisplayItemKind.PushClip or DisplayItemKind.PushOpacity or DisplayItemKind.PushTransform ? 1 : item.Kind == DisplayItemKind.Pop ? -1 : 0;
             Assert.True(depth >= 0);
         }
         Assert.Equal(0, depth);
@@ -50,6 +50,7 @@ public class DisplayListTests
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushOpacity => $"opacity {N(item.Opacity)}",
+        DisplayItemKind.PushTransform when item.Transform is var m => $"transform {N(m.M11)},{N(m.M12)},{N(m.M21)},{N(m.M22)},{N(m.M31)},{N(m.M32)}",
         _ => "pop",
     };
 
@@ -77,5 +78,6 @@ public class DisplayListTests
 
     private static string Name(BorderStyle style) => style.ToString().ToLowerInvariant();
 
-    private static string N(float value) => Math.Round(value, 2).ToString(CultureInfo.InvariantCulture);
+    // Adding zero turns a rounded -0 into 0.
+    private static string N(float value) => (Math.Round(value, 2) + 0).ToString(CultureInfo.InvariantCulture);
 }

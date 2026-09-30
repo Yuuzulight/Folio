@@ -136,6 +136,32 @@ public class SkiaCanvasTests
         Assert.Equal(SKColors.Red, bitmap.GetPixel(8, 31));   // skip-ink: none
     }
 
+    [Fact]
+    public void TransformsMapTheBoxAndItsContent()
+    {
+        // A quarter turn clockwise about the top-left corner, then moved to (50, 10): the box covers x 30 to 50 and
+        // y 10 to 50, its child the top right corner of that.
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='width: 40px; height: 20px; background: blue; " +
+            "transform-origin: 0 0; transform: translate(50px, 10px) rotate(90deg)'><div style='width: 10px; height: 10px; background: red'></div></div>");
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(45, 15));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(35, 15));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(45, 45));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(20, 15));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(45, 5));
+    }
+
+    [Fact]
+    public void UnderlinesSkipTheGlyphsInkUnderATransform()
+    {
+        // Doubled from the top-left corner: the first glyph's gap spans x -4 to 36, the line shows under the space.
+        using var bitmap = Render("<style>body { margin: 0 } p { margin: 0; color: transparent; text-decoration: underline red 2px; " +
+            "transform-origin: 0 0; transform: scale(2) }</style><p>a&nbsp;a</p>");
+
+        Assert.Equal(SKColors.White, bitmap.GetPixel(16, 30));
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(48, 30));
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {

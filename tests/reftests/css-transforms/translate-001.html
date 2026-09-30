@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>translate() moves the box and its content like relative positioning</title>
+<link rel="help" href="https://www.w3.org/TR/css-transforms-1/#funcdef-transform-translate">
+<style>
+  body { margin: 0; }
+  div { width: 30px; height: 30px; background: blue; border: 3px solid green; }
+  span { display: block; width: 10px; height: 10px; background: orange; }
+</style>
+<div style="transform: translate(10px, 20px)"><span></span></div>
+<div style="translate: 5px 7px"><span></span></div>
