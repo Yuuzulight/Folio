@@ -34,7 +34,7 @@
 
 **Option B now, designed so option C can grow out of it later.**
 
-- **Milestone split**: M1 paints solid backgrounds and background images, all border styles with radii, outlines, images, text with decorations, `opacity`, and overflow clipping. M2 (static parity) adds gradients, box and text shadows, transforms, filters, `backdrop-filter`, blend modes, `clip-path`, masks and `border-image`. Until then, unsupported paint properties are skipped and reported as diagnostics.
+- **Milestone split**: M1 paints solid and gradient backgrounds and background images, all border styles with radii, outlines, box and text shadows, images, text with decorations, `opacity`, and overflow clipping (gradients and shadows moved into M1 because most S1 and S3 artifacts in the conformance corpus use them). M2 (static parity) adds transforms, filters, `backdrop-filter`, blend modes, `clip-path`, masks and `border-image`. Until then, unsupported paint properties are skipped and reported as diagnostics.
 
 - **Display list**: an array of compact item structs (command kind, bounds, index into side arrays for paths/glyph runs/images/gradients). Commands: `FillRect`, `FillRoundedRect`, `StrokeBorder` (the full border description, drawn by the backend helper), `FillPath`, `DrawGlyphRun`, `DrawImage`, `DrawGradient`, `DrawBoxShadow`, `PushClipRect/RoundedRect/Path`, `PushTransform`, `PushOpacityLayer`, `PushFilterLayer`, `PushBlendLayer`, `PushScrollFrame(scrollId)`, `Pop`. There are no hit-test items: hit testing walks the [stacking tree](10-layout-positioning-overflow-stacking.md) directly.
 - **Built from** the stacking tree in paint order. Out-of-view items are still recorded (the list is cheap); culling happens at replay against the dirty rectangle.
