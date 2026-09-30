@@ -35,3 +35,8 @@ glyphs 96,12.8 112,12.8 16px rgb(0, 0, 0)
 fill 784,0 16x16 rgb(0, 255, 0)
 glyphs 784,12.8 16px rgb(0, 0, 0)
 glyphs 0,12.8 16px rgb(0, 0, 0)
+=== outside list markers are painted in the item's colour
+<!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px; color: blue }</style><ul><li>a</li></ul>
+---
+glyphs 40,12.8 16px rgb(0, 0, 255)
+glyphs 8,12.8 24,12.8 16px rgb(0, 0, 255)
