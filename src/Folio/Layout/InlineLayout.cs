@@ -868,29 +868,21 @@ internal static class InlineLayout
         var root = new Node(null, block.Style, strut);
         var current = root;
         var boxes = new List<(Node Node, List<Piece> Pieces, Piece? Start, Piece? End)>();
+        var boxIndex = new Dictionary<Node, int>();
         void OpenBox(InlineBox box, ComputedStyle style, Piece? start)
         {
             var node = new Node(current, style, Metrics(style, context)) { Box = box };
             current.Children.Add(node);
+            boxIndex[node] = boxes.Count;
             boxes.Add((node, [], start, null));
             current = node;
         }
+        // A piece is inside every box open around it: the current one and those above it (one step per open box, so
+        // deeply nested inline boxes stay quadratic at worst rather than cubic).
         void Collect(Piece piece)
         {
-            for (var i = boxes.Count - 1; i >= 0; i--)
-            {
-                if (IsOpen(boxes[i].Node))
-                    boxes[i].Pieces.Add(piece);
-            }
-        }
-        bool IsOpen(Node node)
-        {
-            for (var n = current; n is not null; n = n.Parent)
-            {
-                if (n == node)
-                    return true;
-            }
-            return false;
+            for (var n = current; n != root; n = n.Parent!)
+                boxes[boxIndex[n]].Pieces.Add(piece);
         }
         foreach (var (box, style) in openBoxes)
             OpenBox(box, style, null);
@@ -909,7 +901,7 @@ internal static class InlineLayout
                     {
                         if (node.Box == piece.Box)
                         {
-                            var i = boxes.FindIndex(b => b.Node == node);
+                            var i = boxIndex[node];
                             boxes[i] = boxes[i] with { End = piece };
                             current = node.Parent!;
                             openBoxes.RemoveAt(openBoxes.FindLastIndex(o => o.Box == piece.Box));

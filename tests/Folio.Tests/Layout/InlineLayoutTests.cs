@@ -20,4 +20,18 @@ public class InlineLayoutTests
 
         Assert.Equal(test.Expected, BlockLayoutTests.Dump(BlockLayoutTests.LayOut(test.Input, width, height)));
     }
+
+    [Fact]
+    public void DeeplyNestedInlineBoxesLayOutQuickly()
+    {
+        // Each piece of a line joins only the boxes open around it: 500 nested boxes with 2,000 empty ones inside the
+        // deepest took seconds when every piece was checked against every box on the line.
+        var html = "<!DOCTYPE html><p>" + string.Concat(Enumerable.Repeat("<span>", 500)) + string.Concat(Enumerable.Repeat("<b></b>", 2000)) + "x</p>";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var dump = BlockLayoutTests.Dump(BlockLayoutTests.LayOut(html));
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(4), $"took {watch.Elapsed}");
+        Assert.Contains(dump, line => line.TrimStart().StartsWith("text \"x\"", StringComparison.Ordinal));
+    }
 }
