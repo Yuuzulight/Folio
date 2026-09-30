@@ -116,6 +116,15 @@ internal enum PropertyId
     TextIndent,
     TextAlignLast,
     Hyphens,
+    LetterSpacing,
+    WordSpacing,
+    TabSize,
+    WordBreak,
+    OverflowWrap,
+    TextTransform,
+    FontVariantNumeric,
+    FontFeatureSettings,
+    Quotes,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -525,6 +534,51 @@ internal static class Properties
                 r => r.Keyword("auto") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
                 (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
                 s => s.Text.UnderlineOffset, (b, v) => b.Text = b.Text with { UnderlineOffset = v }),
+
+            // https://www.w3.org/TR/css-text-4/#letter-spacing-property and #word-spacing-property: normal is 0;
+            // percentages are of 1em.
+            TextSpacingLength(PropertyId.LetterSpacing, "letter-spacing", s => s.TextSpacing.LetterSpacing, (b, v) => b.TextSpacing = b.TextSpacing with { LetterSpacing = v }),
+            TextSpacingLength(PropertyId.WordSpacing, "word-spacing", s => s.TextSpacing.WordSpacing, (b, v) => b.TextSpacing = b.TextSpacing with { WordSpacing = v }),
+            // https://www.w3.org/TR/css-text-3/#tab-size-property: a non-negative number of spaces or length.
+            new Property<TabSize>(PropertyId.TabSize, "tab-size", true, "8",
+                r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : r.LengthPercentage(allowPercent: false, nonNegative: true),
+                (v, ctx) => v is NumberValue n ? new TabSize(n.Number, false) : new TabSize(Math.Max(0, ctx.LengthPercentage(v).Resolve(0)), true),
+                s => s.TextSpacing.TabSize, (b, v) => b.TextSpacing = b.TextSpacing with { TabSize = v }),
+            Keywords(PropertyId.WordBreak, "word-break", true, "normal", Enum<WordBreakStyle>("normal", "break-all", "keep-all", "break-word"),
+                s => s.TextSpacing.WordBreak, (b, v) => b.TextSpacing = b.TextSpacing with { WordBreak = v }),
+            Keywords(PropertyId.OverflowWrap, "overflow-wrap", true, "normal", Enum<OverflowWrap>("normal", "break-word", "anywhere"),
+                s => s.TextSpacing.OverflowWrap, (b, v) => b.TextSpacing = b.TextSpacing with { OverflowWrap = v }),
+            Keywords(PropertyId.TextTransform, "text-transform", true, "none",
+                Enum<TextTransform>("none", "capitalize", "uppercase", "lowercase", "full-width", "full-size-kana"),
+                s => s.TextSpacing.Transform, (b, v) => b.TextSpacing = b.TextSpacing with { Transform = v }),
+            // https://www.w3.org/TR/css-fonts-4/#font-variant-numeric-prop: normal | [ figure || spacing || fraction || ordinal || slashed-zero ]
+            new Property<string>(PropertyId.FontVariantNumeric, "font-variant-numeric", true, "normal", VariantNumeric,
+                (v, _) => ((KeywordValue)v).Keyword, s => s.Font.VariantNumeric, (b, v) => b.Font = b.Font with { VariantNumeric = v }),
+            // https://www.w3.org/TR/css-fonts-4/#font-feature-settings-prop: normal | [ <string> [ <integer> | on | off ]? ]#
+            new Property<string>(PropertyId.FontFeatureSettings, "font-feature-settings", true, "normal", FeatureSettings,
+                (v, _) => ((KeywordValue)v).Keyword, s => s.Font.FeatureSettings, (b, v) => b.Font = b.Font with { FeatureSettings = v }),
+            // https://www.w3.org/TR/css-content-3/#quotes-property: auto | none | [ <string> <string> ]+
+            new Property<QuotesGroup>(PropertyId.Quotes, "quotes", true, "auto",
+                r =>
+                {
+                    if (r.Keyword("auto", "none") is { } k)
+                        return new KeywordValue(k);
+                    var pairs = new List<(string, string)>();
+                    while (!r.AtEnd)
+                    {
+                        if (r.String() is not { } open || r.String() is not { } close)
+                            return null;
+                        pairs.Add((open, close));
+                    }
+                    return pairs.Count == 0 ? null : new QuotesValue(new QuotesGroup(pairs));
+                },
+                (v, _) => v switch
+                {
+                    KeywordValue { Keyword: "none" } => new QuotesGroup([]),
+                    QuotesValue q => q.Quotes,
+                    _ => QuotesGroup.Initial,
+                },
+                s => s.Quotes, (b, v) => b.Quotes = v),
             // https://www.w3.org/TR/css-text-3/#text-indent-property: <length-percentage> && hanging? && each-line?
             new Property<TextIndent>(PropertyId.TextIndent, "text-indent", true, "0",
                 r =>
@@ -662,6 +716,48 @@ internal static class Properties
         return seen.Count == 0 ? null : new KeywordValue(string.Join(' ', seen));
     }
     private static readonly Dictionary<string, Style.TextAlign> TextAlignKeywords = Enum<Style.TextAlign>("start", "end", "left", "right", "center", "justify");
+
+    // letter-spacing and word-spacing: normal or a length-percentage of 1em, computed to px.
+    private static Property<float> TextSpacingLength(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
+        new(id, name, true, "normal",
+            r => r.Keyword("normal") is not null ? new KeywordValue("normal") : r.LengthPercentage(),
+            (v, ctx) => v is KeywordValue ? 0 : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
+            get, set);
+
+    // The keywords of font-variant-numeric, at most one from each group, kept in the order written.
+    private static CssValue? VariantNumeric(ValueReader r)
+    {
+        if (r.Keyword("normal") is not null)
+            return new KeywordValue("normal");
+        string[][] groups = [["lining-nums", "oldstyle-nums"], ["proportional-nums", "tabular-nums"], ["diagonal-fractions", "stacked-fractions"], ["ordinal"], ["slashed-zero"]];
+        var seen = new List<string>();
+        while (r.Keyword([.. groups.SelectMany(g => g)]) is { } keyword)
+        {
+            if (seen.Any(s => groups.First(g => g.Contains(keyword)).Contains(s)))
+                return null;
+            seen.Add(keyword);
+        }
+        return seen.Count == 0 ? null : new KeywordValue(string.Join(' ', seen));
+    }
+
+    // font-feature-settings, normalised to "tag value" pairs ("tag" alone means 1, off 0, on 1).
+    private static CssValue? FeatureSettings(ValueReader r)
+    {
+        if (r.Keyword("normal") is not null)
+            return new KeywordValue("normal");
+        var features = new List<string>();
+        while (true)
+        {
+            if (r.String() is not { Length: 4 } tag || tag.Any(c => c is < ' ' or > '~'))
+                return null;
+            var value = r.Keyword("on", "off") is { } k ? (k == "on" ? 1 : 0) : r.Integer() is { } i && i >= 0 ? i : 1;
+            features.Add($"\"{tag}\" {value}");
+            if (r.AtEnd)
+                return new KeywordValue(string.Join(", ", features));
+            if (!r.Comma())
+                return null;
+        }
+    }
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
 
@@ -1012,6 +1108,8 @@ internal static class Properties
                 (PropertyId.TextDecorationThickness, thickness ?? Get(PropertyId.TextDecorationThickness).Initial),
             ];
         }),
+        // https://www.w3.org/TR/css-text-3/#overflow-wrap-property: word-wrap is a legacy name for overflow-wrap.
+        ["word-wrap"] = new([PropertyId.OverflowWrap], r => Get(PropertyId.OverflowWrap).Parse(r) is { } wrap ? [(PropertyId.OverflowWrap, wrap)] : null),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {
             var x = Get(PropertyId.OverflowX).Parse(r.OneValue());
