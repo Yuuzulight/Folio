@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>text-align: justify widens spaces on every line but the last</title>
+<link rel="help" href="https://www.w3.org/TR/css-text-3/#text-align-property">
+<meta name="assert" content="In the box font (one em per glyph) the 20px left on the first line all go to its one inner space.">
+<style>
+  body { margin: 0; }
+  p { margin: 0; width: 100px; text-align: justify; }
+</style>
+<p>aa bb cc dd</p>
