@@ -37,6 +37,25 @@ public class SelectorTests
         Assert.Equal(test.Expected, matched);
     }
 
+    // Matching runs for every element and, under descendant combinators, for each of its ancestors, so it allocates
+    // nothing; a deep document once allocated tens of megabytes here.
+    [Fact]
+    public void MatchingAllocatesNothing()
+    {
+        var document = TreeBuilder.Parse("<svg>" + string.Concat(Enumerable.Repeat("<g class=a dir=ltr>", 200)) + "</svg>");
+        var list = Parse("svg *, svg .b, [hidden]:not(embed), [dir~=rtl] g, :is(svg, g) > .c", document, null)!;
+        var context = new MatchContext();
+        var elements = Elements(document).ToList();
+        foreach (var element in elements)
+            SelectorMatcher.Matches(list, element, context); // warm up: JIT and the sibling-index cache
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        foreach (var element in elements)
+            SelectorMatcher.Matches(list, element, context);
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
     [Fact]
     public void RuleIndexWithAncestorFilterFindsWhatBruteForceFinds()
     {

@@ -85,8 +85,15 @@ internal sealed class AncestorFilter
 /// <summary>Right-to-left selector matching (https://www.w3.org/TR/selectors-4/).</summary>
 internal static class SelectorMatcher
 {
-    public static bool Matches(SelectorList list, ElementNode element, MatchContext context) =>
-        list.Selectors.Exists(s => Matches(s, element, context));
+    public static bool Matches(SelectorList list, ElementNode element, MatchContext context)
+    {
+        foreach (var selector in list.Selectors)
+        {
+            if (Matches(selector, element, context))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>Matches ignoring the pseudo-element; callers compare <see cref="ComplexSelector.PseudoElement"/>.</summary>
     public static bool Matches(ComplexSelector selector, ElementNode element, MatchContext context) =>
@@ -172,9 +179,7 @@ internal static class SelectorMatcher
                     ? !element.Id.IsNone && element.OwnerDocument.TextOf(element.Id).Equals(id.Name, StringComparison.OrdinalIgnoreCase)
                     : element.Id == id.Atom;
             case ClassSelector c:
-                if (Quirks(element))
-                    return element.Classes.Any(x => element.OwnerDocument.TextOf(x).Equals(c.Name, StringComparison.OrdinalIgnoreCase));
-                return Array.IndexOf(element.Classes, c.Atom) >= 0;
+                return Quirks(element) ? HasClassIgnoringCase(element, c.Name) : Array.IndexOf(element.Classes, c.Atom) >= 0;
             case AttributeSelector attribute:
                 return MatchesAttribute(attribute, element);
             case PseudoClassSelector pseudo:
@@ -403,6 +408,29 @@ internal static class SelectorMatcher
         return false;
     }
 
+    // Lambdas that capture a parameter make the compiler allocate their closure on every call of the method that holds
+    // them, even when that branch never runs; matching runs for every element and ancestor, so it keeps them out.
+    private static bool HasClassIgnoringCase(ElementNode element, string name)
+    {
+        foreach (var c in element.Classes)
+        {
+            if (element.OwnerDocument.TextOf(c).Equals(name, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool HasToken(string value, string wanted, StringComparison comparison)
+    {
+        var span = value.AsSpan();
+        foreach (var range in span.SplitAny(ElementNode.AsciiWhitespace))
+        {
+            if (span[range].Equals(wanted, comparison))
+                return true;
+        }
+        return false;
+    }
+
     private static bool MatchesAttribute(AttributeSelector selector, ElementNode element)
     {
         var html = IsHtml(element);
@@ -432,7 +460,7 @@ internal static class SelectorMatcher
         {
             AttributeOperator.Equals => value.Equals(wanted, comparison),
             AttributeOperator.Includes => wanted.Length > 0 && wanted.IndexOfAny(ElementNode.AsciiWhitespace) < 0
-                && value.Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries).Any(v => v.Equals(wanted, comparison)),
+                && HasToken(value, wanted, comparison),
             AttributeOperator.DashMatch => value.Equals(wanted, comparison)
                 || (value.StartsWith(wanted, comparison) && value.Length > wanted.Length && value[wanted.Length] == '-'),
             AttributeOperator.Prefix => wanted.Length > 0 && value.StartsWith(wanted, comparison),
