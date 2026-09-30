@@ -699,6 +699,29 @@ internal static class InlineLayout
         _ => FaceStyle.Normal,
     };
 
+    /// <summary>
+    /// ex and ch for style computation (https://www.w3.org/TR/css-values-4/#font-relative-lengths): the x-height and
+    /// the advance of "0" of each font group's first available font, measured once per group.
+    /// </summary>
+    public static FontMeasure MeasureWith(FontCollection fonts)
+    {
+        var measured = new Dictionary<FontGroup, (float, float)?>();
+        return font =>
+        {
+            if (measured.TryGetValue(font, out var metrics))
+                return metrics;
+            FontFace? face = null;
+            foreach (var family in font.Family)
+            {
+                if ((face = fonts.Match(family, FaceStyleOf(font.Style), font.Weight, font.Stretch)) is not null)
+                    break;
+            }
+            var em = face?.UnitsPerEm ?? 1f;
+            return measured[font] = face is null ? null
+                : (face.XHeight / em, face.Covers('0') ? face.Advance(face.GlyphFor('0')) / em : 0);
+        };
+    }
+
     private static FontFace? PrimaryFace(ComputedStyle style, LayoutContext context)
     {
         foreach (var family in style.Font.Family)
