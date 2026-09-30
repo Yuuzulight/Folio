@@ -192,13 +192,19 @@ internal abstract class Property(PropertyId id, string name, bool inherited, str
     public string Name { get; } = name;
     public bool Inherited { get; } = inherited;
 
-    /// <summary>The initial value, parsed from the table's text with the property's own grammar.</summary>
-    public CssValue Initial { get; private set; } = null!;
+    private CssValue? _initial;
 
-    internal void InitializeInitial()
+    /// <summary>
+    /// The initial value, parsed from the table's text with the property's own grammar when first asked for: parsing
+    /// every property's up front would compile each one's parser before the first document can be styled.
+    /// </summary>
+    // Two threads may both parse it; they get equal values, and either one is kept.
+    public CssValue Initial => _initial ??= ParseInitial();
+
+    private CssValue ParseInitial()
     {
         var (source, values) = CssParser.ParseComponentValues(initialText);
-        Initial = Parse(new ValueReader(source, values)) ?? throw new InvalidOperationException($"Bad initial value for {Name}.");
+        return Parse(new ValueReader(source, values)) ?? throw new InvalidOperationException($"Bad initial value for {Name}.");
     }
 
     /// <summary>Parses the whole value (not CSS-wide keywords); null if invalid.</summary>
@@ -790,7 +796,6 @@ internal static class Properties
         foreach (var row in rows)
         {
             table[(int)row.Id] = row;
-            row.InitializeInitial();
         }
         if (table.Any(p => p is null))
             throw new InvalidOperationException("Every PropertyId needs a table row.");
