@@ -17,12 +17,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # tools/pack.ps1 numbers the packages by the commit count
 
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - run: dotnet build Folio.slnx -c Release
+
+      # The host packages build.
+      - run: pwsh -File tools/pack.ps1
 
       # Unicode conformance test files for the pinned version, cached per version and checksum file. Each file is
       # checked against tools/Folio.Gen/unicode-<version>.sha256 whether it came from the cache or the download.
