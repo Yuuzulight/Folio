@@ -26,8 +26,8 @@ namespace Folio.RefCapture;
 /// <para>Placeholders: <c>{page}</c> (file URL of the prepared page), <c>{output}</c> (PNG path), <c>{width}</c>,
 /// <c>{height}</c>, <c>{scale}</c>, <c>{profile}</c> (an empty, temporary profile folder).</para>
 /// <para>Each artifact is captured under the fixed configuration Folio's side uses (TestRenderer): the manifest
-/// viewport at scale 1, every family drawn with the bundled box font (no synthesised bold or italic, since it has one
-/// face), animations and transitions settled, no scroll bars. The window is first as tall as three quarters of its
+/// viewport at scale 1, every family drawn with the bundled text font, then the box font for characters it lacks (no
+/// synthesised bold or italic), animations and transitions settled, no scroll bars. The window is first as tall as three quarters of its
 /// width, as in Folio's full-page render; the page height measured there becomes the window height of the
 /// screenshot, and Folio lays out in a viewport as tall as the reference, so <c>vh</c> agrees on both sides.</para>
 /// </remarks>
@@ -59,7 +59,15 @@ public static class Program
             Console.Error.WriteLine("Both argument lists must run the browser headless with {profile} as its profile folder, so a capture never touches a browser the user has open.");
             return 2;
         }
-        var font = Convert.ToBase64String(File.ReadAllBytes(Path.Combine(root, "tests", "fonts", "FolioBox.ttf")));
+        var fonts = Path.Combine(root, "tests", "fonts");
+        string Face(string family, string file, int weight, string style) =>
+            $"@font-face {{ font-family: \"{family}\"; font-weight: {weight}; font-style: {style}; " +
+            $"src: url(data:font/ttf;base64,{Convert.ToBase64String(File.ReadAllBytes(Path.Combine(fonts, file)))}) format(\"truetype\"); }}";
+        var faces = string.Join('\n',
+            Face("Source Sans 3", "SourceSans3-Regular.ttf", 400, "normal"),
+            Face("Source Sans 3", "SourceSans3-Bold.ttf", 700, "normal"),
+            Face("Source Sans 3", "SourceSans3-It.ttf", 400, "italic"),
+            Face("Folio Box", "FolioBox.ttf", 400, "normal"));
 
         var corpus = Path.Combine(root, "tests", "conformance");
         var failures = 0;
@@ -71,7 +79,7 @@ public static class Program
                 continue;
 
             var width = Viewport(folder);
-            var html = File.ReadAllText(index) + Injected(font);
+            var html = File.ReadAllText(index) + Injected(faces);
             foreach (var (file, browser) in browsers)
             {
                 WaitForMemory();
@@ -140,11 +148,13 @@ public static class Program
     }
 
     // The fixed capture configuration; appended after </html>, so it lands at the end of the body and wins the cascade.
-    private static string Injected(string fontBase64) => $$"""
+    // The families match Folio.RenderTests.Conformance.FontFamilies: the bundled text font, then the box font for
+    // characters it lacks, so no system font is ever used.
+    private static string Injected(string faces) => $$"""
 
         <style>
-        @font-face { font-family: "Folio Box"; src: url(data:font/ttf;base64,{{fontBase64}}) format("truetype"); }
-        *, *::before, *::after { font-family: "Folio Box" !important; font-synthesis: none !important;
+        {{faces}}
+        *, *::before, *::after { font-family: "Source Sans 3", "Folio Box" !important; font-synthesis: none !important;
           animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; }
         html { scrollbar-width: none !important; }
         </style>

@@ -146,6 +146,7 @@ internal enum PropertyId
     ObjectFit,
     ObjectPosition,
     ImageRendering,
+    TextDecorationSkipInk,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -730,6 +731,8 @@ internal static class Properties
                 s => s.Replaced.Position, (b, v) => b.Replaced = b.Replaced with { Position = v }),
             Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", Enum<ImageRendering>("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
                 s => s.Inherited.ImageRendering, (b, v) => b.Inherited = b.Inherited with { ImageRendering = v }),
+            Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", Enum<SkipInk>("auto", "none", "all"),
+                s => s.Text.SkipInk, (b, v) => b.Text = b.Text with { SkipInk = v }),
         };
 
         rows.AddRange(TransformProperties.Rows);

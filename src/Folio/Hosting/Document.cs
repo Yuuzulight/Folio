@@ -115,6 +115,7 @@ public sealed class Document : IDisposable
 
     private FontCollection? _fonts;
     private Imaging.ImageLoader? _images;
+    private bool _webFontsLoaded;
     private readonly Dictionary<ElementNode, Element> _elements = [];
 
     /// <summary>The root element, or null for an empty document.</summary>
@@ -222,14 +223,21 @@ public sealed class Document : IDisposable
     {
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark);
         _fonts ??= FontCollection.For(Options.Fonts);
-        StyleResolver.Resolve(Node, media, Options.UserStyleSheet, new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri),
-            InlineLayout.MeasureWith(_fonts));
+        var sources = new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+        var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts));
+        if (!_webFontsLoaded)
+        {
+            // Web fonts load once, synchronously, before the first layout, so font-display never has a swap to do.
+            // Styles are resolved again when some loaded, since ex and ch measure the first available font.
+            _webFontsLoaded = true;
+            if (WebFonts.Load(fontFaces, _fonts, sources.Loader) > 0)
+                StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts));
+        }
         // Images load once per document (docs/study/16-resources-and-security.md: data: URLs only by default).
-        _images ??= new Imaging.ImageLoader(ResourceLoader.DataUrlsOnly, StyleResolver.BaseUrl(Node, Options.BaseUri?.AbsoluteUri),
+        _images ??= new Imaging.ImageLoader(sources.Loader, StyleResolver.BaseUrl(Node, Options.BaseUri?.AbsoluteUri),
             message => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, "img")));
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (new DisplayList(), 0);
-        _fonts ??= FontCollection.For(Options.Fonts);
         var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();

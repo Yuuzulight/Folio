@@ -16,7 +16,8 @@ internal enum DisplayItemKind
 
     /// <summary>
     /// Draws a text decoration line in <see cref="DisplayItem.LineStyle"/> across <see cref="DisplayItem.Shape"/>, whose
-    /// height is the line's thickness (a wavy line reaches three times that below its top edge).
+    /// height is the line's thickness (a wavy line reaches three times that below its top edge). With
+    /// <see cref="DisplayItem.Glyphs"/>, the line leaves gaps where it would cross their ink (text-decoration-skip-ink).
     /// </summary>
     Decoration,
 

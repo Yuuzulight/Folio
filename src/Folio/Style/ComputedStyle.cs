@@ -139,6 +139,9 @@ internal enum TextDecorationLine { None = 0, Underline = 1, Overline = 2, LineTh
 
 internal enum TextDecorationStyle { Solid, Double, Dotted, Dashed, Wavy }
 
+/// <summary>https://www.w3.org/TR/css-text-decor-4/#text-decoration-skip-ink-property (all acts as auto: ideographs are not told apart)</summary>
+internal enum SkipInk { Auto, None, All }
+
 /// <summary>Text decorations (not inherited). A null thickness is auto or from-font: the font's own.</summary>
 internal sealed record DecorationGroup(TextDecorationLine Line, TextDecorationStyle Style, CssColor Color, float? Thickness)
 {
@@ -302,7 +305,7 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
                                  float? UnderlineOffset = null,
                                  TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual,
-                                 ImageValue? ListStyleImage = null);
+                                 ImageValue? ListStyleImage = null, SkipInk SkipInk = SkipInk.Auto);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 

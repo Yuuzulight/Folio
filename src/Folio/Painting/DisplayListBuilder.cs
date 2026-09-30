@@ -318,10 +318,12 @@ internal static class DisplayListBuilder
                     x += advance;
             }
             SetClip(box.Clip);
-            var decorations = style.Inherited.Decorations is null ? null : DecorationLines(box, run, face, baseline);
+            var glyphRun = new GlyphRun(face, run.Run.Size, glyphs, origins);
+            var decorations = style.Inherited.Decorations is null ? null
+                : DecorationLines(box, run, face, baseline, style.Text.SkipInk == SkipInk.None ? null : glyphRun);
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => d.Under).Select(d => d.Item));
-            list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, origins)));
+            list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: glyphRun));
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => !d.Under).Select(d => d.Item));
         }
@@ -330,10 +332,12 @@ internal static class DisplayListBuilder
         /// The lines of the decorations applied to a text fragment, outermost decorating box first
         /// (https://www.w3.org/TR/css-text-decor-4/#line-decoration): underlines and overlines go under the glyphs,
         /// line-throughs over them. Positions and auto thicknesses come from the font's post and OS/2 metrics.
+        /// Underlines and overlines carry <paramref name="skipInk"/>, the glyphs they leave gaps around.
         /// </summary>
         // ponytail: each fragment places its lines from its own font, so a decorating box with mixed fonts or sizes gets
         // lines at several heights rather than one position for the whole box.
-        private static List<(DisplayItem Item, bool Under)> DecorationLines(PaintBox box, Layout.TextRun run, Typography.FontFace face, float baseline)
+        private static List<(DisplayItem Item, bool Under)> DecorationLines(PaintBox box, Layout.TextRun run, Typography.FontFace face, float baseline,
+                                                                             GlyphRun? skipInk)
         {
             var chain = new List<AppliedDecoration>();
             for (var d = run.Style.Inherited.Decorations; d is not null; d = d.Outer)
@@ -343,7 +347,7 @@ internal static class DisplayListBuilder
             var (left, right) = (box.X, box.X + box.Fragment.Width);
             if (box.LineEnd && run.Style.Text.WhiteSpaceCollapse is not (WhiteSpaceCollapse.Preserve or WhiteSpaceCollapse.BreakSpaces))
             {
-                var (space, ideographic) = (face.GlyphFor(' '), face.GlyphFor('　'));
+                var (space, ideographic) = (face.GlyphFor(' '), face.GlyphFor('\u3000'));
                 var trim = 0f;
                 for (var g = run.GlyphEnd - 1; g >= run.GlyphStart && run.Run.Glyphs[g] is var id && id != 0 && (id == space || id == ideographic); g--)
                     trim += run.Run.Advances[g];
@@ -363,11 +367,12 @@ internal static class DisplayListBuilder
                 {
                     if (d.Style == TextDecorationStyle.Double)
                     {
-                        lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color), under));
+                        lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color,
+                            Glyphs: under ? skipInk : null), under));
                         top += 2 * thickness * doubleDirection;
                     }
                     lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color,
-                        LineStyle: d.Style == TextDecorationStyle.Double ? TextDecorationStyle.Solid : d.Style), under));
+                        Glyphs: under ? skipInk : null, LineStyle: d.Style == TextDecorationStyle.Double ? TextDecorationStyle.Solid : d.Style), under));
                 }
                 if (d.Line.HasFlag(TextDecorationLine.Underline))
                     Add(baseline + (d.Offset ?? (face.UnderlinePosition != 0 ? -face.UnderlinePosition * scale : run.Run.Size / 10)), true, 1);
