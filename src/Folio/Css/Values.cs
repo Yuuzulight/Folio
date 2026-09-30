@@ -97,6 +97,9 @@ internal sealed record ColorValue(CssColor Color) : CssValue;
 /// <summary>A specified corner radius: horizontal and vertical length-percentages.</summary>
 internal sealed record RadiusValue(CssValue X, CssValue Y) : CssValue;
 
+/// <summary>A specified <c>text-indent</c>: a length-percentage and its keywords.</summary>
+internal sealed record TextIndentValue(CssValue Length, bool Hanging, bool EachLine) : CssValue;
+
 /// <summary>A colour that depends on the element: <c>color-mix()</c> with <c>currentcolor</c>, or <c>light-dark()</c>.</summary>
 internal abstract record ColorExpression;
 

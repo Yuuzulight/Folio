@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>A line broken at a soft hyphen shows a hyphen; text-indent moves the first line</title>
+<link rel="help" href="https://www.w3.org/TR/css-text-3/#hyphens-property">
+<link rel="help" href="https://www.w3.org/TR/css-text-3/#text-indent-property">
+<meta name="assert" content="The box font draws the hyphen as one more em box; the first line starts 16px in.">
+<style>
+  body { margin: 0; }
+  p { margin: 0; width: 80px; text-indent: 16px; }
+</style>
+<p>aaa&shy;bbb</p>

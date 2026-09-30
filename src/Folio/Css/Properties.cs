@@ -113,6 +113,9 @@ internal enum PropertyId
     TextDecorationColor,
     TextDecorationThickness,
     TextUnderlineOffset,
+    TextIndent,
+    TextAlignLast,
+    Hyphens,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -427,7 +430,7 @@ internal static class Properties
             // https://www.w3.org/TR/compositing-1/#isolation
             Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
             // https://www.w3.org/TR/css-text-3/#text-align-property (match-parent is not supported)
-            Keywords(PropertyId.TextAlign, "text-align", true, "start", Enum<Style.TextAlign>("start", "end", "left", "right", "center", "justify"),
+            Keywords(PropertyId.TextAlign, "text-align", true, "start", TextAlignKeywords,
                 s => s.Text.TextAlign, (b, v) => b.Text = b.Text with { TextAlign = v }),
             // https://www.w3.org/TR/CSS22/visudet.html#propdef-vertical-align
             new Property<VerticalAlign>(PropertyId.VerticalAlign, "vertical-align", false, "baseline",
@@ -522,6 +525,33 @@ internal static class Properties
                 r => r.Keyword("auto") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
                 (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
                 s => s.Text.UnderlineOffset, (b, v) => b.Text = b.Text with { UnderlineOffset = v }),
+            // https://www.w3.org/TR/css-text-3/#text-indent-property: <length-percentage> && hanging? && each-line?
+            new Property<TextIndent>(PropertyId.TextIndent, "text-indent", true, "0",
+                r =>
+                {
+                    CssValue? length = null;
+                    var keywords = new List<string>();
+                    while (!r.AtEnd)
+                    {
+                        if (length is null && r.LengthPercentage() is { } l)
+                            length = l;
+                        else if (r.Keyword("hanging", "each-line") is { } k && !keywords.Contains(k))
+                            keywords.Add(k);
+                        else
+                            return null;
+                    }
+                    return length is null ? null : new TextIndentValue(length, keywords.Contains("hanging"), keywords.Contains("each-line"));
+                },
+                (v, ctx) => v is TextIndentValue t ? new TextIndent(ctx.LengthPercentage(t.Length), t.Hanging, t.EachLine) : default,
+                s => s.Text.TextIndent, (b, v) => b.Text = b.Text with { TextIndent = v }),
+            // https://www.w3.org/TR/css-text-3/#text-align-last-property (auto is null)
+            new Property<Style.TextAlign?>(PropertyId.TextAlignLast, "text-align-last", true, "auto",
+                r => r.Keyword("auto", "start", "end", "left", "right", "center", "justify") is { } k ? new KeywordValue(k) : null,
+                (v, _) => ((KeywordValue)v).Keyword == "auto" ? null : TextAlignKeywords[((KeywordValue)v).Keyword],
+                s => s.Text.TextAlignLast, (b, v) => b.Text = b.Text with { TextAlignLast = v }),
+            // https://www.w3.org/TR/css-text-3/#hyphens-property (auto hyphenates only at soft hyphens: there are no dictionaries)
+            Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
+                s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -631,6 +661,7 @@ internal static class Properties
             seen.Add(r.Keyword(k)!);
         return seen.Count == 0 ? null : new KeywordValue(string.Join(' ', seen));
     }
+    private static readonly Dictionary<string, Style.TextAlign> TextAlignKeywords = Enum<Style.TextAlign>("start", "end", "left", "right", "center", "justify");
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
 

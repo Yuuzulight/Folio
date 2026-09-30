@@ -76,7 +76,7 @@ internal static class CaseFiles
                 case '"': result.Append("\\\""); break;
                 case '\n': result.Append(@"\n"); break;
                 case '\t': result.Append(@"\t"); break;
-                case < ' ' or (>= '\u007F' and <= '\u009F') or >= '\uFFFD':
+                case < ' ' or (>= '\u007F' and <= '\u009F') or '\u00AD' or >= '\uFFFD':
                     result.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:X4}");
                     break;
                 default: result.Append(c); break;
