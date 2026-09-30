@@ -112,3 +112,13 @@ transform 1,0,0,1,0,0
 clip 0,0 200x100
 pop
 pop
+
+=== alignment-baseline on text and tspans, and SVG 1.1 baseline names
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text y="20" alignment-baseline="middle" dominant-baseline="text-top">a</text><text y="20" alignment-baseline="baseline" dominant-baseline="text-before-edge">a<tspan alignment-baseline="text-after-edge">b</tspan></text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 0,26.4 16px rgb(0, 0, 0)
+glyphs 0,32.8 16,16.8 16px rgb(0, 0, 0)
+pop
+pop

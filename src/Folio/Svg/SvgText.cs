@@ -30,7 +30,7 @@ internal static class SvgText
         public float? X, Y, Dx, Dy;
     }
 
-    private sealed record Span(int Start, int End, ComputedStyle Style);
+    private sealed record Span(int Start, int End, ComputedStyle Style, ElementNode Element);
 
     public static SvgTextNode? Build(ElementNode text, ComputedStyle style, Matrix3x2 transform, Vector2 viewport, LayoutContext context)
     {
@@ -75,7 +75,7 @@ internal static class SvgText
         {
             var spanStyle = span.Style;
             var color = spanStyle.Inherited.Visibility == Visibility.Visible ? Paint(spanStyle) : null;
-            var shift = BaselineShift(spanStyle, context);
+            var shift = BaselineShift(spanStyle, AlignmentBaseline(span.Element, text) ?? spanStyle.Svg.DominantBaseline, context);
             foreach (var run in InlineLayout.Shape(content, span.Start, span.End - span.Start, spanStyle, context))
             {
                 for (var g = 0; g < run.Glyphs.Length; g++)
@@ -152,7 +152,7 @@ internal static class SvgText
                         afterSpace = space;
                     }
                     if (chars.Length > spanStart)
-                        spans.Add(new Span(spanStart, chars.Length, elementStyle));
+                        spans.Add(new Span(spanStart, chars.Length, elementStyle, element));
                 }
                 else if (child is ElementNode { LocalName: "tspan" or "a" } inner && inner.Name.Namespace == Namespaces.Svg
                          && inner.ComputedStyle() is { Box.Display: not Display.None } innerStyle
@@ -177,12 +177,34 @@ internal static class SvgText
         return alpha > 0 ? c with { A = alpha } : null;
     }
 
-    // How far below the position's y the alphabetic baseline goes so the dominant baseline sits there
+    // alignment-baseline written on the element or an ancestor within the text element, which SVG files use on text
+    // like dominant-baseline (https://www.w3.org/TR/css-inline-3/#alignment-baseline-property), with SVG 1.1's names.
+    // ponytail: read from the attribute only, not from CSS.
+    private static DominantBaseline? AlignmentBaseline(ElementNode element, ElementNode text)
+    {
+        for (var e = element; ; e = (ElementNode)e.Parent!)
+        {
+            if (e.GetAttribute("alignment-baseline")?.Trim() is { } value && AlignmentKeywords.TryGetValue(value, out var baseline))
+                return baseline;
+            if (e == text)
+                return null;
+        }
+    }
+
+    private static readonly Dictionary<string, DominantBaseline?> AlignmentKeywords = new()
+    {
+        ["auto"] = null, ["baseline"] = null, ["alphabetic"] = DominantBaseline.Alphabetic, ["ideographic"] = DominantBaseline.Ideographic,
+        ["middle"] = DominantBaseline.Middle, ["central"] = DominantBaseline.Central, ["mathematical"] = DominantBaseline.Mathematical,
+        ["hanging"] = DominantBaseline.Hanging, ["text-top"] = DominantBaseline.TextTop, ["text-before-edge"] = DominantBaseline.TextTop,
+        ["before-edge"] = DominantBaseline.TextTop, ["top"] = DominantBaseline.TextTop, ["text-bottom"] = DominantBaseline.TextBottom,
+        ["text-after-edge"] = DominantBaseline.TextBottom, ["after-edge"] = DominantBaseline.TextBottom, ["bottom"] = DominantBaseline.TextBottom,
+    };
+
+    // How far below the position's y the alphabetic baseline goes so the given baseline sits there
     // (https://www.w3.org/TR/css-inline-3/#dominant-baseline-property).
     // ponytail: hanging and mathematical baselines are estimated from the ascent rather than read from a BASE table.
-    private static float BaselineShift(ComputedStyle style, LayoutContext context)
+    private static float BaselineShift(ComputedStyle style, DominantBaseline baseline, LayoutContext context)
     {
-        var baseline = style.Svg.DominantBaseline;
         if (baseline is DominantBaseline.Auto or DominantBaseline.Alphabetic)
             return 0;
         var (ascent, descent, xHeight) = InlineLayout.FontMetrics(style, context);
