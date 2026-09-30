@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>A hard-stop gradient mask equals a box clipped at the stop</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#the-mask-image">
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 40px; background: blue; mask-image: linear-gradient(to right, black 50%, transparent 50%); }
+  span { display: block; height: 10px; width: 200px; background: orange; }
+</style>
+<div><span></span></div>

@@ -154,6 +154,14 @@ internal enum PropertyId
     MixBlendMode,
     BackgroundBlendMode,
     ClipPath,
+    MaskImage,
+    MaskMode,
+    MaskRepeat,
+    MaskPosition,
+    MaskSize,
+    MaskOrigin,
+    MaskClip,
+    MaskComposite,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -231,6 +239,8 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
+        foreach (var (name, shorthand) in MaskProperties.Shorthands)
+            Shorthands[name] = shorthand;
     }
 
     public static IReadOnlyList<Property> All => Table;
@@ -434,10 +444,7 @@ internal static class Properties
                 (p, ctx) => new Style.BackgroundPosition(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd)),
                 s => s.Background.Positions, (b, v) => b.Background = b.Background with { Positions = v }),
             Layers<SizeSpecified, BackgroundSize>(PropertyId.BackgroundSize, "background-size", "auto",
-                BackgroundParsing.Size,
-                (z, ctx) => new BackgroundSize(z.Kind,
-                    z.Width is null ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(z.Width, nonNegative: true)),
-                    z.Height is null ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(z.Height, nonNegative: true))),
+                BackgroundParsing.Size, ComputeSize,
                 s => s.Background.Sizes, (b, v) => b.Background = b.Background with { Sizes = v }),
             Layers<RepeatStyle, RepeatStyle>(PropertyId.BackgroundRepeat, "background-repeat", "repeat",
                 BackgroundParsing.Repeat, (x, _) => x,
@@ -753,6 +760,7 @@ internal static class Properties
         rows.AddRange(TransformProperties.Rows);
         rows.AddRange(FilterProperties.Rows);
         rows.Add(ShapeProperties.Row);
+        rows.AddRange(MaskProperties.Rows);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)
@@ -1034,7 +1042,7 @@ internal static class Properties
             get, set);
 
     // A background longhand: a comma-separated list, one value per layer.
-    private static Property<IReadOnlyList<TComputed>> Layers<TSpecified, TComputed>(PropertyId id, string name, string initial,
+    internal static Property<IReadOnlyList<TComputed>> Layers<TSpecified, TComputed>(PropertyId id, string name, string initial,
         Func<ValueReader, TSpecified?> item, Func<TSpecified, ComputeContext, TComputed> compute,
         Func<ComputedStyle, IReadOnlyList<TComputed>> get, Action<StyleBuilder, IReadOnlyList<TComputed>> set) where TSpecified : struct =>
         new(id, name, false, initial,
@@ -1061,6 +1069,11 @@ internal static class Properties
         static CssValue Corner(List<CssValue> l, int i) => i < l.Count ? l[i] : i == 3 && l.Count > 1 ? l[1] : l[0];
         return [.. Enumerable.Range(0, 4).Select(i => new RadiusValue(Corner(horizontal, i), Corner(vertical, i)))];
     }
+
+    /// <summary>A computed background or mask size.</summary>
+    internal static BackgroundSize ComputeSize(SizeSpecified z, ComputeContext ctx) => new(z.Kind,
+        z.Width is null ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(z.Width, nonNegative: true)),
+        z.Height is null ? SizeValue.Auto : SizeValue.Of(ctx.LengthPercentage(z.Height, nonNegative: true)));
 
     /// <summary>A computed position: offsets from the left and top edges.</summary>
     internal static Style.BackgroundPosition ComputePosition(PositionSpecified p, ComputeContext ctx) =>
@@ -1118,7 +1131,7 @@ internal static class Properties
 
     // ---------------------------------------------------------------- shorthands
 
-    private sealed record Shorthand(PropertyId[] Longhands, Func<ValueReader, List<(PropertyId, CssValue)>?> Expand);
+    internal sealed record Shorthand(PropertyId[] Longhands, Func<ValueReader, List<(PropertyId, CssValue)>?> Expand);
 
     private static readonly Dictionary<string, Shorthand> Shorthands = new(StringComparer.Ordinal)
     {

@@ -281,6 +281,53 @@ public class SkiaCanvasTests
         Assert.Equal(SKColors.White, bitmap.GetPixel(21, 1));
     }
 
+    [Fact]
+    public void AlphaAndLuminanceMasksFadeTheBox()
+    {
+        using var bitmap = Render("<style>body { margin: 0 } div { width: 20px; height: 40px; background: red }</style>" +
+            "<div style='mask-image: linear-gradient(black, transparent)'></div><div style='mask: linear-gradient(white, black) luminance; margin: -40px 0 0 30px'></div>" +
+            "<div style='mask: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) 0 0 / 20px 40px luminance; margin: -40px 0 0 60px'></div>");
+
+        AssertNear(SKColors.Red, bitmap.GetPixel(10, 0), 8);
+        AssertNear(SKColors.White, bitmap.GetPixel(10, 39), 8);
+        Assert.InRange(bitmap.GetPixel(10, 20).Green, 110, 145);
+        AssertNear(SKColors.Red, bitmap.GetPixel(40, 0), 8);
+        AssertNear(SKColors.White, bitmap.GetPixel(40, 39), 8);
+        // A red mask keeps 21% of the box, a green one 72%.
+        AssertNear(new SKColor(255, 201, 201), bitmap.GetPixel(65, 20), 3);
+        AssertNear(new SKColor(255, 72, 72), bitmap.GetPixel(75, 20), 3);
+    }
+
+    [Fact]
+    public void MaskLayersComposite()
+    {
+        // The border idiom: the content box excluded from the border box leaves the padding ring.
+        using var bitmap = Render("<style>body { margin: 0 } div { width: 20px; height: 20px; background: blue }</style>" +
+            "<div style='padding: 5px; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude'></div>" +
+            "<div style='margin: -30px 0 0 40px; mask: linear-gradient(to right, black 50%, transparent 50%), linear-gradient(black 50%, transparent 50%); mask-composite: intersect'></div>" +
+            "<div style='margin: 10px 0 0 40px; mask: linear-gradient(to right, black 50%, transparent 50%), linear-gradient(black 50%, transparent 50%); mask-composite: subtract'></div>");
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(2, 15));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(15, 15));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(45, 5));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(55, 5));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(45, 15));
+        // Subtract keeps the left half where the top half is not.
+        Assert.Equal(SKColors.White, bitmap.GetPixel(45, 35));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(45, 45));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(55, 45));
+    }
+
+    [Fact]
+    public void MasksApplyAfterFilters()
+    {
+        // The blur spreads past the box, but the mask, clipped to the border box, cuts it off there.
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='margin: 20px; width: 40px; height: 20px; background: blue; filter: blur(4px); mask-image: linear-gradient(black, black)'></div>");
+
+        Assert.Equal(SKColors.White, bitmap.GetPixel(18, 30));
+        Assert.NotEqual(SKColors.White, bitmap.GetPixel(21, 30));
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {

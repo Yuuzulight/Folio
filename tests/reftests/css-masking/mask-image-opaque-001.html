@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>An opaque mask changes nothing</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#the-mask-image">
+<style>
+  body { margin: 0; }
+  div { width: 60px; height: 40px; background: linear-gradient(90deg, orange, teal); border: 4px solid rgb(20 40 200 / 0.6); border-radius: 8px; }
+  span { display: block; margin: 10px; height: 10px; background: rgb(200 30 90 / 0.5); }
+</style>
+<div style="mask-image: linear-gradient(black, black)"><span></span></div>
+<div style="mask: linear-gradient(white, white) luminance, none"><span></span></div>

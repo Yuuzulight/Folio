@@ -49,7 +49,7 @@ public sealed class LocalStyleSheetTests : IDisposable
     [Fact]
     public void ImageUrlsResolveAgainstTheSheetTheyAreWrittenIn()
     {
-        Write("site/css/main.css", "p { background-image: url(img/a.png), linear-gradient(red, blue) }");
+        Write("site/css/main.css", "p { background-image: url(img/a.png), linear-gradient(red, blue); mask: url(img/m.png) }");
         var site = Path.Combine(_folder, "site");
         string Url(ImageValue image) => ((UrlImage)image).Url;
 
@@ -57,6 +57,7 @@ public sealed class LocalStyleSheetTests : IDisposable
         var linked = Resolve("<!DOCTYPE html><link rel=stylesheet href=css/main.css><p id=a>x", Sources(site));
         Assert.Equal(new Uri(Path.Combine(site, "css", "img", "a.png")).AbsoluteUri, Url(linked.Background.Images[0]));
         Assert.IsType<GradientImage>(linked.Background.Images[1]);
+        Assert.Equal(new Uri(Path.Combine(site, "css", "img", "m.png")).AbsoluteUri, Url(linked.Mask.Images[0]));
         var inline = Resolve("<!DOCTYPE html><base href=deep/><style>p { background: url(b.png) }</style><p id=a style='list-style-image: url(c.png)'>x", Sources(site));
         Assert.Equal(new Uri(Path.Combine(site, "deep", "b.png")).AbsoluteUri, Url(inline.Background.Images[0]));
         Assert.Equal(new Uri(Path.Combine(site, "deep", "c.png")).AbsoluteUri, Url(inline.Text.ListStyleImage!));

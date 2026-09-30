@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<title>Masks</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 24px; margin-bottom: 28px; align-items: flex-start; }
+  .tile { width: 120px; height: 90px; background: linear-gradient(135deg, #f59e0b, #e11d48 55%, #6366f1); }
+  .ring { width: 110px; height: 80px; padding: 5px; border-radius: 18px; background: conic-gradient(#22c55e, #0ea5e9, #6366f1, #e11d48, #22c55e); }
+</style>
+<div class="row">
+  <div class="tile" style="mask-image: linear-gradient(to bottom, black 40%, transparent)"></div>
+  <div class="tile" style="mask-image: radial-gradient(circle, black 45%, transparent 70%)"></div>
+  <div class="tile" style="mask: linear-gradient(90deg, white, black) luminance"></div>
+  <div class="tile" style="mask: radial-gradient(circle at 30% 30%, white 20%, #444 50%, black 70%) luminance"></div>
+</div>
+<div class="row">
+  <div class="ring" style="mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude"></div>
+  <div class="ring" style="-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor"></div>
+  <div class="tile" style="mask: linear-gradient(black, black), radial-gradient(circle, black 60%, transparent 61%) 0 0 / 20px 20px; mask-composite: subtract"></div>
+  <div class="tile" style="mask: linear-gradient(45deg, black 50%, transparent 50%), radial-gradient(circle, black 60%, transparent 61%); mask-composite: intersect"></div>
+</div>
+<div class="row">
+  <div class="tile" style="mask: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 0 0 / 30px 30px"></div>
+  <div class="tile" style="mask: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) center / contain no-repeat luminance"></div>
+  <div class="tile" style="mask: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR42mP4Oo/7Pz6cnPYRL2YYNQC3AQxogCQDGHAA2hiAVRAHwGoZTQzAZgjOwCYUTYSiedQA7v8AzPNVvxoSdQAAAAAASUVORK5CYII=) 0 0 / 30px round; filter: blur(1px); opacity: 0.8"></div>
+  <div class="tile" style="mask: radial-gradient(black 50%, transparent 51%) center / 40px 40px space padding-box; padding: 6px"></div>
+</div>

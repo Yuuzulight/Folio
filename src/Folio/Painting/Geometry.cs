@@ -41,7 +41,9 @@ public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradie
 
 /// <summary>
 /// How a source blends with its backdrop: source-over with the blend functions of
-/// https://drafts.csswg.org/compositing-2/#blending, or, for <see cref="PlusLighter"/>, added and clamped.
+/// https://drafts.csswg.org/compositing-2/#blending; for <see cref="PlusLighter"/>, added and clamped; or composited by
+/// the Porter-Duff operator named (https://drafts.csswg.org/compositing-2/#advancedcompositing), which also removes
+/// backdrop outside the source where the operator says so.
 /// </summary>
 public enum BlendMode
 {
@@ -62,6 +64,18 @@ public enum BlendMode
     Color,
     Luminosity,
     PlusLighter,
+
+    /// <summary>Porter-Duff source in: the source where the backdrop is, nothing elsewhere.</summary>
+    SourceIn,
+
+    /// <summary>Porter-Duff source out: the source where the backdrop is not, nothing elsewhere.</summary>
+    SourceOut,
+
+    /// <summary>Porter-Duff destination in: the backdrop where the source is, nothing elsewhere (masking).</summary>
+    DestinationIn,
+
+    /// <summary>Porter-Duff xor: the source and the backdrop where they do not overlap.</summary>
+    Xor,
 }
 
 public enum GradientKind
