@@ -43,6 +43,7 @@ internal static class DisplayListBuilder
         public List<Context> Negative { get; } = [];
         public List<Context> ZeroOrAuto { get; } = [];
         public List<Context> Positive { get; } = [];
+        public List<PaintBox> Outlines { get; } = [];
     }
 
     public static DisplayList Build(Fragment initialContainingBlock)
@@ -93,6 +94,8 @@ internal static class DisplayListBuilder
             var box = placed.Box;
             var style = box.Style.Box;
             var index = order.GetValueOrDefault(box);
+            if (box.Style.Outline.Width > 0 && box is not TableWrapperBox)
+                real.Outlines.Add(placed);
             if (CreatesStackingContext(box))
             {
                 var z = style.ZIndex ?? 0;
@@ -226,6 +229,9 @@ internal static class DisplayListBuilder
                 Emit(c);
             foreach (var c in Sorted(context.Positive))
                 Emit(c);
+            // Outlines last, over everything else in the stacking context (CSS 2.2 Appendix E, step 10).
+            foreach (var box in context.Outlines)
+                PaintOutline(box);
 
             if (opacity < 1)
             {
@@ -354,6 +360,29 @@ internal static class DisplayListBuilder
                 }
             }
             return lines;
+        }
+
+        /// <summary>
+        /// An outline around the border box, <c>outline-offset</c> away from it, following its corners
+        /// (https://www.w3.org/TR/css-ui-4/#outline-props). The auto style draws as solid.
+        /// </summary>
+        private void PaintOutline(PaintBox box)
+        {
+            var style = box.Box.Style;
+            if (style.Inherited.Visibility != Visibility.Visible)
+                return;
+            var outline = style.Outline;
+            var (w, grow) = (outline.Width, outline.Offset + outline.Width);
+            var shape = BorderBox(box);
+            static System.Numerics.Vector2 Grown(System.Numerics.Vector2 r, float by) => r == System.Numerics.Vector2.Zero ? r : System.Numerics.Vector2.Max(r + new System.Numerics.Vector2(by), System.Numerics.Vector2.Zero);
+            var radii = shape.Radii;
+            var outer = new RoundedRect(shape.Rect.Inset(-grow, -grow, -grow, -grow),
+                new CornerRadii(Grown(radii.TopLeft, grow), Grown(radii.TopRight, grow), Grown(radii.BottomRight, grow), Grown(radii.BottomLeft, grow)));
+            var borderStyle = outline.Style == OutlineStyle.Auto ? BorderStyle.Solid : Enum.Parse<BorderStyle>(outline.Style.ToString());
+            var color = outline.Color.Resolve(style.Inherited.Color);
+            SetClip(box.Clip);
+            list.Items.Add(new DisplayItem(DisplayItemKind.Border, outer,
+                Border: new BorderGroup(w, w, w, w, borderStyle, borderStyle, borderStyle, borderStyle, color, color, color, color)));
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

@@ -42,6 +42,14 @@ internal static class BlockLayout
             : ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
         var minHeight = space.FixedHeight is null ? ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0 : 0;
         var maxHeight = space.FixedHeight is null ? ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity : float.PositiveInfinity;
+        // aspect-ratio (css-sizing-4 §5.1): an auto height follows the width through the ratio, in the box-sizing box. It
+        // is still at least the content's height unless the box scrolls or clips (the automatic minimum size).
+        var fromRatio = false;
+        if (height is null && style.Size.AspectRatio is { } ratio && box is not ReplacedBox)
+        {
+            height = borderBox ? Math.Max(0, (width + frameX) / ratio - frameY) : width / ratio;
+            fromRatio = style.Box.OverflowX == Overflow.Visible && style.Box.OverflowY == Overflow.Visible;
+        }
         var definiteHeight = height is { } h ? Clamp(h, minHeight, maxHeight) : (float?)null;
 
         var independent = EstablishesIndependentFormattingContext(box);
@@ -233,12 +241,12 @@ internal static class BlockLayout
         // Height: auto is the flow's extent; min and max apply either way (§10.6.3, §10.7). An independent formatting
         // context's auto height also contains its floats (§10.6.7).
         var flowHeight = cursor;
-        var contentHeight = Clamp(height ?? flowHeight, minHeight, maxHeight);
+        var contentHeight = Clamp(fromRatio ? Math.Max(height!.Value, flowHeight) : height ?? flowHeight, minHeight, maxHeight);
         if (collapseBottom && contentHeight != flowHeight)
             collapseBottom = false; // min-height or max-height moved the bottom edge away from the last child
         if (!collapseBottom && !atTop)
         {
-            contentHeight = Clamp(height ?? flowHeight + pending.Resolve(), minHeight, maxHeight);
+            contentHeight = Clamp(fromRatio ? Math.Max(height!.Value, flowHeight + pending.Resolve()) : height ?? flowHeight + pending.Resolve(), minHeight, maxHeight);
             pending = default;
         }
         if (independent && height is null && !exclusions.IsEmpty)
