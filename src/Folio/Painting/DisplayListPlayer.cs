@@ -31,6 +31,9 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Decoration:
                     PaintDecoration(canvas, item.Shape.Rect, item.LineStyle, new Paint(ToRgba(item.Color)));
                     break;
+                case DisplayItemKind.Image:
+                    canvas.DrawImage(item.Image!, item.Shape.Rect, item.Sampling);
+                    break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();
                     canvas.ClipRoundedRect(item.Shape);

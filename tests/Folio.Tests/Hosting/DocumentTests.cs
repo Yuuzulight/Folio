@@ -151,6 +151,23 @@ public class DocumentTests
     }
 
     [Fact]
+    public void LoadsImagesFromDataUrlsOnlyAndReportsTheRest()
+    {
+        using var document = Document.Parse("<!DOCTYPE html><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC'><img src='photo.png'>" +
+            "<img src='file:///C:/Windows/win.ini'><img src='data:text/plain,hello'><img src='photo.png'>", BoxFont);
+
+        document.Paint(800, 600);
+        document.Paint(800, 600);
+
+        // The relative URL resolves against the https base and is refused; no loader but data: URLs exists by default.
+        var messages = document.Diagnostics.Where(d => d.Code == DiagnosticCode.ResourceNotLoaded).Select(d => d.Message).ToList();
+        Assert.Equal(3, messages.Count); // once per URL, however often the document is painted
+        Assert.Contains(messages, m => m.Contains("https://example.invalid/docs/photo.png") && m.Contains("https:"));
+        Assert.Contains(messages, m => m.Contains("file:"));
+        Assert.Contains(messages, m => m.Contains("not a PNG or JPEG"));
+    }
+
+    [Fact]
     public void ExposesElementsReadOnly()
     {
         using var document = Document.Parse("<div id=main CLASS='a b'><p>One <b>two</b></p><p lang=en>Three</p></div><p id=main>late");

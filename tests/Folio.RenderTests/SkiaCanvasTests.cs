@@ -112,6 +112,19 @@ public class SkiaCanvasTests
     }
 
     [Fact]
+    public void DrawsImagesScaledToTheirBoxes()
+    {
+        // A 2x2 image (red, lime / blue, white) drawn 20px square with square pixels.
+        using var bitmap = Render("<style>body { margin: 0 }</style><img style='display: block; width: 20px; image-rendering: pixelated' src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4nGP4z8DwHwwZGP6DAQBJyAn3FGMynQAAAABJRU5ErkJggg=='>");
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(5, 5));
+        Assert.Equal(SKColors.Lime, bitmap.GetPixel(15, 5));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(5, 15));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(15, 15));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(25, 5));
+    }
+
+    [Fact]
     public void UnderlinesSkipTheGlyphsInk()
     {
         // The box font's glyphs reach 3.2px below the baseline, through the underline; the text itself is transparent.
@@ -128,7 +141,8 @@ public class SkiaCanvasTests
     {
         var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
         StyleResolver.Resolve(document, new MediaContext(100, 100));
-        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 100, 100, BoxFont.Value);
+        var images = new Folio.Imaging.ImageLoader(Folio.Resources.ResourceLoader.DataUrlsOnly, null);
+        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 100, 100, BoxFont.Value);
         var list = DisplayListBuilder.Build(fragment);
 
         var bitmap = new SKBitmap(new SKImageInfo(100, 100, SKColorType.Bgra8888, SKAlphaType.Premul));

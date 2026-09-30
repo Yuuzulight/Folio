@@ -6,7 +6,7 @@ namespace Folio.Painting;
 /// <summary>The drawing surface the display list replays onto. Coordinates are CSS pixels.</summary>
 /// <remarks>
 /// Swap-out interface, sketched in docs/dependencies.md. Members are added together with the value
-/// types they use when the first implementation needs them: images and shadows come later.
+/// types they use when the first implementation needs them: shadows come later.
 /// </remarks>
 public interface ICanvas
 {
@@ -30,6 +30,8 @@ public interface ICanvas
     /// <summary>Draws glyphs of a font by id at a size in CSS pixels, each at its baseline origin.</summary>
     void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint);
 
+    /// <summary>Draws a whole image scaled into <paramref name="destination"/>.</summary>
+    void DrawImage(Imaging.IImageHandle image, in RectF destination, ImageSampling sampling);
     /// <summary>
     /// Where the outlines of glyphs drawn as by <see cref="DrawGlyphs"/> cross the horizontal band from
     /// <paramref name="top"/> to <paramref name="bottom"/>: pairs of left and right x coordinates, one pair per crossing,

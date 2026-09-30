@@ -1,0 +1,41 @@
+Images (CSS Images 3: object-fit, object-position, image-rendering) with a 4x2 data: PNG in a 40px square content
+box. An image that would spill out of its content box is clipped to it.
+
+=== fill stretches the image over the content box
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; width: 40px; height: 40px }</style><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+image 0,0 40x40 4x2 smooth
+
+=== contain fits it inside, centred
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; width: 40px; height: 40px; object-fit: contain }</style><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+image 0,10 40x20 4x2 smooth
+
+=== cover fills the box and is clipped to it
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; width: 40px; height: 40px; object-fit: cover }</style><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+clip 0,0 40x40
+image -20,0 80x40 4x2 smooth
+pop
+
+=== none keeps the natural size at object-position; padding and border move the content box
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; width: 40px; height: 40px; padding: 5px; border: 1px solid red; object-fit: none; object-position: right 2px bottom }</style><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+border 0,0 52x52 1 solid rgb(255, 0, 0)
+image 40,44 4x2 4x2 smooth
+
+=== scale-down never enlarges; pixelated rendering
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; width: 40px; height: 40px; object-fit: scale-down; image-rendering: pixelated }</style><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+image 18,19 4x2 4x2 pixelated
+
+=== images paint with the inline content, after the text before them
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="background: yellow">a<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC"></p>
+---
+fill 0,0 800x16 rgb(255, 255, 0)
+glyphs 0,12.8 16px rgb(0, 0, 0)
+image 16,10.8 4x2 4x2 smooth
+
+=== hidden images are not painted
+<!DOCTYPE html><style>body { margin: 0 }</style><img style="visibility: hidden" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---

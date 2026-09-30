@@ -21,6 +21,9 @@ internal enum DisplayItemKind
     /// </summary>
     Decoration,
 
+    /// <summary>Draws <see cref="DisplayItem.Image"/> scaled into <see cref="DisplayItem.Shape"/>.</summary>
+    Image,
+
     /// <summary>Clips what follows to <see cref="DisplayItem.Shape"/> until the matching <see cref="Pop"/>.</summary>
     PushClip,
 
@@ -35,9 +38,11 @@ internal enum DisplayItemKind
 /// </summary>
 /// <param name="Border">For borders: widths, styles and used colours (currentcolor resolved).</param>
 /// <param name="Glyphs">For glyph runs: the font, size, glyph ids and baseline origins.</param>
+/// <param name="Image">For images: the pixels, drawn with <paramref name="Sampling"/>.</param>
 /// <param name="LineStyle">For decorations: solid, dotted, dashed or wavy (a double line is two solid ones).</param>
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
-                                            BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid);
+                                            BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
+                                            Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

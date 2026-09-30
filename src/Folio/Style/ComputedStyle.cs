@@ -117,6 +117,12 @@ internal readonly record struct TextIndent(LengthPercentage Length, bool Hanging
     public override string ToString() => Length + (Hanging ? " hanging" : "") + (EachLine ? " each-line" : "");
 }
 
+/// <summary>https://www.w3.org/TR/css-images-3/#the-object-fit</summary>
+internal enum ObjectFit { Fill, Contain, Cover, None, ScaleDown }
+
+/// <summary>https://www.w3.org/TR/css-images-3/#the-image-rendering (only pixelated and crisp-edges change the drawing)</summary>
+internal enum ImageRendering { Auto, Smooth, HighQuality, Pixelated, CrispEdges }
+
 internal enum TableLayoutMode { Auto, Fixed }
 
 internal enum BorderCollapse { Separate, Collapse }
@@ -225,7 +231,8 @@ internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int W
                                  float Stretch, string VariantCaps, string VariantNumeric = "normal", string FeatureSettings = "normal");
 
 /// <summary>Inherited: other inherited properties, and the decorations propagated to the element's text.</summary>
-internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme, AppliedDecoration? Decorations = null);
+internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme, AppliedDecoration? Decorations = null,
+                                      ImageRendering ImageRendering = ImageRendering.Auto);
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
@@ -328,6 +335,12 @@ internal sealed record QuotesGroup(IReadOnlyList<(string Open, string Close)>? P
         : string.Join(" ", Pairs.Select(p => $"\"{p.Open}\" \"{p.Close}\""));
 }
 
+/// <summary>How replaced content fits its box (not inherited): object-fit and object-position.</summary>
+internal sealed record ReplacedGroup(ObjectFit Fit, BackgroundPosition Position)
+{
+    public static ReplacedGroup Initial { get; } = new(ObjectFit.Fill, new BackgroundPosition(new LengthPercentage(0, 50), new LengthPercentage(0, 50)));
+}
+
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
@@ -351,6 +364,7 @@ internal sealed class ComputedStyle
     public UiGroup Ui { get; init; } = UiGroup.Initial;
     public DecorationGroup Decoration { get; init; } = DecorationGroup.Initial;
     public TransformGroup Transform { get; init; } = TransformGroup.Initial;
+    public ReplacedGroup Replaced { get; init; } = ReplacedGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);

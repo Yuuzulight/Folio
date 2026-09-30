@@ -5,5 +5,5 @@ Format: "=== name", the HTML document (laid out in an 800x600 viewport), "---", 
 "fill <x>,<y> <w>x<h>[ radius ...] <colour>", "border <rect>[ radius ...] <width> <style> <colour>" (or the four sides
 top / right / bottom / left when they differ), "clip <rect>[ radius ...]", "opacity <value>", "decoration <rect> <line style> <colour>[ skip-ink]" (the rectangle's height is the line's thickness; skip-ink
 when the line leaves gaps around the glyphs)
-and "pop". A radius is
+"image <rect> <pixel width>x<pixel height> <smooth|pixelated>" and "pop". A radius is
 one value for equal circular corners, "x,y" for equal elliptical ones, or four corners from the top left.

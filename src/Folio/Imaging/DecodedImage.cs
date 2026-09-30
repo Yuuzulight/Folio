@@ -1,7 +1,10 @@
 namespace Folio.Imaging;
 
 /// <summary>Decoded pixels: RGBA8 with straight (not premultiplied) alpha, row-major without padding.</summary>
-internal sealed record DecodedImage(int Width, int Height, byte[] Pixels);
+internal sealed record DecodedImage(int Width, int Height, byte[] Pixels) : IImageHandle
+{
+    ReadOnlyMemory<byte> IImageHandle.Pixels => Pixels;
+}
 
 /// <summary>
 /// Image size limits from docs/study/16-resources-and-security.md, checked from the header before any pixel
