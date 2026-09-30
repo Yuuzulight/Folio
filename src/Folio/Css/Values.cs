@@ -159,9 +159,16 @@ internal static class ColorResolver
             (p1, p2) = (mix.FirstPercent ?? 100 - mix.SecondPercent!.Value, mix.SecondPercent ?? 100 - mix.FirstPercent!.Value);
         var sum = p1 + p2;
         var alphaMultiplier = sum < 100 ? sum / 100 : 1;
-        var t = p2 / sum;
+        var mixed = Interpolate(first, second, p2 / sum, mix.Space, mix.Hue);
+        return mixed with { A = (float)(mixed.A * alphaMultiplier) };
+    }
 
-        var space = mix.Space;
+    /// <summary>
+    /// The colour a fraction <paramref name="t"/> of the way from one colour to another, interpolated premultiplied in a
+    /// colour space with a hue method (https://www.w3.org/TR/css-color-4/#interpolation), gamut mapped to sRGB.
+    /// </summary>
+    public static CssColor Interpolate(CssColor first, CssColor second, double t, ColorSpace space, HueInterpolation hueMethod)
+    {
         var a = ColorSpaces.FromSrgb(space, (first.R, first.G, first.B));
         var b = ColorSpaces.FromSrgb(space, (second.R, second.G, second.B));
         double[] ca = [a.Item1, a.Item2, a.Item3], cb = [b.Item1, b.Item2, b.Item3];
@@ -173,7 +180,7 @@ internal static class ColorResolver
                 ca[hue] = double.IsNaN(cb[hue]) ? 0 : cb[hue];
             if (double.IsNaN(cb[hue]))
                 cb[hue] = ca[hue];
-            (ca[hue], cb[hue]) = FixHues(ca[hue], cb[hue], mix.Hue);
+            (ca[hue], cb[hue]) = FixHues(ca[hue], cb[hue], hueMethod);
         }
 
         var alpha = first.A * (1 - t) + second.A * t;
@@ -191,7 +198,7 @@ internal static class ColorResolver
         }
 
         var rgb = ColorSpaces.GamutMapToSrgb(ColorSpaces.ToSrgb(space, (result[0], result[1], result[2])));
-        return new CssColor((float)rgb.R, (float)rgb.G, (float)rgb.B, (float)(alpha * alphaMultiplier));
+        return new CssColor((float)rgb.R, (float)rgb.G, (float)rgb.B, (float)alpha);
     }
 
     // https://www.w3.org/TR/css-color-4/#hue-interpolation

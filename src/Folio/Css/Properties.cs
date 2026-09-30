@@ -414,7 +414,9 @@ internal static class Properties
                 s => s.Inherited.ColorScheme, (b, v) => b.Inherited = b.Inherited with { ColorScheme = v }),
 
             new Property<IReadOnlyList<ImageValue>>(PropertyId.BackgroundImage, "background-image", false, "none",
-                BackgroundParsing.ImageList, (v, _) => ((LayerListValue<ImageValue>)v).Items,
+                BackgroundParsing.ImageList,
+                (v, ctx) => ((LayerListValue<ImageValue>)v).Items
+                    .Select(i => i is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : i).ToList(),
                 s => s.Background.Images, (b, v) => b.Background = b.Background with { Images = v }),
             Layers<PositionSpecified, Style.BackgroundPosition>(PropertyId.BackgroundPosition, "background-position", "0% 0%",
                 BackgroundParsing.Position,

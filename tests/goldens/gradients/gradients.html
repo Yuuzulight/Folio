@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<title>Gradients</title>
+<style>
+  body { margin: 16px; }
+  .row { display: flex; gap: 12px; margin-bottom: 12px; }
+  .row div { width: 120px; height: 80px; border-radius: 6px; }
+  .wide div { width: 250px; height: 40px; border-radius: 0; }
+</style>
+<div class="row">
+  <div style="background: linear-gradient(135deg, #6366f1, #ec4899)"></div>
+  <div style="background: linear-gradient(to top right, #0ea5e9 10%, 40%, #f59e0b 90%)"></div>
+  <div style="background: linear-gradient(red, transparent), #334155"></div>
+  <div style="background: repeating-linear-gradient(45deg, #e2e8f0 0 10px, #94a3b8 10px 20px)"></div>
+</div>
+<div class="row">
+  <div style="background: radial-gradient(circle at 30% 40%, #fde68a, #f97316 40%, #7c2d12)"></div>
+  <div style="background: radial-gradient(ellipse closest-side, #22c55e, #052e16)"></div>
+  <div style="background: repeating-radial-gradient(circle, #1e293b 0 6px, #f8fafc 6px 12px)"></div>
+  <div style="background: conic-gradient(from 45deg, #ef4444, #eab308, #22c55e, #3b82f6, #ef4444)"></div>
+</div>
+<div class="row wide">
+  <div style="background: linear-gradient(in srgb to right, #2563eb, #facc15)"></div>
+  <div style="background: linear-gradient(in oklab to right, #2563eb, #facc15)"></div>
+</div>
+<div class="row wide">
+  <div style="background: linear-gradient(in oklch to right, #2563eb, #facc15)"></div>
+  <div style="background: linear-gradient(in oklch longer hue to right, #2563eb, #facc15)"></div>
+</div>

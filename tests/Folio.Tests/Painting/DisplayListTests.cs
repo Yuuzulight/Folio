@@ -41,6 +41,7 @@ public class DisplayListTests
 
     private static string Dump(DisplayItem item) => item.Kind switch
     {
+        DisplayItemKind.Fill when item.Gradient is { } g => $"fill {Shape(item.Shape)} {g.Kind.ToString().ToLowerInvariant()} gradient, {g.Stops.Count} stops{(g.Repeat ? ", repeating" : "")}",
         DisplayItemKind.Fill => $"fill {Shape(item.Shape)} {item.Color}",
         DisplayItemKind.Border => $"border {Shape(item.Shape)} {Sides(item.Border!)}",
         DisplayItemKind.Glyphs => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {item.Color}",

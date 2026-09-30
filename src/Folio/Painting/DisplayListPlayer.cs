@@ -14,7 +14,7 @@ internal static class DisplayListPlayer
             switch (item.Kind)
             {
                 case DisplayItemKind.Fill:
-                    canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color)));
+                    canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color), item.Gradient));
                     break;
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
