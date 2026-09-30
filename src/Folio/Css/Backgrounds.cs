@@ -68,6 +68,9 @@ internal enum BackgroundSizeKind
 /// <summary>One <c>&lt;bg-position&gt;</c>: each axis an offset from the start (left/top) or end (right/bottom) edge.</summary>
 internal readonly record struct PositionSpecified(bool XFromEnd, CssValue X, bool YFromEnd, CssValue Y);
 
+/// <summary>A single specified position (object-position).</summary>
+internal sealed record PositionValue(PositionSpecified Position) : CssValue;
+
 /// <summary>One <c>&lt;bg-size&gt;</c>; a null width or height is auto.</summary>
 internal readonly record struct SizeSpecified(BackgroundSizeKind Kind, CssValue? Width, CssValue? Height);
 

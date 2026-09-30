@@ -11,8 +11,8 @@ namespace Folio.Painting;
 /// (docs/study/10-layout-positioning-overflow-stacking.md, option A), then its paint order per CSS 2.2 Appendix E.
 /// Every painted box carries the clip chain of its containing blocks' overflow clips.
 /// </summary>
-// ponytail: M1 paints background colours, borders, text and its decorations; images, outlines and markers come with
-// their own work.
+// ponytail: M1 paints background colours, borders, text and its decorations, and images; background images, outlines
+// and markers come with their own work.
 internal static class DisplayListBuilder
 {
     // A box's border box on the canvas, with the overflow clips it is painted under. LineEnd marks text that ends its line.
@@ -96,29 +96,41 @@ internal static class DisplayListBuilder
             var index = order.GetValueOrDefault(box);
             if (box.Style.Outline.Width > 0 && box is not TableWrapperBox)
                 real.Outlines.Add(placed);
+            // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
+            var content = box is ReplacedBox { Image: not null } ? placed : null;
             if (CreatesStackingContext(box))
             {
                 var z = style.ZIndex ?? 0;
                 var c = new Context(placed, real: true, z, index);
                 (z < 0 ? real.Negative : z > 0 ? real.Positive : real.ZeroOrAuto).Add(c);
+                AddContent(c);
                 Collect(c, c, placed, placed.Fragment.Children, order);
             }
             else if (style.Position != Position.Static)
             {
                 var c = new Context(placed, real: false, 0, index);
                 real.ZeroOrAuto.Add(c);
+                AddContent(c);
                 Collect(c, real, placed, placed.Fragment.Children, order);
             }
             else if (box.IsFloat)
             {
                 var c = new Context(placed, real: false, 0, index);
                 context.Floats.Add(c);
+                AddContent(c);
                 Collect(c, real, placed, placed.Fragment.Children, order);
             }
             else
             {
                 context.Blocks.Add(placed);
+                AddContent(context);
                 Collect(context, real, placed, placed.Fragment.Children, order);
+            }
+
+            void AddContent(Context target)
+            {
+                if (content is not null)
+                    target.Text.Add(content);
             }
         }
     }
@@ -277,9 +289,14 @@ internal static class DisplayListBuilder
             }
         }
 
-        // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge.
+        // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge; or replaced content.
         private void PaintText(PaintBox box)
         {
+            if (box.Fragment.Kind == FragmentKind.Box)
+            {
+                PaintImage(box);
+                return;
+            }
             var run = box.Fragment.Text!;
             var style = run.Style;
             if (style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
@@ -386,6 +403,48 @@ internal static class DisplayListBuilder
             SetClip(box.Clip);
             list.Items.Add(new DisplayItem(DisplayItemKind.Border, outer,
                 Border: new BorderGroup(w, w, w, w, borderStyle, borderStyle, borderStyle, borderStyle, color, color, color, color)));
+        }
+
+        /// <summary>
+        /// An image in its content box, sized and placed by object-fit and object-position
+        /// (https://www.w3.org/TR/css-images-3/#the-object-fit) and clipped to the content box.
+        /// </summary>
+        // ponytail: padding percentages resolve against the box's own width, as for backgrounds.
+        private void PaintImage(PaintBox box)
+        {
+            var replaced = (ReplacedBox)box.Box;
+            var style = replaced.Style;
+            if (style.Inherited.Visibility != Visibility.Visible || replaced.Image is not { } image || replaced.NaturalSize is not { } natural)
+                return;
+            var (border, spacing, w) = (style.Border, style.Spacing, box.Fragment.Width);
+            var content = box.Rect.Inset(border.TopWidth + spacing.PaddingTop.Resolve(w), border.RightWidth + spacing.PaddingRight.Resolve(w),
+                border.BottomWidth + spacing.PaddingBottom.Resolve(w), border.LeftWidth + spacing.PaddingLeft.Resolve(w));
+            if (content.Width <= 0 || content.Height <= 0)
+                return;
+
+            var (width, height) = natural;
+            var contain = Math.Min(content.Width / width, content.Height / height);
+            var scale = style.Replaced.Fit switch
+            {
+                ObjectFit.Contain => contain,
+                ObjectFit.Cover => Math.Max(content.Width / width, content.Height / height),
+                ObjectFit.None => 1,
+                ObjectFit.ScaleDown => Math.Min(1, contain),
+                _ => float.NaN,
+            };
+            var (objectWidth, objectHeight) = float.IsNaN(scale) ? (content.Width, content.Height) : (width * scale, height * scale);
+            var position = style.Replaced.Position;
+            var destination = new RectF(content.X + position.X.Resolve(content.Width - objectWidth), content.Y + position.Y.Resolve(content.Height - objectHeight),
+                objectWidth, objectHeight);
+
+            SetClip(box.Clip);
+            var overflows = destination.X < content.X || destination.Y < content.Y || destination.Right > content.Right || destination.Bottom > content.Bottom;
+            if (overflows)
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(content, default)));
+            var sampling = style.Inherited.ImageRendering is ImageRendering.Pixelated or ImageRendering.CrispEdges ? ImageSampling.Pixelated : ImageSampling.Smooth;
+            list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(destination, default), Image: image, Sampling: sampling));
+            if (overflows)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

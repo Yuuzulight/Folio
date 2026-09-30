@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>image-rendering: pixelated enlarges each image pixel to a square</title>
+<link rel="help" href="https://www.w3.org/TR/css-images-3/#the-image-rendering">
+<meta name="assert" content="A 2x2 PNG from a data: URL, drawn 40px square, shows four 20px squares.">
+<style>
+  body { margin: 0; }
+  img { display: block; width: 40px; height: 40px; image-rendering: pixelated; }
+</style>
+<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4nGP4z8DwHwwZGP6DAQBJyAn3FGMynQAAAABJRU5ErkJggg==" alt="">

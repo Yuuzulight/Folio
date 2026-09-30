@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using Folio.Imaging;
 using Folio.Painting;
 using Folio.Typography;
 using SkiaSharp;
@@ -67,6 +68,25 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         using var skPaint = Fill(paint);
         canvas.DrawText(blob, 0, 0, skPaint);
     }
+
+    public void DrawImage(IImageHandle image, in RectF destination, ImageSampling sampling)
+    {
+        if (Image(image) is not { } skImage)
+            return;
+        var options = sampling == ImageSampling.Pixelated
+            ? new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None)
+            : new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        using var paint = new SKPaint { IsAntialias = true };
+        canvas.DrawImage(skImage, new SKRect(destination.X, destination.Y, destination.Right, destination.Bottom), options, paint);
+    }
+
+    // One Skia image per image handle, copied from its straight-alpha RGBA pixels on first use.
+    private static readonly ConditionalWeakTable<IImageHandle, SKImage?> Images = new();
+
+    private static SKImage? Image(IImageHandle image) => Images.GetValue(image, i =>
+        i.Width > 0 && i.Height > 0 && i.Pixels.Length >= i.Width * i.Height * 4
+            ? SKImage.FromPixelCopy(new SKImageInfo(i.Width, i.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul), i.Pixels.Span)
+            : null);
 
     // One typeface per font handle, created from its bytes on first use.
     private static readonly ConditionalWeakTable<IFontHandle, SKTypeface?> Typefaces = new();

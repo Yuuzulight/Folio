@@ -114,6 +114,7 @@ public sealed class Document : IDisposable
         new(DiagnosticCode.LimitExceeded, Severity.Warning, message, at, null);
 
     private FontCollection? _fonts;
+    private Imaging.ImageLoader? _images;
     private readonly Dictionary<ElementNode, Element> _elements = [];
 
     /// <summary>The root element, or null for an empty document.</summary>
@@ -223,7 +224,10 @@ public sealed class Document : IDisposable
         _fonts ??= FontCollection.For(Options.Fonts);
         StyleResolver.Resolve(Node, media, Options.UserStyleSheet, new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri),
             InlineLayout.MeasureWith(_fonts));
-        if (BoxTreeBuilder.Build(Node) is not { } root)
+        // Images load once per document (docs/study/16-resources-and-security.md: data: URLs only by default).
+        _images ??= new Imaging.ImageLoader(ResourceLoader.DataUrlsOnly, StyleResolver.BaseUrl(Node, Options.BaseUri?.AbsoluteUri),
+            message => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, "img")));
+        if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (new DisplayList(), 0);
         _fonts ??= FontCollection.For(Options.Fonts);
         var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);

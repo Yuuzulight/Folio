@@ -45,6 +45,7 @@ public class DisplayListTests
         DisplayItemKind.Border => $"border {Shape(item.Shape)} {Sides(item.Border!)}",
         DisplayItemKind.Glyphs => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {item.Color}",
         DisplayItemKind.Decoration => $"decoration {Shape(item.Shape)} {item.LineStyle.ToString().ToLowerInvariant()} {item.Color}",
+        DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushOpacity => $"opacity {N(item.Opacity)}",
         _ => "pop",

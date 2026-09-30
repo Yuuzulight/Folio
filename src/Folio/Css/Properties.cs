@@ -143,6 +143,9 @@ internal enum PropertyId
     Rotate,
     Scale,
     TransformOrigin,
+    ObjectFit,
+    ObjectPosition,
+    ImageRendering,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -714,6 +717,19 @@ internal static class Properties
                 s => s.Text.ListStyleImage ?? NoImage.Instance, (b, v) => b.Text = b.Text with { ListStyleImage = v }),
             Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
                 s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
+            // https://www.w3.org/TR/css-images-3/#the-object-fit, #the-object-position, #the-image-rendering
+            Keywords(PropertyId.ObjectFit, "object-fit", false, "fill", Enum<ObjectFit>("fill", "contain", "cover", "none", "scale-down"),
+                s => s.Replaced.Fit, (b, v) => b.Replaced = b.Replaced with { Fit = v }),
+            new Property<Style.BackgroundPosition>(PropertyId.ObjectPosition, "object-position", false, "50% 50%",
+                r => BackgroundParsing.Position(r) is { } p ? new PositionValue(p) : null,
+                (v, ctx) =>
+                {
+                    var p = ((PositionValue)v).Position;
+                    return new Style.BackgroundPosition(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd));
+                },
+                s => s.Replaced.Position, (b, v) => b.Replaced = b.Replaced with { Position = v }),
+            Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", Enum<ImageRendering>("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
+                s => s.Inherited.ImageRendering, (b, v) => b.Inherited = b.Inherited with { ImageRendering = v }),
         };
 
         rows.AddRange(TransformProperties.Rows);

@@ -257,7 +257,7 @@ internal static class StyleResolver
     }
 
     // https://html.spec.whatwg.org/multipage/semantics.html#the-base-element: the first base element with href.
-    private static string? BaseUrl(DocumentNode document, string? documentUrl)
+    internal static string? BaseUrl(DocumentNode document, string? documentUrl)
     {
         for (Node? node = document; node is not null; node = node.NextInTree(document))
         {

@@ -16,13 +16,17 @@ internal sealed class BoxTreeBuilder
     private readonly Stack<Frame> _frames = new();
     private readonly Stack<Frame> _containers = new(); // the frames that collect children, innermost on top
     private int _quoteDepth;
+    private Imaging.ImageLoader? _images;
+    private float _deviceScale = 1;
 
     /// <summary>The root element's box, or null when the root generates none (display: none).</summary>
-    public static Box? Build(DocumentNode document)
+    /// <param name="images">Loads img sources; without one, images have no content.</param>
+    /// <param name="deviceScale">Device pixels per CSS pixel, for choosing among srcset candidates.</param>
+    public static Box? Build(DocumentNode document, Imaging.ImageLoader? images = null, float deviceScale = 1)
     {
         if (document.DocumentElement is not { } root || root.ComputedStyle() is null)
             return null;
-        var builder = new BoxTreeBuilder();
+        var builder = new BoxTreeBuilder { _images = images, _deviceScale = deviceScale };
         var top = new Frame(FrameKind.Block, null, root.ComputedStyle()!);
         builder.Push(top);
         builder.Walk(root);
@@ -149,7 +153,13 @@ internal sealed class BoxTreeBuilder
 
         if (replaced is { } kind)
         {
-            var box = new ReplacedBox(style, element, kind) { IsAtomicInline = IsInlineLevel(display) };
+            var (source, density) = kind == ReplacedKind.Image ? ImageSource(element, _deviceScale) : (null, 1);
+            var box = new ReplacedBox(style, element, kind)
+            {
+                IsAtomicInline = IsInlineLevel(display),
+                Image = source is null ? null : _images?.Load(source),
+                Density = density,
+            };
             Place(box, IsInlineLevel(display));
             return false;
         }
@@ -405,6 +415,60 @@ internal sealed class BoxTreeBuilder
     // ---------------------------------------------------------------- helpers
 
     private static bool IsHtml(ElementNode element, string name) => element.Name.Namespace == Namespaces.Html && element.LocalName == name;
+
+    /// <summary>
+    /// The image an img element shows (https://html.spec.whatwg.org/multipage/images.html#select-an-image-source):
+    /// among srcset's density candidates and src as 1x, the smallest density at least the device's, else the largest.
+    /// </summary>
+    // ponytail: width descriptors (with sizes) and picture's source elements are not chosen from; src is used then.
+    private static (string? Url, float Density) ImageSource(ElementNode img, float deviceScale)
+    {
+        var candidates = new List<(string Url, float Density)>();
+        if (img.GetAttribute("srcset") is { } srcset)
+            candidates.AddRange(SrcsetCandidates(srcset));
+        if (img.GetAttribute("src") is { Length: > 0 } src && !candidates.Any(c => c.Density == 1))
+            candidates.Add((src, 1));
+        if (candidates.Count == 0)
+            return (null, 1);
+        var enough = candidates.Where(c => c.Density >= deviceScale).OrderBy(c => c.Density).ToList();
+        return enough.Count > 0 ? enough[0] : candidates.MaxBy(c => c.Density);
+    }
+
+    // https://html.spec.whatwg.org/multipage/images.html#parse-a-srcset-attribute: a URL runs to the next whitespace
+    // (so data: URLs keep their commas); descriptors run to the next comma. Only x descriptors are kept.
+    private static IEnumerable<(string Url, float Density)> SrcsetCandidates(string srcset)
+    {
+        var i = 0;
+        while (true)
+        {
+            while (i < srcset.Length && (char.IsWhiteSpace(srcset[i]) || srcset[i] == ','))
+                i++;
+            if (i >= srcset.Length)
+                yield break;
+            var start = i;
+            while (i < srcset.Length && !char.IsWhiteSpace(srcset[i]))
+                i++;
+            var url = srcset[start..i];
+            var descriptors = "";
+            if (url.EndsWith(','))
+            {
+                url = url.TrimEnd(',');
+            }
+            else
+            {
+                start = i;
+                while (i < srcset.Length && srcset[i] != ',')
+                    i++;
+                descriptors = srcset[start..i].Trim();
+            }
+            if (descriptors.Length == 0)
+                yield return (url, 1);
+            else if (descriptors.EndsWith('x') && !descriptors.Contains(' ')
+                     && float.TryParse(descriptors[..^1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var density)
+                     && density > 0)
+                yield return (url, density);
+        }
+    }
 
     // Elements whose content comes from outside CSS (docs/study/05-box-tree.md, replaced elements).
     private static ReplacedKind? ReplacedKindOf(ElementNode element)
