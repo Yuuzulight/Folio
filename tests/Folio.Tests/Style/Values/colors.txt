@@ -82,3 +82,8 @@ color-scheme: light dark
 color-scheme: dark; color: light-dark(red, blue)
 ---
 color: rgb(0, 0, 255)
+
+=== a hash with escaped characters other than hex digits is not a colour
+color: red; color: #\20 abc
+---
+color: rgb(255, 0, 0)
