@@ -95,6 +95,9 @@ internal static class StyleResolver
         var context = new MatchContext { Filter = filter };
         var rootFontSize = Style.ComputedStyle.Initial.Font.Size;
         var groups = new Dictionary<object, object>();
+        var shared = new SharingCache();
+        var (matched, pseudoMatched) = (new List<RuleIndex<CascadeRule>.Entry>(), new List<RuleIndex<CascadeRule>.Entry>());
+        var (hasBefore, hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
 
         // Iterative pre-order walk: (element, parent style); a null element marks leaving an element.
         var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent)>();
@@ -115,23 +118,37 @@ internal static class StyleResolver
                 var (source, block) = CssParser.ParseBlockContents(styleAttribute);
                 inline = CascadeData.Parse(source, block.Declarations);
             }
-            var (values, custom) = Cascade.Compute(element, origins, inline, int.MaxValue, context, hints: PresentationalHints.For(element));
-
-            var computeContext = new ComputeContext(item.Parent, rootFontSize, media.Width, media.Height)
+            matched.Clear();
+            Cascade.Match(element, origins, context, PseudoElement.None, matched);
+            var hints = PresentationalHints.For(element);
+            // Only the matched rules and the parent's style decide the style of an element without its own declarations.
+            var sharable = inline is null && hints is null;
+            if (!sharable || shared.Find(item.Parent, rootFontSize, matched) is not { } style)
             {
-                PrefersDark = media.DarkColorScheme,
-                Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
-            };
-            var style = StyleBuilder.Compute(values, computeContext, groups);
+                var (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints);
+                var computeContext = new ComputeContext(item.Parent, rootFontSize, media.Width, media.Height)
+                {
+                    PrefersDark = media.DarkColorScheme,
+                    Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
+                };
+                style = StyleBuilder.Compute(values, computeContext, groups);
+                if (sharable)
+                    shared.Add(item.Parent, rootFontSize, matched, style);
+            }
             var styles = new ElementStyles(style);
             element.StyleData = styles;
             if (style.Box.Display != Display.None)
             {
                 ComputedStyle? Pseudo(PseudoElement pe, bool always = false)
                 {
-                    if (!always && !origins.Any(o => o.Rules.HasRulesFor(pe)))
+                    if (!always && !(pe == PseudoElement.Before ? hasBefore : hasAfter))
                         return null;
-                    var (pseudoValues, pseudoCustom) = Cascade.Compute(element, origins, null, 0, context, pe);
+                    // With no rules for it, ::before or ::after would have content: normal and generate no box.
+                    pseudoMatched.Clear();
+                    Cascade.Match(element, origins, context, pe, pseudoMatched);
+                    if (!always && pseudoMatched.Count == 0)
+                        return null;
+                    var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null);
                     var pseudoContext = new ComputeContext(style, rootFontSize, media.Width, media.Height)
                     {
                         PrefersDark = media.DarkColorScheme,
@@ -154,6 +171,59 @@ internal static class StyleResolver
                 if (child is ElementNode e)
                     stack.Push((e, null, style));
             }
+        }
+    }
+
+    /// <summary>
+    /// The style-sharing cache (docs/study/04-cascade-and-computed-values.md): elements that match the same rules, in
+    /// the same order, under the same parent style object, and have no style attribute or presentational hints,
+    /// compute the same style, so they share one <see cref="ComputedStyle"/>. Rows of a table and items of a list then
+    /// cost one selector-matching pass each. Because children of shared parents see the same parent object, sharing
+    /// carries down the tree.
+    /// </summary>
+    private sealed class SharingCache
+    {
+        private readonly Dictionary<int, List<(ComputedStyle Parent, float RootFontSize, RuleIndex<CascadeRule>.Entry[] Rules, ComputedStyle Style)>> _buckets = [];
+
+        public ComputedStyle? Find(ComputedStyle parent, float rootFontSize, List<RuleIndex<CascadeRule>.Entry> rules)
+        {
+            if (!_buckets.TryGetValue(Hash(parent, rules), out var bucket))
+                return null;
+            foreach (var entry in bucket)
+            {
+                if (ReferenceEquals(entry.Parent, parent) && entry.RootFontSize == rootFontSize && Same(entry.Rules, rules))
+                    return entry.Style;
+            }
+            return null;
+        }
+
+        public void Add(ComputedStyle parent, float rootFontSize, List<RuleIndex<CascadeRule>.Entry> rules, ComputedStyle style)
+        {
+            var hash = Hash(parent, rules);
+            if (!_buckets.TryGetValue(hash, out var bucket))
+                _buckets[hash] = bucket = [];
+            bucket.Add((parent, rootFontSize, [.. rules], style));
+        }
+
+        private static bool Same(RuleIndex<CascadeRule>.Entry[] a, List<RuleIndex<CascadeRule>.Entry> b)
+        {
+            if (a.Length != b.Count)
+                return false;
+            for (var i = 0; i < a.Length; i++)
+            {
+                if (!ReferenceEquals(a[i], b[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        private static int Hash(ComputedStyle parent, List<RuleIndex<CascadeRule>.Entry> rules)
+        {
+            var hash = new HashCode();
+            hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(parent));
+            foreach (var rule in rules)
+                hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(rule));
+            return hash.ToHashCode();
         }
     }
 
