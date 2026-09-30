@@ -773,7 +773,10 @@ internal static class InlineLayout
             Ellipsize(pieces, available, block.Style, context, paragraphLevel);
             contentWidth = pieces.Sum(p => p.Width);
         }
-        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
+        // A line ended by a forced break (br, or a preserved segment break) is not empty, even with nothing on it
+        // (CSS 2.2 §9.4.2), so blank lines in pre keep their height.
+        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text)
+                      || units.Count > 0 && units[^1].MandatoryBreakAfter;
         var free = available - contentWidth;
         var rtl = paragraphLevel == 1;
         var textStyle = block.Style.Text;
