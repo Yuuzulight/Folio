@@ -1,0 +1,57 @@
+=== presentation attributes set SVG properties
+<!DOCTYPE html><svg><rect id=r fill="red" stroke="#00f" stroke-width="2" fill-opacity=".5" /></svg>
+---
+#r fill: rgb(255, 0, 0)
+#r stroke: rgb(0, 0, 255)
+#r stroke-width: 2px
+#r fill-opacity: 0.5
+
+=== presentation attributes lose to author rules and style attributes
+<!DOCTYPE html><style>rect { fill: green }</style><svg><rect id=a fill="red" /><rect id=b fill="red" style="fill: blue" /></svg>
+---
+#a fill: rgb(0, 128, 0)
+#b fill: rgb(0, 0, 255)
+
+=== presentation attributes win over inheritance
+<!DOCTYPE html><svg fill="red"><g id=g><rect id=r fill="blue" /></g></svg>
+---
+#g fill: rgb(255, 0, 0)
+#r fill: rgb(0, 0, 255)
+
+=== unitless lengths in attributes are px
+<!DOCTYPE html><svg><text id=t font-size="20" letter-spacing="2">x</text></svg>
+---
+#t font-size: 20
+#t letter-spacing: 2
+
+=== an invalid attribute value is dropped
+<!DOCTYPE html><svg fill="red"><rect id=r fill="12px" stroke="blue; fill: green" /></svg>
+---
+#r fill: rgb(255, 0, 0)
+#r stroke: none
+
+=== an unbalanced attribute value does not reach the next attribute
+<!DOCTYPE html><svg><rect id=r fill="rgb(1, 2" stroke="blue" /></svg>
+---
+#r fill: rgb(0, 0, 0)
+#r stroke: rgb(0, 0, 255)
+
+=== width and height map to CSS on the outermost svg only
+<!DOCTYPE html><svg id=outer width="100" height="50%"><svg id=inner width="10" height="10"></svg></svg>
+---
+#outer width: 100px
+#outer height: 50%
+#inner width: auto
+
+=== presentation attributes are not read from HTML elements
+<!DOCTYPE html><div id=d fill="red"></div>
+---
+#d fill: rgb(0, 0, 0)
+
+=== nested svg elements clip, and transforms inside SVG turn about the origin
+<!DOCTYPE html><svg id=outer><svg id=inner></svg><rect id=r /></svg>
+---
+#outer overflow-x: hidden
+#inner overflow-x: hidden
+#outer transform-origin: 50% 50%
+#r transform-origin: 0px 0px

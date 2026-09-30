@@ -167,6 +167,20 @@ internal enum PropertyId
     BorderImageWidth,
     BorderImageOutset,
     BorderImageRepeat,
+    Fill,
+    FillOpacity,
+    FillRule,
+    Stroke,
+    StrokeOpacity,
+    StrokeWidth,
+    StrokeLinecap,
+    StrokeLinejoin,
+    StrokeMiterlimit,
+    StrokeDasharray,
+    StrokeDashoffset,
+    PaintOrder,
+    TextAnchor,
+    DominantBaseline,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -767,6 +781,7 @@ internal static class Properties
         rows.Add(ShapeProperties.Row);
         rows.AddRange(MaskProperties.Rows);
         rows.AddRange(BorderImageProperties.Rows);
+        rows.AddRange(SvgProperties.Rows);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)

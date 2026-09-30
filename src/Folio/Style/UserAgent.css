@@ -118,3 +118,8 @@ details, summary { display: block; }
 details > summary:first-of-type { display: list-item; counter-increment: list-item 0; list-style: disclosure-closed inside; }
 details[open] > summary:first-of-type { list-style-type: disclosure-open; }
 details:not([open]) > :not(summary:first-of-type) { display: none; }
+
+/* SVG (https://www.w3.org/TR/SVG2/styling.html#UAStyleSheet): nested viewports clip, and transforms inside SVG turn
+   about the user-space origin. */
+svg:not(:root) { overflow: hidden; }
+svg * { transform-origin: 0 0; }

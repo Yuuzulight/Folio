@@ -1,0 +1,118 @@
+=== SVG paint defaults: black fill, no stroke
+display: block
+---
+fill: rgb(0, 0, 0)
+fill-opacity: 1
+fill-rule: nonzero
+stroke: none
+stroke-opacity: 1
+stroke-width: 1px
+stroke-linecap: butt
+stroke-linejoin: miter
+stroke-miterlimit: 4
+stroke-dasharray: none
+stroke-dashoffset: 0px
+paint-order: normal
+text-anchor: start
+dominant-baseline: auto
+
+=== fill and stroke take colours and keep currentcolor
+fill: #ff0000; stroke: currentColor
+---
+fill: rgb(255, 0, 0)
+stroke: currentcolor
+
+=== a url paint keeps its fallback, or none without one
+fill: url(#g) blue; stroke: url("#h")
+---
+fill: url(#g) rgb(0, 0, 255)
+stroke: url(#h) none
+
+=== an invalid paint is dropped
+fill: blue; fill: 12px; stroke: none; stroke: url(#a) url(#b)
+---
+fill: rgb(0, 0, 255)
+stroke: none
+
+=== the paints are inherited
+%parent fill: red; stroke: green; stroke-width: 3; fill-rule: evenodd
+display: block
+---
+fill: rgb(255, 0, 0)
+stroke: rgb(0, 128, 0)
+stroke-width: 3px
+fill-rule: evenodd
+
+=== opacities take numbers and percentages, clamped
+fill-opacity: 50%; stroke-opacity: 1.5
+---
+fill-opacity: 0.5
+stroke-opacity: 1
+
+=== stroke-width takes a number, a length or a percentage, not a negative one
+stroke-width: 2; stroke-width: -1
+---
+stroke-width: 2px
+
+=== stroke-width keeps a percentage of the viewport
+stroke-width: 5%
+---
+stroke-width: 5%
+
+=== stroke-width in em is computed
+%parent font-size: 20px
+stroke-width: 0.5em
+---
+stroke-width: 10px
+
+=== caps and joins; miter-clip and arcs fall back to miter
+stroke-linecap: square; stroke-linejoin: arcs
+---
+stroke-linecap: square
+stroke-linejoin: miter
+
+=== round joins
+stroke-linejoin: round
+---
+stroke-linejoin: round
+
+=== a miter limit below one is invalid
+stroke-miterlimit: 10; stroke-miterlimit: 0.5
+---
+stroke-miterlimit: 10
+
+=== dash arrays separated by commas or spaces
+stroke-dasharray: 5, 2px 10%
+---
+stroke-dasharray: 5px, 2px, 10%
+
+=== a negative dash makes the dash array invalid
+stroke-dasharray: 4 2; stroke-dasharray: 4 -2
+---
+stroke-dasharray: 4px, 2px
+
+=== dash offsets may be negative
+stroke-dashoffset: -3
+---
+stroke-dashoffset: -3px
+
+=== paint-order puts the stroke first when it comes before the fill or the fill is not listed
+paint-order: stroke
+---
+paint-order: stroke
+
+=== paint-order with the fill first is normal
+paint-order: markers fill stroke
+---
+paint-order: normal
+
+=== paint-order with a repeated keyword is invalid
+paint-order: stroke fill; paint-order: fill fill
+---
+paint-order: stroke
+
+=== text-anchor and dominant-baseline
+text-anchor: middle; dominant-baseline: central
+---
+text-anchor: middle
+dominant-baseline: central
