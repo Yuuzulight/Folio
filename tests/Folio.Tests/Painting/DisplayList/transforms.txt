@@ -102,3 +102,10 @@ transform 1,0,0,1,0,0
 fill 0,0 800x10 rgb(2, 0, 0)
 pop
 fill 0,10 800x10 rgb(3, 0, 0)
+
+=== fixed descendants paint inside the transform of the box they are positioned in
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; transform: translate(5px)"><div style="position: fixed; top: 0; left: 0; width: 5px; height: 5px; background: rgb(1, 0, 0)"></div></div>
+---
+transform 1,0,0,1,5,0
+fill 0,0 5x5 rgb(1, 0, 0)
+pop
