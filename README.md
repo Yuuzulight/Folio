@@ -61,7 +61,7 @@ Hosts use Folio as NuGet packages: `Folio`, `Folio.Skia` and `Folio.WinForms`. T
 pwsh -File tools/pack.ps1 [-Output <folder>]
 ```
 
-The version is `0.1.0-m1.N`, where N is the number of commits in the packed commit's history, so each commit on main packs as its own version. The script refuses to pack uncommitted changes. A host pins a version, adds the folder as a package source, and can rebuild the same packages from the pinned commit.
+The version is `0.1.0-m1.N`, where N is the number of commits in the packed commit's history, so each commit on main packs as its own version. The script refuses to pack uncommitted changes or a shallow clone. A host pins a version, adds the folder as a package source, and can rebuild the same packages from the pinned commit.
 
 ## Licence
 Apache-2.0, same as Mana.

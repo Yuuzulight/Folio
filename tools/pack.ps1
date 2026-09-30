@@ -10,6 +10,9 @@ $root = Split-Path $PSScriptRoot
 if (git -C $root status --porcelain --untracked-files=no) {
     throw 'Commit or stash the changes first: a package version stands for a commit.'
 }
+if ((git -C $root rev-parse --is-shallow-repository) -eq 'true') {
+    throw 'The version counts commits, so a shallow clone would pack the wrong one: git fetch --unshallow first.'
+}
 $build = git -C $root rev-list --count HEAD
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
