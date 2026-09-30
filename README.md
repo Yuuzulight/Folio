@@ -55,5 +55,13 @@ The benchmark harness times each pipeline stage and measures memory for generate
 dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations]
 ```
 
+Hosts use Folio as NuGet packages: `Folio`, `Folio.Skia` and `Folio.WinForms`. The pack script writes them to a folder that works as a local package source (by default `artifacts/packages`). It runs in PowerShell 5.1 (`powershell`) or 7 (`pwsh`):
+
+```
+pwsh -File tools/pack.ps1 [-Output <folder>]
+```
+
+The version is `0.1.0-m1.N`, where N is the number of commits in the packed commit's history, so each commit on main packs as its own version. The script refuses to pack uncommitted changes. A host pins a version, adds the folder as a package source, and can rebuild the same packages from the pinned commit.
+
 ## Licence
 Apache-2.0, same as Mana.

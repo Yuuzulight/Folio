@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Description>Parses HTML and CSS and lays out and paints single-file HTML documents.</Description>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 

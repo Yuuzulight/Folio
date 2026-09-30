@@ -24,6 +24,9 @@ jobs:
 
       - run: dotnet build Folio.slnx -c Release
 
+      # The host packages build (the version number is only meaningful from a full clone).
+      - run: pwsh tools/pack.ps1
+
       # Unicode conformance test files for the pinned version, cached per version and checksum file. Each file is
       # checked against tools/Folio.Gen/unicode-<version>.sha256 whether it came from the cache or the download.
       - name: Cache Unicode test files
