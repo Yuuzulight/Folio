@@ -34,6 +34,12 @@ internal enum DisplayItemKind
     /// <summary>Draws <see cref="DisplayItem.Image"/> scaled into <see cref="DisplayItem.Shape"/>.</summary>
     Image,
 
+    /// <summary>Fills <see cref="DisplayItem.Path"/> by <see cref="DisplayItem.Rule"/> with <see cref="DisplayItem.Color"/>.</summary>
+    FillPath,
+
+    /// <summary>Strokes <see cref="DisplayItem.Path"/> as <see cref="DisplayItem.Stroke"/> says, with <see cref="DisplayItem.Color"/>.</summary>
+    StrokePath,
+
     /// <summary>
     /// Clips what follows to <see cref="DisplayItem.Shape"/>, or to <see cref="DisplayItem.Path"/> filled by
     /// <see cref="DisplayItem.Rule"/> when there is one, until the matching <see cref="Pop"/>.
@@ -65,14 +71,15 @@ internal enum DisplayItemKind
 /// <param name="Filters">For layers: the filter primitives applied to what the layer holds (filter), or null.</param>
 /// <param name="Backdrop">For layers: the filter primitives applied to the backdrop (backdrop-filter), or null.</param>
 /// <param name="Blend">For layers and fills: how they blend with what is under them.</param>
-/// <param name="Path">For clips: a path to clip to instead of <paramref name="Shape"/>, filled by <paramref name="Rule"/>.</param>
+/// <param name="Path">For clips: a path to clip to instead of <paramref name="Shape"/>, filled by <paramref name="Rule"/>; for path fills and strokes, the path.</param>
+/// <param name="Stroke">For path strokes: the width, caps and dashes.</param>
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
                                             BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
                                             Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth,
                                             float Blur = 0, bool Inset = false, RoundedRect Box = default,
                                             Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default,
                                             IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null, BlendMode Blend = BlendMode.Normal,
-                                            PathData? Path = null, FillRule Rule = FillRule.NonZero);
+                                            PathData? Path = null, FillRule Rule = FillRule.NonZero, Stroke? Stroke = null);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

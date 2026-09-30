@@ -115,7 +115,7 @@ internal static class DisplayListBuilder
             if (outlined && !ownOutline)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
-            var content = box is ReplacedBox { Image: not null } ? placed : null;
+            var content = box is ReplacedBox { Image: not null } || placed.Fragment.Svg is not null ? placed : null;
             // A table's positioning and stacking properties apply to its wrapper box (CSS 2 §17.4); the table grid box,
             // which shares the wrapper's style, paints as a plain block inside it.
             if (box is TablePartBox { Part: TablePart.Table })
@@ -535,7 +535,10 @@ internal static class DisplayListBuilder
         {
             if (box.Fragment.Kind == FragmentKind.Box)
             {
-                PaintImage(box);
+                if (box.Fragment.Svg is { } svg)
+                    PaintSvg(box, svg);
+                else
+                    PaintImage(box);
                 return;
             }
             var run = box.Fragment.Text!;
@@ -1049,6 +1052,15 @@ internal static class DisplayListBuilder
             list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(destination, default), Image: image, Sampling: sampling));
             if (overflows)
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+        }
+
+        // An outermost svg element's drawing, its user space starting at the content box's top-left corner.
+        // ponytail: padding percentages resolve against the box's own width, as for images.
+        private void PaintSvg(PaintBox box, Svg.SvgContainerNode svg)
+        {
+            var (border, spacing, w) = (box.Box.Style.Border, box.Box.Style.Spacing, box.Fragment.Width);
+            SetClip(box.Clip);
+            SvgPainter.Paint(svg, new Vector2(box.X + border.LeftWidth + spacing.PaddingLeft.Resolve(w), box.Y + border.TopWidth + spacing.PaddingTop.Resolve(w)), list.Items);
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

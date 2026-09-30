@@ -29,6 +29,15 @@ public class Reftests
     [InlineData("css-backgrounds/border-image-repeat-repeat-001")]
     [InlineData("css-backgrounds/border-image-repeat-round-001")]
     [InlineData("css-backgrounds/border-image-repeat-space-001")]
+    [InlineData("svg/viewbox-001")]
+    [InlineData("svg/preserve-aspect-ratio-001")]
+    [InlineData("svg/stroke-001")]
+    [InlineData("svg/stroke-dasharray-001")]
+    [InlineData("svg/fill-rule-001")]
+    [InlineData("svg/nested-svg-001")]
+    [InlineData("svg/sizing-001")]
+    [InlineData("svg/opacity-001")]
+    [InlineData("svg/currentcolor-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

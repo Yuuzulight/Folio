@@ -1,0 +1,55 @@
+Sizing of the outermost svg element as a replaced box (SVG 2 section 8, CSS 2.2 sections 10.3.2 and 10.6.2): natural
+width and height from absolute width and height attributes, the ratio from them or the viewBox, filling the containing
+block when there is only a ratio, and 300x150 when there is nothing.
+
+=== no size and no viewBox is 300 by 150
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg></svg>
+---
+html 0,0 800x150
+  body 0,0 800x150
+    svg 0,0 300x150
+
+=== a viewBox alone fills the width through its ratio
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg viewBox="0 0 4 1"></svg>
+---
+html 0,0 800x200
+  body 0,0 800x200
+    svg 0,0 800x200
+
+=== margins, borders and padding are taken off the width it fills
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg viewBox="0 0 4 1" style="margin: 0 100px; padding: 10px"></svg>
+---
+html 0,0 800x165
+  body 0,0 800x165
+    svg 100,0 600x165
+
+=== a width follows the viewBox ratio for the height, and a height for the width
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg id=a width="100" viewBox="0 0 4 1"></svg><svg id=b height="50" viewBox="0 0 4 1"></svg>
+---
+html 0,0 800x75
+  body 0,0 800x75
+    svg#a 0,0 100x25
+    svg#b 0,25 200x50
+
+=== width and height attributes, with CSS winning over them
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg id=a width="40" height="30" viewBox="0 0 1 1"></svg><svg id=b width="100" height="50" style="width: 60px"></svg>
+---
+html 0,0 800x80
+  body 0,0 800x80
+    svg#a 0,0 40x30
+    svg#b 0,30 60x50
+
+=== a percentage width resolves against the containing block
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="50%" viewBox="0 0 2 1"></svg>
+---
+html 0,0 800x200
+  body 0,0 800x200
+    svg 0,0 400x200
+
+=== in a shrink-to-fit container, a ratio alone is 300px wide
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><div style="float: left"><svg viewBox="0 0 3 1"></svg></div>
+---
+html 0,0 800x100
+  body 0,0 800x0
+    div 0,0 300x100
+      svg 0,0 300x100

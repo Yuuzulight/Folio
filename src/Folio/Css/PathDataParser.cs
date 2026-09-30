@@ -12,13 +12,18 @@ internal readonly record struct PathSegment(char Verb, Vector2 P1 = default, Vec
 /// </summary>
 internal static class PathDataParser
 {
-    /// <summary>The segments, or null when the data is empty or has an error anywhere.</summary>
-    public static IReadOnlyList<PathSegment>? Parse(string data)
+    /// <summary>
+    /// The segments, or null when the data is empty or has an error anywhere. With <paramref name="upToError"/>, the
+    /// segments before the command with the first error instead, as SVG renders them
+    /// (https://www.w3.org/TR/SVG2/paths.html#PathDataErrorHandling), or null when there are none.
+    /// </summary>
+    public static IReadOnlyList<PathSegment>? Parse(string data, bool upToError = false)
     {
         var scanner = new Scanner(data);
         var segments = new List<PathSegment>();
         var (current, start, lastControl) = (Vector2.Zero, Vector2.Zero, (Vector2?)null);
         var previous = ' ';
+        IReadOnlyList<PathSegment>? Error() => upToError && segments.Count > 0 ? segments : null;
         scanner.SkipSpace();
         if (scanner.AtEnd)
             return null;
@@ -26,7 +31,7 @@ internal static class PathDataParser
         {
             var command = scanner.Command() ?? (previous is ' ' or 'Z' or 'z' ? '\0' : previous switch { 'M' => 'L', 'm' => 'l', _ => previous });
             if (command == '\0' || (segments.Count == 0 && command is not ('M' or 'm')))
-                return null;
+                return Error();
             var relative = char.IsLower(command);
             var origin = relative ? current : Vector2.Zero;
             Vector2? Point() => scanner.Number() is { } x && scanner.Number() is { } y ? new Vector2(x, y) + origin : null;
@@ -35,25 +40,25 @@ internal static class PathDataParser
             {
                 case 'M':
                     if (Point() is not { } move)
-                        return null;
+                        return Error();
                     segments.Add(new PathSegment('M', move));
                     current = start = move;
                     break;
                 case 'L':
                     if (Point() is not { } line)
-                        return null;
+                        return Error();
                     segments.Add(new PathSegment('L', line));
                     current = line;
                     break;
                 case 'H':
                     if (scanner.Number() is not { } h)
-                        return null;
+                        return Error();
                     current = new Vector2(relative ? current.X + h : h, current.Y);
                     segments.Add(new PathSegment('L', current));
                     break;
                 case 'V':
                     if (scanner.Number() is not { } v)
-                        return null;
+                        return Error();
                     current = new Vector2(current.X, relative ? current.Y + v : v);
                     segments.Add(new PathSegment('L', current));
                     break;
@@ -63,7 +68,7 @@ internal static class PathDataParser
                     var c1 = char.ToUpperInvariant(command) == 'C' ? Point()
                         : previous is 'C' or 'c' or 'S' or 's' && lastControl is { } last ? 2 * current - last : current;
                     if (c1 is not { } p1 || Point() is not { } p2 || Point() is not { } end)
-                        return null;
+                        return Error();
                     segments.Add(new PathSegment('C', p1, p2, end));
                     (current, control) = (end, p2);
                     break;
@@ -73,7 +78,7 @@ internal static class PathDataParser
                     var q = char.ToUpperInvariant(command) == 'Q' ? Point()
                         : previous is 'Q' or 'q' or 'T' or 't' && lastControl is { } last ? 2 * current - last : current;
                     if (q is not { } c || Point() is not { } end)
-                        return null;
+                        return Error();
                     segments.Add(new PathSegment('C', current + 2f / 3 * (c - current), end + 2f / 3 * (c - end), end));
                     (current, control) = (end, c);
                     break;
@@ -81,7 +86,7 @@ internal static class PathDataParser
                 case 'A':
                     if (scanner.Number() is not { } rx || scanner.Number() is not { } ry || scanner.Number() is not { } angle
                         || scanner.Flag() is not { } large || scanner.Flag() is not { } sweep || Point() is not { } to)
-                        return null;
+                        return Error();
                     Arc(segments, current, rx, ry, angle, large, sweep, to);
                     current = to;
                     break;
