@@ -11,12 +11,12 @@ namespace Folio.Painting;
 /// (docs/study/10-layout-positioning-overflow-stacking.md, option A), then its paint order per CSS 2.2 Appendix E.
 /// Every painted box carries the clip chain of its containing blocks' overflow clips.
 /// </summary>
-// ponytail: M1 paints background colours, borders and text; images, text decorations, outlines and markers come with
+// ponytail: M1 paints background colours, borders, text and its decorations; images, outlines and markers come with
 // their own work.
 internal static class DisplayListBuilder
 {
-    // A box's border box on the canvas, with the overflow clips it is painted under.
-    private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip)
+    // A box's border box on the canvas, with the overflow clips it is painted under. LineEnd marks text that ends its line.
+    private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip, bool LineEnd = false)
     {
         public Box Box => Fragment.Box!;
         public RectF Rect => new(X, Y, Fragment.Width, Fragment.Height);
@@ -86,7 +86,8 @@ internal static class DisplayListBuilder
             }
             if (child.Fragment.Kind == FragmentKind.Text)
             {
-                context.Text.Add(placed);
+                context.Text.Add(parent.Fragment.Kind == FragmentKind.Line && child.Fragment == parent.Fragment.Children[^1].Fragment
+                    ? placed with { LineEnd = true } : placed);
                 continue;
             }
             var box = placed.Box;
@@ -291,7 +292,68 @@ internal static class DisplayListBuilder
                     x += advance;
             }
             SetClip(box.Clip);
+            var decorations = style.Inherited.Decorations is null ? null : DecorationLines(box, run, face, baseline);
+            if (decorations is not null)
+                list.Items.AddRange(decorations.Where(d => d.Under).Select(d => d.Item));
             list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, origins)));
+            if (decorations is not null)
+                list.Items.AddRange(decorations.Where(d => !d.Under).Select(d => d.Item));
+        }
+
+        /// <summary>
+        /// The lines of the decorations applied to a text fragment, outermost decorating box first
+        /// (https://www.w3.org/TR/css-text-decor-4/#line-decoration): underlines and overlines go under the glyphs,
+        /// line-throughs over them. Positions and auto thicknesses come from the font's post and OS/2 metrics.
+        /// </summary>
+        // ponytail: each fragment places its lines from its own font, so a decorating box with mixed fonts or sizes gets
+        // lines at several heights rather than one position for the whole box.
+        private static List<(DisplayItem Item, bool Under)> DecorationLines(PaintBox box, Layout.TextRun run, Typography.FontFace face, float baseline)
+        {
+            var chain = new List<AppliedDecoration>();
+            for (var d = run.Style.Inherited.Decorations; d is not null; d = d.Outer)
+                chain.Insert(0, d);
+
+            // Spaces hanging at the end of a line are not decorated (text-decoration-skip-spaces: start end).
+            var (left, right) = (box.X, box.X + box.Fragment.Width);
+            if (box.LineEnd && run.Style.Text.WhiteSpaceCollapse is not (WhiteSpaceCollapse.Preserve or WhiteSpaceCollapse.BreakSpaces))
+            {
+                var (space, ideographic) = (face.GlyphFor(' '), face.GlyphFor('　'));
+                var trim = 0f;
+                for (var g = run.GlyphEnd - 1; g >= run.GlyphStart && run.Run.Glyphs[g] is var id && id != 0 && (id == space || id == ideographic); g--)
+                    trim += run.Run.Advances[g];
+                (left, right) = run.RightToLeft ? (left + trim, right) : (left, right - trim);
+            }
+
+            var scale = run.Run.Size / face.UnitsPerEm;
+            var lines = new List<(DisplayItem, bool)>();
+            foreach (var d in chain)
+            {
+                if (d.Color.A <= 0)
+                    continue;
+                var thickness = d.Thickness is { } t ? Math.Max(0, t) : Math.Max(1, face.UnderlineThickness > 0 ? face.UnderlineThickness * scale : run.Run.Size / 16);
+                if (thickness <= 0 || right <= left)
+                    continue;
+                void Add(float top, bool under, int doubleDirection)
+                {
+                    if (d.Style == TextDecorationStyle.Double)
+                    {
+                        lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color), under));
+                        top += 2 * thickness * doubleDirection;
+                    }
+                    lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color,
+                        LineStyle: d.Style == TextDecorationStyle.Double ? TextDecorationStyle.Solid : d.Style), under));
+                }
+                if (d.Line.HasFlag(TextDecorationLine.Underline))
+                    Add(baseline + (d.Offset ?? (face.UnderlinePosition != 0 ? -face.UnderlinePosition * scale : run.Run.Size / 10)), true, 1);
+                if (d.Line.HasFlag(TextDecorationLine.Overline))
+                    Add(baseline - run.Ascent, true, -1);
+                if (d.Line.HasFlag(TextDecorationLine.LineThrough))
+                {
+                    var above = face.StrikeoutPosition > 0 ? face.StrikeoutPosition * scale : (face.XHeight > 0 ? face.XHeight * scale : run.Run.Size / 2) / 2 + thickness / 2;
+                    Add(baseline - above, false, 1);
+                }
+            }
+            return lines;
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

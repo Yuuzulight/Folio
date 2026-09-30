@@ -93,6 +93,24 @@ public class SkiaCanvasTests
         Assert.Equal(SKColors.White, bitmap.GetPixel(8, 20)); // below the line
     }
 
+    [Fact]
+    public void DrawsTextDecorationsInTheirStyles()
+    {
+        using var bitmap = Render("<style>body { margin: 0 } p { margin: 0; text-decoration: underline red 2px; text-underline-offset: 3.2px }</style>" +
+            "<p>&nbsp;&nbsp;&nbsp;</p><p style='text-decoration-style: dotted'>&nbsp;&nbsp;&nbsp;</p><p style='text-decoration-style: wavy'>&nbsp;&nbsp;&nbsp;</p>");
+
+        // Solid: an unbroken line from 16px to 18px.
+        Assert.All(Enumerable.Range(0, 48), x => Assert.Equal(SKColors.Red, bitmap.GetPixel(x, 16)));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(24, 13));
+        // Dotted: ink and gaps along the line.
+        var dotted = Enumerable.Range(0, 48).Select(x => bitmap.GetPixel(x, 33)).ToList();
+        Assert.Contains(dotted, p => p.Green < 128);
+        Assert.Contains(SKColors.White, dotted);
+        // Wavy: the line's ink moves up and down, so no single row holds all of it.
+        var inked = Enumerable.Range(0, 48).Select(x => Enumerable.Range(44, 10).First(y => bitmap.GetPixel(x, y).Green < 128)).ToList();
+        Assert.True(inked.Max() - inked.Min() >= 2, string.Join(",", inked));
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {

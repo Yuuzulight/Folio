@@ -27,6 +27,7 @@ internal sealed class StyleBuilder
         Generated = initial.Generated;
         Flex = initial.Flex;
         Grid = initial.Grid;
+        Decoration = initial.Decoration;
     }
 
     public FontGroup Font { get; set; }
@@ -40,6 +41,7 @@ internal sealed class StyleBuilder
     public GeneratedGroup Generated { get; set; }
     public FlexGroup Flex { get; set; }
     public GridGroup Grid { get; set; }
+    public DecorationGroup Decoration { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -67,6 +69,7 @@ internal sealed class StyleBuilder
             if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme))
                 builder.Apply(Properties.Get(id), value, context);
         }
+        builder.PropagateDecorations();
         return builder.Build(groups);
     }
 
@@ -86,6 +89,20 @@ internal sealed class StyleBuilder
         property.Apply(this, value, context);
     }
 
+    // Decorations reach the text of in-flow descendants, but not floats, absolutely positioned boxes or the contents of
+    // atomic inlines (https://www.w3.org/TR/css-text-decor-3/#line-decoration); the element's own go inside its parent's.
+    private void PropagateDecorations()
+    {
+        var applied = Box.Float != FloatSide.None || Box.Position is Position.Absolute or Position.Fixed
+            || Box.Display is Display.InlineBlock or Display.InlineTable or Display.InlineFlex or Display.InlineGrid
+            ? null : _parent.Inherited.Decorations;
+        var own = Decoration;
+        if (own.Line != TextDecorationLine.None)
+            applied = new AppliedDecoration(own.Line, own.Style, own.Color.Resolve(Inherited.Color), own.Thickness, Text.UnderlineOffset, applied);
+        if (!Equals(applied, Inherited.Decorations))
+            Inherited = Inherited with { Decorations = applied };
+    }
+
     public ComputedStyle Build(Dictionary<object, object>? groups = null)
     {
         var initial = ComputedStyle.Initial;
@@ -102,6 +119,7 @@ internal sealed class StyleBuilder
             Generated = Share(Generated, initial.Generated, groups),
             Flex = Share(Flex, initial.Flex, groups),
             Grid = Share(Grid, initial.Grid, groups),
+            Decoration = Share(Decoration, initial.Decoration, groups),
             Custom = _custom,
         };
     }

@@ -138,3 +138,29 @@ grid-template-areas: "a a ." "b  b ..."; grid-template-columns: repeat(auto-fill
 grid-template-areas: "a a ." "b b ."
 grid-template-columns: repeat(auto-fill, [x] 100px [y]) 50px
 grid-template-rows: none
+
+=== text-decoration in any order
+text-decoration: dotted 2px red underline
+---
+text-decoration-line: underline
+text-decoration-style: dotted
+text-decoration-color: rgb(255, 0, 0)
+text-decoration-thickness: 2
+
+=== text-decoration with several lines resets what it omits
+text-decoration-style: wavy; text-decoration: line-through underline
+---
+text-decoration-line: underline line-through
+text-decoration-style: solid
+text-decoration-color: currentcolor
+text-decoration-thickness: auto
+
+=== text-decoration none
+text-decoration: none
+---
+text-decoration-line: none
+
+=== text-decoration with a repeated line is invalid
+text-decoration: overline; text-decoration: underline underline
+---
+text-decoration-line: overline

@@ -160,3 +160,16 @@ border-bottom-right-radius: 3px
 isolation: isolate
 ---
 isolation: isolate
+
+=== decoration thickness and underline offset are in em
+font-size: 20px; text-decoration-thickness: 10%; text-underline-offset: 0.5em
+---
+text-decoration-thickness: 2
+text-underline-offset: 10
+
+=== underline offset inherits
+%parent text-underline-offset: 3px
+color: red
+---
+text-underline-offset: 3
+text-decoration-thickness: auto
