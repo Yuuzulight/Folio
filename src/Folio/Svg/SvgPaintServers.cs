@@ -20,39 +20,9 @@ internal sealed record SvgGradient(bool Radial, Vector2 P1, Vector2 P2, float Ra
 /// <summary>A paint ready to draw: a colour with its opacity, or a gradient with the opacity in its stops.</summary>
 internal readonly record struct SvgResolvedPaint(CssColor Color, SvgGradient? Gradient = null);
 
-/// <summary>
-/// What building an SVG render tree needs besides the element: the layout context text is shaped with, and the
-/// elements <c>url(#id)</c> references point to (paint servers, and later clip paths, markers and reused content).
-/// </summary>
-internal sealed class SvgContext(Layout.LayoutContext layout, DocumentNode document)
+/// <summary>Paint servers: the paints fills and strokes reference with url().</summary>
+internal sealed partial class SvgContext
 {
-    private Dictionary<string, ElementNode>? _ids;
-
-    public Layout.LayoutContext Layout { get; } = layout;
-
-    /// <summary>
-    /// The element a same-document URL reference (<c>#id</c>, or <c>url(#id)</c>'s text) points to: the first one in
-    /// tree order with that id. References into other documents are not followed.
-    /// </summary>
-    public ElementNode? Find(string? reference)
-    {
-        if (reference is null)
-            return null;
-        reference = reference.Trim();
-        if (reference.Length < 2 || reference[0] != '#')
-            return null;
-        if (_ids is null)
-        {
-            _ids = new Dictionary<string, ElementNode>(StringComparer.Ordinal);
-            for (Node? node = document; node is not null; node = node.NextInTree(document))
-            {
-                if (node is ElementNode element && element.GetAttribute("id") is { Length: > 0 } id)
-                    _ids.TryAdd(id, element);
-            }
-        }
-        return _ids.GetValueOrDefault(reference[1..]);
-    }
-
     /// <summary>
     /// A fill or stroke paint (https://www.w3.org/TR/SVG2/painting.html#SpecifyingPaint): a colour, or the gradient a
     /// url() references, or its fallback when the reference is to nothing usable; null when nothing is painted.
