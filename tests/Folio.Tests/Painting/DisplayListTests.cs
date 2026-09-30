@@ -48,6 +48,9 @@ public class DisplayListTests
         DisplayItemKind.BoxShadow => $"shadow {Shape(item.Shape)} {item.Color} blur {N(item.Blur)} {(item.Inset ? "inside" : "outside")} {Shape(item.Box)}",
         DisplayItemKind.Decoration => $"decoration {Shape(item.Shape)} {item.LineStyle.ToString().ToLowerInvariant()} {item.Color}{(item.Glyphs is null ? "" : " skip-ink")}",
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
+        DisplayItemKind.FillPath => $"fill path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(item.Path!)} {item.Color}",
+        DisplayItemKind.StrokePath when item.Stroke is { } s =>
+            $"stroke path {Path(item.Path!)} {N(s.Width)}{(s.Cap == LineCap.Round ? " round" : "")}{(s.Dashes is { } d ? $" dashes {string.Join(",", d.Select(N))}" : "")} {item.Color}",
         DisplayItemKind.PushClip when item.Path is { } path => $"clip path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(path)}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushLayer => Layer(item),

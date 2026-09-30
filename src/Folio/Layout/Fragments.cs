@@ -118,6 +118,9 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// <summary>For line boxes: the baseline, from the top of the line.</summary>
     public float Baseline { get; init; }
 
+    /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
+    public Svg.SvgContainerNode? Svg { get; init; }
+
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
 }

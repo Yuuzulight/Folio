@@ -33,7 +33,8 @@ internal static class BlockLayout
         var borderBox = style.Box.BoxSizing == BoxSizing.BorderBox;
 
         var replaced = box is ReplacedBox replacedBox
-            ? ReplacedSize(replacedBox, cbWidth, space.ContainingHeight, frameX, frameY, space.FixedWidth - frameX)
+            ? ReplacedSize(replacedBox, cbWidth, space.ContainingHeight, frameX, frameY, space.FixedWidth - frameX,
+                Math.Max(0, cbWidth - Margin(style.Spacing.MarginLeft, cbWidth) - Margin(style.Spacing.MarginRight, cbWidth) - frameX))
             : null;
         var (width, marginLeft, marginRight) = space.FixedWidth is { } fixedWidth
             ? (Math.Max(0, fixedWidth - frameX), 0f, 0f)
@@ -296,6 +297,9 @@ internal static class BlockLayout
             CollapsesThrough = collapsesThrough,
             Exclusions = independent ? space.Exclusions : exclusions,
             OutOfFlow = outOfFlow,
+            // ponytail: rebuilt on every layout of the box (flex and grid may lay an item out more than once); cache it per
+            // box and size if large SVG shows up in profiles.
+            Svg = box is ReplacedBox { Kind: ReplacedKind.Svg, Node: Dom.ElementNode svg } ? Svg.SvgRenderTree.Build(svg, width, contentHeight) : null,
         };
     }
 
@@ -505,29 +509,37 @@ internal static class BlockLayout
     }
 
     /// <summary>
-    /// The used content-box size of a replaced box with natural dimensions (CSS 2.2 §10.3.2 and §10.6.2): an auto size
-    /// follows the other through the natural aspect ratio, or is the natural size, and min and max sizes apply as
-    /// §10.4's table says, keeping the ratio when both sizes are auto. Null for boxes without natural dimensions.
+    /// The used content-box size of a replaced box (CSS 2.2 §10.3.2 and §10.6.2): an auto size follows the other through
+    /// the natural aspect ratio, or is the natural size, and min and max sizes apply as §10.4's table says, keeping the
+    /// ratio when both sizes are auto. Without a natural width, a box with a ratio fills <paramref name="fillWidth"/>
+    /// and one without is 300px wide; without a natural height, one without a ratio is 150px high. Null for boxes with
+    /// no natural dimensions at all (not an image or SVG).
     /// </summary>
     /// <param name="usedWidth">A width already decided by the parent's algorithm (content box), which the height follows.</param>
+    /// <param name="fillWidth">The width that fills the containing block; null in intrinsic sizing, where 300px is used.</param>
     internal static (float Width, float Height)? ReplacedSize(ReplacedBox box, float cbWidth, float? cbHeight, float frameX, float frameY,
-                                                            float? usedWidth = null)
+                                                            float? usedWidth = null, float? fillWidth = null)
     {
-        if (box.NaturalSize is not { } natural)
+        float? nw, nh, ratio;
+        if (box.NaturalSize is { } natural)
+            (nw, nh, ratio) = (natural.Width, natural.Height, natural.Width > 0 && natural.Height > 0 ? natural.Width / natural.Height : null);
+        else if (box.SvgNatural is { } svg)
+            (nw, nh, ratio) = svg;
+        else
             return null;
-        var (naturalWidth, naturalHeight) = natural;
+        var naturalWidth = nw ?? (nh is { } h0 && ratio is { } r0 ? h0 * r0 : ratio is not null && fillWidth is { } fill ? fill : 300);
+        var naturalHeight = nh ?? (ratio is { } r1 ? naturalWidth / r1 : 150);
         var size = box.Style.Size;
         var borderBox = box.Style.Box.BoxSizing == BoxSizing.BorderBox;
         float? W(SizeValue v) => ContentSize(v, cbWidth, frameX, borderBox);
         float? H(SizeValue v) => ContentSize(v, cbHeight, frameY, borderBox);
         var (minW, maxW) = (W(size.MinWidth) ?? 0, W(size.MaxWidth) ?? float.PositiveInfinity);
         var (minH, maxH) = (H(size.MinHeight) ?? 0, H(size.MaxHeight) ?? float.PositiveInfinity);
-        var ratio = naturalWidth > 0 && naturalHeight > 0 ? naturalWidth / naturalHeight : (float?)null;
 
         var (width, height) = (usedWidth ?? W(size.Width), H(size.Height));
         if (width is null && height is null && ratio is { } r)
             return Constrain(naturalWidth, naturalHeight, r);
-        var w = width ?? (height is { } hh && ratio is { } r1 ? Clamp(hh, minH, maxH) * r1 : naturalWidth);
+        var w = width ?? (height is { } hh && ratio is { } r1b ? Clamp(hh, minH, maxH) * r1b : naturalWidth);
         if (usedWidth is null)
             w = Clamp(w, minW, maxW);
         var h = height ?? (ratio is { } r2 ? w / r2 : naturalHeight);

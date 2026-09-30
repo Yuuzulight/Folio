@@ -37,6 +37,12 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Image:
                     canvas.DrawImage(item.Image!, item.Shape.Rect, item.Sampling);
                     break;
+                case DisplayItemKind.FillPath:
+                    canvas.FillPath(item.Path!, item.Rule, new Paint(ToRgba(item.Color)));
+                    break;
+                case DisplayItemKind.StrokePath:
+                    canvas.StrokePath(item.Path!, item.Stroke!.Value, new Paint(ToRgba(item.Color)));
+                    break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();
                     if (item.Path is { } path)

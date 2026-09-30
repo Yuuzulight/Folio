@@ -95,6 +95,9 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
 
     /// <summary>The natural width and height in CSS pixels (https://www.w3.org/TR/css-images-3/#natural-dimensions), if any.</summary>
     public (float Width, float Height)? NaturalSize => Image is { } image ? (image.Width / Density, image.Height / Density) : null;
+
+    /// <summary>For SVG: the natural width, height and aspect ratio, each only when the svg element has one.</summary>
+    public (float? Width, float? Height, float? Ratio)? SvgNatural { get; init; }
 }
 
 internal sealed class FlexContainerBox(ComputedStyle style, Node? node, PseudoElement pseudoElement = PseudoElement.None) : Box(style, node, pseudoElement)

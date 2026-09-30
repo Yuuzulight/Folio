@@ -68,4 +68,17 @@ public class PathDataParserTests
     [InlineData("M 0 0 A 1 1 0 2 0 5 5")]
     [InlineData("M 0 0 Z 1 1")]
     public void RejectsErrors(string data) => Assert.Equal("invalid", Parse(data));
+
+    [Theory]
+    [InlineData("M 0 0 L 1", "M0,0")]
+    [InlineData("M 0 0 L 5 5 X 1 1", "M0,0 L5,5")]
+    [InlineData("M 0 0 H 3 A 1 1 0 2 0 5 5", "M0,0 L3,0")]
+    [InlineData("M 0 0 Z 1 1", "M0,0 Z")]
+    [InlineData("L 0 0", "invalid")]
+    public void SvgRendersUpToTheFirstError(string data, string expected)
+    {
+        var segments = PathDataParser.Parse(data, upToError: true);
+
+        Assert.Equal(expected, segments is null ? "invalid" : string.Join(" ", segments.Select(s => s.Verb == 'Z' ? "Z" : $"{s.Verb}{P(s.P1)}")));
+    }
 }

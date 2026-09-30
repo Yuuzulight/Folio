@@ -1,0 +1,6 @@
+<!DOCTYPE html>
+<title>preserveAspectRatio aligns a meet and clips a slice to the viewport</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/coords.html#PreserveAspectRatioAttribute">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100" viewBox="0 0 10 10" preserveAspectRatio="xMaxYMid meet"><rect width="10" height="10" fill="blue" /></svg>
+<svg width="200" height="100" viewBox="0 0 10 10" preserveAspectRatio="xMidYMid slice"><rect width="10" height="5" fill="green" /><rect y="5" width="10" height="5" fill="white" /></svg>

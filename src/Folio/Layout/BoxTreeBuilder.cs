@@ -159,6 +159,7 @@ internal sealed class BoxTreeBuilder
                 IsAtomicInline = IsInlineLevel(display),
                 Image = source is null ? null : _images?.Load(source),
                 Density = density,
+                SvgNatural = kind == ReplacedKind.Svg ? Svg.SvgRenderTree.NaturalSize(element, style.Font.Size) : null,
             };
             Place(box, IsInlineLevel(display));
             return false;

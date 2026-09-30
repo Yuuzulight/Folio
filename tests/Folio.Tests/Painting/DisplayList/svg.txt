@@ -1,0 +1,190 @@
+=== an svg element paints its shapes in its content box, clipped to its viewport
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><rect x="10" y="5" width="20" height="10" fill="rgb(1, 0, 0)" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M10,5 L30,5 L30,15 L10,15 Z rgb(1, 0, 0)
+pop
+pop
+
+=== the user space starts inside the border and padding
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="10" height="10" style="padding: 5px; border: 1px solid rgb(0, 0, 1)"><rect width="2" height="2" /></svg>
+---
+border 0,0 22x22 1 solid rgb(0, 0, 1)
+transform 1,0,0,1,6,6
+clip 0,0 10x10
+fill path M0,0 L2,0 L2,2 L0,2 Z rgb(0, 0, 0)
+pop
+pop
+
+=== a viewBox is scaled to fit and centred by default
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50" viewBox="0 0 10 10"><rect width="10" height="10" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+transform 5,0,0,5,25,0
+fill path M0,0 L10,0 L10,10 L0,10 Z rgb(0, 0, 0)
+pop
+pop
+pop
+
+=== slice covers the viewport, aligned by preserveAspectRatio
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50" viewBox="0 0 10 10" preserveAspectRatio="xMinYMax slice"></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+transform 10,0,0,10,0,-50
+pop
+pop
+pop
+
+=== preserveAspectRatio none stretches
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50" viewBox="5 0 10 10" preserveAspectRatio="none"></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+transform 10,0,0,5,-50,0
+pop
+pop
+pop
+
+=== overflow visible does not clip
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block; overflow: visible }</style><svg width="10" height="10"><rect x="-5" width="20" height="2" /></svg>
+---
+transform 1,0,0,1,0,0
+fill path M-5,0 L15,0 L15,2 L-5,2 Z rgb(0, 0, 0)
+pop
+
+=== lengths in units and percentages of the viewport
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100" style="font-size: 10px"><rect x="10%" y="1em" width="50%" height="0.25in" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+fill path M20,10 L120,10 L120,34 L20,34 Z rgb(0, 0, 0)
+pop
+pop
+
+=== strokes: round caps and a repeated odd dash array; lines have no fill
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><line x1="0" y1="10" x2="50" y2="10" stroke="blue" stroke-width="4" stroke-linecap="round" stroke-dasharray="5 3 2" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+stroke path M0,10 L50,10 4 round dashes 5,3,2,5,3,2 rgb(0, 0, 255)
+pop
+pop
+
+=== paint-order stroke, and opacity over both paints as a group
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><rect width="10" height="10" fill="red" stroke="blue" paint-order="stroke" opacity=".5" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+opacity 0.5
+stroke path M0,0 L10,0 L10,10 L0,10 Z 1 rgb(0, 0, 255)
+fill path M0,0 L10,0 L10,10 L0,10 Z rgb(255, 0, 0)
+pop
+pop
+pop
+
+=== opacity over one paint goes into its colour, with fill-opacity
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><rect width="10" height="10" fill="red" fill-opacity="0.5" opacity=".5" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M0,0 L10,0 L10,10 L0,10 Z rgba(255, 0, 0, 0.25)
+pop
+pop
+
+=== group opacity is a layer
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><g opacity="0.25"><rect width="1" height="1" /></g></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+opacity 0.25
+fill path M0,0 L1,0 L1,1 L0,1 Z rgb(0, 0, 0)
+pop
+pop
+pop
+
+=== transform attributes apply right to left; the CSS property turns about the user-space origin
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><g transform="translate(10 20) scale(2)"><rect width="1" height="1" style="transform: rotate(90deg)" /></g></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+transform 2,0,0,2,10,20
+transform 0,1,-1,0,0,0
+fill path M0,0 L1,0 L1,1 L0,1 Z rgb(0, 0, 0)
+pop
+pop
+pop
+pop
+
+=== an invalid transform list is ignored; a singular one hides the element
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><rect width="1" height="1" transform="translate(5) bogus(1)" /><rect width="1" height="1" transform="scale(0)" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M0,0 L1,0 L1,1 L0,1 Z rgb(0, 0, 0)
+pop
+pop
+
+=== nothing is painted for display none, hidden visibility or no paint
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><rect width="5" height="5" style="display: none" /><rect width="5" height="5" visibility="hidden" /><rect width="5" height="5" fill="none" /><g visibility="hidden"><rect width="5" height="5" visibility="visible" fill="lime" /></g></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M0,0 L5,0 L5,5 L0,5 Z rgb(0, 255, 0)
+pop
+pop
+
+=== currentcolor is the element's colour; a url paint uses its fallback
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50" style="color: rgb(0, 0, 9)"><rect width="5" height="5" fill="currentColor" /><rect width="5" height="5" fill="url(#g) rgb(0, 9, 0)" /><rect width="5" height="5" fill="url(#g)" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M0,0 L5,0 L5,5 L0,5 Z rgb(0, 0, 9)
+fill path M0,0 L5,0 L5,5 L0,5 Z rgb(0, 9, 0)
+pop
+pop
+
+=== a nested svg is a viewport of its own
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><svg x="10" y="10" width="20" height="20" viewBox="0 0 2 2"><rect width="1" height="1" /></svg></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+clip 10,10 20x20
+transform 10,0,0,10,10,10
+fill path M0,0 L1,0 L1,1 L0,1 Z rgb(0, 0, 0)
+pop
+pop
+pop
+pop
+
+=== polygons close, polylines with an odd count drop the last number, paths render up to an error
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><polygon points="0,0 10,0 5,10" fill-rule="evenodd" /><polyline points="0 0 10 0 5" /><path d="M0 0 L10 0 L10 10 L" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path evenodd M0,0 L10,0 L5,10 Z rgb(0, 0, 0)
+fill path M0,0 L10,0 rgb(0, 0, 0)
+fill path M0,0 L10,0 L10,10 rgb(0, 0, 0)
+pop
+pop
+
+=== rounded rectangles take an auto radius from the other, clamped to half the side
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><rect width="10" height="4" rx="3" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M3,0 L7,0 C8.66,0 10,0.9 10,2 L10,2 C10,3.1 8.66,4 7,4 L3,4 C1.34,4 0,3.1 0,2 L0,2 C0,0.9 1.34,0 3,0 Z rgb(0, 0, 0)
+pop
+pop
+
+=== circles and ellipses start at the rightmost point
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50"><circle cx="10" cy="10" r="5" /><ellipse cx="10" cy="10" rx="4" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+fill path M15,10 C15,12.76 12.76,15 10,15 C7.24,15 5,12.76 5,10 C5,7.24 7.24,5 10,5 C12.76,5 15,7.24 15,10 Z rgb(0, 0, 0)
+fill path M14,10 C14,12.21 12.21,14 10,14 C7.79,14 6,12.21 6,10 C6,7.79 7.79,6 10,6 C12.21,6 14,7.79 14,10 Z rgb(0, 0, 0)
+pop
+pop
