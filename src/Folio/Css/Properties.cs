@@ -143,6 +143,7 @@ internal enum PropertyId
     Rotate,
     Scale,
     TransformOrigin,
+    TextDecorationSkipInk,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -714,6 +715,8 @@ internal static class Properties
                 s => s.Text.ListStyleImage ?? NoImage.Instance, (b, v) => b.Text = b.Text with { ListStyleImage = v }),
             Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
                 s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
+            Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", Enum<SkipInk>("auto", "none", "all"),
+                s => s.Text.SkipInk, (b, v) => b.Text = b.Text with { SkipInk = v }),
         };
 
         rows.AddRange(TransformProperties.Rows);

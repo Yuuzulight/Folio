@@ -111,6 +111,18 @@ public class SkiaCanvasTests
         Assert.True(inked.Max() - inked.Min() >= 2, string.Join(",", inked));
     }
 
+    [Fact]
+    public void UnderlinesSkipTheGlyphsInk()
+    {
+        // The box font's glyphs reach 3.2px below the baseline, through the underline; the text itself is transparent.
+        using var bitmap = Render("<style>body { margin: 0 } p { margin: 0; color: transparent; text-decoration: underline red 2px }</style>" +
+            "<p>a&nbsp;a</p><p style='text-decoration-skip-ink: none'>a&nbsp;a</p>");
+
+        Assert.Equal(SKColors.White, bitmap.GetPixel(8, 15)); // under the first glyph
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(24, 15));  // under the space, away from the glyphs
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(8, 31));   // skip-ink: none
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {

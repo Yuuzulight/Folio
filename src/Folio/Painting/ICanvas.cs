@@ -30,6 +30,14 @@ public interface ICanvas
     /// <summary>Draws glyphs of a font by id at a size in CSS pixels, each at its baseline origin.</summary>
     void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint);
 
+    /// <summary>
+    /// Where the outlines of glyphs drawn as by <see cref="DrawGlyphs"/> cross the horizontal band from
+    /// <paramref name="top"/> to <paramref name="bottom"/>: pairs of left and right x coordinates, one pair per crossing,
+    /// in CSS pixels. Used to leave gaps in underlines and overlines (text-decoration-skip-ink). A canvas that cannot
+    /// tell returns none, and lines are drawn unbroken.
+    /// </summary>
+    float[] GlyphIntercepts(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, float top, float bottom) => [];
+
     /// <summary>Starts a layer that is composited with <paramref name="options"/> at the matching <see cref="PopLayer"/>.</summary>
     void PushLayer(in LayerOptions options);
 
