@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<title>Reference: the same boxes without blend modes</title>
+<style>
+  body { margin: 0; background: linear-gradient(90deg, yellow, teal); }
+  div { width: 60px; height: 40px; }
+  .a { background: rgb(200 30 90 / 0.6); }
+  .b { margin: -20px 0 0 30px; background: rgb(20 60 200 / 0.7); border-radius: 10px; }
+</style>
+<div class="a"></div>
+<div class="b"></div>
+<div class="a" style="background-image: linear-gradient(red, transparent)"></div>

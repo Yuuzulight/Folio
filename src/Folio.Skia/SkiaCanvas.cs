@@ -123,7 +123,10 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         var owned = new List<IDisposable>();
         try
         {
-            var skPaint = Own(owned, new SKPaint { Color = SKColors.Black.WithAlpha(ToByte(options.Opacity)), ImageFilter = Chain(options.Filters, null, owned) });
+            var skPaint = Own(owned, new SKPaint
+            {
+                Color = SKColors.Black.WithAlpha(ToByte(options.Opacity)), ImageFilter = Chain(options.Filters, null, owned), BlendMode = ToSkia(options.Blend),
+            });
             if (options.Backdrop is not { Count: > 0 } backdrop)
             {
                 canvas.SaveLayer(skPaint);
@@ -173,9 +176,16 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void PopLayer() => canvas.Restore();
 
+    private static SKBlendMode ToSkia(BlendMode mode) => mode switch
+    {
+        BlendMode.Normal => SKBlendMode.SrcOver,
+        BlendMode.PlusLighter => SKBlendMode.Plus,
+        _ => Enum.Parse<SKBlendMode>(mode.ToString()),
+    };
+
     private static SKPaint Fill(in Paint paint) => new()
     {
-        IsAntialias = true, Style = SKPaintStyle.Fill, Color = paint.Gradient is null ? ToSkia(paint.Color) : SKColors.Black,
+        IsAntialias = true, Style = SKPaintStyle.Fill, Color = paint.Gradient is null ? ToSkia(paint.Color) : SKColors.Black, BlendMode = ToSkia(paint.Blend),
         MaskFilter = paint.Blur > 0 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, paint.Blur) : null,
         Shader = paint.Gradient is { } gradient ? Shader(gradient) : null,
     };

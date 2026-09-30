@@ -41,8 +41,8 @@ public class DisplayListTests
 
     private static string Dump(DisplayItem item) => item.Kind switch
     {
-        DisplayItemKind.Fill when item.Gradient is { } g => $"fill {Shape(item.Shape)} {g.Kind.ToString().ToLowerInvariant()} gradient, {g.Stops.Count} stops{(g.Repeat ? ", repeating" : "")}",
-        DisplayItemKind.Fill => $"fill {Shape(item.Shape)} {item.Color}",
+        DisplayItemKind.Fill when item.Gradient is { } g => $"fill {Shape(item.Shape)} {g.Kind.ToString().ToLowerInvariant()} gradient, {g.Stops.Count} stops{(g.Repeat ? ", repeating" : "")}{Blend(item.Blend)}",
+        DisplayItemKind.Fill => $"fill {Shape(item.Shape)} {item.Color}{Blend(item.Blend)}",
         DisplayItemKind.Border => $"border {Shape(item.Shape)} {Sides(item.Border!)}",
         DisplayItemKind.Glyphs => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {item.Color}{(item.Blur > 0 ? $" blur {N(item.Blur)}" : "")}",
         DisplayItemKind.BoxShadow => $"shadow {Shape(item.Shape)} {item.Color} blur {N(item.Blur)} {(item.Inset ? "inside" : "outside")} {Shape(item.Box)}",
@@ -63,8 +63,14 @@ public class DisplayListTests
             parts.Add($"filter {string.Join(" ", filters.Select(Filter))}");
         if (item.Backdrop is { } backdrop)
             parts.Add($"backdrop {Shape(item.Shape)} {string.Join(" ", backdrop.Select(Filter))}");
+        if (item.Blend != Folio.Painting.BlendMode.Normal)
+            parts.Add(Blend(item.Blend).Trim());
         return parts.Count > 0 ? string.Join(" ", parts) : "layer";
     }
+
+    // " blend <mode>" in the CSS keyword's spelling, or nothing for normal.
+    private static string Blend(Folio.Painting.BlendMode mode) => mode == Folio.Painting.BlendMode.Normal ? ""
+        : " blend " + string.Concat(mode.ToString().Select((c, i) => char.IsUpper(c) && i > 0 ? $"-{char.ToLowerInvariant(c)}" : $"{char.ToLowerInvariant(c)}"));
 
     private static string Filter(Filter f) => f.Kind switch
     {

@@ -151,6 +151,8 @@ internal enum PropertyId
     TextDecorationSkipInk,
     Filter,
     BackdropFilter,
+    MixBlendMode,
+    BackgroundBlendMode,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -466,6 +468,11 @@ internal static class Properties
             Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
             // https://www.w3.org/TR/compositing-1/#isolation
             Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
+            // https://drafts.csswg.org/compositing-2/#mix-blend-mode and #background-blend-mode (plus-lighter blends whole elements only).
+            Keywords(PropertyId.MixBlendMode, "mix-blend-mode", false, "normal", BlendKeywords, s => s.Effects.MixBlendMode, (b, v) => b.Effects = b.Effects with { MixBlendMode = v }),
+            Layers<Style.BlendMode, Style.BlendMode>(PropertyId.BackgroundBlendMode, "background-blend-mode", "normal",
+                r => r.Keyword("plus-lighter") is null && r.Keyword([.. BlendKeywords.Keys]) is { } k ? BlendKeywords[k] : null, (x, _) => x,
+                s => s.Effects.BackgroundBlendModes, (b, v) => b.Effects = b.Effects with { BackgroundBlendModes = v }),
             // https://www.w3.org/TR/css-text-3/#text-align-property (match-parent is not supported)
             Keywords(PropertyId.TextAlign, "text-align", true, "start", TextAlignKeywords,
                 s => s.Text.TextAlign, (b, v) => b.Text = b.Text with { TextAlign = v }),
@@ -949,6 +956,9 @@ internal static class Properties
             float L(int i) => i < s.Lengths.Count ? ctx.LengthPercentage(s.Lengths[i]).Resolve(0) : 0;
             return new Shadow(L(0), L(1), Math.Max(0, L(2)), L(3), s.Color is null ? CssColor.CurrentColor : ctx.Color(s.Color, ctx.CurrentColor), s.Inset);
         }).ToList();
+
+    private static readonly Dictionary<string, Style.BlendMode> BlendKeywords = Enum<Style.BlendMode>("normal", "multiply", "screen", "overlay", "darken",
+        "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-lighter");
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
 

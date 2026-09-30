@@ -36,7 +36,33 @@ public readonly record struct Rgba(float R, float G, float B, float A);
 
 /// <summary>What a fill or stroke paints with: a solid colour, or a gradient when one is given.</summary>
 /// <param name="Blur">The standard deviation, in CSS pixels, of a Gaussian blur applied to what is painted (shadows); 0 for none.</param>
-public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradient = null);
+/// <param name="Blend">How what is painted blends with what is under it.</param>
+public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradient = null, BlendMode Blend = BlendMode.Normal);
+
+/// <summary>
+/// How a source blends with its backdrop: source-over with the blend functions of
+/// https://drafts.csswg.org/compositing-2/#blending, or, for <see cref="PlusLighter"/>, added and clamped.
+/// </summary>
+public enum BlendMode
+{
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+    PlusLighter,
+}
 
 public enum GradientKind
 {
@@ -87,12 +113,12 @@ public enum ImageSampling
 
 /// <summary>
 /// Options for a compositing layer; the layer is blended back when popped. What is drawn into it is filtered by
-/// <paramref name="Filters"/>, then composited with <paramref name="Opacity"/>. With <paramref name="Backdrop"/>, the
+/// <paramref name="Filters"/>, then composited with <paramref name="Opacity"/> and <paramref name="Blend"/>. With <paramref name="Backdrop"/>, the
 /// layer starts as what lies under it, filtered by those filters (their blur reading mirrored edges at the clip) and
 /// clipped to <paramref name="BackdropClip"/>, instead of empty (https://drafts.csswg.org/filter-effects-2/#backdrop-filter-operation).
 /// </summary>
 public readonly record struct LayerOptions(float Opacity, IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null,
-                                           RoundedRect BackdropClip = default);
+                                           RoundedRect BackdropClip = default, BlendMode Blend = BlendMode.Normal);
 
 public enum FilterKind
 {
