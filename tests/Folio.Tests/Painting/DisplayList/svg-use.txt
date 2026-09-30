@@ -1,0 +1,62 @@
+=== use places its target at x, y after its own transform; defs draw nothing
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><defs><rect id="r" width="10" height="10" /></defs><use href="#r" x="5" y="6" transform="scale(2)" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+transform 2,0,0,2,10,12
+fill path M0,0 L10,0 L10,10 L0,10 Z rgb(0, 0, 0)
+pop
+pop
+pop
+
+=== instances inherit from their use element, not from where the original is
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><defs fill="green"><g id="icon"><path d="M0 0 H10 V10 Z" /><path d="M0 0 H1 V1 Z" fill="lime" /></g></defs><use href="#icon" fill="red" /><use xlink:href="#icon" fill="blue" x="20" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+fill path M0,0 L10,0 L10,10 Z rgb(255, 0, 0)
+fill path M0,0 L1,0 L1,1 Z rgb(0, 255, 0)
+transform 1,0,0,1,20,0
+fill path M0,0 L10,0 L10,10 Z rgb(0, 0, 255)
+fill path M0,0 L1,0 L1,1 Z rgb(0, 255, 0)
+pop
+pop
+pop
+
+=== style rules match the original element
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block } defs .dot { fill: rgb(0, 0, 9) }</style><svg width="200" height="100"><defs><rect id="d" class="dot" width="1" height="1" /></defs><use href="#d" fill="red" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+fill path M0,0 L1,0 L1,1 L0,1 Z rgb(0, 0, 9)
+pop
+pop
+
+=== a symbol is a viewport sized by the use, with its viewBox; without a size it fills the viewport
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><symbol id="s" viewBox="0 0 10 10"><rect width="10" height="10" /></symbol><use href="#s" width="20" height="40" /><use href="#s" y="50" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+clip 0,0 20x40
+transform 2,0,0,2,0,10
+fill path M0,0 L10,0 L10,10 L0,10 Z rgb(0, 0, 0)
+pop
+pop
+transform 1,0,0,1,0,50
+clip 0,0 200x100
+transform 10,0,0,10,50,0
+fill path M0,0 L10,0 L10,10 L0,10 Z rgb(0, 0, 0)
+pop
+pop
+pop
+pop
+pop
+
+=== a use inside its target, or uses referencing each other, draw nothing
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><g id="a"><rect width="1" height="1" /><use href="#a" /></g><use id="u1" href="#u2" /><use id="u2" href="#u1" /><use href="#missing" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+fill path M0,0 L1,0 L1,1 L0,1 Z rgb(0, 0, 0)
+pop
+pop

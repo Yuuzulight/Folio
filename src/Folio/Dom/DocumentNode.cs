@@ -25,6 +25,9 @@ internal sealed class DocumentNode : ContainerNode
 
     public DocumentMode Mode { get; set; }
 
+    /// <summary>What the style module needs to style elements again later (typed there, so the DOM layer does not reference it).</summary>
+    internal object? StyleState { get; set; }
+
     public override string? TextContent => null;
 
     /// <summary>Interns in the shared table, or in this document once the shared table is full.</summary>
