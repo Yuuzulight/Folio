@@ -66,3 +66,17 @@ transform 1,0,0,1,0,0
 fill 0,10 800x10 rgb(1, 0, 0)
 fill 0,10 5x5 rgb(2, 0, 0)
 pop
+
+=== a table is made transparent once, by its wrapper
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0; width: 10px; height: 10px }</style><table style="border-spacing: 0; background: rgb(1, 0, 0); opacity: 0.5"><caption style="height: 5px; background: rgb(2, 0, 0)"></caption><tr><td></td></tr></table>
+---
+opacity 0.5
+fill 0,0 10x5 rgb(2, 0, 0)
+fill 0,5 10x10 rgb(1, 0, 0)
+pop
+
+=== a table is lifted by z-index once, by its wrapper
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0; width: 10px; height: 10px }</style><table style="border-spacing: 0; background: rgb(1, 0, 0); position: relative; z-index: -1"><caption style="height: 5px; background: rgb(2, 0, 0)"></caption><tr><td></td></tr></table>
+---
+fill 0,0 10x5 rgb(2, 0, 0)
+fill 0,5 10x10 rgb(1, 0, 0)

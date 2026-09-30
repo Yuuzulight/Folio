@@ -100,7 +100,14 @@ internal static class DisplayListBuilder
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
             var content = box is ReplacedBox { Image: not null } ? placed : null;
-            if (CreatesStackingContext(box))
+            // A table's positioning and stacking properties apply to its wrapper box (CSS 2 §17.4); the table grid box,
+            // which shares the wrapper's style, paints as a plain block inside it.
+            if (box is TablePartBox { Part: TablePart.Table })
+            {
+                context.Blocks.Add(placed);
+                Collect(context, real, placed, placed.Fragment.Children, order);
+            }
+            else if (CreatesStackingContext(box))
             {
                 // A stacking context made by opacity, a transform or the like on a box z-index does not apply to sits at 0.
                 var z = HasZIndex(box) ? style.ZIndex!.Value : 0;
