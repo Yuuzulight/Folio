@@ -121,4 +121,32 @@ public class DocumentTests
 
         Assert.Contains(document.Diagnostics, d => d.Code == DiagnosticCode.LimitExceeded);
     }
+
+    private static readonly FolioOptions BoxFont = new()
+    {
+        BaseUri = new Uri("https://example.invalid/docs/"),
+        Fonts = new Folio.Typography.FontSettings
+        {
+            Source = new Folio.Typography.FontFolderSource(Path.Combine(AppContext.BaseDirectory, "fonts")),
+            GenericFamilies = new Dictionary<string, IReadOnlyList<string>> { ["serif"] = ["Folio Box"] },
+        },
+    };
+
+    [Fact]
+    public void FindsTheElementAndLinkUnderAPoint()
+    {
+        using var document = Document.Parse("<!DOCTYPE html><body style='margin: 0'><p style='margin: 0'>ab<a href='page.html'><b>cd</b></a></p>" +
+            "<div id=box style='height: 20px'></div><div style='position: absolute; top: 20px; left: 0; width: 10px; height: 10px'></div>", BoxFont);
+        Assert.Null(document.ElementAt(5, 5)); // not painted yet
+
+        document.Paint(800, 600);
+
+        Assert.Equal("p", document.ElementAt(5, 5)?.LocalName);           // over "a" (plain text in p)
+        Assert.Equal("b", document.ElementAt(40, 5)?.LocalName);          // over "c", inside b inside a
+        Assert.Equal("https://example.invalid/docs/page.html", document.LinkAt(40, 5)?.AbsoluteUri);
+        Assert.Null(document.LinkAt(5, 5));
+        Assert.Equal("div", document.ElementAt(5, 25)?.LocalName);        // the positioned box, painted on top
+        Assert.Equal("box", document.ElementAt(50, 25)?.GetAttribute("id"));
+        Assert.Null(document.ElementAt(50, 100)); // below the page
+    }
 }

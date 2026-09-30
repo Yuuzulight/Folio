@@ -114,6 +114,51 @@ public sealed class Document : IDisposable
         new(DiagnosticCode.LimitExceeded, Severity.Warning, message, at, null);
 
     private FontCollection? _fonts;
+    private Fragment? _page;
+
+    /// <summary>
+    /// The element under a point of the last painted layout (page coordinates in CSS pixels): the deepest box whose
+    /// border box holds it, later boxes (painted on top) first. Null outside every box or before painting.
+    /// </summary>
+    // ponytail: hit testing follows fragment order, not the stacking tree, and ignores clipping (study 15 comes in M3).
+    internal Element? ElementAt(float x, float y)
+    {
+        return _page is null ? null : Find(_page, 0, 0);
+
+        Element? Find(Fragment fragment, float left, float top)
+        {
+            for (var i = fragment.Children.Count - 1; i >= 0; i--)
+            {
+                var (child, cx, cy) = (fragment.Children[i].Fragment, left + fragment.Children[i].X, top + fragment.Children[i].Y);
+                if (child.Kind == FragmentKind.Line)
+                {
+                    if (Find(child, cx, cy) is { } inLine)
+                        return inLine;
+                    continue;
+                }
+                if (child.Kind == FragmentKind.Text || x < cx || y < cy || x >= cx + child.Width || y >= cy + child.Height)
+                    continue;
+                return Find(child, cx, cy) ?? (child.Box?.Node as Element);
+            }
+            return null;
+        }
+    }
+
+    /// <summary>The link under a point: the nearest a or area element with an href, resolved against the base URL.</summary>
+    internal Uri? LinkAt(float x, float y)
+    {
+        for (Node? node = ElementAt(x, y); node is not null; node = node.Parent)
+        {
+            if (node is Element { LocalName: "a" or "area" } link && link.Name.Namespace == Namespaces.Html && link.GetAttribute("href") is { } href)
+            {
+                href = href.Trim();
+                return Uri.TryCreate(href, UriKind.Absolute, out var absolute) ? absolute
+                    : Options.BaseUri is { } baseUri && Uri.TryCreate(baseUri, href, out var resolved) ? resolved
+                    : null;
+            }
+        }
+        return null;
+    }
 
     /// <summary>
     /// Styles, lays out and paints the document in a viewport (the pipeline in docs/architecture.md): its display list
@@ -126,7 +171,7 @@ public sealed class Document : IDisposable
         if (BoxTreeBuilder.Build(Node) is not { } root)
             return (new DisplayList(), 0);
         _fonts ??= FontCollection.For(Options.Fonts);
-        var page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
+        var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         return (DisplayListBuilder.Build(page), height);

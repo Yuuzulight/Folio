@@ -1,0 +1,193 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing.Imaging;
+using Folio.Painting;
+using Folio.Skia;
+using SkiaSharp;
+
+namespace Folio.WinForms;
+
+/// <summary>A link the reader activated; set <see cref="Handled"/> to stop the default action (opening the system browser).</summary>
+public sealed class LinkActivatedEventArgs(Uri uri) : EventArgs
+{
+    public Uri Uri { get; } = uri;
+    public bool Handled { get; set; }
+}
+
+/// <summary>A document's diagnostics after it was loaded.</summary>
+public sealed class DiagnosticsEventArgs(IReadOnlyList<Diagnostic> diagnostics) : EventArgs
+{
+    public IReadOnlyList<Diagnostic> Diagnostics { get; } = diagnostics;
+}
+
+/// <summary>Rendering failed; the control shows its background instead of the page.</summary>
+public sealed class RenderFailedEventArgs(Exception exception) : EventArgs
+{
+    public Exception Exception { get; } = exception;
+}
+
+/// <summary>
+/// Shows an HTML document (docs/architecture.md, WinForms control): lays it out at the control's width, relays it out
+/// on resize and zoom, scrolls the page with the wheel and a scroll bar, and passes link clicks to the host.
+/// </summary>
+// ponytail: each paint replays the whole display list; invalidation by rectangle and hover states come in M3.
+public class FolioView : Control
+{
+    private readonly VScrollBar _scrollBar = new() { Dock = DockStyle.Right, Visible = false, SmallChange = 40 };
+    private Document? _document;
+    private DisplayList? _list;
+    private float _contentHeight;
+    private float _laidOutWidth = -1;
+    private float _zoom = 1f;
+
+    public FolioView()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        _scrollBar.ValueChanged += (_, _) => Invalidate();
+        Controls.Add(_scrollBar);
+    }
+
+    /// <summary>The options new documents are parsed with.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public FolioOptions Options { get; set; } = new();
+
+    /// <summary>The document shown, or null before <see cref="LoadHtml"/>.</summary>
+    [Browsable(false)]
+    public Document? Document => _document;
+
+    /// <summary>CSS pixels per device-independent pixel, on top of the display's scale.</summary>
+    [DefaultValue(1f)]
+    public float ZoomFactor
+    {
+        get => _zoom;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, 0.1f);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 10f);
+            _zoom = value;
+            _laidOutWidth = -1;
+            Invalidate();
+        }
+    }
+
+    public event EventHandler? Rendered;
+    public event EventHandler<DiagnosticsEventArgs>? DiagnosticsChanged;
+    public event EventHandler<RenderFailedEventArgs>? RenderFailed;
+
+    /// <summary>A link was clicked. Unless handled, http, https and mailto links open in the system browser.</summary>
+    public event EventHandler<LinkActivatedEventArgs>? LinkActivated;
+
+    public void LoadHtml(string html, Uri? baseUri = null)
+    {
+        ArgumentNullException.ThrowIfNull(html);
+        var options = baseUri is null ? Options : new FolioOptions
+        {
+            BaseUri = baseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion,
+            UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.Fonts,
+        };
+        _document?.Dispose();
+        _document = Document.Parse(html, options);
+        _laidOutWidth = -1;
+        _scrollBar.Value = 0;
+        DiagnosticsChanged?.Invoke(this, new DiagnosticsEventArgs(_document.Diagnostics));
+        Invalidate();
+    }
+
+    // Device pixels per CSS pixel.
+    private float PixelScale => DeviceDpi / 96f * _zoom;
+
+    private float ViewportWidth => Math.Max(1, (ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0)) / PixelScale);
+
+    private float ViewportHeight => Math.Max(1, ClientSize.Height / PixelScale);
+
+    // Lays the document out again when the viewport width changed; the scroll bar appears when the page is taller.
+    private void EnsureLayout()
+    {
+        if (_document is null || Math.Abs(_laidOutWidth - ViewportWidth) < 0.01f)
+            return;
+        for (var pass = 0; pass < 2; pass++)
+        {
+            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HarfBuzzShaper());
+            var needsBar = _contentHeight > ViewportHeight;
+            if (needsBar == _scrollBar.Visible)
+                break;
+            _scrollBar.Visible = needsBar; // the width changed: lay out once more
+        }
+        _laidOutWidth = ViewportWidth;
+        _scrollBar.Maximum = (int)Math.Ceiling(_contentHeight * PixelScale);
+        _scrollBar.LargeChange = Math.Max(1, ClientSize.Height);
+    }
+
+    private float ScrollTop => _scrollBar.Visible ? _scrollBar.Value / PixelScale : 0;
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(BackColor);
+        if (_document is null)
+            return;
+        try
+        {
+            EnsureLayout();
+            var width = Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
+            var height = Math.Max(1, ClientSize.Height);
+            using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
+            using (var canvas = new SKCanvas(bitmap))
+            {
+                canvas.Clear(_document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
+                canvas.Scale(PixelScale);
+                canvas.Translate(0, -ScrollTop);
+                DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2));
+            }
+            using var image = new Bitmap(width, height, bitmap.RowBytes, PixelFormat.Format32bppPArgb, bitmap.GetPixels());
+            e.Graphics.DrawImageUnscaled(image, 0, 0);
+            Rendered?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RenderFailed?.Invoke(this, new RenderFailedEventArgs(ex));
+        }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        Invalidate();
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        if (!_scrollBar.Visible)
+            return;
+        // Each notch scrolls the system's number of lines, 16 CSS pixels each.
+        var max = Math.Max(0, _scrollBar.Maximum - _scrollBar.LargeChange + 1);
+        var step = (int)(e.Delta / 120f * SystemInformation.MouseWheelScrollLines * 16 * PixelScale);
+        _scrollBar.Value = Math.Clamp(_scrollBar.Value - step, 0, max);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        Cursor = LinkAt(e.Location) is null ? Cursors.Default : Cursors.Hand;
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (e.Button != MouseButtons.Left || LinkAt(e.Location) is not { } uri)
+            return;
+        var args = new LinkActivatedEventArgs(uri);
+        LinkActivated?.Invoke(this, args);
+        if (!args.Handled && uri.Scheme is "http" or "https" or "mailto")
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+    }
+
+    private Uri? LinkAt(Point point) => _document?.LinkAt(point.X / PixelScale, point.Y / PixelScale + ScrollTop);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _document?.Dispose();
+        base.Dispose(disposing);
+    }
+}
