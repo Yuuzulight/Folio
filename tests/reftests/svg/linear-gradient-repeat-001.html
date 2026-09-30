@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>spreadMethod repeat repeats the stops like a repeating CSS gradient</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/pservers.html#LinearGradientElementSpreadMethodAttribute">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="100" height="50"><linearGradient id="g" gradientUnits="userSpaceOnUse" x2="25" spreadMethod="repeat"><stop stop-color="red" /><stop offset="1" stop-color="blue" /></linearGradient><rect width="100" height="50" fill="url(#g)" /></svg>

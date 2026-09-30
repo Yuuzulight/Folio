@@ -181,6 +181,8 @@ internal enum PropertyId
     PaintOrder,
     TextAnchor,
     DominantBaseline,
+    StopColor,
+    StopOpacity,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -782,6 +784,7 @@ internal static class Properties
         rows.AddRange(MaskProperties.Rows);
         rows.AddRange(BorderImageProperties.Rows);
         rows.AddRange(SvgProperties.Rows);
+        rows.AddRange(SvgProperties.StopRows);
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
         foreach (var row in rows)

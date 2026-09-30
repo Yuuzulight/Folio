@@ -254,6 +254,63 @@ internal static class SvgGeometry
         return segments;
     }
 
+    /// <summary>
+    /// The tight bounding box of normalised path segments (https://www.w3.org/TR/SVG2/coords.html#BoundingBoxes): end
+    /// points, and where cubic curves turn; null for a path with no points.
+    /// </summary>
+    public static SvgRect? Bounds(IReadOnlyList<PathSegment> segments)
+    {
+        var (min, max) = (new Vector2(float.PositiveInfinity), new Vector2(float.NegativeInfinity));
+        var (current, start) = (Vector2.Zero, Vector2.Zero);
+        void Add(Vector2 p) => (min, max) = (Vector2.Min(min, p), Vector2.Max(max, p));
+        foreach (var segment in segments)
+        {
+            switch (segment.Verb)
+            {
+                case 'M':
+                    Add(current = start = segment.P1);
+                    break;
+                case 'L':
+                    Add(current = segment.P1);
+                    break;
+                case 'Z':
+                    current = start;
+                    break;
+                case 'C':
+                    // Extremes where the derivative of either coordinate is zero, from the quadratic it makes.
+                    var (p0, p1, p2, p3) = (current, segment.P1, segment.P2, segment.P3);
+                    Add(p3);
+                    for (var axis = 0; axis < 2; axis++)
+                    {
+                        float C(Vector2 v) => axis == 0 ? v.X : v.Y;
+                        var (a, b, c) = (3 * (-C(p0) + 3 * C(p1) - 3 * C(p2) + C(p3)), 6 * (C(p0) - 2 * C(p1) + C(p2)), 3 * (C(p1) - C(p0)));
+                        foreach (var t in Roots(a, b, c))
+                        {
+                            if (t is > 0 and < 1)
+                            {
+                                var u = 1 - t;
+                                Add(u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3);
+                            }
+                        }
+                    }
+                    current = p3;
+                    break;
+            }
+        }
+        return float.IsFinite(min.X) ? new SvgRect(min.X, min.Y, max.X - min.X, max.Y - min.Y) : null;
+
+        static IEnumerable<float> Roots(float a, float b, float c)
+        {
+            if (MathF.Abs(a) < 1e-9f)
+                return MathF.Abs(b) < 1e-9f ? [] : [-c / b];
+            var d = b * b - 4 * a * c;
+            if (d < 0)
+                return [];
+            var root = MathF.Sqrt(d);
+            return [(-b + root) / (2 * a), (-b - root) / (2 * a)];
+        }
+    }
+
     /// <summary>A scanner for SVG numbers (https://www.w3.org/TR/SVG2/paths.html#PathDataBNF, number), names and punctuation.</summary>
     private sealed class NumberScanner(string text)
     {

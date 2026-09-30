@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>A linear gradient in user space paints like the same CSS gradient</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/pservers.html#LinearGradientElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="100" height="50"><linearGradient id="g" gradientUnits="userSpaceOnUse" x2="100"><stop stop-color="red" /><stop offset="1" stop-color="blue" /></linearGradient><rect width="100" height="50" fill="url(#g)" /></svg>

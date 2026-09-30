@@ -88,17 +88,39 @@ public enum GradientKind
 /// <summary>A gradient colour stop: its offset along the gradient, from 0 to 1, and its colour.</summary>
 public readonly record struct GradientStop(float Offset, Rgba Color);
 
+/// <summary>How a gradient continues beyond its first and last stops.</summary>
+public enum GradientSpread
+{
+    /// <summary>The end colours continue.</summary>
+    Pad,
+
+    /// <summary>The stops repeat.</summary>
+    Repeat,
+
+    /// <summary>The stops repeat, every other time in reverse.</summary>
+    Reflect,
+}
+
 /// <summary>
-/// A gradient in canvas coordinates. Its stops run from 0 to 1: from <paramref name="Start"/> to <paramref name="End"/>
-/// (linear), from <paramref name="Center"/> out to the ellipse of <paramref name="Radii"/> (radial), or around
-/// <paramref name="Center"/> from <paramref name="StartAngle"/> to <paramref name="EndAngle"/>, in degrees clockwise from
-/// the top (conic). Colours between stops are interpolated in sRGB with premultiplied alpha; any other interpolation is
-/// already expressed in the stops. Beyond the ends the end colours continue, or with <paramref name="Repeat"/> the stops
-/// repeat.
+/// A gradient. Its stops run from 0 to 1: from <paramref name="Start"/> to <paramref name="End"/> (linear), from
+/// <paramref name="Center"/> out to the ellipse of <paramref name="Radii"/> (radial), or around <paramref name="Center"/>
+/// from <paramref name="StartAngle"/> to <paramref name="EndAngle"/>, in degrees clockwise from the top (conic). Colours
+/// between stops are interpolated in sRGB with straight alpha; any other interpolation (premultiplied, other colour
+/// spaces) is already expressed in the stops. Beyond the ends the gradient continues as <paramref name="Spread"/> says.
 /// </summary>
-public sealed record Gradient(GradientKind Kind, IReadOnlyList<GradientStop> Stops, bool Repeat = false,
+/// <param name="Focus">
+/// For radial gradients: the centre of a focal circle of <paramref name="FocusRadius"/> where offset 0 lies, the
+/// gradient running from it to the ellipse (https://www.w3.org/TR/SVG2/pservers.html#RadialGradientNotes); null when
+/// offset 0 is the centre itself.
+/// </param>
+/// <param name="Transform">
+/// Maps the gradient's own coordinates, in which the points and radii above are given, to canvas coordinates (row-vector
+/// form); null when they are canvas coordinates already.
+/// </param>
+public sealed record Gradient(GradientKind Kind, IReadOnlyList<GradientStop> Stops, GradientSpread Spread = GradientSpread.Pad,
                               Vector2 Start = default, Vector2 End = default, Vector2 Center = default, Vector2 Radii = default,
-                              float StartAngle = 0, float EndAngle = 360);
+                              float StartAngle = 0, float EndAngle = 360, Vector2? Focus = null, float FocusRadius = 0,
+                              Matrix3x2? Transform = null);
 
 public enum FillRule
 {
