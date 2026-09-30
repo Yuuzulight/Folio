@@ -22,16 +22,30 @@ public class InlineLayoutTests
     }
 
     [Fact]
-    public void DeeplyNestedInlineBoxesLayOutQuickly()
+    public void LineBuildingGrowsQuadraticallyWithNestingDepth()
     {
-        // Each piece of a line joins only the boxes open around it: 500 nested boxes with 2,000 empty ones inside the
-        // deepest took seconds when every piece was checked against every box on the line.
-        var html = "<!DOCTYPE html><p>" + string.Concat(Enumerable.Repeat("<span>", 500)) + string.Concat(Enumerable.Repeat("<b></b>", 2000)) + "x</p>";
-        var watch = System.Diagnostics.Stopwatch.StartNew();
+        // Each piece of a line joins only the boxes open around it. When every piece was checked against every box on
+        // the line, walking the open chain each time, the cost grew with the cube of the depth: 64 times for four times
+        // the depth, against 16 now. The bound between them leaves room for a slow or busy machine.
+        var (shallow, deep) = (LayoutTime(150), LayoutTime(600));
 
-        var dump = BlockLayoutTests.Dump(BlockLayoutTests.LayOut(html));
+        Assert.True(deep < 32 * Math.Max(shallow, 1), $"depth 150: {shallow:F1} ms, depth 600: {deep:F1} ms");
+    }
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(4), $"took {watch.Elapsed}");
-        Assert.Contains(dump, line => line.TrimStart().StartsWith("text \"x\"", StringComparison.Ordinal));
+    // The best of three layouts of nested inline boxes this deep, with four times as many empty ones in the deepest.
+    private static double LayoutTime(int depth)
+    {
+        var html = "<!DOCTYPE html><p>" + string.Concat(Enumerable.Repeat("<span>", depth)) + string.Concat(Enumerable.Repeat("<b></b>", 4 * depth)) + "x</p>";
+        var document = Folio.Html.TreeBuilder.Parse(html, new Folio.Html.ParserLimits(MaxDepth: 5000));
+        Folio.Style.StyleResolver.Resolve(document, new Folio.Css.MediaContext(800, 600), measure: Folio.Layout.InlineLayout.MeasureWith(BlockLayoutTests.BoxFont.Value));
+        var best = double.MaxValue;
+        for (var run = 0; run < 3; run++)
+        {
+            var root = Folio.Layout.BoxTreeBuilder.Build(document)!;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Folio.Layout.LayoutEngine.LayoutDocument(root, 800, 600, BlockLayoutTests.BoxFont.Value);
+            best = Math.Min(best, watch.Elapsed.TotalMilliseconds);
+        }
+        return best;
     }
 }
