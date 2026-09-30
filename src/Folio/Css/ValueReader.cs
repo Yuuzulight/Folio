@@ -595,7 +595,8 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
 
     private static CssColor? Hex(string digits)
     {
-        if (digits.Length is not (3 or 4 or 6 or 8) || !int.TryParse(digits, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+        // Only hex digits: a hash token can hold other characters through escapes, which number parsing would skip.
+        if (digits.Length is not (3 or 4 or 6 or 8) || !digits.All(char.IsAsciiHexDigit))
             return null;
         int Digit(int i) => Convert.ToInt32(digits.Substring(i, 1), 16);
         int Pair(int i) => Convert.ToInt32(digits.Substring(i, 2), 16);
