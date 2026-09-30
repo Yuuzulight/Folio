@@ -38,6 +38,7 @@ internal static class Benchmark
     {
         yield return ("generated/report", Report());
         yield return ("generated/table-5000", Table(5000));
+        yield return ("generated/nested-svg-2700", NestedSvg(2700));
 
         var root = RepoPaths.Tests;
         var corpora = new (string Prefix, string? Folder)[]
@@ -143,6 +144,14 @@ internal static class Benchmark
         }
         return html.Append("</main></body></html>").ToString();
     }
+
+    /// <summary>
+    /// Inline SVG with groups nested past the parser's depth limit, where deeper groups attach higher; every group
+    /// matches the user agent's <c>svg *</c> rule by walking its ancestors.
+    /// </summary>
+    private static string NestedSvg(int depth) =>
+        "<!DOCTYPE html><html><body><svg width=\"80\" height=\"60\">" + string.Concat(Enumerable.Repeat("<g>", depth)) +
+        "<rect width=\"40\" height=\"30\"/></svg></body></html>";
 
     /// <summary>A large data table, the corpus 95th percentile example in study 18.</summary>
     private static string Table(int rows)

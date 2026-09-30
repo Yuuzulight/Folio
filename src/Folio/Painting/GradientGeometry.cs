@@ -39,7 +39,7 @@ internal static class GradientGeometry
                 var stops = Stops(g, length, currentColor, out var first, out var last);
                 if (stops is null)
                     return null;
-                return new Gradient(GradientKind.Linear, stops, g.Repeating, start + direction * first, start + direction * last);
+                return new Gradient(GradientKind.Linear, stops, Spread(g), start + direction * first, start + direction * last);
             }
             case GradientFunction.Radial:
             {
@@ -55,7 +55,7 @@ internal static class GradientGeometry
                 var span = last - first;
                 var fromCenter = stops.Select(s => s with { Offset = Math.Clamp((first + s.Offset * span) / last, 0, 1) }).ToList();
                 var scale = radii.X > 0 ? radii.Y / radii.X : 1;
-                return new Gradient(GradientKind.Radial, fromCenter, g.Repeating, Center: center, Radii: new Vector2(last, last * scale));
+                return new Gradient(GradientKind.Radial, fromCenter, Spread(g), Center: center, Radii: new Vector2(last, last * scale));
             }
             default:
             {
@@ -64,10 +64,12 @@ internal static class GradientGeometry
                 var stops = Stops(g, 360, currentColor, out var first, out var last);
                 if (stops is null)
                     return null;
-                return new Gradient(GradientKind.Conic, stops, g.Repeating, Center: center, StartAngle: g.Angle + first, EndAngle: g.Angle + last);
+                return new Gradient(GradientKind.Conic, stops, Spread(g), Center: center, StartAngle: g.Angle + first, EndAngle: g.Angle + last);
             }
         }
     }
+
+    private static GradientSpread Spread(ComputedGradient g) => g.Repeating ? GradientSpread.Repeat : GradientSpread.Pad;
 
     // The ending shape's radii (css-images-3 §3.2.1): explicit, or from an extent keyword and the centre.
     private static Vector2 Radii(ComputedGradient g, Vector2 c, float w, float h)

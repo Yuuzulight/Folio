@@ -60,7 +60,10 @@ internal static class SvgPainter
                     textFade = 1;
                 }
                 foreach (var run in text.Runs)
-                    items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: Fade(run.Color, textFade), Glyphs: new GlyphRun(run.Font, run.Size, run.Glyphs, run.Origins)));
+                {
+                    var (color, gradient) = Paint(run.Paint, textFade);
+                    items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: color, Gradient: gradient, Glyphs: new GlyphRun(run.Font, run.Size, run.Glyphs, run.Origins)));
+                }
                 break;
             case SvgShapeNode shape:
                 // A shape with one paint takes its opacity into the paint's colour; with both, they are grouped.
@@ -74,8 +77,11 @@ internal static class SvgPainter
                 if (shape.StrokeFirst)
                     StrokeItem(shape, path, fade, items);
                 if (shape.Fill is { } fill)
-                    items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: Fade(fill.Color, fade), Path: path,
+                {
+                    var (color, gradient) = Paint(fill.Paint, fade);
+                    items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Gradient: gradient, Path: path,
                         Rule: fill.EvenOdd ? FillRule.EvenOdd : FillRule.NonZero));
+                }
                 if (!shape.StrokeFirst)
                     StrokeItem(shape, path, fade, items);
                 break;
@@ -114,10 +120,25 @@ internal static class SvgPainter
         var cap = s.Cap switch { Style.StrokeLinecap.Round => LineCap.Round, Style.StrokeLinecap.Square => LineCap.Square, _ => LineCap.Butt };
         var join = s.Join switch { Style.StrokeLinejoin.Round => LineJoin.Round, Style.StrokeLinejoin.Bevel => LineJoin.Bevel, _ => LineJoin.Miter };
         var stroke = new Stroke(s.Width, cap, s.Dashes, join, s.MiterLimit, s.Dashes is null ? 0 : s.DashOffset);
-        items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: Fade(s.Color, fade), Path: path, Stroke: stroke));
+        var (color, gradient) = Paint(s.Paint, fade);
+        items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Gradient: gradient, Path: path, Stroke: stroke));
     }
 
     private static CssColor Fade(CssColor color, float opacity) => opacity < 1 ? color with { A = color.A * opacity } : color;
+
+    // A resolved paint as a display item's colour or gradient, faded by an opacity folded into it.
+    private static (CssColor Color, Gradient? Gradient) Paint(SvgResolvedPaint paint, float opacity)
+    {
+        if (paint.Gradient is not { } g)
+            return (Fade(paint.Color, opacity), null);
+        var stops = g.Stops.Select(s => new GradientStop(s.Offset, DisplayListPlayer.ToRgba(Fade(s.Color, opacity)))).ToList();
+        var spread = g.Spread switch { SvgSpreadMethod.Reflect => GradientSpread.Reflect, SvgSpreadMethod.Repeat => GradientSpread.Repeat, _ => GradientSpread.Pad };
+        var gradient = g.Radial
+            ? new Gradient(GradientKind.Radial, stops, spread, Center: g.P1, Radii: new Vector2(g.Radius, g.Radius),
+                Focus: g.P2 != g.P1 || g.FocusRadius > 0 ? g.P2 : null, FocusRadius: g.FocusRadius, Transform: g.Transform)
+            : new Gradient(GradientKind.Linear, stops, spread, g.P1, g.P2, Transform: g.Transform);
+        return (CssColor.Black, gradient);
+    }
 
     /// <summary>Normalised path segments (absolute M, L, C and Z) as a canvas path, mapped by a transform when given.</summary>
     public static PathData ToPathData(IReadOnlyList<PathSegment> segments, Matrix3x2? transform = null)

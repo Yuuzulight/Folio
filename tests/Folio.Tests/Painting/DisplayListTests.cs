@@ -41,24 +41,38 @@ public class DisplayListTests
 
     private static string Dump(DisplayItem item) => item.Kind switch
     {
-        DisplayItemKind.Fill when item.Gradient is { } g => $"fill {Shape(item.Shape)} {g.Kind.ToString().ToLowerInvariant()} gradient, {g.Stops.Count} stops{(g.Repeat ? ", repeating" : "")}{Blend(item.Blend)}",
+        DisplayItemKind.Fill when item.Gradient is { } g => $"fill {Shape(item.Shape)} {g.Kind.ToString().ToLowerInvariant()} gradient, {g.Stops.Count} stops{(g.Spread == GradientSpread.Repeat ? ", repeating" : "")}{Blend(item.Blend)}",
         DisplayItemKind.Fill => $"fill {Shape(item.Shape)} {item.Color}{Blend(item.Blend)}",
         DisplayItemKind.Border => $"border {Shape(item.Shape)} {Sides(item.Border!)}",
+        DisplayItemKind.Glyphs when item.Gradient is { } g => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {Gradient(g)}",
         DisplayItemKind.Glyphs => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {item.Color}{(item.Blur > 0 ? $" blur {N(item.Blur)}" : "")}",
         DisplayItemKind.BoxShadow => $"shadow {Shape(item.Shape)} {item.Color} blur {N(item.Blur)} {(item.Inset ? "inside" : "outside")} {Shape(item.Box)}",
         DisplayItemKind.Decoration => $"decoration {Shape(item.Shape)} {item.LineStyle.ToString().ToLowerInvariant()} {item.Color}{(item.Glyphs is null ? "" : " skip-ink")}",
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
-        DisplayItemKind.FillPath => $"fill path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(item.Path!)} {item.Color}",
+        DisplayItemKind.FillPath => $"fill path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(item.Path!)} {(item.Gradient is { } g ? Gradient(g) : item.Color)}",
         DisplayItemKind.StrokePath when item.Stroke is { } s =>
             $"stroke path {Path(item.Path!)} {N(s.Width)}{(s.Cap == LineCap.Butt ? "" : $" {s.Cap.ToString().ToLowerInvariant()} cap")}"
             + $"{(s.Join == LineJoin.Miter ? s.MiterLimit == 4 ? "" : $" miter {N(s.MiterLimit)}" : $" {s.Join.ToString().ToLowerInvariant()} join")}"
-            + $"{(s.Dashes is { } d ? $" dashes {string.Join(",", d.Select(N))}{(s.DashOffset == 0 ? "" : $" offset {N(s.DashOffset)}")}" : "")} {item.Color}",
+            + $"{(s.Dashes is { } d ? $" dashes {string.Join(",", d.Select(N))}{(s.DashOffset == 0 ? "" : $" offset {N(s.DashOffset)}")}" : "")} {(item.Gradient is { } g ? Gradient(g) : item.Color)}",
         DisplayItemKind.PushClip when item.Path is { } path => $"clip path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(path)}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushLayer => Layer(item),
         DisplayItemKind.PushTransform when item.Transform is var m => $"transform {N(m.M11)},{N(m.M12)},{N(m.M21)},{N(m.M22)},{N(m.M31)},{N(m.M32)}",
         _ => "pop",
     };
+
+    // "linear <start> <end>" or "radial <centre> <radius>[ focus <point> <radius>]", the stops as "<offset> <colour>",
+    // then the spread when not pad and the transform when there is one.
+    private static string Gradient(Gradient g)
+    {
+        var geometry = g.Kind == GradientKind.Linear
+            ? $"linear {N(g.Start.X)},{N(g.Start.Y)} {N(g.End.X)},{N(g.End.Y)}"
+            : $"radial {N(g.Center.X)},{N(g.Center.Y)} {N(g.Radii.X)}{(g.Focus is { } f ? $" focus {N(f.X)},{N(f.Y)} {N(g.FocusRadius)}" : "")}";
+        var stops = string.Join(", ", g.Stops.Select(s => $"{N(s.Offset)} {new Folio.Css.CssColor(s.Color.R, s.Color.G, s.Color.B, s.Color.A)}"));
+        var spread = g.Spread == GradientSpread.Pad ? "" : $" {g.Spread.ToString().ToLowerInvariant()}";
+        var transform = g.Transform is { } m ? $" transform {N(m.M11)},{N(m.M12)},{N(m.M21)},{N(m.M22)},{N(m.M31)},{N(m.M32)}" : "";
+        return $"{geometry} [{stops}]{spread}{transform}";
+    }
 
     private static string Layer(DisplayItem item)
     {

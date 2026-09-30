@@ -39,6 +39,7 @@ internal sealed class StyleBuilder
         Mask = initial.Mask;
         BorderImage = initial.BorderImage;
         Svg = parent.Svg;
+        SvgStop = initial.SvgStop;
     }
 
     public FontGroup Font { get; set; }
@@ -64,6 +65,7 @@ internal sealed class StyleBuilder
     public MaskGroup Mask { get; set; }
     public BorderImageGroup BorderImage { get; set; }
     public SvgGroup Svg { get; set; }
+    public SvgStopGroup SvgStop { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -163,6 +165,7 @@ internal sealed class StyleBuilder
             Mask = Share(Mask, initial.Mask, groups),
             BorderImage = Share(BorderImage, initial.BorderImage, groups),
             Svg = Share(Svg, _parent.Svg, groups),
+            SvgStop = Share(SvgStop, initial.SvgStop, groups),
             Custom = _custom,
         };
     }

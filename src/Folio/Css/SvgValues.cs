@@ -64,6 +64,17 @@ internal static class SvgProperties
             s => s.Svg.DominantBaseline, (b, v) => b.Svg = b.Svg with { DominantBaseline = v }),
     ];
 
+    /// <summary>stop-color and stop-opacity, which are not inherited.</summary>
+    public static IEnumerable<Property> StopRows =>
+    [
+        new Property<CssColor>(PropertyId.StopColor, "stop-color", false, "black", r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor),
+            s => s.SvgStop.StopColor, (b, v) => b.SvgStop = b.SvgStop with { StopColor = v }),
+        new Property<float>(PropertyId.StopOpacity, "stop-opacity", false, "1",
+            r => r.Number() is { } n ? new NumberValue(n) : r.LengthPercentage() is PercentageValue p ? p : null,
+            (v, _) => Math.Clamp(v is PercentageValue p ? p.Percent / 100 : ((NumberValue)v).Number, 0, 1),
+            s => s.SvgStop.StopOpacity, (b, v) => b.SvgStop = b.SvgStop with { StopOpacity = v }),
+    ];
+
     // none | <color> | <url> [none | <color>]? (https://www.w3.org/TR/SVG2/painting.html#SpecifyingPaint)
     private static Property<SvgPaint> Paint(PropertyId id, string name, string initial, Func<ComputedStyle, SvgPaint> get, Action<StyleBuilder, SvgPaint> set) =>
         new(id, name, true, initial,

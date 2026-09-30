@@ -23,7 +23,7 @@ internal static class DisplayListPlayer
                     PaintBorder(canvas, item.Shape, item.Border!);
                     break;
                 case DisplayItemKind.Glyphs:
-                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color), item.Blur));
+                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color), item.Blur, item.Gradient));
                     break;
                 case DisplayItemKind.Decoration when item.Glyphs is { } ink && SkipInk(canvas, item.Shape.Rect, item.LineStyle, ink) is { } gaps:
                     canvas.Save();
@@ -38,10 +38,10 @@ internal static class DisplayListPlayer
                     canvas.DrawImage(item.Image!, item.Shape.Rect, item.Sampling);
                     break;
                 case DisplayItemKind.FillPath:
-                    canvas.FillPath(item.Path!, item.Rule, new Paint(ToRgba(item.Color)));
+                    canvas.FillPath(item.Path!, item.Rule, new Paint(ToRgba(item.Color), Gradient: item.Gradient));
                     break;
                 case DisplayItemKind.StrokePath:
-                    canvas.StrokePath(item.Path!, item.Stroke!.Value, new Paint(ToRgba(item.Color)));
+                    canvas.StrokePath(item.Path!, item.Stroke!.Value, new Paint(ToRgba(item.Color), Gradient: item.Gradient));
                     break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();

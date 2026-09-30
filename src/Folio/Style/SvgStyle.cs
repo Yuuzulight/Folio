@@ -58,3 +58,11 @@ internal sealed record SvgGroup(SvgPaint Fill, float FillOpacity, SvgFillRule Fi
     public static SvgGroup Initial { get; } = new(new SvgPaint(CssColor.Black), 1, SvgFillRule.Nonzero, SvgPaint.None, 1, new LengthPercentage(1),
         StrokeLinecap.Butt, StrokeLinejoin.Miter, 4, DashArray.None, default, PaintOrder.Normal, TextAnchor.Start, DominantBaseline.Auto);
 }
+
+/// <summary>
+/// The gradient stop properties (not inherited): stop-color and stop-opacity (https://www.w3.org/TR/SVG2/pservers.html#StopColorProperties).
+/// </summary>
+internal sealed record SvgStopGroup(CssColor StopColor, float StopOpacity)
+{
+    public static SvgStopGroup Initial { get; } = new(CssColor.Black, 1);
+}
