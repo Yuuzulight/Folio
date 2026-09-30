@@ -69,7 +69,7 @@ pop
 ---
 transform 1,0,0,1,0,0
 clip 0,0 100x50
-stroke path M0,10 L50,10 4 round dashes 5,3,2,5,3,2 rgb(0, 0, 255)
+stroke path M0,10 L50,10 4 round cap dashes 5,3,2,5,3,2 rgb(0, 0, 255)
 pop
 pop
 
@@ -186,5 +186,17 @@ transform 1,0,0,1,0,0
 clip 0,0 100x50
 fill path M15,10 C15,12.76 12.76,15 10,15 C7.24,15 5,12.76 5,10 C5,7.24 7.24,5 10,5 C12.76,5 15,7.24 15,10 Z rgb(0, 0, 0)
 fill path M14,10 C14,12.21 12.21,14 10,14 C7.79,14 6,12.21 6,10 C6,7.79 7.79,6 10,6 C12.21,6 14,7.79 14,10 Z rgb(0, 0, 0)
+pop
+pop
+
+=== square caps, joins, the miter limit and dash offsets
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="100" height="50" fill="none" stroke="blue"><path d="M0 0 L5 5" stroke-linecap="square" stroke-linejoin="bevel" /><path d="M0 0 L5 5" stroke-linejoin="round" /><path d="M0 0 L5 5" stroke-miterlimit="10" stroke-dasharray="2" stroke-dashoffset="1" /><path d="M0 0 L5 5" stroke-dashoffset="1" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 100x50
+stroke path M0,0 L5,5 1 square cap bevel join rgb(0, 0, 255)
+stroke path M0,0 L5,5 1 round join rgb(0, 0, 255)
+stroke path M0,0 L5,5 1 miter 10 dashes 2,2 offset 1 rgb(0, 0, 255)
+stroke path M0,0 L5,5 1 rgb(0, 0, 255)
 pop
 pop

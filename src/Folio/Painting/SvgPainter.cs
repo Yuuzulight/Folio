@@ -77,13 +77,13 @@ internal static class SvgPainter
             items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
-    // ponytail: square caps draw as butt caps, and joins, miter limits and dash offsets as the canvas's defaults (miter
-    // joins, limit 4, no offset), until the canvas's stroke description carries them.
     private static void StrokeItem(SvgShapeNode shape, PathData path, float fade, List<DisplayItem> items)
     {
         if (shape.Stroke is not { } s)
             return;
-        var stroke = new Stroke(s.Width, s.Cap == Style.StrokeLinecap.Round ? LineCap.Round : LineCap.Butt, s.Dashes);
+        var cap = s.Cap switch { Style.StrokeLinecap.Round => LineCap.Round, Style.StrokeLinecap.Square => LineCap.Square, _ => LineCap.Butt };
+        var join = s.Join switch { Style.StrokeLinejoin.Round => LineJoin.Round, Style.StrokeLinejoin.Bevel => LineJoin.Bevel, _ => LineJoin.Miter };
+        var stroke = new Stroke(s.Width, cap, s.Dashes, join, s.MiterLimit, s.Dashes is null ? 0 : s.DashOffset);
         items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: Fade(s.Color, fade), Path: path, Stroke: stroke));
     }
 

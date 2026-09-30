@@ -50,7 +50,9 @@ public class DisplayListTests
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",
         DisplayItemKind.FillPath => $"fill path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(item.Path!)} {item.Color}",
         DisplayItemKind.StrokePath when item.Stroke is { } s =>
-            $"stroke path {Path(item.Path!)} {N(s.Width)}{(s.Cap == LineCap.Round ? " round" : "")}{(s.Dashes is { } d ? $" dashes {string.Join(",", d.Select(N))}" : "")} {item.Color}",
+            $"stroke path {Path(item.Path!)} {N(s.Width)}{(s.Cap == LineCap.Butt ? "" : $" {s.Cap.ToString().ToLowerInvariant()} cap")}"
+            + $"{(s.Join == LineJoin.Miter ? s.MiterLimit == 4 ? "" : $" miter {N(s.MiterLimit)}" : $" {s.Join.ToString().ToLowerInvariant()} join")}"
+            + $"{(s.Dashes is { } d ? $" dashes {string.Join(",", d.Select(N))}{(s.DashOffset == 0 ? "" : $" offset {N(s.DashOffset)}")}" : "")} {item.Color}",
         DisplayItemKind.PushClip when item.Path is { } path => $"clip path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(path)}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushLayer => Layer(item),
