@@ -1,0 +1,44 @@
+The direction of the containing block in block layout (CSS 2.2 sections 10.3.3, 10.3.7 and 9.4.3, CSS Logical 1
+section 3.1): the end side gives way when sizes and margins do not add up, and inline-start and inline-end floats go
+to the right and left in right-to-left text.
+
+=== an over-constrained block keeps its right margin in rtl
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="direction: rtl"><div style="width: 100px; height: 10px; margin: 0 5px"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 800x10
+      div 695,0 100x10
+
+=== a box wider than its containing block with auto margins overflows on the left in rtl
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="direction: rtl; width: 100px"><div style="width: 150px; height: 10px; margin: 0 auto"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 100x10
+      div -50,0 150x10
+
+=== inline-start floats go right in rtl, inline-end ones left
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="direction: rtl"><div style="float: inline-start; width: 10px; height: 10px"></div><div style="float: inline-end; width: 20px; height: 10px"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x0
+    div 0,0 800x0
+      div 790,0 10x10
+      div 0,0 20x10
+
+=== relative offsets: right wins over left in rtl
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="direction: rtl"><div style="position: relative; left: 10px; right: 20px; height: 10px"></div></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 800x10
+      div -20,0 800x10
+
+=== an over-constrained absolute box ignores left in rtl
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="direction: rtl; position: relative; height: 50px"><div style="position: absolute; left: 10px; right: 20px; width: 100px; height: 10px"></div></div>
+---
+html 0,0 800x50
+  body 0,0 800x50
+    div 0,0 800x50
+      div 680,0 100x10

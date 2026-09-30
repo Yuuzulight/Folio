@@ -1,0 +1,123 @@
+Justification, text-align-last, text-indent and soft hyphens (CSS Text 3 sections 7.1 to 7.3, 5.4 and 8.1): lines are
+justified by widening their spaces, except the last line and lines ending at a forced break, which follow
+text-align-last; text-indent moves the start edge of the first line (or of the others, when hanging); a line that
+breaks at a soft hyphen shows a hyphen in the soft hyphen's place.
+
+=== justified lines widen their spaces; the last line is not justified
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 100px; text-align: justify">aa bb cc dd</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 100x32
+      line 0,0 100x16
+        text "aa " 0,0 68x16
+        text "bb " 68,0 48x16
+      line 0,16 100x16
+        text "cc " 0,16 48x16
+        text "dd" 48,16 32x16
+
+=== text-align-last aligns the last line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 100px; text-align: justify; text-align-last: center">aa bb cc dd</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 100x32
+      line 0,0 100x16
+        text "aa " 0,0 68x16
+        text "bb " 68,0 48x16
+      line 0,16 100x16
+        text "cc " 10,16 48x16
+        text "dd" 58,16 32x16
+
+=== a line ending at a forced break is not justified; the free space is shared by every space in a line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 200px; text-align: justify">aa bb<br>cc dd ee ff gg</p>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    p 0,0 200x48
+      line 0,0 200x16
+        text "aa " 0,0 48x16
+        text "bb" 48,0 32x16
+      line 0,16 200x16
+        text "cc " 0,16 56x16
+        text "dd " 56,16 56x16
+        text "ee " 112,16 56x16
+        text "ff " 168,16 48x16
+      line 0,32 200x16
+        text "gg" 0,32 32x16
+
+=== text-indent shortens the first line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 100px; text-indent: 20px">aa bb cc</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 100x32
+      line 20,0 80x16
+        text "aa " 20,0 48x16
+        text "bb " 68,0 48x16
+      line 0,16 100x16
+        text "cc" 0,16 32x16
+
+=== a hanging indent moves every line but the first
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 100px; text-indent: 20% hanging">aa bb cc</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 100x32
+      line 0,0 100x16
+        text "aa " 0,0 48x16
+        text "bb " 48,0 48x16
+      line 20,16 80x16
+        text "cc" 20,16 32x16
+
+=== in right-to-left text the indent is on the right
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 100px; text-indent: 20px; direction: rtl">aa</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 100x16
+      line 0,0 80x16
+        text "aa" 48,0 32x16
+
+=== anonymous blocks after a block child are not indented
+<!DOCTYPE html><style>body, p, div { margin: 0 }</style><div style="text-indent: 20px"><p>a</p>b</div>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    div 0,0 800x32
+      p 0,0 800x16
+        line 20,0 780x16
+          text "a" 20,0 16x16
+      (anonymous) 0,16 800x16
+        line 0,16 800x16
+          text "b" 0,16 16x16
+
+=== a line broken at a soft hyphen ends with a hyphen
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 64px">aaa&shy;bbb</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 64x32
+      line 0,0 64x16
+        text "aaa\u00AD" 0,0 64x16
+      line 0,16 64x16
+        text "bbb" 0,16 48x16
+
+=== an unbroken soft hyphen takes no space
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p>aaa&shy;bbb</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        text "aaa\u00AD" 0,0 48x16
+        text "bbb" 48,0 48x16
+
+=== hyphens: none does not break at soft hyphens
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="width: 64px; hyphens: none">aaa&shy;bbb</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 64x16
+      line 0,0 64x16
+        text "aaa\u00ADbbb" 0,0 96x16
