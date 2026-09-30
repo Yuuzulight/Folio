@@ -44,6 +44,12 @@ internal static class DisplayListBuilder
         public List<Context> ZeroOrAuto { get; } = [];
         public List<Context> Positive { get; } = [];
         public List<PaintBox> Outlines { get; } = [];
+
+        /// <summary>
+        /// A box in the context blends with it: the context is an isolated group, painted into a layer of its own so
+        /// the blending stops at its edge (https://drafts.csswg.org/compositing-2/#isolation).
+        /// </summary>
+        public bool Isolated { get; set; }
     }
 
     public static DisplayList Build(Fragment initialContainingBlock)
@@ -59,6 +65,8 @@ internal static class DisplayListBuilder
         var rootContext = new Context(rootBox, real: true, 0, 0);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
         Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null), initialContainingBlock.Children.Skip(1), order);
+        // The root group blends with the canvas background, which is painted outside it.
+        rootContext.Isolated = false;
 
         // The root's background, or else the body's, paints the whole canvas (css-backgrounds-3 §2.11.2).
         var (canvasBox, canvasColor) = CanvasBackground(root.Box!);
@@ -115,6 +123,8 @@ internal static class DisplayListBuilder
                 var z = HasZIndex(box) ? style.ZIndex!.Value : 0;
                 var c = new Context(placed, real: true, z, index);
                 (z < 0 ? real.Negative : z > 0 ? real.Positive : real.ZeroOrAuto).Add(c);
+                if (box.Style.Effects.MixBlendMode != Style.BlendMode.Normal)
+                    real.Isolated = true;
                 if (outlined && ownOutline)
                     c.Outlines.Add(placed);
                 AddContent(c);
@@ -150,7 +160,8 @@ internal static class DisplayListBuilder
     }
 
     // https://www.w3.org/TR/CSS22/visuren.html#z-index, css-position-3, css-color-4 opacity, compositing-1 isolation,
-    // css-transforms-2 (any transform property other than none), filter-effects-1 filter and filter-effects-2 backdrop-filter.
+    // css-transforms-2 (any transform property other than none), filter-effects-1 filter, filter-effects-2 backdrop-filter
+    // and compositing-2 mix-blend-mode.
     // The root's context is made by Build. Boxes in inline content (inline boxes, floats and atomic inlines found
     // there) have no parent box, so a missing parent says nothing here.
     private static bool CreatesStackingContext(Box box)
@@ -162,7 +173,8 @@ internal static class DisplayListBuilder
             || style.Isolation == Isolation.Isolate
             || box.IsTransformed
             || !box.Style.Effects.Filter.IsNone
-            || !box.Style.Effects.BackdropFilter.IsNone;
+            || !box.Style.Effects.BackdropFilter.IsNone
+            || box.Style.Effects.MixBlendMode != Style.BlendMode.Normal;
     }
 
     // z-index applies to positioned boxes and to flex and grid items.
@@ -245,7 +257,8 @@ internal static class DisplayListBuilder
             var (filters, filterOpacity) = owner is null ? (null, 1) : FilterPrimitives.ForLayer(owner.Box.Style.Effects.Filter, owner.Box.Style.Inherited.Color);
             var opacity = (owner is not null && owner.Box.Style.Box.Opacity < 1 ? owner.Box.Style.Box.Opacity : 1) * filterOpacity;
             var backdrop = owner is null ? null : FilterPrimitives.Of(owner.Box.Style.Effects.BackdropFilter, owner.Box.Style.Inherited.Color);
-            var layered = opacity < 1 || filters is not null || backdrop is not null;
+            var blend = owner is null ? BlendMode.Normal : Blend(owner.Box.Style.Effects.MixBlendMode);
+            var layered = opacity < 1 || filters is not null || backdrop is not null || blend != BlendMode.Normal || context.Isolated;
             var transform = owner is not null && owner.Box.IsTransformed ? Transform(owner) : (Matrix3x2?)null;
             // A transform that cannot be inverted flattens the box to nothing: it and its content are not displayed
             // (https://www.w3.org/TR/css-transforms-1/#transform-function-lists).
@@ -253,8 +266,8 @@ internal static class DisplayListBuilder
                 return;
             var floor = _floor;
             // The clips outside stay open under the group; the transform and the layer apply to the box and all it holds.
-            // The layer filters it, then applies opacity (https://drafts.csswg.org/filter-effects-1/#placement); a
-            // backdrop filter is clipped to the border box (https://drafts.csswg.org/filter-effects-2/#backdrop-filter-operation).
+            // The layer filters it, then applies opacity (https://drafts.csswg.org/filter-effects-1/#placement) and blends
+            // it; a backdrop filter is clipped to the border box (https://drafts.csswg.org/filter-effects-2/#backdrop-filter-operation).
             if (layered || transform is not null)
             {
                 SetClip(owner!.Clip);
@@ -262,7 +275,7 @@ internal static class DisplayListBuilder
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: matrix));
                 if (layered)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, backdrop is null ? default : BorderBox(owner), Opacity: opacity,
-                        Filters: filters, Backdrop: backdrop));
+                        Filters: filters, Backdrop: backdrop, Blend: blend));
                 _floor = _open.Count;
             }
 
@@ -303,6 +316,8 @@ internal static class DisplayListBuilder
             * box.Box.Style.Transform.Matrix2D(box.Fragment.Width, box.Fragment.Height)
             * Matrix3x2.CreateTranslation(box.X, box.Y);
 
+        private static BlendMode Blend(Style.BlendMode mode) => Enum.Parse<BlendMode>(mode.ToString());
+
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 
         private void PaintBackground(PaintBox box)
@@ -317,6 +332,15 @@ internal static class DisplayListBuilder
             // Outer shadows go under the background, inset ones over it and under the border (css-backgrounds-3 §7.1).
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: false);
+            // Blended background layers blend with each other and the colour only, in an isolated group
+            // (https://drafts.csswg.org/compositing-2/#background-blend-mode).
+            var modes = style.Effects.BackgroundBlendModes;
+            var blended = box.Box != canvasBox && style.Background.Images.Where((image, i) => image is GradientImage && modes[i % modes.Count] != Style.BlendMode.Normal).Any();
+            if (blended)
+            {
+                SetClip(box.Clip);
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer));
+            }
             if (color.A > 0)
             {
                 SetClip(box.Clip);
@@ -324,6 +348,8 @@ internal static class DisplayListBuilder
             }
             if (box.Box != canvasBox)
                 PaintBackgroundImages(box, shape);
+            if (blended)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
             if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
@@ -532,6 +558,7 @@ internal static class DisplayListBuilder
                 var position = background.Positions[i % background.Positions.Count];
                 var (x, y) = (origin.X + position.X.Resolve(origin.Width - w), origin.Y + position.Y.Resolve(origin.Height - h));
                 var repeat = background.Repeats[i % background.Repeats.Count];
+                var blend = Blend(style.Effects.BackgroundBlendModes[i % style.Effects.BackgroundBlendModes.Count]);
                 // Tiles cover the clip box in the axes that repeat, starting from one that touches the placed tile.
                 var (x0, x1) = repeat.X == BackgroundRepeat.NoRepeat ? (x, x + w) : (x - MathF.Ceiling((x - clip.Rect.X) / w) * w, clip.Rect.Right);
                 var (y0, y1) = repeat.Y == BackgroundRepeat.NoRepeat ? (y, y + h) : (y - MathF.Ceiling((y - clip.Rect.Y) / h) * h, clip.Rect.Bottom);
@@ -546,7 +573,7 @@ internal static class DisplayListBuilder
                     {
                         var tile = new RectF(tx, ty, w, h);
                         if (GradientGeometry.Build(gradient, tile, style.Inherited.Color) is { } paint)
-                            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint));
+                            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint, Blend: blend));
                     }
                 }
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));

@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<title>isolation: isolate limits the backdrop a blended box blends with to its group</title>
+<link rel="help" href="https://drafts.csswg.org/compositing-2/#isolation">
+<style>
+  body { margin: 0; }
+  .page { background: yellow; padding: 10px; }
+  span { display: block; width: 40px; height: 20px; background: blue; mix-blend-mode: difference; }
+</style>
+<div class="page">
+  <div style="isolation: isolate"><span></span></div>
+  <div style="isolation: isolate; background: white; width: 60px"><span></span></div>
+</div>

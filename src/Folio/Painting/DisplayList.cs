@@ -5,7 +5,10 @@ namespace Folio.Painting;
 
 internal enum DisplayItemKind
 {
-    /// <summary>Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
+    /// <summary>
+    /// Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>,
+    /// blended by <see cref="DisplayItem.Blend"/>.
+    /// </summary>
     Fill,
 
     /// <summary>Draws the border described by <see cref="DisplayItem.Border"/> inside <see cref="DisplayItem.Shape"/>.</summary>
@@ -36,7 +39,7 @@ internal enum DisplayItemKind
 
     /// <summary>
     /// Draws what follows into a layer, filtered by <see cref="DisplayItem.Filters"/> and composited with
-    /// <see cref="DisplayItem.Opacity"/> at the matching <see cref="Pop"/>. With <see cref="DisplayItem.Backdrop"/>,
+    /// <see cref="DisplayItem.Opacity"/> and <see cref="DisplayItem.Blend"/> at the matching <see cref="Pop"/>. With <see cref="DisplayItem.Backdrop"/>,
     /// the layer starts as the backdrop, filtered by those and clipped to <see cref="DisplayItem.Shape"/>.
     /// </summary>
     PushLayer,
@@ -58,12 +61,13 @@ internal enum DisplayItemKind
 /// <param name="Transform">For transforms: the matrix in row-vector form, in canvas coordinates.</param>
 /// <param name="Filters">For layers: the filter primitives applied to what the layer holds (filter), or null.</param>
 /// <param name="Backdrop">For layers: the filter primitives applied to the backdrop (backdrop-filter), or null.</param>
+/// <param name="Blend">For layers and fills: how they blend with what is under them.</param>
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
                                             BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
                                             Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth,
                                             float Blur = 0, bool Inset = false, RoundedRect Box = default,
                                             Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default,
-                                            IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null);
+                                            IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null, BlendMode Blend = BlendMode.Normal);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

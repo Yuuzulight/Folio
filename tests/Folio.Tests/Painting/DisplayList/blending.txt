@@ -1,0 +1,78 @@
+=== mix-blend-mode blends a layer with the root group, which is not a layer of its own
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; background: rgb(1, 0, 0); mix-blend-mode: multiply"></div>
+---
+blend multiply
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+
+=== a stacking context holding a blended box is an isolated group
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="isolation: isolate; height: 10px; background: rgb(1, 0, 0)"><div style="height: 5px; background: rgb(2, 0, 0); mix-blend-mode: screen"></div></div>
+---
+layer
+fill 0,0 800x10 rgb(1, 0, 0)
+blend screen
+fill 0,0 800x5 rgb(2, 0, 0)
+pop
+pop
+
+=== isolation without a blended box inside paints no layer
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="isolation: isolate; height: 10px; background: rgb(1, 0, 0)"><div style="height: 5px; background: rgb(2, 0, 0)"></div></div>
+---
+fill 0,0 800x10 rgb(1, 0, 0)
+fill 0,0 800x5 rgb(2, 0, 0)
+
+=== any stacking context isolates its blended boxes, even through boxes painted as if they were one
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="transform: translate(1px)"><div style="position: relative"><div style="background: rgb(2, 0, 0); mix-blend-mode: difference"></div></div></div>
+---
+transform 1,0,0,1,1,0
+layer
+blend difference
+fill 0,0 800x10 rgb(2, 0, 0)
+pop
+pop
+pop
+
+=== opacity, a filter and a blend mode share one layer
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; opacity: 0.5; filter: blur(1px); mix-blend-mode: plus-lighter"></div>
+---
+opacity 0.5 filter blur(1) blend plus-lighter
+pop
+
+=== a blended box is a stacking context and z-index does not apply to it unpositioned
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="mix-blend-mode: overlay; z-index: -1; background: rgb(1, 0, 0)"></div><div style="position: relative; z-index: -1; margin-top: -10px; background: rgb(2, 0, 0)"></div>
+---
+fill 0,0 800x10 rgb(2, 0, 0)
+blend overlay
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+
+=== background layers blend with the ones under them and the colour, in an isolated group
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; background: linear-gradient(red, blue), linear-gradient(green, green) rgb(1, 0, 0); background-blend-mode: multiply, normal"></div>
+---
+layer
+fill 0,0 800x10 rgb(1, 0, 0)
+clip 0,0 800x10
+fill 0,0 800x10 linear gradient, 2 stops
+pop
+clip 0,0 800x10
+fill 0,0 800x10 linear gradient, 2 stops blend multiply
+pop
+pop
+
+=== background-blend-mode repeats over the layers and normal needs no group
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="background: linear-gradient(red, blue), linear-gradient(green, green); background-blend-mode: normal"></div><div style="background: linear-gradient(red, blue), linear-gradient(green, green); background-blend-mode: color"></div>
+---
+clip 0,0 800x10
+fill 0,0 800x10 linear gradient, 2 stops
+pop
+clip 0,0 800x10
+fill 0,0 800x10 linear gradient, 2 stops
+pop
+layer
+clip 0,10 800x10
+fill 0,10 800x10 linear gradient, 2 stops blend color
+pop
+clip 0,10 800x10
+fill 0,10 800x10 linear gradient, 2 stops blend color
+pop
+pop

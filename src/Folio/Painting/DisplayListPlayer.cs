@@ -14,7 +14,7 @@ internal static class DisplayListPlayer
             switch (item.Kind)
             {
                 case DisplayItemKind.Fill:
-                    canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color), Gradient: item.Gradient));
+                    canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color), Gradient: item.Gradient, Blend: item.Blend));
                     break;
                 case DisplayItemKind.BoxShadow:
                     PaintBoxShadow(canvas, item);
@@ -43,7 +43,7 @@ internal static class DisplayListPlayer
                     open.Push(item.Kind);
                     break;
                 case DisplayItemKind.PushLayer:
-                    canvas.PushLayer(new LayerOptions(item.Opacity, item.Filters, item.Backdrop, item.Shape));
+                    canvas.PushLayer(new LayerOptions(item.Opacity, item.Filters, item.Backdrop, item.Shape, item.Blend));
                     open.Push(item.Kind);
                     break;
                 case DisplayItemKind.PushTransform:

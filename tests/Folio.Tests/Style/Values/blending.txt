@@ -1,0 +1,27 @@
+=== blend modes are normal by default
+display: block
+---
+mix-blend-mode: normal
+background-blend-mode: normal
+isolation: auto
+
+=== mix-blend-mode takes every blend mode and plus-lighter
+mix-blend-mode: color-dodge
+---
+mix-blend-mode: color-dodge
+
+=== mix-blend-mode plus-lighter and a non-separable mode
+mix-blend-mode: luminosity; mix-blend-mode: plus-lighter
+---
+mix-blend-mode: plus-lighter
+
+=== background-blend-mode is a list, one mode per layer
+background-blend-mode: multiply, soft-light, normal
+---
+background-blend-mode: multiply, soft-light, normal
+
+=== invalid blend modes are dropped
+mix-blend-mode: hard-light; mix-blend-mode: add; mix-blend-mode: multiply screen; background-blend-mode: hue; background-blend-mode: plus-lighter; background-blend-mode: multiply,
+---
+mix-blend-mode: hard-light
+background-blend-mode: hue

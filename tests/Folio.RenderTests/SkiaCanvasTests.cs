@@ -221,9 +221,51 @@ public class SkiaCanvasTests
         AssertNear(new SKColor(128, 128, 128), bitmap.GetPixel(20, 70));
     }
 
-    private static void AssertNear(SKColor expected, SKColor actual) =>
-        Assert.True(Math.Abs(expected.Red - actual.Red) <= 2 && Math.Abs(expected.Green - actual.Green) <= 2 && Math.Abs(expected.Blue - actual.Blue) <= 2,
-            $"Expected {expected}, got {actual}.");
+    // Each mode's result for the backdrop rgb(51, 153, 204) and the source rgb(230, 77, 26), worked out from the blend
+    // functions of https://drafts.csswg.org/compositing-2/#blending (and the addition for plus-lighter).
+    [Theory]
+    [InlineData("normal", 230, 77, 26)]
+    [InlineData("multiply", 46, 46, 21)]
+    [InlineData("screen", 235, 184, 209)]
+    [InlineData("overlay", 92, 113, 163)]
+    [InlineData("darken", 51, 77, 26)]
+    [InlineData("lighten", 230, 153, 204)]
+    [InlineData("color-dodge", 255, 219, 227)]
+    [InlineData("color-burn", 29, 0, 0)]
+    [InlineData("hard-light", 215, 92, 42)]
+    [InlineData("soft-light", 102, 129, 172)]
+    [InlineData("difference", 179, 76, 178)]
+    [InlineData("exclusion", 189, 138, 188)]
+    [InlineData("hue", 213, 98, 60)]
+    [InlineData("saturation", 25, 161, 229)]
+    [InlineData("color", 241, 88, 37)]
+    [InlineData("luminosity", 40, 142, 193)]
+    [InlineData("plus-lighter", 255, 230, 230)]
+    public void BlendModesFollowTheirFormulas(string mode, int r, int g, int b)
+    {
+        using var mixed = Render($"<style>body {{ margin: 0; background: rgb(51, 153, 204) }} div {{ height: 10px; background: rgb(230, 77, 26) }}</style><div style='mix-blend-mode: {mode}'></div>" +
+            $"<div style='background: linear-gradient(rgb(230, 77, 26), rgb(230, 77, 26)) rgb(51, 153, 204); background-blend-mode: {(mode == "plus-lighter" ? "normal" : mode)}'></div>");
+
+        AssertNear(new SKColor((byte)r, (byte)g, (byte)b), mixed.GetPixel(5, 5), 3);
+        if (mode != "plus-lighter")
+            AssertNear(new SKColor((byte)r, (byte)g, (byte)b), mixed.GetPixel(5, 15), 3);
+    }
+
+    [Fact]
+    public void BlendingStopsAtTheIsolatedGroup()
+    {
+        // Multiplying blue into the page's yellow gives black; inside an isolated group with nothing under it, blue stays blue.
+        using var bitmap = Render("<style>body { margin: 0; background: yellow } span { display: block; height: 10px; background: blue; mix-blend-mode: multiply }</style>" +
+            "<span></span><div style='isolation: isolate'><span></span></div><div style='opacity: 0.99'><span></span></div>");
+
+        Assert.Equal(SKColors.Black, bitmap.GetPixel(5, 5));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(5, 15));
+        AssertNear(SKColors.Blue, bitmap.GetPixel(5, 25), 4);
+    }
+
+    private static void AssertNear(SKColor expected, SKColor actual, int tolerance = 2) =>
+        Assert.True(Math.Abs(expected.Red - actual.Red) <= tolerance && Math.Abs(expected.Green - actual.Green) <= tolerance
+                    && Math.Abs(expected.Blue - actual.Blue) <= tolerance, $"Expected {expected}, got {actual}.");
 
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)

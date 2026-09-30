@@ -39,8 +39,21 @@ internal sealed class FilterList(IReadOnlyList<FilterFunction> functions) : IEqu
     public override string ToString() => IsNone ? "none" : string.Join(" ", Functions);
 }
 
-/// <summary>Graphic effects (not inherited): <c>filter</c> and <c>backdrop-filter</c>.</summary>
-internal sealed record EffectsGroup(FilterList Filter, FilterList BackdropFilter)
+/// <summary>
+/// https://drafts.csswg.org/compositing-2/#ltblendmodegt, and plus-lighter (https://drafts.csswg.org/compositing-2/#porterduffcompositingoperators_plus_lighter)
+/// for mix-blend-mode.
+/// </summary>
+internal enum BlendMode
 {
-    public static EffectsGroup Initial { get; } = new(FilterList.None, FilterList.None);
+    Normal, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion,
+    Hue, Saturation, Color, Luminosity, PlusLighter,
+}
+
+/// <summary>
+/// Graphic effects (not inherited): <c>filter</c>, <c>backdrop-filter</c>, <c>mix-blend-mode</c> and
+/// <c>background-blend-mode</c> (one mode per background layer, repeated when shorter).
+/// </summary>
+internal sealed record EffectsGroup(FilterList Filter, FilterList BackdropFilter, BlendMode MixBlendMode, IReadOnlyList<BlendMode> BackgroundBlendModes)
+{
+    public static EffectsGroup Initial { get; } = new(FilterList.None, FilterList.None, BlendMode.Normal, [BlendMode.Normal]);
 }
