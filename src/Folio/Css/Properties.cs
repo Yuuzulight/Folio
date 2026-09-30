@@ -116,6 +116,8 @@ internal enum PropertyId
     TextIndent,
     TextAlignLast,
     Hyphens,
+    BoxShadow,
+    TextShadow,
     LetterSpacing,
     WordSpacing,
     TabSize,
@@ -712,6 +714,11 @@ internal static class Properties
                 r => r.Keyword("none") is not null ? new ImageSpecified(NoImage.Instance) : BackgroundParsing.Image(r) is { } image ? new ImageSpecified(image) : null,
                 (v, _) => ((ImageSpecified)v).Image,
                 s => s.Text.ListStyleImage ?? NoImage.Instance, (b, v) => b.Text = b.Text with { ListStyleImage = v }),
+            // https://www.w3.org/TR/css-backgrounds-3/#box-shadow and https://www.w3.org/TR/css-text-decor-3/#text-shadow-property
+            new Property<IReadOnlyList<Shadow>>(PropertyId.BoxShadow, "box-shadow", false, "none", r => ShadowList(r, box: true),
+                (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Shadows.Box, (b, v) => b.Shadows = b.Shadows with { Box = v }),
+            new Property<IReadOnlyList<Shadow>>(PropertyId.TextShadow, "text-shadow", true, "none", r => ShadowList(r, box: false),
+                (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Text.TextShadows ?? [], (b, v) => b.Text = b.Text with { TextShadows = v.Count == 0 ? null : v }),
             Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
                 s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
         };
@@ -875,6 +882,49 @@ internal static class Properties
         "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize",
         "row-resize", "all-scroll", "zoom-in", "zoom-out",
     ];
+
+    // none | <shadow>#, a shadow being [ inset? && <length>{2,4} && <color>? ] (text shadows: no inset, at most three
+    // lengths). Blur radii and text shadows' lengths are never negative where the grammar says so.
+    private static CssValue? ShadowList(ValueReader r, bool box)
+    {
+        if (r.Keyword("none") is not null)
+            return new ShadowListValue([]);
+        var shadows = new List<ShadowSpecified>();
+        while (true)
+        {
+            var lengths = new List<CssValue>();
+            CssValue? color = null;
+            var inset = false;
+            while (!r.AtEnd && !r.PeekComma())
+            {
+                if (box && !inset && r.Keyword("inset") is not null)
+                    inset = true;
+                else if (lengths.Count == 0 && r.LengthPercentage(allowPercent: false) is { } first)
+                {
+                    lengths.Add(first);
+                    while (lengths.Count < (box ? 4 : 3) && r.LengthPercentage(allowPercent: false, nonNegative: lengths.Count == 2) is { } more)
+                        lengths.Add(more);
+                }
+                else if (color is null && r.ColorSpecified() is { } c)
+                    color = c;
+                else
+                    return null;
+            }
+            if (lengths.Count < 2)
+                return null;
+            shadows.Add(new ShadowSpecified(lengths, color, inset));
+            if (r.AtEnd)
+                return new ShadowListValue(shadows);
+            r.Comma();
+        }
+    }
+
+    private static IReadOnlyList<Shadow> ComputeShadows(ShadowListValue value, ComputeContext ctx) =>
+        value.Shadows.Select(s =>
+        {
+            float L(int i) => i < s.Lengths.Count ? ctx.LengthPercentage(s.Lengths[i]).Resolve(0) : 0;
+            return new Shadow(L(0), L(1), Math.Max(0, L(2)), L(3), s.Color is null ? CssColor.CurrentColor : ctx.Color(s.Color, ctx.CurrentColor), s.Inset);
+        }).ToList();
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
 

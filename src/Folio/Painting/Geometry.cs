@@ -35,7 +35,8 @@ public readonly record struct RoundedRect(RectF Rect, CornerRadii Radii)
 public readonly record struct Rgba(float R, float G, float B, float A);
 
 /// <summary>What a fill or stroke paints with. Solid colours for now; gradients and image patterns come in M2.</summary>
-public readonly record struct Paint(Rgba Color);
+/// <param name="Blur">The standard deviation, in CSS pixels, of a Gaussian blur applied to what is painted (shadows); 0 for none.</param>
+public readonly record struct Paint(Rgba Color, float Blur = 0);
 
 public enum FillRule
 {

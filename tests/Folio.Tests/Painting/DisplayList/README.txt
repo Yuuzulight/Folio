@@ -4,5 +4,6 @@ Display list cases, written from CSS 2.2 Appendix E (paint order) and section 9.
 Format: "=== name", the HTML document (laid out in an 800x600 viewport), "---", then one line per display item:
 "fill <x>,<y> <w>x<h>[ radius ...] <colour>", "border <rect>[ radius ...] <width> <style> <colour>" (or the four sides
 top / right / bottom / left when they differ), "clip <rect>[ radius ...]", "opacity <value>", "decoration <rect> <line style> <colour>" (the rectangle's height is the line's thickness)
-and "pop". A radius is
+"shadow <rect>[ radius ...] <colour> blur <standard deviation> <inside|outside> <clip rect>", and "pop". Glyphs
+drawn blurred (text shadows) end with "blur <standard deviation>". A radius is
 one value for equal circular corners, "x,y" for equal elliptical ones, or four corners from the top left.

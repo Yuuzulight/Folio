@@ -255,11 +255,16 @@ internal static class DisplayListBuilder
             var shape = BorderBox(box);
             var border = box.Fragment.PaintedBorder ?? style.Border;
             var color = box.Box == canvasBox ? CssColor.Transparent : style.Background.Color.Resolve(style.Inherited.Color);
+            // Outer shadows go under the background, inset ones over it and under the border (css-backgrounds-3 §7.1).
+            if (style.Shadows.Box.Count > 0)
+                PaintBoxShadows(box, shape, border, inset: false);
             if (color.A > 0)
             {
                 SetClip(box.Clip);
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BackgroundArea(shape, style, box.Fragment), color));
             }
+            if (style.Shadows.Box.Count > 0)
+                PaintBoxShadows(box, shape, border, inset: true);
             if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
             {
                 SetClip(box.Clip);
@@ -274,6 +279,35 @@ internal static class DisplayListBuilder
                     ? new RoundedRect(box.Rect.Inset(-border.TopWidth / 2, -border.RightWidth / 2, -border.BottomWidth / 2, -border.LeftWidth / 2), default)
                     : shape;
                 list.Items.Add(new DisplayItem(DisplayItemKind.Border, borderShape, Border: used));
+            }
+        }
+
+        /// <summary>
+        /// Box shadows (https://www.w3.org/TR/css-backgrounds-3/#box-shadow), the last written first so the first ends up
+        /// on top: an outer shadow is the border box moved by its offset and grown by its spread, seen only outside the
+        /// border box; an inset one is the padding box moved and shrunk, seen inside the padding box around it. Blur
+        /// radii are twice the Gaussian standard deviation.
+        /// </summary>
+        private void PaintBoxShadows(PaintBox box, RoundedRect borderBox, BorderGroup border, bool inset)
+        {
+            var style = box.Box.Style;
+            var padding = borderBox.Inset(border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+            for (var i = style.Shadows.Box.Count - 1; i >= 0; i--)
+            {
+                var shadow = style.Shadows.Box[i];
+                var color = shadow.Color.Resolve(style.Inherited.Color);
+                if (shadow.Inset != inset || color.A <= 0)
+                    continue;
+                var basis = inset ? padding : borderBox;
+                var grow = inset ? -shadow.Spread : shadow.Spread;
+                var rect = basis.Rect;
+                var moved = new RectF(rect.X + shadow.X - grow, rect.Y + shadow.Y - grow, Math.Max(0, rect.Width + 2 * grow), Math.Max(0, rect.Height + 2 * grow));
+                static System.Numerics.Vector2 Grown(System.Numerics.Vector2 r, float by) =>
+                    r == System.Numerics.Vector2.Zero ? r : System.Numerics.Vector2.Max(r + new System.Numerics.Vector2(by), System.Numerics.Vector2.Zero);
+                var radii = basis.Radii;
+                var shape = new RoundedRect(moved, new CornerRadii(Grown(radii.TopLeft, grow), Grown(radii.TopRight, grow), Grown(radii.BottomRight, grow), Grown(radii.BottomLeft, grow)));
+                SetClip(box.Clip);
+                list.Items.Add(new DisplayItem(DisplayItemKind.BoxShadow, shape, color, Blur: shadow.Blur / 2, Inset: inset, Box: basis));
             }
         }
 
@@ -301,6 +335,20 @@ internal static class DisplayListBuilder
                     x += advance;
             }
             SetClip(box.Clip);
+            // Text shadows go under the text and its decorations, the last written lowest (css-text-decor-3 §4).
+            if (style.Text.TextShadows is { } shadows)
+            {
+                SetClip(box.Clip);
+                for (var i = shadows.Count - 1; i >= 0; i--)
+                {
+                    var shadow = shadows[i];
+                    var shadowColor = shadow.Color.Resolve(style.Inherited.Color);
+                    if (shadowColor.A <= 0)
+                        continue;
+                    var moved = origins.Select(o => o + new Vector2(shadow.X, shadow.Y)).ToArray();
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: shadowColor, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, moved), Blur: shadow.Blur / 2));
+                }
+            }
             var decorations = style.Inherited.Decorations is null ? null : DecorationLines(box, run, face, baseline);
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => d.Under).Select(d => d.Item));

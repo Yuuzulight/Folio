@@ -65,6 +65,25 @@ internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
 
+/// <summary>
+/// A computed shadow (https://www.w3.org/TR/css-backgrounds-3/#box-shadow, css-text-decor-3 §4): offsets, blur radius
+/// and spread in px, and its colour (currentcolor kept symbolic). Text shadows have no spread and are never inset.
+/// </summary>
+internal readonly record struct Shadow(float X, float Y, float Blur, float Spread, CssColor Color, bool Inset)
+{
+    public override string ToString()
+    {
+        static string N(float v) => Math.Round(v, 3).ToString(System.Globalization.CultureInfo.InvariantCulture) + "px";
+        return (Inset ? "inset " : "") + $"{N(X)} {N(Y)} {N(Blur)} {N(Spread)} {Color}";
+    }
+}
+
+/// <summary>Box shadows (not inherited), in the order written: the first is painted on top.</summary>
+internal sealed record ShadowGroup(IReadOnlyList<Shadow> Box)
+{
+    public static ShadowGroup Initial { get; } = new([]);
+}
+
 /// <summary>https://www.w3.org/TR/css-text-3/#text-transform-property (full-size-kana is accepted and does nothing)</summary>
 internal enum TextTransform { None, Capitalize, Uppercase, Lowercase, FullWidth, FullSizeKana }
 
@@ -295,7 +314,7 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
                                  float? UnderlineOffset = null,
                                  TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual,
-                                 ImageValue? ListStyleImage = null);
+                                 ImageValue? ListStyleImage = null, IReadOnlyList<Shadow>? TextShadows = null);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
@@ -342,6 +361,7 @@ internal sealed class ComputedStyle
     public required GeneratedGroup Generated { get; init; }
     public FlexGroup Flex { get; init; } = FlexGroup.Initial;
     public GridGroup Grid { get; init; } = GridGroup.Initial;
+    public ShadowGroup Shadows { get; init; } = ShadowGroup.Initial;
     public SpacingTextGroup TextSpacing { get; init; } = SpacingTextGroup.Initial;
     public QuotesGroup Quotes { get; init; } = QuotesGroup.Initial;
     public OutlineGroup Outline { get; init; } = OutlineGroup.Initial;
