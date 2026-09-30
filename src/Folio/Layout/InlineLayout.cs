@@ -386,9 +386,9 @@ internal static class InlineLayout
             var runEnd = runStart + 1;
             while (runEnd < end && levels[runEnd] == levels[runStart])
                 runEnd++;
-            foreach (var run in Shape(text, runStart, runEnd - runStart, style, context))
+            foreach (var run in Shape(text, runStart, runEnd - runStart, style, context, levels[runStart] % 2 == 1))
             {
-                if (levels[runStart] % 2 == 1 && run.Face is { } face)
+                if (levels[runStart] % 2 == 1 && run.Face is { } face && run.Offsets is null)
                 {
                     for (var g = 0; g < run.Glyphs.Length; g++)
                     {
@@ -422,7 +422,7 @@ internal static class InlineLayout
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
     // the first family's .notdef, or half-em blanks when no font is available at all.
-    private static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context)
+    private static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
         var font = style.Font;
         var faceStyle = FaceStyleOf(font.Style);
@@ -437,21 +437,33 @@ internal static class InlineLayout
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
             if (i > runStart && face != runFace)
             {
-                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, font.Size));
+                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, font.Size, context, rightToLeft));
                 runStart = i;
             }
             runFace = face;
             i += clusterLength;
         }
         if (end > runStart)
-            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, font.Size));
+            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, font.Size, context, rightToLeft));
         return runs;
     }
 
-    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, float size)
+    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, float size, LayoutContext context, bool rightToLeft)
     {
-        var run = face is not null ? SimpleShaper.Shape(text, start, length, face, size)
-            : new ShapedRun(null, size, new ushort[length], [.. Enumerable.Range(start, length)], [.. Enumerable.Repeat(size / 2, length)]);
+        ShapedRun run;
+        if (face is null)
+        {
+            run = new ShapedRun(null, size, new ushort[length], [.. Enumerable.Range(start, length)], [.. Enumerable.Repeat(size / 2, length)]);
+        }
+        else if (context.Shaper is { } shaper && !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+        {
+            var shaped = shaper.Shape(text, start, length, face, size, rightToLeft, null);
+            run = new ShapedRun(face, size, shaped.Glyphs, shaped.Clusters, shaped.Advances) { Offsets = shaped.Offsets };
+        }
+        else
+        {
+            run = SimpleShaper.Shape(text, start, length, face, size);
+        }
         // Controls and format characters take no space; a tab is eight spaces (tab-size's initial value).
         for (var g = 0; g < run.Glyphs.Length; g++)
         {
