@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <title>Text decoration lines and styles</title>
 <style>
-  /* Glyphs of the box font are solid squares, so the text is transparent and only its decorations show. */
+  /* Glyphs of the box font are solid squares, so the text is transparent and only its decorations show. The lines go
+     through the glyphs except in the last paragraph, where they skip the glyphs' ink. */
   body { margin: 8px; font-size: 20px; color: transparent; }
-  p { margin: 0 0 14px; text-decoration-line: underline; text-decoration-color: #c0392b; text-decoration-thickness: 2px; }
+  p { margin: 0 0 14px; text-decoration-line: underline; text-decoration-color: #c0392b; text-decoration-thickness: 2px; text-decoration-skip-ink: none; }
   .double { text-decoration-style: double; }
   .dotted { text-decoration-style: dotted; }
   .dashed { text-decoration-style: dashed; }
@@ -11,6 +12,7 @@
   .all { text-decoration-line: underline overline line-through; text-decoration-color: #2980b9; }
   .nested { text-decoration-color: #27ae60; }
   .nested b { text-decoration: line-through #8e44ad 3px; }
+  .skip { text-decoration-line: underline overline; text-decoration-skip-ink: auto; }
 </style>
 <p>solid underline, the trailing space undecorated </p>
 <p class="double">double underline</p>
@@ -19,3 +21,4 @@
 <p class="wavy">wavy underline</p>
 <p class="all">underline overline line-through</p>
 <p class="nested">outer <b>inner</b> <span style="display: inline-block">inline block</span></p>
+<p class="skip">skip ink</p>

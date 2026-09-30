@@ -318,3 +318,9 @@ color: red
 cursor: pointer
 accent-color: rgb(0, 0, 255)
 scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)
+
+=== text-decoration-skip-ink inherits
+%parent text-decoration-skip-ink: none
+color: red
+---
+text-decoration-skip-ink: none

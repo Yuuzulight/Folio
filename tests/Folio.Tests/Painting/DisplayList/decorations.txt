@@ -5,46 +5,46 @@ top, the underline's top 1.6px below the baseline (post underlinePosition -100),
 === underline and overline are painted under the text, line-through over it
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline overline line-through; color: blue">ab</p>
 ---
-decoration 0,14.4 32x1 solid rgb(0, 0, 255)
-decoration 0,0 32x1 solid rgb(0, 0, 255)
+decoration 0,14.4 32x1 solid rgb(0, 0, 255) skip-ink
+decoration 0,0 32x1 solid rgb(0, 0, 255) skip-ink
 glyphs 0,12.8 16,12.8 16px rgb(0, 0, 255)
 decoration 0,8 32x1 solid rgb(0, 0, 255)
 
 === decorations reach descendants in their decorating box's colour, outermost first
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline red">a<span style="color: blue; text-decoration: line-through lime">b</span></p>
 ---
-decoration 0,14.4 16x1 solid rgb(255, 0, 0)
+decoration 0,14.4 16x1 solid rgb(255, 0, 0) skip-ink
 glyphs 0,12.8 16px rgb(0, 0, 0)
-decoration 16,14.4 16x1 solid rgb(255, 0, 0)
+decoration 16,14.4 16x1 solid rgb(255, 0, 0) skip-ink
 glyphs 16,12.8 16px rgb(0, 0, 255)
 decoration 16,8 16x1 solid rgb(0, 255, 0)
 
 === a descendant cannot take its ancestor's decoration off
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline"><span style="text-decoration: none">a</span></p>
 ---
-decoration 0,14.4 16x1 solid rgb(0, 0, 0)
+decoration 0,14.4 16x1 solid rgb(0, 0, 0) skip-ink
 glyphs 0,12.8 16px rgb(0, 0, 0)
 
 === the contents of inline blocks and floats are not decorated by their ancestors
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline">a<span style="display: inline-block">b</span><span style="float: right">c</span></p>
 ---
 glyphs 784,12.8 16px rgb(0, 0, 0)
-decoration 0,14.4 16x1 solid rgb(0, 0, 0)
+decoration 0,14.4 16x1 solid rgb(0, 0, 0) skip-ink
 glyphs 0,12.8 16px rgb(0, 0, 0)
 glyphs 16,12.8 16px rgb(0, 0, 0)
 
 === spaces hanging at a line's end are not decorated
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline; width: 100px">aaa bbb</p>
 ---
-decoration 0,14.4 48x1 solid rgb(0, 0, 0)
+decoration 0,14.4 48x1 solid rgb(0, 0, 0) skip-ink
 glyphs 0,12.8 16,12.8 32,12.8 48,12.8 16px rgb(0, 0, 0)
-decoration 0,30.4 48x1 solid rgb(0, 0, 0)
+decoration 0,30.4 48x1 solid rgb(0, 0, 0) skip-ink
 glyphs 0,28.8 16,28.8 32,28.8 16px rgb(0, 0, 0)
 
 === thickness, underline offset and line styles
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: wavy underline 3px; text-underline-offset: 2px">a</p><p style="text-decoration: dotted line-through; text-decoration-thickness: 0.125em">a</p>
 ---
-decoration 0,14.8 16x3 wavy rgb(0, 0, 0)
+decoration 0,14.8 16x3 wavy rgb(0, 0, 0) skip-ink
 glyphs 0,12.8 16px rgb(0, 0, 0)
 glyphs 0,28.8 16px rgb(0, 0, 0)
 decoration 0,24 16x2 dotted rgb(0, 0, 0)
@@ -52,11 +52,17 @@ decoration 0,24 16x2 dotted rgb(0, 0, 0)
 === a double line is two solid lines, the second further from the text
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: double underline; text-decoration-thickness: 1px">a</p>
 ---
-decoration 0,14.4 16x1 solid rgb(0, 0, 0)
-decoration 0,16.4 16x1 solid rgb(0, 0, 0)
+decoration 0,14.4 16x1 solid rgb(0, 0, 0) skip-ink
+decoration 0,16.4 16x1 solid rgb(0, 0, 0) skip-ink
 glyphs 0,12.8 16px rgb(0, 0, 0)
 
 === hidden text and transparent decorations paint no lines
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline; visibility: hidden">a</p><p style="text-decoration: underline transparent">b</p>
 ---
 glyphs 0,28.8 16px rgb(0, 0, 0)
+
+=== text-decoration-skip-ink: none draws lines through the glyphs
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-decoration: underline; text-decoration-skip-ink: none">a</p>
+---
+decoration 0,14.4 16x1 solid rgb(0, 0, 0)
+glyphs 0,12.8 16px rgb(0, 0, 0)
