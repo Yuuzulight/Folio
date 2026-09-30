@@ -55,3 +55,9 @@
 #inner overflow-x: hidden
 #outer transform-origin: 50% 50%
 #r transform-origin: 0px 0px
+
+=== xml:space preserve and default set white-space
+<!DOCTYPE html><svg><text id=t xml:space="preserve">a<tspan id=s xml:space="default">b</tspan></text></svg>
+---
+#t white-space-collapse: preserve
+#s white-space-collapse: collapse

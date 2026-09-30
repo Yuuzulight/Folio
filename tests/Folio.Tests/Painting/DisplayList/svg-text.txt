@@ -1,0 +1,114 @@
+=== text is drawn from its x and y on the baseline, in its fill
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text x="10" y="20">ab</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 10,20 26,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== text-anchor middle and end move the text chunk
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text x="100" y="20" text-anchor="middle">ab</text><text x="100" y="40" text-anchor="end">ab</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 84,20 100,20 16px rgb(0, 0, 0)
+glyphs 68,40 84,40 16px rgb(0, 0, 0)
+pop
+pop
+
+=== a list of x values places characters one by one, each starting a chunk
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text x="10 50 90" y="20" text-anchor="middle">abcd</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 2,20 42,20 74,20 90,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== dx and dy shift characters and everything after them
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text x="10" y="20" dx="0 5" dy="0 -2">abc</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 10,20 31,18 47,18 16px rgb(0, 0, 0)
+pop
+pop
+
+=== a tspan repositions and restyles its characters; the text continues after it
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text x="10" y="20">a<tspan x="100" fill="red">b</tspan>c</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 10,20 16px rgb(0, 0, 0)
+glyphs 100,20 16px rgb(255, 0, 0)
+glyphs 116,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== inner position lists override outer ones
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text x="0 100" y="20">a<tspan dy="5">b</tspan></text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 0,20 100,25 16px rgb(0, 0, 0)
+pop
+pop
+
+=== white space collapses across elements and is trimmed at both ends
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text y="20">  a  <tspan> b </tspan>  </text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 0,20 16,20 32,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== preserved white space keeps every space
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text y="20" style="white-space: pre">a  b</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 0,20 16,20 32,20 48,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== dominant-baseline moves the chosen baseline to y
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text y="20" dominant-baseline="central">a</text><text y="20" dominant-baseline="text-top">a</text><text y="20" dominant-baseline="text-bottom">a</text><text y="20" dominant-baseline="alphabetic">a</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 0,24.8 16px rgb(0, 0, 0)
+glyphs 0,32.8 16px rgb(0, 0, 0)
+glyphs 0,16.8 16px rgb(0, 0, 0)
+glyphs 0,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== font-size in an attribute, fill-opacity, opacity and transform
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text y="20" font-size="10" fill-opacity="0.5" opacity="0.5" transform="translate(5)">ab</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+transform 1,0,0,1,5,0
+glyphs 0,20 10,20 10px rgba(0, 0, 0, 0.25)
+pop
+pop
+pop
+
+=== unpainted, hidden and undisplayed text still takes its place, except undisplayed text
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100"><text y="20">a<tspan fill="none">b</tspan><tspan visibility="hidden">c</tspan><tspan display="none">d</tspan>e</text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+glyphs 0,20 48,20 16px rgb(0, 0, 0)
+pop
+pop
+
+=== text outside a text element is not drawn
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="100">loose<g>text</g><text></text></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x100
+pop
+pop

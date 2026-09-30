@@ -33,7 +33,7 @@ internal sealed record SvgShapeNode(Matrix3x2 Transform, float Opacity, IReadOnl
 /// (https://www.w3.org/TR/SVG2/coords.html), transforms, the basic shapes and paths, and their fills and strokes
 /// (https://www.w3.org/TR/SVG2/painting.html).
 /// </summary>
-// ponytail: stage 1 draws structure (svg, g, a), shapes and paths; defs, use, text, gradients, clipping, markers and
+// ponytail: stage 1 draws structure (svg, g, a), shapes, paths and text; defs, use, gradients, clipping, markers and
 // the other elements are not rendered yet (issue #97).
 internal static class SvgRenderTree
 {
@@ -53,16 +53,17 @@ internal static class SvgRenderTree
     }
 
     /// <summary>The render tree of an outermost svg element laid out in a content box of this size, or null when nothing shows.</summary>
-    public static SvgContainerNode? Build(ElementNode svg, float width, float height)
+    public static SvgContainerNode? Build(ElementNode svg, float width, float height, Layout.LayoutContext context)
     {
         var style = svg.ComputedStyle();
         // Its transform and opacity belong to its CSS box, which paints them.
-        return style is null ? null : Viewport(svg, style, new SvgRect(0, 0, width, height), Matrix3x2.Identity, 1);
+        return style is null ? null : Viewport(svg, style, new SvgRect(0, 0, width, height), Matrix3x2.Identity, 1, context);
     }
 
     // An svg element's viewport: its viewBox mapped into the rectangle, the content clipped to it unless overflow is
     // visible. A viewBox with a zero size disables rendering (https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute).
-    private static SvgContainerNode? Viewport(ElementNode svg, ComputedStyle style, SvgRect rect, Matrix3x2 transform, float opacity)
+    private static SvgContainerNode? Viewport(ElementNode svg, ComputedStyle style, SvgRect rect, Matrix3x2 transform, float opacity,
+                                               Layout.LayoutContext context)
     {
         var viewBox = SvgGeometry.ParseViewBox(svg.GetAttribute("viewBox"));
         if (viewBox is { Width: 0 } or { Height: 0 } || rect.Width <= 0 || rect.Height <= 0)
@@ -75,10 +76,10 @@ internal static class SvgRenderTree
         var size = viewBox is { } b ? new Vector2(b.Width, b.Height) : new Vector2(rect.Width, rect.Height);
         var clips = style.Box.OverflowX != Overflow.Visible || style.Box.OverflowY != Overflow.Visible;
         // The element's own transform moves its viewport rectangle too; the viewBox maps into that rectangle.
-        return new SvgContainerNode(transform, opacity, [new SvgContainerNode(map, 1, Children(svg, size))], clips ? rect : null);
+        return new SvgContainerNode(transform, opacity, [new SvgContainerNode(map, 1, Children(svg, size, context))], clips ? rect : null);
     }
 
-    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport)
+    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, Layout.LayoutContext context)
     {
         var nodes = new List<SvgRenderNode>();
         // Content that nests deeper than the stack allows is left out (study 16: limits stop work gracefully).
@@ -88,13 +89,13 @@ internal static class SvgRenderTree
         {
             if (child is ElementNode { Name.Namespace: var ns } element && ns == Namespaces.Svg
                 && element.ComputedStyle() is { Box.Display: not Display.None } style
-                && Node(element, style, viewport) is { } node)
+                && Node(element, style, viewport, context) is { } node)
                 nodes.Add(node);
         }
         return nodes;
     }
 
-    private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport)
+    private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport, Layout.LayoutContext context)
     {
         var transform = Transform(element, style, viewport);
         // A transform that cannot be inverted draws nothing.
@@ -109,13 +110,13 @@ internal static class SvgRenderTree
         switch (element.LocalName)
         {
             case "g" or "a":
-                return new SvgContainerNode(transform, style.Box.Opacity, Children(element, viewport));
+                return new SvgContainerNode(transform, style.Box.Opacity, Children(element, viewport, context));
             case "svg":
             {
                 // A nested viewport: width and height default to 100%.
                 var rect = new SvgRect(X("x"), Y("y"),
                     Has("width") ? X("width") : viewport.X, Has("height") ? Y("height") : viewport.Y);
-                return Viewport(element, style, rect, transform, style.Box.Opacity);
+                return Viewport(element, style, rect, transform, style.Box.Opacity, context);
             }
             case "rect":
             {
@@ -144,6 +145,8 @@ internal static class SvgRenderTree
                 return SvgGeometry.Polyline(element.GetAttribute("points"), element.LocalName == "polygon") is { } points ? Shape(points) : null;
             case "path":
                 return PathDataParser.Parse(element.GetAttribute("d") ?? "", upToError: true) is { } path ? Shape(path) : null;
+            case "text":
+                return SvgText.Build(element, style, transform, viewport, context);
             default:
                 return null;
         }
