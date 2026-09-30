@@ -102,7 +102,8 @@ internal static class DisplayListBuilder
             var content = box is ReplacedBox { Image: not null } ? placed : null;
             if (CreatesStackingContext(box))
             {
-                var z = style.ZIndex ?? 0;
+                // A stacking context made by opacity, a transform or the like on a box z-index does not apply to sits at 0.
+                var z = HasZIndex(box) ? style.ZIndex!.Value : 0;
                 var c = new Context(placed, real: true, z, index);
                 (z < 0 ? real.Negative : z > 0 ? real.Positive : real.ZeroOrAuto).Add(c);
                 if (outlined && box.IsTransformed)
@@ -147,11 +148,15 @@ internal static class DisplayListBuilder
     {
         var style = box.Style.Box;
         return style.Position is Position.Fixed or Position.Sticky
-            || style.ZIndex is not null && (style.Position != Position.Static || box.Parent is FlexContainerBox or GridContainerBox)
+            || HasZIndex(box)
             || style.Opacity < 1
             || style.Isolation == Isolation.Isolate
             || box.IsTransformed;
     }
+
+    // z-index applies to positioned boxes and to flex and grid items.
+    private static bool HasZIndex(Box box) =>
+        box.Style.Box.ZIndex is not null && (box.Style.Box.Position != Position.Static || box.Parent is FlexContainerBox or GridContainerBox);
 
     // Overflow other than visible clips a box's contents to its padding box (css-overflow-3 §3); an axis left visible
     // is not clipped.

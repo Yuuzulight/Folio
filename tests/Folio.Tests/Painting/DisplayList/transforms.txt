@@ -91,3 +91,14 @@ shadow 2,2 20x20 rgb(1, 0, 0) blur 0 outside 0,0 20x20
 decoration 0,14.4 16x1 solid rgb(0, 0, 0)
 glyphs 0,12.8 16px rgb(0, 0, 0)
 pop
+
+=== z-index does not apply to a transformed box that is not positioned
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="margin-bottom: -10px; background: rgb(1, 0, 0); z-index: -1; transform: translate(0)"></div><div style="background: rgb(2, 0, 0); z-index: 1; transform: translate(0)"></div><div style="position: relative; background: rgb(3, 0, 0)"></div>
+---
+transform 1,0,0,1,0,0
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+transform 1,0,0,1,0,0
+fill 0,0 800x10 rgb(2, 0, 0)
+pop
+fill 0,10 800x10 rgb(3, 0, 0)
