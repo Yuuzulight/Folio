@@ -66,10 +66,37 @@ invalid
 ---
 invalid
 
-=== has arrives later
-:has(.a)
+=== has takes relative selectors and its most specific argument
+:has(.a), li:has(> a.b, + #c), h2:has(~ p img)
+---
+:has(.a) (0,1,0)
+li:has(> a.b, + #c) (1,0,1)
+h2:has(~ p img) (0,0,3)
+
+=== has does not forgive
+:has(.a, :bogus)
 ---
 invalid
+
+=== has does not nest
+:has(:not(:has(a)))
+---
+invalid
+
+=== has rejects pseudo-elements
+:has(::before)
+---
+invalid
+
+=== has needs an argument
+:has()
+---
+invalid
+
+=== has inside not
+:not(:has(img))
+---
+:not(:has(img)) (0,0,1)
 
 === nothing follows a pseudo-element
 a::before:hover

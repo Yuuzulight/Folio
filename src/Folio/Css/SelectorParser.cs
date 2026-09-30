@@ -23,12 +23,15 @@ internal static partial class SelectorParser
 
     private sealed class Context(string source, Func<string, Atom> intern, SelectorList? parent)
     {
-        public SelectorList? ParseList(List<ComponentValue> values, bool forgiving, bool relative)
+        private bool _inHas;
+
+        /// <param name="has">Parse <c>:has()</c> arguments: relative selectors anchored at a <see cref="HasAnchorSelector"/>.</param>
+        public SelectorList? ParseList(List<ComponentValue> values, bool forgiving, bool relative, bool has = false)
         {
             var selectors = new List<ComplexSelector>();
             foreach (var part in SplitOnCommas(values))
             {
-                var complex = ParseComplex(part, relative);
+                var complex = ParseComplex(part, relative || has, has ? new CompoundSelector([new HasAnchorSelector()], PseudoElement.None) : null);
                 if (complex is not null)
                     selectors.Add(complex);
                 else if (!forgiving)
@@ -50,7 +53,8 @@ internal static partial class SelectorParser
             return parts;
         }
 
-        private ComplexSelector? ParseComplex(List<ComponentValue> values, bool relative)
+        /// <param name="anchor">For a <c>:has()</c> argument, the compound it is relative to (instead of the nesting parent).</param>
+        private ComplexSelector? ParseComplex(List<ComponentValue> values, bool relative, CompoundSelector? anchor)
         {
             var parts = new List<(Combinator, CompoundSelector)>();
             var i = 0;
@@ -85,8 +89,8 @@ internal static partial class SelectorParser
                     return null;
                 if (parts.Count == 0 && pendingCombinator != Combinator.None)
                 {
-                    // A relative selector starting with a combinator: "& > a".
-                    parts.Add((Combinator.None, Nesting()));
+                    // A relative selector starting with a combinator: "& > a", ":has(> a)".
+                    parts.Add((Combinator.None, anchor ?? Nesting()));
                 }
                 parts.Add((parts.Count == 0 ? Combinator.None : pendingCombinator, compound));
                 pendingCombinator = Combinator.None;
@@ -95,9 +99,10 @@ internal static partial class SelectorParser
             if (parts.Count == 0 || pendingCombinator != Combinator.None)
                 return null;
 
-            // A nested selector without '&' is relative to the parent as a descendant.
-            if (relative && !parts.Any(p => ContainsNesting(p.Item2)))
-                parts.Insert(0, (Combinator.None, Nesting()));
+            // A nested selector without '&' is relative to the parent as a descendant; so is a :has() argument
+            // without a leading combinator, relative to its anchor.
+            if (anchor is not null ? parts[0].Item2 != anchor : relative && !parts.Any(p => ContainsNesting(p.Item2)))
+                parts.Insert(0, (Combinator.None, anchor ?? Nesting()));
             if (relative && parts.Count > 1 && parts[1].Item1 == Combinator.None)
                 parts[1] = (Combinator.Descendant, parts[1].Item2);
 
@@ -108,7 +113,8 @@ internal static partial class SelectorParser
 
         private static bool ContainsNesting(CompoundSelector compound) =>
             compound.Simples.Any(s => s is NestingSelector
-                || (s is LogicalSelector logical && logical.Arguments.Selectors.Any(c => c.Parts.Any(p => ContainsNesting(p.Compound)))));
+                || (s switch { LogicalSelector l => l.Arguments, HasSelector h => h.Arguments, _ => null } is { } arguments
+                    && arguments.Selectors.Any(c => c.Parts.Any(p => ContainsNesting(p.Compound)))));
 
         private static bool SkipWhitespace(List<ComponentValue> values, ref int i)
         {
@@ -313,8 +319,16 @@ internal static partial class SelectorParser
                     return args is [PreservedToken { Token.Kind: CssTokenKind.Ident } dir]
                         ? dir.Token.IsIdent("rtl") ? new DirSelector(true) : dir.Token.IsIdent("ltr") ? new DirSelector(false) : null
                         : null;
+                case "has":
+                    // Unforgiving, and :has() may not nest, even inside :is() or :not().
+                    if (_inHas)
+                        return null;
+                    _inHas = true;
+                    var relatives = ParseList(function.Arguments, forgiving: false, relative: false, has: true);
+                    _inHas = false;
+                    return relatives is null || HasPseudoElement(relatives) ? null : new HasSelector(relatives);
                 default:
-                    return null; // includes :has(), which arrives in M2
+                    return null;
             }
         }
 
