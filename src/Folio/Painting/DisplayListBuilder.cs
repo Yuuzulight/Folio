@@ -240,10 +240,10 @@ internal static class DisplayListBuilder
         {
             var style = box.Box.Style;
             // A table wrapper shares the table's style; the table grid box inside it paints the table.
-            if (style.Inherited.Visibility != Visibility.Visible || box.Box is TableWrapperBox)
+            if (style.Inherited.Visibility != Visibility.Visible || box.Box is TableWrapperBox || box.Fragment.SkipsDecorations)
                 return;
             var shape = BorderBox(box);
-            var border = style.Border;
+            var border = box.Fragment.PaintedBorder ?? style.Border;
             var color = box.Box == canvasBox ? CssColor.Transparent : style.Background.Color.Resolve(style.Inherited.Color);
             if (color.A > 0)
             {
@@ -259,7 +259,11 @@ internal static class DisplayListBuilder
                     TopColor = border.TopColor.Resolve(current), RightColor = border.RightColor.Resolve(current),
                     BottomColor = border.BottomColor.Resolve(current), LeftColor = border.LeftColor.Resolve(current),
                 };
-                list.Items.Add(new DisplayItem(DisplayItemKind.Border, shape, Border: used));
+                // A collapsed table border is centred on the cell's edges, half outside it, and has no radii.
+                var borderShape = box.Fragment.PaintedBorder is not null && box.Box is TablePartBox { Part: TablePart.Cell }
+                    ? new RoundedRect(box.Rect.Inset(-border.TopWidth / 2, -border.RightWidth / 2, -border.BottomWidth / 2, -border.LeftWidth / 2), default)
+                    : shape;
+                list.Items.Add(new DisplayItem(DisplayItemKind.Border, borderShape, Border: used));
             }
         }
 
