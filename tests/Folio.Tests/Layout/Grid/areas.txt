@@ -54,3 +54,12 @@ html 0,0 800x60
     div 0,0 800x60
       div 105,0 695x60
       div 0,5 10x10
+
+=== a transformed grid is the containing block of its absolute and fixed children
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="display: grid; transform: scale(1); grid-template-columns: 100px 100px; grid-template-rows: 50px; padding: 5px"><div style="position: absolute; grid-column: 2; inset: 0"></div><div style="position: fixed; grid-column: 1; inset: 0"></div></div>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    div 0,0 800x60
+      div 105,0 695x60
+      div 5,0 795x60
