@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a stock watchlist table for my 10 holdings showing last price, change, % change, day range, volume, shares, market value and today's P/L, with gains in green and losses in red, a total at the bottom, and an open orders section below.",
+  "features": ["gain-loss-colouring", "status-badges", "tabular-nums", "right-aligned-numbers", "tfoot-totals", "empty-state-row", "colspan", "multiple-tables", "border-collapse-separate", "rounded-container", "box-shadow", "row-hover", "overflow-x-scroll", "media-query-hide-columns"],
+  "viewport": 800
+}

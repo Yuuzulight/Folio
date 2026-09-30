@@ -1,0 +1,5 @@
+{
+  "prompt": "Build me a one-page résumé as HTML for a senior product designer, with a sidebar for skills, education and languages, that also prints cleanly on A4.",
+  "features": ["headings", "grid", "flexbox", "definition-lists", "unordered-lists", "list-marker", "pseudo-elements", "attr-function", "print-styles", "page-rule", "box-shadow", "custom-properties", "media-queries"],
+  "viewport": 800
+}

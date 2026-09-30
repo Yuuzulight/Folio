@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a travel notes page with a Japanese paragraph, a Chinese paragraph (simplified and a line of traditional), ruby furigana and pinyin annotations, a small vertical-text panel, and a grid of emoji including flags, skin tones and ZWJ family sequences.",
+  "features": ["cjk", "ruby", "emoji", "emoji-flags", "emoji-skin-tones", "emoji-zwj", "lang-attribute", "writing-mode", "line-break", "grid", "flex"],
+  "viewport": 800
+}

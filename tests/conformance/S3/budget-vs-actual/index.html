@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FY2025 Budget vs Actual</title>
+<style>
+  :root {
+    --ink: #1f2430;
+    --muted: #6c7385;
+    --paper: #fbfaf7;
+    --card: #ffffff;
+    --rule: #e4e2dc;
+    --group: #f1efe9;
+    --subtotal: #f7f6f2;
+    --over: #b4232c;
+    --over-bg: #fbe4e5;
+    --under: #1b7a4b;
+    --under-bg: #def3e8;
+    --ontrack: #5b6475;
+    --ontrack-bg: #eceef2;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 40px 24px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+  }
+
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 28px;
+    font-weight: 700;
+  }
+
+  .summary {
+    margin: 0 0 24px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .summary b { color: var(--ink); }
+
+  .table-shell {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(40, 35, 20, 0.06);
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  caption {
+    padding: 16px 18px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  caption span {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  th, td {
+    padding: 9px 16px;
+    text-align: left;
+  }
+
+  thead th {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  tbody tr.group th {
+    background: var(--group);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  tbody tr.item td { border-bottom: 1px solid var(--rule); }
+  tbody tr.item td:first-child { padding-left: 30px; }
+  tbody tr.item:hover td { background: #fffbea; }
+
+  tbody tr.subtotal td {
+    background: var(--subtotal);
+    font-weight: 600;
+    border-bottom: 1px solid #cfccc3;
+  }
+
+  tbody tr.subtotal td:first-child { padding-left: 30px; font-style: italic; }
+
+  .over { color: var(--over); }
+  .under { color: var(--under); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .badge.over { background: var(--over-bg); }
+  .badge.under { background: var(--under-bg); }
+  .badge.ontrack { background: var(--ontrack-bg); color: var(--ontrack); }
+
+  tfoot td, tfoot th {
+    padding-top: 13px;
+    padding-bottom: 13px;
+    font-weight: 800;
+    font-size: 15px;
+    border-top: 3px double var(--ink);
+    background: var(--card);
+  }
+
+  .notes {
+    margin-top: 16px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  @media (max-width: 680px) {
+    body { padding: 24px 12px; }
+    h1 { font-size: 22px; }
+    th, td { padding: 8px 10px; }
+    tbody tr.item td:first-child,
+    tbody tr.subtotal td:first-child { padding-left: 18px; }
+    .col-status { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Budget vs Actual &mdash; FY2025</h1>
+    <p class="summary">Kestrel Studios spent <b>$2,959,870</b> against an approved budget of <b>$2,905,600</b>, finishing <b class="over">$54,270 (1.9%) over</b>. The largest single overrun is contractor spend on the spring release; underspends in events and equipment offset about a third of it.</p>
+
+    <div class="table-shell">
+      <table>
+        <caption>Operating expenses by category <span>&middot; 1 Jan &ndash; 31 Dec 2025, USD</span></caption>
+        <thead>
+          <tr>
+            <th scope="col">Line item</th>
+            <th scope="col" class="num">Budget</th>
+            <th scope="col" class="num">Actual</th>
+            <th scope="col" class="num">Variance</th>
+            <th scope="col" class="num">Var %</th>
+            <th scope="col" class="col-status">Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr class="group"><th colspan="6" scope="colgroup">Personnel</th></tr>
+          <tr class="item">
+            <td>Salaries</td>
+            <td class="num">1,480,000</td><td class="num">1,502,300</td>
+            <td class="num over">+22,300</td><td class="num over">+1.5%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+          <tr class="item">
+            <td>Payroll taxes &amp; benefits</td>
+            <td class="num">355,200</td><td class="num">348,900</td>
+            <td class="num under">&minus;6,300</td><td class="num under">&minus;1.8%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+          <tr class="item">
+            <td>Contractors</td>
+            <td class="num">120,000</td><td class="num">164,500</td>
+            <td class="num over">+44,500</td><td class="num over">+37.1%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+          <tr class="item">
+            <td>Training</td>
+            <td class="num">30,000</td><td class="num">18,750</td>
+            <td class="num under">&minus;11,250</td><td class="num under">&minus;37.5%</td>
+            <td class="col-status"><span class="badge under">Under</span></td>
+          </tr>
+          <tr class="subtotal">
+            <td>Personnel subtotal</td>
+            <td class="num">1,985,200</td><td class="num">2,034,450</td>
+            <td class="num over">+49,250</td><td class="num over">+2.5%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+        </tbody>
+
+        <tbody>
+          <tr class="group"><th colspan="6" scope="colgroup">Marketing</th></tr>
+          <tr class="item">
+            <td>Paid advertising</td>
+            <td class="num">210,000</td><td class="num">236,800</td>
+            <td class="num over">+26,800</td><td class="num over">+12.8%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+          <tr class="item">
+            <td>Events &amp; trade shows</td>
+            <td class="num">95,000</td><td class="num">71,200</td>
+            <td class="num under">&minus;23,800</td><td class="num under">&minus;25.1%</td>
+            <td class="col-status"><span class="badge under">Under</span></td>
+          </tr>
+          <tr class="item">
+            <td>Content production</td>
+            <td class="num">60,000</td><td class="num">58,400</td>
+            <td class="num under">&minus;1,600</td><td class="num under">&minus;2.7%</td>
+            <td class="col-status"><span class="badge under">Under</span></td>
+          </tr>
+          <tr class="item">
+            <td>Sponsorships</td>
+            <td class="num">25,000</td><td class="num">25,000</td>
+            <td class="num">0</td><td class="num">0.0%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+          <tr class="subtotal">
+            <td>Marketing subtotal</td>
+            <td class="num">390,000</td><td class="num">391,400</td>
+            <td class="num over">+1,400</td><td class="num over">+0.4%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+        </tbody>
+
+        <tbody>
+          <tr class="group"><th colspan="6" scope="colgroup">Operations</th></tr>
+          <tr class="item">
+            <td>Office rent</td>
+            <td class="num">264,000</td><td class="num">264,000</td>
+            <td class="num">0</td><td class="num">0.0%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+          <tr class="item">
+            <td>Utilities</td>
+            <td class="num">38,400</td><td class="num">41,150</td>
+            <td class="num over">+2,750</td><td class="num over">+7.2%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+          <tr class="item">
+            <td>Software subscriptions</td>
+            <td class="num">72,000</td><td class="num">79,640</td>
+            <td class="num over">+7,640</td><td class="num over">+10.6%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+          <tr class="item">
+            <td>Equipment</td>
+            <td class="num">48,000</td><td class="num">33,900</td>
+            <td class="num under">&minus;14,100</td><td class="num under">&minus;29.4%</td>
+            <td class="col-status"><span class="badge under">Under</span></td>
+          </tr>
+          <tr class="subtotal">
+            <td>Operations subtotal</td>
+            <td class="num">422,400</td><td class="num">418,690</td>
+            <td class="num under">&minus;3,710</td><td class="num under">&minus;0.9%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+        </tbody>
+
+        <tbody>
+          <tr class="group"><th colspan="6" scope="colgroup">Travel</th></tr>
+          <tr class="item">
+            <td>Airfare</td>
+            <td class="num">54,000</td><td class="num">61,280</td>
+            <td class="num over">+7,280</td><td class="num over">+13.5%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+          <tr class="item">
+            <td>Lodging</td>
+            <td class="num">36,000</td><td class="num">38,420</td>
+            <td class="num over">+2,420</td><td class="num over">+6.7%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+          <tr class="item">
+            <td>Meals &amp; per diem</td>
+            <td class="num">18,000</td><td class="num">15,630</td>
+            <td class="num under">&minus;2,370</td><td class="num under">&minus;13.2%</td>
+            <td class="col-status"><span class="badge under">Under</span></td>
+          </tr>
+          <tr class="subtotal">
+            <td>Travel subtotal</td>
+            <td class="num">108,000</td><td class="num">115,330</td>
+            <td class="num over">+7,330</td><td class="num over">+6.8%</td>
+            <td class="col-status"><span class="badge over">Over</span></td>
+          </tr>
+        </tbody>
+
+        <tfoot>
+          <tr>
+            <th scope="row">Total operating expenses</th>
+            <td class="num">2,905,600</td>
+            <td class="num">2,959,870</td>
+            <td class="num over">+54,270</td>
+            <td class="num over">+1.9%</td>
+            <td class="col-status"><span class="badge ontrack">On track</span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <p class="notes">Variance = Actual &minus; Budget, so positive numbers are overspend. Lines within &plusmn;2% of budget are marked <em>On track</em>. Budget utilisation for the year: 101.9%.</p>
+  </div>
+</body>
+</html>

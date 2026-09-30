@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a release notes page for the last three versions of our note-taking app, grouped into Added, Changed, Fixed and Removed, with keyboard shortcuts and a breaking-change warning.",
+  "features": ["headings", "ordered-list-reversed", "nested-lists", "inline-code", "kbd", "details-summary", "callouts", "hr", "list-marker", "pseudo-elements", "flexbox", "anchor-links", "custom-properties"],
+  "viewport": 800
+}

@@ -1,0 +1,5 @@
+{
+  "prompt": "Put together a budget vs actual table for our FY2025 operating expenses, grouped by category with subtotals, showing variance in dollars and percent, an over/under status for each line, and a grand total footer.",
+  "features": ["caption", "thead-tbody-tfoot", "multiple-tbody", "tfoot-totals", "subtotal-rows", "colspan", "group-header-rows", "status-badges", "tabular-nums", "right-aligned-numbers", "border-collapse-collapse", "row-hover", "media-query-hide-columns"],
+  "viewport": 800
+}

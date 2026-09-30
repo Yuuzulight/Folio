@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a weekly school timetable for class 10B, Monday to Friday, six periods a day with morning break and lunch. Double lessons should span two rows, and colour-code the subjects with a legend.",
+  "features": ["rowspan", "colspan", "colgroup", "col-span-attribute", "table-layout-fixed", "caption-bottom", "border-collapse-collapse", "per-cell-background", "status-badges", "overflow-x-scroll", "box-shadow", "media-print"],
+  "viewport": 800
+}

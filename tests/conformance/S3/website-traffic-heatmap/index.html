@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Traffic Heatmap</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --border: #273149;
+    --text: #e6eaf3;
+    --muted: #8d97ad;
+    --l0: #1b2438;
+    --l1: #1e3150;
+    --l2: #1f4068;
+    --l3: #1d5282;
+    --l4: #19669c;
+    --l5: #147cb3;
+    --l6: #2493c6;
+    --l7: #52acd4;
+    --l8: #8fd0ea;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 36px 28px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+  }
+
+  header { margin-bottom: 22px; }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    font-weight: 650;
+  }
+
+  .subtitle {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 20px 0 24px;
+  }
+
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .stat .label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .stat .value {
+    margin-top: 2px;
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .scroll {
+    overflow-x: auto;
+  }
+
+  table.heatmap {
+    border-collapse: collapse;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .heatmap th,
+  .heatmap td {
+    min-width: 38px;
+    height: 34px;
+    padding: 0 4px;
+    text-align: center;
+    border: 2px solid var(--panel);
+  }
+
+  .heatmap thead th {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 11px;
+  }
+
+  .heatmap tbody th {
+    text-align: left;
+    padding-right: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .heatmap tr.weekend th { color: #f2b872; }
+
+  .l0 { background: var(--l0); color: #7c88a3; }
+  .l1 { background: var(--l1); color: #a8b4cc; }
+  .l2 { background: var(--l2); color: #c7d2e6; }
+  .l3 { background: var(--l3); color: #dbe5f5; }
+  .l4 { background: var(--l4); color: #eef4fc; }
+  .l5 { background: var(--l5); color: #ffffff; }
+  .l6 { background: var(--l6); color: #ffffff; }
+  .l7 { background: var(--l7); color: #0c1b2c; }
+  .l8 { background: var(--l8); color: #0a1624; font-weight: 700; }
+
+  .heatmap td.total,
+  .heatmap tfoot td,
+  .heatmap tfoot th {
+    background: transparent;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .heatmap td.total {
+    min-width: 62px;
+    text-align: right;
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
+  }
+
+  .heatmap tfoot td,
+  .heatmap tfoot th {
+    border-top: 1px solid var(--border);
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .heatmap tfoot td.total {
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+
+  .swatch {
+    display: inline-block;
+    width: 26px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  .footnote {
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 22px 14px; }
+    h1 { font-size: 20px; }
+    .card { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Website Traffic by Hour &mdash; Week of 8 September</h1>
+    <p class="subtitle">Sessions on pinebrook-tools.example for each hour of the day (local time). Weekday traffic peaks mid-morning and again after lunch; weekends are flatter and shifted later.</p>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Total sessions</div><div class="value">35,853</div></div>
+    <div class="stat"><div class="label">Busiest day</div><div class="value">Tue &middot; 6,375</div></div>
+    <div class="stat"><div class="label">Peak hour</div><div class="value">14:00 &middot; 2,525</div></div>
+    <div class="stat"><div class="label">Weekend share</div><div class="value">18.5%</div></div>
+  </div>
+
+  <div class="card">
+    <div class="scroll">
+      <table class="heatmap">
+        <thead>
+          <tr>
+            <th></th>
+            <th>00</th><th>01</th><th>02</th><th>03</th><th>04</th><th>05</th>
+            <th>06</th><th>07</th><th>08</th><th>09</th><th>10</th><th>11</th>
+            <th>12</th><th>13</th><th>14</th><th>15</th><th>16</th><th>17</th>
+            <th>18</th><th>19</th><th>20</th><th>21</th><th>22</th><th>23</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Mon</th><td class="l1">79</td><td class="l1">51</td><td class="l0">36</td><td class="l0">30</td><td class="l0">31</td><td class="l0">45</td><td class="l1">94</td><td class="l3">194</td><td class="l6">330</td><td class="l8">411</td><td class="l8">447</td><td class="l8">420</td><td class="l8">403</td><td class="l7">375</td><td class="l8">410</td><td class="l8">406</td><td class="l6">340</td><td class="l5">293</td><td class="l5">286</td><td class="l6">310</td><td class="l5">285</td><td class="l5">274</td><td class="l3">188</td><td class="l2">130</td><td class="total">5,868</td></tr>
+          <tr><th scope="row">Tue</th><td class="l1">82</td><td class="l1">52</td><td class="l0">38</td><td class="l0">32</td><td class="l0">31</td><td class="l1">51</td><td class="l2">105</td><td class="l4">200</td><td class="l7">370</td><td class="l8">442</td><td class="l8">445</td><td class="l8">439</td><td class="l8">422</td><td class="l8">435</td><td class="l8">457</td><td class="l8">409</td><td class="l8">400</td><td class="l6">337</td><td class="l6">308</td><td class="l6">325</td><td class="l6">336</td><td class="l6">300</td><td class="l4">223</td><td class="l2">136</td><td class="total">6,375</td></tr>
+          <tr><th scope="row">Wed</th><td class="l1">79</td><td class="l1">54</td><td class="l0">41</td><td class="l0">30</td><td class="l0">30</td><td class="l0">46</td><td class="l2">108</td><td class="l4">215</td><td class="l6">335</td><td class="l8">404</td><td class="l8">419</td><td class="l8">424</td><td class="l7">390</td><td class="l8">442</td><td class="l7">398</td><td class="l7">395</td><td class="l7">355</td><td class="l6">330</td><td class="l5">299</td><td class="l5">292</td><td class="l5">295</td><td class="l5">278</td><td class="l4">208</td><td class="l2">139</td><td class="total">6,006</td></tr>
+          <tr><th scope="row">Thu</th><td class="l1">71</td><td class="l0">48</td><td class="l0">36</td><td class="l0">28</td><td class="l0">28</td><td class="l0">48</td><td class="l2">102</td><td class="l3">186</td><td class="l6">313</td><td class="l7">395</td><td class="l8">401</td><td class="l8">426</td><td class="l7">376</td><td class="l8">402</td><td class="l8">425</td><td class="l7">389</td><td class="l6">349</td><td class="l6">328</td><td class="l5">293</td><td class="l5">287</td><td class="l6">304</td><td class="l5">286</td><td class="l3">197</td><td class="l2">121</td><td class="total">5,839</td></tr>
+          <tr><th scope="row">Fri</th><td class="l1">62</td><td class="l0">47</td><td class="l0">35</td><td class="l0">25</td><td class="l0">26</td><td class="l0">41</td><td class="l1">86</td><td class="l3">182</td><td class="l5">295</td><td class="l6">345</td><td class="l6">344</td><td class="l7">361</td><td class="l6">334</td><td class="l7">366</td><td class="l7">369</td><td class="l6">349</td><td class="l6">303</td><td class="l5">260</td><td class="l4">238</td><td class="l5">250</td><td class="l5">280</td><td class="l4">237</td><td class="l3">177</td><td class="l2">119</td><td class="total">5,131</td></tr>
+          <tr class="weekend"><th scope="row">Sat</th><td class="l0">47</td><td class="l0">37</td><td class="l0">23</td><td class="l0">20</td><td class="l0">16</td><td class="l0">20</td><td class="l0">31</td><td class="l1">56</td><td class="l1">92</td><td class="l2">146</td><td class="l4">201</td><td class="l4">207</td><td class="l4">231</td><td class="l4">226</td><td class="l4">233</td><td class="l4">217</td><td class="l4">215</td><td class="l3">190</td><td class="l3">198</td><td class="l3">197</td><td class="l4">219</td><td class="l3">170</td><td class="l2">140</td><td class="l1">84</td><td class="total">3,216</td></tr>
+          <tr class="weekend"><th scope="row">Sun</th><td class="l1">52</td><td class="l0">39</td><td class="l0">25</td><td class="l0">22</td><td class="l0">18</td><td class="l0">20</td><td class="l0">29</td><td class="l1">56</td><td class="l2">104</td><td class="l3">166</td><td class="l4">204</td><td class="l4">240</td><td class="l4">234</td><td class="l4">239</td><td class="l4">233</td><td class="l4">244</td><td class="l4">229</td><td class="l4">213</td><td class="l3">189</td><td class="l4">210</td><td class="l4">228</td><td class="l3">186</td><td class="l2">145</td><td class="l1">93</td><td class="total">3,418</td></tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th>All</th>
+            <td>472</td><td>328</td><td>234</td><td>187</td><td>180</td><td>271</td>
+            <td>555</td><td>1,089</td><td>1,839</td><td>2,309</td><td>2,461</td><td>2,517</td>
+            <td>2,390</td><td>2,485</td><td>2,525</td><td>2,409</td><td>2,191</td><td>1,951</td>
+            <td>1,811</td><td>1,871</td><td>1,947</td><td>1,731</td><td>1,278</td><td>822</td>
+            <td class="total">35,853</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span>Fewer</span>
+      <span class="swatch l0"></span>
+      <span class="swatch l1"></span>
+      <span class="swatch l2"></span>
+      <span class="swatch l3"></span>
+      <span class="swatch l4"></span>
+      <span class="swatch l5"></span>
+      <span class="swatch l6"></span>
+      <span class="swatch l7"></span>
+      <span class="swatch l8"></span>
+      <span>More (each step = 50 sessions, top band 400+)</span>
+    </div>
+  </div>
+
+  <p class="footnote">Hours are the start of each one-hour bucket. Bot traffic and internal IP ranges are excluded. The Tuesday 14:00 spike (457 sessions) lines up with the newsletter send.</p>
+</body>
+</html>

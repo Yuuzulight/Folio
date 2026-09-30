@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Website Visitors — 2026</title>
+<style>
+  :root {
+    --ink: #1a2233;
+    --muted: #6d768a;
+    --grid: #e9ecf2;
+    --line-a: #2563eb;
+    --line-b: #f97316;
+    --card: #fff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #f5f7fb;
+    color: var(--ink);
+  }
+
+  .card {
+    max-width: 860px;
+    margin: 36px auto;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 24px 26px 18px;
+    box-shadow: 0 8px 28px rgba(26, 34, 51, 0.07);
+  }
+
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+
+  h1 { font-size: 20px; margin: 0; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+  .legend { display: flex; gap: 16px; font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 3px; border-radius: 2px; }
+
+  .chart { position: relative; }
+
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .grid line { stroke: var(--grid); }
+  .axis text { fill: var(--muted); font-size: 11px; }
+  .axis-line { stroke: #c9cfdb; }
+
+  .series path.line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  .series path.area { opacity: 0.12; }
+  .series circle { stroke: #fff; stroke-width: 2; transition: r 0.15s; }
+
+  .guide { stroke: #9aa3b5; stroke-dasharray: 3 4; pointer-events: none; }
+
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    min-width: 150px;
+    background: #121826;
+    color: #fff;
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 14px));
+    transition: opacity 0.12s;
+    white-space: nowrap;
+  }
+
+  .tooltip.visible { opacity: 1; }
+  .tooltip strong { display: block; margin-bottom: 4px; font-size: 12px; color: #aab3c5; font-weight: 600; }
+  .tooltip div { display: flex; justify-content: space-between; gap: 14px; }
+  .tooltip b { font-variant-numeric: tabular-nums; }
+  .tooltip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  .summary {
+    display: flex;
+    gap: 28px;
+    margin-top: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--grid);
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .summary b { display: block; font-size: 18px; color: var(--ink); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <div>
+        <h1>Monthly visitors</h1>
+        <p class="sub">fernwoodtrails.example · January to December 2026</p>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="chart" id="chart">
+      <div class="tooltip" id="tooltip" role="status"></div>
+    </div>
+    <div class="summary" id="summary"></div>
+  </div>
+
+<script>
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const series = [
+    { name: 'Visitors', color: '#2563eb', values: [12400, 13900, 17200, 21800, 26500, 31200, 34800, 33100, 27400, 22100, 16300, 14800] },
+    { name: 'Newsletter sign-ups', color: '#f97316', values: [820, 910, 1340, 1720, 2210, 2680, 2950, 2710, 2040, 1580, 1150, 990], scale: 10 }
+  ];
+
+  const W = 800, H = 320;
+  const M = { top: 20, right: 20, bottom: 36, left: 56 };
+  const innerW = W - M.left - M.right;
+  const innerH = H - M.top - M.bottom;
+  const NS = 'http://www.w3.org/2000/svg';
+
+  function el(name, attrs, parent) {
+    const node = document.createElementNS(NS, name);
+    for (const k in attrs) node.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  // Scales. The sign-up series is drawn at 10x so both lines share one axis.
+  const maxY = Math.max(...series.flatMap((s) => s.values.map((v) => v * (s.scale || 1))));
+  const niceMax = Math.ceil(maxY / 10000) * 10000;
+  const x = (i) => M.left + (i / (months.length - 1)) * innerW;
+  const y = (v) => M.top + innerH - (v / niceMax) * innerH;
+  const fmt = (n) => n.toLocaleString('en-US');
+  const short = (n) => (n >= 1000 ? n / 1000 + 'k' : String(n));
+
+  const chart = document.getElementById('chart');
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Line chart of monthly visitors and newsletter sign-ups' });
+  chart.prepend(svg);
+
+  // Grid + y axis
+  const grid = el('g', { class: 'grid' }, svg);
+  const axis = el('g', { class: 'axis' }, svg);
+  const ticks = 5;
+  for (let t = 0; t <= ticks; t++) {
+    const v = (niceMax / ticks) * t;
+    el('line', { x1: M.left, x2: W - M.right, y1: y(v), y2: y(v) }, grid);
+    const label = el('text', { x: M.left - 10, y: y(v) + 4, 'text-anchor': 'end' }, axis);
+    label.textContent = short(v);
+  }
+
+  // x axis
+  el('line', { class: 'axis-line', x1: M.left, x2: W - M.right, y1: M.top + innerH, y2: M.top + innerH }, svg);
+  months.forEach((m, i) => {
+    const label = el('text', { x: x(i), y: H - 12, 'text-anchor': 'middle' }, axis);
+    label.textContent = m;
+  });
+
+  // Series
+  const guide = el('line', { class: 'guide', y1: M.top, y2: M.top + innerH, x1: -10, x2: -10 }, svg);
+  const dotsBySeries = [];
+
+  series.forEach((s) => {
+    const g = el('g', { class: 'series' }, svg);
+    const pts = s.values.map((v, i) => [x(i), y(v * (s.scale || 1))]);
+    const d = pts.map(([px, py], i) => (i ? 'L' : 'M') + px.toFixed(1) + ' ' + py.toFixed(1)).join(' ');
+    el('path', { class: 'area', d: d + ` L${x(months.length - 1)} ${y(0)} L${x(0)} ${y(0)} Z`, fill: s.color }, g);
+    el('path', { class: 'line', d, stroke: s.color }, g);
+    dotsBySeries.push(pts.map(([px, py]) => el('circle', { cx: px, cy: py, r: 4, fill: s.color }, g)));
+  });
+
+  // Invisible hover columns, one per month
+  const hit = el('g', {}, svg);
+  const colW = innerW / (months.length - 1);
+  const tooltip = document.getElementById('tooltip');
+
+  function show(i) {
+    guide.setAttribute('x1', x(i));
+    guide.setAttribute('x2', x(i));
+    dotsBySeries.forEach((dots) => dots.forEach((c, j) => c.setAttribute('r', j === i ? 6 : 4)));
+
+    tooltip.innerHTML = `<strong>${months[i]} 2026</strong>` + series.map((s) =>
+      `<div><span><i style="background:${s.color}"></i>${s.name}</span><b>${fmt(s.values[i])}</b></div>`).join('');
+
+    // Position relative to the rendered size of the svg
+    const scale = svg.getBoundingClientRect().width / W;
+    const topY = Math.min(...series.map((s) => y(s.values[i] * (s.scale || 1))));
+    tooltip.style.left = x(i) * scale + 'px';
+    tooltip.style.top = topY * scale + 'px';
+    tooltip.classList.add('visible');
+  }
+
+  function hide() {
+    tooltip.classList.remove('visible');
+    guide.setAttribute('x1', -10);
+    guide.setAttribute('x2', -10);
+    dotsBySeries.forEach((dots) => dots.forEach((c) => c.setAttribute('r', 4)));
+  }
+
+  months.forEach((_, i) => {
+    const rect = el('rect', { x: x(i) - colW / 2, y: M.top, width: colW, height: innerH, fill: 'transparent' }, hit);
+    rect.addEventListener('mouseenter', () => show(i));
+  });
+  svg.addEventListener('mouseleave', hide);
+
+  // Legend + summary
+  document.getElementById('legend').innerHTML = series.map((s) =>
+    `<span><i style="background:${s.color}"></i>${s.name}${s.scale ? ' (×' + s.scale + ')' : ''}</span>`).join('');
+
+  const total = series[0].values.reduce((a, b) => a + b, 0);
+  const peak = series[0].values.indexOf(Math.max(...series[0].values));
+  const signups = series[1].values.reduce((a, b) => a + b, 0);
+  document.getElementById('summary').innerHTML = `
+    <div><b>${fmt(total)}</b>total visitors</div>
+    <div><b>${months[peak]}</b>busiest month</div>
+    <div><b>${fmt(signups)}</b>newsletter sign-ups</div>
+    <div><b>${(signups / total * 100).toFixed(1)}%</b>conversion</div>`;
+</script>
+</body>
+</html>

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind Studio — Sales Overview</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --text: #1d2433;
+    --muted: #6b7489;
+    --border: #e3e7f0;
+    --accent: #5b5bd6;
+    --accent-soft: #ecebff;
+    --green: #16a36a;
+    --red: #e0445a;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(20, 28, 48, 0.06), 0 6px 20px rgba(20, 28, 48, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 18px;
+  }
+
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #7c6cf2, #4fb3f6);
+    box-shadow: 0 4px 10px rgba(91, 91, 214, 0.35);
+  }
+
+  .user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  .avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 28px;
+  }
+
+  .page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 22px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+  }
+
+  .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+
+  .range {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 3px;
+  }
+
+  .range span {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 7px;
+    color: var(--muted);
+  }
+
+  .range .active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px 20px;
+  }
+
+  .kpi-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .kpi-value {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .delta {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .delta.up { background: #e3f6ee; color: var(--green); }
+  .delta.down { background: #fde8eb; color: var(--red); }
+
+  .kpi.highlight {
+    background: linear-gradient(140deg, #6a5ae0 0%, #4a8ef0 100%);
+    color: #fff;
+    border: none;
+  }
+
+  .kpi.highlight .kpi-label { color: rgba(255, 255, 255, 0.8); }
+  .kpi.highlight .delta { background: rgba(255, 255, 255, 0.2); color: #fff; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 16px;
+  }
+
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .card-head small { color: var(--muted); font-size: 12px; }
+
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    height: 180px;
+    padding-top: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .bar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+  }
+
+  .bar-fill {
+    width: 100%;
+    border-radius: 8px 8px 3px 3px;
+    background: linear-gradient(180deg, #8b7ff5, #5b5bd6);
+  }
+
+  .bar.dim .bar-fill { background: linear-gradient(180deg, #d9d6fb, #c3befa); }
+
+  .bar-labels {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .bar-labels span {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .channels { list-style: none; margin: 0; padding: 0; }
+
+  .channels li { margin-bottom: 14px; }
+
+  .channel-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+
+  .channel-row b { font-weight: 600; }
+
+  .track {
+    height: 8px;
+    border-radius: 999px;
+    background: #eef0f6;
+    overflow: hidden;
+  }
+
+  .track i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--c, var(--accent));
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0 12px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
+  .status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .status.paid { background: #e3f6ee; color: var(--green); }
+  .status.pending { background: #fff4db; color: #b7791f; }
+  .status.refunded { background: #fde8eb; color: var(--red); }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"></span>Northwind Studio</div>
+    <div class="user">Priya Castellano <span class="avatar">PC</span></div>
+  </header>
+
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Sales overview</h1>
+        <p class="subtitle">Week of 14 September 2026 · all storefronts</p>
+      </div>
+      <div class="range">
+        <span>Day</span><span class="active">Week</span><span>Month</span><span>Year</span>
+      </div>
+    </div>
+
+    <section class="kpis">
+      <div class="card kpi highlight">
+        <div class="kpi-label">Revenue</div>
+        <div class="kpi-value">$48,290</div>
+        <span class="delta">+12.4%</span>
+      </div>
+      <div class="card kpi">
+        <div class="kpi-label">Orders</div>
+        <div class="kpi-value">1,284</div>
+        <span class="delta up">+8.1%</span>
+      </div>
+      <div class="card kpi">
+        <div class="kpi-label">Avg. order value</div>
+        <div class="kpi-value">$37.61</div>
+        <span class="delta up">+3.9%</span>
+      </div>
+      <div class="card kpi">
+        <div class="kpi-label">Refund rate</div>
+        <div class="kpi-value">2.3%</div>
+        <span class="delta down">+0.4 pts</span>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <h2>Daily revenue</h2>
+          <small>USD, thousands</small>
+        </div>
+        <div class="bars">
+          <div class="bar dim"><div class="bar-fill" style="height: 48%"></div></div>
+          <div class="bar dim"><div class="bar-fill" style="height: 62%"></div></div>
+          <div class="bar"><div class="bar-fill" style="height: 71%"></div></div>
+          <div class="bar"><div class="bar-fill" style="height: 55%"></div></div>
+          <div class="bar"><div class="bar-fill" style="height: 88%"></div></div>
+          <div class="bar"><div class="bar-fill" style="height: 96%"></div></div>
+          <div class="bar dim"><div class="bar-fill" style="height: 40%"></div></div>
+        </div>
+        <div class="bar-labels">
+          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Top channels</h2>
+        <ul class="channels">
+          <li>
+            <div class="channel-row"><b>Online store</b><span>$21,400</span></div>
+            <div class="track"><i style="width: 78%; --c: #5b5bd6"></i></div>
+          </li>
+          <li>
+            <div class="channel-row"><b>Marketplace</b><span>$12,050</span></div>
+            <div class="track"><i style="width: 52%; --c: #4fb3f6"></i></div>
+          </li>
+          <li>
+            <div class="channel-row"><b>Pop-up shops</b><span>$9,720</span></div>
+            <div class="track"><i style="width: 41%; --c: #f59e6b"></i></div>
+          </li>
+          <li>
+            <div class="channel-row"><b>Wholesale</b><span>$5,120</span></div>
+            <div class="track"><i style="width: 22%; --c: #36c28f"></i></div>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Recent orders</h2>
+        <small>Updated 4 minutes ago</small>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Order</th><th>Customer</th><th>Status</th><th class="num">Items</th><th class="num">Total</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>#NW-10482</td><td>Tomasz Wierzba</td><td><span class="status paid">Paid</span></td><td class="num">3</td><td class="num">$112.40</td></tr>
+          <tr><td>#NW-10481</td><td>Leilani Okafor</td><td><span class="status pending">Pending</span></td><td class="num">1</td><td class="num">$48.00</td></tr>
+          <tr><td>#NW-10480</td><td>Mateo Arriaga</td><td><span class="status paid">Paid</span></td><td class="num">5</td><td class="num">$206.75</td></tr>
+          <tr><td>#NW-10479</td><td>Ingrid Solberg</td><td><span class="status refunded">Refunded</span></td><td class="num">2</td><td class="num">$64.90</td></tr>
+          <tr><td>#NW-10478</td><td>Kwame Asante</td><td><span class="status paid">Paid</span></td><td class="num">1</td><td class="num">$29.99</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

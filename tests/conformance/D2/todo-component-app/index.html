@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Todos</title>
+<style>
+  :root {
+    --bg: #eef1f5;
+    --card: #ffffff;
+    --ink: #1e2430;
+    --muted: #8a93a6;
+    --line: #e7eaf0;
+    --brand: #e0533d;
+    --done: #b4bccb;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: linear-gradient(160deg, #fdf0ec 0%, var(--bg) 40%);
+  }
+
+  #app {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 48px 20px;
+  }
+
+  .app-title {
+    font-size: 52px;
+    font-weight: 200;
+    letter-spacing: -0.02em;
+    text-align: center;
+    color: var(--brand);
+    margin: 0 0 20px;
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    box-shadow: 0 2px 4px rgba(30, 36, 48, 0.05), 0 16px 40px rgba(30, 36, 48, 0.08);
+    overflow: hidden;
+  }
+
+  .new-todo {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .toggle-all {
+    width: 48px;
+    align-self: stretch;
+    border: none;
+    background: none;
+    font-size: 18px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .toggle-all.on { color: var(--ink); }
+
+  .new-todo input {
+    flex: 1;
+    border: none;
+    font: inherit;
+    font-size: 18px;
+    padding: 18px 16px 18px 0;
+    outline: none;
+    background: transparent;
+  }
+
+  .new-todo input::placeholder { color: #c2c8d4; font-style: italic; }
+
+  ul.list { list-style: none; margin: 0; padding: 0; }
+
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    font-size: 17px;
+  }
+
+  .item .check {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #d3d8e2;
+    background: #fff;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .item.done .check { background: #3fb68b; border-color: #3fb68b; }
+
+  .item .label { flex: 1; word-break: break-word; }
+  .item.done .label { color: var(--done); text-decoration: line-through; }
+
+  .item .tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #fdecea;
+    color: var(--brand);
+  }
+
+  .item .remove {
+    border: none;
+    background: none;
+    color: #c9ced9;
+    font-size: 20px;
+    cursor: pointer;
+    visibility: hidden;
+  }
+
+  .item:hover .remove { visibility: visible; }
+  .item .remove:hover { color: var(--brand); }
+
+  .item input.edit {
+    flex: 1;
+    font: inherit;
+    padding: 4px 8px;
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+  }
+
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .filters { display: flex; gap: 4px; }
+
+  .filters button, .clear {
+    border: 1px solid transparent;
+    background: none;
+    font: inherit;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 3px 9px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .filters button.selected { border-color: rgba(224, 83, 61, 0.35); color: var(--ink); }
+  .clear:hover { text-decoration: underline; }
+  .clear[disabled] { visibility: hidden; }
+
+  .empty { padding: 28px; text-align: center; color: var(--muted); font-size: 15px; }
+
+  .hint { text-align: center; color: var(--muted); font-size: 12px; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+<script>
+  // ---- tiny view helpers ------------------------------------------------
+  function h(tag, props, ...children) {
+    const el = document.createElement(tag);
+    for (const [key, value] of Object.entries(props || {})) {
+      if (key.startsWith('on') && typeof value === 'function') {
+        el.addEventListener(key.slice(2).toLowerCase(), value);
+      } else if (key === 'class') {
+        el.className = value;
+      } else if (key === 'style' && typeof value === 'object') {
+        Object.assign(el.style, value);
+      } else if (typeof value === 'boolean') {
+        if (value) el.setAttribute(key, '');
+        el[key] = value;
+      } else if (value != null) {
+        el.setAttribute(key, value);
+      }
+    }
+    for (const child of children.flat(Infinity)) {
+      if (child == null || child === false) continue;
+      el.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return el;
+  }
+
+  // ---- state --------------------------------------------------------------
+  let nextId = 6;
+  const state = {
+    filter: 'all',
+    editing: null,
+    todos: [
+      { id: 1, text: 'Book the venue for Imogen\'s farewell lunch', done: true, tag: 'work' },
+      { id: 2, text: 'Renew bike insurance before the 12th', done: false, tag: 'home' },
+      { id: 3, text: 'Send Q3 invoice to Larkspur Media', done: false, tag: 'work' },
+      { id: 4, text: 'Pick up sourdough starter from Tobias', done: false, tag: null },
+      { id: 5, text: 'Water the balcony tomatoes', done: true, tag: 'home' }
+    ]
+  };
+
+  function setState(patch) {
+    Object.assign(state, typeof patch === 'function' ? patch(state) : patch);
+    render();
+  }
+
+  const filters = {
+    all: () => true,
+    active: (t) => !t.done,
+    completed: (t) => t.done
+  };
+
+  // ---- actions ------------------------------------------------------------
+  function addTodo(text) {
+    const tagMatch = text.match(/#(\w+)/);
+    const clean = text.replace(/#\w+/, '').trim();
+    if (!clean) return;
+    setState((s) => ({ todos: [...s.todos, { id: nextId++, text: clean, done: false, tag: tagMatch ? tagMatch[1] : null }] }));
+  }
+
+  const toggle = (id) => setState((s) => ({ todos: s.todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)) }));
+  const remove = (id) => setState((s) => ({ todos: s.todos.filter((t) => t.id !== id) }));
+  const rename = (id, text) => setState((s) => ({
+    editing: null,
+    todos: text.trim() ? s.todos.map((t) => (t.id === id ? { ...t, text: text.trim() } : t)) : s.todos.filter((t) => t.id !== id)
+  }));
+  const toggleAll = () => setState((s) => {
+    const allDone = s.todos.every((t) => t.done);
+    return { todos: s.todos.map((t) => ({ ...t, done: !allDone })) };
+  });
+  const clearCompleted = () => setState((s) => ({ todos: s.todos.filter((t) => !t.done) }));
+
+  // ---- components ---------------------------------------------------------
+  function Header() {
+    const allDone = state.todos.length > 0 && state.todos.every((t) => t.done);
+    return h('div', { class: 'new-todo' },
+      h('button', { class: 'toggle-all' + (allDone ? ' on' : ''), title: 'Mark all', onClick: toggleAll }, '❯'),
+      h('input', {
+        placeholder: 'What needs doing? (add #tag)',
+        autofocus: true,
+        onKeydown: (e) => {
+          if (e.key === 'Enter') {
+            addTodo(e.target.value);
+          }
+        }
+      })
+    );
+  }
+
+  function TodoItem(todo) {
+    if (state.editing === todo.id) {
+      const input = h('input', {
+        class: 'edit',
+        value: todo.text,
+        onKeydown: (e) => {
+          if (e.key === 'Enter') rename(todo.id, e.target.value);
+          if (e.key === 'Escape') setState({ editing: null });
+        },
+        onBlur: (e) => { if (state.editing === todo.id) rename(todo.id, e.target.value); }
+      });
+      queueMicrotask(() => input.focus());
+      return h('li', { class: 'item' }, input);
+    }
+
+    return h('li', { class: 'item' + (todo.done ? ' done' : '') },
+      h('button', { class: 'check', 'aria-label': 'Toggle', onClick: () => toggle(todo.id) }, todo.done ? '✓' : ''),
+      h('span', { class: 'label', onDblclick: () => setState({ editing: todo.id }) }, todo.text),
+      todo.tag && h('span', { class: 'tag' }, '#' + todo.tag),
+      h('button', { class: 'remove', 'aria-label': 'Delete', onClick: () => remove(todo.id) }, '×')
+    );
+  }
+
+  function Footer() {
+    const left = state.todos.filter(filters.active).length;
+    const anyDone = state.todos.some(filters.completed);
+    return h('div', { class: 'footer' },
+      h('span', null, left, left === 1 ? ' item left' : ' items left'),
+      h('div', { class: 'filters' },
+        Object.keys(filters).map((name) =>
+          h('button', {
+            class: state.filter === name ? 'selected' : '',
+            onClick: () => setState({ filter: name })
+          }, name[0].toUpperCase() + name.slice(1))
+        )
+      ),
+      h('button', { class: 'clear', disabled: !anyDone, onClick: clearCompleted }, 'Clear completed')
+    );
+  }
+
+  function App() {
+    const visible = state.todos.filter(filters[state.filter]);
+    return h('div', null,
+      h('h1', { class: 'app-title' }, 'todos'),
+      h('div', { class: 'card' },
+        Header(),
+        visible.length
+          ? h('ul', { class: 'list' }, visible.map(TodoItem))
+          : h('div', { class: 'empty' }, state.filter === 'completed' ? 'Nothing finished yet.' : 'All clear. Enjoy your day!'),
+        state.todos.length > 0 && Footer()
+      ),
+      h('p', { class: 'hint' }, 'Double-click a todo to edit it.')
+    );
+  }
+
+  // ---- render loop ----------------------------------------------------------
+  const root = document.getElementById('app');
+
+  function render() {
+    const hadFocus = document.activeElement && document.activeElement.matches('.new-todo input');
+    root.replaceChildren(App());
+    if (hadFocus) root.querySelector('.new-todo input').focus();
+  }
+
+  render();
+</script>
+</body>
+</html>

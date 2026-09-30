@@ -1,0 +1,5 @@
+{
+  "prompt": "Write a long-form magazine essay about why cities neglect infrastructure maintenance, with pull quotes, a small cost comparison figure, and numbered footnotes.",
+  "features": ["headings", "serif-fonts", "first-letter", "drop-cap", "pull-quotes", "blockquote", "footnotes", "sup", "anchor-links", "target-pseudo-class", "hr", "pseudo-elements", "floats", "figure", "css-drawn-figure", "grid", "custom-properties", "media-queries"],
+  "viewport": 800
+}

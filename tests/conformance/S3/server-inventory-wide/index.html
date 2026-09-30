@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server Inventory</title>
+<style>
+  :root {
+    --bg: #eef0f3;
+    --surface: #ffffff;
+    --text: #1c2027;
+    --muted: #697180;
+    --border: #dde1e7;
+    --head: #262c36;
+    --head-text: #e9edf3;
+    --stripe: #f6f7f9;
+    --hover: #e9f1ff;
+    --mono: ui-monospace, Consolas, "Courier New", monospace;
+
+    --ok: #16794a;
+    --ok-bg: #dcf4e7;
+    --warn: #8a5a00;
+    --warn-bg: #fff0c7;
+    --err: #b42331;
+    --err-bg: #fde2e4;
+    --info: #1f5fb4;
+    --info-bg: #deebfd;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 28px 20px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 14px;
+  }
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 24px;
+  }
+
+  .summary {
+    margin: 0 0 16px;
+    color: var(--muted);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: #d99a00; }
+  .dot.err { background: var(--err); }
+  .dot.info { background: var(--info); }
+
+  .table-container {
+    max-height: 560px;
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(20, 25, 35, 0.08);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: max-content;
+    min-width: 100%;
+    font-size: 13px;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--head);
+    color: var(--head-text);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: left;
+    padding: 10px 12px;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  tbody tr:nth-child(even) td { background: var(--stripe); }
+  tbody tr:hover td { background: var(--hover); }
+
+  .num, th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mono {
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  td.host {
+    font-weight: 600;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  td.notes {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+
+  .status {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .status.online { color: var(--ok); background: var(--ok-bg); }
+  .status.maintenance { color: var(--info); background: var(--info-bg); }
+  .status.degraded { color: var(--warn); background: var(--warn-bg); }
+  .status.offline { color: var(--err); background: var(--err-bg); }
+
+  .env {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .env.prod { border-color: #f0b4ba; color: var(--err); }
+
+  .overdue { color: var(--err); font-weight: 600; }
+
+  tfoot td {
+    position: sticky;
+    bottom: 0;
+    background: #f0f2f5;
+    font-weight: 700;
+    border-top: 2px solid var(--head);
+    border-bottom: none;
+  }
+
+  .footnote {
+    margin-top: 12px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 18px 10px; }
+    h1 { font-size: 20px; }
+    .table-container { max-height: 70vh; }
+  }
+</style>
+</head>
+<body>
+  <h1>Server Inventory</h1>
+  <p class="summary">Snapshot of all managed hosts at Tidemark Logistics, exported 30 Sep 2025 09:15 UTC. Scroll sideways for network, ownership and patch details.</p>
+
+  <div class="chips">
+    <span class="chip">24 hosts</span>
+    <span class="chip"><span class="dot ok"></span>19 online</span>
+    <span class="chip"><span class="dot info"></span>2 maintenance</span>
+    <span class="chip"><span class="dot warn"></span>1 degraded</span>
+    <span class="chip"><span class="dot err"></span>2 offline</span>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Hostname</th>
+          <th>Status</th>
+          <th>Env</th>
+          <th>Role</th>
+          <th>DC</th>
+          <th>Rack</th>
+          <th>OS</th>
+          <th class="num">vCPU</th>
+          <th class="num">RAM (GB)</th>
+          <th class="num">Disk (TB)</th>
+          <th>IP address</th>
+          <th class="num">Uptime (d)</th>
+          <th>Owner</th>
+          <th>Last patched</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="host">web-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Web frontend</td><td>fra1</td><td class="mono">R12-U04</td><td>Halden OS 9.2</td>
+          <td class="num">8</td><td class="num">32</td><td class="num">0.5</td>
+          <td class="mono">10.20.1.11</td><td class="num">142</td><td>Platform</td><td>2025-09-02</td>
+          <td class="notes">Behind lb-prd-01; serves main storefront and checkout traffic</td>
+        </tr>
+        <tr>
+          <td class="host">web-prd-02</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Web frontend</td><td>fra1</td><td class="mono">R12-U05</td><td>Halden OS 9.2</td>
+          <td class="num">8</td><td class="num">32</td><td class="num">0.5</td>
+          <td class="mono">10.20.1.12</td><td class="num">142</td><td>Platform</td><td>2025-09-02</td>
+          <td class="notes">Behind lb-prd-01</td>
+        </tr>
+        <tr>
+          <td class="host">web-prd-03</td>
+          <td><span class="status maintenance">Maintenance</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Web frontend</td><td>ams2</td><td class="mono">R03-U10</td><td>Halden OS 9.2</td>
+          <td class="num">8</td><td class="num">32</td><td class="num">0.5</td>
+          <td class="mono">10.30.1.13</td><td class="num">0</td><td>Platform</td><td>2025-09-29</td>
+          <td class="notes">Drained for kernel upgrade, back in rotation after 18:00 UTC once smoke tests pass</td>
+        </tr>
+        <tr>
+          <td class="host">api-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>API gateway</td><td>fra1</td><td class="mono">R12-U08</td><td>Halden OS 9.2</td>
+          <td class="num">16</td><td class="num">64</td><td class="num">1</td>
+          <td class="mono">10.20.2.21</td><td class="num">88</td><td>Payments</td><td>2025-09-02</td>
+          <td class="notes">Rate limits raised to 4k rps on 12 Sep for partner onboarding</td>
+        </tr>
+        <tr>
+          <td class="host">api-prd-02</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>API gateway</td><td>ams2</td><td class="mono">R03-U12</td><td>Halden OS 9.2</td>
+          <td class="num">16</td><td class="num">64</td><td class="num">1</td>
+          <td class="mono">10.30.2.22</td><td class="num">88</td><td>Payments</td><td>2025-09-02</td>
+          <td class="notes">&mdash;</td>
+        </tr>
+        <tr>
+          <td class="host">db-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Primary database</td><td>fra1</td><td class="mono">R14-U01</td><td>Halden OS 9.2</td>
+          <td class="num">32</td><td class="num">256</td><td class="num">8</td>
+          <td class="mono">10.20.3.31</td><td class="num">211</td><td>Data</td><td>2025-08-18</td>
+          <td class="notes">Primary for orders cluster; weekly full backup Sunday 02:00, WAL shipped to backup-01</td>
+        </tr>
+        <tr>
+          <td class="host">db-prd-02</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Database replica</td><td>ams2</td><td class="mono">R04-U01</td><td>Halden OS 9.2</td>
+          <td class="num">32</td><td class="num">256</td><td class="num">8</td>
+          <td class="mono">10.30.3.32</td><td class="num">211</td><td>Data</td><td>2025-08-18</td>
+          <td class="notes">Streaming replica, lag &lt; 200 ms</td>
+        </tr>
+        <tr>
+          <td class="host">cache-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Cache</td><td>fra1</td><td class="mono">R12-U14</td><td>Halden OS 9.2</td>
+          <td class="num">8</td><td class="num">64</td><td class="num">0.25</td>
+          <td class="mono">10.20.4.41</td><td class="num">63</td><td>Platform</td><td>2025-09-02</td>
+          <td class="notes">Session and product-page cache</td>
+        </tr>
+        <tr>
+          <td class="host">queue-prd-01</td>
+          <td><span class="status degraded">Degraded</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Message queue</td><td>fra1</td><td class="mono">R13-U02</td><td>Halden OS 9.2</td>
+          <td class="num">8</td><td class="num">32</td><td class="num">2</td>
+          <td class="mono">10.20.5.51</td><td class="num">63</td><td>Payments</td><td>2025-09-02</td>
+          <td class="notes">Disk 2 of 4 reporting media errors; replacement ordered under ticket OPS-4471, swap planned Thursday</td>
+        </tr>
+        <tr>
+          <td class="host">search-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Search index</td><td>ams2</td><td class="mono">R05-U06</td><td>Halden OS 9.2</td>
+          <td class="num">16</td><td class="num">128</td><td class="num">4</td>
+          <td class="mono">10.30.6.61</td><td class="num">120</td><td>Discovery</td><td>2025-08-25</td>
+          <td class="notes">Full reindex nightly at 01:30</td>
+        </tr>
+        <tr>
+          <td class="host">batch-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Batch jobs</td><td>fra1</td><td class="mono">R15-U03</td><td>Halden OS 9.2</td>
+          <td class="num">24</td><td class="num">96</td><td class="num">2</td>
+          <td class="mono">10.20.7.71</td><td class="num">35</td><td>Data</td><td>2025-09-16</td>
+          <td class="notes">Invoice generation, carrier rate imports, nightly exports</td>
+        </tr>
+        <tr>
+          <td class="host">mon-prd-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Monitoring</td><td>fra1</td><td class="mono">R15-U09</td><td>Halden OS 9.2</td>
+          <td class="num">4</td><td class="num">16</td><td class="num">4</td>
+          <td class="mono">10.20.9.91</td><td class="num">175</td><td>SRE</td><td>2025-09-02</td>
+          <td class="notes">Metrics retention 13 months</td>
+        </tr>
+        <tr>
+          <td class="host">web-stg-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env">staging</span></td>
+          <td>Web frontend</td><td>fra1</td><td class="mono">R20-U01</td><td>Halden OS 9.3 beta</td>
+          <td class="num">4</td><td class="num">16</td><td class="num">0.25</td>
+          <td class="mono">10.40.1.11</td><td class="num">12</td><td>Platform</td><td>2025-09-18</td>
+          <td class="notes">Canary for OS 9.3 rollout</td>
+        </tr>
+        <tr>
+          <td class="host">api-stg-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env">staging</span></td>
+          <td>API gateway</td><td>fra1</td><td class="mono">R20-U02</td><td>Halden OS 9.3 beta</td>
+          <td class="num">4</td><td class="num">16</td><td class="num">0.5</td>
+          <td class="mono">10.40.2.21</td><td class="num">12</td><td>Payments</td><td>2025-09-18</td>
+          <td class="notes">&mdash;</td>
+        </tr>
+        <tr>
+          <td class="host">db-stg-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env">staging</span></td>
+          <td>Database</td><td>fra1</td><td class="mono">R20-U03</td><td>Halden OS 9.2</td>
+          <td class="num">8</td><td class="num">64</td><td class="num">2</td>
+          <td class="mono">10.40.3.31</td><td class="num">40</td><td>Data</td><td>2025-09-18</td>
+          <td class="notes">Refreshed from anonymised prod snapshot every Monday</td>
+        </tr>
+        <tr>
+          <td class="host">ci-runner-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env">tooling</span></td>
+          <td>CI runner</td><td>fra1</td><td class="mono">R21-U01</td><td>Halden OS 9.2</td>
+          <td class="num">32</td><td class="num">64</td><td class="num">1</td>
+          <td class="mono">10.50.1.11</td><td class="num">9</td><td>DevEx</td><td>2025-09-21</td>
+          <td class="notes">&mdash;</td>
+        </tr>
+        <tr>
+          <td class="host">ci-runner-02</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env">tooling</span></td>
+          <td>CI runner</td><td>fra1</td><td class="mono">R21-U02</td><td>Halden OS 9.2</td>
+          <td class="num">32</td><td class="num">64</td><td class="num">1</td>
+          <td class="mono">10.50.1.12</td><td class="num">9</td><td>DevEx</td><td>2025-09-21</td>
+          <td class="notes">&mdash;</td>
+        </tr>
+        <tr>
+          <td class="host">ci-runner-03</td>
+          <td><span class="status offline">Offline</span></td>
+          <td><span class="env">tooling</span></td>
+          <td>CI runner</td><td>fra1</td><td class="mono">R21-U03</td><td>Halden OS 9.2</td>
+          <td class="num">32</td><td class="num">64</td><td class="num">1</td>
+          <td class="mono">10.50.1.13</td><td class="num">&mdash;</td><td>DevEx</td><td>2025-07-30</td>
+          <td class="notes">Motherboard failure; vendor RMA in progress, expected back on 8 October</td>
+        </tr>
+        <tr>
+          <td class="host">vpn-gw-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>VPN gateway</td><td>fra1</td><td class="mono">R11-U01</td><td>Stratum Gateway 4.1</td>
+          <td class="num">2</td><td class="num">8</td><td class="num">0.1</td>
+          <td class="mono">10.20.0.5</td><td class="num">301</td><td>SRE</td><td class="overdue">2025-06-11</td>
+          <td class="notes">Patch overdue &mdash; firmware update scheduled for the next maintenance window</td>
+        </tr>
+        <tr>
+          <td class="host">backup-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Backup target</td><td>ams2</td><td class="mono">R06-U01</td><td>Halden OS 8.6</td>
+          <td class="num">8</td><td class="num">32</td><td class="num">48</td>
+          <td class="mono">10.30.8.81</td><td class="num">256</td><td>SRE</td><td>2025-07-14</td>
+          <td class="notes">Immutable snapshots, 35-day retention; 71% full</td>
+        </tr>
+        <tr>
+          <td class="host">file-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env">corp</span></td>
+          <td>File server</td><td>lon1</td><td class="mono">R02-U04</td><td>Stratum Server 2022</td>
+          <td class="num">8</td><td class="num">32</td><td class="num">12</td>
+          <td class="mono">10.60.1.11</td><td class="num">97</td><td>IT</td><td>2025-08-12</td>
+          <td class="notes">Department shares for finance and HR</td>
+        </tr>
+        <tr>
+          <td class="host">print-01</td>
+          <td><span class="status offline">Offline</span></td>
+          <td><span class="env">corp</span></td>
+          <td>Print server</td><td>lon1</td><td class="mono">R02-U06</td><td>Stratum Server 2019</td>
+          <td class="num">2</td><td class="num">4</td><td class="num">0.1</td>
+          <td class="mono">10.60.1.12</td><td class="num">&mdash;</td><td>IT</td><td class="overdue">2025-03-04</td>
+          <td class="notes">Decommission approved; awaiting data wipe certificate before disposal</td>
+        </tr>
+        <tr>
+          <td class="host">dev-sandbox-01</td>
+          <td><span class="status maintenance">Maintenance</span></td>
+          <td><span class="env">dev</span></td>
+          <td>Sandbox</td><td>ams2</td><td class="mono">R07-U02</td><td>Halden OS 9.3 beta</td>
+          <td class="num">16</td><td class="num">64</td><td class="num">1</td>
+          <td class="mono">10.70.1.11</td><td class="num">0</td><td>DevEx</td><td>2025-09-29</td>
+          <td class="notes">Rebuilding from golden image after config drift was detected</td>
+        </tr>
+        <tr>
+          <td class="host">analytics-01</td>
+          <td><span class="status online">Online</span></td>
+          <td><span class="env prod">prod</span></td>
+          <td>Analytics warehouse</td><td>ams2</td><td class="mono">R05-U10</td><td>Halden OS 9.2</td>
+          <td class="num">48</td><td class="num">384</td><td class="num">16</td>
+          <td class="mono">10.30.7.71</td><td class="num">58</td><td>Data</td><td>2025-09-02</td>
+          <td class="notes">Columnar store; heavy queries throttled 08:00&ndash;18:00</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="7">Totals (24 hosts)</td>
+          <td class="num">376</td>
+          <td class="num">1,884</td>
+          <td class="num">114.7</td>
+          <td colspan="5"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <p class="footnote">Patch dates older than 90 days are shown in red. Uptime is blank for hosts that are currently powered off.</p>
+</body>
+</html>
