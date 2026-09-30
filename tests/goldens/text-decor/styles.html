@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<title>Text decoration lines and styles</title>
+<style>
+  /* Glyphs of the box font are solid squares, so the text is transparent and only its decorations show. */
+  body { margin: 8px; font-size: 20px; color: transparent; }
+  p { margin: 0 0 14px; text-decoration-line: underline; text-decoration-color: #c0392b; text-decoration-thickness: 2px; }
+  .double { text-decoration-style: double; }
+  .dotted { text-decoration-style: dotted; }
+  .dashed { text-decoration-style: dashed; }
+  .wavy { text-decoration-style: wavy; text-underline-offset: 4px; }
+  .all { text-decoration-line: underline overline line-through; text-decoration-color: #2980b9; }
+  .nested { text-decoration-color: #27ae60; }
+  .nested b { text-decoration: line-through #8e44ad 3px; }
+</style>
+<p>solid underline, the trailing space undecorated </p>
+<p class="double">double underline</p>
+<p class="dotted">dotted underline</p>
+<p class="dashed">dashed underline</p>
+<p class="wavy">wavy underline</p>
+<p class="all">underline overline line-through</p>
+<p class="nested">outer <b>inner</b> <span style="display: inline-block">inline block</span></p>

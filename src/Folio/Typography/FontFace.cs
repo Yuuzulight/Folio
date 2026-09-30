@@ -86,6 +86,8 @@ internal sealed class FontFace : IFontHandle
         if (TryTable("OS/2") is { Length: >= 78 } os2)
         {
             Weight = Math.Clamp((int)os2.U16(4), 1, 1000);
+            StrikeoutSize = os2.S16(26);
+            StrikeoutPosition = os2.S16(28);
             Stretch = os2.U16(6) switch { 1 => 50, 2 => 62.5f, 3 => 75, 4 => 87.5f, 6 => 112.5f, 7 => 125, 8 => 150, 9 => 200, _ => 100 };
             var fsSelection = os2.U16(62);
             Style = (fsSelection & 1) != 0 ? FaceStyle.Italic : (fsSelection & 0x200) != 0 ? FaceStyle.Oblique : Style;
@@ -141,6 +143,10 @@ internal sealed class FontFace : IFontHandle
     public int CapHeight { get; }
     public int UnderlinePosition { get; }
     public int UnderlineThickness { get; }
+
+    /// <summary>The top of the strikeout stroke above the baseline, and its thickness (OS/2); zero when unknown.</summary>
+    public int StrikeoutPosition { get; }
+    public int StrikeoutSize { get; }
     public bool IsFixedPitch { get; }
 
     /// <summary>

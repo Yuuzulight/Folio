@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>Decorations propagate to in-flow descendants but not into inline blocks</title>
+<link rel="help" href="https://www.w3.org/TR/css-text-decor-3/#line-decoration">
+<style>
+  body { margin: 0; }
+  p { margin: 0; text-decoration: underline 2px green; text-underline-offset: 3.2px; }
+  span { display: inline-block; }
+</style>
+<p><b>&nbsp;&nbsp;</b><span>&nbsp;&nbsp;</span></p>

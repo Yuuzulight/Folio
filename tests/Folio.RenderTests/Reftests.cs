@@ -4,6 +4,8 @@ public class Reftests
 {
     [Theory]
     [InlineData("css-backgrounds/background-color-001")]
+    [InlineData("css-text-decor/text-decoration-line-001")]
+    [InlineData("css-text-decor/text-decoration-propagation-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

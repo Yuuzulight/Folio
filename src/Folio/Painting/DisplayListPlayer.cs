@@ -22,6 +22,9 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Glyphs:
                     canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color)));
                     break;
+                case DisplayItemKind.Decoration:
+                    PaintDecoration(canvas, item.Shape.Rect, item.LineStyle, new Paint(ToRgba(item.Color)));
+                    break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();
                     canvas.ClipRoundedRect(item.Shape);
@@ -39,6 +42,51 @@ internal static class DisplayListPlayer
                     break;
             }
         }
+    }
+
+    // A decoration line of thickness rect.Height from rect.Y down: dots and dashes along its middle, waves below its top.
+    // Patterns start at multiples of their period from the canvas origin, so the pieces of one line on neighbouring
+    // text fragments join up.
+    private static void PaintDecoration(ICanvas canvas, RectF rect, TextDecorationStyle style, in Paint paint)
+    {
+        var t = rect.Height;
+        var middle = rect.Y + t / 2;
+        if (style == TextDecorationStyle.Solid || t <= 0)
+        {
+            canvas.FillRoundedRect(new RoundedRect(rect, default), paint);
+            return;
+        }
+
+        var period = style switch { TextDecorationStyle.Dotted => 2 * t, TextDecorationStyle.Dashed => 5 * t, _ => 6 * t };
+        var start = MathF.Floor(rect.X / period) * period;
+        var path = new PathData();
+        var stroke = new Stroke(t);
+        switch (style)
+        {
+            case TextDecorationStyle.Dotted:
+                path.MoveTo(start + t / 2, middle).LineTo(rect.Right + t, middle);
+                stroke = new Stroke(t, LineCap.Round, [0, period]);
+                break;
+            case TextDecorationStyle.Dashed:
+                path.MoveTo(start, middle).LineTo(rect.Right, middle);
+                stroke = new Stroke(t, LineCap.Butt, [3 * t, 2 * t]);
+                break;
+            default:
+                // Half waves as cubic arches (controls at 4/3 of the amplitude t), from the top edge to 2t below it.
+                var baseline = middle + t;
+                path.MoveTo(start, baseline);
+                var up = true;
+                for (var x = start; x < rect.Right; x += period / 2, up = !up)
+                {
+                    var control = baseline + (up ? -1 : 1) * t * 4 / 3;
+                    path.CubicTo(new(x + period / 6, control), new(x + period / 3, control), new(x + period / 2, baseline));
+                }
+                break;
+        }
+        canvas.Save();
+        canvas.ClipRoundedRect(new RoundedRect(new RectF(rect.X, rect.Y - t, rect.Width, 5 * t), default));
+        canvas.StrokePath(path, stroke, paint);
+        canvas.Restore();
     }
 
     internal static Rgba ToRgba(CssColor color) => new(color.R, color.G, color.B, color.A);

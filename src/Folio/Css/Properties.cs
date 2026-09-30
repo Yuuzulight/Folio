@@ -108,6 +108,11 @@ internal enum PropertyId
     BorderSpacing,
     CaptionSide,
     EmptyCells,
+    TextDecorationLine,
+    TextDecorationStyle,
+    TextDecorationColor,
+    TextDecorationThickness,
+    TextUnderlineOffset,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -162,7 +167,7 @@ internal sealed class Property<T>(
     {
         null => "auto",
         float f => Math.Round(f, 3).ToString(System.Globalization.CultureInfo.InvariantCulture),
-        Enum e => string.Concat(e.ToString().Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString())),
+        Enum e => string.Join(" ", e.ToString().Split(", ").Select(name => string.Concat(name.Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString())))),
         IReadOnlyList<string> list => string.Join(", ", list),
         IReadOnlyList<CounterChange> counters => counters.Count == 0 ? "none" : string.Join(" ", counters),
         string text => text,
@@ -501,6 +506,22 @@ internal static class Properties
                 s => s.Text.EmptyCells, (b, v) => b.Text = b.Text with { EmptyCells = v }),
             new Property<GridAreas>(PropertyId.GridTemplateAreas, "grid-template-areas", false, "none", GridParsing.Areas,
                 (v, _) => ((GridAreasValue)v).Areas, s => s.Grid.Areas, (b, v) => b.Grid = b.Grid with { Areas = v }),
+
+            // https://www.w3.org/TR/css-text-decor-4/: percentages of thickness and offset are of 1em.
+            new Property<TextDecorationLine>(PropertyId.TextDecorationLine, "text-decoration-line", false, "none", DecorationLine,
+                (v, _) => ((KeywordValue)v).Keyword.Split(' ').Aggregate(TextDecorationLine.None, (line, k) => line | DecorationLineKeywords.GetValueOrDefault(k)),
+                s => s.Decoration.Line, (b, v) => b.Decoration = b.Decoration with { Line = v }),
+            Keywords(PropertyId.TextDecorationStyle, "text-decoration-style", false, "solid", Enum<TextDecorationStyle>("solid", "double", "dotted", "dashed", "wavy"),
+                s => s.Decoration.Style, (b, v) => b.Decoration = b.Decoration with { Style = v }),
+            Color(PropertyId.TextDecorationColor, "text-decoration-color", "currentcolor", s => s.Decoration.Color, (b, v) => b.Decoration = b.Decoration with { Color = v }),
+            new Property<float?>(PropertyId.TextDecorationThickness, "text-decoration-thickness", false, "auto",
+                r => r.Keyword("auto", "from-font") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
+                (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
+                s => s.Decoration.Thickness, (b, v) => b.Decoration = b.Decoration with { Thickness = v }),
+            new Property<float?>(PropertyId.TextUnderlineOffset, "text-underline-offset", true, "auto",
+                r => r.Keyword("auto") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
+                (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
+                s => s.Text.UnderlineOffset, (b, v) => b.Text = b.Text with { UnderlineOffset = v }),
         };
 
         var table = new Property[System.Enum.GetValues<PropertyId>().Length];
@@ -593,6 +614,23 @@ internal static class Properties
         ["text-top"] = VerticalAlignKind.TextTop, ["text-bottom"] = VerticalAlignKind.TextBottom, ["middle"] = VerticalAlignKind.Middle,
         ["top"] = VerticalAlignKind.Top, ["bottom"] = VerticalAlignKind.Bottom,
     };
+
+    private static readonly Dictionary<string, TextDecorationLine> DecorationLineKeywords = new()
+    {
+        ["underline"] = TextDecorationLine.Underline, ["overline"] = TextDecorationLine.Overline,
+        ["line-through"] = TextDecorationLine.LineThrough, ["blink"] = TextDecorationLine.Blink,
+    };
+
+    // text-decoration-line: none | [ underline || overline || line-through || blink ], as its keywords in order.
+    private static CssValue? DecorationLine(ValueReader r)
+    {
+        if (r.Keyword("none") is not null)
+            return new KeywordValue("none");
+        var seen = new List<string>();
+        while (r.Copy().Keyword([.. DecorationLineKeywords.Keys]) is { } k && !seen.Contains(k))
+            seen.Add(r.Keyword(k)!);
+        return seen.Count == 0 ? null : new KeywordValue(string.Join(' ', seen));
+    }
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
 
@@ -913,6 +951,35 @@ internal static class Properties
                 return null;
             var column = r.AtEnd ? row : Get(PropertyId.ColumnGap).Parse(r.OneValue());
             return column is null ? null : [(PropertyId.RowGap, row), (PropertyId.ColumnGap, column)];
+        }),
+        // https://www.w3.org/TR/css-text-decor-4/#text-decoration-property: line || style || color || thickness
+        ["text-decoration"] = new([PropertyId.TextDecorationLine, PropertyId.TextDecorationStyle, PropertyId.TextDecorationColor, PropertyId.TextDecorationThickness], r =>
+        {
+            CssValue? line = null, style = null, color = null, thickness = null;
+            while (!r.AtEnd)
+            {
+                if (line is null && DecorationLine(r) is { } l)
+                {
+                    line = l;
+                    continue;
+                }
+                var one = r.OneValue();
+                if (style is null && Get(PropertyId.TextDecorationStyle).Parse(one.Copy()) is { } s)
+                    style = s;
+                else if (thickness is null && Get(PropertyId.TextDecorationThickness).Parse(one.Copy()) is { } t)
+                    thickness = t;
+                else if (color is null && Get(PropertyId.TextDecorationColor).Parse(one.Copy()) is { } c)
+                    color = c;
+                else
+                    return null;
+            }
+            return
+            [
+                (PropertyId.TextDecorationLine, line ?? Get(PropertyId.TextDecorationLine).Initial),
+                (PropertyId.TextDecorationStyle, style ?? Get(PropertyId.TextDecorationStyle).Initial),
+                (PropertyId.TextDecorationColor, color ?? Get(PropertyId.TextDecorationColor).Initial),
+                (PropertyId.TextDecorationThickness, thickness ?? Get(PropertyId.TextDecorationThickness).Initial),
+            ];
         }),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {

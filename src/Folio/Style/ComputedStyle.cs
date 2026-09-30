@@ -75,6 +75,26 @@ internal enum EmptyCells { Show, Hide }
 
 internal enum UnicodeBidi { Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext }
 
+/// <summary>https://www.w3.org/TR/css-text-decor-3/#text-decoration-line-property (blink is accepted and not drawn)</summary>
+[Flags]
+internal enum TextDecorationLine { None = 0, Underline = 1, Overline = 2, LineThrough = 4, Blink = 8 }
+
+internal enum TextDecorationStyle { Solid, Double, Dotted, Dashed, Wavy }
+
+/// <summary>Text decorations (not inherited). A null thickness is auto or from-font: the font's own.</summary>
+internal sealed record DecorationGroup(TextDecorationLine Line, TextDecorationStyle Style, CssColor Color, float? Thickness)
+{
+    public static DecorationGroup Initial { get; } = new(TextDecorationLine.None, TextDecorationStyle.Solid, CssColor.CurrentColor, null);
+}
+
+/// <summary>
+/// A decoration applied to an element's text by it or an ancestor (its decorating box,
+/// https://www.w3.org/TR/css-text-decor-3/#line-decoration), with its colour resolved; <see cref="Outer"/> is the
+/// next one out. A null offset is <c>text-underline-offset: auto</c>.
+/// </summary>
+internal sealed record AppliedDecoration(TextDecorationLine Line, TextDecorationStyle Style, CssColor Color, float? Thickness, float? Offset,
+                                         AppliedDecoration? Outer);
+
 /// <summary>
 /// A computed length-percentage: <c>Px + Percent% of the basis</c>, or a <c>calc()</c> tree that is not linear
 /// in the basis (e.g. <c>min(50%, 300px)</c>), kept with its lengths already in px (docs/study/04-cascade-and-computed-values.md).
@@ -145,8 +165,8 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight,
                                  float Stretch, string VariantCaps);
 
-/// <summary>Inherited: other inherited properties.</summary>
-internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme);
+/// <summary>Inherited: other inherited properties, and the decorations propagated to the element's text.</summary>
+internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme, AppliedDecoration? Decorations = null);
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
@@ -213,7 +233,8 @@ internal sealed record BackgroundGroup(
 internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrapMode TextWrapMode, ListStyleType ListStyleType, ListStylePosition ListStylePosition,
                                  TextAlign TextAlign = TextAlign.Start, Direction Direction = Direction.Ltr,
                                  BorderCollapse BorderCollapse = BorderCollapse.Separate, float BorderSpacingX = 0, float BorderSpacingY = 0,
-                                 CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show);
+                                 CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
+                                 float? UnderlineOffset = null);
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
@@ -251,6 +272,7 @@ internal sealed class ComputedStyle
     public required GeneratedGroup Generated { get; init; }
     public FlexGroup Flex { get; init; } = FlexGroup.Initial;
     public GridGroup Grid { get; init; } = GridGroup.Initial;
+    public DecorationGroup Decoration { get; init; } = DecorationGroup.Initial;
 
     /// <summary>Custom properties (inherited): name to value text, after var() substitution.</summary>
     public ImmutableDictionary<string, string> Custom { get; init; } = ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
