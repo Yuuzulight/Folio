@@ -13,14 +13,17 @@ public class HarfBuzzShaperTests
 
     private static FontFace BoxFace => Fonts.Value.Match("Folio Box", FaceStyle.Normal, 400, 100)!;
 
-    [Fact]
-    public void MatchesSimpleShaperOnSimpleText()
+    // The study's differential check: same glyphs, clusters and advances (kerning included). The box font kerns with a
+    // kern table, the text font with GPOS pair adjustment (text without ligatures).
+    [Theory]
+    [InlineData("Folio Box", "The quick brown fox, 1234! \u00D7\u00F7 x")]
+    [InlineData("Source Sans 3", "To Vila Nova, AVATAR Tokyo: \"Walk\" across the upper deck; Lyon, P.T. Yarrow & Wo. 1,240 testers.")]
+    public void MatchesSimpleShaperOnSimpleText(string family, string text)
     {
-        // The study's differential check, here on the box font: same glyphs, clusters and advances (kerning included).
-        var text = "The quick brown fox, 1234! \u00D7\u00F7 x";
+        var face = Fonts.Value.Match(family, FaceStyle.Normal, 400, 100)!;
 
-        var simple = SimpleShaper.Shape(text, 0, text.Length, BoxFace, 16);
-        var shaped = new HarfBuzzShaper().Shape(text, 0, text.Length, BoxFace, 16, rightToLeft: false, language: null);
+        var simple = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+        var shaped = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: false, language: null);
 
         Assert.Equal(simple.Glyphs, shaped.Glyphs);
         Assert.Equal(simple.Clusters, shaped.Clusters);
@@ -28,7 +31,7 @@ public class HarfBuzzShaperTests
         // split between a pair's advances and offsets may differ.
         Assert.Equal(Positions(simple.Advances, null), Positions(shaped.Advances, shaped.Offsets));
         Assert.Equal(simple.Width, shaped.Advances.Sum(), 3);
-        Assert.Contains(simple.Advances, a => a < 16); // the kerning pair
+        Assert.Contains(simple.Advances.Select((a, i) => a - face.Advance(simple.Glyphs[i]) * 16f / face.UnitsPerEm), k => k < 0); // kerned
 
         static float[] Positions(float[] advances, System.Numerics.Vector2[]? offsets)
         {
