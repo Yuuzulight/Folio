@@ -2,7 +2,7 @@ namespace Folio.RenderTests;
 
 public class Reftests
 {
-    [Theory(Skip = "The headless renderer does not exist yet.")]
+    [Theory]
     [InlineData("css-backgrounds/background-color-001")]
     public void RendersLikeItsReference(string name)
     {
