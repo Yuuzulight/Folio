@@ -53,3 +53,12 @@ pop
 <div style="overflow: hidden; height: 10px"><div style="position: absolute; top: 0; left: 0; width: 5px; height: 5px; background: blue"></div></div>
 ---
 fill 0,0 5x5 rgb(0, 0, 255)
+
+=== a transform makes a stacking context
+<!DOCTYPE html><style>body { margin: 0 } .t { background: rgb(1, 0, 0); height: 10px } .n { position: relative; z-index: -1; background: rgb(2, 0, 0); width: 5px; height: 5px }</style>
+<div class=t style="transform: translate(0)"><div class=n></div></div><div class=t style="scale: 1"><div class=n></div></div>
+---
+fill 0,0 800x10 rgb(1, 0, 0)
+fill 0,0 5x5 rgb(2, 0, 0)
+fill 0,10 800x10 rgb(1, 0, 0)
+fill 0,10 5x5 rgb(2, 0, 0)

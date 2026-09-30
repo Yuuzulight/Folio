@@ -32,6 +32,7 @@ internal sealed class StyleBuilder
         Outline = initial.Outline;
         Ui = parent.Ui;
         Decoration = initial.Decoration;
+        Transform = initial.Transform;
     }
 
     public FontGroup Font { get; set; }
@@ -50,6 +51,7 @@ internal sealed class StyleBuilder
     public OutlineGroup Outline { get; set; }
     public UiGroup Ui { get; set; }
     public DecorationGroup Decoration { get; set; }
+    public TransformGroup Transform { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -132,6 +134,7 @@ internal sealed class StyleBuilder
             Outline = Share(Outline, initial.Outline, groups),
             Ui = Share(Ui, _parent.Ui, groups),
             Decoration = Share(Decoration, initial.Decoration, groups),
+            Transform = Share(Transform, initial.Transform, groups),
             Custom = _custom,
         };
     }
