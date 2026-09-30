@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using Folio.Imaging;
 using Folio.Painting;
 using Folio.Typography;
 using SkiaSharp;
@@ -68,6 +69,39 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         canvas.DrawText(blob, 0, 0, skPaint);
     }
 
+    public void DrawImage(IImageHandle image, in RectF destination, ImageSampling sampling)
+    {
+        if (Image(image) is not { } skImage)
+            return;
+        var options = sampling == ImageSampling.Pixelated
+            ? new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None)
+            : new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        using var paint = new SKPaint { IsAntialias = true };
+        canvas.DrawImage(skImage, new SKRect(destination.X, destination.Y, destination.Right, destination.Bottom), options, paint);
+    }
+
+    // One Skia image per image handle, copied from its straight-alpha RGBA pixels on first use.
+    private static readonly ConditionalWeakTable<IImageHandle, SKImage?> Images = new();
+
+    private static SKImage? Image(IImageHandle image) => Images.GetValue(image, i =>
+        i.Width > 0 && i.Height > 0 && i.Pixels.Length >= i.Width * i.Height * 4
+            ? SKImage.FromPixelCopy(new SKImageInfo(i.Width, i.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul), i.Pixels.Span)
+            : null);
+
+    public float[] GlyphIntercepts(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, float top, float bottom)
+    {
+        if (Typeface(font) is not { } typeface || glyphs.Length == 0)
+            return [];
+        using var skFont = new SKFont(typeface, size) { Subpixel = true };
+        var points = new SKPoint[origins.Length];
+        for (var i = 0; i < points.Length; i++)
+            points[i] = new SKPoint(origins[i].X, origins[i].Y);
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPositionedRun(glyphs, skFont, points);
+        using var blob = builder.Build();
+        return blob?.GetIntercepts(top, bottom) ?? [];
+    }
+
     // One typeface per font handle, created from its bytes on first use.
     private static readonly ConditionalWeakTable<IFontHandle, SKTypeface?> Typefaces = new();
 
@@ -85,7 +119,42 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void PopLayer() => canvas.Restore();
 
-    private static SKPaint Fill(in Paint paint) => new() { IsAntialias = true, Style = SKPaintStyle.Fill, Color = ToSkia(paint.Color) };
+    private static SKPaint Fill(in Paint paint) => new()
+    {
+        IsAntialias = true, Style = SKPaintStyle.Fill, Color = paint.Gradient is null ? ToSkia(paint.Color) : SKColors.Black,
+        MaskFilter = paint.Blur > 0 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, paint.Blur) : null,
+        Shader = paint.Gradient is { } gradient ? Shader(gradient) : null,
+    };
+
+    // Stops between which alpha changes come with extra stops interpolated premultiplied, so the plain sRGB
+    // interpolation here matches css-color-4 §12.3.
+    private static SKShader Shader(Gradient gradient)
+    {
+        var colors = gradient.Stops.Select(s => ToSkia(s.Color)).ToArray();
+        var offsets = gradient.Stops.Select(s => Math.Clamp(s.Offset, 0, 1)).ToArray();
+        var tile = gradient.Repeat ? SKShaderTileMode.Repeat : SKShaderTileMode.Clamp;
+        switch (gradient.Kind)
+        {
+            case GradientKind.Linear:
+                return SKShader.CreateLinearGradient(new SKPoint(gradient.Start.X, gradient.Start.Y), new SKPoint(gradient.End.X, gradient.End.Y),
+                    colors, offsets, tile);
+            case GradientKind.Radial:
+            {
+                // A circle of the horizontal radius, stretched vertically about the centre into the ellipse.
+                var (c, r) = (gradient.Center, gradient.Radii);
+                var matrix = SKMatrix.CreateScale(1, r.X > 0 ? r.Y / r.X : 1, c.X, c.Y);
+                return SKShader.CreateRadialGradient(new SKPoint(c.X, c.Y), Math.Max(r.X, 0.001f), colors, offsets, tile, matrix);
+            }
+            default:
+            {
+                // Sweeps start at 3 o'clock; CSS angles start at 12 o'clock.
+                var c = gradient.Center;
+                var matrix = SKMatrix.CreateRotationDegrees(gradient.StartAngle - 90, c.X, c.Y);
+                var sweep = Math.Max(gradient.EndAngle - gradient.StartAngle, 0.001f);
+                return SKShader.CreateSweepGradient(new SKPoint(c.X, c.Y), colors, offsets, tile, 0, sweep, matrix);
+            }
+        }
+    }
 
     private static SKColor ToSkia(Rgba c) => new(ToByte(c.R), ToByte(c.G), ToByte(c.B), ToByte(c.A));
 

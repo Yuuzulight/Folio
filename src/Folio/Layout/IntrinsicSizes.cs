@@ -8,7 +8,7 @@ namespace Folio.Layout;
 /// one layout (study 06: repeated measuring is what makes nested shrink-to-fit exponential).
 /// </summary>
 // ponytail: floats side by side contribute one at a time, not summed; percentages of the containing block count as 0
-// (the cyclic-percentage rule); replaced boxes contribute only their specified widths until images are laid out.
+// (the cyclic-percentage rule); replaced boxes without natural dimensions contribute only their specified widths.
 internal static class IntrinsicSizes
 {
     /// <summary>A box's own min-content and max-content content-box widths.</summary>
@@ -46,6 +46,11 @@ internal static class IntrinsicSizes
                     : style.Wrap == FlexWrap.Nowrap ? (items.Sum(i => i.Min) + gaps, items.Sum(i => i.Max) + gaps)
                     : (items.Max(i => i.Min), items.Sum(i => i.Max) + gaps);
             }
+        }
+        else if (box is ReplacedBox replaced && BlockLayout.ReplacedSize(replaced, 0, null, 0, 0) is { } natural)
+        {
+            // Percentages count as auto here, so the natural size (or the one the other size and the ratio give) counts.
+            sizes = (natural.Width, natural.Width);
         }
         else if (box is BlockContainerBox)
         {

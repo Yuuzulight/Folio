@@ -27,12 +27,14 @@ internal sealed class StyleBuilder
         Generated = initial.Generated;
         Flex = initial.Flex;
         Grid = initial.Grid;
+        Shadows = initial.Shadows;
         TextSpacing = parent.TextSpacing;
         Quotes = parent.Quotes;
         Outline = initial.Outline;
         Ui = parent.Ui;
         Decoration = initial.Decoration;
         Transform = initial.Transform;
+        Replaced = initial.Replaced;
     }
 
     public FontGroup Font { get; set; }
@@ -46,12 +48,14 @@ internal sealed class StyleBuilder
     public GeneratedGroup Generated { get; set; }
     public FlexGroup Flex { get; set; }
     public GridGroup Grid { get; set; }
+    public ShadowGroup Shadows { get; set; }
     public SpacingTextGroup TextSpacing { get; set; }
     public QuotesGroup Quotes { get; set; }
     public OutlineGroup Outline { get; set; }
     public UiGroup Ui { get; set; }
     public DecorationGroup Decoration { get; set; }
     public TransformGroup Transform { get; set; }
+    public ReplacedGroup Replaced { get; set; }
 
     /// <summary>
     /// Computes an element's style from its cascaded value per property (properties absent from
@@ -139,12 +143,14 @@ internal sealed class StyleBuilder
             Generated = Share(Generated, initial.Generated, groups),
             Flex = Share(Flex, initial.Flex, groups),
             Grid = Share(Grid, initial.Grid, groups),
+            Shadows = Share(Shadows, initial.Shadows, groups),
             TextSpacing = Share(TextSpacing, _parent.TextSpacing, groups),
             Quotes = Share(Quotes, _parent.Quotes, groups),
             Outline = Share(Outline, initial.Outline, groups),
             Ui = Share(Ui, _parent.Ui, groups),
             Decoration = Share(Decoration, initial.Decoration, groups),
             Transform = Share(Transform, initial.Transform, groups),
+            Replaced = Share(Replaced, initial.Replaced, groups),
             Custom = _custom,
         };
     }

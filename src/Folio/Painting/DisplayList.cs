@@ -5,20 +5,31 @@ namespace Folio.Painting;
 
 internal enum DisplayItemKind
 {
-    /// <summary>Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/>.</summary>
+    /// <summary>Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
     Fill,
 
     /// <summary>Draws the border described by <see cref="DisplayItem.Border"/> inside <see cref="DisplayItem.Shape"/>.</summary>
     Border,
+
+    /// <summary>
+    /// Fills <see cref="DisplayItem.Shape"/> with <see cref="DisplayItem.Color"/> blurred by <see cref="DisplayItem.Blur"/>,
+    /// only outside <see cref="DisplayItem.Box"/> (an outer box shadow), or, when <see cref="DisplayItem.Inset"/>, inside
+    /// <see cref="DisplayItem.Box"/> and outside the shape (an inset one).
+    /// </summary>
+    BoxShadow,
 
     /// <summary>Draws <see cref="DisplayItem.Glyphs"/> in <see cref="DisplayItem.Color"/>.</summary>
     Glyphs,
 
     /// <summary>
     /// Draws a text decoration line in <see cref="DisplayItem.LineStyle"/> across <see cref="DisplayItem.Shape"/>, whose
-    /// height is the line's thickness (a wavy line reaches three times that below its top edge).
+    /// height is the line's thickness (a wavy line reaches three times that below its top edge). With
+    /// <see cref="DisplayItem.Glyphs"/>, the line leaves gaps where it would cross their ink (text-decoration-skip-ink).
     /// </summary>
     Decoration,
+
+    /// <summary>Draws <see cref="DisplayItem.Image"/> scaled into <see cref="DisplayItem.Shape"/>.</summary>
+    Image,
 
     /// <summary>Clips what follows to <see cref="DisplayItem.Shape"/> until the matching <see cref="Pop"/>.</summary>
     PushClip,
@@ -34,9 +45,14 @@ internal enum DisplayItemKind
 /// </summary>
 /// <param name="Border">For borders: widths, styles and used colours (currentcolor resolved).</param>
 /// <param name="Glyphs">For glyph runs: the font, size, glyph ids and baseline origins.</param>
+/// <param name="Blur">For box shadows and glyph runs (text shadows): the Gaussian standard deviation in CSS px.</param>
+/// <param name="Image">For images: the pixels, drawn with <paramref name="Sampling"/>.</param>
 /// <param name="LineStyle">For decorations: solid, dotted, dashed or wavy (a double line is two solid ones).</param>
 internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Shape = default, CssColor Color = default, float Opacity = 1,
-                                            BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid);
+                                            BorderGroup? Border = null, GlyphRun? Glyphs = null, TextDecorationStyle LineStyle = TextDecorationStyle.Solid,
+                                            Imaging.IImageHandle? Image = null, ImageSampling Sampling = ImageSampling.Smooth,
+                                            float Blur = 0, bool Inset = false, RoundedRect Box = default,
+                                            Gradient? Gradient = null);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);

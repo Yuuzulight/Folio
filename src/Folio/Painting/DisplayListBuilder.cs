@@ -11,8 +11,8 @@ namespace Folio.Painting;
 /// (docs/study/10-layout-positioning-overflow-stacking.md, option A), then its paint order per CSS 2.2 Appendix E.
 /// Every painted box carries the clip chain of its containing blocks' overflow clips.
 /// </summary>
-// ponytail: M1 paints background colours, borders, text and its decorations; images, outlines and markers come with
-// their own work.
+// ponytail: M1 paints background colours and gradients, borders, text and its decorations, and images; url()
+// background images come with their own work.
 internal static class DisplayListBuilder
 {
     // A box's border box on the canvas, with the overflow clips it is painted under. LineEnd marks text that ends its line.
@@ -96,29 +96,41 @@ internal static class DisplayListBuilder
             var index = order.GetValueOrDefault(box);
             if (box.Style.Outline.Width > 0 && box is not TableWrapperBox)
                 real.Outlines.Add(placed);
+            // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
+            var content = box is ReplacedBox { Image: not null } ? placed : null;
             if (CreatesStackingContext(box))
             {
                 var z = style.ZIndex ?? 0;
                 var c = new Context(placed, real: true, z, index);
                 (z < 0 ? real.Negative : z > 0 ? real.Positive : real.ZeroOrAuto).Add(c);
+                AddContent(c);
                 Collect(c, c, placed, placed.Fragment.Children, order);
             }
             else if (style.Position != Position.Static)
             {
                 var c = new Context(placed, real: false, 0, index);
                 real.ZeroOrAuto.Add(c);
+                AddContent(c);
                 Collect(c, real, placed, placed.Fragment.Children, order);
             }
             else if (box.IsFloat)
             {
                 var c = new Context(placed, real: false, 0, index);
                 context.Floats.Add(c);
+                AddContent(c);
                 Collect(c, real, placed, placed.Fragment.Children, order);
             }
             else
             {
                 context.Blocks.Add(placed);
+                AddContent(context);
                 Collect(context, real, placed, placed.Fragment.Children, order);
+            }
+
+            void AddContent(Context target)
+            {
+                if (content is not null)
+                    target.Text.Add(content);
             }
         }
     }
@@ -255,11 +267,18 @@ internal static class DisplayListBuilder
             var shape = BorderBox(box);
             var border = box.Fragment.PaintedBorder ?? style.Border;
             var color = box.Box == canvasBox ? CssColor.Transparent : style.Background.Color.Resolve(style.Inherited.Color);
+            // Outer shadows go under the background, inset ones over it and under the border (css-backgrounds-3 §7.1).
+            if (style.Shadows.Box.Count > 0)
+                PaintBoxShadows(box, shape, border, inset: false);
             if (color.A > 0)
             {
                 SetClip(box.Clip);
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BackgroundArea(shape, style, box.Fragment), color));
             }
+            if (box.Box != canvasBox)
+                PaintBackgroundImages(box, shape);
+            if (style.Shadows.Box.Count > 0)
+                PaintBoxShadows(box, shape, border, inset: true);
             if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
             {
                 SetClip(box.Clip);
@@ -277,9 +296,43 @@ internal static class DisplayListBuilder
             }
         }
 
-        // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge.
+        /// <summary>
+        /// Box shadows (https://www.w3.org/TR/css-backgrounds-3/#box-shadow), the last written first so the first ends up
+        /// on top: an outer shadow is the border box moved by its offset and grown by its spread, seen only outside the
+        /// border box; an inset one is the padding box moved and shrunk, seen inside the padding box around it. Blur
+        /// radii are twice the Gaussian standard deviation.
+        /// </summary>
+        private void PaintBoxShadows(PaintBox box, RoundedRect borderBox, BorderGroup border, bool inset)
+        {
+            var style = box.Box.Style;
+            var padding = borderBox.Inset(border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+            for (var i = style.Shadows.Box.Count - 1; i >= 0; i--)
+            {
+                var shadow = style.Shadows.Box[i];
+                var color = shadow.Color.Resolve(style.Inherited.Color);
+                if (shadow.Inset != inset || color.A <= 0)
+                    continue;
+                var basis = inset ? padding : borderBox;
+                var grow = inset ? -shadow.Spread : shadow.Spread;
+                var rect = basis.Rect;
+                var moved = new RectF(rect.X + shadow.X - grow, rect.Y + shadow.Y - grow, Math.Max(0, rect.Width + 2 * grow), Math.Max(0, rect.Height + 2 * grow));
+                static System.Numerics.Vector2 Grown(System.Numerics.Vector2 r, float by) =>
+                    r == System.Numerics.Vector2.Zero ? r : System.Numerics.Vector2.Max(r + new System.Numerics.Vector2(by), System.Numerics.Vector2.Zero);
+                var radii = basis.Radii;
+                var shape = new RoundedRect(moved, new CornerRadii(Grown(radii.TopLeft, grow), Grown(radii.TopRight, grow), Grown(radii.BottomRight, grow), Grown(radii.BottomLeft, grow)));
+                SetClip(box.Clip);
+                list.Items.Add(new DisplayItem(DisplayItemKind.BoxShadow, shape, color, Blur: shadow.Blur / 2, Inset: inset, Box: basis));
+            }
+        }
+
+        // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge; or replaced content.
         private void PaintText(PaintBox box)
         {
+            if (box.Fragment.Kind == FragmentKind.Box)
+            {
+                PaintImage(box);
+                return;
+            }
             var run = box.Fragment.Text!;
             var style = run.Style;
             if (style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
@@ -301,10 +354,26 @@ internal static class DisplayListBuilder
                     x += advance;
             }
             SetClip(box.Clip);
-            var decorations = style.Inherited.Decorations is null ? null : DecorationLines(box, run, face, baseline);
+            // Text shadows go under the text and its decorations, the last written lowest (css-text-decor-3 §4).
+            if (style.Text.TextShadows is { } shadows)
+            {
+                SetClip(box.Clip);
+                for (var i = shadows.Count - 1; i >= 0; i--)
+                {
+                    var shadow = shadows[i];
+                    var shadowColor = shadow.Color.Resolve(style.Inherited.Color);
+                    if (shadowColor.A <= 0)
+                        continue;
+                    var moved = origins.Select(o => o + new Vector2(shadow.X, shadow.Y)).ToArray();
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: shadowColor, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, moved), Blur: shadow.Blur / 2));
+                }
+            }
+            var glyphRun = new GlyphRun(face, run.Run.Size, glyphs, origins);
+            var decorations = style.Inherited.Decorations is null ? null
+                : DecorationLines(box, run, face, baseline, style.Text.SkipInk == SkipInk.None ? null : glyphRun);
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => d.Under).Select(d => d.Item));
-            list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, origins)));
+            list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: glyphRun));
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => !d.Under).Select(d => d.Item));
         }
@@ -313,10 +382,12 @@ internal static class DisplayListBuilder
         /// The lines of the decorations applied to a text fragment, outermost decorating box first
         /// (https://www.w3.org/TR/css-text-decor-4/#line-decoration): underlines and overlines go under the glyphs,
         /// line-throughs over them. Positions and auto thicknesses come from the font's post and OS/2 metrics.
+        /// Underlines and overlines carry <paramref name="skipInk"/>, the glyphs they leave gaps around.
         /// </summary>
         // ponytail: each fragment places its lines from its own font, so a decorating box with mixed fonts or sizes gets
         // lines at several heights rather than one position for the whole box.
-        private static List<(DisplayItem Item, bool Under)> DecorationLines(PaintBox box, Layout.TextRun run, Typography.FontFace face, float baseline)
+        private static List<(DisplayItem Item, bool Under)> DecorationLines(PaintBox box, Layout.TextRun run, Typography.FontFace face, float baseline,
+                                                                             GlyphRun? skipInk)
         {
             var chain = new List<AppliedDecoration>();
             for (var d = run.Style.Inherited.Decorations; d is not null; d = d.Outer)
@@ -326,7 +397,7 @@ internal static class DisplayListBuilder
             var (left, right) = (box.X, box.X + box.Fragment.Width);
             if (box.LineEnd && run.Style.Text.WhiteSpaceCollapse is not (WhiteSpaceCollapse.Preserve or WhiteSpaceCollapse.BreakSpaces))
             {
-                var (space, ideographic) = (face.GlyphFor(' '), face.GlyphFor('　'));
+                var (space, ideographic) = (face.GlyphFor(' '), face.GlyphFor('\u3000'));
                 var trim = 0f;
                 for (var g = run.GlyphEnd - 1; g >= run.GlyphStart && run.Run.Glyphs[g] is var id && id != 0 && (id == space || id == ideographic); g--)
                     trim += run.Run.Advances[g];
@@ -346,11 +417,12 @@ internal static class DisplayListBuilder
                 {
                     if (d.Style == TextDecorationStyle.Double)
                     {
-                        lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color), under));
+                        lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color,
+                            Glyphs: under ? skipInk : null), under));
                         top += 2 * thickness * doubleDirection;
                     }
                     lines.Add((new DisplayItem(DisplayItemKind.Decoration, new RoundedRect(new RectF(left, top, right - left, thickness), default), d.Color,
-                        LineStyle: d.Style == TextDecorationStyle.Double ? TextDecorationStyle.Solid : d.Style), under));
+                        Glyphs: under ? skipInk : null, LineStyle: d.Style == TextDecorationStyle.Double ? TextDecorationStyle.Solid : d.Style), under));
                 }
                 if (d.Line.HasFlag(TextDecorationLine.Underline))
                     Add(baseline + (d.Offset ?? (face.UnderlinePosition != 0 ? -face.UnderlinePosition * scale : run.Run.Size / 10)), true, 1);
@@ -386,6 +458,108 @@ internal static class DisplayListBuilder
             SetClip(box.Clip);
             list.Items.Add(new DisplayItem(DisplayItemKind.Border, outer,
                 Border: new BorderGroup(w, w, w, w, borderStyle, borderStyle, borderStyle, borderStyle, color, color, color, color)));
+        }
+
+        /// <summary>
+        /// Gradient background layers, bottom layer first (css-backgrounds-3 §3): each sized by background-size in its
+        /// background-origin box (a gradient has no size of its own, so auto, cover and contain fill the box), placed by
+        /// background-position, repeated by background-repeat, and clipped to its background-clip box.
+        /// </summary>
+        // ponytail: space and round repeat like repeat; url() layers are drawn once images load.
+        private void PaintBackgroundImages(PaintBox box, RoundedRect borderBox)
+        {
+            var style = box.Box.Style;
+            var background = style.Background;
+            for (var i = background.Images.Count - 1; i >= 0; i--)
+            {
+                if (background.Images[i] is not GradientImage { Computed: { } gradient })
+                    continue;
+                var origin = Area(borderBox, style, box.Fragment, background.Origins[i % background.Origins.Count]).Rect;
+                var clip = Area(borderBox, style, box.Fragment, background.Clips[i % background.Clips.Count]);
+                var size = background.Sizes[i % background.Sizes.Count];
+                var (w, h) = size.Kind != BackgroundSizeKind.Explicit ? (origin.Width, origin.Height)
+                    : (size.Width.Kind == SizeKind.Length ? size.Width.Length.Resolve(origin.Width) : origin.Width,
+                       size.Height.Kind == SizeKind.Length ? size.Height.Length.Resolve(origin.Height) : origin.Height);
+                if (w <= 0 || h <= 0)
+                    continue;
+                var position = background.Positions[i % background.Positions.Count];
+                var (x, y) = (origin.X + position.X.Resolve(origin.Width - w), origin.Y + position.Y.Resolve(origin.Height - h));
+                var repeat = background.Repeats[i % background.Repeats.Count];
+                // Tiles cover the clip box in the axes that repeat, starting from one that touches the placed tile.
+                var (x0, x1) = repeat.X == BackgroundRepeat.NoRepeat ? (x, x + w) : (x - MathF.Ceiling((x - clip.Rect.X) / w) * w, clip.Rect.Right);
+                var (y0, y1) = repeat.Y == BackgroundRepeat.NoRepeat ? (y, y + h) : (y - MathF.Ceiling((y - clip.Rect.Y) / h) * h, clip.Rect.Bottom);
+                if ((x1 - x0) / w * ((y1 - y0) / h) > 4096)
+                    (x0, x1, y0, y1) = (x, x + w, y, y + h);
+
+                SetClip(box.Clip);
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, clip));
+                for (var ty = y0; ty < y1 - 0.01f; ty += h)
+                {
+                    for (var tx = x0; tx < x1 - 0.01f; tx += w)
+                    {
+                        var tile = new RectF(tx, ty, w, h);
+                        if (GradientGeometry.Build(gradient, tile, style.Inherited.Color) is { } paint)
+                            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(tile, default), Gradient: paint));
+                    }
+                }
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            }
+        }
+
+        // A background box of the border box: border-box, padding-box or content-box (text clips as border-box).
+        private static RoundedRect Area(RoundedRect borderBox, ComputedStyle style, Fragment fragment, BackgroundBox which)
+        {
+            if (which is BackgroundBox.BorderBox or BackgroundBox.Text)
+                return borderBox;
+            var border = style.Border;
+            var padding = borderBox.Inset(border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+            if (which == BackgroundBox.PaddingBox)
+                return padding;
+            var s = style.Spacing;
+            return padding.Inset(s.PaddingTop.Resolve(fragment.Width), s.PaddingRight.Resolve(fragment.Width),
+                s.PaddingBottom.Resolve(fragment.Width), s.PaddingLeft.Resolve(fragment.Width));
+        }
+
+        /// <summary>
+        /// An image in its content box, sized and placed by object-fit and object-position
+        /// (https://www.w3.org/TR/css-images-3/#the-object-fit) and clipped to the content box.
+        /// </summary>
+        // ponytail: padding percentages resolve against the box's own width, as for backgrounds.
+        private void PaintImage(PaintBox box)
+        {
+            var replaced = (ReplacedBox)box.Box;
+            var style = replaced.Style;
+            if (style.Inherited.Visibility != Visibility.Visible || replaced.Image is not { } image || replaced.NaturalSize is not { } natural)
+                return;
+            var (border, spacing, w) = (style.Border, style.Spacing, box.Fragment.Width);
+            var content = box.Rect.Inset(border.TopWidth + spacing.PaddingTop.Resolve(w), border.RightWidth + spacing.PaddingRight.Resolve(w),
+                border.BottomWidth + spacing.PaddingBottom.Resolve(w), border.LeftWidth + spacing.PaddingLeft.Resolve(w));
+            if (content.Width <= 0 || content.Height <= 0)
+                return;
+
+            var (width, height) = natural;
+            var contain = Math.Min(content.Width / width, content.Height / height);
+            var scale = style.Replaced.Fit switch
+            {
+                ObjectFit.Contain => contain,
+                ObjectFit.Cover => Math.Max(content.Width / width, content.Height / height),
+                ObjectFit.None => 1,
+                ObjectFit.ScaleDown => Math.Min(1, contain),
+                _ => float.NaN,
+            };
+            var (objectWidth, objectHeight) = float.IsNaN(scale) ? (content.Width, content.Height) : (width * scale, height * scale);
+            var position = style.Replaced.Position;
+            var destination = new RectF(content.X + position.X.Resolve(content.Width - objectWidth), content.Y + position.Y.Resolve(content.Height - objectHeight),
+                objectWidth, objectHeight);
+
+            SetClip(box.Clip);
+            var overflows = destination.X < content.X || destination.Y < content.Y || destination.Right > content.Right || destination.Bottom > content.Bottom;
+            if (overflows)
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(content, default)));
+            var sampling = style.Inherited.ImageRendering is ImageRendering.Pixelated or ImageRendering.CrispEdges ? ImageSampling.Pixelated : ImageSampling.Smooth;
+            list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(destination, default), Image: image, Sampling: sampling));
+            if (overflows)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

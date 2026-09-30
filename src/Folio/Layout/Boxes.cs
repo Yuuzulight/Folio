@@ -68,6 +68,15 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
 {
     public ReplacedKind Kind { get; } = kind;
     public bool IsAtomicInline { get; init; }
+
+    /// <summary>For images: the decoded image, or null when it could not be loaded or decoded.</summary>
+    public Imaging.DecodedImage? Image { get; init; }
+
+    /// <summary>Image pixels per CSS pixel, from the chosen srcset candidate.</summary>
+    public float Density { get; init; } = 1;
+
+    /// <summary>The natural width and height in CSS pixels (https://www.w3.org/TR/css-images-3/#natural-dimensions), if any.</summary>
+    public (float Width, float Height)? NaturalSize => Image is { } image ? (image.Width / Density, image.Height / Density) : null;
 }
 
 internal sealed class FlexContainerBox(ComputedStyle style, Node? node, PseudoElement pseudoElement = PseudoElement.None) : Box(style, node, pseudoElement)

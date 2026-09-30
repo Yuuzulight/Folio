@@ -14,16 +14,28 @@ internal static class DisplayListPlayer
             switch (item.Kind)
             {
                 case DisplayItemKind.Fill:
-                    canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color)));
+                    canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color), Gradient: item.Gradient));
+                    break;
+                case DisplayItemKind.BoxShadow:
+                    PaintBoxShadow(canvas, item);
                     break;
                 case DisplayItemKind.Border:
                     PaintBorder(canvas, item.Shape, item.Border!);
                     break;
                 case DisplayItemKind.Glyphs:
-                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color)));
+                    canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color), item.Blur));
+                    break;
+                case DisplayItemKind.Decoration when item.Glyphs is { } ink && SkipInk(canvas, item.Shape.Rect, item.LineStyle, ink) is { } gaps:
+                    canvas.Save();
+                    canvas.ClipPath(gaps, FillRule.NonZero);
+                    PaintDecoration(canvas, item.Shape.Rect, item.LineStyle, new Paint(ToRgba(item.Color)));
+                    canvas.Restore();
                     break;
                 case DisplayItemKind.Decoration:
                     PaintDecoration(canvas, item.Shape.Rect, item.LineStyle, new Paint(ToRgba(item.Color)));
+                    break;
+                case DisplayItemKind.Image:
+                    canvas.DrawImage(item.Image!, item.Shape.Rect, item.Sampling);
                     break;
                 case DisplayItemKind.PushClip:
                     canvas.Save();
@@ -42,6 +54,35 @@ internal static class DisplayListPlayer
                     break;
             }
         }
+    }
+
+    // The parts of a decoration line that do not come near the glyphs' ink, as a clip path: the canvas finds where the
+    // outlines cross the line's band, and a gap of the line's thickness is left on each side
+    // (https://www.w3.org/TR/css-text-decor-4/#text-decoration-skip-ink-property). Null when nothing crosses it.
+    private static PathData? SkipInk(ICanvas canvas, RectF rect, TextDecorationStyle style, GlyphRun ink)
+    {
+        var t = rect.Height;
+        var (top, bottom) = (rect.Y, rect.Y + (style == TextDecorationStyle.Wavy ? 3 * t : t));
+        var intercepts = canvas.GlyphIntercepts(ink.Font, ink.Size, ink.Glyphs, ink.Origins, top, bottom);
+        if (intercepts.Length < 2)
+            return null;
+        var gap = Math.Max(1, t);
+        var cuts = new List<(float From, float To)>();
+        for (var i = 0; i + 1 < intercepts.Length; i += 2)
+            cuts.Add((intercepts[i] - gap, intercepts[i + 1] + gap));
+        cuts.Sort();
+        var path = new PathData();
+        var (x, y, height) = (rect.X, top - t, bottom - top + 2 * t);
+        foreach (var (from, to) in cuts)
+        {
+            if (from > x)
+                path.AddRoundedRect(new RoundedRect(new RectF(x, y, Math.Min(from, rect.Right) - x, height), default));
+            x = Math.Max(x, to);
+        }
+        if (x < rect.Right)
+            path.AddRoundedRect(new RoundedRect(new RectF(x, y, rect.Right - x, height), default));
+        // Everything is cut away: an empty rectangle keeps the clip empty.
+        return path.Commands.Count > 0 ? path : new PathData().AddRoundedRect(new RoundedRect(new RectF(rect.X, y, 0, 0), default));
     }
 
     // A decoration line of thickness rect.Height from rect.Y down: dots and dashes along its middle, waves below its top.
@@ -86,6 +127,29 @@ internal static class DisplayListPlayer
         canvas.Save();
         canvas.ClipRoundedRect(new RoundedRect(new RectF(rect.X, rect.Y - t, rect.Width, 5 * t), default));
         canvas.StrokePath(path, stroke, paint);
+        canvas.Restore();
+    }
+
+    // A box shadow: blurred, and clipped to the outside of the border box (outer) or the inside of the padding box
+    // (inset, where the shadow is the region outside its shape).
+    private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item)
+    {
+        var paint = new Paint(ToRgba(item.Color), item.Blur);
+        var box = item.Box;
+        var margin = 3 * item.Blur + Math.Abs(item.Shape.Rect.X - box.Rect.X) + Math.Abs(item.Shape.Rect.Y - box.Rect.Y)
+                     + Math.Abs(item.Shape.Rect.Width - box.Rect.Width) + Math.Abs(item.Shape.Rect.Height - box.Rect.Height) + 1;
+        var around = new RoundedRect(box.Rect.Inset(-margin, -margin, -margin, -margin), default);
+        canvas.Save();
+        if (item.Inset)
+        {
+            canvas.ClipRoundedRect(box);
+            canvas.FillPath(new PathData().AddRoundedRect(around).AddRoundedRect(item.Shape), FillRule.EvenOdd, paint);
+        }
+        else
+        {
+            canvas.ClipPath(new PathData().AddRoundedRect(around).AddRoundedRect(box), FillRule.EvenOdd);
+            canvas.FillRoundedRect(item.Shape, paint);
+        }
         canvas.Restore();
     }
 

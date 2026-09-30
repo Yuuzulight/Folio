@@ -34,8 +34,31 @@ public readonly record struct RoundedRect(RectF Rect, CornerRadii Radii)
 /// <summary>An sRGB colour with straight (not premultiplied) alpha, each channel from 0 to 1.</summary>
 public readonly record struct Rgba(float R, float G, float B, float A);
 
-/// <summary>What a fill or stroke paints with. Solid colours for now; gradients and image patterns come in M2.</summary>
-public readonly record struct Paint(Rgba Color);
+/// <summary>What a fill or stroke paints with: a solid colour, or a gradient when one is given.</summary>
+/// <param name="Blur">The standard deviation, in CSS pixels, of a Gaussian blur applied to what is painted (shadows); 0 for none.</param>
+public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradient = null);
+
+public enum GradientKind
+{
+    Linear,
+    Radial,
+    Conic,
+}
+
+/// <summary>A gradient colour stop: its offset along the gradient, from 0 to 1, and its colour.</summary>
+public readonly record struct GradientStop(float Offset, Rgba Color);
+
+/// <summary>
+/// A gradient in canvas coordinates. Its stops run from 0 to 1: from <paramref name="Start"/> to <paramref name="End"/>
+/// (linear), from <paramref name="Center"/> out to the ellipse of <paramref name="Radii"/> (radial), or around
+/// <paramref name="Center"/> from <paramref name="StartAngle"/> to <paramref name="EndAngle"/>, in degrees clockwise from
+/// the top (conic). Colours between stops are interpolated in sRGB with premultiplied alpha; any other interpolation is
+/// already expressed in the stops. Beyond the ends the end colours continue, or with <paramref name="Repeat"/> the stops
+/// repeat.
+/// </summary>
+public sealed record Gradient(GradientKind Kind, IReadOnlyList<GradientStop> Stops, bool Repeat = false,
+                              Vector2 Start = default, Vector2 End = default, Vector2 Center = default, Vector2 Radii = default,
+                              float StartAngle = 0, float EndAngle = 360);
 
 public enum FillRule
 {
@@ -51,6 +74,16 @@ public enum LineCap
 
 /// <summary>How a path is stroked: its width, cap, and an optional dash pattern (on, off, ... lengths).</summary>
 public readonly record struct Stroke(float Width, LineCap Cap = LineCap.Butt, IReadOnlyList<float>? Dashes = null);
+
+/// <summary>How image pixels are sampled when an image is drawn larger or smaller than its pixel size.</summary>
+public enum ImageSampling
+{
+    /// <summary>Smoothly interpolated.</summary>
+    Smooth,
+
+    /// <summary>Nearest pixel, so enlarged pixels stay square (image-rendering: pixelated and crisp-edges).</summary>
+    Pixelated,
+}
 
 /// <summary>Options for a compositing layer; the layer is blended back when popped.</summary>
 public readonly record struct LayerOptions(float Opacity);

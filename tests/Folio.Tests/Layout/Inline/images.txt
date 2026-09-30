@@ -1,0 +1,68 @@
+Replaced elements with natural dimensions (CSS 2.2 sections 10.3.2, 10.4 and 10.6.2; HTML srcset density
+selection). The test images are data: URLs: a 4x2 PNG (aspect ratio 2) and a 2x2 PNG.
+
+=== an inline image has its natural size and sits on the baseline
+<!DOCTYPE html><style>body, div { margin: 0 }</style><div><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC"></div>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    div 0,0 800x16
+      line 0,0 800x16
+        img 0,10.8 4x2
+
+=== a specified width gives the height through the ratio
+<!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img style="width: 40px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+html 0,0 800x20
+  body 0,0 800x20
+    img 0,0 40x20
+
+=== a specified height gives the width through the ratio
+<!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img style="height: 10px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+html 0,0 800x10
+  body 0,0 800x10
+    img 0,0 20x10
+
+=== max-width with both sizes auto keeps the ratio
+<!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img style="max-width: 2px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+html 0,0 800x1
+  body 0,0 800x1
+    img 0,0 2x1
+
+=== min-height with both sizes auto keeps the ratio
+<!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img style="min-height: 10px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+html 0,0 800x10
+  body 0,0 800x10
+    img 0,0 20x10
+
+=== width and height attributes set both sizes
+<!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img width="8" height="12" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+html 0,0 800x12
+  body 0,0 800x12
+    img 0,0 8x12
+
+=== a 2x srcset candidate halves the natural size
+<!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img srcset="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC 2x">
+---
+html 0,0 800x1
+  body 0,0 800x1
+    img 0,0 2x1
+
+=== an image in a shrink-to-fit box counts with its natural width
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; height: 8px }</style><div style="float: left"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC"></div>
+---
+html 0,0 800x8
+  body 0,0 800x0
+    div 0,0 16x8
+      img 0,0 16x8
+
+=== auto margins centre a block image
+<!DOCTYPE html><style>body { margin: 0 } img { display: block; margin: 0 auto }</style><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">
+---
+html 0,0 800x2
+  body 0,0 800x2
+    img 398,0 4x2

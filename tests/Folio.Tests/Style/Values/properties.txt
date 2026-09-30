@@ -318,3 +318,29 @@ color: red
 cursor: pointer
 accent-color: rgb(0, 0, 255)
 scrollbar-color: rgb(255, 0, 0) rgb(0, 0, 255)
+
+=== box-shadow lists, in any order within a shadow
+box-shadow: 2px 3px red, blue inset 0 0 4px 1px
+---
+box-shadow: 2px 3px 0px 0px rgb(255, 0, 0), inset 0px 0px 4px 1px rgb(0, 0, 255)
+
+=== box-shadow without a colour keeps currentcolor
+box-shadow: 1em 0
+---
+box-shadow: 16px 0px 0px 0px currentcolor
+
+=== invalid shadows are dropped
+box-shadow: 1px 1px; box-shadow: 1px; box-shadow: 1px 1px -2px; box-shadow: 1px 1px, none
+---
+box-shadow: 1px 1px 0px 0px currentcolor
+
+=== text-shadow takes no spread and no inset, and inherits
+%parent text-shadow: 1px 2px 3px red
+text-shadow: inset 1px 1px; text-shadow: 1px 1px 1px 1px
+---
+text-shadow: 1px 2px 3px 0px rgb(255, 0, 0)
+=== text-decoration-skip-ink inherits
+%parent text-decoration-skip-ink: none
+color: red
+---
+text-decoration-skip-ink: none

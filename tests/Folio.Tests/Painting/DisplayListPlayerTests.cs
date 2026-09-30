@@ -61,6 +61,8 @@ public class DisplayListPlayerTests
             Calls.Add($"stroke {stroke.Width} {stroke.Cap} {string.Join(",", stroke.Dashes ?? [])}");
         public void DrawGlyphs(Folio.Typography.IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<System.Numerics.Vector2> origins, in Paint paint) =>
             Calls.Add($"glyphs {glyphs.Length}");
+        public void DrawImage(Folio.Imaging.IImageHandle image, in RectF destination, ImageSampling sampling) =>
+            Calls.Add($"image {image.Width}x{image.Height} {sampling}");
         public void PushLayer(in LayerOptions options) => Calls.Add($"layer {options.Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         public void PopLayer() => Calls.Add("pop-layer");
     }
