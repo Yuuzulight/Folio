@@ -1,0 +1,87 @@
+=== an animation that fills forwards holds its last keyframe
+<!DOCTYPE html><style>@keyframes fade { from { opacity: 0 } to { opacity: 1; margin-top: 4px } } p { opacity: 0; animation: fade .5s ease-out forwards }</style><p id=a>x</p>
+---
+#a opacity: 1
+#a margin-top: 4px
+
+=== without forwards or both the animation has no effect
+<!DOCTYPE html><style>@keyframes fade { to { opacity: 1 } } #a { opacity: 0; animation: fade 1s } #b { opacity: 0; animation: fade 1s backwards }</style><p id=a>x</p><p id=b>y</p>
+---
+#a opacity: 0
+#b opacity: 0
+
+=== both fills forwards too
+<!DOCTYPE html><style>@keyframes fade { to { opacity: 1 } } p { opacity: 0; animation: 1s both fade }</style><p id=a>x</p>
+---
+#a opacity: 1
+
+=== infinite animations never end
+<!DOCTYPE html><style>@keyframes spin { to { margin-top: 9px } } p { animation: spin 1s linear infinite forwards }</style><p id=a>x</p>
+---
+#a margin-top: 16px
+
+=== reverse ends on the first keyframe
+<!DOCTYPE html><style>@keyframes m { 0% { margin-top: 1px } 100% { margin-top: 2px } } p { animation: m 1s reverse forwards }</style><p id=a>x</p>
+---
+#a margin-top: 1px
+
+=== alternate ends where its last iteration runs to
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 1px } to { margin-top: 2px } } #a { animation: m 1s 2 alternate forwards } #b { animation: m 1s 3 alternate forwards } #c { animation: m 1s 2 alternate-reverse forwards }</style><p id=a>x</p><p id=b>y</p><p id=c>z</p>
+---
+#a margin-top: 1px
+#b margin-top: 2px
+#c margin-top: 2px
+
+=== no iterations holds the start
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 1px } to { margin-top: 2px } } p { animation: m 1s 0 forwards }</style><p id=a>x</p>
+---
+#a margin-top: 1px
+
+=== a property the last keyframe leaves out keeps its value
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 1px; color: red } to { margin-top: 2px } } p { color: blue; animation: m 1s forwards }</style><p id=a>x</p>
+---
+#a margin-top: 2px
+#a color: rgb(0, 0, 255)
+
+=== keyframes at the same offset merge, and a later block wins
+<!DOCTYPE html><style>@keyframes m { 50%, to { margin-top: 1px; margin-left: 1px } 100% { margin-top: 2px } } p { animation: m 1s forwards }</style><p id=a>x</p>
+---
+#a margin-top: 2px
+#a margin-left: 1px
+
+=== animations beat the style attribute, important declarations beat animations
+<!DOCTYPE html><style>@keyframes m { to { margin-top: 2px; margin-left: 2px } } p { margin-left: 5px !important; animation: m 1s forwards }</style><p id=a style="margin-top: 7px">x</p>
+---
+#a margin-top: 2px
+#a margin-left: 5px
+
+=== a later animation wins
+<!DOCTYPE html><style>@keyframes one { to { margin-top: 1px } } @keyframes two { to { margin-top: 2px } } p { animation: two 1s forwards, one 1s forwards }</style><p id=a>x</p>
+---
+#a margin-top: 1px
+
+=== the longhands, and the last @keyframes of a name
+<!DOCTYPE html><style>@keyframes m { to { margin-top: 1px } } @-webkit-keyframes m { to { margin-top: 3px } } p { animation-name: m; animation-fill-mode: forwards; animation-direction: normal; animation-iteration-count: 1 }</style><p id=a>x</p>
+---
+#a margin-top: 3px
+#a animation-fill-mode: forwards
+#a animation-direction: normal
+
+=== an unknown name, a keyframes name in quotes, and none
+<!DOCTYPE html><style>@keyframes "m" { to { margin-top: 1px } } #a { animation: nope 1s forwards } #b { animation: "m" 1s forwards } #c { animation: none }</style><p id=a>x</p><p id=b>y</p><p id=c>z</p>
+---
+#a margin-top: 16px
+#b margin-top: 1px
+#c animation-fill-mode: none
+
+=== important declarations and invalid selectors in keyframes are ignored
+<!DOCTYPE html><style>@keyframes m { to { margin-top: 1px !important; margin-left: 1px } 120% { margin-bottom: 1px } } p { animation: m 1s forwards }</style><p id=a>x</p>
+---
+#a margin-top: 16px
+#a margin-left: 1px
+#a margin-bottom: 16px
+
+=== a keyframes rule inside a matching media block counts
+<!DOCTYPE html><style>@media (min-width: 1px) { @keyframes m { to { margin-top: 1px } } } p { animation: m 1s forwards }</style><p id=a>x</p>
+---
+#a margin-top: 1px

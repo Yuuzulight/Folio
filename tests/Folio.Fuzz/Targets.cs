@@ -84,17 +84,19 @@ internal static class Targets
         new[] { "reftests", "goldens" }.SelectMany(folder => Directory.GetFiles(Path.Combine(RepoPaths.Tests, folder, "svg"), "*.html"))
             .Select(File.ReadAllBytes);
 
-    // Web font unwrapping, then the font reader, as a document's @font-face would run them.
+    // Web font unwrapping, then the font reader and its kerning, as a document's @font-face would run them.
     private static void Font(byte[] data)
     {
         if (WebFontDecoder.Decode(data) is { } sfnt && FontFace.Parse(sfnt) is { } face)
-            face.GlyphFor('A');
+            face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
     }
 
     private static IEnumerable<byte[]> FontSeeds()
     {
         var box = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioBox.ttf"));
-        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box)];
+        // The text font brings GPOS kerning (both pair adjustment formats) for the mutations to reach.
+        var text = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text];
     }
 
     private static void Css(byte[] data)

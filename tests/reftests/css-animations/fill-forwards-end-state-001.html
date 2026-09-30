@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<title>Animations that fill forwards are drawn in their end state; others are not applied</title>
+<link rel="help" href="https://www.w3.org/TR/css-animations-1/#animation-fill-mode">
+<style>
+  body { margin: 0; }
+  @keyframes appear { from { opacity: 0; margin-left: 40px; } to { opacity: 1; margin-left: 10px; } }
+  div { width: 20px; height: 20px; margin: 10px; background: blue; }
+  .in { opacity: 0; margin-left: 40px; animation: appear .6s ease-out forwards; }
+  .still { opacity: 0; animation: appear .6s ease-out; }
+</style>
+<div class="in"></div>
+<div class="still"></div>
+<div class="in" style="animation: appear .6s ease-in 2s forwards"></div>

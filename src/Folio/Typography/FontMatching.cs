@@ -296,7 +296,7 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
 
 /// <summary>
 /// Folio's shaper for simple scripts (docs/study/11-text.md, shaping option B): one glyph per character from the
-/// cmap, advances from hmtx, kerning from the kern table. GPOS/GSUB kerning and ligatures come with the layout tables.
+/// cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. GSUB ligatures come later.
 /// </summary>
 internal static class SimpleShaper
 {

@@ -94,6 +94,9 @@ internal static class StyleResolver
         origins.Add(author);
 
         var registered = origins.SelectMany(o => o.Registered).GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Last().Value, StringComparer.Ordinal);
+        var keyframes = new Dictionary<string, List<Keyframe>>(StringComparer.Ordinal);
+        foreach (var (name, blocks) in origins.SelectMany(o => o.Keyframes))
+            keyframes[name] = blocks;
         var filter = new AncestorFilter();
         var context = new MatchContext { Filter = filter };
         var rootFontSize = Style.ComputedStyle.Initial.Font.Size;
@@ -129,14 +132,14 @@ internal static class StyleResolver
             if (!sharable || shared.Find(item.Parent, rootFontSize, matched) is not { } style)
             {
                 var (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints);
-                var computeContext = new ComputeContext(item.Parent, rootFontSize, media.Width, media.Height)
+                style = StyleBuilder.Compute(values, Context(item.Parent, custom), groups);
+                // Animations that fill forwards hold their end state: their keyframes join the cascade and the style is
+                // computed again.
+                if (Animations.EndState(style.Animation, keyframes) is { } animated)
                 {
-                    PrefersDark = media.DarkColorScheme,
-                    Measure = measure,
-                    Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
-                    Registered = registered,
-                };
-                style = StyleBuilder.Compute(values, computeContext, groups);
+                    (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints, animated);
+                    style = StyleBuilder.Compute(values, Context(item.Parent, custom), groups);
+                }
                 if (sharable)
                     shared.Add(item.Parent, rootFontSize, matched, style);
             }
@@ -154,14 +157,7 @@ internal static class StyleResolver
                     if (!always && pseudoMatched.Count == 0)
                         return null;
                     var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null);
-                    var pseudoContext = new ComputeContext(style, rootFontSize, media.Width, media.Height)
-                    {
-                        PrefersDark = media.DarkColorScheme,
-                        Measure = measure,
-                        Custom = CustomProperties.Compute(style.Custom, pseudoCustom, registered),
-                        Registered = registered,
-                    };
-                    return StyleBuilder.Compute(pseudoValues, pseudoContext, groups);
+                    return StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
                 }
                 styles.Before = Pseudo(PseudoElement.Before);
                 styles.After = Pseudo(PseudoElement.After);
@@ -181,6 +177,15 @@ internal static class StyleResolver
         }
         document.StyleState = new Restyler(origins, media, measure, registered, sources.BaseUrl, rootFontSize, groups);
         return [.. origins.Skip(1).SelectMany(o => o.FontFaces)];
+
+        ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
+            new(parent, rootFontSize, media.Width, media.Height)
+            {
+                PrefersDark = media.DarkColorScheme,
+                Measure = measure,
+                Custom = CustomProperties.Compute(parent.Custom, custom, registered),
+                Registered = registered,
+            };
     }
 
     /// <summary>

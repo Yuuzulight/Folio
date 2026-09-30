@@ -56,6 +56,7 @@ internal sealed class FontFace : IFontHandle
     private readonly CharacterMap _cmap;
     private readonly ushort[] _advances;
     private readonly Dictionary<uint, short> _kerning;
+    private readonly GposKerning? _gposKerning;
 
     private FontFace(FontData data, Dictionary<string, (int, int)> tables)
     {
@@ -79,6 +80,7 @@ internal sealed class FontFace : IFontHandle
         _advances = ReadAdvances(Table("hmtx"), metricCount, GlyphCount);
         _cmap = CharacterMap.Read(Table("cmap"));
         _kerning = TryTable("kern") is { } kern ? ReadKern(kern) : [];
+        _gposKerning = TryTable("GPOS") is { } gpos ? GposKerning.Read(gpos) : null;
 
         Weight = (macStyle & 1) != 0 ? 700 : 400;
         Style = (macStyle & 2) != 0 ? FaceStyle.Italic : FaceStyle.Normal;
@@ -206,8 +208,11 @@ internal sealed class FontFace : IFontHandle
     /// <summary>Advance width in font units.</summary>
     public int Advance(ushort glyph) => glyph < _advances.Length ? _advances[glyph] : 0;
 
-    /// <summary>Kerning between two glyphs from the kern table, in font units (GPOS kerning arrives with the layout tables).</summary>
-    public int Kerning(ushort left, ushort right) => _kerning.GetValueOrDefault(((uint)left << 16) | right);
+    /// <summary>
+    /// Kerning between two glyphs in font units: from the GPOS kern feature when the font has one, else from the kern table.
+    /// </summary>
+    public int Kerning(ushort left, ushort right) =>
+        _gposKerning?.Kerning(left, right) ?? _kerning.GetValueOrDefault(((uint)left << 16) | right);
 
     private FontData Table(string tag) => TryTable(tag) ?? throw new InvalidDataException($"Missing {tag} table.");
 
