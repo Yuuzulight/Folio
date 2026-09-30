@@ -133,6 +133,7 @@ internal static class StyleResolver
                     PrefersDark = media.DarkColorScheme,
                     Measure = measure,
                     Custom = CustomProperties.Compute(item.Parent.Custom, custom, registered),
+                    Registered = registered,
                 };
                 style = StyleBuilder.Compute(values, computeContext, groups);
                 if (sharable)
@@ -157,6 +158,7 @@ internal static class StyleResolver
                         PrefersDark = media.DarkColorScheme,
                         Measure = measure,
                         Custom = CustomProperties.Compute(style.Custom, pseudoCustom, registered),
+                        Registered = registered,
                     };
                     return StyleBuilder.Compute(pseudoValues, pseudoContext, groups);
                 }

@@ -31,7 +31,11 @@ public class CascadeTests
             var space = line.IndexOf(' ');
             var (label, property) = (line[..space], line[(space + 1)..line.IndexOf(':')]);
             var style = Find(document, label).ComputedStyle()!;
-            return $"{label} {property}: {Properties.Find(property)!.Describe(style)}";
+            // Custom properties print their computed text, or "none" when they have no value.
+            var value = property.StartsWith("--", StringComparison.Ordinal)
+                ? style.Custom.GetValueOrDefault(property) ?? "none"
+                : Properties.Find(property)!.Describe(style);
+            return $"{label} {property}: {value}";
         });
         Assert.Equal(test.Expected, actual);
     }

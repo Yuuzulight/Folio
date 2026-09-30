@@ -142,6 +142,13 @@ internal sealed class ValueReader(string source, List<ComponentValue> values)
         return null;
     }
 
+    /// <summary>The source text of the values read since <paramref name="mark"/>, without surrounding whitespace.</summary>
+    public string TextSince(int mark)
+    {
+        var read = values.Skip(mark).Take(_pos - mark).Where(v => v is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }).ToList();
+        return read.Count == 0 ? "" : source[read[0].Start..read[^1].End];
+    }
+
     /// <summary>Any dimension: its number and its unit as written.</summary>
     public (float Value, string Unit)? Dimension()
     {

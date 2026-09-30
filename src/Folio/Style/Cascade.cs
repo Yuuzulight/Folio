@@ -256,6 +256,9 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
         return result;
     }
 
+    // https://www.w3.org/TR/css-properties-values-api-1/#the-property-rule: syntax and inherits are required, and so is
+    // an initial value that matches the syntax and is computationally independent, unless the syntax is "*".
+    // An invalid rule registers nothing.
     private void Register(string source, AtRule at)
     {
         if (at.Prelude.FirstOrDefault(v => v is not PreservedToken { Token.Kind: CssTokenKind.Whitespace }) is not PreservedToken { Token.Kind: CssTokenKind.Ident } name
@@ -263,6 +266,7 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
             return;
         bool? inherits = null;
         string? initial = null;
+        PropertySyntax? syntax = null;
         foreach (var declaration in at.Declarations)
         {
             var text = declaration.Value.Count == 0 ? "" : source[declaration.Value[0].Start..declaration.Value[^1].End].Trim();
@@ -270,9 +274,18 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
                 inherits = text.ToLowerInvariant() switch { "true" => true, "false" => false, _ => null };
             else if (declaration.Name == "initial-value")
                 initial = text;
+            else if (declaration.Name == "syntax")
+                syntax = new ValueReader(source, declaration.Value) is var reader && reader.String() is { } written && reader.AtEnd ? PropertySyntax.Parse(written) : null;
         }
-        if (inherits is { } i)
-            Registered[name.Token.Value] = new RegisteredProperty(i, initial); // syntax checking arrives in M2
+        if (inherits is not { } i || syntax is null)
+            return;
+        if (!syntax.IsUniversal)
+        {
+            if (initial is null || initial.Contains("var(", StringComparison.OrdinalIgnoreCase) || syntax.Compute(initial, null) is not { } typed)
+                return;
+            initial = typed;
+        }
+        Registered[name.Token.Value] = new RegisteredProperty(i, initial, syntax);
     }
 
     private static List<string>? LayerNames(string source, List<ComponentValue> prelude)

@@ -373,6 +373,9 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
     /// <summary>The host's preferred colour scheme (prefers-color-scheme).</summary>
     public bool PrefersDark { get; init; }
 
+    /// <summary>The <c>@property</c> registrations in effect, whose custom properties compute for their syntax.</summary>
+    public IReadOnlyDictionary<string, RegisteredProperty>? Registered { get; init; }
+
     /// <summary>Whether the element uses the dark scheme (its color-scheme and the preference), for light-dark().</summary>
     public bool UsesDark { get; set; }
 

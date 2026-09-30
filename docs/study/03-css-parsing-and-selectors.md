@@ -48,5 +48,5 @@
 - **`@layer`**: supported (compiled utility-class CSS depends on it).
 - **`@import`**: through the host loader, depth-limited (default 4), cycles detected.
 - **`@keyframes`**: parsed and stored; see [cascade](04-cascade-and-computed-values.md) for how M1 and M2 use them.
-- **`@property`**: parsed; registered initial values and `inherits` honoured; syntax checking of registered properties arrives in M2.
+- **`@property`**: a rule registers only with a valid `syntax` string and `inherits`, plus an initial value that matches the syntax and uses no relative units or `var()` (unless the syntax is `*`). Registered values compute for their syntax once the element's font size and colour are known (lengths to px, angles to deg, times to s, colours to `rgb()`), so descendants inherit the computed value; a value that does not match is invalid at computed-value time and falls back to the inherited or initial value. Interpolating registered values arrives with the animation timeline.
 - Every dropped declaration or rule can be reported as a diagnostic ("unsupported property `x`"), which Mana can feed back to the model that wrote the artifact.
