@@ -116,12 +116,12 @@ internal static class BlockLayout
                 Place(item.Fragment.Box!, item.Fragment, border.LeftWidth + padding.Left + item.X, border.TopWidth + padding.Top + item.Y);
             foreach (var (child, left, top, right, bottom) in gridPositioned)
             {
-                if (style.Box.Position == Position.Static || child.Style.Box.Position != Position.Absolute)
+                if (!IsContainingBlock(box, child))
                 {
                     outOfFlow.Add(new(child, border.LeftWidth + padding.Left, border.TopWidth + padding.Top));
                     continue;
                 }
-                // A positioned grid is the containing block of its absolute children: each gets its grid area, auto
+                // A grid that is the containing block of its positioned children gives each its grid area, auto
                 // lines being its padding edges (css-grid-1 §9.1).
                 var (l, t) = (left ?? -padding.Left, top ?? -padding.Top);
                 var (r, b) = (right ?? width + padding.Right, bottom ?? Clamp(height ?? gridHeight, minHeight, maxHeight) + padding.Bottom);
@@ -265,16 +265,16 @@ internal static class BlockLayout
             (leading, pending) = (pending, default);
         }
 
-        // A positioned box is the containing block of its absolutely positioned descendants (CSS 2.2 §10.1): they are
-        // laid out against its padding box now that its size is known. Fixed ones go on up to the viewport.
-        if (style.Box.Position != Position.Static && outOfFlow.Count > 0)
+        // Positioned descendants this box is the containing block of are laid out against its padding box now that its
+        // size is known; the others go on up.
+        if ((style.Box.Position != Position.Static || box.IsTransformed) && outOfFlow.Count > 0)
         {
             var carried = outOfFlow.ToList();
             outOfFlow.Clear();
             var (paddingWidth, paddingHeight) = (width + padding.Left + padding.Right, contentHeight + padding.Top + padding.Bottom);
             foreach (var o in carried)
             {
-                if (o.Box.Style.Box.Position == Position.Fixed)
+                if (!IsContainingBlock(box, o.Box))
                 {
                     outOfFlow.Add(o);
                     continue;
@@ -298,6 +298,12 @@ internal static class BlockLayout
             OutOfFlow = outOfFlow,
         };
     }
+
+    // A positioned box is the containing block of its absolutely positioned descendants (CSS 2.2 §10.1); a transformed
+    // box is the containing block of its fixed ones too (https://www.w3.org/TR/css-transforms-1/#transform-rendering).
+    // Fixed boxes otherwise go on up to the viewport.
+    private static bool IsContainingBlock(Box box, Box positioned) =>
+        box.IsTransformed || box.Style.Box.Position != Position.Static && positioned.Style.Box.Position == Position.Absolute;
 
     // float and clear: inline-start and inline-end are left and right in a left-to-right containing block, and the other
     // way round in a right-to-left one (css-logical-1 §3.1).

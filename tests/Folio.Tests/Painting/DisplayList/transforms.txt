@@ -91,3 +91,10 @@ shadow 2,2 20x20 rgb(1, 0, 0) blur 0 outside 0,0 20x20
 decoration 0,14.4 16x1 solid rgb(0, 0, 0)
 glyphs 0,12.8 16px rgb(0, 0, 0)
 pop
+
+=== fixed descendants paint inside the transform of the box they are positioned in
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; transform: translate(5px)"><div style="position: fixed; top: 0; left: 0; width: 5px; height: 5px; background: rgb(1, 0, 0)"></div></div>
+---
+transform 1,0,0,1,5,0
+fill 0,0 5x5 rgb(1, 0, 0)
+pop
