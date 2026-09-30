@@ -50,10 +50,11 @@ internal enum BlendMode
 }
 
 /// <summary>
-/// Graphic effects (not inherited): <c>filter</c>, <c>backdrop-filter</c>, <c>mix-blend-mode</c> and
-/// <c>background-blend-mode</c> (one mode per background layer, repeated when shorter).
+/// Graphic effects (not inherited): <c>filter</c>, <c>backdrop-filter</c>, <c>mix-blend-mode</c>,
+/// <c>background-blend-mode</c> (one mode per background layer, repeated when shorter) and <c>clip-path</c>.
 /// </summary>
-internal sealed record EffectsGroup(FilterList Filter, FilterList BackdropFilter, BlendMode MixBlendMode, IReadOnlyList<BlendMode> BackgroundBlendModes)
+internal sealed record EffectsGroup(FilterList Filter, FilterList BackdropFilter, BlendMode MixBlendMode, IReadOnlyList<BlendMode> BackgroundBlendModes,
+                                   ClipPath ClipPath)
 {
-    public static EffectsGroup Initial { get; } = new(FilterList.None, FilterList.None, BlendMode.Normal, [BlendMode.Normal]);
+    public static EffectsGroup Initial { get; } = new(FilterList.None, FilterList.None, BlendMode.Normal, [BlendMode.Normal], ClipPath.None);
 }

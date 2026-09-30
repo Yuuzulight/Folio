@@ -20,6 +20,8 @@ public class Reftests
     [InlineData("filter-effects/grayscale-grey-001")]
     [InlineData("compositing/mix-blend-mode-normal-001")]
     [InlineData("compositing/isolation-isolate-001")]
+    [InlineData("css-masking/clip-path-inset-001")]
+    [InlineData("css-masking/clip-path-circle-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);

@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>clip-path: inset(10px) shows the box 10px in from each edge of its border box</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#the-clip-path">
+<style>
+  body { margin: 0; }
+  div { display: flow-root; width: 100px; height: 60px; background: blue; clip-path: inset(10px); }
+  span { display: block; margin: 20px 0 0 20px; width: 200px; height: 10px; background: orange; }
+</style>
+<div><span></span></div>

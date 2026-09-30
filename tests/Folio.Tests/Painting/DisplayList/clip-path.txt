@@ -1,0 +1,82 @@
+=== inset clips to the inset rectangle with its own corners
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 100px; height: 50px; background: rgb(1, 0, 0); clip-path: inset(10px 20% round 5px 50%)"></div>
+---
+clip 20,10 60x30 radius 5 30,15 5 30,15
+fill 0,0 100x50 rgb(1, 0, 0)
+pop
+
+=== a circle is a rounded rectangle, its percentage of the normalised diagonal
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="margin-left: 10px; width: 40px; height: 40px; background: rgb(1, 0, 0); clip-path: circle(50%)"></div>
+---
+clip 10,0 40x40 radius 20
+fill 10,0 40x40 rgb(1, 0, 0)
+pop
+
+=== a circle's closest and farthest sides are any of the four edges
+<!DOCTYPE html><style>body { margin: 0 } div { width: 100px; height: 50px }</style><div style="clip-path: circle(closest-side at 25% 50%)"></div><div style="clip-path: circle(farthest-side at 25% 50%)"></div>
+---
+clip 0,0 50x50 radius 25
+pop
+clip -50,0 150x150 radius 75
+pop
+
+=== an ellipse measures each radius along its own axis
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 100px; height: 50px; clip-path: ellipse(closest-side farthest-side at 25% 20%)"></div>
+---
+clip 0,-30 50x80 radius 25,40
+pop
+
+=== a polygon is a path in the reference box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="margin-left: 10px; width: 100px; height: 50px; clip-path: polygon(evenodd, 0 0, 100% 0, 50% 100%)"></div>
+---
+clip path evenodd M10,0 L110,0 L60,50 Z
+pop
+
+=== a path is moved to the reference box
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="margin-left: 10px; width: 100px; height: 50px; clip-path: path('M 0 0 H 10 V 10 Q 0 10 0 5 z')"></div>
+---
+clip path M10,0 L20,0 L20,10 C13.33,10 10,8.33 10,5 Z
+pop
+
+=== reference boxes, with the corners of each; the margin box takes the used margins
+<!DOCTYPE html><style>body { margin: 0 } div { margin: 5px; border: 2px solid rgb(1, 0, 0); padding: 3px; width: 20px; height: 10px; border-radius: 4px }</style><div style="clip-path: padding-box"></div><div style="clip-path: content-box"></div><div style="clip-path: margin-box; margin: 5px 6px"></div><div style="clip-path: inset(0) content-box"></div>
+---
+clip 7,7 26x16 radius 2
+border 5,5 30x20 radius 4 2 solid rgb(1, 0, 0)
+pop
+clip 10,35 20x10
+border 5,30 30x20 radius 4 2 solid rgb(1, 0, 0)
+pop
+clip 0,50 800x30 radius 10,9 768,9 768,9 10,9
+border 6,55 30x20 radius 4 2 solid rgb(1, 0, 0)
+pop
+clip 10,85 20x10
+border 5,80 30x20 radius 4 2 solid rgb(1, 0, 0)
+pop
+
+=== the clip path goes inside the transform and outside the layer, the clips from outside around it
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="overflow: hidden; height: 20px"><div style="height: 10px; background: rgb(1, 0, 0); transform: translate(1px); opacity: 0.5; clip-path: inset(1px)"></div></div>
+---
+clip 0,0 800x20
+transform 1,0,0,1,1,0
+clip 1,1 798x8
+opacity 0.5
+fill 0,0 800x10 rgb(1, 0, 0)
+pop
+pop
+pop
+pop
+
+=== a clipped box is a stacking context and its outline is clipped with it
+<!DOCTYPE html><style>body { margin: 0 } div { height: 10px }</style><div style="outline: 1px solid rgb(3, 0, 0); clip-path: inset(0); z-index: 1; background: rgb(1, 0, 0)"></div><div style="position: relative; margin-top: -10px; background: rgb(2, 0, 0)"></div>
+---
+clip 0,0 800x10
+fill 0,0 800x10 rgb(1, 0, 0)
+border -1,-1 802x12 1 solid rgb(3, 0, 0)
+pop
+fill 0,0 800x10 rgb(2, 0, 0)
+
+=== clip-path none paints no clip
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="height: 10px; background: rgb(1, 0, 0); clip-path: none"></div>
+---
+fill 0,0 800x10 rgb(1, 0, 0)
