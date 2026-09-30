@@ -254,6 +254,92 @@ internal static class SvgGeometry
         return segments;
     }
 
+    /// <summary>An angle in degrees: a number, or a number with deg, rad, grad or turn; null when invalid.</summary>
+    public static float? ParseAngle(string? text)
+    {
+        if (text is null)
+            return null;
+        text = text.Trim();
+        var scanner = new NumberScanner(text);
+        if (scanner.Number() is not { } number)
+            return null;
+        return text[scanner.Position..].ToLowerInvariant() switch
+        {
+            "" or "deg" => number,
+            "rad" => number * 180 / MathF.PI,
+            "grad" => number * 0.9f,
+            "turn" => number * 360,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The vertices of normalised path segments where markers go (https://www.w3.org/TR/SVG2/painting.html#MarkerElement):
+    /// each subpath's start and every segment's end, with the directions of the segments coming in and going out (null
+    /// where there is none, or it has no length). At a closed subpath's start and end, the closing segment comes in and
+    /// the first one goes out.
+    /// </summary>
+    public static List<(Vector2 Point, Vector2? In, Vector2? Out)> Vertices(IReadOnlyList<PathSegment> segments)
+    {
+        var vertices = new List<(Vector2 Point, Vector2? In, Vector2? Out)>();
+        var (current, start, first) = (Vector2.Zero, Vector2.Zero, 0);
+        static Vector2? Direction(params Vector2[] candidates) => candidates.Where(v => v != Vector2.Zero).Select(v => (Vector2?)v).FirstOrDefault();
+        void To(Vector2 point, Vector2? outgoing, Vector2? incoming)
+        {
+            if (vertices.Count > 0 && vertices[^1].Out is null)
+                vertices[^1] = vertices[^1] with { Out = outgoing };
+            vertices.Add((point, incoming, null));
+            current = point;
+        }
+        foreach (var segment in segments)
+        {
+            switch (segment.Verb)
+            {
+                case 'M':
+                    vertices.Add((segment.P1, null, null));
+                    (current, start, first) = (segment.P1, segment.P1, vertices.Count - 1);
+                    break;
+                case 'L':
+                {
+                    var d = Direction(segment.P1 - current);
+                    To(segment.P1, d, d);
+                    break;
+                }
+                case 'C':
+                    To(segment.P3, Direction(segment.P1 - current, segment.P2 - current, segment.P3 - current),
+                        Direction(segment.P3 - segment.P2, segment.P3 - segment.P1, segment.P3 - current));
+                    break;
+                default:
+                {
+                    var d = Direction(start - current) ?? vertices[^1].In;
+                    To(start, d, d);
+                    // The closed subpath's start and end vertex: the closing segment in, the first one out.
+                    vertices[first] = vertices[first] with { In = vertices[^1].In };
+                    vertices[^1] = vertices[^1] with { Out = vertices[first].Out };
+                    break;
+                }
+            }
+        }
+        return vertices;
+    }
+
+    /// <summary>
+    /// The angle, in degrees clockwise on the screen, that orient="auto" gives a marker at a vertex: the bisector of the
+    /// incoming and outgoing directions, or whichever there is.
+    /// </summary>
+    public static float MarkerAngle(Vector2? incoming, Vector2? outgoing)
+    {
+        static float Degrees(Vector2 v) => MathF.Atan2(v.Y, v.X) * 180 / MathF.PI;
+        if (incoming is not { } i)
+            return outgoing is { } only ? Degrees(only) : 0;
+        if (outgoing is not { } o)
+            return Degrees(i);
+        var (a, b) = (Degrees(i), Degrees(o));
+        if (MathF.Abs(b - a) > 180)
+            b += b < a ? 360 : -360;
+        return (a + b) / 2;
+    }
+
     /// <summary>The box around a rectangle mapped by a transform.</summary>
     public static SvgRect Transform(SvgRect rect, Matrix3x2 matrix)
     {

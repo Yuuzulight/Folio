@@ -188,6 +188,9 @@ internal enum PropertyId
     StopColor,
     StopOpacity,
     ClipRule,
+    MarkerStart,
+    MarkerMid,
+    MarkerEnd,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -1372,6 +1375,11 @@ internal static class Properties
         // https://www.w3.org/TR/css-text-3/#overflow-wrap-property: word-wrap is a legacy name for overflow-wrap.
         ["word-wrap"] = new([PropertyId.OverflowWrap], r => Get(PropertyId.OverflowWrap).Parse(r) is { } wrap ? [(PropertyId.OverflowWrap, wrap)] : null),
         // https://www.w3.org/TR/css-ui-4/#outline: width || style || color
+        // marker: all three markers at once (https://www.w3.org/TR/SVG2/painting.html#MarkerShorthand).
+        ["marker"] = new([PropertyId.MarkerStart, PropertyId.MarkerMid, PropertyId.MarkerEnd], r =>
+            Get(PropertyId.MarkerStart).Parse(r) is { } value
+                ? [(PropertyId.MarkerStart, value), (PropertyId.MarkerMid, value), (PropertyId.MarkerEnd, value)]
+                : null),
         ["outline"] = new([PropertyId.OutlineWidth, PropertyId.OutlineStyle, PropertyId.OutlineColor], r =>
         {
             CssValue? width = null, style = null, color = null;

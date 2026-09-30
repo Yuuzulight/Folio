@@ -16,6 +16,12 @@ internal readonly record struct SvgPaint(CssColor? Color, string? Url = null)
 
 internal enum SvgFillRule { Nonzero, Evenodd }
 
+/// <summary>A marker property's value: the text inside url(), or none when null.</summary>
+internal readonly record struct MarkerReference(string? Url)
+{
+    public override string ToString() => Url is null ? "none" : $"url({Url})";
+}
+
 internal enum StrokeLinecap { Butt, Round, Square }
 
 internal enum StrokeLinejoin { Miter, Round, Bevel }
@@ -45,7 +51,8 @@ internal sealed class DashArray(IReadOnlyList<LengthPercentage> dashes) : IEquat
 
 /// <summary>
 /// The SVG painting and text properties (all inherited): fill and stroke with their opacities and stroke geometry,
-/// clip-rule (https://drafts.csswg.org/css-masking-1/#the-clip-rule),
+/// clip-rule (https://drafts.csswg.org/css-masking-1/#the-clip-rule), the markers (url() references;
+/// https://www.w3.org/TR/SVG2/painting.html#VertexMarkerProperties),
 /// (https://www.w3.org/TR/SVG2/painting.html), paint-order, text-anchor (https://www.w3.org/TR/SVG2/text.html#TextAnchoringProperties)
 /// and dominant-baseline (https://www.w3.org/TR/css-inline-3/#dominant-baseline-property). Lengths keep their
 /// percentages, which refer to the SVG viewport.
@@ -53,7 +60,8 @@ internal sealed class DashArray(IReadOnlyList<LengthPercentage> dashes) : IEquat
 internal sealed record SvgGroup(SvgPaint Fill, float FillOpacity, SvgFillRule FillRule, SvgPaint Stroke, float StrokeOpacity,
                                 LengthPercentage StrokeWidth, StrokeLinecap StrokeLinecap, StrokeLinejoin StrokeLinejoin, float StrokeMiterlimit,
                                 DashArray StrokeDasharray, LengthPercentage StrokeDashoffset, PaintOrder PaintOrder, TextAnchor TextAnchor,
-                                DominantBaseline DominantBaseline, SvgFillRule ClipRule = SvgFillRule.Nonzero)
+                                DominantBaseline DominantBaseline, SvgFillRule ClipRule = SvgFillRule.Nonzero, MarkerReference MarkerStart = default,
+                                MarkerReference MarkerMid = default, MarkerReference MarkerEnd = default)
 {
     public static SvgGroup Initial { get; } = new(new SvgPaint(CssColor.Black), 1, SvgFillRule.Nonzero, SvgPaint.None, 1, new LengthPercentage(1),
         StrokeLinecap.Butt, StrokeLinejoin.Miter, 4, DashArray.None, default, PaintOrder.Normal, TextAnchor.Start, DominantBaseline.Auto);

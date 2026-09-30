@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>Markers sit on the vertices, their reference point on the vertex, scaled by the stroke width</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/painting.html#MarkerElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><marker id="m" markerWidth="4" markerHeight="4" refX="2" refY="2"><rect width="4" height="4" fill="blue" /></marker><polyline points="20,20 100,20 100,80" fill="none" stroke="none" stroke-width="5" marker-start="url(#m)" marker-mid="url(#m)" marker-end="url(#m)" /></svg>

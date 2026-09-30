@@ -112,6 +112,35 @@ public class SvgGeometryTests
         Assert.Null(SvgGeometry.Bounds([]));
     }
 
+    [Theory]
+    [InlineData("M0 0 L10 0 L10 10", "0,0 0 | 10,0 45 | 10,10 90")]
+    [InlineData("M0 0 L10 0 L10 10 Z", "0,0 -67.5 | 10,0 45 | 10,10 157.5 | 0,0 -67.5")]
+    [InlineData("M0 0 C0 10 10 10 10 0", "0,0 90 | 10,0 -90")]
+    [InlineData("M0 0 C0 0 10 10 10 0 L10 0 L20 0", "0,0 45 | 10,0 -90 | 10,0 0 | 20,0 0")]
+    [InlineData("M0 0 L10 0 M20 0 L20 10", "0,0 0 | 10,0 0 | 20,0 90 | 20,10 90")]
+    public void MarkerVerticesAndAngles(string data, string expected)
+    {
+        var vertices = SvgGeometry.Vertices(Folio.Css.PathDataParser.Parse(data)!);
+
+        Assert.Equal(expected, string.Join(" | ", vertices.Select(v =>
+            string.Create(CultureInfo.InvariantCulture, $"{v.Point.X},{v.Point.Y} {Math.Round(SvgGeometry.MarkerAngle(v.In, v.Out), 2) + 0}"))));
+    }
+
+    [Theory]
+    [InlineData("45", 45f)]
+    [InlineData(" -30deg ", -30f)]
+    [InlineData("0.5turn", 180f)]
+    [InlineData("100grad", 90f)]
+    [InlineData("3.1415927rad", 180f)]
+    [InlineData("auto", null)]
+    [InlineData("10px", null)]
+    public void Angles(string text, float? expected)
+    {
+        var angle = SvgGeometry.ParseAngle(text);
+
+        Assert.Equal(expected, angle is { } a ? MathF.Round(a, 3) : null);
+    }
+
     private static string? Matrix(Matrix3x2? matrix) => matrix is { } m
         ? string.Join(",", new[] { m.M11, m.M12, m.M21, m.M22, m.M31, m.M32 }.Select(v => (Math.Round(v, 3) + 0).ToString(CultureInfo.InvariantCulture)))
         : null;
