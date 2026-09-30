@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Unglamorous Art of Keeping Things Running</title>
+<style>
+  :root {
+    --paper: #fbf8f3;
+    --ink: #2a2622;
+    --muted: #7a7068;
+    --rule: #d9d0c3;
+    --accent: #8c2f1b;
+    --measure: 36em;
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 19px;
+    line-height: 1.7;
+  }
+
+  article {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 64px 24px 96px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+
+  .section-label {
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-size: 2.6rem;
+    line-height: 1.12;
+    font-weight: normal;
+    margin: 14px 0 16px;
+    letter-spacing: -0.01em;
+  }
+
+  .dek {
+    font-size: 1.15rem;
+    font-style: italic;
+    color: var(--muted);
+    margin: 0 auto 20px;
+    max-width: 30em;
+  }
+
+  .byline {
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .byline strong { color: var(--ink); }
+
+  h2 {
+    font-size: 1.35rem;
+    font-weight: normal;
+    font-style: italic;
+    margin: 56px 0 16px;
+    text-align: center;
+  }
+
+  p { margin: 0 0 1.2em; hyphens: auto; }
+
+  article > section:first-of-type > p:first-of-type::first-letter {
+    float: left;
+    font-size: 4.2em;
+    line-height: 0.85;
+    padding: 6px 8px 0 0;
+    color: var(--accent);
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { color: var(--ink); }
+
+  sup.fn a {
+    font-family: var(--sans);
+    font-size: 0.7em;
+    font-weight: 700;
+    text-decoration: none;
+    padding: 0 1px;
+  }
+
+  blockquote {
+    margin: 1.6em 0;
+    padding: 0 0 0 1.4em;
+    border-left: 3px solid var(--rule);
+    color: var(--muted);
+  }
+
+  blockquote p { margin-bottom: 0.4em; }
+
+  blockquote footer {
+    font-family: var(--sans);
+    font-size: 0.8rem;
+  }
+
+  blockquote footer::before { content: "\2014\00a0"; }
+
+  .pullquote {
+    margin: 2em -3em;
+    padding: 0.6em 0;
+    border: none;
+    text-align: center;
+    color: var(--accent);
+    font-size: 1.55rem;
+    line-height: 1.35;
+    font-style: italic;
+    position: relative;
+  }
+
+  .pullquote::before,
+  .pullquote::after {
+    content: "";
+    display: block;
+    width: 80px;
+    height: 2px;
+    margin: 0 auto;
+    background: var(--accent);
+  }
+
+  .pullquote::before { margin-bottom: 0.7em; }
+  .pullquote::after { margin-top: 0.7em; }
+
+  .pullquote.aside {
+    float: right;
+    width: 14em;
+    margin: 0.3em -4em 1em 1.5em;
+    font-size: 1.2rem;
+    text-align: left;
+  }
+
+  .pullquote.aside::before,
+  .pullquote.aside::after { margin-left: 0; }
+
+  hr {
+    border: none;
+    text-align: center;
+    margin: 3em 0;
+    height: 1em;
+  }
+
+  hr::after {
+    content: "\2042";
+    color: var(--muted);
+    font-size: 1.3rem;
+  }
+
+  figure {
+    margin: 2.4em 0;
+    font-family: var(--sans);
+  }
+
+  .ledger {
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 4px;
+    padding: 16px 20px;
+    font-size: 0.8rem;
+    box-shadow: 0 1px 0 var(--rule), 0 6px 18px rgba(42, 38, 34, 0.06);
+  }
+
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 1fr 90px 90px;
+    padding: 5px 0;
+    border-bottom: 1px dotted var(--rule);
+  }
+
+  .ledger-row:last-child { border-bottom: none; }
+  .ledger-row span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+  .ledger-row.head { font-weight: 700; color: var(--muted); text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.08em; }
+  .ledger-row.total { font-weight: 700; border-top: 2px solid var(--ink); }
+
+  figcaption {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  figcaption b { color: var(--ink); }
+
+  .footnotes {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .footnotes h2 {
+    font-family: var(--sans);
+    font-style: normal;
+    font-size: 0.75rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-align: left;
+    margin: 0 0 12px;
+  }
+
+  .footnotes ol { padding-left: 1.4em; margin: 0; }
+  .footnotes li { margin-bottom: 0.7em; }
+  .footnotes li:target { background: #f3e9dc; }
+  .backref { text-decoration: none; font-family: var(--sans); }
+
+  .author-note {
+    margin-top: 40px;
+    padding: 16px 20px;
+    border-radius: 6px;
+    background: #f2ece3;
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  @media (max-width: 900px) {
+    .pullquote { margin-left: 0; margin-right: 0; }
+    .pullquote.aside { margin-right: 0; }
+  }
+
+  @media (max-width: 560px) {
+    body { font-size: 17px; }
+    h1 { font-size: 2rem; }
+    .pullquote.aside { float: none; width: auto; margin: 2em 0; }
+  }
+</style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="section-label">Essay &middot; Cities</div>
+    <h1>The Unglamorous Art of Keeping Things Running</h1>
+    <p class="dek">We celebrate the people who build bridges. We rarely notice the people who stop them from falling down.</p>
+    <div class="byline">By <strong>Ines Halvorsen</strong> &middot; 14 min read</div>
+  </header>
+
+  <section>
+    <p>
+      Every weekday morning at a quarter past five, a crew of four leaves a depot on
+      the east bank of the river in a white van with a ladder on the roof. They are
+      not going anywhere in particular. Their job, as their supervisor Walter Mbeki
+      puts it, is "to go and look at things." They look at expansion joints and
+      drainage grates, at the paint on railings and the bolts on lamp posts. They look
+      at the same things they looked at last month, and the month before that, and in
+      the great majority of cases they find nothing wrong.
+    </p>
+    <p>
+      That is the point. The city of Harwick spends a little under <strong>&pound;3.1
+      million</strong> a year on this kind of routine inspection across its 212 bridges,
+      culverts and footways.<sup class="fn"><a href="#fn-1" id="ref-1">1</a></sup> It is the
+      least interesting line in the transport budget, and every councillor I spoke to
+      could recite, unprompted, a list of more exciting things it could pay for.
+    </p>
+    <p>
+      I want to make the case that it is also the most important line, and that the
+      way we talk about it&mdash;or, more often, fail to talk about it&mdash;tells us
+      something uncomfortable about how societies decide what is worth doing.
+    </p>
+  </section>
+
+  <h2>The ribbon and the spanner</h2>
+  <section>
+    <p>
+      New things have a constituency. A new bridge comes with a ribbon, a ceremony,
+      a photograph of a smiling official holding oversized scissors. It appears in
+      a manifesto and, later, in a list of achievements. Nobody has ever held a
+      ceremony to mark the fifteenth consecutive year in which a bridge did not
+      collapse.
+    </p>
+
+    <blockquote class="pullquote aside">
+      Nobody holds a ceremony for the fifteenth year a bridge did not collapse.
+    </blockquote>
+
+    <p>
+      Economists have a dry name for this imbalance. They call maintenance a
+      <em>credence good</em> from the point of view of the voter: its quality cannot
+      be judged even after it has been bought. You cannot see a well-maintained
+      drain. You can only see a flooded street, and by the time you see it the
+      decision that caused it was made years earlier by someone who has since moved
+      on.
+    </p>
+    <p>
+      The result is a steady drift. In one study of forty mid-sized councils, the
+      share of capital budgets spent on renewal and repair fell from 46% to 31%
+      over two decades, while spending on new schemes rose to fill the gap.<sup class="fn"><a href="#fn-2" id="ref-2">2</a></sup>
+      None of the councils had decided to neglect their assets. They had simply,
+      year after year, found a more pressing use for the money.
+    </p>
+    <p>
+      Walter Mbeki has watched this happen from the inside. When he joined the
+      inspection team in 1998 there were eleven people on it. Today there are six,
+      covering roughly a third more structures. "Nobody ever cut us," he told me.
+      "They just never replaced anyone who left."
+    </p>
+  </section>
+
+  <hr>
+
+  <h2>What deferral really costs</h2>
+  <section>
+    <p>
+      The standard defence of delay is that it is prudent. Money is tight; the
+      bridge is fine for now; better to wait until the need is certain. It sounds
+      responsible. It is usually the most expensive option available.
+    </p>
+    <p>
+      Engineers describe the decay of most structures with a curve that is flat
+      for a long time and then drops sharply. A concrete deck with a small crack
+      that lets in water will look almost unchanged for years. Then the steel
+      inside begins to corrode, expands, and splits the concrete from within. The
+      repair that would have cost a few thousand pounds in year three becomes a
+      full replacement in year fifteen.
+    </p>
+
+    <figure>
+      <div class="ledger" role="table" aria-label="Lifetime cost comparison">
+        <div class="ledger-row head" role="row"><span>Item</span><span>Maintained</span><span>Deferred</span></div>
+        <div class="ledger-row" role="row"><span>Inspections, 30 years</span><span>&pound;84k</span><span>&pound;31k</span></div>
+        <div class="ledger-row" role="row"><span>Joint and drainage repairs</span><span>&pound;126k</span><span>&pound;0</span></div>
+        <div class="ledger-row" role="row"><span>Deck waterproofing (twice)</span><span>&pound;210k</span><span>&pound;0</span></div>
+        <div class="ledger-row" role="row"><span>Emergency closure and diversion</span><span>&pound;0</span><span>&pound;340k</span></div>
+        <div class="ledger-row" role="row"><span>Deck replacement, year 22</span><span>&pound;0</span><span>&pound;1,480k</span></div>
+        <div class="ledger-row total" role="row"><span>Total</span><span>&pound;420k</span><span>&pound;1,851k</span></div>
+      </div>
+      <figcaption><b>Figure 1.</b> Thirty-year costs for a typical 40-metre concrete road bridge under two policies. Figures are illustrative, based on unit rates published by the regional highways board.</figcaption>
+    </figure>
+
+    <p>
+      The numbers in Figure 1 are a simplified example, but the shape is typical.
+      Deferral is not saving money; it is borrowing it, at a punishing rate of
+      interest, from a future budget that will have its own emergencies to deal
+      with. And unlike ordinary borrowing, it does not appear on any balance
+      sheet. There is no line in the accounts for "bridge slowly getting worse".
+    </p>
+    <p>
+      A handful of places have tried to change this. Since 2019, the neighbouring
+      county of Pellow has published an annual <em>asset condition report</em> that
+      puts a single figure on the backlog: the cost of bringing everything back to
+      a good state. When it was first published the figure was &pound;94 million.
+      It has since fallen to &pound;71 million, one of the few declines in the
+      country.
+    </p>
+
+    <blockquote>
+      <p>
+        Once the number was printed, it stopped being an engineering problem and
+        became a political one. Every year someone had to stand up and explain
+        why it had gone up or down.
+      </p>
+      <footer>Ruth Adeyinka, former finance director, Pellow County Council</footer>
+    </blockquote>
+  </section>
+
+  <h2>The people who notice</h2>
+  <section>
+    <p>
+      If maintenance is invisible to voters, it is anything but invisible to the
+      people who do it. Spend a day with Mbeki's crew and you begin to see the
+      city differently: as a vast, slowly shifting machine held together by
+      thousands of small acts of attention.
+    </p>
+    <p>
+      At a footbridge over the ring road, Aisha Kowalczyk, the youngest member of
+      the team, crouches beside a bearing and points out a streak of rust no longer
+      than my thumb. "That's new since March," she says, photographing it and
+      noting the reference number. It will go into a database, be assigned a
+      priority, and&mdash;if the budget allows&mdash;be cleaned and painted before
+      winter. If it does not, it will be photographed again in September, and the
+      streak will be a little longer.
+    </p>
+
+    <blockquote class="pullquote">
+      The work is not heroic. It is attentive, which is rarer and, in the long run,
+      worth more.
+    </blockquote>
+
+    <p>
+      There is a particular kind of expertise here that is hard to write down. The
+      team know which structures "talk"&mdash;which ones creak in cold weather, which
+      drains block every autumn, which joints were badly installed in the eighties
+      and need watching. Much of this knowledge lives in the heads of people close
+      to retirement. When they leave, it leaves with them.<sup class="fn"><a href="#fn-3" id="ref-3">3</a></sup>
+    </p>
+    <p>
+      Some of that loss is inevitable. Some of it is a choice. Harwick has no
+      formal programme for pairing experienced inspectors with new ones; Kowalczyk
+      learned by following Mbeki around for two years, because he happened to be
+      willing to teach. That is how most of the country's maintenance knowledge is
+      passed on: informally, generously, and precariously.
+    </p>
+  </section>
+
+  <hr>
+
+  <h2>Making the invisible visible</h2>
+  <section>
+    <p>
+      What would it take to give maintenance the status it deserves? The answers
+      I heard fall into three broad groups.
+    </p>
+    <p>
+      The first is <strong>accounting</strong>. As Pellow shows, putting a number
+      on the backlog changes the conversation. It turns a vague sense that "things
+      are getting a bit worn" into a figure that can be tracked, compared and
+      argued over.
+    </p>
+    <p>
+      The second is <strong>ring-fencing</strong>. Several councils now set aside a
+      fixed share of their capital budget for renewal, which cannot be raided for new
+      schemes without a formal vote. It is a blunt tool, but blunt tools are hard to
+      quietly work around.
+    </p>
+    <p>
+      The third, and hardest, is <strong>culture</strong>. We could simply choose to
+      celebrate the people who keep things working. That sounds naive, but it has
+      precedent: hospitals track and publicise their infection rates; airlines are
+      proud of their safety records. In both cases, the absence of disaster is
+      treated as an achievement worth measuring. There is no reason a city could
+      not do the same for its bridges.
+    </p>
+    <p>
+      On my last morning with the crew, we stopped at a small stone bridge over a
+      stream on the outskirts of the city. It was built in 1821. It carries a lane
+      that sees perhaps two hundred cars a day. Mbeki walked slowly along its
+      parapet, then climbed down the bank to look underneath. He was there for
+      nearly ten minutes.
+    </p>
+    <p>
+      "It's fine," he said when he came back up. "It's been fine for two hundred
+      years." He paused. "That's because someone has been looking at it for two
+      hundred years."
+    </p>
+  </section>
+
+  <section class="footnotes" aria-label="Footnotes">
+    <h2>Notes</h2>
+    <ol>
+      <li id="fn-1">Harwick City Council, <em>Highways Asset Management Plan</em>, table 4.2. The figure covers inspection only, not the repairs that inspections identify. <a class="backref" href="#ref-1" aria-label="Back to reference 1">&#8617;</a></li>
+      <li id="fn-2">The study, by the Centre for Local Infrastructure, used councils with populations between 150,000 and 400,000. Capital budgets were adjusted for inflation. <a class="backref" href="#ref-2" aria-label="Back to reference 2">&#8617;</a></li>
+      <li id="fn-3">A 2024 workforce survey found that 38% of highway inspectors in the region were over 55, and fewer than one in ten were under 30. <a class="backref" href="#ref-3" aria-label="Back to reference 3">&#8617;</a></li>
+    </ol>
+  </section>
+
+  <p class="author-note">
+    Ines Halvorsen writes about cities and public services. This essay was
+    reported over four months with the cooperation of the Harwick highways
+    inspection team, who asked that their depot not be named.
+  </p>
+</article>
+</body>
+</html>

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laptop Comparison 2025</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --text: #111827;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --head-bg: #f9fafb;
+    --best-bg: #ecfdf3;
+    --best-ink: #047857;
+    --pick: #4f46e5;
+    --pick-bg: #eef2ff;
+    --yes: #059669;
+    --no: #9ca3af;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(17, 24, 39, 0.08), 0 8px 24px rgba(17, 24, 39, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 20px 56px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 28px;
+    letter-spacing: -0.01em;
+  }
+
+  .lead { margin: 0 0 24px; color: var(--muted); max-width: 68ch; }
+
+  h2 { margin: 40px 0 12px; font-size: 20px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .scroll-x {
+    overflow-x: auto;
+    border-radius: var(--radius);
+  }
+
+  table.compare {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    min-width: 1180px;
+    font-size: 14px;
+  }
+
+  .compare col.model { width: 200px; }
+  .compare col.num { width: 90px; }
+  .compare col.display { width: 170px; }
+  .compare col.cpu { width: 150px; }
+  .compare col.port { width: 64px; }
+
+  .compare th,
+  .compare td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .compare thead th {
+    background: var(--head-bg);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: left;
+    border-bottom: 1px solid #d1d5db;
+  }
+
+  .compare thead tr.groups th {
+    text-align: center;
+    color: var(--text);
+    font-size: 11px;
+    padding-top: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .compare thead tr.groups th + th { border-left: 1px solid var(--border); }
+
+  .compare .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .compare .center { text-align: center; }
+
+  .compare th.model-name {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--panel);
+    text-align: left;
+    font-weight: 600;
+    border-right: 1px solid var(--border);
+  }
+
+  .compare thead th.model-name { background: var(--head-bg); z-index: 2; }
+
+  .compare tbody tr:nth-child(even) td,
+  .compare tbody tr:nth-child(even) th.model-name { background: #fbfbfc; }
+
+  .compare tbody tr:hover td,
+  .compare tbody tr:hover th.model-name { background: #f5f7ff; }
+
+  .compare tbody tr:last-child th,
+  .compare tbody tr:last-child td { border-bottom: none; }
+
+  .compare td.best {
+    background: var(--best-bg);
+    color: var(--best-ink);
+    font-weight: 700;
+  }
+
+  .compare tbody tr:nth-child(even) td.best,
+  .compare tbody tr:hover td.best { background: var(--best-bg); }
+
+  .compare tr.pick th.model-name { box-shadow: inset 4px 0 0 var(--pick); }
+
+  .model-name small {
+    display: block;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--pick-bg);
+    color: var(--pick);
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: 1px;
+  }
+
+  .yes { color: var(--yes); font-weight: 700; }
+  .no { color: var(--no); }
+
+  .legend {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .legend .chip {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--best-bg);
+    color: var(--best-ink);
+    font-weight: 700;
+  }
+
+  .pick-layout {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .pick-copy { flex: 1 1 260px; }
+  .pick-copy p { margin: 0 0 10px; }
+
+  .spec-sheet {
+    flex: 1 1 420px;
+    overflow: hidden;
+  }
+
+  table.specs {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 14px;
+  }
+
+  .specs caption {
+    padding: 14px 16px;
+    text-align: left;
+    font-weight: 700;
+    background: var(--pick-bg);
+    color: var(--pick);
+  }
+
+  .specs th,
+  .specs td {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+    text-align: left;
+  }
+
+  .specs th {
+    width: 34%;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .specs td { font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 720px) {
+    body { padding: 20px 12px 40px; }
+    h1 { font-size: 23px; }
+    .specs th { width: 42%; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Thin-and-Light Laptops Compared</h1>
+    <p class="lead">Six 13&ndash;16 inch laptops we tested this spring, with their base retail configurations. The best figure in each column is highlighted in green. Battery life is from our 1080p video loop at 150 nits.</p>
+
+    <div class="panel">
+      <div class="scroll-x">
+        <table class="compare">
+          <colgroup>
+            <col class="model">
+            <col class="num">
+            <col class="num">
+            <col class="num">
+            <col class="display">
+            <col class="cpu">
+            <col class="num">
+            <col class="num">
+            <col class="port" span="3">
+            <col class="num">
+          </colgroup>
+          <thead>
+            <tr class="groups">
+              <th class="model-name" rowspan="2" scope="col">Model</th>
+              <th colspan="3" scope="colgroup">Price &amp; portability</th>
+              <th colspan="4" scope="colgroup">Hardware</th>
+              <th colspan="3" scope="colgroup">Ports</th>
+              <th rowspan="2" scope="col" class="num">Score</th>
+            </tr>
+            <tr>
+              <th scope="col" class="num">Price</th>
+              <th scope="col" class="num">Weight</th>
+              <th scope="col" class="num">Battery</th>
+              <th scope="col">Display</th>
+              <th scope="col">Processor</th>
+              <th scope="col" class="num">RAM</th>
+              <th scope="col" class="num">Storage</th>
+              <th scope="col" class="center">USB4</th>
+              <th scope="col" class="center">HDMI</th>
+              <th scope="col" class="center">SD</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="pick">
+              <th scope="row" class="model-name">Corvid Aero 14 <span class="badge">Our pick</span><small>Corvid Computing</small></th>
+              <td class="num">$1,149</td>
+              <td class="num">1.21 kg</td>
+              <td class="num">16.5 h</td>
+              <td>14.0&Prime; 2880&times;1800 OLED</td>
+              <td>Tessera X7, 12-core</td>
+              <td class="num">16 GB</td>
+              <td class="num">1 TB</td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="no">&#10007;</span></td>
+              <td class="num best">8.9</td>
+            </tr>
+            <tr>
+              <th scope="row" class="model-name">Lumen Slate 13<small>Lumen Devices</small></th>
+              <td class="num">$899</td>
+              <td class="num best">1.09 kg</td>
+              <td class="num">14.0 h</td>
+              <td>13.3&Prime; 2560&times;1600 IPS</td>
+              <td>Tessera X5, 10-core</td>
+              <td class="num">16 GB</td>
+              <td class="num">512 GB</td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="no">&#10007;</span></td>
+              <td class="center"><span class="no">&#10007;</span></td>
+              <td class="num">8.1</td>
+            </tr>
+            <tr>
+              <th scope="row" class="model-name">Brightline Pro 16<small>Brightline</small></th>
+              <td class="num">$1,799</td>
+              <td class="num">2.05 kg</td>
+              <td class="num">11.5 h</td>
+              <td class="best">16.0&Prime; 3200&times;2000 mini-LED</td>
+              <td class="best">Tessera X9, 16-core</td>
+              <td class="num best">32 GB</td>
+              <td class="num best">2 TB</td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="num">8.4</td>
+            </tr>
+            <tr>
+              <th scope="row" class="model-name">Norrland Studio 15<small>Norrland Tech</small></th>
+              <td class="num">$1,399</td>
+              <td class="num">1.72 kg</td>
+              <td class="num">13.0 h</td>
+              <td>15.3&Prime; 2880&times;1864 IPS</td>
+              <td>Tessera X7, 12-core</td>
+              <td class="num">24 GB</td>
+              <td class="num">1 TB</td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="num">8.2</td>
+            </tr>
+            <tr>
+              <th scope="row" class="model-name">Pebblebook Go 14<small>Pebble Labs</small></th>
+              <td class="num best">$649</td>
+              <td class="num">1.38 kg</td>
+              <td class="num best">18.5 h</td>
+              <td>14.0&Prime; 1920&times;1200 IPS</td>
+              <td>Quill Q3, 8-core</td>
+              <td class="num">8 GB</td>
+              <td class="num">512 GB</td>
+              <td class="center"><span class="no">&#10007;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="num">7.6</td>
+            </tr>
+            <tr>
+              <th scope="row" class="model-name">Arcwave Flip 13<small>Arcwave</small></th>
+              <td class="num">$999</td>
+              <td class="num">1.29 kg</td>
+              <td class="num">12.0 h</td>
+              <td>13.4&Prime; 1920&times;1200 touch</td>
+              <td>Tessera X5, 10-core</td>
+              <td class="num">16 GB</td>
+              <td class="num">1 TB</td>
+              <td class="center"><span class="yes">&#10003;</span></td>
+              <td class="center"><span class="no">&#10007;</span></td>
+              <td class="center"><span class="no">&#10007;</span></td>
+              <td class="num">7.8</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="legend"><span class="chip">Green</span> = best in column. Score is our overall rating out of 10, weighted towards battery, display and build quality.</p>
+
+    <h2>Our pick: Corvid Aero 14</h2>
+    <div class="pick-layout">
+      <div class="pick-copy">
+        <p>The Aero 14 is not the fastest or the cheapest laptop here, but it gets the balance right: a bright OLED panel, over 16 hours of battery, a full-size HDMI port and a 1 TB drive at a price well under the Brightline.</p>
+        <p>If you need a card reader or more than 16 GB of memory, the Norrland Studio 15 is the better buy for $250 more.</p>
+      </div>
+
+      <div class="panel spec-sheet">
+        <table class="specs">
+          <caption>Corvid Aero 14 &mdash; tested configuration</caption>
+          <tbody>
+            <tr><th scope="row">Model number</th><td>CA14-2025-G16</td></tr>
+            <tr><th scope="row">Processor</th><td>Tessera X7, 12 cores (4 performance + 8 efficiency), up to 4.8 GHz</td></tr>
+            <tr><th scope="row">Graphics</th><td>Integrated, 10-core</td></tr>
+            <tr><th scope="row">Memory</th><td>16 GB LPDDR5X-7500 (soldered)</td></tr>
+            <tr><th scope="row">Storage</th><td>1 TB PCIe 4.0 NVMe SSD</td></tr>
+            <tr><th scope="row">Display</th><td>14.0&Prime; OLED, 2880&times;1800, 120 Hz, 500 nits peak</td></tr>
+            <tr><th scope="row">Battery</th><td>72 Wh, 65 W USB-C charger included</td></tr>
+            <tr><th scope="row">Ports</th><td>2&times; USB4 (40 Gbps), 1&times; USB-A 3.2, HDMI 2.1, 3.5 mm audio</td></tr>
+            <tr><th scope="row">Wireless</th><td>Wi-Fi 7, Bluetooth 5.4</td></tr>
+            <tr><th scope="row">Camera</th><td>1080p with IR face sign-in</td></tr>
+            <tr><th scope="row">Dimensions</th><td>312 &times; 221 &times; 14.9 mm</td></tr>
+            <tr><th scope="row">Weight</th><td>1.21 kg</td></tr>
+            <tr><th scope="row">Warranty</th><td>2 years, parts and labour</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

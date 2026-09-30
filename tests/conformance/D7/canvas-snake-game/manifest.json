@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a snake game on a canvas. Arrow keys or WASD to steer, space to pause, a score and best score, the snake speeds up as it eats, a game over screen, and a restart button.",
+  "features": ["script", "canvas-2d", "request-animation-frame", "keyboard", "game-loop", "canvas-text", "canvas-arc", "hsl", "grid", "flex"],
+  "viewport": 800
+}

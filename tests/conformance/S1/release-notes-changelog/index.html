@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inkwell Notes: Release Notes</title>
+<style>
+  :root {
+    --ink: #1a1a2e;
+    --muted: #6b6b80;
+    --line: #e6e6ef;
+    --bg: #fcfcfe;
+    --accent: #e11d48;
+    --added: #16a34a;
+    --changed: #2563eb;
+    --fixed: #9333ea;
+    --removed: #dc2626;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    line-height: 1.6;
+  }
+
+  .container {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+
+  .subtitle { color: var(--muted); margin: 4px 0 24px; }
+
+  .versions {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 20px 12px 44px;
+    margin-bottom: 32px;
+    font-size: 0.925rem;
+  }
+
+  .versions li::marker { color: var(--muted); }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .release {
+    position: relative;
+    padding: 0 0 32px 28px;
+    border-left: 2px solid var(--line);
+    margin-left: 6px;
+  }
+
+  .release::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 10px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--accent);
+  }
+
+  .release.latest::before { background: var(--accent); }
+
+  .release-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .release h2 { margin: 0; font-size: 1.5rem; }
+  .release time { color: var(--muted); font-size: 0.875rem; }
+
+  .tag-latest {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #fff;
+    background: var(--accent);
+    padding: 1px 8px;
+    border-radius: 999px;
+  }
+
+  .release > p { margin: 8px 0 4px; }
+
+  h3 {
+    display: inline-block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 16px 0 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: #fff;
+  }
+
+  h3.added { background: var(--added); }
+  h3.changed { background: var(--changed); }
+  h3.fixed { background: var(--fixed); }
+  h3.removed { background: var(--removed); }
+
+  h4 { margin: 12px 0 4px; font-size: 0.95rem; }
+
+  .release ul { margin: 4px 0; padding-left: 20px; }
+  .release li { margin: 3px 0; }
+
+  code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    background: #f1f1f7;
+    border: 1px solid var(--line);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  kbd {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.8em;
+    background: #fff;
+    border: 1px solid #c9c9d6;
+    border-bottom-width: 3px;
+    border-radius: 5px;
+    padding: 0 5px;
+  }
+
+  .issue { color: var(--muted); font-size: 0.85em; }
+
+  .breaking {
+    margin: 14px 0;
+    padding: 12px 16px;
+    border: 1px solid #fecdd3;
+    background: #fff1f2;
+    border-radius: 8px;
+  }
+
+  .breaking strong { color: var(--accent); }
+
+  details {
+    margin-top: 12px;
+    font-size: 0.925rem;
+  }
+
+  summary {
+    cursor: pointer;
+    color: var(--muted);
+  }
+
+  summary:hover { color: var(--ink); }
+
+  hr {
+    border: none;
+    border-top: 1px dashed var(--line);
+    margin: 8px 0 32px;
+  }
+
+  .older { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>What's new in Inkwell</h1>
+  <p class="subtitle">Release notes for Inkwell Notes on desktop. We ship a new version roughly every three weeks.</p>
+
+  <ol class="versions" reversed>
+    <li><a href="#v5-3">5.3</a> &mdash; Linked blocks and a faster search index</li>
+    <li><a href="#v5-2">5.2</a> &mdash; Tables, finally</li>
+    <li><a href="#v5-1">5.1</a> &mdash; Sync reliability fixes</li>
+  </ol>
+
+  <section class="release latest" id="v5-3">
+    <div class="release-head">
+      <h2>5.3.0</h2>
+      <span class="tag-latest">Latest</span>
+      <time datetime="2026-09-24">24 September 2026</time>
+    </div>
+    <p>
+      This release introduces <strong>linked blocks</strong>, which let you embed a
+      paragraph from one note in another and keep both copies in sync. It also
+      replaces the search index, which is now <em>about four times faster</em> on
+      vaults with more than 10,000 notes.
+    </p>
+
+    <h3 class="added">Added</h3>
+    <ul>
+      <li>Linked blocks: type <code>((</code> to search for a block and embed it. <span class="issue">#2214</span></li>
+      <li>New command palette action, <em>Copy block link</em>, bound to <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>.</li>
+      <li>Search now supports <code>tag:</code> and <code>before:</code> filters, for example <code>tag:recipes before:2026-01-01</code>.</li>
+    </ul>
+
+    <h3 class="changed">Changed</h3>
+    <ul>
+      <li>The search index is rebuilt on first launch after updating. On a large vault this takes 1&ndash;3 minutes and runs in the background.</li>
+      <li>Daily notes now open at the end of the note instead of the start.</li>
+    </ul>
+
+    <div class="breaking">
+      <strong>Breaking change:</strong> the old <code>search.legacyIndex</code> setting has
+      been removed. If you had it enabled, it is ignored and the new index is used.
+    </div>
+
+    <h3 class="fixed">Fixed</h3>
+    <ul>
+      <li>Pasting a table from a spreadsheet no longer drops the last column. <span class="issue">#2190</span></li>
+      <li>Fixed a crash when renaming a note that was open in two windows. <span class="issue">#2231</span></li>
+      <li>Undo after <kbd>Ctrl</kbd>+<kbd>D</kbd> (duplicate line) now restores the cursor position.</li>
+    </ul>
+
+    <details>
+      <summary>Show 14 smaller fixes</summary>
+      <ul>
+        <li>Corrected the word count for text containing em dashes.</li>
+        <li>Fixed the outline panel flickering while typing a heading.</li>
+        <li>Improved contrast of placeholder text in dark themes.</li>
+        <li>Checkbox state is now preserved when moving a list item with <kbd>Alt</kbd>+<kbd>&uarr;</kbd>.</li>
+        <li>Fixed tooltips appearing off-screen near the right side of the window.</li>
+        <li>And nine more minor layout fixes.</li>
+      </ul>
+    </details>
+  </section>
+
+  <section class="release" id="v5-2">
+    <div class="release-head">
+      <h2>5.2.0</h2>
+      <time datetime="2026-09-02">2 September 2026</time>
+    </div>
+    <p>Our most requested feature: proper tables, with keyboard navigation and column resizing.</p>
+
+    <h3 class="added">Added</h3>
+    <h4>Tables</h4>
+    <ul>
+      <li>Insert a table with <code>/table</code>, or by pasting tab-separated text.</li>
+      <li>Move between cells with <kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd>.
+        <ul>
+          <li>Pressing <kbd>Tab</kbd> in the last cell adds a new row.</li>
+          <li>Pressing <kbd>Enter</kbd> inside a cell inserts a line break.</li>
+        </ul>
+      </li>
+      <li>Drag a column border to resize it; double-click to fit the content.</li>
+    </ul>
+    <h4>Export</h4>
+    <ul>
+      <li>Export a single note as a standalone HTML file.</li>
+    </ul>
+
+    <h3 class="removed">Removed</h3>
+    <ul>
+      <li>The experimental "focus lens" view, which fewer than 0.5% of people used.</li>
+    </ul>
+  </section>
+
+  <section class="release" id="v5-1">
+    <div class="release-head">
+      <h2>5.1.2</h2>
+      <time datetime="2026-08-11">11 August 2026</time>
+    </div>
+    <p>A patch release focused on sync.</p>
+
+    <h3 class="fixed">Fixed</h3>
+    <ul>
+      <li>Resolved a rare case where two devices editing the same note offline would each keep only their own changes. Conflicting edits are now merged, and a <code>conflict</code> tag is added when a merge is not possible.</li>
+      <li>Sync no longer stalls when a note's title contains a trailing space.</li>
+      <li>Reduced memory use during the initial sync of large vaults by about 35%.</li>
+    </ul>
+  </section>
+
+  <hr>
+  <p class="older">Looking for something older? See the <a href="#">full release archive</a>, going back to version 1.0 in 2021.</p>
+</div>
+</body>
+</html>

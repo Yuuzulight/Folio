@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a server inventory table with hostname, status, environment, role, datacenter, rack, OS, vCPU, RAM, disk, IP, uptime, owner, last patch date and notes for our 24 hosts. It's wide, so let it scroll sideways, keep the header visible, and truncate long notes.",
+  "features": ["wide-table", "overflow-x-scroll", "sticky-header", "sticky-footer", "text-overflow-ellipsis", "white-space-nowrap", "status-badges", "zebra-striping", "row-hover", "tabular-nums", "monospace-cells", "tfoot-totals", "colspan", "border-collapse-collapse", "max-content-width"],
+  "viewport": 800
+}

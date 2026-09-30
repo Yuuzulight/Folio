@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Community Notice Board</title>
+<style>
+  :root {
+    --bg: #f5f3ee;
+    --card: #ffffff;
+    --ink: #1f2328;
+    --muted: #6a6f76;
+    --line: #e2ded5;
+    --teal: #0f766e;
+    --indigo: #4338ca;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.75;
+  }
+
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 36px 24px 60px;
+  }
+
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  .lede { color: var(--muted); margin: 0 0 26px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-inline-start: 5px solid var(--accent, var(--teal));
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 18px;
+  }
+
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+  }
+
+  .card p { margin: 0 0 10px; font-size: 17px; }
+
+  .meta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .tag {
+    font-size: 13px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: #eef6f5;
+    color: var(--teal);
+  }
+
+  .he { --accent: var(--indigo); }
+  .he .tag { background: #eef0fb; color: var(--indigo); }
+
+  ul.board {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  ul.board li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+
+  ul.board li:last-child { border-bottom: none; }
+
+  .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .compare > div {
+    background: #fafaf7;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+
+  .compare small {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  blockquote {
+    margin: 12px 0 0;
+    padding-inline-start: 14px;
+    border-inline-start: 3px solid var(--line);
+    color: #3b3f45;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Community notice board</h1>
+    <p class="lede">Announcements from the Oasis Cultural Centre and the Valley Library, posted in their original languages.</p>
+
+    <article class="card ar" lang="ar" dir="rtl">
+      <h2>مركز الواحة الثقافي</h2>
+      <p>مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.</p>
+      <p>تبدأ ورشة Photography 101 يوم 12 أكتوبر 2026 الساعة 6:30 مساءً في القاعة B، والرسوم 150 درهماً للشخص.</p>
+      <p>عدد المقاعد المتاحة: ٢٤ مقعداً فقط. للاستفسار راسلونا على <span dir="ltr">info@example.com</span> أو اتصلوا بالرقم <span dir="ltr">+971 4 555 0123</span>.</p>
+      <div class="meta">
+        <span class="tag">ورش عمل</span>
+        <span class="tag">الخريف 2026</span>
+        <span class="tag">Level 1–3</span>
+      </div>
+    </article>
+
+    <article class="card he" lang="he" dir="rtl">
+      <h2>ספריית העמק</h2>
+      <p>ספריית העמק פתוחה לקהל בימים ראשון עד חמישי. השנה הוספנו פינת קריאה לילדים ומרחב עבודה שקט עם Wi-Fi חופשי.</p>
+      <p>ההרצאה של ד״ר Noa Feldstein על AI ושפה תתקיים ב־3 בנובמבר 2026 בשעה 19:00, בחדר 204.</p>
+      <p>מחיר כרטיס: 45 ₪, ולסטודנטים 30 ₪ בלבד (כולל קפה).</p>
+      <blockquote>״ספר טוב הוא חבר שלא מאכזב לעולם.״ — מתוך לוח ההודעות, 2026</blockquote>
+    </article>
+
+    <section class="card">
+      <h2>Top readers this month</h2>
+      <ul class="board">
+        <li><span>1. <bdi>مريم الحداد</bdi></span><span class="num">14 books</span></li>
+        <li><span>2. <bdi>יונתן כהן</bdi></span><span class="num">11 books</span></li>
+        <li><span>3. <bdi>Olivia Brandt</bdi></span><span class="num">9 books</span></li>
+        <li><span>4. <bdi>سامي 2000</bdi></span><span class="num">7 books</span></li>
+      </ul>
+    </section>
+
+    <section class="card ar" lang="ar" dir="rtl">
+      <h2>أكثر المعلّقين نشاطاً</h2>
+      <ul class="board">
+        <li><span>المستخدم <bdi>Sam_K92</bdi></span><span class="num">١٢ تعليقاً</span></li>
+        <li><span>المستخدمة <bdi>דנה ל.</bdi></span><span class="num">٨ تعليقات</span></li>
+        <li><span>المستخدم <bdi>خالد</bdi></span><span class="num">٥ تعليقات</span></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Why &lt;bdi&gt; matters</h2>
+      <div class="compare">
+        <div><small>Without isolation</small>User <span>إيمان</span>: 3 posts</div>
+        <div><small>With &lt;bdi&gt;</small>User <bdi>إيمان</bdi>: 3 posts</div>
+      </div>
+      <p style="margin-top: 12px; font-size: 15px; color: var(--muted)">In the first box the number can be pulled into the right-to-left run of the name; in the second box the name is isolated and the count stays in place.</p>
+    </section>
+  </main>
+</body>
+</html>

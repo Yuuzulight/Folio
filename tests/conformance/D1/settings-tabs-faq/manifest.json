@@ -1,0 +1,5 @@
+{
+  "prompt": "Build an account settings panel with tabs for Profile, Notifications, Privacy and Billing (toggle switches, selects, text inputs) and an FAQ accordion below it where only one answer is open at a time. Plain JavaScript, no libraries.",
+  "features": ["script", "dom-events", "aria", "hidden-attribute", "forms", "keyboard", "timers", "grid", "flex", "transitions", "custom-properties"],
+  "viewport": 800
+}

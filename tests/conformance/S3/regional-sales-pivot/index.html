@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monthly Sales by Region, FY2025</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --text: #1d2330;
+    --muted: #677084;
+    --border: #dfe3ea;
+    --head: #eef1f6;
+    --accent: #2f5bd3;
+    --accent-soft: #e8eefc;
+    --region: #f8f9fb;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 24px 48px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 26px;
+    letter-spacing: -0.01em;
+  }
+
+  .intro {
+    margin: 0 0 20px;
+    color: var(--muted);
+    max-width: 62ch;
+  }
+
+  .kpis {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .kpi {
+    flex: 1 1 150px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+
+  .kpi span {
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+
+  .kpi strong {
+    font-size: 22px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(20, 30, 50, 0.08);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 1180px;
+    font-size: 13.5px;
+  }
+
+  th, td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  thead th {
+    background: var(--head);
+    font-weight: 600;
+    text-align: center;
+    border-left: 1px solid var(--border);
+  }
+
+  thead tr:first-child th {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
+  thead th:first-child { border-left: none; }
+
+  th.region {
+    background: var(--region);
+    text-align: left;
+    vertical-align: top;
+    font-weight: 600;
+    border-right: 1px solid var(--border);
+    position: sticky;
+    left: 0;
+  }
+
+  tbody th.country {
+    text-align: left;
+    font-weight: 500;
+  }
+
+  td.num, th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  td.q-end { border-right: 1px solid var(--border); }
+
+  td.total, th.total {
+    background: var(--accent-soft);
+    font-weight: 600;
+  }
+
+  tbody tr:hover td { background: #fafbfe; }
+  tbody tr:hover td.total { background: #dde6fb; }
+
+  tfoot th, tfoot td {
+    background: var(--head);
+    font-weight: 700;
+    border-top: 2px solid var(--text);
+    border-bottom: none;
+  }
+
+  tfoot th { text-align: left; }
+
+  .note {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  h2 {
+    margin: 36px 0 10px;
+    font-size: 18px;
+  }
+
+  .summary-wrap {
+    display: inline-block;
+    max-width: 100%;
+  }
+
+  .summary {
+    border-collapse: collapse;
+    min-width: 0;
+    width: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 14px;
+  }
+
+  .summary th, .summary td { padding: 8px 16px; }
+  .summary thead th { text-align: right; }
+  .summary thead th:first-child { text-align: left; }
+
+  @media (max-width: 640px) {
+    body { padding: 20px 14px; }
+    h1 { font-size: 21px; }
+    .kpi strong { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+  <h1>Monthly Sales by Region &mdash; FY2025</h1>
+  <p class="intro">Net sales for Tallis Outdoor Co. by country and month, in thousands of US dollars. Q4 was the strongest quarter, driven by holiday demand in North America and Germany.</p>
+
+  <div class="kpis">
+    <div class="kpi"><span>FY2025 net sales</span><strong>$30.72M</strong></div>
+    <div class="kpi"><span>Best month</span><strong>Dec &middot; $3,276K</strong></div>
+    <div class="kpi"><span>Top country</span><strong>United States</strong></div>
+    <div class="kpi"><span>Q4 share</span><strong>29.0%</strong></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2" class="region">Region</th>
+          <th rowspan="2">Country</th>
+          <th colspan="3">Q1</th>
+          <th colspan="3">Q2</th>
+          <th colspan="3">Q3</th>
+          <th colspan="3">Q4</th>
+          <th rowspan="2" class="total">FY Total</th>
+        </tr>
+        <tr>
+          <th>Jan</th><th>Feb</th><th>Mar</th>
+          <th>Apr</th><th>May</th><th>Jun</th>
+          <th>Jul</th><th>Aug</th><th>Sep</th>
+          <th>Oct</th><th>Nov</th><th>Dec</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th rowspan="2" class="region">North America</th>
+          <th class="country">United States</th>
+          <td class="num">690</td><td class="num">660</td><td class="num q-end">810</td>
+          <td class="num">723</td><td class="num">807</td><td class="num q-end">823</td>
+          <td class="num">738</td><td class="num">747</td><td class="num q-end">805</td>
+          <td class="num">870</td><td class="num">894</td><td class="num q-end">998</td>
+          <td class="num total">9,565</td>
+        </tr>
+        <tr>
+          <th class="country">Canada</th>
+          <td class="num">179</td><td class="num">183</td><td class="num q-end">195</td>
+          <td class="num">189</td><td class="num">209</td><td class="num q-end">226</td>
+          <td class="num">201</td><td class="num">189</td><td class="num q-end">231</td>
+          <td class="num">212</td><td class="num">252</td><td class="num q-end">262</td>
+          <td class="num total">2,528</td>
+        </tr>
+        <tr>
+          <th rowspan="3" class="region">Europe</th>
+          <th class="country">United Kingdom</th>
+          <td class="num">280</td><td class="num">273</td><td class="num q-end">322</td>
+          <td class="num">328</td><td class="num">320</td><td class="num q-end">350</td>
+          <td class="num">328</td><td class="num">305</td><td class="num q-end">356</td>
+          <td class="num">345</td><td class="num">370</td><td class="num q-end">420</td>
+          <td class="num total">3,997</td>
+        </tr>
+        <tr>
+          <th class="country">Germany</th>
+          <td class="num">343</td><td class="num">325</td><td class="num q-end">370</td>
+          <td class="num">366</td><td class="num">380</td><td class="num q-end">388</td>
+          <td class="num">384</td><td class="num">363</td><td class="num q-end">393</td>
+          <td class="num">421</td><td class="num">450</td><td class="num q-end">522</td>
+          <td class="num total">4,705</td>
+        </tr>
+        <tr>
+          <th class="country">France</th>
+          <td class="num">230</td><td class="num">213</td><td class="num q-end">267</td>
+          <td class="num">231</td><td class="num">252</td><td class="num q-end">273</td>
+          <td class="num">237</td><td class="num">236</td><td class="num q-end">255</td>
+          <td class="num">284</td><td class="num">308</td><td class="num q-end">336</td>
+          <td class="num total">3,122</td>
+        </tr>
+        <tr>
+          <th rowspan="3" class="region">Asia Pacific</th>
+          <th class="country">Japan</th>
+          <td class="num">270</td><td class="num">246</td><td class="num q-end">298</td>
+          <td class="num">282</td><td class="num">297</td><td class="num q-end">304</td>
+          <td class="num">297</td><td class="num">288</td><td class="num q-end">311</td>
+          <td class="num">327</td><td class="num">327</td><td class="num q-end">393</td>
+          <td class="num total">3,640</td>
+        </tr>
+        <tr>
+          <th class="country">Australia</th>
+          <td class="num">149</td><td class="num">151</td><td class="num q-end">171</td>
+          <td class="num">154</td><td class="num">164</td><td class="num q-end">177</td>
+          <td class="num">152</td><td class="num">154</td><td class="num q-end">170</td>
+          <td class="num">174</td><td class="num">185</td><td class="num q-end">225</td>
+          <td class="num total">2,026</td>
+        </tr>
+        <tr>
+          <th class="country">Singapore</th>
+          <td class="num">78</td><td class="num">77</td><td class="num q-end">91</td>
+          <td class="num">92</td><td class="num">88</td><td class="num q-end">96</td>
+          <td class="num">91</td><td class="num">90</td><td class="num q-end">103</td>
+          <td class="num">106</td><td class="num">106</td><td class="num q-end">120</td>
+          <td class="num total">1,138</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">All regions</th>
+          <td class="num">2,219</td><td class="num">2,128</td><td class="num q-end">2,524</td>
+          <td class="num">2,365</td><td class="num">2,517</td><td class="num q-end">2,637</td>
+          <td class="num">2,428</td><td class="num">2,372</td><td class="num q-end">2,624</td>
+          <td class="num">2,739</td><td class="num">2,892</td><td class="num q-end">3,276</td>
+          <td class="num total">30,721</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <p class="note">All figures in $K, net of returns and discounts. Scroll sideways on smaller screens to see every month.</p>
+
+  <h2>Summary by region and quarter</h2>
+  <div class="table-wrap summary-wrap">
+    <table class="summary">
+      <thead>
+        <tr>
+          <th>Region</th>
+          <th>Q1</th>
+          <th>Q2</th>
+          <th>Q3</th>
+          <th>Q4</th>
+          <th>FY Total</th>
+          <th>Share</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th class="country">North America</th>
+          <td class="num">2,717</td><td class="num">2,977</td><td class="num">2,911</td><td class="num">3,488</td>
+          <td class="num total">12,093</td><td class="num">39.4%</td>
+        </tr>
+        <tr>
+          <th class="country">Europe</th>
+          <td class="num">2,623</td><td class="num">2,888</td><td class="num">2,857</td><td class="num">3,456</td>
+          <td class="num total">11,824</td><td class="num">38.5%</td>
+        </tr>
+        <tr>
+          <th class="country">Asia Pacific</th>
+          <td class="num">1,531</td><td class="num">1,654</td><td class="num">1,656</td><td class="num">1,963</td>
+          <td class="num total">6,804</td><td class="num">22.1%</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>Total</th>
+          <td class="num">6,871</td><td class="num">7,519</td><td class="num">7,424</td><td class="num">8,907</td>
+          <td class="num total">30,721</td><td class="num">100.0%</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</body>
+</html>

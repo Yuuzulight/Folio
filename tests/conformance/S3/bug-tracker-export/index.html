@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lanternfish Issue Export</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #24292f;
+    --muted: #656d76;
+    --border: #d0d7de;
+    --border-soft: #eaeef2;
+    --head-bg: #f6f8fa;
+    --stripe: #fbfcfd;
+    --hover: #fff8e1;
+    --link: #0b62c4;
+
+    --p0: #ffffff;
+    --p0-bg: #c9252d;
+    --p1: #9a3412;
+    --p1-bg: #ffe4d5;
+    --p2: #7a5b00;
+    --p2-bg: #fff4c2;
+    --p3: #4b5563;
+    --p3-bg: #eceff3;
+
+    --open: #1f6feb;
+    --progress: #8250df;
+    --review: #bf8700;
+    --done: #1a7f37;
+    --wontfix: #6e7781;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 24px 16px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+  }
+
+  h2 {
+    margin: 32px 0 8px;
+    font-size: 16px;
+  }
+
+  .meta {
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .summary-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    background: var(--head-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+
+  .summary-bar b { font-variant-numeric: tabular-nums; }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--head-bg);
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 8px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  thead th:first-child { border-top-left-radius: 6px; }
+  thead th:last-child { border-top-right-radius: 6px; }
+
+  tbody td {
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+  }
+
+  tbody tr:nth-child(odd) td { background: var(--stripe); }
+  tbody tr:hover td { background: var(--hover); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  td.key {
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--link);
+  }
+
+  td.title { min-width: 220px; }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  td.date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+
+  .pri {
+    display: inline-block;
+    min-width: 28px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .pri.p0 { color: var(--p0); background: var(--p0-bg); }
+  .pri.p1 { color: var(--p1); background: var(--p1-bg); }
+  .pri.p2 { color: var(--p2); background: var(--p2-bg); }
+  .pri.p3 { color: var(--p3); background: var(--p3-bg); }
+
+  .status {
+    display: inline-block;
+    padding: 1px 8px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .status.open { color: var(--open); }
+  .status.progress { color: var(--progress); }
+  .status.review { color: var(--review); }
+  .status.done { color: var(--done); }
+  .status.wontfix { color: var(--wontfix); }
+
+  .type {
+    white-space: nowrap;
+  }
+
+  .type.crash { color: #b42318; font-weight: 600; }
+
+  tr.empty-state td {
+    padding: 28px 12px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--bg);
+    font-style: italic;
+  }
+
+  @media (max-width: 760px) {
+    .hide-sm { display: none; }
+    body { font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+  <h1>Issue export: Lanternfish mobile app</h1>
+  <p class="meta">Sprint 42 &middot; exported 30 Sep 2025, 17:40 &middot; filter: project = LF AND updated &ge; 2025-08-01, ordered by key</p>
+
+  <div class="summary-bar">
+    <span><b>101</b> issues</span>
+    <span><b>24</b> open</span>
+    <span><b>8</b> in progress</span>
+    <span><b>8</b> in review</span>
+    <span><b>57</b> done</span>
+    <span><b>4</b> won't fix</span>
+    <span><b>13</b> P0 &middot; <b>26</b> P1</span>
+    <span><b>250</b> story points</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th>Summary</th>
+        <th>Type</th>
+        <th>Pri</th>
+        <th>Status</th>
+        <th>Assignee</th>
+        <th class="hide-sm">Component</th>
+        <th class="hide-sm">Created</th>
+        <th>Updated</th>
+        <th class="num">Pts</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="key">LF-2204</td><td class="title">Login button stays disabled after password manager autofill</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-08-01</td><td class="date">2025-08-06</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2206</td><td class="title">Feed jumps to top when a new post arrives while scrolling</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-08-01</td><td class="date">2025-08-12</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2207</td><td class="title">Crash on launch when device language is set to Welsh</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>R. Castillo</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-08-02</td><td class="date">2025-08-03</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2209</td><td class="title">Push notification badge count never clears</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>J. Whitaker</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-08-04</td><td class="date">2025-08-14</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2210</td><td class="title">Profile photo upload fails silently above 8 MB</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-08-04</td><td class="date">2025-08-19</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2212</td><td class="title">Search results show deleted listings for up to an hour</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-08-05</td><td class="date">2025-08-15</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2213</td><td class="title">Dark mode: checkout total text is unreadable on grey card</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>L. Moreau</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-05</td><td class="date">2025-08-08</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2215</td><td class="title">Offline edits lost if app is killed before sync completes</td><td class="type">Bug</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-08-06</td><td class="date">2025-08-11</td><td class="num">8</td></tr>
+      <tr><td class="key">LF-2216</td><td class="title">Map pins overlap and cannot be tapped at high zoom</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status wontfix">Won't fix</span></td><td>L. Moreau</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-08-06</td><td class="date">2025-08-20</td><td class="num">0</td></tr>
+      <tr><td class="key">LF-2218</td><td class="title">Swipe-back gesture conflicts with image carousel</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-08-07</td><td class="date">2025-08-21</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2219</td><td class="title">Coupon code field accepts trailing spaces and then rejects the code</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-07</td><td class="date">2025-08-09</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2221</td><td class="title">Regression: settings toggles reset after app update</td><td class="type">Regression</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-08-08</td><td class="date">2025-08-13</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2222</td><td class="title">Onboarding skip button hidden behind keyboard on small screens</td><td class="type">UI</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-08-08</td><td class="date">2025-08-22</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2224</td><td class="title">Session expires during two-factor code entry</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-08-11</td><td class="date">2025-08-18</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2225</td><td class="title">Crash when rotating device on order confirmation screen</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>R. Castillo</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-11</td><td class="date">2025-08-12</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2227</td><td class="title">Notification settings screen loads with a blank state for 3 seconds</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-08-12</td><td class="date">2025-08-27</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2228</td><td class="title">Search suggestions ignore accented characters</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-08-12</td><td class="date">2025-08-26</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2230</td><td class="title">Profile bio truncated at 140 characters instead of 300</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-08-13</td><td class="date">2025-08-15</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2231</td><td class="title">Duplicate charge when pay button is double-tapped on slow network</td><td class="type">Bug</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-13</td><td class="date">2025-08-14</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2233</td><td class="title">Sync conflict dialog shows raw error code instead of message</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-08-14</td><td class="date">2025-08-28</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2234</td><td class="title">Map does not recentre after location permission is granted</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-08-14</td><td class="date">2025-08-25</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2236</td><td class="title">Feed video autoplay continues with sound after leaving the tab</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-08-15</td><td class="date">2025-08-20</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2237</td><td class="title">Password reset email link opens the store listing instead of the app</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-08-15</td><td class="date">2025-08-29</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2239</td><td class="title">Settings: "Clear cache" reports 0 KB freed every time</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status wontfix">Won't fix</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-08-18</td><td class="date">2025-08-22</td><td class="num">0</td></tr>
+      <tr><td class="key">LF-2240</td><td class="title">Crash when opening a shared link to a deleted post</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>R. Castillo</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-08-18</td><td class="date">2025-08-19</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2241</td><td class="title">Onboarding progress dots do not match number of steps</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-08-18</td><td class="date">2025-09-01</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2243</td><td class="title">Quiet hours not respected for marketing notifications</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-08-19</td><td class="date">2025-08-26</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2244</td><td class="title">Search filter chips wrap onto three lines on tablets</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>L. Moreau</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-08-19</td><td class="date">2025-08-21</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2246</td><td class="title">Regression: saved addresses missing after account merge</td><td class="type">Regression</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-08-20</td><td class="date">2025-09-02</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2247</td><td class="title">Sync retries forever on HTTP 413 instead of splitting the batch</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-08-20</td><td class="date">2025-09-03</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2249</td><td class="title">Price shows three decimal places for some currencies</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-21</td><td class="date">2025-08-25</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2250</td><td class="title">Map clustering freezes UI for about 2 s with 5,000+ pins</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-08-21</td><td class="date">2025-09-04</td><td class="num">8</td></tr>
+      <tr><td class="key">LF-2252</td><td class="title">Sign in with email link fails if opened on a second device</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status wontfix">Won't fix</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-08-22</td><td class="date">2025-08-29</td><td class="num">0</td></tr>
+      <tr><td class="key">LF-2253</td><td class="title">Feed "See more" expands the wrong post in threaded view</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-08-22</td><td class="date">2025-09-05</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2255</td><td class="title">Screen reader announces checkout steps out of order</td><td class="type">UI</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>L. Moreau</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-25</td><td class="date">2025-09-08</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2256</td><td class="title">Crash when notification permission is revoked while app is open</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>R. Castillo</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-08-25</td><td class="date">2025-08-26</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2258</td><td class="title">Profile "Member since" date off by one day for UTC&minus; users</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-08-26</td><td class="date">2025-08-28</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2259</td><td class="title">Search history cannot be cleared item by item</td><td class="type">Task</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-08-26</td><td class="date">2025-09-09</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2261</td><td class="title">Background sync drains battery when on metered connection</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-08-27</td><td class="date">2025-09-10</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2262</td><td class="title">Settings language picker lists English twice</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-08-27</td><td class="date">2025-08-29</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2264</td><td class="title">Onboarding interest picker allows zero selections</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-08-28</td><td class="date">2025-09-03</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2265</td><td class="title">Map tiles flicker when switching between light and dark theme</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status review">In review</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-08-28</td><td class="date">2025-09-29</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2267</td><td class="title">Regression: feed pull-to-refresh spinner never stops on error</td><td class="type">Regression</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-08-29</td><td class="date">2025-09-02</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2268</td><td class="title">Gift card balance not deducted when combined with a coupon</td><td class="type">Bug</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-08-29</td><td class="date">2025-09-01</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2270</td><td class="title">Biometric unlock prompt appears twice after cold start</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-09-01</td><td class="date">2025-09-11</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2271</td><td class="title">Digest notification links open the home tab instead of the post</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-09-01</td><td class="date">2025-09-12</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2273</td><td class="title">Profile screen makes 14 API calls on open; batch them</td><td class="type">Task</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-09-02</td><td class="date">2025-09-16</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2274</td><td class="title">Crash in search when query contains an emoji modifier sequence</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-09-02</td><td class="date">2025-09-03</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2276</td><td class="title">Sync status icon shows "up to date" while uploads are queued</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-09-03</td><td class="date">2025-09-15</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2277</td><td class="title">Settings export produces an empty file on some devices</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status progress">In progress</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-09-03</td><td class="date">2025-09-29</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2279</td><td class="title">Map search bar overlaps the status bar in landscape</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>L. Moreau</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-09-04</td><td class="date">2025-09-08</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2280</td><td class="title">Onboarding welcome video does not respect reduced motion</td><td class="type">UI</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-09-04</td><td class="date">2025-09-17</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2282</td><td class="title">Express checkout sheet shows stale shipping estimate</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status review">In review</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-09-05</td><td class="date">2025-09-30</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2283</td><td class="title">Feed image placeholders use wrong aspect ratio before load</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-09-05</td><td class="date">2025-09-10</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2285</td><td class="title">Account deletion leaves push token registered</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-09-08</td><td class="date">2025-09-18</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2286</td><td class="title">Login rate limiter locks out users after 3 attempts instead of 5</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-09-08</td><td class="date">2025-09-10</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2288</td><td class="title">Search result count differs between list and map views</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status progress">In progress</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-09-09</td><td class="date">2025-09-26</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2289</td><td class="title">Regression: profile tabs lose scroll position when switching</td><td class="type">Regression</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-09-09</td><td class="date">2025-09-19</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2291</td><td class="title">Sync uploads photos at full resolution on cellular</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status review">In review</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-09-10</td><td class="date">2025-09-29</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2292</td><td class="title">Crash when map is opened with location services disabled</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-09-10</td><td class="date">2025-09-11</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2294</td><td class="title">Settings font size slider has no effect on feed text</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-09-11</td><td class="date">2025-09-11</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2295</td><td class="title">Order history shows refunded orders as "Delivered"</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status done">Done</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-09-11</td><td class="date">2025-09-19</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2297</td><td class="title">Onboarding asks for notification permission before explaining why</td><td class="type">Task</td><td><span class="pri p2">P2</span></td><td><span class="status progress">In progress</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-09-12</td><td class="date">2025-09-28</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2298</td><td class="title">Feed ads counted as impressions before they are on screen</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status review">In review</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-09-12</td><td class="date">2025-09-30</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2300</td><td class="title">Token refresh race logs users out when two requests expire together</td><td class="type">Bug</td><td><span class="pri p0">P0</span></td><td><span class="status done">Done</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-09-15</td><td class="date">2025-09-17</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2301</td><td class="title">Notification inbox paginates backwards after 50 items</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status progress">In progress</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-09-15</td><td class="date">2025-09-29</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2303</td><td class="title">Profile QR code too small to scan from another phone</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>L. Moreau</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-09-16</td><td class="date">2025-09-16</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2304</td><td class="title">Search does not find listings by postcode without a space</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-09-16</td><td class="date">2025-09-24</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2306</td><td class="title">Sync merge drops the second of two edits made within one second</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status progress">In progress</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-09-17</td><td class="date">2025-09-30</td><td class="num">8</td></tr>
+      <tr><td class="key">LF-2307</td><td class="title">Map directions button missing for listings without a street number</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-09-17</td><td class="date">2025-09-17</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2309</td><td class="title">Crash on checkout when saved card has expired</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status review">In review</span></td><td>R. Castillo</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-09-18</td><td class="date">2025-09-30</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2310</td><td class="title">Settings "About" screen shows last year's build number</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status done">Done</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-09-18</td><td class="date">2025-09-19</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2312</td><td class="title">Onboarding country list not sorted in the user's language</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-09-19</td><td class="date">2025-09-19</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2313</td><td class="title">Feed mute keyword filter is case sensitive</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status done">Done</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-09-19</td><td class="date">2025-09-25</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2315</td><td class="title">Social sign-in shows a blank sheet when cancelled halfway</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status review">In review</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-09-22</td><td class="date">2025-09-30</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2316</td><td class="title">Order reminder notifications sent in the wrong time zone</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status progress">In progress</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-09-22</td><td class="date">2025-09-29</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2318</td><td class="title">Crash when editing profile while a photo upload is in progress</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status progress">In progress</span></td><td>R. Castillo</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-09-22</td><td class="date">2025-09-30</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2319</td><td class="title">Saved searches do not trigger alerts for price drops</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status open">Open</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-09-23</td><td class="date">2025-09-25</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2321</td><td class="title">Sync progress bar jumps from 10% to 100%</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>L. Moreau</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-09-23</td><td class="date">2025-09-23</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2322</td><td class="title">Map heat layer legend overlaps zoom controls</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status review">In review</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-09-23</td><td class="date">2025-09-29</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2324</td><td class="title">Checkout address form rejects valid Irish Eircodes</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status progress">In progress</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-09-24</td><td class="date">2025-09-30</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2325</td><td class="title">Regression: settings search returns no results</td><td class="type">Regression</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-09-24</td><td class="date">2025-09-24</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2327</td><td class="title">Feed "New posts" pill covers the first post's author name</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-09-25</td><td class="date">2025-09-25</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2328</td><td class="title">Magic link emails delayed by up to 10 minutes</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status open">Open</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-09-25</td><td class="date">2025-09-26</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2330</td><td class="title">Onboarding restarts if app is backgrounded on step 4</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-09-25</td><td class="date">2025-09-25</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2331</td><td class="title">Notification sounds play even when device is on silent</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status review">In review</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-09-26</td><td class="date">2025-09-30</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2333</td><td class="title">Profile username change is not reflected in old comments</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status wontfix">Won't fix</span></td><td>A. Nair</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-09-26</td><td class="date">2025-09-29</td><td class="num">0</td></tr>
+      <tr><td class="key">LF-2334</td><td class="title">Search typo tolerance too aggressive for short queries</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-09-26</td><td class="date">2025-09-26</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2336</td><td class="title">Crash when sync resumes after device clock changes</td><td class="type crash">Crash</td><td><span class="pri p0">P0</span></td><td><span class="status open">Open</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-09-29</td><td class="date">2025-09-30</td><td class="num">5</td></tr>
+      <tr><td class="key">LF-2337</td><td class="title">Map offline tiles not deleted when region is removed</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-09-29</td><td class="date">2025-09-29</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2339</td><td class="title">Checkout tip selector defaults to 20% instead of none</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status open">Open</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-09-29</td><td class="date">2025-09-29</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2340</td><td class="title">Settings privacy toggles take effect only after restart</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status open">Open</span></td><td>J. Whitaker</td><td class="hide-sm">Settings</td><td class="date hide-sm">2025-09-29</td><td class="date">2025-09-29</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2342</td><td class="title">Feed translation button shown for posts already in user's language</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>S. Lindgren</td><td class="hide-sm">Feed</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2343</td><td class="title">Passkey registration fails when account email has a plus sign</td><td class="type">Bug</td><td><span class="pri p1">P1</span></td><td><span class="status open">Open</span></td><td>M. Okoye</td><td class="hide-sm">Auth</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2344</td><td class="title">Notification grouping collapses unrelated conversations</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>K. Mbeki</td><td class="hide-sm">Notifications</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2345</td><td class="title">Profile badges misaligned when user has more than six</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>L. Moreau</td><td class="hide-sm">Profile</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2346</td><td class="title">Search voice input stops after the first word</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>T. Brandt</td><td class="hide-sm">Search</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">2</td></tr>
+      <tr><td class="key">LF-2347</td><td class="title">Sync conflict banner cannot be dismissed with the keyboard</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>D. Kovac</td><td class="hide-sm">Sync</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2348</td><td class="title">Map route preview ignores avoid-tolls setting</td><td class="type">Bug</td><td><span class="pri p2">P2</span></td><td><span class="status open">Open</span></td><td>G. Ferreira</td><td class="hide-sm">Maps</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">3</td></tr>
+      <tr><td class="key">LF-2349</td><td class="title">Onboarding "Continue" button text clipped in German</td><td class="type">UI</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>E. Fagerlund</td><td class="hide-sm">Onboarding</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">1</td></tr>
+      <tr><td class="key">LF-2350</td><td class="title">Checkout loyalty points preview rounds down instead of to nearest</td><td class="type">Bug</td><td><span class="pri p3">P3</span></td><td><span class="status open">Open</span></td><td>P. Haddad</td><td class="hide-sm">Checkout</td><td class="date hide-sm">2025-09-30</td><td class="date">2025-09-30</td><td class="num">1</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Reopened this sprint</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th>Summary</th>
+        <th>Reopened by</th>
+        <th>Reason</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="empty-state">
+        <td colspan="5">No issues were reopened in Sprint 42.</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>

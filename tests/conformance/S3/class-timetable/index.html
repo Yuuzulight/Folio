@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Class 10B Timetable</title>
+<style>
+  :root {
+    --bg: #f7f7f4;
+    --card: #ffffff;
+    --text: #22252b;
+    --muted: #71757f;
+    --grid: #d9dbe0;
+    --head: #2b3a55;
+    --break: #eceae3;
+
+    --maths: #dbe8ff;
+    --maths-ink: #1e4db7;
+    --english: #ffe3e0;
+    --english-ink: #b3372b;
+    --science: #dcf5e6;
+    --science-ink: #1d7a46;
+    --humanities: #fff1cc;
+    --humanities-ink: #8a6100;
+    --languages: #efe2ff;
+    --languages-ink: #6b35b5;
+    --arts: #ffe0f0;
+    --arts-ink: #a3246a;
+    --pe: #d8f3f6;
+    --pe-ink: #0f6f7a;
+    --pastoral: #eceef2;
+    --pastoral-ink: #4c5566;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 20px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+
+  .page { max-width: 1000px; margin: 0 auto; }
+
+  h1 { margin: 0 0 4px; font-size: 26px; }
+
+  .sub { margin: 0 0 20px; color: var(--muted); font-size: 15px; }
+
+  .timetable-wrap {
+    overflow-x: auto;
+    background: var(--card);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 6px 20px rgba(0, 0, 0, 0.05);
+    padding: 4px;
+  }
+
+  table {
+    width: 100%;
+    min-width: 720px;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  caption {
+    caption-side: bottom;
+    padding: 12px 8px 6px;
+    text-align: left;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+
+  col.time { width: 104px; }
+  col.day { width: auto; }
+
+  th, td {
+    border: 1px solid var(--grid);
+    padding: 8px;
+    vertical-align: top;
+  }
+
+  thead th {
+    background: var(--head);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    padding: 10px 8px;
+    border-color: var(--head);
+  }
+
+  tbody th {
+    background: #fafafa;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  tbody th .period {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  td.lesson {
+    height: 64px;
+  }
+
+  td.double { vertical-align: middle; }
+
+  .lesson strong {
+    display: block;
+    font-size: 13.5px;
+  }
+
+  .lesson span {
+    display: block;
+    font-size: 11.5px;
+    opacity: 0.85;
+  }
+
+  .tag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.7);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  tr.pause th,
+  tr.pause td {
+    background: var(--break);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 5px 8px;
+  }
+
+  tr.pause td {
+    text-align: center;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .maths { background: var(--maths); color: var(--maths-ink); }
+  .english { background: var(--english); color: var(--english-ink); }
+  .science { background: var(--science); color: var(--science-ink); }
+  .humanities { background: var(--humanities); color: var(--humanities-ink); }
+  .languages { background: var(--languages); color: var(--languages-ink); }
+  .arts { background: var(--arts); color: var(--arts-ink); }
+  .pe { background: var(--pe); color: var(--pe-ink); }
+  .pastoral { background: var(--pastoral); color: var(--pastoral-ink); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  .legend span {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  @media (max-width: 560px) {
+    body { padding: 20px 10px; }
+    h1 { font-size: 21px; }
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .timetable-wrap { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <h1>Class 10B &mdash; Weekly Timetable</h1>
+    <p class="sub">Ashgrove Secondary School &middot; Autumn term 2025 &middot; Form tutor: Ms R. Okafor (Room B14)</p>
+
+    <div class="timetable-wrap">
+      <table>
+        <caption>Double lessons span two periods. Chemistry and Biology practicals are in the science block labs (S2, S4). PE kit required on Fridays.</caption>
+        <colgroup>
+          <col class="time">
+          <col class="day" span="5">
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Monday</th>
+            <th scope="col">Tuesday</th>
+            <th scope="col">Wednesday</th>
+            <th scope="col">Thursday</th>
+            <th scope="col">Friday</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">08:30 &ndash; 09:20<span class="period">Period 1</span></th>
+            <td class="lesson maths"><strong>Maths</strong><span>Mr D. Lindqvist &middot; M3</span></td>
+            <td class="lesson double science" rowspan="2"><strong>Chemistry</strong><span>Dr A. Mensah &middot; Lab S2</span><em class="tag">Double</em></td>
+            <td class="lesson english"><strong>English</strong><span>Ms H. Carrow &middot; E1</span></td>
+            <td class="lesson humanities"><strong>History</strong><span>Mr P. Aldana &middot; H2</span></td>
+            <td class="lesson double pe" rowspan="2"><strong>PE</strong><span>Coach T. Brennan &middot; Sports hall</span><em class="tag">Double</em></td>
+          </tr>
+          <tr>
+            <th scope="row">09:20 &ndash; 10:10<span class="period">Period 2</span></th>
+            <td class="lesson english"><strong>English</strong><span>Ms H. Carrow &middot; E1</span></td>
+            <td class="lesson maths"><strong>Maths</strong><span>Mr D. Lindqvist &middot; M3</span></td>
+            <td class="lesson humanities"><strong>Geography</strong><span>Mrs L. Fenwick &middot; H4</span></td>
+          </tr>
+          <tr class="pause">
+            <th scope="row">10:10 &ndash; 10:30</th>
+            <td colspan="5">Break</td>
+          </tr>
+          <tr>
+            <th scope="row">10:30 &ndash; 11:20<span class="period">Period 3</span></th>
+            <td class="lesson science"><strong>Physics</strong><span>Mr K. Osei &middot; S1</span></td>
+            <td class="lesson maths"><strong>Maths</strong><span>Mr D. Lindqvist &middot; M3</span></td>
+            <td class="lesson double science" rowspan="2"><strong>Biology</strong><span>Ms J. Whitlow &middot; Lab S4</span><em class="tag">Double</em></td>
+            <td class="lesson english"><strong>English</strong><span>Ms H. Carrow &middot; E1</span></td>
+            <td class="lesson maths"><strong>Maths</strong><span>Mr D. Lindqvist &middot; M3</span></td>
+          </tr>
+          <tr>
+            <th scope="row">11:20 &ndash; 12:10<span class="period">Period 4</span></th>
+            <td class="lesson languages"><strong>French</strong><span>Mme C. Duval &middot; L2</span></td>
+            <td class="lesson english"><strong>English</strong><span>Ms H. Carrow &middot; E1</span></td>
+            <td class="lesson maths"><strong>Maths</strong><span>Mr D. Lindqvist &middot; M3</span></td>
+            <td class="lesson languages"><strong>French</strong><span>Mme C. Duval &middot; L2</span></td>
+          </tr>
+          <tr class="pause">
+            <th scope="row">12:10 &ndash; 13:00</th>
+            <td colspan="5">Lunch</td>
+          </tr>
+          <tr>
+            <th scope="row">13:00 &ndash; 13:50<span class="period">Period 5</span></th>
+            <td class="lesson double arts" rowspan="2"><strong>Art &amp; Design</strong><span>Mr S. Iwu &middot; Studio A</span><em class="tag">Double</em></td>
+            <td class="lesson humanities"><strong>History</strong><span>Mr P. Aldana &middot; H2</span></td>
+            <td class="lesson languages"><strong>French</strong><span>Mme C. Duval &middot; L2</span></td>
+            <td class="lesson double maths" rowspan="2"><strong>Computing</strong><span>Mrs N. Petrova &middot; IT3</span><em class="tag">Double</em></td>
+            <td class="lesson humanities"><strong>Geography</strong><span>Mrs L. Fenwick &middot; H4</span></td>
+          </tr>
+          <tr>
+            <th scope="row">13:50 &ndash; 14:40<span class="period">Period 6</span></th>
+            <td class="lesson arts"><strong>Music</strong><span>Ms E. Rourke &middot; Music room</span></td>
+            <td class="lesson pastoral"><strong>PSHE</strong><span>Ms R. Okafor &middot; B14</span></td>
+            <td class="lesson pastoral"><strong>Tutor time</strong><span>Ms R. Okafor &middot; B14</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span class="maths">Maths &amp; Computing</span>
+      <span class="english">English</span>
+      <span class="science">Sciences</span>
+      <span class="humanities">Humanities</span>
+      <span class="languages">Languages</span>
+      <span class="arts">Creative arts</span>
+      <span class="pe">PE</span>
+      <span class="pastoral">Pastoral</span>
+    </div>
+  </div>
+</body>
+</html>

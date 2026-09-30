@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Directory</title>
+<style>
+  :root {
+    --ink: #1b1f2a;
+    --muted: #6b7280;
+    --line: #e6e8ee;
+    --head: #f6f7fa;
+    --brand: #7c3aed;
+    --brand-soft: #f3edff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #fbfbfd;
+  }
+
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .search {
+    position: relative;
+    flex: 1;
+  }
+
+  .search svg {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    transform: translateY(-50%);
+    stroke: var(--muted);
+    fill: none;
+    stroke-width: 2;
+  }
+
+  .search input {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    padding: 10px 12px 10px 34px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .search input:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+
+  select {
+    font: inherit;
+    font-size: 14px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .count { font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+  .table-wrap {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th {
+    background: var(--head);
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    padding: 0;
+  }
+
+  th button {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 11px 14px;
+    cursor: pointer;
+  }
+
+  th button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+  th .arrow { font-size: 10px; opacity: 0.35; }
+  th[aria-sort="ascending"] .arrow,
+  th[aria-sort="descending"] .arrow { opacity: 1; color: var(--brand); }
+  th[aria-sort] { color: var(--ink); }
+
+  th.num button { justify-content: flex-end; }
+
+  td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) { background: #fcfcfe; }
+  tbody tr:hover { background: var(--brand-soft); }
+
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .person { display: flex; align-items: center; gap: 10px; }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .dept {
+    display: inline-block;
+    font-size: 12px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #eef1f6;
+  }
+
+  mark { background: #fde68a; border-radius: 3px; padding: 0 1px; }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 36px 0;
+  }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Team directory</h1>
+    <p class="sub">Brightwater Logistics · 24 people across 5 departments</p>
+
+    <div class="toolbar">
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <input id="q" type="search" placeholder="Search by name, role or city…" aria-label="Search">
+      </label>
+      <select id="dept" aria-label="Department">
+        <option value="">All departments</option>
+      </select>
+      <span class="count" id="count"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-key="name"><button type="button">Name <span class="arrow">▲</span></button></th>
+            <th data-key="role"><button type="button">Role <span class="arrow">▲</span></button></th>
+            <th data-key="dept"><button type="button">Department <span class="arrow">▲</span></button></th>
+            <th data-key="city"><button type="button">City <span class="arrow">▲</span></button></th>
+            <th data-key="start" class="num"><button type="button">Started <span class="arrow">▲</span></button></th>
+            <th data-key="projects" class="num"><button type="button">Projects <span class="arrow">▲</span></button></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+<script>
+  const people = [
+    { name: 'Amara Nwosu', role: 'Operations Lead', dept: 'Operations', city: 'Rotterdam', start: '2019-03-11', projects: 14 },
+    { name: 'Bastien Leclerc', role: 'Backend Engineer', dept: 'Engineering', city: 'Lyon', start: '2021-07-05', projects: 9 },
+    { name: 'Chiara Venturi', role: 'Product Designer', dept: 'Design', city: 'Bologna', start: '2022-01-17', projects: 7 },
+    { name: 'Dmitri Volkov', role: 'Data Analyst', dept: 'Finance', city: 'Tallinn', start: '2020-10-02', projects: 11 },
+    { name: 'Eun-ji Park', role: 'Frontend Engineer', dept: 'Engineering', city: 'Busan', start: '2023-04-24', projects: 5 },
+    { name: 'Farah Siddiqui', role: 'Account Manager', dept: 'Sales', city: 'Leeds', start: '2018-06-18', projects: 19 },
+    { name: 'Gustavo Ferreira', role: 'Fleet Coordinator', dept: 'Operations', city: 'Porto', start: '2021-02-08', projects: 8 },
+    { name: 'Hanne Sørensen', role: 'Engineering Manager', dept: 'Engineering', city: 'Aarhus', start: '2017-09-04', projects: 22 },
+    { name: 'Ifeoma Obi', role: 'Controller', dept: 'Finance', city: 'Lagos', start: '2020-05-19', projects: 6 },
+    { name: 'Jonas Albrecht', role: 'Sales Engineer', dept: 'Sales', city: 'Leipzig', start: '2022-08-29', projects: 10 },
+    { name: 'Keiko Tanabe', role: 'UX Researcher', dept: 'Design', city: 'Sapporo', start: '2021-11-15', projects: 8 },
+    { name: 'Luis Carmona', role: 'Warehouse Planner', dept: 'Operations', city: 'Valencia', start: '2019-12-02', projects: 12 },
+    { name: 'Maren Holt', role: 'Site Reliability Engineer', dept: 'Engineering', city: 'Bergen', start: '2020-03-30', projects: 13 },
+    { name: 'Nikhil Rao', role: 'Pricing Analyst', dept: 'Finance', city: 'Pune', start: '2023-01-09', projects: 4 },
+    { name: 'Olga Petrenko', role: 'Brand Designer', dept: 'Design', city: 'Lviv', start: '2022-06-13', projects: 9 },
+    { name: 'Pedro Almeida', role: 'Regional Sales Director', dept: 'Sales', city: 'Lisbon', start: '2016-04-25', projects: 27 },
+    { name: 'Quinn Harlow', role: 'Mobile Engineer', dept: 'Engineering', city: 'Galway', start: '2024-02-19', projects: 3 },
+    { name: 'Rania Haddad', role: 'Customs Specialist', dept: 'Operations', city: 'Marseille', start: '2018-10-08', projects: 16 },
+    { name: 'Stefan Novak', role: 'Payroll Specialist', dept: 'Finance', city: 'Ljubljana', start: '2021-05-03', projects: 5 },
+    { name: 'Tamsin Greer', role: 'Content Designer', dept: 'Design', city: 'Bristol', start: '2023-09-11', projects: 4 },
+    { name: 'Umar Farouk', role: 'Partnerships Manager', dept: 'Sales', city: 'Accra', start: '2020-08-17', projects: 12 },
+    { name: 'Valentina Ruiz', role: 'QA Engineer', dept: 'Engineering', city: 'Rosario', start: '2022-03-21', projects: 8 },
+    { name: 'Wiremu Tane', role: 'Route Optimiser', dept: 'Operations', city: 'Hamilton', start: '2024-06-03', projects: 2 },
+    { name: 'Yusuf Demir', role: 'Inside Sales Rep', dept: 'Sales', city: 'Izmir', start: '2023-11-27', projects: 3 }
+  ];
+
+  const colors = { Engineering: '#2563eb', Design: '#db2777', Sales: '#ea580c', Finance: '#059669', Operations: '#7c3aed' };
+
+  const state = { query: '', dept: '', sortKey: 'name', dir: 1 };
+  const tbody = document.getElementById('rows');
+  const countEl = document.getElementById('count');
+  const headers = document.querySelectorAll('th[data-key]');
+  const deptSelect = document.getElementById('dept');
+
+  [...new Set(people.map((p) => p.dept))].sort().forEach((d) => {
+    const opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = d;
+    deptSelect.appendChild(opt);
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function highlight(text) {
+    const safe = escapeHtml(text);
+    if (!state.query) return safe;
+    const q = state.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return safe.replace(new RegExp('(' + q + ')', 'ig'), '<mark>$1</mark>');
+  }
+
+  function initials(name) {
+    return name.split(' ').map((w) => w[0]).join('').slice(0, 2);
+  }
+
+  function formatDate(iso) {
+    const [y, m] = iso.split('-');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[Number(m) - 1] + ' ' + y;
+  }
+
+  function render() {
+    const q = state.query.toLowerCase();
+    const rows = people
+      .filter((p) => !state.dept || p.dept === state.dept)
+      .filter((p) => !q || [p.name, p.role, p.city].some((v) => v.toLowerCase().includes(q)))
+      .sort((a, b) => {
+        const av = a[state.sortKey];
+        const bv = b[state.sortKey];
+        if (typeof av === 'number') return (av - bv) * state.dir;
+        return av.localeCompare(bv) * state.dir;
+      });
+
+    tbody.innerHTML = rows.length
+      ? rows.map((p) => `
+          <tr>
+            <td><div class="person"><span class="avatar" style="background:${colors[p.dept]}">${initials(p.name)}</span>${highlight(p.name)}</div></td>
+            <td>${highlight(p.role)}</td>
+            <td><span class="dept">${escapeHtml(p.dept)}</span></td>
+            <td>${highlight(p.city)}</td>
+            <td class="num">${formatDate(p.start)}</td>
+            <td class="num">${p.projects}</td>
+          </tr>`).join('')
+      : '<tr><td class="empty" colspan="6">No one matches that search.</td></tr>';
+
+    countEl.textContent = rows.length + ' of ' + people.length;
+
+    headers.forEach((th) => {
+      const active = th.dataset.key === state.sortKey;
+      if (active) th.setAttribute('aria-sort', state.dir === 1 ? 'ascending' : 'descending');
+      else th.removeAttribute('aria-sort');
+      th.querySelector('.arrow').textContent = active && state.dir === -1 ? '▼' : '▲';
+    });
+  }
+
+  headers.forEach((th) => {
+    th.querySelector('button').addEventListener('click', () => {
+      const key = th.dataset.key;
+      state.dir = state.sortKey === key ? -state.dir : 1;
+      state.sortKey = key;
+      render();
+    });
+  });
+
+  document.getElementById('q').addEventListener('input', (e) => {
+    state.query = e.target.value.trim();
+    render();
+  });
+
+  deptSelect.addEventListener('change', (e) => {
+    state.dept = e.target.value;
+    render();
+  });
+
+  render();
+</script>
+</body>
+</html>

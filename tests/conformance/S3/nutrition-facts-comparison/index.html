@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cereal Nutrition Comparison</title>
+<style>
+  :root {
+    --bg: #fffdf8;
+    --text: #2a2620;
+    --muted: #7a7266;
+    --line: #e8e1d3;
+    --stripe: #faf6ec;
+    --head: #3d5a3a;
+    --best: #d7f0cf;
+    --best-ink: #245c1b;
+    --low: #3b9b4a;
+    --med: #e0a526;
+    --high: #d0463b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 36px 22px 48px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+
+  article { max-width: 960px; margin: 0 auto; }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 28px;
+    color: var(--head);
+  }
+
+  .intro { margin: 0 0 22px; color: var(--muted); max-width: 70ch; }
+
+  h2 {
+    margin: 34px 0 10px;
+    font-size: 18px;
+    color: var(--head);
+  }
+
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .compare {
+    min-width: 760px;
+    font-size: 14px;
+  }
+
+  .compare thead th {
+    background: var(--head);
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 12px 10px;
+    text-align: right;
+    vertical-align: bottom;
+    line-height: 1.25;
+  }
+
+  .compare thead th:first-child { text-align: left; }
+
+  .compare thead th small {
+    display: block;
+    font-weight: 400;
+    opacity: 0.8;
+    font-size: 11px;
+  }
+
+  .compare th[scope="row"] {
+    text-align: left;
+    font-weight: 600;
+    padding: 9px 12px;
+    white-space: nowrap;
+  }
+
+  .compare td {
+    text-align: right;
+    padding: 9px 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .compare tbody tr { border-bottom: 1px solid var(--line); }
+  .compare tbody tr:nth-child(odd) { background: var(--stripe); }
+  .compare tbody tr:hover { background: #f1ead8; }
+
+  .compare tr.sub th[scope="row"] {
+    font-weight: 400;
+    padding-left: 28px;
+    color: var(--muted);
+  }
+
+  .compare tr.major { border-top: 2px solid var(--text); }
+
+  td.best {
+    background: var(--best);
+    color: var(--best-ink);
+    font-weight: 700;
+  }
+
+  .unit { color: var(--muted); font-size: 12px; margin-left: 2px; }
+
+  .light {
+    display: inline-block;
+    min-width: 52px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .light.low { background: var(--low); }
+  .light.med { background: var(--med); color: #3a2a00; }
+  .light.high { background: var(--high); }
+
+  .key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .key .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    vertical-align: -2px;
+    margin-right: 6px;
+    border-radius: 3px;
+    background: var(--best);
+    border: 1px solid #b6dcaa;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .reference {
+    font-size: 14px;
+  }
+
+  .reference th, .reference td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .reference thead th {
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    border-bottom: 2px solid var(--text);
+  }
+
+  .reference td { text-align: right; font-variant-numeric: tabular-nums; }
+  .reference tbody th { text-align: left; font-weight: 500; }
+  .reference tbody tr:last-child th,
+  .reference tbody tr:last-child td { border-bottom: none; }
+
+  .reference thead th.num { text-align: right; }
+
+  .panel p { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+
+  @media (max-width: 700px) {
+    .grid { grid-template-columns: 1fr; }
+    h1 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+  <article>
+    <h1>Breakfast Cereal Nutrition Compared</h1>
+    <p class="intro">Six cereals from the Greenfield Market own-brand range, compared per 40&nbsp;g serving without milk. The best value in each row is highlighted: lowest for energy, fat, saturates, sugars and salt; highest for fibre and protein.</p>
+
+    <div class="scroller">
+      <table class="compare">
+        <thead>
+          <tr>
+            <th scope="col">Per 40 g serving</th>
+            <th scope="col">Harvest Oat Clusters<small>375 g box</small></th>
+            <th scope="col">Brambleby Bran Flakes<small>500 g box</small></th>
+            <th scope="col">Sunwheat Crisp Rice<small>440 g box</small></th>
+            <th scope="col">Cocoa Crunch Bites<small>375 g box</small></th>
+            <th scope="col">Meadow Muesli<small>no added sugar, 750 g</small></th>
+            <th scope="col">Honey Nut Loops<small>375 g box</small></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="major">
+            <th scope="row">Energy (kJ)</th>
+            <td>688</td><td class="best">592</td><td>641</td><td>653</td><td>609</td><td>642</td>
+          </tr>
+          <tr>
+            <th scope="row">Energy (kcal)</th>
+            <td>164</td><td class="best">142</td><td>153</td><td>156</td><td>146</td><td>153</td>
+          </tr>
+          <tr class="major">
+            <th scope="row">Fat</th>
+            <td>4.4<span class="unit">g</span></td><td>0.8<span class="unit">g</span></td><td class="best">0.4<span class="unit">g</span></td><td>1.6<span class="unit">g</span></td><td>2.4<span class="unit">g</span></td><td>1.4<span class="unit">g</span></td>
+          </tr>
+          <tr class="sub">
+            <th scope="row">of which saturates</th>
+            <td>0.9<span class="unit">g</span></td><td>0.2<span class="unit">g</span></td><td class="best">0.1<span class="unit">g</span></td><td>0.6<span class="unit">g</span></td><td>0.4<span class="unit">g</span></td><td>0.3<span class="unit">g</span></td>
+          </tr>
+          <tr class="major">
+            <th scope="row">Carbohydrate</th>
+            <td>26.0<span class="unit">g</span></td><td>26.4<span class="unit">g</span></td><td>34.4<span class="unit">g</span></td><td>31.6<span class="unit">g</span></td><td>25.2<span class="unit">g</span></td><td>31.2<span class="unit">g</span></td>
+          </tr>
+          <tr class="sub">
+            <th scope="row">of which sugars</th>
+            <td>7.6<span class="unit">g</span></td><td>5.6<span class="unit">g</span></td><td class="best">4.0<span class="unit">g</span></td><td>12.4<span class="unit">g</span></td><td>6.4<span class="unit">g</span></td><td>10.8<span class="unit">g</span></td>
+          </tr>
+          <tr class="major">
+            <th scope="row">Fibre</th>
+            <td>3.2<span class="unit">g</span></td><td class="best">6.0<span class="unit">g</span></td><td>0.4<span class="unit">g</span></td><td>2.0<span class="unit">g</span></td><td>3.6<span class="unit">g</span></td><td>2.4<span class="unit">g</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Protein</th>
+            <td>3.6<span class="unit">g</span></td><td class="best">4.2<span class="unit">g</span></td><td>2.8<span class="unit">g</span></td><td>2.8<span class="unit">g</span></td><td>4.0<span class="unit">g</span></td><td>2.8<span class="unit">g</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Salt</th>
+            <td>0.12<span class="unit">g</span></td><td>0.28<span class="unit">g</span></td><td>0.44<span class="unit">g</span></td><td>0.16<span class="unit">g</span></td><td class="best">0.02<span class="unit">g</span></td><td>0.30<span class="unit">g</span></td>
+          </tr>
+          <tr class="major">
+            <th scope="row">Sugar rating (per 100 g)</th>
+            <td><span class="light med">Med</span></td>
+            <td><span class="light med">Med</span></td>
+            <td><span class="light med">Med</span></td>
+            <td><span class="light high">High</span></td>
+            <td><span class="light med">Med</span></td>
+            <td><span class="light high">High</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="key">
+      <span><span class="swatch"></span>Best in row</span>
+      <span>Sugar rating: low &le; 5 g, medium 5&ndash;22.5 g, high &gt; 22.5 g per 100 g</span>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Reference intakes</h2>
+        <p>Daily reference intakes for an average adult (8,400 kJ / 2,000 kcal).</p>
+        <div class="scroller">
+          <table class="reference">
+            <thead>
+              <tr><th scope="col">Nutrient</th><th scope="col" class="num">Per day</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Energy</th><td>2,000 kcal</td></tr>
+              <tr><th scope="row">Fat</th><td>70 g</td></tr>
+              <tr><th scope="row">Saturates</th><td>20 g</td></tr>
+              <tr><th scope="row">Carbohydrate</th><td>260 g</td></tr>
+              <tr><th scope="row">Sugars</th><td>90 g</td></tr>
+              <tr><th scope="row">Protein</th><td>50 g</td></tr>
+              <tr><th scope="row">Salt</th><td>6 g</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Sugars as % of reference intake</h2>
+        <p>One 40 g serving, before adding milk or fruit.</p>
+        <div class="scroller">
+          <table class="reference">
+            <thead>
+              <tr><th scope="col">Cereal</th><th scope="col" class="num">Sugars</th><th scope="col" class="num">% RI</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Sunwheat Crisp Rice</th><td>4.0 g</td><td>4%</td></tr>
+              <tr><th scope="row">Brambleby Bran Flakes</th><td>5.6 g</td><td>6%</td></tr>
+              <tr><th scope="row">Meadow Muesli</th><td>6.4 g</td><td>7%</td></tr>
+              <tr><th scope="row">Harvest Oat Clusters</th><td>7.6 g</td><td>8%</td></tr>
+              <tr><th scope="row">Honey Nut Loops</th><td>10.8 g</td><td>12%</td></tr>
+              <tr><th scope="row">Cocoa Crunch Bites</th><td>12.4 g</td><td>14%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </article>
+</body>
+</html>

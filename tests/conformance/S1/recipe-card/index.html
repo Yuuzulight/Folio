@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe: Roasted Squash and Sage Galette</title>
+<style>
+  :root {
+    --paper: #fffaf2;
+    --ink: #3b2f2a;
+    --muted: #8a7568;
+    --accent: #b45309;
+    --accent-soft: #fdecd6;
+    --rule: #ead9c4;
+  }
+
+  body {
+    margin: 0;
+    padding: 32px 16px;
+    background: #efe6da;
+    color: var(--ink);
+    font-family: Georgia, "Times New Roman", serif;
+    line-height: 1.55;
+  }
+
+  .card {
+    max-width: 640px;
+    margin: 0 auto;
+    background: var(--paper);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(59, 47, 42, 0.15);
+    overflow: hidden;
+  }
+
+  .banner {
+    height: 16px;
+    background: repeating-linear-gradient(45deg, var(--accent) 0 12px, #d97706 12px 24px);
+  }
+
+  .content { padding: 28px 36px 32px; }
+
+  h1 {
+    margin: 0;
+    font-size: 2rem;
+    line-height: 1.15;
+  }
+
+  .tagline {
+    margin: 6px 0 18px;
+    font-style: italic;
+    color: var(--muted);
+  }
+
+  .facts {
+    display: flex;
+    gap: 0;
+    margin: 0 0 22px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    font-family: system-ui, sans-serif;
+    font-size: 0.85rem;
+  }
+
+  .facts div {
+    flex: 1;
+    padding: 8px 10px;
+    text-align: center;
+    border-right: 1px solid var(--rule);
+  }
+
+  .facts div:last-child { border-right: none; }
+
+  .facts strong {
+    display: block;
+    font-size: 1.05rem;
+    color: var(--accent);
+  }
+
+  .columns {
+    display: grid;
+    grid-template-columns: 2fr 3fr;
+    gap: 28px;
+  }
+
+  h2 {
+    font-size: 1.1rem;
+    margin: 0 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid var(--accent);
+    font-family: system-ui, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+  }
+
+  h3 {
+    font-size: 0.95rem;
+    margin: 14px 0 4px;
+    font-family: system-ui, sans-serif;
+  }
+
+  ul.ingredients {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  ul.ingredients li {
+    padding: 4px 0;
+    border-bottom: 1px dotted var(--rule);
+  }
+
+  ul.ingredients li::before {
+    content: "\2022";
+    color: var(--accent);
+    margin-right: 8px;
+  }
+
+  ol.steps {
+    padding-left: 22px;
+    margin: 0;
+  }
+
+  ol.steps li { margin-bottom: 8px; }
+  ol.steps li::marker { color: var(--accent); font-weight: bold; }
+
+  .tip {
+    margin-top: 20px;
+    padding: 12px 14px;
+    background: var(--accent-soft);
+    border-radius: 8px;
+    font-size: 0.925rem;
+  }
+
+  .tip strong { color: var(--accent); }
+
+  footer {
+    margin-top: 20px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  @media (max-width: 560px) {
+    .columns { grid-template-columns: 1fr; }
+    .content { padding: 20px; }
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .card { box-shadow: none; border: 1px solid #999; border-radius: 0; }
+    .banner { display: none; }
+    .tip { background: none; border: 1px dashed #999; }
+  }
+</style>
+</head>
+<body>
+<article class="card">
+  <div class="banner" aria-hidden="true"></div>
+  <div class="content">
+    <h1>Roasted Squash and Sage Galette</h1>
+    <p class="tagline">A rustic, free-form tart for chilly autumn evenings.</p>
+
+    <div class="facts">
+      <div><strong>6</strong>servings</div>
+      <div><strong>30 min</strong>prep</div>
+      <div><strong>45 min</strong>bake</div>
+      <div><strong>200&nbsp;&deg;C</strong>oven</div>
+    </div>
+
+    <div class="columns">
+      <section>
+        <h2>Ingredients</h2>
+        <h3>Pastry</h3>
+        <ul class="ingredients">
+          <li>190&nbsp;g plain flour</li>
+          <li>&frac12; tsp fine salt</li>
+          <li>115&nbsp;g cold butter, cubed</li>
+          <li>4&ndash;5 tbsp ice water</li>
+        </ul>
+        <h3>Filling</h3>
+        <ul class="ingredients">
+          <li>1 small butternut squash (about 700&nbsp;g)</li>
+          <li>1 red onion, thinly sliced</li>
+          <li>2 tbsp olive oil</li>
+          <li>10 fresh sage leaves</li>
+          <li>80&nbsp;g soft goat's cheese</li>
+          <li>&frac14; tsp chilli flakes</li>
+          <li>1 egg, beaten, for glazing</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Method</h2>
+        <h3>Make the pastry</h3>
+        <ol class="steps">
+          <li>Whisk the flour and salt, then rub in the butter until it looks like coarse crumbs with a few pea-sized lumps.</li>
+          <li>Add the water a spoonful at a time until the dough just holds together.</li>
+          <li>Flatten into a disc, wrap, and chill for at least 30 minutes.</li>
+        </ol>
+        <h3>Fill and bake</h3>
+        <ol class="steps" start="4">
+          <li>Peel and slice the squash into 5&nbsp;mm half-moons. Toss with the onion, oil and chilli.</li>
+          <li>Roll the pastry into a 30&nbsp;cm circle on baking paper.</li>
+          <li>Crumble half the cheese over the centre, leaving a 5&nbsp;cm border. Layer the squash on top.</li>
+          <li>Fold the border over the filling, pleating as you go. Brush the pastry with egg.</li>
+          <li>Bake for 40&ndash;45 minutes until the pastry is <em>deep golden</em> and the squash is tender.</li>
+          <li>Fry the sage in a little oil until crisp, then scatter over with the remaining cheese.</li>
+        </ol>
+      </section>
+    </div>
+
+    <div class="tip">
+      <strong>Make ahead:</strong> the pastry keeps for 3 days in the fridge or a month
+      in the freezer. Thaw overnight before rolling.
+    </div>
+
+    <footer>From the Hollin Lane Kitchen notebook &middot; Card 27</footer>
+  </div>
+</article>
+</body>
+</html>

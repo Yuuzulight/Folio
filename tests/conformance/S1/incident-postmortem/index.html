@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postmortem: Ledger API Outage, 14 March</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --paper: #ffffff;
+    --ink: #1d2330;
+    --muted: #5d6677;
+    --line: #dde1e8;
+    --accent: #c2410c;
+    --accent-soft: #fff1e8;
+    --ok: #15803d;
+    --ok-soft: #ecfdf3;
+    --code-bg: #0f172a;
+    --code-ink: #e2e8f0;
+    --radius: 10px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    line-height: 1.6;
+  }
+
+  main {
+    max-width: 760px;
+    margin: 32px auto;
+    padding: 40px 48px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+  }
+
+  .status-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--ok-soft);
+    color: var(--ok);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 12px 0 8px;
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    margin: 36px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--line);
+  }
+
+  h3 {
+    font-size: 1.05rem;
+    margin: 24px 0 8px;
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 20px 0 8px;
+    padding: 14px 16px;
+    background: var(--bg);
+    border-radius: 8px;
+    font-size: 0.875rem;
+  }
+
+  .meta div span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .summary {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+  }
+
+  code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.875em;
+    background: #eef1f5;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 16px 18px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  .tok-key { color: #93c5fd; }
+  .tok-str { color: #86efac; }
+  .tok-num { color: #fca5a5; }
+  .tok-com { color: #64748b; font-style: italic; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin: 12px 0;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--bg);
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  td.time {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+
+  ol.actions li { margin-bottom: 6px; }
+
+  .owner {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  a { color: #1d4ed8; }
+  a:hover { color: var(--accent); }
+
+  footer {
+    margin-top: 40px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  @media (max-width: 640px) {
+    main { padding: 24px 20px; margin: 0; border-radius: 0; }
+    .meta { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<main>
+  <span class="status-pill">Resolved</span>
+  <h1>Postmortem: Ledger API outage caused by an expired TLS certificate</h1>
+
+  <div class="meta">
+    <div><span>Date</span>14 March</div>
+    <div><span>Duration</span>41 minutes</div>
+    <div><span>Severity</span>SEV-2</div>
+    <div><span>Author</span>Priya Raman</div>
+  </div>
+
+  <div class="summary">
+    <strong>Summary.</strong> From 09:12 to 09:53 UTC, every request to
+    <code>api.ledgerline.example</code> failed the TLS handshake because the
+    certificate on the public load balancer expired. Roughly <strong>18,400</strong>
+    customer requests were rejected. No data was lost or corrupted.
+  </div>
+
+  <h2>Impact</h2>
+  <p>
+    All third-party integrations that call the Ledger API directly saw connection
+    errors for the full window. The web dashboard stayed up because it talks to an
+    internal endpoint with a separately managed certificate, but its <em>Export</em>
+    and <em>Sync now</em> buttons failed, since they proxy through the public API.
+  </p>
+  <ul>
+    <li>312 customer accounts affected, 41 of them on the Enterprise plan.</li>
+    <li>Nightly reconciliation jobs for 6 partners were delayed by up to 2 hours.</li>
+    <li>Support received 57 tickets; the status page was updated 11 minutes after the first alert.</li>
+  </ul>
+
+  <h2>Timeline (UTC)</h2>
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Event</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="time">09:12</td><td>Certificate for <code>api.ledgerline.example</code> expires. Handshake failures begin.</td></tr>
+      <tr><td class="time">09:14</td><td>Synthetic check <code>ledger-public-health</code> fires; on-call engineer (Tomás) paged.</td></tr>
+      <tr><td class="time">09:21</td><td>Tomás confirms the API pods are healthy and suspects the load balancer.</td></tr>
+      <tr><td class="time">09:23</td><td>Status page set to <em>Investigating</em>.</td></tr>
+      <tr><td class="time">09:31</td><td>Expired certificate identified by inspecting the handshake manually.</td></tr>
+      <tr><td class="time">09:38</td><td>Renewal requested; the automated issuer rejects it because the DNS validation record was deleted in February.</td></tr>
+      <tr><td class="time">09:47</td><td>DNS record restored, new certificate issued and uploaded.</td></tr>
+      <tr><td class="time">09:53</td><td>Error rate returns to baseline. Status page set to <em>Monitoring</em>.</td></tr>
+      <tr><td class="time">10:30</td><td>Incident closed.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Root cause</h2>
+  <p>
+    The certificate was supposed to renew automatically 30 days before expiry. The
+    renewal job had been failing silently since <strong>19 February</strong>, when a
+    DNS cleanup removed the <code>_acme-challenge</code> TXT record it depends on. The
+    job logged each failure at <code>INFO</code> level and exited with status 0, so
+    nothing alerted.
+  </p>
+
+  <h3>The renewal job configuration</h3>
+  <pre><code><span class="tok-com"># cert-renewer.yaml (before the fix)</span>
+<span class="tok-key">domain</span>: <span class="tok-str">api.ledgerline.example</span>
+<span class="tok-key">renew_before_days</span>: <span class="tok-num">30</span>
+<span class="tok-key">validation</span>: <span class="tok-str">dns</span>
+<span class="tok-key">on_failure</span>:
+  <span class="tok-key">log_level</span>: <span class="tok-str">info</span>      <span class="tok-com"># should have been "error"</span>
+  <span class="tok-key">exit_code</span>: <span class="tok-num">0</span>          <span class="tok-com"># masked the failure from the scheduler</span></code></pre>
+
+  <h3>Why it was not caught earlier</h3>
+  <p>
+    We had an expiry monitor, but it only covered certificates listed in the
+    internal inventory. The public load balancer was provisioned by hand in 2023
+    and never added to that list.
+  </p>
+
+  <h2>What went well</h2>
+  <ul>
+    <li>The synthetic check caught the problem within two minutes.</li>
+    <li>The dashboard kept serving read-only views, which reduced ticket volume.</li>
+  </ul>
+
+  <h2>Action items</h2>
+  <ol class="actions">
+    <li>Make the renewal job exit non-zero and log at <code>error</code> on failure. <span class="owner">Tomás</span></li>
+    <li>Add every public endpoint to the certificate inventory, and alert at 21 and 7 days before expiry. <span class="owner">Priya</span></li>
+    <li>Protect <code>_acme-challenge</code> records from bulk DNS cleanups. <span class="owner">Infra</span></li>
+    <li>Add a runbook entry for inspecting a TLS handshake. <span class="owner">Tomás</span></li>
+  </ol>
+
+  <footer>
+    Reviewed by the Platform Reliability group on 17 March.
+    Questions go to <a href="#">#ledger-incidents</a>.
+  </footer>
+</main>
+</body>
+</html>

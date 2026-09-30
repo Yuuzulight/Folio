@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a study guide for a high school chemistry unit on acids, bases and pH, with worked examples, self-check questions with hidden answers, and a glossary at the end.",
+  "features": ["headings", "sub-sup", "abbr", "mark", "definition-lists", "details-summary", "tables", "callouts", "figure", "css-drawn-figure", "linear-gradient", "grid", "flexbox", "ordered-lists", "custom-properties", "media-queries"],
+  "viewport": 800
+}
