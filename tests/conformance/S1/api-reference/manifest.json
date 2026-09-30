@@ -1,0 +1,5 @@
+{
+  "prompt": "Write an API reference page for the Shipments resource of our shipping API: authentication, the shipment object, create/retrieve/cancel endpoints with example JSON, and error codes.",
+  "features": ["headings", "table-of-contents", "anchor-links", "code-blocks", "syntax-highlighting", "inline-code", "tables", "definition-lists", "callouts", "attr-function", "pseudo-elements", "grid", "flexbox", "custom-properties", "media-queries"],
+  "viewport": 800
+}

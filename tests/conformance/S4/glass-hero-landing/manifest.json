@@ -1,0 +1,5 @@
+{
+  "prompt": "Design a dark landing page for a launch-planning SaaS called Orbitly: a glassy sticky nav, a big gradient hero with a tilted app mockup, floating animated blobs, and a three-column features section.",
+  "features": ["backdrop-filter", "keyframes", "transform", "3d-transform", "perspective", "filter-blur", "radial-gradient", "linear-gradient", "background-clip-text", "grid", "flex", "sticky", "custom-properties"],
+  "viewport": 800
+}

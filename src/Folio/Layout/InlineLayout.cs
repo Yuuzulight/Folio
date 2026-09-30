@@ -77,6 +77,12 @@ internal static class InlineLayout
                     (left, right) = Band();
                     continue;
                 }
+                if (!fits && SplitToFit(unit, right - left) is var (head, tail))
+                {
+                    // Alone and still too wide: overflow-wrap breaks it where it would otherwise overflow.
+                    (units[u], unit) = (head, head);
+                    units.Insert(u + 1, tail);
+                }
                 lineUnits.Add(unit);
                 x += unit.Width;
                 u++;
@@ -141,19 +147,36 @@ internal static class InlineLayout
         var breaks = LineBreaker.Find(text);
         var nowrap = new bool[text.Length];
         var noHyphens = new bool[text.Length];
+        var wordBreak = new WordBreakStyle[text.Length];
         foreach (var item in ifc.Items)
         {
-            if (item.Kind == InlineItemKind.Text && item.Style.Text.TextWrapMode == TextWrapMode.Nowrap)
+            if (item.Kind != InlineItemKind.Text)
+                continue;
+            if (item.Style.Text.TextWrapMode == TextWrapMode.Nowrap)
                 Array.Fill(nowrap, true, item.Start, item.Length);
-            if (item.Kind == InlineItemKind.Text && item.Style.Text.Hyphens == Hyphens.None)
+            if (item.Style.Text.Hyphens == Hyphens.None)
                 Array.Fill(noHyphens, true, item.Start, item.Length);
+            Array.Fill(wordBreak, item.Style.TextSpacing.WordBreak, item.Start, item.Length);
         }
         // A soft wrap opportunity at an offset, unless the text before it does not wrap (or is a soft hyphen with
-        // hyphens: none, https://www.w3.org/TR/css-text-3/#hyphens-property); hard breaks always count.
-        BreakKind BreakAt(int offset) => offset <= 0 || offset >= text.Length ? BreakKind.None
-            : breaks[offset] == BreakKind.Mandatory ? BreakKind.Mandatory
-            : breaks[offset] == BreakKind.Allowed && !nowrap[offset - 1] && !(text[offset - 1] == SoftHyphen && noHyphens[offset - 1])
-                ? BreakKind.Allowed : BreakKind.None;
+        // hyphens: none, https://www.w3.org/TR/css-text-3/#hyphens-property); hard breaks always count. word-break
+        // (css-text-3 §5.2): break-all adds one between any two letters, keep-all removes those between letters.
+        BreakKind BreakAt(int offset)
+        {
+            if (offset <= 0 || offset >= text.Length)
+                return BreakKind.None;
+            if (breaks[offset] == BreakKind.Mandatory)
+                return BreakKind.Mandatory;
+            if (nowrap[offset - 1] || text[offset - 1] == SoftHyphen && noHyphens[offset - 1])
+                return BreakKind.None;
+            var (before, after) = (text[offset - 1], text[offset]);
+            var letters = !char.IsWhiteSpace(before) && !char.IsWhiteSpace(after) && !char.IsLowSurrogate(after)
+                          && CharUnicodeInfo.GetUnicodeCategory(after) is not (UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark
+                              or UnicodeCategory.EnclosingMark or UnicodeCategory.Format);
+            return breaks[offset] == BreakKind.Allowed ? (wordBreak[offset - 1] == WordBreakStyle.KeepAll && letters && char.IsLetterOrDigit(before) && char.IsLetterOrDigit(after) ? BreakKind.None : BreakKind.Allowed)
+                : wordBreak[offset - 1] == WordBreakStyle.BreakAll && letters ? BreakKind.Allowed
+                : BreakKind.None;
+        }
 
         var units = new List<Unit>();
         var unit = new Unit();
@@ -280,6 +303,66 @@ internal static class InlineLayout
         }
     }
 
+    // Whether overflow-wrap (or word-break: break-word) lets the text break where it would otherwise overflow.
+    private static bool WrapsAnywhere(ComputedStyle style, bool forMinContent = false) =>
+        style.TextSpacing.OverflowWrap == OverflowWrap.Anywhere || style.TextSpacing.WordBreak == WordBreakStyle.BreakWord
+        || !forMinContent && style.TextSpacing.OverflowWrap == OverflowWrap.BreakWord;
+
+    /// <summary>
+    /// Splits a unit that is too wide for an empty line at the last character boundary that fits, inside text that
+    /// may wrap anywhere (https://www.w3.org/TR/css-text-3/#overflow-wrap-property), keeping at least one character.
+    /// Null when no such text is where the unit overflows.
+    /// </summary>
+    private static (Unit Head, Unit Tail)? SplitToFit(Unit unit, float available)
+    {
+        var x = 0f;
+        for (var i = 0; i < unit.Pieces.Count; i++)
+        {
+            var piece = unit.Pieces[i];
+            if (x + piece.Width <= available || piece.Kind != PieceKind.Text || !WrapsAnywhere(piece.Style))
+            {
+                x += piece.Width;
+                continue;
+            }
+            var run = piece.Run!;
+            // The last boundary between characters (not inside a cluster) that fits, else the first one.
+            var (split, first, width) = (-1, -1, x);
+            for (var g = piece.GlyphStart + 1; g < piece.GlyphEnd; g++)
+            {
+                width += run.Advances[g - 1];
+                if (run.Clusters[g] == run.Clusters[g - 1])
+                    continue;
+                if (first < 0)
+                    first = g;
+                if (width > available)
+                    break;
+                split = g;
+            }
+            split = split < 0 ? first : split;
+            if (split < 0)
+                return null;
+            var (headWidth, tailWidth) = (0f, 0f);
+            for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
+            {
+                if (g < split)
+                    headWidth += run.Advances[g];
+                else
+                    tailWidth += run.Advances[g];
+            }
+            var head = new Unit();
+            var tail = new Unit { TrailingSpace = unit.TrailingSpace, MandatoryBreakAfter = unit.MandatoryBreakAfter, Hyphen = unit.Hyphen,
+                HyphenGlyph = unit.HyphenGlyph, HyphenWidth = unit.HyphenWidth };
+            head.Pieces.AddRange(unit.Pieces.Take(i));
+            head.Pieces.Add(new Piece(PieceKind.Text, piece.Style, headWidth) { Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = true, Level = piece.Level });
+            tail.Pieces.Add(new Piece(PieceKind.Text, piece.Style, tailWidth) { Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = piece.Visible, Level = piece.Level });
+            tail.Pieces.AddRange(unit.Pieces.Skip(i + 1));
+            head.Width = head.Pieces.Sum(p => p.Width);
+            tail.Width = tail.Pieces.Sum(p => p.Width);
+            return (head, tail);
+        }
+        return null;
+    }
+
     /// <summary>
     /// Min-content (the widest unit) and max-content (the widest line with only forced breaks) widths
     /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own.
@@ -291,6 +374,10 @@ internal static class InlineLayout
         foreach (var unit in Units(block, ifc, 0, context, BidiLevels(block, ifc), layOutAtomics: false))
         {
             var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace + unit.HyphenWidth, unit.Width);
+            // overflow-wrap: anywhere (and word-break: break-word) may break between any two characters for min-content;
+            // break-word only when laying out.
+            if (unit.Pieces.Any(p => p.Kind == PieceKind.Text && WrapsAnywhere(p.Style, forMinContent: true)))
+                unitMin = unit.Pieces.Where(p => p.Kind == PieceKind.Text).SelectMany(p => p.Run!.Advances[p.GlyphStart..p.GlyphEnd]).DefaultIfEmpty().Max();
             if (first && block.Node is Dom.ElementNode && !block.Style.Text.TextIndent.Hanging)
             {
                 // The first line's indent (percentages count as zero with no width to resolve them against).
@@ -485,19 +572,20 @@ internal static class InlineLayout
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
             if (i > runStart && face != runFace)
             {
-                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, font.Size, context, rightToLeft));
+                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, style, context, rightToLeft));
                 runStart = i;
             }
             runFace = face;
             i += clusterLength;
         }
         if (end > runStart)
-            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, font.Size, context, rightToLeft));
+            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, style, context, rightToLeft));
         return runs;
     }
 
-    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, float size, LayoutContext context, bool rightToLeft)
+    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft)
     {
+        var size = style.Font.Size;
         ShapedRun run;
         if (face is null)
         {
@@ -512,10 +600,19 @@ internal static class InlineLayout
         {
             run = SimpleShaper.Shape(text, start, length, face, size);
         }
-        // Controls and format characters take no space; a tab is eight spaces (tab-size's initial value).
+        // Controls and format characters take no space; a tab is tab-size spaces or a length. letter-spacing follows
+        // every typographic character unit and word-spacing every word separator (css-text-3 §8.1, css-text-4 §9).
+        // ponytail: tabs are a fixed width, not stops measured from the line start.
+        var spacing = style.TextSpacing;
+        var space = face is not null ? face.Advance(face.GlyphFor(' ')) * size / face.UnitsPerEm : size / 2;
         for (var g = 0; g < run.Glyphs.Length; g++)
         {
             var c = text[run.Clusters[g]];
+            var lastOfCluster = g + 1 == run.Glyphs.Length || run.Clusters[g + 1] != run.Clusters[g];
+            if (c == '\t')
+                run.Advances[g] = spacing.TabSize.IsLength ? spacing.TabSize.Value : spacing.TabSize.Value * (space + spacing.LetterSpacing + spacing.WordSpacing);
+            else if (lastOfCluster && !(c is '\n' or '\r' || char.GetUnicodeCategory(c) == UnicodeCategory.Format))
+                run.Advances[g] += spacing.LetterSpacing + (c is ' ' or '\u00A0' or '\u3000' ? spacing.WordSpacing : 0);
             if (c is '\n' or '\r' || char.GetUnicodeCategory(c) == UnicodeCategory.Format)
             {
                 // Nothing is drawn for them either: the space glyph stands in for whatever the font has there.
@@ -523,8 +620,6 @@ internal static class InlineLayout
                 if (face is not null && face.GlyphFor(' ') is var blank and not 0)
                     run.Glyphs[g] = blank;
             }
-            else if (c == '\t')
-                run.Advances[g] = 8 * (face is not null ? face.Advance(face.GlyphFor(' ')) * size / face.UnitsPerEm : size / 2);
         }
         return run;
     }

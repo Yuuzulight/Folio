@@ -1,0 +1,5 @@
+{
+  "prompt": "Write a one-page incident postmortem for a 40-minute API outage caused by an expired TLS certificate.",
+  "features": ["headings", "lists", "code-blocks", "syntax-highlighting", "tables", "callouts", "custom-properties", "grid", "media-queries"],
+  "viewport": 800
+}

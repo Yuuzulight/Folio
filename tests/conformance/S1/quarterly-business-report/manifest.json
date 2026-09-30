@@ -1,0 +1,5 @@
+{
+  "prompt": "Write the Q3 business review narrative for our outdoor gear company's board: headline KPIs, a simple revenue chart, channel breakdown, product notes and the Q4 outlook.",
+  "features": ["headings", "kpi-grid", "grid", "flexbox", "linear-gradient", "figure", "css-drawn-figure", "tables", "table-caption", "tfoot", "pull-quote", "blockquote", "footnotes", "sup", "hr", "pseudo-elements", "serif-fonts", "custom-properties", "media-queries"],
+  "viewport": 800
+}

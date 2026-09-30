@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a sales analytics dashboard for a small online shop with KPI cards, a daily revenue bar chart, top channels with progress bars, and a recent orders table.",
+  "features": ["grid", "flex", "custom-properties", "border-radius", "box-shadow", "linear-gradient", "table", "pseudo-elements"],
+  "viewport": 800
+}

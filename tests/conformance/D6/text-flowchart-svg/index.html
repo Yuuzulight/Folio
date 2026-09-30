@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Order Pipeline — Flow Diagrams</title>
+<style>
+  :root {
+    --ink: #1f2a37;
+    --muted: #6b7686;
+    --line: #e3e8ef;
+    --node: #ffffff;
+    --node-stroke: #3b82f6;
+    --terminal: #0f766e;
+    --edge: #94a3b8;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    color: var(--ink);
+    background: #f4f7fb;
+  }
+
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .lede { color: var(--muted); margin: 0 0 24px; }
+
+  .diagram-block {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+
+  .diagram-block h2 { font-size: 16px; margin: 0 0 10px; }
+
+  pre.diagram {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    background: #0f172a;
+    color: #cbd5e1;
+    border-radius: 10px;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+
+  .rendered svg { display: block; width: 100%; height: auto; }
+
+  .rendered .node rect {
+    fill: var(--node);
+    stroke: var(--node-stroke);
+    stroke-width: 1.5;
+  }
+
+  .rendered .node.terminal rect { fill: #ccfbf1; stroke: var(--terminal); }
+  .rendered .node.fail rect { fill: #fee2e2; stroke: #dc2626; }
+
+  .rendered .node text {
+    font-size: 13px;
+    font-weight: 600;
+    fill: var(--ink);
+    dominant-baseline: central;
+    text-anchor: middle;
+  }
+
+  .rendered .edge {
+    fill: none;
+    stroke: var(--edge);
+    stroke-width: 1.6;
+  }
+
+  .rendered .edge-label {
+    font-size: 11px;
+    fill: var(--muted);
+    text-anchor: middle;
+  }
+
+  .error { color: #b91c1c; font-size: 14px; }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Order pipeline</h1>
+    <p class="lede">Each diagram below is written as plain text. A small script reads the text and draws the flowchart.</p>
+
+    <section class="diagram-block">
+      <h2>Checkout</h2>
+<pre class="diagram">Start -> Validate -> Save
+Validate -> Reject : invalid
+Save -> Notify -> End
+Reject -> End</pre>
+    </section>
+
+    <section class="diagram-block">
+      <h2>Refund request</h2>
+<pre class="diagram">Start -> Lookup order -> Check window
+Check window -> Approve : within 30 days
+Check window -> Escalate : late
+Escalate -> Approve : manager ok
+Escalate -> Decline
+Approve -> Issue refund -> End
+Decline -> End</pre>
+    </section>
+  </main>
+
+<script>
+  const NS = 'http://www.w3.org/2000/svg';
+
+  function svgEl(name, attrs = {}, parent) {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  // "A -> B -> C" makes a chain; an optional ": label" labels the last edge.
+  function parse(text) {
+    const nodes = new Map();
+    const edges = [];
+    const add = (name) => { if (!nodes.has(name)) nodes.set(name, { name, rank: 0, row: 0 }); return nodes.get(name); };
+
+    text.split('\n').forEach((raw, lineNo) => {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) return;
+      const [chain, label] = line.split(/\s*:\s*/);
+      const parts = chain.split('->').map((s) => s.trim());
+      if (parts.some((p) => !p)) throw new Error(`Line ${lineNo + 1}: empty node name`);
+      parts.forEach(add);
+      for (let i = 0; i < parts.length - 1; i++) {
+        edges.push({ from: parts[i], to: parts[i + 1], label: i === parts.length - 2 ? label : undefined });
+      }
+    });
+    return { nodes, edges };
+  }
+
+  // Rank = longest distance from a root, ignoring edges that would form a cycle.
+  function layout({ nodes, edges }) {
+    const out = new Map([...nodes.keys()].map((k) => [k, []]));
+    const indeg = new Map([...nodes.keys()].map((k) => [k, 0]));
+    edges.forEach((e) => { out.get(e.from).push(e.to); indeg.set(e.to, indeg.get(e.to) + 1); });
+
+    const queue = [...nodes.keys()].filter((k) => indeg.get(k) === 0);
+    if (!queue.length) queue.push(nodes.keys().next().value);
+    const seen = new Set();
+    while (queue.length) {
+      const k = queue.shift();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      for (const next of out.get(k)) {
+        const n = nodes.get(next);
+        n.rank = Math.max(n.rank, nodes.get(k).rank + 1);
+        indeg.set(next, indeg.get(next) - 1);
+        if (indeg.get(next) <= 0) queue.push(next);
+      }
+    }
+
+    const columns = [];
+    for (const n of nodes.values()) {
+      (columns[n.rank] ||= []).push(n);
+    }
+    columns.forEach((col) => col.forEach((n, i) => { n.row = i; n.rowsInColumn = col.length; }));
+    return columns.length;
+  }
+
+  function render(pre) {
+    const container = document.createElement('div');
+    container.className = 'rendered';
+    pre.after(container);
+
+    let graph;
+    try {
+      graph = parse(pre.textContent);
+    } catch (err) {
+      container.innerHTML = `<p class="error">Could not draw diagram: ${err.message}</p>`;
+      return;
+    }
+
+    const rankCount = layout(graph);
+    const maxRows = Math.max(...[...graph.nodes.values()].map((n) => n.rowsInColumn));
+    const colGap = 60, rowGap = 26, boxH = 40;
+    const widthOf = (name) => Math.max(84, name.length * 7.6 + 28);
+    const colWidths = [];
+    for (const n of graph.nodes.values()) colWidths[n.rank] = Math.max(colWidths[n.rank] || 0, widthOf(n.name));
+
+    const colX = [];
+    let cursor = 10;
+    colWidths.forEach((w, i) => { colX[i] = cursor; cursor += w + colGap; });
+    const width = cursor - colGap + 10;
+    const height = maxRows * boxH + (maxRows - 1) * rowGap + 30;
+
+    for (const n of graph.nodes.values()) {
+      const colH = n.rowsInColumn * boxH + (n.rowsInColumn - 1) * rowGap;
+      const top = (height - colH) / 2;
+      n.w = widthOf(n.name);
+      n.x = colX[n.rank] + (colWidths[n.rank] - n.w) / 2;
+      n.y = top + n.row * (boxH + rowGap);
+      n.h = boxH;
+    }
+
+    const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Flowchart' });
+    svg.style.maxWidth = width + 'px';
+    const defs = svgEl('defs', {}, svg);
+    const markerId = 'arrow-' + Math.random().toString(36).slice(2, 8);
+    const marker = svgEl('marker', { id: markerId, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+    svgEl('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#94a3b8' }, marker);
+
+    const edgeLayer = svgEl('g', {}, svg);
+    const nodeLayer = svgEl('g', {}, svg);
+
+    graph.edges.forEach((e) => {
+      const a = graph.nodes.get(e.from);
+      const b = graph.nodes.get(e.to);
+      let d, lx, ly;
+      if (b.rank > a.rank) {
+        const x1 = a.x + a.w, y1 = a.y + a.h / 2;
+        const x2 = b.x, y2 = b.y + b.h / 2;
+        const mid = (x1 + x2) / 2;
+        d = `M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2 - 2} ${y2}`;
+        lx = mid; ly = (y1 + y2) / 2 - 6;
+      } else {
+        // Back edge or same column: loop underneath.
+        const x1 = a.x + a.w / 2, y1 = a.y + a.h;
+        const x2 = b.x + b.w / 2, y2 = b.y + b.h;
+        const dip = height - 4;
+        d = `M${x1} ${y1} C${x1} ${dip}, ${x2} ${dip}, ${x2} ${y2 + 2}`;
+        lx = (x1 + x2) / 2; ly = dip - 8;
+      }
+      svgEl('path', { class: 'edge', d, 'marker-end': `url(#${markerId})` }, edgeLayer);
+      if (e.label) {
+        const t = svgEl('text', { class: 'edge-label', x: lx, y: ly }, edgeLayer);
+        t.textContent = e.label;
+      }
+    });
+
+    for (const n of graph.nodes.values()) {
+      const kind = /^(start|end)$/i.test(n.name) ? ' terminal' : /reject|decline/i.test(n.name) ? ' fail' : '';
+      const g = svgEl('g', { class: 'node' + kind }, nodeLayer);
+      const radius = kind === ' terminal' ? boxH / 2 : 8;
+      svgEl('rect', { x: n.x, y: n.y, width: n.w, height: n.h, rx: radius, ry: radius }, g);
+      const t = svgEl('text', { x: n.x + n.w / 2, y: n.y + n.h / 2 }, g);
+      t.textContent = n.name;
+    }
+
+    container.appendChild(svg);
+  }
+
+  document.querySelectorAll('pre.diagram').forEach(render);
+</script>
+</body>
+</html>

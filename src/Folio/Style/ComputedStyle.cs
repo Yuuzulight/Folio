@@ -65,6 +65,27 @@ internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
 
+/// <summary>https://www.w3.org/TR/css-text-3/#text-transform-property (full-size-kana is accepted and does nothing)</summary>
+internal enum TextTransform { None, Capitalize, Uppercase, Lowercase, FullWidth, FullSizeKana }
+
+/// <summary>https://www.w3.org/TR/css-text-3/#word-break-property</summary>
+internal enum WordBreakStyle { Normal, BreakAll, KeepAll, BreakWord }
+
+/// <summary>https://www.w3.org/TR/css-text-3/#overflow-wrap-property</summary>
+internal enum OverflowWrap { Normal, BreakWord, Anywhere }
+
+/// <summary>A computed <c>tab-size</c>: a number of spaces, or a length in px.</summary>
+internal readonly record struct TabSize(float Value, bool IsLength)
+{
+    public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + (IsLength ? "px" : "");
+}
+
+/// <summary>Spacing and breaking of text (inherited): letter-spacing, word-spacing, tab-size, word-break, overflow-wrap and text-transform.</summary>
+internal sealed record SpacingTextGroup(float LetterSpacing, float WordSpacing, TabSize TabSize, WordBreakStyle WordBreak, OverflowWrap OverflowWrap, TextTransform Transform)
+{
+    public static SpacingTextGroup Initial { get; } = new(0, 0, new TabSize(8, false), WordBreakStyle.Normal, OverflowWrap.Normal, TextTransform.None);
+}
+
 internal enum Hyphens { Manual, None, Auto }
 
 /// <summary>A computed <c>text-indent</c> (https://www.w3.org/TR/css-text-3/#text-indent-property).</summary>
@@ -170,8 +191,12 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 // between elements, replaced whole when any member changes.
 
 /// <summary>Inherited: font properties.</summary>
+/// <remarks>
+/// <see cref="VariantNumeric"/> and <see cref="FeatureSettings"/> keep their keywords and feature tags for the shapers;
+/// neither shaper applies OpenType features yet.
+/// </remarks>
 internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight,
-                                 float Stretch, string VariantCaps);
+                                 float Stretch, string VariantCaps, string VariantNumeric = "normal", string FeatureSettings = "normal");
 
 /// <summary>Inherited: other inherited properties, and the decorations propagated to the element's text.</summary>
 internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme, AppliedDecoration? Decorations = null);
@@ -264,6 +289,15 @@ internal sealed record FlexGroup(
         ContentAlign.Normal, 0, 1, SizeValue.Auto, 0, default, default);
 }
 
+/// <summary>Inherited: the quotation marks of open-quote and close-quote, outermost pair first; null is auto.</summary>
+internal sealed record QuotesGroup(IReadOnlyList<(string Open, string Close)>? Pairs)
+{
+    public static QuotesGroup Initial { get; } = new((IReadOnlyList<(string, string)>?)null);
+
+    public override string ToString() => Pairs is null ? "auto" : Pairs.Count == 0 ? "none"
+        : string.Join(" ", Pairs.Select(p => $"\"{p.Open}\" \"{p.Close}\""));
+}
+
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
@@ -281,6 +315,8 @@ internal sealed class ComputedStyle
     public required GeneratedGroup Generated { get; init; }
     public FlexGroup Flex { get; init; } = FlexGroup.Initial;
     public GridGroup Grid { get; init; } = GridGroup.Initial;
+    public SpacingTextGroup TextSpacing { get; init; } = SpacingTextGroup.Initial;
+    public QuotesGroup Quotes { get; init; } = QuotesGroup.Initial;
     public DecorationGroup Decoration { get; init; } = DecorationGroup.Initial;
     public TransformGroup Transform { get; init; } = TransformGroup.Initial;
 
