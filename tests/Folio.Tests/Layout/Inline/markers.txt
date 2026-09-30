@@ -1,0 +1,74 @@
+Outside list markers (CSS Lists 3 section 3): the marker's text ends where the list item's first line box starts, on
+that line's baseline, whether the line is the item's own or in a block inside it. Markers are "text" fragments showing
+the marker string.
+
+=== a bullet ends where the first line starts
+<!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px }</style><ul><li>aa</li></ul>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    ul 0,0 800x16
+      li 40,0 760x16
+        line 40,0 760x16
+          text "aa" 40,0 32x16
+        text "• " 8,0 32x16
+
+=== ordered markers count down from start when reversed
+<!DOCTYPE html><style>body, ol { margin: 0 } ol { padding-left: 40px }</style><ol start=4 reversed><li>a<li>b</ol>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    ol 0,0 800x32
+      li 40,0 760x16
+        line 40,0 760x16
+          text "a" 40,0 16x16
+        text "4. " -8,0 48x16
+      li 40,16 760x16
+        line 40,16 760x16
+          text "b" 40,16 16x16
+        text "3. " -8,16 48x16
+
+=== the marker follows the first line of a block inside the item
+<!DOCTYPE html><style>body, ul, p { margin: 0 } ul { padding-left: 40px } p { padding-top: 10px; line-height: 20px }</style><ul style="list-style-type: lower-alpha"><li><p>aa</p></li></ul>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    ul 0,0 800x30
+      li 40,0 760x30
+        p 40,0 760x30
+          line 40,10 760x20
+            text "aa" 40,12 32x16
+        text "a. " -8,12 48x16
+
+=== inside markers stay inline text
+<!DOCTYPE html><style>body, ul { margin: 0; padding: 0 }</style><ul style="list-style-position: inside"><li>aa</li></ul>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    ul 0,0 800x16
+      li 0,0 800x16
+        line 0,0 800x16
+          ::marker 0,0 32x16
+          text "• " 0,0 32x16
+          text "aa" 32,0 32x16
+
+=== a closed details shows only its summary, with a closed triangle
+<!DOCTYPE html><style>body, p { margin: 0 }</style><details><summary>s</summary><p>hidden</p></details><details open><summary>t</summary><p>shown</p></details>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    details 0,0 800x16
+      summary 0,0 800x16
+        line 0,0 800x16
+          ::marker 0,0 32x16
+          text "▸ " 0,0 32x16
+          text "s" 32,0 16x16
+    details 0,16 800x32
+      summary 0,16 800x16
+        line 0,16 800x16
+          ::marker 0,16 32x16
+          text "▾ " 0,16 32x16
+          text "t" 32,16 16x16
+      p 0,32 800x16
+        line 0,32 800x16
+          text "shown" 0,32 80x16

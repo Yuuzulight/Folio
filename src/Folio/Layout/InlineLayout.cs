@@ -214,11 +214,16 @@ internal static class InlineLayout
             unit.TrailingSpace = 0;
         }
 
+        // The styles of the inline boxes open at each point: whether the content around an atomic inline may wrap is
+        // its parent's white-space (css-text-3 §5.1: the nearest common ancestor of the two sides).
+        var open = new Stack<ComputedStyle>();
+        bool Wraps() => (open.Count > 0 ? open.Peek() : block.Style).Text.TextWrapMode == TextWrapMode.Wrap;
         foreach (var item in ifc.Items)
         {
             switch (item.Kind)
             {
                 case InlineItemKind.OpenBox:
+                    open.Push(item.Style);
                     if (BreakAt(item.Start) is var b && b != BreakKind.None && brokeAt != item.Start)
                     {
                         Break(b);
@@ -227,6 +232,7 @@ internal static class InlineLayout
                     Add(new Piece(PieceKind.BoxStart, item.Style, item.Continuation ? 0 : InlineStart(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineStart(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.CloseBox:
+                    open.TryPop(out _);
                     Add(new Piece(PieceKind.BoxEnd, item.Style, item.Continuation ? 0 : InlineEnd(item.Style, width)) { Box = item.Box, Visible = !item.Continuation && InlineEnd(item.Style, width) > 0 });
                     break;
                 case InlineItemKind.Text:
@@ -253,12 +259,16 @@ internal static class InlineLayout
                     break;
                 case InlineItemKind.Atomic:
                 {
-                    Close();
+                    // An atomic inline is a break opportunity on both sides, unless the text there does not wrap.
+                    var wraps = Wraps();
+                    if (wraps)
+                        Close();
                     var box = item.Box!;
                     if (!layOutAtomics)
                     {
                         Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true, Level = levels.Atomics.GetValueOrDefault(box) });
-                        Close();
+                        if (wraps)
+                            Close();
                         break;
                     }
                     var fragment = BlockLayout.Layout(box, new ConstraintSpace(width, null), context);
@@ -270,7 +280,8 @@ internal static class InlineLayout
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
                         Level = levels.Atomics.GetValueOrDefault(box),
                     });
-                    Close();
+                    if (wraps)
+                        Close();
                     break;
                 }
                 case InlineItemKind.ForcedBreak:
@@ -625,6 +636,29 @@ internal static class InlineLayout
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
     // the first family's .notdef, or half-em blanks when no font is available at all.
+    /// <summary>
+    /// An outside marker's text as text fragments, one per font run, each showing its part of the marker text, and the
+    /// ascent of the marker's font (for placing it on a baseline).
+    /// </summary>
+    public static (List<Fragment> Runs, float Ascent) MarkerText(MarkerBox marker, LayoutContext context)
+    {
+        var style = marker.Style;
+        var strut = Metrics(style, context);
+        var fragments = new List<Fragment>();
+        foreach (var run in Shape(marker.Text, 0, marker.Text.Length, style, context))
+        {
+            var m = Metrics(style, run.Face);
+            var (from, to) = (run.Clusters[0], run.Clusters.Length > 0 ? run.Clusters[^1] + 1 : 0);
+            var fragment = new Fragment(marker, run.Width, m.Ascent + m.Descent, [])
+            {
+                Kind = FragmentKind.Text,
+                Text = new TextRun(run, 0, run.Glyphs.Length, m.Ascent, false, style, marker.Text[from..Math.Min(to, marker.Text.Length)]),
+            };
+            fragments.Add(fragment);
+        }
+        return (fragments, strut.Ascent);
+    }
+
     private static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
         var font = style.Font;
@@ -698,6 +732,29 @@ internal static class InlineLayout
         Style.FontStyle.Oblique => FaceStyle.Oblique,
         _ => FaceStyle.Normal,
     };
+
+    /// <summary>
+    /// ex and ch for style computation (https://www.w3.org/TR/css-values-4/#font-relative-lengths): the x-height and
+    /// the advance of "0" of each font group's first available font, measured once per group.
+    /// </summary>
+    public static FontMeasure MeasureWith(FontCollection fonts)
+    {
+        var measured = new Dictionary<FontGroup, (float, float)?>();
+        return font =>
+        {
+            if (measured.TryGetValue(font, out var metrics))
+                return metrics;
+            FontFace? face = null;
+            foreach (var family in font.Family)
+            {
+                if ((face = fonts.Match(family, FaceStyleOf(font.Style), font.Weight, font.Stretch)) is not null)
+                    break;
+            }
+            var em = face?.UnitsPerEm ?? 1f;
+            return measured[font] = face is null ? null
+                : (face.XHeight / em, face.Covers('0') ? face.Advance(face.GlyphFor('0')) / em : 0);
+        };
+    }
 
     private static FontFace? PrimaryFace(ComputedStyle style, LayoutContext context)
     {
@@ -773,7 +830,10 @@ internal static class InlineLayout
             Ellipsize(pieces, available, block.Style, context, paragraphLevel);
             contentWidth = pieces.Sum(p => p.Width);
         }
-        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
+        // A line ended by a forced break (br, or a preserved segment break) is not empty, even with nothing on it
+        // (CSS 2.2 §9.4.2), so blank lines in pre keep their height.
+        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text)
+                      || units.Count > 0 && units[^1].MandatoryBreakAfter;
         var free = available - contentWidth;
         var rtl = paragraphLevel == 1;
         var textStyle = block.Style.Text;

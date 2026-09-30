@@ -70,13 +70,23 @@ internal sealed class StyleBuilder
         if (cascaded.TryGetValue(PropertyId.FontSize, out var fontSize))
             builder.Apply(Properties.Get(PropertyId.FontSize), fontSize, context);
         context.FontSize = builder.Font.Size;
+        // The rest of the font too, so ex and ch in other properties measure the element's own first available font.
+        foreach (var id in (ReadOnlySpan<PropertyId>)[PropertyId.FontFamily, PropertyId.FontWeight, PropertyId.FontStyle, PropertyId.FontStretch])
+        {
+            if (cascaded.TryGetValue(id, out var value))
+                builder.Apply(Properties.Get(id), value, context);
+        }
+        context.Font = builder.Font;
         if (cascaded.TryGetValue(PropertyId.Color, out var color))
             builder.Apply(Properties.Get(PropertyId.Color), color, context);
         context.CurrentColor = builder.Inherited.Color;
+        if (context.Registered is { Count: > 0 } registered)
+            context.Custom = builder._custom = CustomProperties.ApplySyntax(context.Custom, context.Parent.Custom, registered, context);
 
         foreach (var (id, value) in cascaded)
         {
-            if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme))
+            if (id is not (PropertyId.FontSize or PropertyId.Color or PropertyId.ColorScheme or PropertyId.FontFamily or PropertyId.FontWeight
+                    or PropertyId.FontStyle or PropertyId.FontStretch))
                 builder.Apply(Properties.Get(id), value, context);
         }
         builder.PropagateDecorations();

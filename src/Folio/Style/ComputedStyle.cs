@@ -356,6 +356,12 @@ internal sealed class ComputedStyle
     public static ComputedStyle Initial { get; } = Properties.InitialStyle();
 }
 
+/// <summary>
+/// The x-height and the advance of the "0" glyph of a font group's first available font, as fractions of the font
+/// size (0 when the font does not have one); null when no font is available. Layout provides it.
+/// </summary>
+internal delegate (float XHeight, float ZeroAdvance)? FontMeasure(FontGroup font);
+
 /// <summary>What computing a value needs besides the value itself.</summary>
 internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, float viewportWidth, float viewportHeight)
 {
@@ -366,6 +372,9 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
 
     /// <summary>The host's preferred colour scheme (prefers-color-scheme).</summary>
     public bool PrefersDark { get; init; }
+
+    /// <summary>The <c>@property</c> registrations in effect, whose custom properties compute for their syntax.</summary>
+    public IReadOnlyDictionary<string, RegisteredProperty>? Registered { get; init; }
 
     /// <summary>Whether the element uses the dark scheme (its color-scheme and the preference), for light-dark().</summary>
     public bool UsesDark { get; set; }
@@ -390,9 +399,13 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
     /// <summary>The element's own computed font size, once font-size has been computed (em units refer to it).</summary>
     public float FontSize { get; set; } = parent.Font.Size;
 
-    /// <summary>Converts a length to px. In font-size itself, em refers to the parent's font size.</summary>
-    // ponytail: ex and ch use the 0.5em fallback the spec allows when font metrics are unavailable;
-    // they switch to real metrics when the font system exists (study 11).
+    /// <summary>Measures the first available font for ex and ch; without one, both are 0.5em.</summary>
+    public FontMeasure? Measure { get; init; }
+
+    /// <summary>The element's own font properties, once computed (ex and ch measure its first available font).</summary>
+    public FontGroup? Font { get; set; }
+
+    /// <summary>Converts a length to px. In font-size itself, em, ex and ch refer to the parent's font.</summary>
     public float ToPx(Length length, bool forFontSize = false)
     {
         var em = forFontSize ? Parent.Font.Size : FontSize;
@@ -401,7 +414,7 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
             LengthUnit.Px => length.Value,
             LengthUnit.Em => length.Value * em,
             LengthUnit.Rem => length.Value * RootFontSize,
-            LengthUnit.Ex or LengthUnit.Ch => length.Value * em / 2,
+            LengthUnit.Ex or LengthUnit.Ch => length.Value * em * FontRatio(length.Unit, forFontSize ? Parent.Font : Font ?? Parent.Font),
             LengthUnit.Vw => length.Value * ViewportWidth / 100,
             LengthUnit.Vh => length.Value * ViewportHeight / 100,
             LengthUnit.Vmin => length.Value * Math.Min(ViewportWidth, ViewportHeight) / 100,
@@ -414,6 +427,16 @@ internal sealed class ComputeContext(ComputedStyle parent, float rootFontSize, f
             LengthUnit.Pc => length.Value * 16,
             _ => length.Value,
         };
+    }
+
+    // https://www.w3.org/TR/css-values-4/#font-relative-lengths: the x-height and the advance of "0" of the first
+    // available font, as fractions of its size; 0.5 when it has none or none can be measured.
+    private float FontRatio(LengthUnit unit, FontGroup font)
+    {
+        if (Measure?.Invoke(font) is not { } metrics)
+            return 0.5f;
+        var ratio = unit == LengthUnit.Ex ? metrics.XHeight : metrics.ZeroAdvance;
+        return ratio > 0 ? ratio : 0.5f;
     }
 
     /// <summary>Computes a length, percentage or math function; lengths become px, percentages stay.</summary>
