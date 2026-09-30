@@ -14,7 +14,7 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 1. Static rendering
 
-**Scope**: HTML parsing, DOM, CSS parsing and selector matching, cascade with custom properties and `calc()`, box tree, block/inline/flex/grid/table layout, positioning and overflow, text shaping with font fallback, emoji and bidi, PNG and JPEG decoding, painting of backgrounds, borders, radii, images and text through SkiaSharp. `FolioView` (display, relayout on resize, root-page scrolling with wheel and scrollbar, clickable links through a host callback that by default opens the system browser) and the headless render-to-image API. `ArtifactClassifier`. The test and CI infrastructure (reftests, golden images with tolerance, approve workflow, diff images on PRs, Linux and Windows runners), the benchmark harness and the first fuzz harnesses.
+**Scope**: HTML parsing, DOM, CSS parsing and selector matching, cascade with custom properties and `calc()`, box tree, block/inline/flex/grid/table layout, positioning and overflow, text shaping with font fallback, emoji and bidi, PNG and JPEG decoding, painting of backgrounds (including gradients), borders, radii, box and text shadows, images and text through SkiaSharp. `FolioView` (display, relayout on resize, root-page scrolling with wheel and scrollbar, clickable links through a host callback that by default opens the system browser) and the headless render-to-image API. `ArtifactClassifier`. The test and CI infrastructure (reftests, golden images with tolerance, approve workflow, diff images on PRs, Linux and Windows runners), the benchmark harness and the first fuzz harnesses.
 
 **Acceptance criteria**: the list in [architecture.md → Milestone 1 in detail](architecture.md#milestone-1-in-detail-static-rendering), in short:
 
@@ -27,7 +27,7 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 2. Static parity
 
-**Scope**: gradients (linear, radial, conic, repeating, colour-space interpolation), box and text shadows, 2D transforms and individual transform properties, filters and `backdrop-filter`, blend modes, `clip-path`, masks, `border-image`; CSS transitions and animations with a real timeline (paint-only fast path for opacity/transform/filter/colour); web fonts (`@font-face` with WOFF/WOFF2, `unicode-range`, `font-display`) from `data:` URLs, local folders or the host's allowlisted font and style origins with cache and integrity checks; SVG ([study 13](study/13-svg.md): inline and as images, shapes, paths, text, gradients, clipping, markers, `use`, then masks, patterns, `foreignObject`, filter primitives); `:has()` matching; `subgrid`; `@property` syntax checking; any M1 gaps the corpus exposes (for example `::first-letter`, multi-column).
+**Scope**: 2D transforms and individual transform properties, filters and `backdrop-filter`, blend modes, `clip-path`, masks, `border-image`; CSS transitions and animations with a real timeline (paint-only fast path for opacity/transform/filter/colour); web fonts (`@font-face` with WOFF/WOFF2, `unicode-range`, `font-display`) from `data:` URLs, local folders or the host's allowlisted font and style origins with cache and integrity checks; SVG ([study 13](study/13-svg.md): inline and as images, shapes, paths, text, gradients, clipping, markers, `use`, then masks, patterns, `foreignObject`, filter primitives); `:has()` matching; `subgrid`; `@property` syntax checking; any M1 gaps the corpus exposes (for example `::first-letter`, multi-column).
 
 **Acceptance criteria**
 
