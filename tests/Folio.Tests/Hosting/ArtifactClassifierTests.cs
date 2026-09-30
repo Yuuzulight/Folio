@@ -61,7 +61,7 @@ public class ArtifactClassifierTests
     [InlineData("<style>.a { background-clip: text }</style>", "background-clip: text")]
     [InlineData("<style>.a { mix-blend-mode: multiply }</style>", "CSS property: mix-blend-mode")]
     [InlineData("<style>.a { display: grid; width: 12 }</style>", "CSS value: width")]
-    [InlineData("<style>.a:has(b) { color: red }</style>", "selector")]
+    [InlineData("<style>input:required { color: red }</style>", "selector")]
     [InlineData("<style>@font-face { font-family: X; src: url(data:font/woff2;base64,AA==) }</style>", "@font-face")]
     [InlineData("<style>@container (min-width: 1px) { .a { color: red } }</style>", "@container")]
     [InlineData("<style>@media (max-width: 600px) { .a { filter: blur(2px) } }</style>", "CSS property: filter")]
