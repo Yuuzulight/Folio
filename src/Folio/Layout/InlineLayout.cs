@@ -41,7 +41,10 @@ internal static class InlineLayout
         var rtl = levels.Paragraph == 1;
         var afterForcedBreak = true;
 
-        for (var u = 0; u < units.Count;)
+        // line-clamp (css-overflow-4 §4): only that many lines are laid out; the last one ends with an ellipsis when
+        // content was left out.
+        var clamp = block.Style.Box.LineClamp;
+        for (var u = 0; u < units.Count && (clamp is not { } most || lines.Count < most);)
         {
             var bandHeight = strut.Above + strut.Below;
             // text-indent moves the first line's start edge (or every other line's, when hanging; each-line counts lines
@@ -91,8 +94,9 @@ internal static class InlineLayout
             }
 
             afterForcedBreak = lineUnits.Count > 0 && lineUnits[^1].MandatoryBreakAfter;
+            var clipped = clamp is { } limit && lines.Count == limit - 1 && u < units.Count;
             var line = BuildLine(block, ifc.Text, lineUnits, u == units.Count || afterForcedBreak, openBoxes, right - left, width, strut,
-                levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y));
+                levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y), clipped);
             if (line.Height > 0 || line.Children.Count > 0)
             {
                 hasLineBoxes |= line.Height > 0;
@@ -123,6 +127,7 @@ internal static class InlineLayout
         public float AtomicMarginBottom { get; init; }
         public bool Visible { get; init; } // content that makes the line box a real one
         public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
+        public string? Replacement { get; init; } // text of an inserted ellipsis, whose run is not the context's text
     }
 
     // Content between two break opportunities: never broken inside.
@@ -361,6 +366,69 @@ internal static class InlineLayout
             return (head, tail);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Ends the line with an ellipsis in the block's font (https://www.w3.org/TR/css-overflow-3/#text-overflow): text
+    /// and atomic inlines are cut at the last character boundary that leaves room for it. Inline box edges stay, so
+    /// boxes still open and close.
+    /// </summary>
+    // ponytail: the ellipsis goes at the logical end, which is the visual end except in mixed-direction lines.
+    private static void Ellipsize(List<Piece> pieces, float available, ComputedStyle style, LayoutContext context, int paragraphLevel)
+    {
+        const string Ellipsis = "\u2026";
+        var runs = Shape(Ellipsis, 0, Ellipsis.Length, style, context);
+        if (runs is not [var run] || run.Face is { } face && !face.Covers(0x2026))
+            runs = Shape("...", 0, 3, style, context);
+        var ellipsisRun = runs[0];
+        var room = available - ellipsisRun.Width;
+
+        var x = 0f;
+        var cut = pieces.Count;
+        for (var i = 0; i < pieces.Count; i++)
+        {
+            var piece = pieces[i];
+            if (piece.Kind is not (PieceKind.Text or PieceKind.Atomic) || x + piece.Width <= room)
+            {
+                x += piece.Width;
+                continue;
+            }
+            cut = i;
+            if (piece.Kind == PieceKind.Text)
+            {
+                // Keep the characters that fit, whole clusters only.
+                var (end, width, kept) = (piece.GlyphStart, x, x);
+                for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
+                {
+                    width += piece.Run!.Advances[g];
+                    var boundary = g + 1 == piece.GlyphEnd || piece.Run.Clusters[g + 1] != piece.Run.Clusters[g];
+                    if (width > room)
+                        break;
+                    if (boundary)
+                        (end, kept) = (g + 1, width);
+                }
+                if (end > piece.GlyphStart)
+                {
+                    pieces[i] = new Piece(PieceKind.Text, piece.Style, kept - x)
+                    {
+                        Run = piece.Run, GlyphStart = piece.GlyphStart, GlyphEnd = end, Visible = true, Level = piece.Level,
+                    };
+                    cut = i + 1;
+                }
+            }
+            break;
+        }
+        // Drop the content after the cut, keeping inline box edges (with their margins, borders and padding).
+        for (var i = pieces.Count - 1; i >= cut; i--)
+        {
+            if (pieces[i].Kind is PieceKind.Text or PieceKind.Atomic)
+                pieces.RemoveAt(i);
+        }
+        pieces.Insert(Math.Min(cut, pieces.Count), new Piece(PieceKind.Text, style, ellipsisRun.Width)
+        {
+            Run = ellipsisRun, GlyphStart = 0, GlyphEnd = ellipsisRun.Glyphs.Length, Visible = true, Level = (byte)paragraphLevel,
+            Replacement = ellipsisRun.Glyphs.Length == 1 ? Ellipsis : "...",
+        });
     }
 
     /// <summary>
@@ -685,7 +753,7 @@ internal static class InlineLayout
     /// <param name="lastLine">The paragraph's last line, or one ending at a forced break: text-align-last applies.</param>
     private static Fragment BuildLine(BlockContainerBox block, string text, List<Unit> units, bool lastLine, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
                                       float available, float cbWidth, LineMetrics strut, int paragraphLevel, LayoutContext context,
-                                      Action<Box, float> addOutOfFlow)
+                                      Action<Box, float> addOutOfFlow, bool clamped = false)
     {
         // A line broken at a soft hyphen ends with a hyphen, drawn in place of the soft hyphen's glyph.
         if (!lastLine && units is [.., { Hyphen: { } hyphenated } hyphenUnit])
@@ -698,6 +766,13 @@ internal static class InlineLayout
         }
         var pieces = units.SelectMany(u => u.Pieces).ToList();
         var contentWidth = units.Sum(u => u.Width) - (units.Count > 0 ? units[^1].TrailingSpace : 0);
+        // text-overflow: ellipsis on a box that clips its inline overflow, and the last line of a clamped block.
+        var clips = block.Style.Box.OverflowX != Overflow.Visible;
+        if (clamped || clips && block.Style.Box.TextOverflow == TextOverflow.Ellipsis && contentWidth > available + 0.01f)
+        {
+            Ellipsize(pieces, available, block.Style, context, paragraphLevel);
+            contentWidth = pieces.Sum(p => p.Width);
+        }
         var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text);
         var free = available - contentWidth;
         var rtl = paragraphLevel == 1;
@@ -930,7 +1005,7 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style),
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement),
                     }));
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)

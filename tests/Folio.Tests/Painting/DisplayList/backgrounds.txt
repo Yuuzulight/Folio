@@ -32,3 +32,15 @@ fill 0,20 100x20 radius 50,10 rgb(255, 0, 0)
 <!DOCTYPE html><style>body { margin: 0 } div { height: 10px; background: red }</style><div style="visibility: hidden"><div style="visibility: visible; background: blue"></div></div>
 ---
 fill 0,0 800x10 rgb(0, 0, 255)
+
+=== outlines paint last, outline-offset away from the border box
+<!DOCTYPE html><style>body { margin: 0 } div { width: 10px; height: 10px }</style><div style="outline: 2px dashed red; outline-offset: 3px; background: blue"></div><div style="background: lime"></div>
+---
+fill 0,0 10x10 rgb(0, 0, 255)
+fill 0,10 10x10 rgb(0, 255, 0)
+border -5,-5 20x20 2 dashed rgb(255, 0, 0)
+
+=== auto outlines are solid and follow rounded corners
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 10px; height: 10px; border-radius: 4px; outline: 1px auto blue"></div>
+---
+border -1,-1 12x12 radius 5 1 solid rgb(0, 0, 255)

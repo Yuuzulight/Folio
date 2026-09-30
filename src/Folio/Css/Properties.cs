@@ -125,6 +125,19 @@ internal enum PropertyId
     FontVariantNumeric,
     FontFeatureSettings,
     Quotes,
+    OutlineWidth,
+    OutlineStyle,
+    OutlineColor,
+    OutlineOffset,
+    AspectRatio,
+    TextOverflow,
+    LineClamp,
+    Cursor,
+    AccentColor,
+    ScrollbarGutter,
+    ScrollbarWidth,
+    ScrollbarColor,
+    ListStyleImage,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -604,6 +617,96 @@ internal static class Properties
                 (v, _) => ((KeywordValue)v).Keyword == "auto" ? null : TextAlignKeywords[((KeywordValue)v).Keyword],
                 s => s.Text.TextAlignLast, (b, v) => b.Text = b.Text with { TextAlignLast = v }),
             // https://www.w3.org/TR/css-text-3/#hyphens-property (auto hyphenates only at soft hyphens: there are no dictionaries)
+            // https://www.w3.org/TR/css-ui-4/#outline-props (outline-color: auto is currentcolor)
+            BorderWidth(PropertyId.OutlineWidth, "outline-width", s => s.Outline.WidthPx, (b, v) => b.Outline = b.Outline with { WidthPx = v }),
+            Keywords(PropertyId.OutlineStyle, "outline-style", false, "none",
+                Enum<OutlineStyle>("auto", "none", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"),
+                s => s.Outline.Style, (b, v) => b.Outline = b.Outline with { Style = v }),
+            new Property<CssColor>(PropertyId.OutlineColor, "outline-color", false, "auto",
+                r => r.Keyword("auto") is not null ? new ColorValue(CssColor.CurrentColor) : r.ColorSpecified(),
+                (v, ctx) => ctx.Color(v, ctx.CurrentColor),
+                s => s.Outline.Color, (b, v) => b.Outline = b.Outline with { Color = v }),
+            new Property<float>(PropertyId.OutlineOffset, "outline-offset", false, "0",
+                r => r.LengthPercentage(allowPercent: false),
+                (v, ctx) => ctx.LengthPercentage(v).Resolve(0),
+                s => s.Outline.Offset, (b, v) => b.Outline = b.Outline with { Offset = v }),
+            // https://www.w3.org/TR/css-sizing-4/#aspect-ratio: auto || <ratio> (auto with a ratio prefers a natural one)
+            new Property<float?>(PropertyId.AspectRatio, "aspect-ratio", false, "auto",
+                r =>
+                {
+                    CssValue? ratio = null;
+                    var auto = false;
+                    while (!r.AtEnd)
+                    {
+                        if (!auto && r.Keyword("auto") is not null)
+                            auto = true;
+                        else if (ratio is null && r.Number(nonNegative: true) is { } width)
+                        {
+                            var height = r.Delim('/') ? r.Number(nonNegative: true) : 1;
+                            if (height is null)
+                                return null;
+                            ratio = new NumberValue(width > 0 && height > 0 ? width / height.Value : 0);
+                        }
+                        else
+                            return null;
+                    }
+                    return ratio ?? (auto ? new KeywordValue("auto") : null);
+                },
+                (v, _) => v is NumberValue { Number: > 0 } n ? n.Number : null,
+                s => s.Size.AspectRatio, (b, v) => b.Size = b.Size with { AspectRatio = v }),
+            // https://www.w3.org/TR/css-overflow-3/#text-overflow (one value, for the end of the line)
+            new Property<TextOverflow>(PropertyId.TextOverflow, "text-overflow", false, "clip",
+                r => r.Keyword("clip", "ellipsis") is { } k ? new KeywordValue(k) : r.String() is not null ? new KeywordValue("ellipsis") : null,
+                (v, _) => ((KeywordValue)v).Keyword == "clip" ? TextOverflow.Clip : TextOverflow.Ellipsis,
+                s => s.Box.TextOverflow, (b, v) => b.Box = b.Box with { TextOverflow = v }),
+            // https://www.w3.org/TR/css-overflow-4/#line-clamp: none | <integer [1,∞]> (also as -webkit-line-clamp)
+            new Property<int?>(PropertyId.LineClamp, "line-clamp", false, "none",
+                r => r.Keyword("none") is not null ? new KeywordValue("none") : r.Integer() is { } n && n >= 1 ? new NumberValue(n) : null,
+                (v, _) => v is NumberValue n ? (int)n.Number : null,
+                s => s.Box.LineClamp, (b, v) => b.Box = b.Box with { LineClamp = v }),
+            // https://www.w3.org/TR/css-ui-4/#cursor: [ <url> [ <x> <y> ]? , ]* <keyword>, kept as its keyword for M3.
+            new Property<string>(PropertyId.Cursor, "cursor", true, "auto",
+                r =>
+                {
+                    while (r.Copy().Url() is not null)
+                    {
+                        r.Url();
+                        if (r.Number() is not null && r.Number() is null)
+                            return null;
+                        if (!r.Comma())
+                            return null;
+                    }
+                    return r.Keyword(CursorKeywords) is { } k ? new KeywordValue(k) : null;
+                },
+                (v, _) => ((KeywordValue)v).Keyword,
+                s => s.Ui.Cursor, (b, v) => b.Ui = b.Ui with { Cursor = v }),
+            // https://www.w3.org/TR/css-ui-4/#widget-accent: auto | <color>
+            new Property<CssColor?>(PropertyId.AccentColor, "accent-color", true, "auto",
+                r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),
+                (v, ctx) => v is KeywordValue ? null : ctx.Color(v, ctx.CurrentColor).Resolve(ctx.CurrentColor),
+                s => s.Ui.AccentColor, (b, v) => b.Ui = b.Ui with { AccentColor = v }),
+            // https://www.w3.org/TR/css-overflow-3/#scrollbar-gutter-property and css-scrollbars-1: recorded until
+            // scroll containers have scrollbars (M3).
+            new Property<string>(PropertyId.ScrollbarGutter, "scrollbar-gutter", false, "auto",
+                r => r.Keyword("auto") is not null ? new KeywordValue("auto")
+                    : r.Keyword("stable") is not null ? new KeywordValue(r.Keyword("both-edges") is not null ? "stable both-edges" : "stable")
+                    : r.Keyword("both-edges") is not null && r.Keyword("stable") is not null ? new KeywordValue("stable both-edges") : null,
+                (v, _) => ((KeywordValue)v).Keyword,
+                s => s.Box.ScrollbarGutter, (b, v) => b.Box = b.Box with { ScrollbarGutter = v }),
+            new Property<string>(PropertyId.ScrollbarWidth, "scrollbar-width", false, "auto",
+                r => r.Keyword("auto", "thin", "none") is { } k ? new KeywordValue(k) : null,
+                (v, _) => ((KeywordValue)v).Keyword,
+                s => s.Box.ScrollbarWidth, (b, v) => b.Box = b.Box with { ScrollbarWidth = v }),
+            new Property<string>(PropertyId.ScrollbarColor, "scrollbar-color", true, "auto",
+                r => r.Keyword("auto") is not null ? new KeywordValue("auto")
+                    : r.ColorSpecified() is { } thumb && r.ColorSpecified() is { } track ? new RadiusValue(thumb, track) : null,
+                (v, ctx) => v is RadiusValue pair ? $"{ctx.Color(pair.X, ctx.CurrentColor).Resolve(ctx.CurrentColor)} {ctx.Color(pair.Y, ctx.CurrentColor).Resolve(ctx.CurrentColor)}" : "auto",
+                s => s.Ui.ScrollbarColor, (b, v) => b.Ui = b.Ui with { ScrollbarColor = v }),
+            // https://www.w3.org/TR/css-lists-3/#image-markers: recorded; image markers are drawn once list images load.
+            new Property<ImageValue>(PropertyId.ListStyleImage, "list-style-image", true, "none",
+                r => r.Keyword("none") is not null ? new ImageSpecified(NoImage.Instance) : BackgroundParsing.Image(r) is { } image ? new ImageSpecified(image) : null,
+                (v, _) => ((ImageSpecified)v).Image,
+                s => s.Text.ListStyleImage ?? NoImage.Instance, (b, v) => b.Text = b.Text with { ListStyleImage = v }),
             Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
                 s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
         };
@@ -758,6 +861,13 @@ internal static class Properties
                 return null;
         }
     }
+    private static readonly string[] CursorKeywords =
+    [
+        "auto", "default", "none", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text", "vertical-text",
+        "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize", "ne-resize", "nw-resize",
+        "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize",
+        "row-resize", "all-scroll", "zoom-in", "zoom-out",
+    ];
 
     private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
 
@@ -945,10 +1055,10 @@ internal static class Properties
                 ? [(PropertyId.WhiteSpaceCollapse, new KeywordValue(p.Collapse)), (PropertyId.TextWrapMode, new KeywordValue(p.Wrap))]
                 : null;
         }),
-        // list-style: type || position || image. Images arrive with the image loader, so only none is accepted there.
-        ["list-style"] = new([PropertyId.ListStyleType, PropertyId.ListStylePosition], r =>
+        // list-style: type || position || image. A none goes to whichever of type and image is not otherwise given.
+        ["list-style"] = new([PropertyId.ListStyleType, PropertyId.ListStylePosition, PropertyId.ListStyleImage], r =>
         {
-            CssValue? type = null, position = null;
+            CssValue? type = null, position = null, image = null;
             var nones = 0;
             while (!r.AtEnd)
             {
@@ -959,10 +1069,12 @@ internal static class Properties
                     position = p;
                 else if (type is null && Get(PropertyId.ListStyleType).Parse(one.Copy()) is { } t)
                     type = t;
+                else if (image is null && Get(PropertyId.ListStyleImage).Parse(one.Copy()) is { } i)
+                    image = i;
                 else
                     return null;
             }
-            if (nones > 2 || (nones == 2 && type is not null))
+            if (nones > 2 || nones == 2 && (type is not null || image is not null) || nones == 1 && type is not null && image is not null)
                 return null;
             if (nones > 0 && type is null)
                 type = new ListStyleTypeValue(Css.ListStyleType.None);
@@ -970,6 +1082,7 @@ internal static class Properties
             [
                 (PropertyId.ListStyleType, type ?? Get(PropertyId.ListStyleType).Initial),
                 (PropertyId.ListStylePosition, position ?? Get(PropertyId.ListStylePosition).Initial),
+                (PropertyId.ListStyleImage, image ?? Get(PropertyId.ListStyleImage).Initial),
             ];
         }),
         ["background"] = new([PropertyId.BackgroundColor, PropertyId.BackgroundImage, PropertyId.BackgroundPosition, PropertyId.BackgroundSize,
@@ -1110,6 +1223,32 @@ internal static class Properties
         }),
         // https://www.w3.org/TR/css-text-3/#overflow-wrap-property: word-wrap is a legacy name for overflow-wrap.
         ["word-wrap"] = new([PropertyId.OverflowWrap], r => Get(PropertyId.OverflowWrap).Parse(r) is { } wrap ? [(PropertyId.OverflowWrap, wrap)] : null),
+        // https://www.w3.org/TR/css-ui-4/#outline: width || style || color
+        ["outline"] = new([PropertyId.OutlineWidth, PropertyId.OutlineStyle, PropertyId.OutlineColor], r =>
+        {
+            CssValue? width = null, style = null, color = null;
+            while (!r.AtEnd)
+            {
+                var one = r.OneValue();
+                if (width is null && Get(PropertyId.OutlineWidth).Parse(one.Copy()) is { } w)
+                    width = w;
+                else if (style is null && Get(PropertyId.OutlineStyle).Parse(one.Copy()) is { } s)
+                    style = s;
+                else if (color is null && Get(PropertyId.OutlineColor).Parse(one.Copy()) is { } c)
+                    color = c;
+                else
+                    return null;
+            }
+            return width is null && style is null && color is null ? null
+                :
+                [
+                    (PropertyId.OutlineWidth, width ?? Get(PropertyId.OutlineWidth).Initial),
+                    (PropertyId.OutlineStyle, style ?? Get(PropertyId.OutlineStyle).Initial),
+                    (PropertyId.OutlineColor, color ?? Get(PropertyId.OutlineColor).Initial),
+                ];
+        }),
+        // The prefixed name artifacts use with display: -webkit-box.
+        ["-webkit-line-clamp"] = new([PropertyId.LineClamp], r => Get(PropertyId.LineClamp).Parse(r) is { } clamp ? [(PropertyId.LineClamp, clamp)] : null),
         ["overflow"] = new([PropertyId.OverflowX, PropertyId.OverflowY], r =>
         {
             var x = Get(PropertyId.OverflowX).Parse(r.OneValue());
