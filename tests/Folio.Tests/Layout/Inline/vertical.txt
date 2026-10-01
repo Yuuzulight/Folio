@@ -1,4 +1,34 @@
 === vertical-rl lines run top to bottom from the right, an orthogonal flow sized by its definite height
 <!DOCTYPE html><style>body, p { margin: 0 } p { font-family: "Source Sans 3", "Noto Sans JP" }</style><div style="display: flex; gap: 24px; align-items: flex-start"><p style="writing-mode: vertical-rl; height: 220px; padding: 12px; font-size: 18px; line-height: 1.8">秋の夜長に、<br>温かいお茶と</p><p style="writing-mode: vertical-rl; font-size: 20px; line-height: 1.5">ab漢字</p><p style="writing-mode: vertical-lr; font-size: 20px; line-height: 1.5; height: 60px">漢字かな漢字</p></div>
 ---
-
+html 0,0 800x244
+  body 0,0 800x244
+    div 0,0 800x244
+      p 0,0 88.78x244
+        line 44.39,12 32.39x220
+          text "秋" 48.78,12 24x18
+          text "の" 48.78,30 24x18
+          text "夜" 48.78,48 24x18
+          text "長" 48.78,66 24x18
+          text "に、" 48.78,84 24x36
+        line 12,12 32.39x220
+          text "温" 16.39,12 24x18
+          text "か" 16.39,30 24x18
+          text "い" 16.39,48 24x18
+          text "お" 16.39,66 24x18
+          text "茶" 16.39,84 24x18
+          text "と" 16.39,102 24x18
+      p 112.78,0 30x61.14
+        line 112.78,0 30x61.14
+          text "ab" 114.78,0 27x21.14
+          text "漢" 114.78,21.14 27x20
+          text "字" 114.78,41.14 27x20
+      p 166.78,0 60x60
+        line 166.78,0 30x60
+          text "漢" 168.78,0 27x20
+          text "字" 168.78,20 27x20
+          text "か" 168.78,40 27x20
+        line 196.78,0 30x60
+          text "な" 198.78,0 27x20
+          text "漢" 198.78,20 27x20
+          text "字" 198.78,40 27x20
