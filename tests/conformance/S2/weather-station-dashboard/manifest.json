@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a dashboard for a small personal weather station: current conditions, a wind compass with a needle, semicircle gauges for humidity, UV and pressure, an hourly strip with wind direction arrows, and a weekly temperature range list.",
+  "features": ["grid", "flex", "custom-properties", "border-radius", "linear-gradient", "repeating-conic-gradient", "transform", "rotate", "transform-origin", "overflow", "css-animations", "pseudo-elements", "var-in-transform"],
+  "viewport": 800
+}

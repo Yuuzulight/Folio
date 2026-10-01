@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your week in motion</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #181f2e;
+    --panel-2: #1f2738;
+    --text: #eef1f7;
+    --muted: #8d97ad;
+    --move: #ff4f6d;
+    --exercise: #a6f04a;
+    --stand: #42d6f5;
+    --gold: #ffc247;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 26px;
+    background: radial-gradient(circle at 85% 0%, #23304d 0, var(--bg) 55%);
+    color: var(--text);
+    font-family: system-ui, sans-serif;
+  }
+
+  .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+  }
+  h1 { margin: 0; font-size: 26px; }
+  .week { color: var(--muted); margin-top: 4px; font-size: 14px; }
+
+  .streak {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 10px 14px;
+  }
+  .flame {
+    width: 26px;
+    height: 26px;
+    background: linear-gradient(135deg, var(--gold), var(--move));
+    border-radius: 0 50% 50% 50%;
+    transform: rotate(-135deg);
+  }
+  .streak b { font-size: 20px; display: block; line-height: 1; }
+  .streak small { color: var(--muted); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 16px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border-radius: 18px;
+    padding: 18px;
+    animation: pop-in 0.5s cubic-bezier(.2, .8, .2, 1.2) both;
+  }
+  .panel:nth-child(2) { animation-delay: 0.1s; }
+  .panel:nth-child(3) { animation-delay: 0.2s; }
+  .panel:nth-child(4) { animation-delay: 0.3s; }
+
+  @keyframes pop-in {
+    from { opacity: 0; scale: 0.94; translate: 0 12px; }
+    to { opacity: 1; scale: 1; translate: 0 0; }
+  }
+
+  .panel h2 {
+    margin: 0 0 14px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .rings-wrap { display: flex; align-items: center; gap: 22px; }
+  .ring {
+    --size: 150px;
+    width: var(--size);
+    height: var(--size);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: conic-gradient(var(--move) 0 82%, #3a2230 82% 100%);
+  }
+  .ring .ring {
+    --size: 112px;
+    background: conic-gradient(var(--exercise) 0 64%, #2b3a21 64% 100%);
+  }
+  .ring .ring .ring {
+    --size: 74px;
+    background: conic-gradient(var(--stand) 0 100%);
+  }
+  .ring .hole {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--panel);
+  }
+  .ring > .gap {
+    width: calc(var(--size) - 22px);
+    height: calc(var(--size) - 22px);
+    border-radius: 50%;
+    background: var(--panel);
+    display: grid;
+    place-items: center;
+  }
+
+  .legend { list-style: none; margin: 0; padding: 0; }
+  .legend li { margin-bottom: 12px; }
+  .legend .name { color: var(--muted); font-size: 13px; }
+  .legend .val { font-size: 20px; font-weight: 700; }
+  .legend .val small { font-size: 13px; color: var(--muted); font-weight: 400; }
+  .move { color: var(--move); }
+  .exercise { color: var(--exercise); }
+  .stand { color: var(--stand); }
+
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    height: 150px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #2a3348;
+  }
+  .bar {
+    flex: 1;
+    border-radius: 8px 8px 3px 3px;
+    background: linear-gradient(180deg, var(--move), #b8304a);
+    transform-origin: bottom;
+    animation: grow 0.9s ease-out both;
+  }
+  .bar.today { background: linear-gradient(180deg, var(--gold), #d98a1c); }
+  .bar:nth-child(2) { animation-delay: 0.05s; }
+  .bar:nth-child(3) { animation-delay: 0.1s; }
+  .bar:nth-child(4) { animation-delay: 0.15s; }
+  .bar:nth-child(5) { animation-delay: 0.2s; }
+  .bar:nth-child(6) { animation-delay: 0.25s; }
+  .bar:nth-child(7) { animation-delay: 0.3s; }
+  @keyframes grow { from { transform: scaleY(0); } }
+
+  .days {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .days span { flex: 1; text-align: center; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .stat .label { color: var(--muted); font-size: 12px; }
+  .stat .num { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .arrow {
+    width: 7px;
+    height: 7px;
+    border-top: 2px solid currentColor;
+    border-left: 2px solid currentColor;
+    transform: translateY(2px) rotate(45deg);
+  }
+  .delta.down .arrow { transform: translateY(-2px) rotate(225deg); }
+  .up { color: var(--exercise); }
+  .down { color: var(--move); }
+
+  .badges { display: flex; gap: 14px; }
+  .badge {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .medal {
+    width: 58px;
+    height: 58px;
+    margin: 0 auto 8px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--gold), #e0782a);
+    transform: rotate(45deg);
+    display: grid;
+    place-items: center;
+    box-shadow: 0 6px 14px rgba(255, 160, 60, 0.25);
+  }
+  .medal span {
+    transform: rotate(-45deg);
+    font-weight: 800;
+    color: #3b2208;
+    font-size: 17px;
+  }
+  .medal.silver { background: linear-gradient(135deg, #e6ebf5, #98a3b8); box-shadow: none; }
+  .medal.locked { background: var(--panel-2); box-shadow: none; }
+  .medal.locked span { color: var(--muted); }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <h1>Your week in motion</h1>
+      <div class="week">Monday 9 – Sunday 15 June</div>
+    </div>
+    <div class="streak">
+      <div class="flame"></div>
+      <div><b>23</b><small>day streak</small></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Today's rings</h2>
+      <div class="rings-wrap">
+        <div class="ring"><div class="gap"><div class="ring"><div class="gap"><div class="ring"><div class="gap"><div class="hole"></div></div></div></div></div></div></div>
+        <ul class="legend">
+          <li><div class="name">Move</div><div class="val move">492<small> / 600 kcal</small></div></li>
+          <li><div class="name">Exercise</div><div class="val exercise">19<small> / 30 min</small></div></li>
+          <li><div class="name">Stand</div><div class="val stand">12<small> / 12 hr</small></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Active calories</h2>
+      <div class="bars">
+        <div class="bar" style="height: 62%"></div>
+        <div class="bar" style="height: 88%"></div>
+        <div class="bar" style="height: 45%"></div>
+        <div class="bar" style="height: 97%"></div>
+        <div class="bar" style="height: 70%"></div>
+        <div class="bar" style="height: 34%"></div>
+        <div class="bar today" style="height: 78%"></div>
+      </div>
+      <div class="days"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>Compared with last week</h2>
+      <div class="stats">
+        <div class="stat"><div class="label">Distance</div><div class="num">38.4 km</div><div class="delta up"><span class="arrow"></span>12%</div></div>
+        <div class="stat"><div class="label">Steps</div><div class="num">61,208</div><div class="delta up"><span class="arrow"></span>5%</div></div>
+        <div class="stat"><div class="label">Resting HR</div><div class="num">58 bpm</div><div class="delta down"><span class="arrow"></span>2 bpm</div></div>
+        <div class="stat"><div class="label">Sleep</div><div class="num">7h 12m</div><div class="delta down"><span class="arrow"></span>18 min</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Awards this week</h2>
+      <div class="badges">
+        <div class="badge"><div class="medal"><span>7</span></div>Perfect week</div>
+        <div class="badge"><div class="medal silver"><span>10k</span></div>Step goal x5</div>
+        <div class="badge"><div class="medal locked"><span>?</span></div>Early riser</div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
