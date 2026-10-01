@@ -30,6 +30,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 
+    /// <summary>Grid items laid out so far, by the space they were laid out in (see GridLayout).</summary>
+    public Dictionary<(Box Box, ConstraintSpace Space), Fragment> GridItems { get; } = [];
+
     /// <summary>
     /// The content of clip path and mask elements built so far, by element and the viewport it was built for, with its
     /// node count (see Svg.SvgContext.ReferencedContent).

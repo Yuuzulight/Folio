@@ -241,7 +241,13 @@ internal static class GridLayout
         if (areaHeight is { } area && style.Size.Height.Kind == SizeKind.Auto && AlignOf(item, container) == ItemAlign.Stretch
             && spacing.MarginTop.Kind != SizeKind.Auto && spacing.MarginBottom.Kind != SizeKind.Auto)
             height = Math.Max(0, area - item.MarginTop - item.MarginBottom);
-        return BlockLayout.Layout(item.Box, new ConstraintSpace(areaWidth, areaHeight, FixedWidth: width, FixedHeight: height), context);
+        // A grid lays each item out to measure its row's height and again to place it. An item's own grid does the same
+        // in both of those layouts, so without reuse a grid nested d deep lays its innermost items out 2^d times; a layout
+        // for the same space is the same, and is reused.
+        var space = new ConstraintSpace(areaWidth, areaHeight, FixedWidth: width, FixedHeight: height);
+        if (!context.GridItems.TryGetValue((item.Box, space), out var fragment))
+            context.GridItems[(item.Box, space)] = fragment = BlockLayout.Layout(item.Box, space, context);
+        return fragment;
     }
 
     // The offset of an item inside its area: auto margins first, then justify-self or align-self.
