@@ -57,6 +57,8 @@ public class DisplayListTests
         DisplayItemKind.PushClip when item.Path is { } path => $"clip path{(item.Rule == FillRule.EvenOdd ? " evenodd" : "")} {Path(path)}",
         DisplayItemKind.PushClip => $"clip {Shape(item.Shape)}",
         DisplayItemKind.PushLayer => Layer(item),
+        DisplayItemKind.PushTransform when item.Projection is { } p =>
+            $"project {N(p.M11)},{N(p.M12)},{N(p.M14)},{N(p.M21)},{N(p.M22)},{N(p.M24)},{N(p.M41)},{N(p.M42)},{N(p.M44)}",
         DisplayItemKind.PushTransform when item.Transform is var m => $"transform {N(m.M11)},{N(m.M12)},{N(m.M21)},{N(m.M22)},{N(m.M31)},{N(m.M32)}",
         _ => "pop",
     };

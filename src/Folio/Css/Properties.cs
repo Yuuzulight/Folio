@@ -145,6 +145,8 @@ internal enum PropertyId
     Rotate,
     Scale,
     TransformOrigin,
+    Perspective,
+    PerspectiveOrigin,
     ObjectFit,
     ObjectPosition,
     ImageRendering,

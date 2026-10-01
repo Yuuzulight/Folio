@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crumb &amp; Kiln — Wood-fired bakery</title>
+<style>
+  :root {
+    --flour: #fbf3e4;
+    --crust: #b5652d;
+    --char: #2b1d14;
+    --butter: #f4c95d;
+    --rye: #6f4a2f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Fraunces", Georgia, serif;
+    background: var(--flour);
+    color: var(--char);
+  }
+
+  .grain {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(181, 101, 45, 0.16), transparent 38%),
+      radial-gradient(circle at 88% 85%, rgba(111, 74, 47, 0.14), transparent 45%),
+      linear-gradient(180deg, transparent 70%, rgba(244, 201, 93, 0.18));
+    mix-blend-mode: multiply;
+    pointer-events: none;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 40px;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+  }
+
+  .seal {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--crust);
+    color: var(--flour);
+    font-weight: 700;
+    font-size: 15px;
+    -webkit-mask: radial-gradient(circle, #000 62%, transparent 63%) center / 100% 100%,
+                  repeating-conic-gradient(#000 0 10deg, transparent 10deg 20deg);
+    -webkit-mask-composite: source-over;
+    mask: radial-gradient(circle, #000 62%, transparent 63%) center / 100% 100% add,
+          repeating-conic-gradient(#000 0 10deg, transparent 10deg 20deg);
+  }
+
+  header nav { display: flex; gap: 22px; color: var(--rye); }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 30px;
+    align-items: center;
+    padding: 30px 40px 60px;
+  }
+
+  .hero h1 {
+    margin: 0;
+    font-size: 66px;
+    line-height: 0.98;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .hero h1 span { color: var(--crust); font-style: italic; }
+
+  .hero p {
+    margin: 22px 0 0;
+    font-family: system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--rye);
+    max-width: 360px;
+  }
+
+  .loaf-photo {
+    position: relative;
+    width: 340px;
+    height: 340px;
+    clip-path: url(#blob);
+    background:
+      radial-gradient(ellipse 40% 26% at 50% 58%, #8c4a1f 0 60%, transparent 62%),
+      radial-gradient(ellipse 44% 30% at 50% 60%, #d08b4c 0 70%, transparent 72%),
+      radial-gradient(circle at 30% 20%, #f7e1b8, #e3b77c 70%);
+  }
+
+  .loaf-photo .score {
+    position: absolute;
+    left: 110px;
+    top: 170px;
+    width: 120px;
+    height: 10px;
+    border-radius: 50%;
+    background: #f2d29b;
+    transform: rotate(-12deg);
+    filter: blur(1px);
+  }
+
+  .loaf-photo .flour-dust {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 60% 40%, rgba(255, 255, 255, 0.7), transparent 30%);
+    mix-blend-mode: screen;
+  }
+
+  .ticker {
+    padding: 14px 0;
+    overflow: hidden;
+    white-space: nowrap;
+    background: var(--char);
+    color: var(--butter);
+    font-size: 22px;
+    font-style: italic;
+  }
+
+  .ticker span { margin: 0 18px; }
+
+  .menu { padding: 56px 40px; }
+
+  .menu h2 { margin: 0 0 26px; font-size: 38px; font-weight: 600; }
+
+  .bakes {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+
+  .bake { text-align: center; font-family: system-ui, sans-serif; }
+
+  .bake .shape {
+    height: 120px;
+    margin-bottom: 12px;
+    border-radius: 16px;
+    background: #f0e2c8;
+    -webkit-mask-image: linear-gradient(#000, #000), radial-gradient(circle at 50% 50%, #000 40%, transparent 41%);
+    -webkit-mask-composite: xor;
+    mask-image: linear-gradient(#000, #000), radial-gradient(circle at 50% 50%, #000 40%, transparent 41%);
+    mask-composite: exclude;
+  }
+
+  .bake:nth-child(1) .shape { background: linear-gradient(135deg, #e9b679, #a8622c); -webkit-mask-image: none; mask-image: none; clip-path: ellipse(48% 34% at 50% 55%); }
+  .bake:nth-child(2) .shape { background: linear-gradient(135deg, #f5d27a, #c9822f); }
+  .bake:nth-child(3) .shape { background: linear-gradient(135deg, #7a4a2a, #3a2112); -webkit-mask-image: none; mask-image: none; clip-path: inset(18% 8% round 40px); }
+  .bake:nth-child(4) .shape { background: linear-gradient(135deg, #f1c3b0, #c96f5a); -webkit-mask-image: none; mask-image: none; clip-path: polygon(50% 8%, 92% 85%, 8% 85%); }
+
+  .bake b { display: block; font-size: 16px; }
+  .bake span { font-size: 14px; color: var(--rye); }
+
+  .story {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
+    padding: 56px 40px;
+    background: #f3e4c8;
+  }
+
+  .story .oven {
+    height: 230px;
+    border-radius: 120px 120px 12px 12px;
+    background:
+      radial-gradient(ellipse 40% 30% at 50% 75%, #ffd27a, #ff7b2e 50%, transparent 75%),
+      linear-gradient(180deg, #4a3326, #2b1d14);
+    filter: saturate(1.2) contrast(1.05);
+    box-shadow: inset 0 -20px 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .story h3 { margin: 0; font-size: 30px; font-weight: 600; }
+  .story p { margin: 14px 0 0; font-family: system-ui, sans-serif; font-size: 16px; line-height: 1.65; color: var(--rye); }
+
+  footer {
+    padding: 26px 40px 40px;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--rye);
+  }
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position: absolute">
+    <defs>
+      <clipPath id="blob" clipPathUnits="objectBoundingBox">
+        <path d="M0.52,0.02 C0.75,0.01 0.95,0.16 0.98,0.42 C1.01,0.66 0.88,0.92 0.62,0.98 C0.36,1.04 0.08,0.9 0.03,0.62 C-0.02,0.34 0.22,0.03 0.52,0.02 Z"/>
+      </clipPath>
+    </defs>
+  </svg>
+
+  <div class="grain">
+    <header>
+      <span class="seal">C&amp;K</span>
+      <nav><span>Bread</span><span>Pastry</span><span>Classes</span><span>Visit</span></nav>
+    </header>
+
+    <section class="hero">
+      <div>
+        <h1>Bread with a <span>slow</span> start.</h1>
+        <p>Every loaf proves for thirty-six hours and bakes on the stone floor of our wood-fired kiln, fed with offcuts from the joinery next door.</p>
+      </div>
+      <div class="loaf-photo"><div class="score"></div><div class="flour-dust"></div></div>
+    </section>
+  </div>
+
+  <div class="ticker"><span>Country sourdough</span>•<span>Rye &amp; caraway</span>•<span>Morning buns</span>•<span>Olive fougasse</span>•<span>Cardamom knots</span></div>
+
+  <section class="menu">
+    <h2>Out of the kiln today</h2>
+    <div class="bakes">
+      <div class="bake"><div class="shape"></div><b>Country loaf</b><span>$9</span></div>
+      <div class="bake"><div class="shape"></div><b>Bagel board</b><span>$4 each</span></div>
+      <div class="bake"><div class="shape"></div><b>Dark rye</b><span>$11</span></div>
+      <div class="bake"><div class="shape"></div><b>Rhubarb slice</b><span>$6</span></div>
+    </div>
+  </section>
+
+  <section class="story">
+    <div class="oven"></div>
+    <div>
+      <h3>One oven, lit at 3am</h3>
+      <p>Our kiln was built by hand in 2016 from local clay and reclaimed brick. It takes four hours to come up to heat, and holds it long enough to bake through the morning.</p>
+      <p>We mill our own heritage wheat on Tuesdays. Come early on Saturdays: the cardamom knots are gone by ten.</p>
+    </div>
+  </section>
+
+  <footer>Crumb &amp; Kiln · 18 Mill Lane · Open Wed – Sun, 7am until we sell out</footer>
+</body>
+</html>

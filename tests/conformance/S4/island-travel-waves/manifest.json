@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a landing page for a slow-travel island hopping company called Saltwater: a sunset sea hero with a wavy bottom edge, a frosted glass nav and search bar, trip cards with curved image tops, and an angled dark band explaining how it works.",
+  "features": ["clip-path", "clip-path-path", "backdrop-filter", "mix-blend-mode", "filter-blur", "filter-brightness", "filter-sepia", "filter-hue-rotate", "radial-gradient", "linear-gradient", "repeating-linear-gradient", "text-stroke", "grid", "flex", "box-shadow"],
+  "viewport": 800
+}

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saltwater Escapes — Island hopping, slowly</title>
+<style>
+  :root {
+    --sea: #0f7c8f;
+    --deep: #0a3d4f;
+    --sand: #f6e7cf;
+    --coral: #ff7a5c;
+    --text: #12303b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Poppins", system-ui, sans-serif;
+    background: var(--sand);
+    color: var(--text);
+  }
+
+  .hero {
+    position: relative;
+    height: 540px;
+    color: #fff;
+    background:
+      radial-gradient(circle at 78% 22%, #fff6c9 0 6%, rgba(255, 214, 120, 0.8) 7%, transparent 22%),
+      linear-gradient(180deg, #ffb07a 0%, #ff8f8f 28%, #6fb9c9 52%, var(--sea) 70%, var(--deep) 100%);
+    clip-path: path("M0 0 H800 V470 C700 510 620 450 520 480 C420 510 340 540 240 505 C150 475 80 500 0 520 Z");
+  }
+
+  .island {
+    position: absolute;
+    left: 90px;
+    top: 250px;
+    width: 300px;
+    height: 70px;
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+    background: linear-gradient(180deg, #2f5d3a, #173523);
+    filter: brightness(0.75) saturate(0.8);
+  }
+
+  .island.small { left: 470px; top: 268px; width: 160px; height: 46px; filter: brightness(0.6) saturate(0.7) blur(1px); }
+
+  .shimmer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 300px;
+    height: 200px;
+    background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0 2px, transparent 2px 14px);
+    mix-blend-mode: soft-light;
+  }
+
+  .nav {
+    position: absolute;
+    top: 18px;
+    left: 24px;
+    right: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    font-size: 14px;
+  }
+
+  .nav b { font-size: 17px; }
+  .nav .links { display: flex; gap: 20px; }
+
+  .hero-text {
+    position: absolute;
+    left: 48px;
+    top: 120px;
+    max-width: 520px;
+  }
+
+  .hero-text h1 {
+    margin: 0;
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    text-shadow: 0 2px 20px rgba(10, 61, 79, 0.35);
+  }
+
+  .search {
+    position: absolute;
+    left: 48px;
+    right: 48px;
+    top: 370px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) auto;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(10px) saturate(1.5);
+    color: var(--text);
+    box-shadow: 0 18px 40px rgba(10, 61, 79, 0.25);
+  }
+
+  .search div { padding: 14px 18px; border-right: 1px solid rgba(18, 48, 59, 0.12); }
+  .search small { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #5e7a84; }
+  .search span { font-size: 15px; font-weight: 600; }
+  .search .go { margin: 8px; padding: 12px 22px; border-radius: 10px; background: var(--coral); color: #fff; font-weight: 600; align-self: center; }
+
+  section { padding: 50px 48px; }
+
+  h2 { margin: 0 0 22px; font-size: 30px; letter-spacing: -0.01em; }
+
+  .trips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+
+  .trip {
+    border-radius: 18px;
+    overflow: hidden;
+    background: #fffaf1;
+    box-shadow: 0 6px 18px rgba(18, 48, 59, 0.08);
+  }
+
+  .trip .pic {
+    height: 150px;
+    clip-path: ellipse(85% 100% at 50% 0%);
+  }
+
+  .trip:nth-child(1) .pic { background: linear-gradient(180deg, #8fd3e8, #22a6b3 60%, #f3d9a4 60%); }
+  .trip:nth-child(2) .pic { background: linear-gradient(180deg, #ffc6a1, #ff8e7a 45%, #2d8c9c 45%); filter: sepia(0.35); }
+  .trip:nth-child(3) .pic { background: linear-gradient(180deg, #b6e3d4, #5db58f 55%, #1f6f6b 55%); filter: hue-rotate(-12deg) saturate(1.2); }
+
+  .trip .body { padding: 14px 18px 18px; }
+  .trip h3 { margin: 0; font-size: 18px; }
+  .trip p { margin: 6px 0 12px; font-size: 14px; color: #5e7a84; }
+  .trip .price { font-weight: 700; color: var(--coral); }
+
+  .band {
+    margin: 10px 0 0;
+    padding: 70px 48px;
+    color: #fff;
+    background: var(--deep);
+    clip-path: polygon(0 12%, 100% 0, 100% 88%, 0 100%);
+  }
+
+  .band ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+
+  .band li { font-size: 15px; line-height: 1.55; color: #bfe2ea; }
+
+  .band li b {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 40px;
+    color: transparent;
+    -webkit-text-stroke: 1px #7fd3e2;
+  }
+
+  footer { padding: 30px 48px 44px; font-size: 13px; color: #6f8a93; }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="island"></div>
+    <div class="island small"></div>
+    <div class="shimmer"></div>
+    <nav class="nav"><b>Saltwater</b><span class="links"><span>Islands</span><span>Boats</span><span>Journal</span><span>Help</span></span></nav>
+    <div class="hero-text"><h1>Island hopping, at the speed of the tide.</h1></div>
+    <div class="search">
+      <div><small>Where</small><span>Cyclades, Greece</span></div>
+      <div><small>When</small><span>Jun 4 – Jun 15</span></div>
+      <div><small>Who</small><span>2 adults</span></div>
+      <span class="go">Find boats</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Slow routes this summer</h2>
+    <div class="trips">
+      <div class="trip"><div class="pic"></div><div class="body"><h3>Naxos to Milos</h3><p>9 nights · 4 islands · ferry and sailboat</p><span class="price">from €1,240</span></div></div>
+      <div class="trip"><div class="pic"></div><div class="body"><h3>The Dodecanese</h3><p>12 nights · 5 islands · small ships</p><span class="price">from €1,890</span></div></div>
+      <div class="trip"><div class="pic"></div><div class="body"><h3>Azores loop</h3><p>8 nights · 3 islands · inter-island flights</p><span class="price">from €1,560</span></div></div>
+    </div>
+  </section>
+
+  <section class="band">
+    <ol>
+      <li><b>01</b>Tell us how slow you want to go. We plan two nights minimum on every island.</li>
+      <li><b>02</b>We book the boats, the rooms and the luggage transfers between them.</li>
+      <li><b>03</b>A local host meets you at every harbour with keys and a map.</li>
+    </ol>
+  </section>
+
+  <footer>Saltwater Escapes is a member of the Sustainable Travel Alliance. Prices per person, sharing.</footer>
+</body>
+</html>

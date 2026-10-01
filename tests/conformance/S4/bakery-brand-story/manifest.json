@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a warm brand page for a wood-fired bakery called Crumb & Kiln: a warm multiply wash over the hero, a scalloped stamp logo, a loaf photo cut into an organic blob shape with an SVG clipPath, a dark ticker, a menu of bakes in cut-out shapes, and an oven story section.",
+  "features": ["clip-path-url", "svg-clippath", "clip-path", "mask", "mask-composite", "mask-image", "mix-blend-mode", "isolation", "filter-blur", "filter-saturate", "filter-contrast", "repeating-conic-gradient", "radial-gradient", "linear-gradient", "transform", "grid", "flex"],
+  "viewport": 800
+}
