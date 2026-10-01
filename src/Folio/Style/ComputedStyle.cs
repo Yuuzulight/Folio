@@ -373,11 +373,26 @@ internal sealed record ReplacedGroup(ObjectFit Fit, BackgroundPosition Position)
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
 /// <summary>Multi-column properties (not inherited): column-count and column-width, null for auto.</summary>
+/// <summary>
+/// Multi-column and fragmentation properties (not inherited): the column count and width, the column rule (its width
+/// as specified, used only with a visible style), whether the box spans all columns, whether a container with a
+/// height fills columns in order (column-fill: auto) and whether a box avoids breaks inside it.
+/// </summary>
 internal sealed record MulticolGroup(int? Count, float? Width)
 {
     public static MulticolGroup Initial { get; } = new(null, null);
 
     public bool IsMulticol => Count is not null || Width is not null;
+
+    public float RuleWidthPx { get; init; } = 3;
+    public BorderStyle RuleStyle { get; init; }
+    public CssColor RuleColor { get; init; } = CssColor.CurrentColor;
+    public bool SpanAll { get; init; }
+    public bool FillAuto { get; init; }
+    public bool AvoidBreakInside { get; init; }
+
+    /// <summary>The rule's used width: none without a visible style.</summary>
+    public float RuleWidth => RuleStyle is BorderStyle.None or BorderStyle.Hidden ? 0 : RuleWidthPx;
 }
 
 /// <summary>An element's computed style: references to shared groups.</summary>
