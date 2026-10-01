@@ -220,13 +220,26 @@ internal static class TableLayout
                     };
                     // empty-cells: hide leaves empty cells undecorated in the separated border model.
                     var hidden = collapsed is null && cell.Box.Style.Text.EmptyCells == EmptyCells.Hide && content.Children.Count == 0;
-                    var placed = new Fragment(cell.Box, content.Width, height, offset == 0 ? content.Children : content.Children.Select(c => c with { Y = c.Y + offset }).ToList())
+                    // Loops, not Select, below: a lambda here would make a closure for every cell, whether it is used or not.
+                    var children = content.Children;
+                    if (offset != 0)
+                    {
+                        var moved = new ChildFragment[children.Count];
+                        for (var c = 0; c < moved.Length; c++)
+                            moved[c] = children[c] with { Y = children[c].Y + offset };
+                        children = moved;
+                    }
+                    var placed = new Fragment(cell.Box, content.Width, height, children)
                     {
                         PaintedBorder = collapsed?[cell],
                         SkipsDecorations = hidden,
                     };
                     cells.Add(new ChildFragment(CellX(cell) - gridLeft, 0, placed));
-                    carried.AddRange(content.OutOfFlow.Select(o => o with { StaticX = o.StaticX + CellX(cell), StaticY = o.StaticY + rowY[r] + offset }));
+                    for (var o = 0; o < content.OutOfFlow.Count; o++)
+                    {
+                        var positioned = content.OutOfFlow[o];
+                        carried.Add(positioned with { StaticX = positioned.StaticX + CellX(cell), StaticY = positioned.StaticY + rowY[r] + offset });
+                    }
                 }
                 rowFragments.Add(new ChildFragment(0, rowY[r] - rowY[first],
                     new Fragment(row, gridRight - gridLeft, heights[r], cells) { PaintedBorder = collapsed is null ? null : ComputedStyle.Initial.Border }));
@@ -382,19 +395,24 @@ internal static class TableLayout
             return side;
         }
 
-        // Most cells of a large table resolve to the same few borders: they share one instance of each.
+        // Most cells of a large table resolve to the same few borders: they share one instance of each, found by the
+        // cell's own border (which keeps the radii) and the winning sides, before making one.
         var result = new Dictionary<Cell, BorderGroup>();
-        var shared = new Dictionary<BorderGroup, BorderGroup>();
+        var shared = new Dictionary<(BorderGroup Own, Side Top, Side Right, Side Bottom, Side Left), BorderGroup>();
         foreach (var cell in grid.Cells)
         {
             var (t, r, b, l) = (Resolve(cell, Edge.Top), Resolve(cell, Edge.Right), Resolve(cell, Edge.Bottom), Resolve(cell, Edge.Left));
-            var border = cell.Box.Style.Border with
+            var key = (cell.Box.Style.Border, t with { Priority = 0 }, r with { Priority = 0 }, b with { Priority = 0 }, l with { Priority = 0 });
+            if (!shared.TryGetValue(key, out var border))
             {
-                TopWidthPx = t.Width, RightWidthPx = r.Width, BottomWidthPx = b.Width, LeftWidthPx = l.Width,
-                TopStyle = t.Style, RightStyle = r.Style, BottomStyle = b.Style, LeftStyle = l.Style,
-                TopColor = t.Color, RightColor = r.Color, BottomColor = b.Color, LeftColor = l.Color,
-            };
-            result[cell] = shared.TryAdd(border, border) ? border : shared[border];
+                shared[key] = border = cell.Box.Style.Border with
+                {
+                    TopWidthPx = t.Width, RightWidthPx = r.Width, BottomWidthPx = b.Width, LeftWidthPx = l.Width,
+                    TopStyle = t.Style, RightStyle = r.Style, BottomStyle = b.Style, LeftStyle = l.Style,
+                    TopColor = t.Color, RightColor = r.Color, BottomColor = b.Color, LeftColor = l.Color,
+                };
+            }
+            result[cell] = border;
         }
         return result;
     }
