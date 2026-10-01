@@ -64,9 +64,8 @@ internal sealed record ClipPath(BasicShape? Shape, GeometryBox? Box, string? Url
 {
     public static ClipPath None { get; } = new(null, null);
 
-    /// <summary>Whether nothing clips a CSS box: no shape and no box. A url() reference clips SVG content only.</summary>
-    // ponytail: url() references on CSS boxes clip nothing until #92 applies SVG clip paths to boxes.
-    public bool IsNone => Shape is null && Box is null;
+    /// <summary>Whether the value is none: no shape, no box and no reference.</summary>
+    public bool IsNone => Shape is null && Box is null && Url is null;
 
     public override string ToString()
     {

@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>clip-path: url() to an element that is not a clipPath clips nothing</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#the-clip-path">
+<style>
+  body { margin: 0; }
+  div { margin: 10px; width: 100px; height: 60px; background: blue; }
+</style>
+<div style="clip-path: url(#missing)"></div>
+<div id="not-a-clip" style="clip-path: url(#not-a-clip)"></div>

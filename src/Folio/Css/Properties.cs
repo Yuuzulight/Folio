@@ -173,6 +173,15 @@ internal enum PropertyId
     AnimationIterationCount,
     AnimationDirection,
     AnimationFillMode,
+    AnimationDuration,
+    AnimationDelay,
+    AnimationTimingFunction,
+    AnimationPlayState,
+    TransitionProperty,
+    TransitionDuration,
+    TransitionTimingFunction,
+    TransitionDelay,
+    TransitionBehavior,
     ColumnCount,
     ColumnWidth,
     Fill,
@@ -825,7 +834,7 @@ internal static class Properties
         ["table-header-group"] = Display.TableHeaderGroup, ["table-footer-group"] = Display.TableFooterGroup,
         ["table-row"] = Display.TableRow, ["table-cell"] = Display.TableCell, ["table-column-group"] = Display.TableColumnGroup,
         ["table-column"] = Display.TableColumn, ["table-caption"] = Display.TableCaption, ["contents"] = Display.Contents,
-        ["none"] = Display.None,
+        ["ruby"] = Display.Ruby, ["ruby-text"] = Display.RubyText, ["none"] = Display.None,
     };
 
     private static readonly Dictionary<string, ContentAlign> ContentAlignKeywords = new()

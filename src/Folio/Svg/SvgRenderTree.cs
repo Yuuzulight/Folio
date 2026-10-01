@@ -76,6 +76,22 @@ internal static class SvgRenderTree
         return style is null ? null : Viewport(svg, style, new SvgRect(0, 0, width, height), Matrix3x2.Identity, 1, context);
     }
 
+    /// <summary>
+    /// The clip path a CSS box's <c>clip-path: url()</c> references (https://drafts.csswg.org/css-masking-1/#the-clip-path),
+    /// for a border box of this size: user units are CSS pixels from the border box's top-left corner, and the border
+    /// box is the bounding box. Null when the reference is not to a clipPath element, which then clips nothing.
+    /// </summary>
+    // ponytail: percentages in the clip path resolve against the border box rather than the clipPath's nearest viewport.
+    public static SvgClipPath? BoxClipPath(ElementNode element, string url, float width, float height, Layout.LayoutContext layout)
+    {
+        var context = new SvgContext(layout, element.OwnerDocument);
+        if (context.Find(url) is not { LocalName: "clipPath" } clip || clip.Name.Namespace != Namespaces.Svg)
+            return null;
+        var box = new SvgShapeNode(Matrix3x2.Identity, 1,
+            [new('M', new(0, 0)), new('L', new(width, 0)), new('L', new(width, height)), new('L', new(0, height)), new('Z')], null, null);
+        return ClipPath(clip, box, new Vector2(width, height), context);
+    }
+
     // An svg element's viewport: its viewBox mapped into the rectangle, the content clipped to it unless overflow is
     // visible. A viewBox with a zero size disables rendering (https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute).
     private static SvgContainerNode? Viewport(ElementNode svg, ComputedStyle style, SvgRect rect, Matrix3x2 transform, float opacity,
