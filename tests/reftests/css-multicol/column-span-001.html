@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>A column-spanning block between two rows of columns</title>
+<link rel="match" href="column-span-001-ref.html">
+<style>
+body { margin: 0 }
+.mc { columns: 2; column-gap: 20px; width: 220px }
+.mc div { height: 40px }
+.mc .span { column-span: all; height: 20px; background: green }
+</style>
+<div class="mc"><div style="background: red"></div><div style="background: blue"></div><div class="span"></div><div style="background: orange"></div><div style="background: purple"></div></div>

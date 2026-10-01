@@ -18,6 +18,8 @@ public class Reftests
     [InlineData("css-transforms/scale-2-001")]
     [InlineData("css-transforms/containing-block-001")]
     [InlineData("css-animations/fill-forwards-end-state-001")]
+    [InlineData("css-multicol/column-rule-001")]
+    [InlineData("css-multicol/column-span-001")]
     [InlineData("css-pseudo/first-letter-001")]
     [InlineData("css-pseudo/first-letter-float-001")]
     [InlineData("filter-effects/opacity-function-001")]
