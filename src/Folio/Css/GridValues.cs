@@ -10,9 +10,12 @@ internal sealed record TrackSizeSpecified(TrackBreadthSpecified Min, TrackBreadt
 /// <summary>A specified repeat(auto-fill | auto-fit, ...), inserted before track Index.</summary>
 internal sealed record AutoRepeatSpecified(int Index, bool Fit, IReadOnlyList<TrackSizeSpecified> Tracks, IReadOnlyList<IReadOnlyList<string>> Names);
 
-/// <summary>A specified track list with integer repeat() expanded, the names of each line, and an automatic repetition.</summary>
+/// <summary>
+/// A specified track list with integer repeat() expanded, the names of each line, and an automatic repetition; or
+/// <c>subgrid</c> with its line names.
+/// </summary>
 internal sealed record TrackListValue(IReadOnlyList<TrackSizeSpecified> Tracks, IReadOnlyList<IReadOnlyList<string>> LineNames,
-                                      AutoRepeatSpecified? Repeat = null) : CssValue;
+                                      AutoRepeatSpecified? Repeat = null, bool Subgrid = false) : CssValue;
 
 internal sealed record GridAreasValue(GridAreas Areas) : CssValue;
 
@@ -32,6 +35,15 @@ internal static class GridParsing
     {
         if (r.Keyword("none") is not null)
             return new TrackListValue([], [[]]);
+        // subgrid <line-name-list>? (https://www.w3.org/TR/css-grid-2/#subgrid-listing).
+        // ponytail: repeat() in a subgrid's line name list is not accepted.
+        if (r.Keyword("subgrid") is not null)
+        {
+            var lines = new List<IReadOnlyList<string>>();
+            while (!r.AtEnd && lines.Count < MaxTracks && r.LineNames() is { } line)
+                lines.Add(line);
+            return new TrackListValue([], lines, Subgrid: true);
+        }
         var tracks = new List<TrackSizeSpecified>();
         var names = new List<IReadOnlyList<string>>();
         var pending = new List<string>();

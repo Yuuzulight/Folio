@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<title>SVG filters</title>
+<style>
+  body { margin: 24px; }
+  .row { display: flex; gap: 24px; margin-bottom: 24px; align-items: flex-start; }
+  svg { background: #f1f5f9; }
+</style>
+<div class="row">
+  <svg width="140" height="100">
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <circle cx="70" cy="50" r="22" fill="#6366f1" filter="url(#glow)" />
+  </svg>
+  <svg width="140" height="100">
+    <filter id="shadow">
+      <feOffset in="SourceAlpha" dx="4" dy="6" />
+      <feGaussianBlur stdDeviation="3" result="offset-blur" />
+      <feFlood flood-color="#0f172a" flood-opacity="0.45" />
+      <feComposite in2="offset-blur" operator="in" />
+      <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <rect x="25" y="20" width="80" height="50" rx="10" fill="#f59e0b" filter="url(#shadow)" />
+  </svg>
+  <svg width="140" height="100">
+    <filter id="goo">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
+      <feColorMatrix in="blur" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo" />
+      <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+    </filter>
+    <g filter="url(#goo)" fill="#ec4899"><circle cx="50" cy="50" r="20" /><circle cx="85" cy="50" r="16" /></g>
+  </svg>
+</div>
+<div class="row">
+  <svg width="140" height="100">
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="4" stitchTiles="stitch" result="noise" />
+      <feColorMatrix in="noise" type="saturate" values="0" result="mono" />
+      <feBlend in="SourceGraphic" in2="mono" mode="multiply" />
+    </filter>
+    <rect width="140" height="100" fill="#14b8a6" filter="url(#grain)" />
+  </svg>
+  <svg width="140" height="100">
+    <filter id="duotone" color-interpolation-filters="sRGB">
+      <feColorMatrix type="saturate" values="0" />
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues="0.1 0.98" /><feFuncG type="table" tableValues="0.05 0.6" /><feFuncB type="table" tableValues="0.35 0.2" />
+      </feComponentTransfer>
+    </filter>
+    <g filter="url(#duotone)">
+      <rect width="140" height="100" fill="#64748b" /><circle cx="70" cy="50" r="30" fill="#e2e8f0" /><rect x="10" y="70" width="120" height="20" fill="#1e293b" />
+    </g>
+  </svg>
+  <svg width="140" height="100">
+    <filter id="wave" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="turbulence" baseFrequency="0.02 0.08" numOctaves="2" result="waves" />
+      <feDisplacementMap in="SourceGraphic" in2="waves" scale="12" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+    <g filter="url(#wave)"><rect x="20" y="20" width="100" height="60" fill="none" stroke="#0ea5e9" stroke-width="8" /></g>
+  </svg>
+  <svg width="140" height="100">
+    <filter id="outline"><feMorphology in="SourceAlpha" operator="dilate" radius="3" result="thick" /><feFlood flood-color="#a855f7" /><feComposite in2="thick" operator="in" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+    <text x="70" y="65" text-anchor="middle" font-size="48" font-weight="bold" fill="#facc15" filter="url(#outline)">Ab</text>
+  </svg>
+</div>
