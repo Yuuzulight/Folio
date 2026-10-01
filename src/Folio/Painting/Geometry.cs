@@ -187,14 +187,163 @@ public enum FilterKind
     /// filled with <see cref="Filter.Color"/>, drawn under the input.
     /// </summary>
     DropShadow,
+
+    /// <summary>The input moved by <see cref="Filter.Offset"/>.</summary>
+    Offset,
+
+    /// <summary><see cref="Filter.Color"/> everywhere in the subregion; it takes no input.</summary>
+    Flood,
+
+    /// <summary><see cref="Filter.In"/> composited onto <see cref="Filter.In2"/> by <see cref="Filter.Operator"/>.</summary>
+    Composite,
+
+    /// <summary><see cref="Filter.Inputs"/> drawn over each other in order, the first at the bottom.</summary>
+    Merge,
+
+    /// <summary><see cref="Filter.In"/> blended onto <see cref="Filter.In2"/> with <see cref="Filter.Blend"/>.</summary>
+    Blend,
+
+    /// <summary>The input thinned (eroded) or, with <see cref="Filter.Dilate"/>, fattened by <see cref="Filter.Radius"/>.</summary>
+    Morphology,
+
+    /// <summary>Each channel of the input mapped by its function in <see cref="Filter.Transfer"/>.</summary>
+    ComponentTransfer,
+
+    /// <summary>Perlin noise as described by <see cref="Filter.Noise"/>, in the subregion; it takes no input.</summary>
+    Turbulence,
+
+    /// <summary>
+    /// <see cref="Filter.In"/>'s pixels moved by <see cref="Filter.In2"/>'s <see cref="Filter.XChannel"/> and
+    /// <see cref="Filter.YChannel"/>, each from 0 to 1 centred on 0.5, times <see cref="Filter.Scale"/>.
+    /// </summary>
+    DisplacementMap,
+}
+
+/// <summary>Where a filter primitive takes an input from.</summary>
+public enum FilterSource
+{
+    /// <summary>The result of the primitive before it; the layer's content for the first.</summary>
+    Previous,
+
+    /// <summary>What was drawn into the layer.</summary>
+    SourceGraphic,
+
+    /// <summary>The alpha of what was drawn into the layer, as black.</summary>
+    SourceAlpha,
+
+    /// <summary>The result of an earlier primitive of the list, by its index.</summary>
+    Result,
 }
 
 /// <summary>
-/// One filter primitive (https://drafts.csswg.org/filter-effects-1/#FilterPrimitivesOverview), applied to the output
-/// of the one before it, with results clamped. A colour matrix has 20 values, row by row: R', G', B' and A' from R, G,
-/// B, A and 1, on straight-alpha sRGB colours from 0 to 1. Lengths are CSS pixels.
+/// A filter primitive's input. A <see cref="FilterSource.Result"/> whose index is not that of an earlier primitive is
+/// read as <see cref="FilterSource.SourceGraphic"/>.
 /// </summary>
-public sealed record Filter(FilterKind Kind, float StdDeviation = 0, IReadOnlyList<float>? Matrix = null, Vector2 Offset = default, Rgba Color = default);
+public readonly record struct FilterInput(FilterSource Source, int Index = 0);
+
+/// <summary>The Porter-Duff operators of feComposite, and its arithmetic one (https://drafts.csswg.org/filter-effects-1/#feCompositeElement).</summary>
+public enum CompositeOperator
+{
+    Over,
+    In,
+    Out,
+    Atop,
+    Xor,
+
+    /// <summary>k1·i1·i2 + k2·i1 + k3·i2 + k4 on premultiplied channels, with <see cref="Filter.Coefficients"/> k1 to k4.</summary>
+    Arithmetic,
+}
+
+/// <summary>The kinds of component transfer function (https://drafts.csswg.org/filter-effects-1/#feComponentTransferElement).</summary>
+public enum TransferKind
+{
+    Identity,
+    Table,
+    Discrete,
+    Linear,
+    Gamma,
+}
+
+/// <summary>
+/// A component transfer function on straight-alpha channel values from 0 to 1: a table or discrete function of
+/// <paramref name="Values"/>, slope × C + intercept, or amplitude × C^exponent + offset.
+/// </summary>
+public sealed record TransferFunction(TransferKind Kind, IReadOnlyList<float>? Values = null, float Slope = 1, float Intercept = 0,
+                                      float Amplitude = 1, float Exponent = 1, float Offset = 0);
+
+/// <summary>
+/// Perlin noise (https://drafts.csswg.org/filter-effects-1/#feTurbulenceElement): turbulence, or fractal noise when
+/// <paramref name="Fractal"/>, with its base frequency along each axis, octaves and seed; with <paramref name="Stitch"/>
+/// it tiles seamlessly across the subregion.
+/// </summary>
+public sealed record Noise(Vector2 BaseFrequency, int Octaves = 1, float Seed = 0, bool Fractal = false, bool Stitch = false);
+
+/// <summary>A colour channel, for displacement maps.</summary>
+public enum ColorChannel
+{
+    R,
+    G,
+    B,
+    A,
+}
+
+/// <summary>
+/// One filter primitive (https://drafts.csswg.org/filter-effects-1/#FilterPrimitivesOverview), with results clamped.
+/// By default a primitive takes the result of the one before it, so a list is a chain, as CSS filter functions are;
+/// <see cref="In"/>, <see cref="In2"/> and <see cref="Inputs"/> make it a graph, as SVG filter elements are. The
+/// list's result is its last primitive's. A colour matrix has 20 values, row by row: R', G', B' and A' from R, G, B, A
+/// and 1, on straight-alpha colours from 0 to 1. Lengths and rectangles are CSS pixels in the layer's coordinates.
+/// </summary>
+public sealed record Filter(FilterKind Kind, float StdDeviation = 0, IReadOnlyList<float>? Matrix = null, Vector2 Offset = default, Rgba Color = default)
+{
+    /// <summary>The input, for every kind that takes one.</summary>
+    public FilterInput In { get; init; }
+
+    /// <summary>The second input: what <see cref="In"/> is composited or blended onto, or the displacement map.</summary>
+    public FilterInput In2 { get; init; }
+
+    /// <summary>The inputs of a merge.</summary>
+    public IReadOnlyList<FilterInput>? Inputs { get; init; }
+
+    /// <summary>Where the result is kept (the rest is transparent); null for everywhere.</summary>
+    public RectF? Subregion { get; init; }
+
+    /// <summary>Whether the primitive works on linear-light colours (color-interpolation-filters: linearRGB) instead of sRGB ones.</summary>
+    public bool LinearRgb { get; init; }
+
+    /// <summary>For a blur or drop shadow: the standard deviations along x and y, instead of <see cref="StdDeviation"/> for both.</summary>
+    public Vector2? Deviations { get; init; }
+
+    /// <summary>For a composite: its operator.</summary>
+    public CompositeOperator Operator { get; init; }
+
+    /// <summary>For an arithmetic composite: k1, k2, k3 and k4.</summary>
+    public IReadOnlyList<float>? Coefficients { get; init; }
+
+    /// <summary>For a blend: its mode.</summary>
+    public BlendMode Blend { get; init; }
+
+    /// <summary>For a morphology: the radii along x and y.</summary>
+    public Vector2 Radius { get; init; }
+
+    /// <summary>For a morphology: fatten rather than thin.</summary>
+    public bool Dilate { get; init; }
+
+    /// <summary>For a component transfer: the functions for R, G, B and A; a missing one is the identity.</summary>
+    public IReadOnlyList<TransferFunction>? Transfer { get; init; }
+
+    /// <summary>For turbulence: the noise.</summary>
+    public Noise? Noise { get; init; }
+
+    /// <summary>For a displacement map: how far a channel value of 1 moves a pixel.</summary>
+    public float Scale { get; init; }
+
+    /// <summary>For a displacement map: the channel of <see cref="In2"/> that moves pixels along x.</summary>
+    public ColorChannel XChannel { get; init; } = ColorChannel.A;
+
+    /// <summary>For a displacement map: the channel of <see cref="In2"/> that moves pixels along y.</summary>
+    public ColorChannel YChannel { get; init; } = ColorChannel.A;
+}
 
 public enum PathVerb
 {

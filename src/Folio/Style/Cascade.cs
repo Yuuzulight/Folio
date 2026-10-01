@@ -298,11 +298,12 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
         return result;
     }
 
-    // Image URLs made absolute, where they have a base to resolve against.
+    // Image URLs made absolute, where they have a base to resolve against. A URL that is only a fragment stays a
+    // reference into this document (https://drafts.csswg.org/css-values-4/#local-urls), as for an SVG mask.
     private static CssValue ResolveUrls(CssValue value, string? baseUrl)
     {
         ImageValue Resolve(ImageValue image) =>
-            image is UrlImage url && Resources.ResourceLoader.Resolve(baseUrl, url.Url) is { } absolute ? new UrlImage(absolute) : image;
+            image is UrlImage url && !url.Url.StartsWith('#') && Resources.ResourceLoader.Resolve(baseUrl, url.Url) is { } absolute ? new UrlImage(absolute) : image;
         return baseUrl is null ? value : value switch
         {
             LayerListValue<ImageValue> layers when layers.Items.Any(i => i is UrlImage) => new LayerListValue<ImageValue>([.. layers.Items.Select(Resolve)]),
@@ -416,11 +417,11 @@ internal static class Cascade
     private static readonly int[] StyleAttributeLayer = [int.MaxValue];
 
     /// <summary>The cascaded values from matched rules, the style attribute and presentational hints.</summary>
-    /// <param name="animations">Declarations of the animation origin, later ones winning (<see cref="Animations.EndState"/>).</param>
+    /// <param name="animations">Declarations of the animation origin, later ones winning (a keyframe of <see cref="Animations.Sample"/>).</param>
     /// <param name="parent">The parent's style, whose writing-mode and direction flow-relative properties follow unless the element sets its own.</param>
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
         List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints,
-        List<CascadeDeclaration>? animations = null, ComputedStyle? parent = null)
+        IReadOnlyList<CascadeDeclaration>? animations = null, ComputedStyle? parent = null)
     {
         var candidates = new List<Candidate>();
         // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.

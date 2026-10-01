@@ -365,6 +365,9 @@ internal static class BlockLayout
             SvgClip = style.Effects.ClipPath.Url is { } clipUrl && box.Node is Dom.ElementNode clipped
                 ? Svg.SvgRenderTree.BoxClipPath(clipped, clipUrl, width + frameX, contentHeight + frameY, context)
                 : null,
+            SvgMasks = style.Mask.IsMasked && box.Node is Dom.ElementNode masked
+                ? Svg.SvgRenderTree.BoxMasks(masked, style.Mask, width + frameX, contentHeight + frameY, context)
+                : null,
         };
     }
 
