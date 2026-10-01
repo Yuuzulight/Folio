@@ -78,6 +78,15 @@ public class GradientTests
     }
 
     [Fact]
+    public void ConicStopsTakeAUnitlessZero()
+    {
+        Assert.Equal([0f, 0.82f, 0.82f, 1f], Offsets("conic-gradient(red 0 82%, grey 82% 100%)"));
+        Assert.NotNull(Gradient("repeating-conic-gradient(from -1deg, #ccc 0 2deg, transparent 2deg 30deg)"));
+        Assert.Null(Specified("conic-gradient(red 1, blue)"));
+        Assert.Null(Specified("conic-gradient(red 0px, blue)"));
+    }
+
+    [Fact]
     public void RejectsMalformedGradients()
     {
         foreach (var bad in (string[])["linear-gradient(red)", "linear-gradient(to left right, red, blue)", "linear-gradient(red, 10%, 20%, blue)",
