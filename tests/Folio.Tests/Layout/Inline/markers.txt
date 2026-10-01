@@ -76,15 +76,13 @@ html 0,0 800x48
     details 0,0 800x16
       summary 0,0 800x16
         line 0,0 800x16
-          ::marker 0,0 32x16
-          text "▸ " 0,0 32x16
-          text "s" 32,0 16x16
+          ::marker 0,5 15x8
+          text "s" 15,0 16x16
     details 0,16 800x32
       summary 0,16 800x16
         line 0,16 800x16
-          ::marker 0,16 32x16
-          text "▾ " 0,16 32x16
-          text "t" 32,16 16x16
+          ::marker 0,21 15x8
+          text "t" 15,16 16x16
       p 0,32 800x16
         line 0,32 800x16
           text "shown" 0,32 80x16

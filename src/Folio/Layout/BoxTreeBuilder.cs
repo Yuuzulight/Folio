@@ -455,7 +455,14 @@ internal sealed class BoxTreeBuilder
             return;
 
         var container = Container;
-        if (style.Text.ListStylePosition == ListStylePosition.Inside)
+        if (style.Text.ListStylePosition == ListStylePosition.Inside && imageBox is null && style.Generated.Content.Kind != ContentKind.Items
+            && style.Text.ListStyleType.CounterStyle is "disclosure-closed" or "disclosure-open")
+        {
+            // A disclosure triangle is a shape of its own, sized by the font (InlineLayout.SymbolFragment).
+            var symbol = style.Text.ListStyleType.CounterStyle == "disclosure-open" ? ListSymbol.DisclosureOpen : ListSymbol.DisclosureClosed;
+            RunOf(container).AddAtomic(new MarkerBox(style, element, text) { Symbol = symbol });
+        }
+        else if (style.Text.ListStylePosition == ListStylePosition.Inside)
         {
             var marker = new InlineBox(style, element, PseudoElement.Marker);
             var run = RunOf(container);
