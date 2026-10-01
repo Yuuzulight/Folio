@@ -25,7 +25,10 @@ internal sealed class GsubSubstitution
     {
         try
         {
-            foreach (var subtable in _subtables.GetOrAdd(features, Subtables))
+            // Looked up first: GetOrAdd with the method group would make a delegate for every glyph.
+            if (!_subtables.TryGetValue(features, out var subtables))
+                subtables = _subtables.GetOrAdd(features, Subtables);
+            foreach (var subtable in subtables)
             {
                 if (Apply(subtable, glyph) is { } replaced)
                     glyph = replaced;
