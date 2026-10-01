@@ -101,13 +101,19 @@ internal static class DisplayListBuilder
         return list;
     }
 
+    private static bool IsWholeTranslation(Matrix3x2 m, float scale) =>
+        scale > 0 && m.M11 == 1 && m.M12 == 0 && m.M21 == 0 && m.M22 == 1
+        && MathF.Abs(m.M31 * scale - MathF.Round(m.M31 * scale)) < 0.001f && MathF.Abs(m.M32 * scale - MathF.Round(m.M32 * scale)) < 0.001f;
+
     private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
     {
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
         foreach (var child in children)
         {
-            // Snapping stops at a transformed box: its own geometry and its subtree are drawn through the transform.
-            var scale = parent.Fragment.Box is { IsTransformed: true } || child.Fragment.Box is { IsTransformed: true } ? 0 : parent.Scale;
+            // Snapping stops at a box transformed by anything but a whole-pixel translation: its own geometry and its
+            // subtree are drawn through the transform (docs/study/12-painting.md).
+            var scale = child.Fragment.Box is { IsTransformed: true } transformed
+                && !IsWholeTranslation(transformed.Style.Transform.Matrix2D(child.Fragment.Width, child.Fragment.Height), parent.Scale) ? 0 : parent.Scale;
             var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale);
             // Line boxes only hold inline content; text is painted with text painting.
             if (child.Fragment.Kind == FragmentKind.Line)
