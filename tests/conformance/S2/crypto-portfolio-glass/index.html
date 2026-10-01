@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio overview</title>
+<style>
+  :root {
+    --bg: #0c0f1d;
+    --glass: rgba(255, 255, 255, 0.07);
+    --edge: rgba(255, 255, 255, 0.14);
+    --text: #eef1fb;
+    --muted: #8f97b5;
+    --up: #3ee08f;
+    --down: #ff5d7a;
+    --violet: #8b6bff;
+    --sky: #3ab8ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: Inter, system-ui, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  .app {
+    position: relative;
+    padding: 24px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(70px);
+    z-index: -1;
+  }
+
+  .glow.a { width: 340px; height: 340px; left: -80px; top: -60px; background: var(--violet); opacity: 0.55; }
+  .glow.b { width: 300px; height: 300px; right: -60px; top: 260px; background: var(--sky); opacity: 0.45; }
+
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .head h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+  .head .range { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--glass); border: 1px solid var(--edge); }
+  .head .range span { padding: 6px 10px; border-radius: 7px; font-size: 13px; color: var(--muted); }
+  .head .range .on { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+
+  .panel {
+    border-radius: 18px;
+    background: var(--glass);
+    border: 1px solid var(--edge);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 16px;
+  }
+
+  .balance { padding: 22px; }
+  .balance small { font-size: 13px; color: var(--muted); }
+  .balance .value { margin-top: 6px; font-size: 40px; font-weight: 700; letter-spacing: -0.02em; }
+  .balance .change { display: inline-block; margin-top: 6px; padding: 3px 8px; border-radius: 6px; font-size: 13px; background: rgba(62, 224, 143, 0.15); color: var(--up); }
+
+  .chart {
+    position: relative;
+    height: 120px;
+    margin-top: 18px;
+  }
+
+  .chart .area {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(139, 107, 255, 0.55), transparent);
+    clip-path: polygon(0 80%, 10% 70%, 20% 74%, 30% 55%, 40% 60%, 50% 42%, 60% 48%, 70% 30%, 80% 36%, 90% 18%, 100% 22%, 100% 100%, 0 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%);
+    mask-image: linear-gradient(90deg, transparent, #000 15%);
+  }
+
+  .chart .grid {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 30px);
+  }
+
+  .alloc { padding: 22px; }
+  .alloc h2 { margin: 0 0 14px; font-size: 15px; }
+
+  .donut {
+    width: 130px;
+    height: 130px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    background: conic-gradient(var(--violet) 0 46%, var(--sky) 46% 74%, var(--up) 74% 88%, #ffb547 88% 100%);
+    -webkit-mask: radial-gradient(circle, transparent 42px, #000 43px);
+    mask: radial-gradient(circle, transparent 42px, #000 43px);
+  }
+
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 13px; color: var(--muted); }
+  .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; }
+
+  .assets { margin-top: 16px; padding: 8px 0; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 34px 1fr 110px 90px 90px;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+
+  .row + .row { border-top: 1px solid var(--edge); }
+  .row.head-row { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .coin {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4));
+  }
+
+  .coin.btc { background: linear-gradient(135deg, #ffb547, #f7931a); }
+  .coin.eth { background: linear-gradient(135deg, #a5b4ff, #627eea); }
+  .coin.sol { background: linear-gradient(135deg, #14f195, #9945ff); }
+  .coin.dot { background: linear-gradient(135deg, #ff7ab8, #e6007a); filter: grayscale(1) opacity(0.6); }
+
+  .row .name b { display: block; }
+  .row .name span { font-size: 12px; color: var(--muted); }
+  .row .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+
+  .spark {
+    height: 28px;
+    background: linear-gradient(90deg, transparent, currentColor);
+    clip-path: polygon(0 70%, 20% 60%, 40% 75%, 60% 40%, 80% 45%, 100% 15%, 100% 25%, 80% 55%, 60% 50%, 40% 85%, 20% 70%, 0 80%);
+  }
+
+  .spark.falling { clip-path: polygon(0 20%, 20% 35%, 40% 30%, 60% 55%, 80% 50%, 100% 80%, 100% 90%, 80% 60%, 60% 65%, 40% 40%, 20% 45%, 0 30%); }
+
+  .muted-note { margin: 14px 4px 0; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="glow a"></div>
+    <div class="glow b"></div>
+
+    <div class="head">
+      <h1>Portfolio</h1>
+      <div class="range"><span>24h</span><span class="on">7d</span><span>30d</span><span>1y</span></div>
+    </div>
+
+    <div class="hero">
+      <div class="panel balance">
+        <small>Total balance</small>
+        <div class="value">$48,213.07</div>
+        <span class="change">+ $2,104.55 (4.6%) this week</span>
+        <div class="chart"><div class="grid"></div><div class="area"></div></div>
+      </div>
+      <div class="panel alloc">
+        <h2>Allocation</h2>
+        <div class="donut"></div>
+        <div class="legend">
+          <span><i style="background: var(--violet)"></i>BTC 46%</span>
+          <span><i style="background: var(--sky)"></i>ETH 28%</span>
+          <span><i style="background: var(--up)"></i>SOL 14%</span>
+          <span><i style="background: #ffb547"></i>Cash 12%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel assets">
+      <div class="row head-row"><span></span><span>Asset</span><span>7d</span><span class="num">Price</span><span class="num">Holdings</span></div>
+      <div class="row"><span class="coin btc">B</span><span class="name"><b>Bitcoin</b><span>0.3120 BTC</span></span><span class="spark up"></span><span class="num">$71,402</span><span class="num">$22,277</span></div>
+      <div class="row"><span class="coin eth">E</span><span class="name"><b>Ethereum</b><span>3.80 ETH</span></span><span class="spark up"></span><span class="num">$3,551</span><span class="num">$13,494</span></div>
+      <div class="row"><span class="coin sol">S</span><span class="name"><b>Solana</b><span>41.2 SOL</span></span><span class="spark falling down"></span><span class="num">$163.80</span><span class="num">$6,748</span></div>
+      <div class="row"><span class="coin dot">D</span><span class="name"><b>Polkadot</b><span>Unstaking</span></span><span class="spark falling down"></span><span class="num">$7.12</span><span class="num">$0</span></div>
+    </div>
+
+    <p class="muted-note">Prices are delayed by up to 60 seconds. Not investment advice.</p>
+  </div>
+</body>
+</html>
