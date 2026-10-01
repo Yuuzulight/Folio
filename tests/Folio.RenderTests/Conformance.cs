@@ -145,7 +145,68 @@ public static class Conformance
         if (secondary is not null && ImageComparer.Compare(secondary, actual, tolerance).Passed)
             return new(artifact, ConformanceOutcome.PassSecondary, "matches only the secondary reference; review");
         return new(artifact, ConformanceOutcome.Mismatch, string.Create(CultureInfo.InvariantCulture,
-            $"{primary.DifferingRatio * 100:F1}% of pixels differ ({actual.Width}x{actual.Height} vs {reference.Width}x{reference.Height})"));
+            $"{primary.DifferingRatio * 100:F1}% of pixels differ ({actual.Width}x{actual.Height} vs {reference.Width}x{reference.Height}); {Diagnose(reference, actual, primary.Diff)}"));
+    }
+
+    /// <summary>
+    /// Where the differences are, to tell drift from local errors: the first differing row, the bounding box of the
+    /// differing pixels, and whether below that row the page is mostly the reference moved by a whole number of pixels
+    /// (found by matching the rows' and columns' ink profiles), or the differences are scattered.
+    /// </summary>
+    public static string Diagnose(PixelBuffer expected, PixelBuffer actual, PixelBuffer diff)
+    {
+        var (left, top, right, bottom) = (int.MaxValue, int.MaxValue, -1, -1);
+        for (var y = 0; y < diff.Height; y++)
+        {
+            for (var x = 0; x < diff.Width; x++)
+            {
+                if (diff.Pixel(x, y) is [0, 0, 255, 255])
+                    (left, top, right, bottom) = (Math.Min(left, x), Math.Min(top, y), Math.Max(right, x), Math.Max(bottom, y));
+            }
+        }
+        if (bottom < 0)
+            return "no differing pixels";
+        var where = string.Create(CultureInfo.InvariantCulture, $"from row {top}, within x {left}-{right}, y {top}-{bottom}");
+        var dy = BestShift(Profile(expected, top, bottom, rows: true), Profile(actual, top, bottom, rows: true));
+        var dx = BestShift(Profile(expected, top, bottom, rows: false), Profile(actual, top, bottom, rows: false));
+        return dy != 0 ? $"{where}; mostly shifted {(dy > 0 ? "down" : "up")} {Math.Abs(dy)} px"
+            : dx != 0 ? $"{where}; mostly shifted {(dx > 0 ? "right" : "left")} {Math.Abs(dx)} px"
+            : $"{where}; scattered";
+    }
+
+    // Ink per row (or per column) over rows top to bottom: the sum of how far each pixel is from white.
+    private static double[] Profile(PixelBuffer image, int top, int bottom, bool rows)
+    {
+        var profile = new double[rows ? bottom - top + 1 : image.Width];
+        for (var y = top; y <= Math.Min(bottom, image.Height - 1); y++)
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                var p = image.Pixel(x, y);
+                profile[rows ? y - top : x] += 765 - p[0] - p[1] - p[2] + 3 * (255 - p[3]);
+            }
+        }
+        return profile;
+    }
+
+    // The shift of `actual` against `expected` (positive: actual is later) that lines their profiles up, if it halves
+    // the mismatch of no shift at all; else 0.
+    private static int BestShift(double[] expected, double[] actual)
+    {
+        double Mismatch(int shift)
+        {
+            var (sum, count) = (0.0, 0);
+            for (var i = Math.Max(0, -shift); i < expected.Length && i + shift < actual.Length; i++)
+                (sum, count) = (sum + Math.Abs(expected[i] - actual[i + shift]), count + 1);
+            return count < expected.Length / 2 ? double.MaxValue : sum / count;
+        }
+        var (best, bestMismatch) = (0, Mismatch(0));
+        for (var shift = -32; shift <= 32; shift++)
+        {
+            if (shift != 0 && Mismatch(shift) is var m && m < bestMismatch)
+                (best, bestMismatch) = (shift, m);
+        }
+        return best != 0 && bestMismatch < Mismatch(0) / 2 ? best : 0;
     }
 
     /// <summary>Where the actual, expected and diff images go: tests/render-output, or inside the private corpus.</summary>

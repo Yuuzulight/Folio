@@ -10,7 +10,7 @@ namespace Folio.Layout;
 /// rows, cells (colspan, rowspan) and columns, fixed and auto column widths, row heights, cell vertical alignment,
 /// border-spacing, and captions around the table grid box in the table wrapper.
 /// </summary>
-// ponytail: percentages of table width in cells act as auto; with collapsed borders, intrinsic widths use the cells'
+// ponytail: with collapsed borders, intrinsic widths use the cells'
 // own borders and conflicts ignore columns and column groups.
 internal static class TableLayout
 {
@@ -473,7 +473,15 @@ internal static class TableLayout
         return (min, max);
     }
 
-    // Column widths for the space the table gives its columns (css-tables-3 §3.9.4, simplified to min and max phases).
+    private enum ColumnKind { Auto, Fixed, Percent }
+
+    /// <summary>
+    /// Column widths for the space the table gives its columns (css-tables-3 §3.9.4, simplified to min and max
+    /// phases). A column whose cells or col give it a percentage width takes that share of the space (at least its
+    /// minimum); the others go from their minimum towards their maximum widths, and space beyond all maximums goes to
+    /// the columns with no specified width, in proportion to their maximums; only without such columns does it go to
+    /// columns with a length width, and then to percentage columns.
+    /// </summary>
     private static float[] ColumnWidths(Grid grid, ComputedStyle style, float target, LayoutContext context)
     {
         var n = grid.Columns;
@@ -482,14 +490,52 @@ internal static class TableLayout
         if (style.Box.TableLayout == TableLayoutMode.Fixed && style.Size.Width.Kind == SizeKind.Length)
             return FixedWidths(grid, target);
         var (min, max) = ColumnRanges(grid, style, context);
-        var (sumMin, sumMax) = (min.Sum(), max.Sum());
-        var widths = new float[n];
-        for (var c = 0; c < n; c++)
+        if (target <= min.Sum())
+            return min;
+
+        var (kinds, percents) = (new ColumnKind[n], new float[n]);
+        for (var c = 0; c < Math.Min(n, grid.ColumnWidths.Count); c++)
         {
-            widths[c] = target <= sumMin ? min[c]
-                : target <= sumMax ? min[c] + (max[c] - min[c]) * (sumMax > sumMin ? (target - sumMin) / (sumMax - sumMin) : 0)
-                : max[c] + (target - sumMax) * (sumMax > 0 ? max[c] / sumMax : 1f / n);
+            if (grid.ColumnWidths[c] is not null)
+                kinds[c] = ColumnKind.Fixed;
         }
+        foreach (var cell in grid.Cells.Where(c => c.ColumnSpan == 1))
+        {
+            if (cell.Box.Style.Size.Width is not { Kind: SizeKind.Length, Length: var w })
+                continue;
+            if (w is { Calc: null, Px: 0, Percent: > 0 })
+                (kinds[cell.Column], percents[cell.Column]) = (ColumnKind.Percent, Math.Max(percents[cell.Column], w.Percent));
+            else if (!w.HasPercent && kinds[cell.Column] == ColumnKind.Auto)
+                kinds[cell.Column] = ColumnKind.Fixed;
+        }
+
+        var widths = new float[n];
+        var others = Enumerable.Range(0, n).Where(c => kinds[c] != ColumnKind.Percent).ToList();
+        foreach (var c in Enumerable.Range(0, n).Except(others))
+            widths[c] = Math.Max(min[c], percents[c] / 100 * target);
+        var rest = target - widths.Sum();
+        var (othersMin, othersMax) = (others.Sum(c => min[c]), others.Sum(c => max[c]));
+        if (rest < othersMin)
+        {
+            // The percentages leave the other columns too little: every column goes back to its share of the minimums.
+            var sumMin = min.Sum();
+            return [.. min.Select(m => m + (target - sumMin) * (sumMin > 0 ? m / sumMin : 1f / n))];
+        }
+        if (rest <= othersMax)
+        {
+            foreach (var c in others)
+                widths[c] = min[c] + (max[c] - min[c]) * (othersMax > othersMin ? (rest - othersMin) / (othersMax - othersMin) : 0);
+            return widths;
+        }
+        foreach (var c in others)
+            widths[c] = max[c];
+        var extra = rest - othersMax;
+        var takers = new[] { ColumnKind.Auto, ColumnKind.Fixed, ColumnKind.Percent }
+            .Select(kind => Enumerable.Range(0, n).Where(c => kinds[c] == kind && widths[c] > 0).ToList())
+            .FirstOrDefault(list => list.Count > 0) ?? [.. Enumerable.Range(0, n)];
+        var weight = takers.Sum(c => widths[c]);
+        foreach (var c in takers)
+            widths[c] += extra * (weight > 0 ? widths[c] / weight : 1f / takers.Count);
         return widths;
     }
 

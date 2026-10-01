@@ -1,0 +1,24 @@
+=== adjacent boxes at fractional positions snap edge by edge, so they neither gap nor overlap
+<!DOCTYPE html><style>body { margin: 0 } div { float: left; width: 33.3333px; height: 10.4px; background: blue } div + div { background: red }</style><div></div><div></div><div></div>
+---
+fill 0,0 33x10 rgb(0, 0, 255)
+fill 33,0 34x10 rgb(255, 0, 0)
+fill 67,0 33x10 rgb(255, 0, 0)
+
+=== a 1px border at a fractional position stays one pixel wide
+<!DOCTYPE html><style>body { margin: 0 } div { margin-top: 0.4px; height: 5.3px; border-top: 1px solid black }</style><div></div>
+---
+border 0,0 800x7 1 solid rgb(0, 0, 0) / 0 none rgb(0, 0, 0) / 0 none rgb(0, 0, 0) / 0 none rgb(0, 0, 0)
+
+=== text baselines snap vertically, not horizontally
+<!DOCTYPE html><style>body, p { margin: 0 } p { padding: 0.3px 0 0 0.3px }</style><p>a</p>
+---
+glyphs 0.3,13 16px rgb(0, 0, 0)
+
+=== a transformed box and its contents keep their fractional geometry
+<!DOCTYPE html><style>body { margin: 0 } div { margin: 0.3px; width: 10.4px; height: 10.4px; background: blue; transform: rotate(45deg) } span { display: block; width: 5.2px; height: 5.2px; background: red }</style><div><span></span></div>
+---
+transform 0.71,0.71,-0.71,0.71,5.5,-2.28
+fill 0.3,0.3 10.4x10.4 rgb(0, 0, 255)
+fill 0.3,0.3 5.2x5.2 rgb(255, 0, 0)
+pop

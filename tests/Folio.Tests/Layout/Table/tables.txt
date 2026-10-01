@@ -21,7 +21,7 @@ html 0,0 800x42
               line 55,23 32x16
                 text "d" 55,23 16x16
 
-=== colspan, and a wider table sharing its width by the columns' max-content widths
+=== colspan, and a wider table giving its extra width to the columns without a specified width
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 200px"><tr><td colspan=2>x</td></tr><tr><td style="width: 50px">a</td><td>b</td></tr></table>
 ---
 html 0,0 800x32
@@ -34,12 +34,65 @@ html 0,0 800x32
               line 0,0 200x16
                 text "x" 0,0 16x16
           tr 0,16 200x16
-            td 0,16 151.52x16
-              line 0,16 151.52x16
+            td 0,16 50x16
+              line 0,16 50x16
                 text "a" 0,16 16x16
-            td 151.52,16 48.48x16
-              line 151.52,16 48.48x16
-                text "b" 151.52,16 16x16
+            td 50,16 150x16
+              line 50,16 150x16
+                text "b" 50,16 16x16
+
+=== a percentage cell width takes that share of the table, and the other columns the rest
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 200px"><tr><td style="width: 20%">a</td><td>b</td><td>cc</td></tr></table>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    table 0,0 200x16
+      table 0,0 200x16
+        tbody 0,0 200x16
+          tr 0,0 200x16
+            td 0,0 40x16
+              line 0,0 40x16
+                text "a" 0,0 16x16
+            td 40,0 53.33x16
+              line 40,0 53.33x16
+                text "b" 40,0 16x16
+            td 93.33,0 106.67x16
+              line 93.33,0 106.67x16
+                text "cc" 93.33,0 32x16
+
+=== with every column given a length, the extra width goes to them by their widths
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 200px"><tr><td style="width: 20px">a</td><td style="width: 60px">b</td></tr></table>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    table 0,0 200x16
+      table 0,0 200x16
+        tbody 0,0 200x16
+          tr 0,0 200x16
+            td 0,0 50x16
+              line 0,0 50x16
+                text "a" 0,0 16x16
+            td 50,0 150x16
+              line 50,0 150x16
+                text "b" 50,0 16x16
+
+=== a cell's height is a minimum: taller content makes the row taller
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0; height: 10px }</style><table style="border-spacing: 0"><tr><td>a<br>b</td><td>c</td></tr></table>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    table 0,0 32x32
+      table 0,0 32x32
+        tbody 0,0 32x32
+          tr 0,0 32x32
+            td 0,0 16x32
+              line 0,0 16x16
+                text "a" 0,0 16x16
+              line 0,16 16x16
+                text "b" 0,16 16x16
+            td 16,0 16x32
+              line 16,8 16x16
+                text "c" 16,8 16x16
 
 === a taller row-spanning cell stretches the last row it spans; cells are centred by default
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0"><tr><td rowspan=2 style="height: 50px">a</td><td>b</td></tr><tr><td>c</td></tr></table>

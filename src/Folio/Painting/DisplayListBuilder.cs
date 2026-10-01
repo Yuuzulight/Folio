@@ -16,10 +16,22 @@ namespace Folio.Painting;
 internal static class DisplayListBuilder
 {
     // A box's border box on the canvas, with the overflow clips it is painted under. LineEnd marks text that ends its line.
-    private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip, bool LineEnd = false)
+    // Scale is the device pixels per CSS pixel its edges snap to (docs/study/12-painting.md), or 0 under a transform.
+    private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip, bool LineEnd = false, float Scale = 0)
     {
         public Box Box => Fragment.Box!;
-        public RectF Rect => new(X, Y, Fragment.Width, Fragment.Height);
+
+        /// <summary>The border box, each edge rounded to the nearest device pixel, so neighbours never gap or overlap.</summary>
+        public RectF Rect
+        {
+            get
+            {
+                var (left, top) = (Snap(X), Snap(Y));
+                return new(left, top, Snap(X + Fragment.Width) - left, Snap(Y + Fragment.Height) - top);
+            }
+        }
+
+        public float Snap(float position) => Scale > 0 ? MathF.Floor(position * Scale + 0.5f) / Scale : position;
     }
 
     private sealed class ClipNode(ClipNode? parent, RoundedRect shape)
@@ -53,7 +65,8 @@ internal static class DisplayListBuilder
     }
 
     /// <param name="images">Loads url() images for backgrounds; without one, they are not painted.</param>
-    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null)
+    /// <param name="deviceScale">Device pixels per CSS pixel, which box edges and text baselines snap to.</param>
+    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1)
     {
         var list = new DisplayList();
         if (initialContainingBlock.Children is not [var rootPlaced, ..])
@@ -62,13 +75,13 @@ internal static class DisplayListBuilder
         var root = rootPlaced.Fragment;
         var order = TreeOrder(root.Box!);
         // The root element's stacking context also holds the positioned boxes placed in the initial containing block.
-        var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null);
+        var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null, Scale: root.Box is { IsTransformed: true } ? 0 : deviceScale);
         var rootContext = new Context(rootBox, real: true, 0, 0);
         // A replaced root element (the svg root of an SVG document) paints its content like any replaced box.
         if (root.Svg is not null || root.Box is ReplacedBox { Image: not null })
             rootContext.Text.Add(rootBox);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
-        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null), initialContainingBlock.Children.Skip(1), order);
+        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale), initialContainingBlock.Children.Skip(1), order);
         // The root group blends with the canvas background, which is painted outside it.
         rootContext.Isolated = false;
 
@@ -93,7 +106,9 @@ internal static class DisplayListBuilder
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
         foreach (var child in children)
         {
-            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip);
+            // Snapping stops at a transformed box: its own geometry and its subtree are drawn through the transform.
+            var scale = parent.Fragment.Box is { IsTransformed: true } || child.Fragment.Box is { IsTransformed: true } ? 0 : parent.Scale;
+            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale);
             // Line boxes only hold inline content; text is painted with text painting.
             if (child.Fragment.Kind == FragmentKind.Line)
             {
@@ -551,7 +566,7 @@ internal static class DisplayListBuilder
             var count = run.GlyphEnd - run.GlyphStart;
             var glyphs = new ushort[count];
             var origins = new Vector2[count];
-            var baseline = box.Y + run.Ascent;
+            var baseline = box.Snap(box.Y + run.Ascent); // baselines snap vertically only
             var x = run.RightToLeft ? box.X + box.Fragment.Width : box.X;
             for (var i = 0; i < count; i++)
             {
