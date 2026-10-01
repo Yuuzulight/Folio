@@ -220,3 +220,19 @@ html 0,0 800x16
             td 200,0 100x16
               line 200,0 100x16
                 text "c" 200,0 16x16
+
+=== columns run from the right in a right-to-left table
+<!DOCTYPE html><style>body { margin: 0 } table { border-spacing: 0; width: 300px } td { padding: 0; height: 10px }</style><table dir=rtl><tr><td style="width: 100px"></td><td colspan=2></td></tr><tr><td></td><td style="width: 50px"></td><td style="width: 150px"></td></tr></table>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    table 0,0 300x20
+      table 0,0 300x20
+        tbody 0,0 300x20
+          tr 0,0 300x10
+            td 200,0 100x10
+            td 0,0 200x10
+          tr 0,10 300x10
+            td 200,10 100x10
+            td 150,10 50x10
+            td 0,10 150x10

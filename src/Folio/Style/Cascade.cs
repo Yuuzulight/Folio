@@ -227,7 +227,6 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
     // https://www.w3.org/TR/css-animations-1/#keyframes: keyframe blocks with an invalid selector are ignored, and so
     // are !important declarations and the animation and transition properties inside them, except
     // animation-timing-function, which is the keyframe's easing.
-    // ponytail: custom properties in keyframes are not animated.
     private void AddKeyframes(string source, AtRule at)
     {
         var prelude = new ValueReader(source, at.Prelude);
@@ -238,10 +237,10 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
         {
             if (rule is not StyleRule block || AnimationProperties.KeyframeOffsets(new ValueReader(source, block.Prelude)) is not { } offsets)
                 continue;
-            var parsed = Parse(source, block.Declarations, _sheetBase).Where(d => !d.Important && d.CustomName is null).ToList();
+            var parsed = Parse(source, block.Declarations, _sheetBase).Where(d => !d.Important).ToList();
             var easing = parsed.LastOrDefault(d => d.Id == PropertyId.AnimationTimingFunction)?.Value is LayerListValue<EasingItem> { Items: [var item] }
                 ? item.Easing : null;
-            blocks.Add(new Keyframe(offsets, [.. parsed.Where(d => !AnimationProperties.IsAnimationOrTransition(d.Id))]) { Easing = easing });
+            blocks.Add(new Keyframe(offsets, [.. parsed.Where(d => d.CustomName is not null || !AnimationProperties.IsAnimationOrTransition(d.Id))]) { Easing = easing });
         }
         Keyframes[name] = blocks;
     }
