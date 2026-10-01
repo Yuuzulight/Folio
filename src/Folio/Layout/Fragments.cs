@@ -33,6 +33,11 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>Where images the layout refers to load from (SVG feImage); none means they do not load.</summary>
     public Imaging.ImageLoader? Images { get; init; }
 
+    /// <summary>Where images in SVG images load from: data: URLs only, since an SVG image loads nothing from outside.</summary>
+    public Imaging.ImageLoader DataUrlImages => _dataUrlImages ??= new(Resources.ResourceLoader.DataUrlsOnly, null);
+
+    private Imaging.ImageLoader? _dataUrlImages;
+
     /// <summary>Grid items laid out so far, by the space they were laid out in and, for subgrids, the tracks lent to them (see GridLayout).</summary>
     public Dictionary<(Box Box, ConstraintSpace Space, (AdoptedTracks? Columns, AdoptedTracks? Rows) Lent), Fragment> GridItems { get; } = [];
 

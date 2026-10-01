@@ -42,7 +42,7 @@ internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, Sv
             if (function.Name != "url")
                 filters.Add((function, null));
             else if (context.Find(function.Url) is { LocalName: "filter" } element && element.Name.Namespace == Namespaces.Svg)
-                filters.Add((function, SvgFilterReference.Get(element, bounds, viewport, context.Layout)));
+                filters.Add((function, SvgFilterReference.Get(element, bounds, viewport, context.Layout, context.Images)));
             else
                 return null;
         }
@@ -76,14 +76,14 @@ internal sealed class SvgFilterReference(ElementNode element, SvgRect? bounds, V
     public Imaging.ImageLoader? Images { get; init; }
 
     /// <summary>The layout's reference for this filter element used with this bounding box and viewport.</summary>
-    public static SvgFilterReference Get(ElementNode element, SvgRect? bounds, Vector2 viewport, Layout.LayoutContext layout)
+    public static SvgFilterReference Get(ElementNode element, SvgRect? bounds, Vector2 viewport, Layout.LayoutContext layout, Imaging.ImageLoader? images)
     {
         static bool BoxUnits(ElementNode e, string name, bool byDefault) => e.GetAttribute(name)?.Trim() is { } units
             ? units == "objectBoundingBox" || units != "userSpaceOnUse" && byDefault
             : byDefault;
         var key = (element, BoxUnits(element, "filterUnits", true) || BoxUnits(element, "primitiveUnits", false) ? bounds : null, viewport);
         if (!layout.SvgFilters.TryGetValue(key, out var reference))
-            layout.SvgFilters[key] = reference = new SvgFilterReference(key.element, key.Item2, viewport) { Images = layout.Images };
+            layout.SvgFilters[key] = reference = new SvgFilterReference(key.element, key.Item2, viewport) { Images = images };
         return reference;
     }
 }
