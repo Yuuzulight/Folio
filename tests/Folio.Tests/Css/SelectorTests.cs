@@ -49,11 +49,19 @@ public class SelectorTests
         foreach (var element in elements)
             SelectorMatcher.Matches(list, element, context); // warm up: JIT and the sibling-index cache
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        foreach (var element in elements)
-            SelectorMatcher.Matches(list, element, context);
+        // Steady state allocates nothing. One pass can still see a one-off
+        // runtime allocation (a method moving up a tier mid-loop), so take
+        // the best of three passes rather than failing on it.
+        var least = long.MaxValue;
+        for (var pass = 0; pass < 3 && least > 0; pass++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            foreach (var element in elements)
+                SelectorMatcher.Matches(list, element, context);
+            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
 
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0, least);
     }
 
     [Fact]

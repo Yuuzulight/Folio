@@ -195,12 +195,15 @@ internal sealed class BoxTreeBuilder
         if (replaced is { } kind)
         {
             var (source, density) = kind == ReplacedKind.Image ? ImageSource(element, _deviceScale) : (null, 1);
+            var image = source is null ? null : _images?.LoadAny(source);
+            var svg = kind == ReplacedKind.Svg ? element : image as ElementNode;
             var box = new ReplacedBox(style, element, kind)
             {
                 IsAtomicInline = IsInlineLevel(display),
-                Image = source is null ? null : _images?.Load(source),
+                Image = image as Imaging.DecodedImage,
+                SvgImage = image as ElementNode,
                 Density = density,
-                SvgNatural = kind == ReplacedKind.Svg ? Svg.SvgRenderTree.NaturalSize(element, style.Font.Size) : null,
+                SvgNatural = svg is null ? null : Svg.SvgRenderTree.NaturalSize(svg, style.Font.Size),
             };
             Place(box, IsInlineLevel(display));
             return false;

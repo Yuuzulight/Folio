@@ -105,3 +105,31 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
+
+## NotoSansJP-Regular.otf, NotoSansJP-Bold.otf, NotoSansSC-Regular.otf, NotoSansSC-Bold.otf
+Noto Sans JP and Noto Sans SC, from Noto Sans CJK version 2.004, unmodified OpenType files from the official release
+`Sans2.004` of https://github.com/notofonts/noto-cjk: `16_NotoSansJP.zip` (SHA-256
+`2bbdd2c20f30670b39ca735c96d75f1fdabdb348103e43b820cf17701fd22b18`) and `18_NotoSansSC.zip` (SHA-256
+`4d107c09ada479d3e48b6e78c83835773cbd9214bf6e12cdb7b60f8e068292ec`). Licensed under the SIL Open Font License 1.1, as
+published with the release: `NotoSansCJK-OFL.txt`.
+
+## NotoSansArabic-Regular.ttf, NotoSansArabic-Bold.ttf
+Noto Sans Arabic version 2.013, unmodified files from `full/ttf` of the official release
+https://github.com/notofonts/arabic/releases/tag/NotoSansArabic-v2.013 (`NotoSansArabic-v2.013.zip`, SHA-256
+`1301aceaea84c501cf2e6dcfb3182e2328c8eae5725817fcb239672bda7154f1`, matching the release's published digest).
+Licensed under the SIL Open Font License 1.1, as published with the release: `NotoSansArabic-OFL.txt`.
+
+## NotoSansHebrew-Regular.ttf, NotoSansHebrew-Bold.ttf
+Noto Sans Hebrew version 3.001, unmodified files from `full/ttf` of the official release
+https://github.com/notofonts/hebrew/releases/tag/NotoSansHebrew-v3.001 (`NotoSansHebrew-v3.001.zip`, SHA-256
+`df0a71814b4e63644cf40fcc4529111b61266b7a2dafbe95068b29a7520cc3cb`). Licensed under the SIL Open Font License 1.1, as
+published with the release: `NotoSansHebrew-OFL.txt`.
+
+## NotoColorEmoji.ttf
+Noto Color Emoji version 2.051 (bitmap colour glyphs), unmodified: `fonts/NotoColorEmoji.ttf` at tag `v2.051` of
+https://github.com/googlefonts/noto-emoji (git blob `943741df1e37aa3ee3b5afc9129843fd8d81908c`). Licensed under the SIL
+Open Font License 1.1; `NotoColorEmoji-OFL.txt` holds the licence with the copyright notice from the font's own name
+table.
+
+The conformance suite draws characters Source Sans 3 lacks with these fonts (emoji first, then Japanese, Chinese,
+Arabic and Hebrew), in Folio and in the reference captures alike, so S6 pages compare like for like.

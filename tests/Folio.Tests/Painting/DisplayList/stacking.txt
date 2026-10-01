@@ -30,6 +30,15 @@ fill 0,0 800x10 rgb(1, 0, 0)
 fill 0,0 5x5 rgb(2, 0, 0)
 fill 0,10 800x10 rgb(3, 0, 0)
 
+=== a stacking context in inline content keeps its tree order among positioned boxes
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div style="position: relative; height: 20px; background: rgb(1, 0, 0)"><span style="display: inline-block; opacity: 0.5; width: 5px; height: 5px; background: rgb(2, 0, 0)"></span></div>
+---
+fill 0,0 800x20 rgb(1, 0, 0)
+opacity 0.5
+fill 0,8 5x5 rgb(2, 0, 0)
+pop
+
 === opacity groups a stacking context into a layer
 <!DOCTYPE html><style>body { margin: 0 }</style>
 <div style="opacity: 0.5; background: red; height: 10px"><div style="height: 5px; background: blue"></div></div>

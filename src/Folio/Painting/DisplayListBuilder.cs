@@ -25,6 +25,9 @@ internal static class DisplayListBuilder
         /// <summary>The border box of the nearest block-level container, which a sticky box may not leave.</summary>
         public RectF StickyLimit { get; init; }
 
+        /// <summary>The parent's perspective matrix (perspective property) in canvas coordinates, if it has one.</summary>
+        public Matrix4x4? Perspective { get; init; }
+
         public Box Box => Fragment.Box!;
 
         /// <summary>The border box, each edge rounded to the nearest device pixel, so neighbours never gap or overlap.</summary>
@@ -160,6 +163,9 @@ internal static class DisplayListBuilder
                 // A cell's containing block is the table, so rows and row groups pass their limit through.
                 StickyLimit = parent.Fragment.Box is TablePartBox { Part: not (TablePart.Table or TablePart.Cell or TablePart.Caption) } ? parent.StickyLimit
                     : parent.Fragment.Box is BlockContainerBox or FlexContainerBox or GridContainerBox ? parent.Rect : parent.StickyLimit,
+                Perspective = parent.Fragment.Box?.Style.Transform.PerspectiveMatrix(parent.Fragment.Width, parent.Fragment.Height) is { } perspective
+                    ? Matrix4x4.CreateTranslation(-parent.X, -parent.Y, 0) * perspective * Matrix4x4.CreateTranslation(parent.X, parent.Y, 0)
+                    : null,
             };
             // A cell's content fragment shares the cell's box; the cell has already been moved.
             if (child.Fragment.Box is { Style.Box.Position: Position.Sticky } sticky && sticky != parent.Fragment.Box)
@@ -252,6 +258,7 @@ internal static class DisplayListBuilder
             || style.Opacity < 1
             || style.Isolation == Isolation.Isolate
             || box.IsTransformed
+            || box.Style.Transform.Perspective is not null && box is not InlineBox
             || !box.Style.Effects.Filter.IsNone
             || !box.Style.Effects.BackdropFilter.IsNone
             || box.Style.Effects.MixBlendMode != Style.BlendMode.Normal
@@ -321,7 +328,8 @@ internal static class DisplayListBuilder
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
     }
 
-    // Boxes in box tree order (document order), for ordering positioned boxes and stacking contexts.
+    // Boxes in box tree order (document order), for ordering positioned boxes and stacking contexts. Boxes in inline
+    // content (inline boxes, atomic inlines, floats and positioned boxes) are reached through their paragraph's items.
     private static Dictionary<Box, int> TreeOrder(Box root)
     {
         var order = new Dictionary<Box, int>();
@@ -329,7 +337,14 @@ internal static class DisplayListBuilder
         stack.Push(root);
         while (stack.TryPop(out var box))
         {
-            order[box] = order.Count;
+            if (!order.TryAdd(box, order.Count))
+                continue;
+            var inline = box is BlockContainerBox { Inline: { } context } ? context.Items : null;
+            for (var i = (inline?.Count ?? 0) - 1; i >= 0; i--)
+            {
+                if (inline![i] is { Box: { } item, Kind: not InlineItemKind.CloseBox })
+                    stack.Push(item);
+            }
             for (var i = box.Children.Count - 1; i >= 0; i--)
                 stack.Push(box.Children[i]);
         }
@@ -352,10 +367,10 @@ internal static class DisplayListBuilder
             var layered = opacity < 1 || filters is not null || backdrop is not null || blend != BlendMode.Normal || context.Isolated || mask is not null;
             // A mask applies after the filter and before opacity, so with both the filter gets a layer of its own inside.
             var innerFilter = mask is not null && filters is not null;
-            var transform = owner is not null && owner.Box.IsTransformed ? Transform(owner) : (Matrix3x2?)null;
+            var transform = owner is not null && owner.Box.IsTransformed ? Transform(owner) : (Matrix4x4?)null;
             // A transform that cannot be inverted flattens the box to nothing: it and its content are not displayed
             // (https://www.w3.org/TR/css-transforms-1/#transform-function-lists).
-            if (transform is { } singular && !Matrix3x2.Invert(singular, out _))
+            if (transform is { } singular && Determinant2D(singular) == 0)
                 return;
             var clipPath = owner is null || owner.Box.Style.Effects.ClipPath.IsNone ? (DisplayItem?)null : ClipPathItem(owner, owner.Box.Style.Effects.ClipPath);
             var grouped = layered || transform is not null || clipPath is not null;
@@ -368,7 +383,9 @@ internal static class DisplayListBuilder
             {
                 SetClip(owner!.Clip);
                 if (transform is { } matrix)
-                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: matrix));
+                    list.Items.Add(matrix is { M14: 0, M24: 0, M44: 1 }
+                        ? new DisplayItem(DisplayItemKind.PushTransform, Transform: new Matrix3x2(matrix.M11, matrix.M12, matrix.M21, matrix.M22, matrix.M41, matrix.M42))
+                        : new DisplayItem(DisplayItemKind.PushTransform, Projection: matrix));
                 if (clipPath is { } clip)
                     list.Items.Add(clip);
                 if (layered)
@@ -416,11 +433,20 @@ internal static class DisplayListBuilder
 
         // A box's transform (css-transforms-2 §6) in canvas coordinates: its matrix is relative to the border box's
         // top-left corner, the reference box being the border box.
-        // ponytail: 3D functions are flattened to 2D (TransformGroup.Matrix2D); perspective and preserve-3d wait for M2 3D.
-        private static Matrix3x2 Transform(PaintBox box) =>
-            Matrix3x2.CreateTranslation(-box.X, -box.Y)
-            * box.Box.Style.Transform.Matrix2D(box.Fragment.Width, box.Fragment.Height)
-            * Matrix3x2.CreateTranslation(box.X, box.Y);
+        // Under a parent's perspective, the parent's perspective matrix applies after the box's own transform
+        // (https://www.w3.org/TR/css-transforms-2/#accumulated-3d-transformation-matrix-computation).
+        // ponytail: every box flattens into its parent's plane; preserve-3d and backface-visibility come when pages need them.
+        private static Matrix4x4 Transform(PaintBox box)
+        {
+            var matrix = Matrix4x4.CreateTranslation(-box.X, -box.Y, 0)
+                * box.Box.Style.Transform.Matrix(box.Fragment.Width, box.Fragment.Height)
+                * Matrix4x4.CreateTranslation(box.X, box.Y, 0);
+            return box.Perspective is { } perspective ? matrix * perspective : matrix;
+        }
+
+        // The determinant of the projective 2D transform a 3D matrix flattens to: the x, y and w rows and columns.
+        private static float Determinant2D(Matrix4x4 m) =>
+            m.M11 * (m.M22 * m.M44 - m.M24 * m.M42) - m.M12 * (m.M21 * m.M44 - m.M24 * m.M41) + m.M14 * (m.M21 * m.M42 - m.M22 * m.M41);
 
         private static BlendMode Blend(Style.BlendMode mode) => Enum.Parse<BlendMode>(mode.ToString());
 

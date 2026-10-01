@@ -198,8 +198,17 @@ internal static class GradientParsing
         return new StopSpecified(color, positions.ElementAtOrDefault(0), positions.ElementAtOrDefault(1));
     }
 
-    private static CssValue? ConicPosition(ValueReader r) =>
-        Angle(r) is { } degrees ? new PercentageValue(degrees / 360 * 100) : r.LengthPercentage() is PercentageValue p ? p : null;
+    // <angle-percentage> | <zero> (https://www.w3.org/TR/css-images-4/#typedef-color-stop-angle).
+    private static CssValue? ConicPosition(ValueReader r)
+    {
+        if (Angle(r) is { } degrees)
+            return new PercentageValue(degrees / 360 * 100);
+        var mark = r.Mark;
+        if (r.Number() == 0)
+            return new PercentageValue(0);
+        r.Reset(mark);
+        return r.LengthPercentage() is PercentageValue p ? p : null;
+    }
 
     // Colours written in the legacy sRGB syntaxes: names, hex, rgb(), hsl(), hwb() and the keywords.
     private static bool IsLegacy(ValueReader r) =>

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VOLTSHIFT — Official team site</title>
+<style>
+  :root {
+    --void: #08080c;
+    --volt: #e6ff1f;
+    --hot: #ff2e63;
+    --ice: #2ee6ff;
+    --steel: #1a1b24;
+    --text: #f4f4f8;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Rajdhani", "Arial Narrow", sans-serif;
+    background: var(--void);
+    color: var(--text);
+  }
+
+  .strip {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 32px;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    background: var(--volt);
+    color: var(--void);
+    font-weight: 700;
+  }
+
+  .hero {
+    position: relative;
+    height: 480px;
+    overflow: hidden;
+    background: linear-gradient(115deg, #14141f 0 55%, #1d0b18 55%);
+  }
+
+  .slash {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 46%;
+    width: 120px;
+    background: linear-gradient(180deg, var(--hot), #7a0f2e);
+    clip-path: polygon(40% 0, 100% 0, 60% 100%, 0 100%);
+  }
+
+  .slash.two { left: 58%; width: 60px; background: var(--volt); opacity: 0.9; }
+
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      repeating-linear-gradient(0deg, rgba(46, 230, 255, 0.12) 0 1px, transparent 1px 32px),
+      repeating-linear-gradient(90deg, rgba(46, 230, 255, 0.12) 0 1px, transparent 1px 32px);
+    -webkit-mask-image: radial-gradient(ellipse at 70% 50%, #000 10%, transparent 65%);
+    mask-image: radial-gradient(ellipse at 70% 50%, #000 10%, transparent 65%);
+  }
+
+  .logo-mark {
+    position: absolute;
+    right: 60px;
+    top: 90px;
+    width: 280px;
+    height: 280px;
+    background: linear-gradient(135deg, var(--ice), #6a5cff);
+    clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%);
+    filter: drop-shadow(0 0 30px rgba(46, 230, 255, 0.7));
+  }
+
+  .logo-bolt {
+    position: absolute;
+    right: 140px;
+    top: 150px;
+    width: 120px;
+    height: 170px;
+    background: var(--void);
+    clip-path: polygon(60% 0, 10% 58%, 45% 58%, 30% 100%, 90% 38%, 55% 38%);
+  }
+
+  .hero-copy {
+    position: absolute;
+    left: 40px;
+    top: 90px;
+    max-width: 420px;
+  }
+
+  .hero-copy .tag {
+    display: inline-block;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    background: var(--hot);
+    clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  }
+
+  .hero-copy h1 {
+    margin: 18px 0 0;
+    font-size: 84px;
+    line-height: 0.88;
+    font-style: italic;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+  }
+
+  .hero-copy h1 span { color: var(--volt); }
+
+  .hero-copy p { margin: 18px 0 0; font-size: 19px; line-height: 1.4; color: #b9bccb; }
+
+  .watch {
+    display: inline-block;
+    margin-top: 26px;
+    padding: 14px 30px;
+    background: var(--volt);
+    color: var(--void);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  }
+
+  .matches { padding: 48px 32px; }
+
+  .label {
+    margin: 0 0 18px;
+    font-size: 15px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ice);
+  }
+
+  .match {
+    display: grid;
+    grid-template-columns: 110px 1fr 120px 130px;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 16px 20px;
+    background: var(--steel);
+    clip-path: polygon(0 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
+    font-size: 18px;
+  }
+
+  .match .when { color: #8d90a3; font-size: 14px; }
+  .match .vs b { color: var(--volt); }
+  .match .score { font-size: 26px; font-weight: 700; text-align: center; }
+  .match .score.win { color: var(--volt); }
+  .match .score.loss { color: var(--hot); }
+  .match .cta { justify-self: end; font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ice); }
+
+  .roster {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    padding: 0 32px 48px;
+  }
+
+  .player {
+    position: relative;
+    height: 200px;
+    background: linear-gradient(180deg, #2a2b38, #111118);
+    clip-path: polygon(0 0, 100% 0, 100% 88%, 86% 100%, 0 100%);
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .player .silhouette {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 100px;
+    height: 150px;
+    margin-left: -50px;
+    background:
+      radial-gradient(circle at 50% 22%, #4c4f63 0 18%, transparent 19%),
+      radial-gradient(ellipse at 50% 100%, #4c4f63 0 52%, transparent 53%);
+  }
+
+  .player .flash {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(200deg, var(--hot), transparent 60%);
+    mix-blend-mode: color-dodge;
+  }
+
+  .player:nth-child(even) .flash { background: linear-gradient(200deg, var(--ice), transparent 60%); mix-blend-mode: hard-light; }
+
+  .player .handle {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    font-size: 20px;
+    font-weight: 700;
+    text-transform: uppercase;
+    mix-blend-mode: difference;
+  }
+
+  .player .role { position: absolute; left: 10px; top: 10px; font-size: 12px; letter-spacing: 0.14em; color: var(--volt); }
+
+  .sponsors {
+    display: flex;
+    justify-content: space-around;
+    padding: 26px 32px;
+    border-top: 1px solid #22232e;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #fff;
+    filter: grayscale(1) opacity(0.45);
+  }
+</style>
+</head>
+<body>
+  <div class="strip"><span>Spring Split · Week 6</span><span>Shop the 2027 jersey →</span></div>
+
+  <section class="hero">
+    <div class="grid-bg"></div>
+    <div class="slash"></div>
+    <div class="slash two"></div>
+    <div class="logo-mark"></div>
+    <div class="logo-bolt"></div>
+    <div class="hero-copy">
+      <span class="tag">Playoffs locked</span>
+      <h1>Charge<br><span>forward</span></h1>
+      <p>Five players. One lane. Back-to-back regional champions chasing the world title.</p>
+      <span class="watch">Watch live</span>
+    </div>
+  </section>
+
+  <section class="matches">
+    <h2 class="label">Recent and upcoming</h2>
+    <div class="match"><span class="when">Sat 21:00</span><span class="vs"><b>VSF</b> vs Northwind</span><span class="score">— : —</span><span class="cta">Remind me</span></div>
+    <div class="match"><span class="when">Thu</span><span class="vs"><b>VSF</b> vs Ember Rising</span><span class="score win">2 : 0</span><span class="cta">Highlights</span></div>
+    <div class="match"><span class="when">Last Sun</span><span class="vs"><b>VSF</b> vs Paper Tigers</span><span class="score loss">1 : 2</span><span class="cta">Highlights</span></div>
+  </section>
+
+  <section class="roster">
+    <div class="player"><div class="silhouette"></div><div class="flash"></div><span class="role">TOP</span><span class="handle">Kairo</span></div>
+    <div class="player"><div class="silhouette"></div><div class="flash"></div><span class="role">JUNGLE</span><span class="handle">Wisp</span></div>
+    <div class="player"><div class="silhouette"></div><div class="flash"></div><span class="role">MID</span><span class="handle">Ozone</span></div>
+    <div class="player"><div class="silhouette"></div><div class="flash"></div><span class="role">ADC</span><span class="handle">Recoil</span></div>
+    <div class="player"><div class="silhouette"></div><div class="flash"></div><span class="role">SUPPORT</span><span class="handle">Halo</span></div>
+  </section>
+
+  <div class="sponsors"><span>HYPERX0</span><span>NOVAGRID</span><span>KYNETIC</span><span>FUELCELL</span></div>
+</body>
+</html>

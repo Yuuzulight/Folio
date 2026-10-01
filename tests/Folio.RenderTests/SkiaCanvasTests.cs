@@ -35,6 +35,20 @@ public class SkiaCanvasTests
     }
 
     [Fact]
+    public void RoundedSidesKeepTheirCurvedParts()
+    {
+        // A half-coloured circle, the gauge and spinner idiom: the bottom and left sides own their half of the ring,
+        // including where it curves inside the straight inner edges.
+        using var bitmap = Render("<style>body { margin: 0 } div { width: 80px; height: 80px; border: 10px solid; border-radius: 50%; border-color: transparent transparent blue blue }</style><div></div>");
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(27, 89));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(11, 27));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(73, 11));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(89, 73));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(50, 50));
+    }
+
+    [Fact]
     public void RoundedCornersLeaveTheCornerUnpainted()
     {
         using var bitmap = Render("<style>body { margin: 0 } div { width: 60px; height: 60px; border-radius: 30px; background: blue }</style><div></div>");
@@ -149,6 +163,20 @@ public class SkiaCanvasTests
         Assert.Equal(SKColors.Blue, bitmap.GetPixel(45, 45));
         Assert.Equal(SKColors.White, bitmap.GetPixel(20, 15));
         Assert.Equal(SKColors.White, bitmap.GetPixel(45, 5));
+    }
+
+    [Fact]
+    public void PerspectiveForeshortensATiltedBox()
+    {
+        // Turned 60° about its left edge under a 100px perspective from the top-left corner: the right edge recedes
+        // to x ≈ 27 and spans only y 0 to 54, where flattened it would be at x 50 at full height.
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='perspective: 100px; perspective-origin: 0 0'>" +
+            "<div style='height: 100px; width: 100px; background: blue; transform-origin: 0 0; transform: rotateY(60deg)'></div></div>");
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(5, 80));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(24, 10));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(24, 70));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(40, 10));
     }
 
     [Fact]

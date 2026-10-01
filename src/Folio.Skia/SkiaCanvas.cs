@@ -21,6 +21,12 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         canvas.Concat(in m);
     }
 
+    public void Transform(in Matrix4x4 matrix)
+    {
+        var m = new SKMatrix(matrix.M11, matrix.M21, matrix.M41, matrix.M12, matrix.M22, matrix.M42, matrix.M14, matrix.M24, matrix.M44);
+        canvas.Concat(in m);
+    }
+
     public void ClipRoundedRect(in RoundedRect rect)
     {
         using var skRect = ToSkia(rect);
