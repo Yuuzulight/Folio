@@ -1,3 +1,16 @@
+=== background-clip: text paints the background in a layer masked by the glyphs of the text and its descendants
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 32px; background: blue; background-clip: text; color: transparent }</style><p>a <span>b</span></p>
+---
+layer
+fill 0,0 800x32 rgb(0, 0, 255)
+blend destination-in
+glyphs 0,26 32,26 32px rgb(0, 0, 0)
+glyphs 64,26 32px rgb(0, 0, 0)
+pop
+pop
+glyphs 0,26 32,26 32px rgba(0, 0, 0, 0)
+glyphs 64,26 32px rgba(0, 0, 0, 0)
+
 === the body's background paints the canvas when the root has none
 <!DOCTYPE html><style>body { margin: 0; background: red } div { height: 10px; background: blue }</style><div></div>
 ---

@@ -484,6 +484,15 @@ internal static class DisplayListBuilder
             // (https://drafts.csswg.org/compositing-2/#background-blend-mode).
             var modes = style.Effects.BackgroundBlendModes;
             var blended = box.Box != canvasBox && style.Background.Images.Where((image, i) => image is GradientImage or UrlImage && modes[i % modes.Count] != Style.BlendMode.Normal).Any();
+            // background-clip: text paints the background only inside the glyphs of the box's text and its in-flow
+            // descendants' (css-backgrounds-4 §3.1): the background goes into a layer that the glyphs then mask.
+            // ponytail: when any layer clips to text, the colour and every layer do.
+            var clipsToText = box.Box != canvasBox && style.Background.Clips.Contains(BackgroundBox.Text);
+            if (clipsToText)
+            {
+                SetClip(box.Clip);
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer));
+            }
             if (blended)
             {
                 SetClip(box.Clip);
@@ -498,6 +507,18 @@ internal static class DisplayListBuilder
                 PaintBackgroundImages(style, box, shape);
             if (blended)
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            if (clipsToText)
+            {
+                // The glyphs, drawn together into a layer that keeps the background only where they are.
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
+                foreach (var text in TextIn(box))
+                {
+                    if (GlyphsOf(text) is { } glyphs)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: CssColor.Black, Glyphs: glyphs));
+                }
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            }
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
             // A border image that can be drawn replaces the border styles (collapsed table borders have none).
@@ -550,6 +571,51 @@ internal static class DisplayListBuilder
         }
 
         // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge; or replaced content.
+        // A text fragment's glyphs with their baseline origins on the canvas (baselines snap vertically only), or null.
+        private static GlyphRun? GlyphsOf(PaintBox box)
+        {
+            var run = box.Fragment.Text!;
+            if (run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
+                return null;
+            var count = run.GlyphEnd - run.GlyphStart;
+            var glyphs = new ushort[count];
+            var origins = new Vector2[count];
+            var baseline = box.Snap(box.Y + run.Ascent);
+            var x = run.RightToLeft ? box.X + box.Fragment.Width : box.X;
+            for (var i = 0; i < count; i++)
+            {
+                var g = run.GlyphStart + i;
+                var advance = run.Run.Advances[g];
+                if (run.RightToLeft)
+                    x -= advance;
+                glyphs[i] = run.Run.Glyphs[g];
+                origins[i] = new Vector2(x, baseline) + (run.Run.Offsets?[g] ?? Vector2.Zero);
+                if (!run.RightToLeft)
+                    x += advance;
+            }
+            return new GlyphRun(face, run.Run.Size, glyphs, origins);
+        }
+
+        // The visible text fragments in a box and its in-flow descendants, placed on the canvas.
+        private static IEnumerable<PaintBox> TextIn(PaintBox box)
+        {
+            var stack = new Stack<PaintBox>([box]);
+            while (stack.TryPop(out var current))
+            {
+                foreach (var child in current.Fragment.Children)
+                {
+                    var placed = new PaintBox(child.Fragment, current.X + child.X, current.Y + child.Y, null, Scale: current.Scale);
+                    if (child.Fragment.Kind == FragmentKind.Text)
+                    {
+                        if (child.Fragment.Text!.Style.Inherited.Visibility == Visibility.Visible)
+                            yield return placed;
+                    }
+                    else if (child.Fragment.Box is not { IsFloat: true } and not { IsAbsolutelyPositioned: true })
+                        stack.Push(placed);
+                }
+            }
+        }
+
         private void PaintText(PaintBox box)
         {
             if (box.Box is MarkerBox { Symbol: { } symbol })
@@ -567,24 +633,10 @@ internal static class DisplayListBuilder
             }
             var run = box.Fragment.Text!;
             var style = run.Style;
-            if (style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
+            if (style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || GlyphsOf(box) is not { } glyphRun)
                 return;
-            var count = run.GlyphEnd - run.GlyphStart;
-            var glyphs = new ushort[count];
-            var origins = new Vector2[count];
-            var baseline = box.Snap(box.Y + run.Ascent); // baselines snap vertically only
-            var x = run.RightToLeft ? box.X + box.Fragment.Width : box.X;
-            for (var i = 0; i < count; i++)
-            {
-                var g = run.GlyphStart + i;
-                var advance = run.Run.Advances[g];
-                if (run.RightToLeft)
-                    x -= advance;
-                glyphs[i] = run.Run.Glyphs[g];
-                origins[i] = new Vector2(x, baseline) + (run.Run.Offsets?[g] ?? Vector2.Zero);
-                if (!run.RightToLeft)
-                    x += advance;
-            }
+            var (glyphs, origins) = (glyphRun.Glyphs, glyphRun.Origins);
+            var baseline = box.Snap(box.Y + run.Ascent);
             SetClip(box.Clip);
             // Text shadows go under the text and its decorations, the last written lowest (css-text-decor-3 §4).
             if (style.Text.TextShadows is { } shadows)
@@ -600,7 +652,6 @@ internal static class DisplayListBuilder
                     list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: shadowColor, Glyphs: new GlyphRun(face, run.Run.Size, glyphs, moved), Blur: shadow.Blur / 2));
                 }
             }
-            var glyphRun = new GlyphRun(face, run.Run.Size, glyphs, origins);
             var decorations = style.Inherited.Decorations is null ? null
                 : DecorationLines(box, run, face, baseline, style.Text.SkipInk == SkipInk.None ? null : glyphRun);
             if (decorations is not null)

@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<title>background-clip: text paints the background only inside the glyphs, descendants' included</title>
+<link rel="help" href="https://drafts.csswg.org/css-backgrounds-4/#valdef-background-clip-text">
+<style>
+  body { margin: 0; }
+  p { margin: 0; padding: 4px 0; font-size: 32px; background: blue; background-clip: text; color: transparent; }
+</style>
+<p>ab <span>cd</span></p>
