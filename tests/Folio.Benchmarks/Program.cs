@@ -40,6 +40,13 @@ public static class Program
                 warnings.Add($"{m.Name} is over a typical-artifact target: {Ms(m.Total)} ms, {Mb(m.Retained)} MB retained");
         }
 
+        var frames = FrameBenchmark.Measure(iterations * 10);
+        table.AppendLine()
+            .AppendLine($"Paint-only animation frames ({iterations * 10} frames, restyle + display list + raster at 800x600; target {FrameBenchmark.Target.TotalMilliseconds} ms): " +
+                        $"median {Ms(frames.Median)} ms, p95 {Ms(frames.P95)} ms{(frames.PaintOnly ? "" : ", some frames laid out again")}.");
+        if (frames.Median > FrameBenchmark.Target || !frames.PaintOnly)
+            warnings.Add($"Paint-only animation frames are over the target or not paint-only: median {Ms(frames.Median)} ms");
+
         Console.WriteLine(table);
         foreach (var warning in warnings)
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.

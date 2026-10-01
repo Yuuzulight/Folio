@@ -10,7 +10,7 @@ namespace Folio.Layout;
 /// </summary>
 internal abstract class Box(ComputedStyle style, Node? node, PseudoElement pseudoElement = PseudoElement.None)
 {
-    public ComputedStyle Style { get; } = style;
+    public ComputedStyle Style { get; set; } = style;
 
     /// <summary>The generating element (or, for a pseudo-element, its originating element); null when anonymous.</summary>
     public Node? Node { get; } = node;

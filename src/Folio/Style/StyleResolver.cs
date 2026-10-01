@@ -6,7 +6,7 @@ namespace Folio.Style;
 /// <summary>An element's computed style and those of its ::before, ::after and ::marker pseudo-elements.</summary>
 internal sealed class ElementStyles(ComputedStyle style)
 {
-    public ComputedStyle Style { get; } = style;
+    public ComputedStyle Style { get; set; } = style;
     public ComputedStyle? Before { get; set; }
     public ComputedStyle? After { get; set; }
     public ComputedStyle? Marker { get; set; }
@@ -100,6 +100,7 @@ internal static class StyleResolver
         var keyframes = new Dictionary<string, List<Keyframe>>(StringComparer.Ordinal);
         foreach (var (name, blocks) in origins.SelectMany(o => o.Keyframes))
             keyframes[name] = blocks;
+        var animations = new List<AnimatedElement>();
         var filter = new AncestorFilter();
         var context = new MatchContext { Filter = filter };
         var rootFontSize = Style.ComputedStyle.Initial.Font.Size;
@@ -141,12 +142,16 @@ internal static class StyleResolver
                 // the values are interpolated between them.
                 if (!ReferenceEquals(style.Animation, AnimationGroup.Initial) && keyframes.Count > 0)
                 {
-                    var parent = item.Parent;
-                    style = Animations.Sample(style, parent, keyframes, animationTime, declarations =>
+                    var (parent, rules, elementInline, elementHints) = (item.Parent, matched.ToList(), inline, hints);
+                    var animated = new AnimatedElement(element, style, parent, keyframes, declarations =>
                     {
-                        var (keyed, keyedCustom) = Cascade.Compute(matched, inline, int.MaxValue, hints, declarations);
+                        var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations);
                         return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
-                    }, groups) ?? style;
+                    });
+                    animations.Add(animated);
+                    style = animated.Sample(animationTime, groups);
+                    // Each animated element keeps its own style, so a frame can change it alone.
+                    sharable = false;
                 }
                 if (sharable)
                     shared.Add(item.Parent, rootFontSize, matched, style);
@@ -184,7 +189,7 @@ internal static class StyleResolver
                     stack.Push((e, null, style));
             }
         }
-        document.StyleState = new Restyler(origins, media, measure, registered, sources.BaseUrl, rootFontSize, groups);
+        document.StyleState = new Restyler(origins, media, measure, registered, sources.BaseUrl, rootFontSize, groups) { Animations = animations };
         return [.. origins.Skip(1).SelectMany(o => o.FontFaces)];
 
         ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
@@ -206,9 +211,14 @@ internal static class StyleResolver
     public static ComputedStyle? Restyle(ElementNode element, ComputedStyle parent) =>
         (element.OwnerDocument.StyleState as Restyler)?.Style(element, parent);
 
+    /// <summary>The elements with animations in the document's last style resolution, in tree order.</summary>
+    public static IReadOnlyList<AnimatedElement> Animated(DocumentNode document) => (document.StyleState as Restyler)?.Animations ?? [];
+
     private sealed class Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure,
                                   Dictionary<string, RegisteredProperty> registered, string? baseUrl, float rootFontSize, Dictionary<object, object> groups)
     {
+        public List<AnimatedElement> Animations { get; init; } = [];
+
         private readonly MatchContext _context = new();
         private readonly List<RuleIndex<CascadeRule>.Entry> _matched = [];
 
