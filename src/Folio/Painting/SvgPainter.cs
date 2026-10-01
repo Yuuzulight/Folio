@@ -73,6 +73,18 @@ internal static class SvgPainter
                 foreach (var child in container.Children)
                     Emit(child, items);
                 break;
+            case SvgForeignNode foreign:
+            {
+                // Painted as its own small page of the content's size, clipped to the rectangle.
+                if (foreign.Opacity < 1)
+                    Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: foreign.Opacity));
+                var rect = foreign.Rect;
+                Push(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(rect.X, rect.Y)));
+                Push(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(0, 0, rect.Width, rect.Height), default)));
+                var page = new Layout.Fragment(null, rect.Width, rect.Height, [new Layout.ChildFragment(0, 0, foreign.Content)]);
+                items.AddRange(DisplayListBuilder.Build(page, deviceScale: 0).Items);
+                break;
+            }
             case SvgTextNode text:
                 // One run takes the opacity into its colour; several are grouped, as they may overlap.
                 var textFade = text.Opacity;

@@ -35,6 +35,30 @@ internal sealed class BoxTreeBuilder
         return top.Segments.OfType<Box>().FirstOrDefault();
     }
 
+    /// <summary>
+    /// The box tree of an element's children, as the content of one block container that inherits the element's style:
+    /// what an SVG foreignObject holds. Null when the element has no style.
+    /// </summary>
+    // ponytail: images inside are not loaded (layout has no image loader).
+    public static BlockContainerBox? BuildContents(ElementNode element)
+    {
+        if (element.ComputedStyle() is not { } style)
+            return null;
+        var builder = new BoxTreeBuilder();
+        var box = new BlockContainerBox(AnonymousStyle(style, Display.Block), element);
+        var frame = new Frame(FrameKind.Block, box, box.Style);
+        builder.Push(frame);
+        for (var child = element.FirstChild; child is not null; child = child.NextSibling)
+        {
+            if (child is ElementNode childElement)
+                builder.Walk(childElement);
+            else if (child is Text text)
+                builder.AddText(text.Data, style);
+        }
+        builder.Finish(builder.Pop());
+        return box;
+    }
+
     // ---------------------------------------------------------------- frames
 
     private enum FrameKind
