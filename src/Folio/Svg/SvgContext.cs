@@ -9,8 +9,6 @@ namespace Folio.Svg;
 /// </summary>
 internal sealed partial class SvgContext(Layout.LayoutContext layout, DocumentNode document)
 {
-    private Dictionary<string, ElementNode>? _ids;
-
     public Layout.LayoutContext Layout { get; } = layout;
 
     /// <summary>The clip paths being built, outermost first: one met again is a reference cycle.</summary>
@@ -87,15 +85,17 @@ internal sealed partial class SvgContext(Layout.LayoutContext layout, DocumentNo
         reference = reference.Trim();
         if (reference.Length < 2 || reference[0] != '#')
             return null;
-        if (_ids is null)
+        // The index is built once per document and layout, however many render trees and clipped boxes look into it.
+        if (!Layout.Ids.TryGetValue(document, out var ids))
         {
-            _ids = new Dictionary<string, ElementNode>(StringComparer.Ordinal);
+            ids = new Dictionary<string, ElementNode>(StringComparer.Ordinal);
             for (Node? node = document; node is not null; node = node.NextInTree(document))
             {
                 if (node is ElementNode element && element.GetAttribute("id") is { Length: > 0 } id)
-                    _ids.TryAdd(id, element);
+                    ids.TryAdd(id, element);
             }
+            Layout.Ids[document] = ids;
         }
-        return _ids.GetValueOrDefault(reference[1..]);
+        return ids.GetValueOrDefault(reference[1..]);
     }
 }

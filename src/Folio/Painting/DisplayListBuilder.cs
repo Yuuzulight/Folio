@@ -366,6 +366,7 @@ internal static class DisplayListBuilder
                 return;
             // A url() reference to an SVG clipPath clips with its path when it is one plain shape; any other region is a
             // mask drawn over the box in a layer of its own. A reference to anything else clips nothing.
+            // ponytail: a backdrop filter under such a mask sees only that layer, not what is behind the box.
             var svgClip = owner?.Fragment.SvgClip;
             var clipOrigin = owner is null ? default : new Vector2(BorderBox(owner).Rect.X, BorderBox(owner).Rect.Y);
             var clipPath = owner is null || owner.Box.Style.Effects.ClipPath.IsNone ? (DisplayItem?)null
