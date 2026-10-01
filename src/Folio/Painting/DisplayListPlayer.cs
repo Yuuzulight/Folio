@@ -9,9 +9,11 @@ internal static class DisplayListPlayer
 {
     public static void Replay(DisplayList list, ICanvas canvas)
     {
-        var open = new Stack<DisplayItemKind>();
-        foreach (var item in list.Items)
+        var open = new Stack<(DisplayItemKind Kind, bool Bounded)>();
+        var bounds = LayerBounds(list);
+        for (var index = 0; index < list.Items.Count; index++)
         {
+            var item = list.Items[index];
             switch (item.Kind)
             {
                 case DisplayItemKind.Fill:
@@ -50,11 +52,17 @@ internal static class DisplayListPlayer
                         canvas.ClipPath(path, item.Rule);
                     else
                         canvas.ClipRoundedRect(item.Shape);
-                    open.Push(item.Kind);
+                    open.Push((item.Kind, false));
                     break;
                 case DisplayItemKind.PushLayer:
+                    // A clip around everything the layer draws, so the canvas makes it no larger than that.
+                    if (bounds[index] is { } layer)
+                    {
+                        canvas.Save();
+                        canvas.ClipRoundedRect(new RoundedRect(layer, default));
+                    }
                     canvas.PushLayer(new LayerOptions(item.Opacity, item.Filters, item.Backdrop, item.Shape, item.Blend));
-                    open.Push(item.Kind);
+                    open.Push((item.Kind, bounds[index] is not null));
                     break;
                 case DisplayItemKind.PushTransform:
                     canvas.Save();
@@ -62,13 +70,19 @@ internal static class DisplayListPlayer
                         canvas.Transform(projection);
                     else
                         canvas.Transform(item.Transform);
-                    open.Push(item.Kind);
+                    open.Push((item.Kind, false));
                     break;
-                case DisplayItemKind.Pop when open.TryPop(out var kind):
-                    if (kind == DisplayItemKind.PushLayer)
+                case DisplayItemKind.Pop when open.TryPop(out var top):
+                    if (top.Kind == DisplayItemKind.PushLayer)
+                    {
                         canvas.PopLayer();
+                        if (top.Bounded)
+                            canvas.Restore();
+                    }
                     else
+                    {
                         canvas.Restore();
+                    }
                     break;
             }
         }
@@ -169,6 +183,132 @@ internal static class DisplayListPlayer
             canvas.FillRoundedRect(item.Shape, paint);
         }
         canvas.Restore();
+    }
+
+    /// <summary>
+    /// For each layer, a rectangle in its own coordinates holding everything it draws: its items (through nested
+    /// transforms), grown by its filters' reach and holding its backdrop clip. Null where that is not known (a
+    /// projective transform, a filter that can paint transparent pixels, an unbalanced list) or where the layer also
+    /// changes what lies around it (a Porter-Duff blend, as masks use).
+    /// </summary>
+    // ponytail: glyph ink is estimated from the origins and the size (an em before, two after); clips inside a layer
+    // are not used to shrink it.
+    internal static RectF?[] LayerBounds(DisplayList list)
+    {
+        var result = new RectF?[list.Items.Count];
+        // Open groups: the index of their push and the bounds of what they hold so far (null: nothing yet).
+        var open = new Stack<(int Index, RectF? Bounds, bool Unknown)>();
+        var (top, unknownTop) = ((RectF?)null, false);
+        void Add(RectF? rect, bool unknown)
+        {
+            if (unknown)
+                unknownTop = true;
+            else if (rect is { } r)
+                top = top is { } t ? Union(t, r) : r;
+        }
+        for (var i = 0; i < list.Items.Count; i++)
+        {
+            var item = list.Items[i];
+            switch (item.Kind)
+            {
+                case DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform:
+                    open.Push((i, top, unknownTop));
+                    (top, unknownTop) = (null, false);
+                    break;
+                case DisplayItemKind.Pop when open.TryPop(out var outer):
+                    var push = list.Items[outer.Index];
+                    var (inner, unknown) = (top, unknownTop);
+                    if (push.Kind == DisplayItemKind.PushLayer)
+                    {
+                        if (push.Backdrop is not null)
+                            inner = inner is { } b ? Union(b, push.Shape.Rect) : push.Shape.Rect;
+                        (inner, unknown) = Reach(inner, unknown, push.Filters);
+                        // A Porter-Duff layer (a mask) also changes what lies outside what it draws, so it is not bounded.
+                        result[outer.Index] = unknown || push.Blend > BlendMode.PlusLighter ? null : inner ?? default;
+                    }
+                    else if (push.Kind == DisplayItemKind.PushTransform)
+                    {
+                        unknown |= push.Projection is not null;
+                        inner = inner is { } r ? Map(r, push.Transform) : null;
+                    }
+                    (top, unknownTop) = (outer.Bounds, outer.Unknown);
+                    Add(inner, unknown);
+                    break;
+                case DisplayItemKind.Pop:
+                    break;
+                default:
+                    Add(ItemBounds(item), false);
+                    break;
+            }
+        }
+        // Layers never popped stay unbounded (null).
+        foreach (var (index, _, _) in open)
+            result[index] = null;
+        return result;
+    }
+
+    private static (RectF?, bool Unknown) Reach(RectF? bounds, bool unknown, IReadOnlyList<Filter>? filters)
+    {
+        // A graph of SVG filter primitives (floods, offsets, inputs from other results) reaches as far as its last
+        // primitive's subregion, which crops what it draws; without one its reach is not known.
+        if (filters is { Count: > 0 } list && list.Any(f => f.Kind > FilterKind.DropShadow || f.In.Source != FilterSource.Previous || f.Subregion is not null))
+            return list[^1].Subregion is { } region ? (region, false) : (null, true);
+        foreach (var filter in filters ?? [])
+        {
+            if (filter.Kind == FilterKind.ColorMatrix && filter.Matrix is { Count: 20 } m && m[19] > 0)
+                return (null, true); // it can make transparent pixels visible
+            if (bounds is not { } r)
+                continue;
+            var blur = 3 * Math.Max(filter.StdDeviation, filter.Deviations is { } d ? Math.Max(d.X, d.Y) : 0);
+            var grown = new RectF(r.X - blur, r.Y - blur, r.Width + 2 * blur, r.Height + 2 * blur);
+            bounds = filter.Kind == FilterKind.DropShadow
+                ? Union(r, grown with { X = grown.X + filter.Offset.X, Y = grown.Y + filter.Offset.Y })
+                : filter.Kind == FilterKind.Blur ? grown : r;
+        }
+        return (bounds, unknown);
+    }
+
+    private static RectF ItemBounds(in DisplayItem item)
+    {
+        var r = item.Kind switch
+        {
+            DisplayItemKind.BoxShadow when item.Inset => item.Box.Rect,
+            DisplayItemKind.BoxShadow => Grow(item.Shape.Rect, 3 * item.Blur),
+            DisplayItemKind.Glyphs when item.Glyphs is { Origins.Length: > 0 } run => Grow(new RectF(
+                run.Origins.Min(o => o.X) - run.Size, run.Origins.Min(o => o.Y) - 1.5f * run.Size,
+                run.Origins.Max(o => o.X) - run.Origins.Min(o => o.X) + 3 * run.Size, run.Origins.Max(o => o.Y) - run.Origins.Min(o => o.Y) + 2 * run.Size), 3 * item.Blur),
+            DisplayItemKind.Decoration => item.Shape.Rect with { Height = 3 * item.Shape.Rect.Height },
+            DisplayItemKind.FillPath or DisplayItemKind.StrokePath when item.Path is { Commands.Count: > 0 } path => PathBounds(path),
+            _ => item.Shape.Rect,
+        };
+        if (item.Kind == DisplayItemKind.StrokePath && item.Stroke is { } stroke)
+            r = Grow(r, stroke.Width / 2 * Math.Max(stroke.MiterLimit, 1.5f));
+        return Grow(r, 1); // antialiased edges
+    }
+
+    private static RectF PathBounds(PathData path)
+    {
+        var points = path.Commands.SelectMany(c => c.Verb == PathVerb.CubicTo ? new[] { c.P1, c.P2, c.P3 } : c.Verb == PathVerb.Close ? [] : new[] { c.P1 }).ToList();
+        if (points.Count == 0)
+            return default;
+        var (minX, minY, maxX, maxY) = (points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X), points.Max(p => p.Y));
+        return new RectF(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    private static RectF Grow(RectF r, float by) => new(r.X - by, r.Y - by, r.Width + 2 * by, r.Height + 2 * by);
+
+    private static RectF Union(RectF a, RectF b)
+    {
+        var (x, y) = (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y));
+        return new RectF(x, y, Math.Max(a.Right, b.Right) - x, Math.Max(a.Bottom, b.Bottom) - y);
+    }
+
+    // The bounding box of a rectangle mapped by an affine transform.
+    private static RectF Map(RectF r, Matrix3x2 m)
+    {
+        Vector2[] corners = [Vector2.Transform(new(r.X, r.Y), m), Vector2.Transform(new(r.Right, r.Y), m), Vector2.Transform(new(r.X, r.Bottom), m), Vector2.Transform(new(r.Right, r.Bottom), m)];
+        var (minX, minY, maxX, maxY) = (corners.Min(c => c.X), corners.Min(c => c.Y), corners.Max(c => c.X), corners.Max(c => c.Y));
+        return new RectF(minX, minY, maxX - minX, maxY - minY);
     }
 
     internal static Rgba ToRgba(CssColor color) => new(color.R, color.G, color.B, color.A);

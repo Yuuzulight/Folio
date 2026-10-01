@@ -35,10 +35,17 @@
 
 === color scheme and reduced motion
 %dark
+%reduced-motion
 <!DOCTYPE html><style>@media (prefers-color-scheme: dark) { #a { color: red } } @media (prefers-reduced-motion: reduce) { #b { color: red } }</style><p id=a>x<p id=b>y
 ---
 #a color: rgb(255, 0, 0)
 #b color: rgb(255, 0, 0)
+
+=== no preference for reduced motion unless the host asks
+<!DOCTYPE html><style>@media (prefers-reduced-motion: no-preference) { #a { color: red } } @media (prefers-reduced-motion) { #b { color: red } }</style><p id=a>x<p id=b>y
+---
+#a color: rgb(255, 0, 0)
+#b color: rgb(0, 0, 0)
 
 === unknown media features match nothing
 <!DOCTYPE html><style>@media (bogus-feature) { #a { color: red } } @media not (bogus-feature) { #b { color: red } }</style><p id=a>x<p id=b>y

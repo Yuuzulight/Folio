@@ -64,7 +64,7 @@ internal static class MaskProperties
         _ => null,
     };
 
-    private static readonly Dictionary<string, GeometryBox> BoxKeywords = new()
+    private static readonly KeywordMap<GeometryBox> BoxKeywords = new()
     {
         ["border-box"] = GeometryBox.BorderBox, ["padding-box"] = GeometryBox.PaddingBox, ["content-box"] = GeometryBox.ContentBox,
         ["margin-box"] = GeometryBox.MarginBox, ["fill-box"] = GeometryBox.FillBox, ["stroke-box"] = GeometryBox.StrokeBox,
