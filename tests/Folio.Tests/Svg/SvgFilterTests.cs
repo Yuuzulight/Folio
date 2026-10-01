@@ -1,4 +1,10 @@
+using Folio.Css;
+using Folio.Html;
+using Folio.Imaging;
+using Folio.Layout;
 using Folio.Painting;
+using Folio.Resources;
+using Folio.Style;
 using Folio.Tests.Layout;
 
 namespace Folio.Tests.Svg;
@@ -33,5 +39,34 @@ public class SvgFilterTests
         var filters = list.Items.Where(i => i.Kind == DisplayItemKind.PushLayer && i.Filters is not null).Select(i => i.Filters!).ToList();
         Assert.Equal(20, filters.Count);
         Assert.Single(filters.Distinct(ReferenceEqualityComparer.Instance));
+    }
+
+    [Fact]
+    public void AnSvgImageLoadsTheImagesOfItsFeImagesFromDataUrlsOnly()
+    {
+        const string png = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC";
+        var folder = Directory.CreateTempSubdirectory("folio-feimage").FullName;
+        try
+        {
+            string Url(string name) => new Uri(Path.Combine(folder, name)).AbsoluteUri;
+            static string Svg(string href) => "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"10\"><filter id=\"f\">"
+                + $"<feImage href=\"{href}\" /></filter><rect width=\"20\" height=\"10\" filter=\"url(#f)\" /></svg>";
+            File.WriteAllBytes(Path.Combine(folder, "outside.png"), Convert.FromBase64String(png));
+            File.WriteAllText(Path.Combine(folder, "outside.svg"), Svg(Url("outside.png")));
+            File.WriteAllText(Path.Combine(folder, "inside.svg"), Svg("data:image/png;base64," + png));
+            // The loader may read the folder: the page's own feImage loads from it, an SVG image's does not.
+            var document = TreeBuilder.Parse("<!DOCTYPE html>" + Svg(Url("outside.png")) + $"<img src=\"{Url("outside.svg")}\"><img src=\"{Url("inside.svg")}\">");
+            StyleResolver.Resolve(document, new MediaContext(800, 600));
+            var images = new ImageLoader(new ResourceLoader([folder]), null);
+            var page = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 800, 600, BlockLayoutTests.BoxFont.Value, images: images);
+
+            var kinds = DisplayListBuilder.Build(page, images).Items.Where(i => i.Filters is { Count: 1 }).Select(i => i.Filters![0].Kind).ToList();
+
+            Assert.Equal(new[] { FilterKind.Image, FilterKind.Flood, FilterKind.Image }, kinds);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 }
