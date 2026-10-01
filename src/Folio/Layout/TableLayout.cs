@@ -32,6 +32,12 @@ internal static class TableLayout
         public int Columns;
     }
 
+    // A table's grid, collapsed borders and column ranges, worked out for its intrinsic widths and handed to the layout
+    // that follows in the same pass, so a large table forms its grid and resolves its borders once (#196).
+    private sealed record Prepared(Grid Grid, Dictionary<Cell, BorderGroup>? Collapsed, (float[] Min, float[] Max) Ranges);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LayoutContext, Dictionary<TablePartBox, Prepared>> Kept = [];
+
     /// <summary>Lays out a table wrapper's captions and table grid box in its content box.</summary>
     public static (List<ChildFragment> Children, float Height) LayoutWrapper(TableWrapperBox wrapper, float width, LayoutContext context)
     {
@@ -68,6 +74,7 @@ internal static class TableLayout
         var grid = Build(table);
         var collapsed = table.Style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
         var (min, max) = ColumnRanges(grid, table.Style, context, collapsed);
+        Kept.GetOrCreateValue(context)[table] = new Prepared(grid, collapsed, (min, max));
         var (frame, spacing) = Frame(table, 0);
         if (collapsed is not null)
             frame = CollapsedFrame(grid, collapsed);
@@ -99,18 +106,31 @@ internal static class TableLayout
     private static Fragment LayoutTable(TablePartBox table, float width, LayoutContext context)
     {
         var style = table.Style;
-        var grid = Build(table);
+        var kept = Kept.TryGetValue(context, out var tables) && tables.Remove(table, out var prepared) ? prepared : null;
+        var grid = kept?.Grid ?? Build(table);
         var (frame, spacing) = Frame(table, width);
-        var collapsed = style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
+        var collapsed = kept is not null ? kept.Collapsed
+            : style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
         if (collapsed is not null)
             frame = CollapsedFrame(grid, collapsed);
-        var halves = collapsed?.ToDictionary(c => c.Key, c => c.Value with
+        // Cells that share a resolved border share its half too.
+        var halves = new Dictionary<BorderGroup, BorderGroup>(ReferenceEqualityComparer.Instance);
+        BorderGroup? Half(Cell cell)
         {
-            TopWidthPx = c.Value.TopWidth / 2, RightWidthPx = c.Value.RightWidth / 2, BottomWidthPx = c.Value.BottomWidth / 2, LeftWidthPx = c.Value.LeftWidth / 2,
-        });
-        BorderGroup? Half(Cell cell) => halves?[cell];
+            if (collapsed is null)
+                return null;
+            var border = collapsed[cell];
+            if (!halves.TryGetValue(border, out var half))
+            {
+                halves[border] = half = border with
+                {
+                    TopWidthPx = border.TopWidth / 2, RightWidthPx = border.RightWidth / 2, BottomWidthPx = border.BottomWidth / 2, LeftWidthPx = border.LeftWidth / 2,
+                };
+            }
+            return half;
+        }
         var n = grid.Columns;
-        var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed);
+        var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed, kept?.Ranges);
         var tableWidth = Math.Max(width, columns.Sum() + frame.Horizontal + spacing.X * (n + 1));
         // Running sums, so a span's extent is one subtraction however many rows or columns the table has.
         var columnX = new float[n + 1];
@@ -362,16 +382,19 @@ internal static class TableLayout
             return side;
         }
 
+        // Most cells of a large table resolve to the same few borders: they share one instance of each.
         var result = new Dictionary<Cell, BorderGroup>();
+        var shared = new Dictionary<BorderGroup, BorderGroup>();
         foreach (var cell in grid.Cells)
         {
             var (t, r, b, l) = (Resolve(cell, Edge.Top), Resolve(cell, Edge.Right), Resolve(cell, Edge.Bottom), Resolve(cell, Edge.Left));
-            result[cell] = cell.Box.Style.Border with
+            var border = cell.Box.Style.Border with
             {
                 TopWidthPx = t.Width, RightWidthPx = r.Width, BottomWidthPx = b.Width, LeftWidthPx = l.Width,
                 TopStyle = t.Style, RightStyle = r.Style, BottomStyle = b.Style, LeftStyle = l.Style,
                 TopColor = t.Color, RightColor = r.Color, BottomColor = b.Color, LeftColor = l.Color,
             };
+            result[cell] = shared.TryAdd(border, border) ? border : shared[border];
         }
         return result;
     }
@@ -530,14 +553,15 @@ internal static class TableLayout
     /// the columns with no specified width, in proportion to their maximums; only without such columns does it go to
     /// columns with a length width, and then to percentage columns.
     /// </summary>
-    private static float[] ColumnWidths(Grid grid, ComputedStyle style, float target, LayoutContext context, Dictionary<Cell, BorderGroup>? collapsed)
+    private static float[] ColumnWidths(Grid grid, ComputedStyle style, float target, LayoutContext context, Dictionary<Cell, BorderGroup>? collapsed,
+                                        (float[] Min, float[] Max)? ranges)
     {
         var n = grid.Columns;
         if (n == 0)
             return [];
         if (style.Box.TableLayout == TableLayoutMode.Fixed && style.Size.Width.Kind == SizeKind.Length)
             return FixedWidths(grid, target);
-        var (min, max) = ColumnRanges(grid, style, context, collapsed);
+        var (min, max) = ranges ?? ColumnRanges(grid, style, context, collapsed);
         if (target <= min.Sum())
             return min;
 

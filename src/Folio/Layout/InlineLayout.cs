@@ -29,12 +29,13 @@ internal static class InlineLayout
         BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context,
         float roomAbove = 0)
     {
-        var levels = BidiLevels(block, ifc);
-        var units = Measured.TryGetValue(context, out var measured) && measured.Remove(ifc, out var kept) ? kept : Units(block, ifc, width, context, levels);
+        var (units, levels) = Measured.TryGetValue(context, out var measured) && measured.Remove(ifc, out var kept) ? kept : default;
+        levels ??= BidiLevels(block, ifc);
+        units ??= Units(block, ifc, width, context, levels);
         var strut = Metrics(block.Style, context);
         var lines = new List<ChildFragment>();
         var hasLineBoxes = false;
-        var placedFloats = new HashSet<Box>();
+        HashSet<Box>? placedFloats = null;
         var openBoxes = new List<(InlineBox Box, ComputedStyle Style)>();
         var y = top;
         var indent = block.Node is Dom.ElementNode ? block.Style.Text.TextIndent : default; // not in anonymous blocks
@@ -68,7 +69,7 @@ internal static class InlineLayout
                 var unit = units[u];
                 foreach (var piece in unit.Pieces)
                 {
-                    if (piece.Kind == PieceKind.Float && placedFloats.Add(piece.Box!))
+                    if (piece.Kind == PieceKind.Float && (placedFloats ??= []).Add(piece.Box!))
                     {
                         environment.PlaceFloat(piece.Box!, y);
                         (left, right) = Band();
@@ -167,7 +168,7 @@ internal static class InlineLayout
     // Units measured for intrinsic sizes, kept for the layout that usually follows (a table cell, a shrink-to-fit box)
     // when they cannot depend on the width: text only, no inline boxes or atomic inlines. Layout takes them rather
     // than sharing them, since it may split units; a second layout breaks the text again.
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LayoutContext, Dictionary<InlineFormattingContext, List<Unit>>> Measured = [];
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LayoutContext, Dictionary<InlineFormattingContext, (List<Unit> Units, Levels Levels)>> Measured = [];
 
     // Break the content into units; atomic inlines are laid out only for layout, not for measuring.
     private static List<Unit> Units(BlockContainerBox block, InlineFormattingContext ifc, float width, LayoutContext context, Levels levels,
@@ -491,15 +492,16 @@ internal static class InlineLayout
     {
         float min = 0, max = 0, line = 0;
         var first = true;
-        var units = Units(block, ifc, 0, context, BidiLevels(block, ifc), layOutAtomics: false);
+        var levels = BidiLevels(block, ifc);
+        var units = Units(block, ifc, 0, context, levels, layOutAtomics: false);
         if (ifc.Items.All(i => i.Kind == InlineItemKind.Text))
-            Measured.GetOrCreateValue(context)[ifc] = units;
+            Measured.GetOrCreateValue(context)[ifc] = (units, levels);
         foreach (var unit in units)
         {
             var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace + unit.HyphenWidth, unit.Width);
             // overflow-wrap: anywhere (and word-break: break-word) may break between any two characters for min-content;
             // break-word only when laying out.
-            if (unit.Pieces.Any(p => p.Kind == PieceKind.Text && WrapsAnywhere(p.Style, forMinContent: true)))
+            if (unit.Pieces.Exists(p => p.Kind == PieceKind.Text && WrapsAnywhere(p.Style, forMinContent: true)))
                 unitMin = unit.Pieces.Where(p => p.Kind == PieceKind.Text).SelectMany(p => p.Run!.Advances[p.GlyphStart..p.GlyphEnd]).DefaultIfEmpty().Max();
             if (first && block.Node is Dom.ElementNode && !block.Style.Text.TextIndent.Hanging)
             {
@@ -841,31 +843,43 @@ internal static class InlineLayout
         var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
         var spacing = style.TextSpacing;
         var key = (face, style.Font.Size, Features(style.Font), spacing.LetterSpacing, spacing.WordSpacing, spacing.TabSize);
-        if (!cache.Runs.TryGetValue(key, out var byText))
-            cache.Runs[key] = byText = new(StringComparer.Ordinal);
-        if (!byText.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out var kept))
+        ShapedRun? kept;
+        // One font collection may be shared by layouts on several threads (the test suites share one).
+        lock (cache)
         {
-            if (cache.Count >= 20_000)
+            if (!cache.Runs.TryGetValue(key, out var byText))
+                cache.Runs[key] = byText = new(StringComparer.Ordinal);
+            if (!byText.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out kept))
             {
-                (cache.Count, byText) = (0, new(StringComparer.Ordinal));
-                cache.Runs.Clear();
-                cache.Runs[key] = byText;
+                if (cache.Count >= 20_000)
+                {
+                    (cache.Count, byText) = (0, new(StringComparer.Ordinal));
+                    cache.Runs.Clear();
+                    cache.Runs[key] = byText;
+                }
+                var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
+                kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
+                byText[text.Substring(start, length)] = kept;
+                cache.Count++;
             }
-            var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
-            kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
-            byText[text.Substring(start, length)] = kept;
-            cache.Count++;
         }
-        return new ShapedRun(face, kept.Size, [.. kept.Glyphs], [.. kept.Clusters.Select(c => c + start)], [.. kept.Advances])
+        var clusters = new int[kept.Clusters.Length];
+        for (var c = 0; c < clusters.Length; c++)
+            clusters[c] = kept.Clusters[c] + start;
+        return new ShapedRun(face, kept.Size, [.. kept.Glyphs], clusters, [.. kept.Advances])
         {
             Offsets = kept.Offsets is { } offsets ? [.. offsets] : null,
         };
     }
 
-    private static string Features(FontGroup font)
+    private static string Features(FontGroup font) =>
+        font.VariantNumeric == "normal" && font.FeatureSettings == "normal" ? "" : FeatureTags.GetValue(font, MakeFeatures);
+
+    // The tags of each font group with features, worked out once (every table cell with tabular-nums asks).
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FontGroup, string> FeatureTags = [];
+
+    private static string MakeFeatures(FontGroup font)
     {
-        if (font.VariantNumeric == "normal" && font.FeatureSettings == "normal")
-            return "";
         var tags = new List<string>();
         foreach (var keyword in font.VariantNumeric.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -984,9 +998,11 @@ internal static class InlineLayout
 
     private static FontFace? PrimaryFace(ComputedStyle style, LayoutContext context)
     {
-        foreach (var family in style.Font.Family)
+        // By index: an enumerator over the list interface is an allocation, and this runs for every run and line.
+        var families = style.Font.Family;
+        for (var i = 0; i < families.Count; i++)
         {
-            if (context.Fonts.Match(family, FaceStyleOf(style.Font.Style), style.Font.Weight, style.Font.Stretch) is { } face)
+            if (context.Fonts.Match(families[i], FaceStyleOf(style.Font.Style), style.Font.Weight, style.Font.Stretch) is { } face)
                 return face;
         }
         return null;
