@@ -55,3 +55,11 @@ fill 25,7 5x5 radius 2.5 rgb(0, 0, 255)
 glyphs 2,15 16px rgb(0, 0, 255) blur 2
 glyphs 1,14 16px rgb(255, 0, 0)
 glyphs 0,13 16px rgb(0, 0, 0)
+
+=== an inside disclosure marker is a triangle two thirds of the ascent high on the baseline, 7px before the text
+<!DOCTYPE html><style>body { margin: 0 } summary { color: red }</style><details><summary>a</summary></details><details open dir="rtl"><summary>b</summary></details>
+---
+fill path M0,5 L6.88,9 L0,13 Z rgb(255, 0, 0)
+glyphs 15,13 16px rgb(255, 0, 0)
+fill path M792,21.56 L796,28.44 L800,21.56 Z rgb(255, 0, 0)
+glyphs 769,29 16px rgb(255, 0, 0)

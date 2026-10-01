@@ -271,8 +271,9 @@ internal static class InlineLayout
                             Close();
                         break;
                     }
-                    var fragment = BlockLayout.Layout(box, new ConstraintSpace(width, null), context);
-                    var spacing = box.Style.Spacing;
+                    var symbol = box is MarkerBox { Symbol: not null } marker ? SymbolFragment(marker, context) : null;
+                    var fragment = symbol ?? BlockLayout.Layout(box, new ConstraintSpace(width, null), context);
+                    var spacing = symbol is null ? box.Style.Spacing : ComputedStyle.Initial.Spacing;
                     var (ml, mr) = (BlockLayout.Margin(spacing.MarginLeft, width), BlockLayout.Margin(spacing.MarginRight, width));
                     var (mt, mb) = (BlockLayout.Margin(spacing.MarginTop, width), BlockLayout.Margin(spacing.MarginBottom, width));
                     Add(new Piece(PieceKind.Atomic, box.Style, ml + fragment.Width + mr)
@@ -658,6 +659,19 @@ internal static class InlineLayout
         }
         return (fragments, strut.Ascent);
     }
+
+    /// <summary>
+    /// An inside disclosure marker: a square two thirds of the font's ascent (in whole pixels) on a side, sitting on
+    /// the baseline, with 7px after it before the text (before it, right to left).
+    /// </summary>
+    internal static Fragment SymbolFragment(MarkerBox marker, LayoutContext context)
+    {
+        var side = MathF.Floor(FontMetrics(marker.Style, context).Ascent * 2 / 3);
+        return new Fragment(marker, side + SymbolGap, side, []);
+    }
+
+    /// <summary>The space between an inside disclosure marker's shape and the text after it.</summary>
+    internal const float SymbolGap = 7;
 
     /// <summary>Text shaped in the style's fonts: one run per font the fallback chooses, with letter- and word-spacing applied.</summary>
     internal static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
@@ -1100,7 +1114,7 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement),
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement, node.Box),
                     }));
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)

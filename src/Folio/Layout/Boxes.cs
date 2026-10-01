@@ -96,7 +96,13 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
     /// <summary>The natural width and height in CSS pixels (https://www.w3.org/TR/css-images-3/#natural-dimensions), if any.</summary>
     public (float Width, float Height)? NaturalSize => Image is { } image ? (image.Width / Density, image.Height / Density) : null;
 
-    /// <summary>For SVG: the natural width, height and aspect ratio, each only when the svg element has one.</summary>
+    /// <summary>For an img showing an SVG image: the root svg element of its own, styled document.</summary>
+    public Dom.ElementNode? SvgImage { get; init; }
+
+    /// <summary>The svg element this box draws: its own (inline SVG) or its image's.</summary>
+    public Dom.ElementNode? SvgRoot => SvgImage ?? (Kind == ReplacedKind.Svg ? Node as Dom.ElementNode : null);
+
+    /// <summary>For SVG (inline or an image): the natural width, height and aspect ratio, each only when the svg element has one.</summary>
     public (float? Width, float? Height, float? Ratio)? SvgNatural { get; init; }
 }
 
@@ -143,11 +149,11 @@ internal sealed class MarkerBox(ComputedStyle style, Node node, string text) : B
     /// <summary>The list-style-image the marker shows before its text, when it loaded.</summary>
     public ReplacedBox? Image { get; init; }
 
-    /// <summary>For the disc, circle and square list styles: the shape drawn instead of the text.</summary>
+    /// <summary>For the disc, circle and square list styles (outside) and the disclosure ones (inside): the shape drawn instead of the text.</summary>
     public ListSymbol? Symbol { get; init; }
 }
 
-internal enum ListSymbol { Disc, Circle, Square }
+internal enum ListSymbol { Disc, Circle, Square, DisclosureClosed, DisclosureOpen }
 
 internal enum InlineItemKind
 {

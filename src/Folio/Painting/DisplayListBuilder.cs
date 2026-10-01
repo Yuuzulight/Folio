@@ -389,11 +389,11 @@ internal static class DisplayListBuilder
             }
 
             if (context.Owner is { } self)
-                PaintBackground(self);
+                PaintBackground(self, context.Text);
             foreach (var c in Sorted(context.Negative))
                 Emit(c);
             foreach (var block in context.Blocks)
-                PaintBackground(block);
+                PaintBackground(block, context.Text);
             foreach (var c in context.Floats)
                 Emit(c);
             foreach (var text in context.Text)
@@ -544,7 +544,8 @@ internal static class DisplayListBuilder
 
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 
-        private void PaintBackground(PaintBox box)
+        /// <param name="text">The text of the stacking context the box paints in, which an inline box clips to.</param>
+        private void PaintBackground(PaintBox box, List<PaintBox> text)
         {
             var style = box.Box.Style;
             // A table wrapper shares the table's style; the table grid box inside it paints the table.
@@ -587,9 +588,11 @@ internal static class DisplayListBuilder
             {
                 // The glyphs, drawn together into a layer that keeps the background only where they are.
                 list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
-                foreach (var text in TextIn(box))
+                // An inline box's text is not inside its fragment but beside it on its lines.
+                var glyphText = box.Box is InlineBox inline ? text.Where(t => IsWithin(t.Fragment.Text?.Inline, inline)) : TextIn(box);
+                foreach (var run in glyphText)
                 {
-                    if (GlyphsOf(text) is { } glyphs)
+                    if (GlyphsOf(run) is { } glyphs)
                         list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: CssColor.Black, Glyphs: glyphs));
                 }
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
@@ -674,6 +677,22 @@ internal static class DisplayListBuilder
         }
 
         // The visible text fragments in a box and its in-flow descendants, placed on the canvas.
+        // Whether text directly in one inline box is inside another. Inline boxes keep no parent box, so this goes by
+        // their elements: the same element's pseudo-element boxes are inside its box, and descendants' boxes are too.
+        private static bool IsWithin(InlineBox? box, InlineBox inline)
+        {
+            if (box is null)
+                return false;
+            if (box.Node == inline.Node)
+                return box == inline || inline.PseudoElement == PseudoElement.None;
+            for (var node = box.Node?.Parent; node is not null; node = node.Parent)
+            {
+                if (node == inline.Node)
+                    return true;
+            }
+            return false;
+        }
+
         private static IEnumerable<PaintBox> TextIn(PaintBox box)
         {
             var stack = new Stack<PaintBox>([box]);
@@ -1256,12 +1275,32 @@ internal static class DisplayListBuilder
             list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: style.Inherited.Color, Path: path, Stroke: new Stroke(2.25f)));
         }
 
+        // A disclosure triangle filling its square (the fragment's height, at its start): pointing to the inline end when
+        // closed, down when open.
+        private void PaintDisclosure(PaintBox box, ListSymbol symbol, ComputedStyle style)
+        {
+            var side = box.Fragment.Height;
+            var rtl = style.Text.Direction == Direction.Rtl;
+            var (x, y) = (rtl ? box.X + box.Fragment.Width - side : box.X, box.Y);
+            PathData Triangle(params float[] uv) => new PathData().MoveTo(x + uv[0] * side, y + uv[1] * side)
+                .LineTo(x + uv[2] * side, y + uv[3] * side).LineTo(x + uv[4] * side, y + uv[5] * side).Close();
+            var path = symbol == ListSymbol.DisclosureOpen ? Triangle(0, 0.07f, 0.5f, 0.93f, 1, 0.07f)
+                : rtl ? Triangle(1, 0, 0.14f, 0.5f, 1, 1)
+                : Triangle(0, 0, 0.86f, 0.5f, 0, 1);
+            list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: style.Inherited.Color, Path: path));
+        }
+
         private void PaintSymbol(PaintBox box, ListSymbol symbol)
         {
             var style = box.Box.Style;
             if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
                 return;
             SetClip(box.Clip);
+            if (symbol is ListSymbol.DisclosureClosed or ListSymbol.DisclosureOpen)
+            {
+                PaintDisclosure(box, symbol, style);
+                return;
+            }
             // Snapped as a whole, so the square stays square and the disc round.
             var side = box.Snap(box.Fragment.Width);
             var rect = new RectF(box.Snap(box.X), box.Snap(box.Y), side, side);

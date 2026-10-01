@@ -179,12 +179,15 @@ internal sealed class BoxTreeBuilder
         if (replaced is { } kind)
         {
             var (source, density) = kind == ReplacedKind.Image ? ImageSource(element, _deviceScale) : (null, 1);
+            var image = source is null ? null : _images?.LoadAny(source);
+            var svg = kind == ReplacedKind.Svg ? element : image as ElementNode;
             var box = new ReplacedBox(style, element, kind)
             {
                 IsAtomicInline = IsInlineLevel(display),
-                Image = source is null ? null : _images?.Load(source),
+                Image = image as Imaging.DecodedImage,
+                SvgImage = image as ElementNode,
                 Density = density,
-                SvgNatural = kind == ReplacedKind.Svg ? Svg.SvgRenderTree.NaturalSize(element, style.Font.Size) : null,
+                SvgNatural = svg is null ? null : Svg.SvgRenderTree.NaturalSize(svg, style.Font.Size),
             };
             Place(box, IsInlineLevel(display));
             return false;
@@ -455,7 +458,14 @@ internal sealed class BoxTreeBuilder
             return;
 
         var container = Container;
-        if (style.Text.ListStylePosition == ListStylePosition.Inside)
+        if (style.Text.ListStylePosition == ListStylePosition.Inside && imageBox is null && style.Generated.Content.Kind != ContentKind.Items
+            && style.Text.ListStyleType.CounterStyle is "disclosure-closed" or "disclosure-open")
+        {
+            // A disclosure triangle is a shape of its own, sized by the font (InlineLayout.SymbolFragment).
+            var symbol = style.Text.ListStyleType.CounterStyle == "disclosure-open" ? ListSymbol.DisclosureOpen : ListSymbol.DisclosureClosed;
+            RunOf(container).AddAtomic(new MarkerBox(style, element, text) { Symbol = symbol });
+        }
+        else if (style.Text.ListStylePosition == ListStylePosition.Inside)
         {
             var marker = new InlineBox(style, element, PseudoElement.Marker);
             var run = RunOf(container);
