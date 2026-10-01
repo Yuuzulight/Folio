@@ -78,17 +78,17 @@ html 0,0 800x16
 === nowrap keeps atomic inlines together, and they count together in min-content
 <!DOCTYPE html><style>body, div { margin: 0 }</style><div style="width: 60px; white-space: nowrap"><span style="display: inline-block; width: 20px; height: 20px"></span><span style="display: inline-block; width: 20px; height: 20px"></span><span style="display: inline-block; width: 20px; height: 20px"></span><span style="display: inline-block; width: 20px; height: 20px"></span><span style="display: inline-block; width: 20px; height: 20px"></span></div><div style="float: left; width: min-content; white-space: nowrap"><span style="display: inline-block; width: 20px; height: 20px"></span><span style="display: inline-block; width: 20px; height: 20px"></span><span style="display: inline-block; width: 20px; height: 20px"></span></div>
 ---
-html 0,0 800x46.4
-  body 0,0 800x23.2
-    div 0,0 60x23.2
-      line 0,0 60x23.2
+html 0,0 800x46
+  body 0,0 800x23
+    div 0,0 60x23
+      line 0,0 60x23
         span 0,0 20x20
         span 20,0 20x20
         span 40,0 20x20
         span 60,0 20x20
         span 80,0 20x20
-    div 0,23.2 60x23.2
-      line 0,23.2 60x23.2
-        span 0,23.2 20x20
-        span 20,23.2 20x20
-        span 40,23.2 20x20
+    div 0,23 60x23
+      line 0,23 60x23
+        span 0,23 20x20
+        span 20,23 20x20
+        span 40,23 20x20

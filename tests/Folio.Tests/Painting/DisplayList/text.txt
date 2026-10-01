@@ -1,20 +1,20 @@
 === text is painted in its box's colour, glyph by glyph on the baseline
 <!DOCTYPE html><style>body, p { margin: 0 } span { color: red }</style><p>ab<span>c</span></p>
 ---
-glyphs 0,12.8 16,12.8 16px rgb(0, 0, 0)
-glyphs 32,12.8 16px rgb(255, 0, 0)
+glyphs 0,13 16,13 16px rgb(0, 0, 0)
+glyphs 32,13 16px rgb(255, 0, 0)
 
 === inline content paints after floats and in-flow blocks
 <!DOCTYPE html><style>body, p { margin: 0 }</style><div style="float: left; width: 10px; height: 10px; background: blue"></div><p style="background: yellow">a</p>
 ---
 fill 0,0 800x16 rgb(255, 255, 0)
 fill 0,0 10x10 rgb(0, 0, 255)
-glyphs 10,12.8 16px rgb(0, 0, 0)
+glyphs 10,13 16px rgb(0, 0, 0)
 
 === right-to-left runs are drawn from their right edge
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>\u05D0\u05D1</p>
 ---
-glyphs 16,12.8 0,12.8 16px rgb(0, 0, 0)
+glyphs 16,13 0,13 16px rgb(0, 0, 0)
 
 === hidden text is not painted
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="visibility: hidden">a</p>
@@ -24,26 +24,26 @@ glyphs 16,12.8 0,12.8 16px rgb(0, 0, 0)
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>aa <span style="background: yellow">bb</span> cc</p>
 ---
 fill 48,0 32x16 rgb(255, 255, 0)
-glyphs 0,12.8 16,12.8 32,12.8 16px rgb(0, 0, 0)
-glyphs 48,12.8 64,12.8 16px rgb(0, 0, 0)
-glyphs 80,12.8 16px rgb(0, 0, 0)
-glyphs 96,12.8 112,12.8 16px rgb(0, 0, 0)
+glyphs 0,13 16,13 32,13 16px rgb(0, 0, 0)
+glyphs 48,13 64,13 16px rgb(0, 0, 0)
+glyphs 80,13 16px rgb(0, 0, 0)
+glyphs 96,13 112,13 16px rgb(0, 0, 0)
 
 === a float from inline content paints before the line's text
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="float: right; background: lime">b</span></p>
 ---
 fill 784,0 16x16 rgb(0, 255, 0)
-glyphs 784,12.8 16px rgb(0, 0, 0)
-glyphs 0,12.8 16px rgb(0, 0, 0)
+glyphs 784,13 16px rgb(0, 0, 0)
+glyphs 0,13 16px rgb(0, 0, 0)
 === outside list markers are painted in the item's colour
 <!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px; color: blue }</style><ul><li>a</li></ul>
 ---
-glyphs 40,12.8 16px rgb(0, 0, 255)
-glyphs 8,12.8 24,12.8 16px rgb(0, 0, 255)
+glyphs 40,13 16px rgb(0, 0, 255)
+glyphs 8,13 24,13 16px rgb(0, 0, 255)
 
 === text shadows go under the text, the last written lowest
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-shadow: 1px 1px red, 2px 2px 4px blue">a</p>
 ---
-glyphs 2,14.8 16px rgb(0, 0, 255) blur 2
-glyphs 1,13.8 16px rgb(255, 0, 0)
-glyphs 0,12.8 16px rgb(0, 0, 0)
+glyphs 2,15 16px rgb(0, 0, 255) blur 2
+glyphs 1,14 16px rgb(255, 0, 0)
+glyphs 0,13 16px rgb(0, 0, 0)

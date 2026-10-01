@@ -127,29 +127,29 @@ pop
 === a list-style-image is the outside marker, with a space after it, its bottom on the baseline
 <!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-left: 30px; list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>
 ---
-glyphs 30,12.8 16px rgb(0, 0, 0)
-image 10,10.8 4x2 4x2 smooth
-glyphs 14,12.8 16px rgb(0, 0, 0)
+glyphs 30,13 16px rgb(0, 0, 0)
+image 10,11 4x2 4x2 smooth
+glyphs 14,13 16px rgb(0, 0, 0)
 
 === a list-style-image as an inside marker
 <!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding: 0; list-style: inside url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>
 ---
-image 0,10.8 4x2 4x2 smooth
-glyphs 4,12.8 16px rgb(0, 0, 0)
-glyphs 20,12.8 16px rgb(0, 0, 0)
+image 0,11 4x2 4x2 smooth
+glyphs 4,13 16px rgb(0, 0, 0)
+glyphs 20,13 16px rgb(0, 0, 0)
 
 === a list-style-image that does not load leaves the list-style-type marker
 <!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-left: 30px; list-style-image: url(data:text/plain,x) }</style><ul><li>a</li></ul>
 ---
-glyphs 30,12.8 16px rgb(0, 0, 0)
-glyphs -2,12.8 14,12.8 16px rgb(0, 0, 0)
+glyphs 30,13 16px rgb(0, 0, 0)
+glyphs -2,13 14,13 16px rgb(0, 0, 0)
 
 === right to left, the image marker is on the far side of its space
 <!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-right: 30px; direction: rtl; list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>
 ---
-glyphs 754,12.8 16px rgb(0, 0, 0)
-glyphs 770,12.8 16px rgb(0, 0, 0)
-image 786,10.8 4x2 4x2 smooth
+glyphs 754,13 16px rgb(0, 0, 0)
+glyphs 770,13 16px rgb(0, 0, 0)
+image 786,11 4x2 4x2 smooth
 
 === a blended url() layer is a layer blending with the colour, in the background's isolated group
 <!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 4px; height: 2px; background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) rgb(1, 0, 0); background-blend-mode: multiply"></div>

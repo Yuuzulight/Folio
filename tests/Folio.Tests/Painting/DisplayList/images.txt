@@ -33,8 +33,8 @@ image 18,19 4x2 4x2 pixelated
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="background: yellow">a<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC"></p>
 ---
 fill 0,0 800x16 rgb(255, 255, 0)
-glyphs 0,12.8 16px rgb(0, 0, 0)
-image 16,10.8 4x2 4x2 smooth
+glyphs 0,13 16px rgb(0, 0, 0)
+image 16,11 4x2 4x2 smooth
 
 === hidden images are not painted
 <!DOCTYPE html><style>body { margin: 0 }</style><img style="visibility: hidden" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">

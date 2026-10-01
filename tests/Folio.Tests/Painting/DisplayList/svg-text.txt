@@ -78,9 +78,9 @@ pop
 ---
 transform 1,0,0,1,0,0
 clip 0,0 200x100
-glyphs 0,24.8 16px rgb(0, 0, 0)
-glyphs 0,32.8 16px rgb(0, 0, 0)
-glyphs 0,16.8 16px rgb(0, 0, 0)
+glyphs 0,25 16px rgb(0, 0, 0)
+glyphs 0,33 16px rgb(0, 0, 0)
+glyphs 0,17 16px rgb(0, 0, 0)
 glyphs 0,20 16px rgb(0, 0, 0)
 pop
 pop
@@ -119,6 +119,6 @@ pop
 transform 1,0,0,1,0,0
 clip 0,0 200x100
 glyphs 0,26.4 16px rgb(0, 0, 0)
-glyphs 0,32.8 16,16.8 16px rgb(0, 0, 0)
+glyphs 0,33 16,17 16px rgb(0, 0, 0)
 pop
 pop

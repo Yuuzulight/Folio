@@ -96,7 +96,7 @@ public class SkiaCanvasTests
     [Fact]
     public void DrawsTextDecorationsInTheirStyles()
     {
-        using var bitmap = Render("<style>body { margin: 0 } p { margin: 0; text-decoration: underline red 2px; text-underline-offset: 3.2px }</style>" +
+        using var bitmap = Render("<style>body { margin: 0 } p { margin: 0; text-decoration: underline red 2px; text-underline-offset: 3px }</style>" +
             "<p>&nbsp;&nbsp;&nbsp;</p><p style='text-decoration-style: dotted'>&nbsp;&nbsp;&nbsp;</p><p style='text-decoration-style: wavy'>&nbsp;&nbsp;&nbsp;</p>");
 
         // Solid: an unbroken line from 16px to 18px.

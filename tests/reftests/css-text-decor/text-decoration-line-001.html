@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <title>text-decoration-line: underline, overline and line-through in the font's positions</title>
 <link rel="help" href="https://www.w3.org/TR/css-text-decor-4/#text-decoration-line-property">
-<meta name="assert" content="With the box font at 16px the overline's top is the text's top, the line-through's top 4.8px above the baseline, and the underline's top at the baseline plus text-underline-offset.">
+<meta name="assert" content="With the box font at 20px (baseline 16px down) the overline's top is the text's top, the line-through's top 6px above the baseline, and the underline's top at the baseline plus text-underline-offset.">
 <style>
   body { margin: 0; }
-  p { margin: 0; color: blue; text-decoration: underline overline line-through; text-decoration-thickness: 2px; text-underline-offset: 3.2px; }
+  p { margin: 0; font-size: 20px; color: blue; text-decoration: underline overline line-through; text-decoration-thickness: 2px; text-underline-offset: 4px; }
 </style>
 <p>&nbsp;&nbsp;</p>

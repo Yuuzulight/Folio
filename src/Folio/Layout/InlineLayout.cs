@@ -783,8 +783,13 @@ internal static class InlineLayout
     private static LineMetrics Metrics(ComputedStyle style, FontFace? face)
     {
         var size = style.Font.Size;
+        // The font's ascent, descent and line gap are each rounded to whole pixels, so line-height: normal is a whole
+        // number of pixels and baselines of lines set in it stay on the pixel grid.
+        // ponytail: rounded in CSS pixels; at other device scales they would round in device pixels.
         var (ascent, descent, gap) = face is null ? (0.8f * size, 0.2f * size, 0.2f * size)
             : (face.Ascent * size / face.UnitsPerEm, -face.Descent * size / face.UnitsPerEm, face.LineGap * size / face.UnitsPerEm);
+        (ascent, descent, gap) = (Whole(ascent), Whole(descent), Whole(gap));
+        static float Whole(float px) => MathF.Floor(px + 0.5f);
         var xHeight = face is { XHeight: > 0 } ? face.XHeight * size / face.UnitsPerEm : size / 2;
         var lineHeight = style.Font.LineHeight switch
         {

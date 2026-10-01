@@ -96,6 +96,6 @@ pop
 ---
 transform 1,0,0,1,0,0
 clip 0,0 200x100
-glyphs 10,20 26,20 16px linear 0,0 1,0 [0 rgb(255, 0, 0), 1 rgb(0, 0, 255)] transform 32,0,0,16,10,7.2
+glyphs 10,20 26,20 16px linear 0,0 1,0 [0 rgb(255, 0, 0), 1 rgb(0, 0, 255)] transform 32,0,0,16,10,7
 pop
 pop

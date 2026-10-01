@@ -63,7 +63,7 @@ html 0,0 800x50
   body 0,50 800x0
     div 0,50 800x0
       line 0,50 800x0
-        span 0,37.2 0x16
+        span 0,37 0x16
 span#a 0,0 10x10
 
 === a filtered box is the containing block of its absolute and fixed descendants

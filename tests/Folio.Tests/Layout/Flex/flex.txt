@@ -99,6 +99,6 @@ html 0,0 800x32
       div 0,0 32x32
         line 0,0 32x32
           text "a" 0,0 32x32
-      div 32,12.8 16x16
-        line 32,12.8 16x16
-          text "b" 32,12.8 16x16
+      div 32,13 16x16
+        line 32,13 16x16
+          text "b" 32,13 16x16
