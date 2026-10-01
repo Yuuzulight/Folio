@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Folio.Css;
 using Folio.Dom;
@@ -63,6 +64,11 @@ internal sealed class BoxTreeBuilder
     }
 
     private Frame Container => _containers.Peek();
+
+    // A block container whose ::first-letter is still to come: the first letter of its first line of text.
+    // ponytail: only text in the container's own inline content counts; a first line inside a child block, and the
+    // properties ::first-letter may not set, are not handled yet.
+    private (ElementNode Element, Frame Frame, ComputedStyle Style)? _firstLetter;
 
     private void Push(Frame frame)
     {
@@ -167,6 +173,9 @@ internal sealed class BoxTreeBuilder
 
         var frame = OpenBox(element, style, display, PseudoElement.None);
         Push(frame);
+        if (frame is { Kind: FrameKind.Block, Box: BlockContainerBox } && element.PseudoStyle(PseudoElement.FirstLetter) is { } firstLetter
+            && firstLetter.Box.Display != Display.None)
+            _firstLetter = (element, frame, firstLetter);
         if (display == Display.ListItem)
             AddMarker(element);
         AddPseudo(element, PseudoElement.Before);
@@ -219,6 +228,9 @@ internal sealed class BoxTreeBuilder
     private void Place(Box box, bool inlineLevel)
     {
         var container = Container;
+        // Anything but text before the first letter (a block, an image, an inline block) means there is none.
+        if (_firstLetter?.Frame == container)
+            _firstLetter = null;
         var insideInline = _frames.Peek().Kind == FrameKind.Inline;
         if (inlineLevel && container.Kind == FrameKind.Block)
         {
@@ -251,6 +263,8 @@ internal sealed class BoxTreeBuilder
         if (!frame.CollectsChildren)
             return;
 
+        if (_firstLetter?.Frame == frame)
+            _firstLetter = null;
         frame.Run?.EndSegment();
         var runs = frame.Segments.OfType<InlineRun>().ToList();
         var hasBoxes = frame.Segments.Any(s => s is Box);
@@ -303,7 +317,48 @@ internal sealed class BoxTreeBuilder
     {
         if (style is null || text.Length == 0)
             return;
+        if (_firstLetter is { } pending && pending.Frame == Container && FirstLetter(text) is var (start, length))
+        {
+            // https://www.w3.org/TR/css-pseudo-4/#first-letter-pseudo: the first letter (with the punctuation around
+            // it) gets its own box, inline or floated, styled by ::first-letter.
+            _firstLetter = null;
+            if (start > 0)
+                RunOf(Container).AddText(text[..start], style);
+            var display = pending.Style.Box.Float != FloatSide.None ? Display.Block : Display.Inline;
+            var frame = OpenBox(pending.Element, pending.Style, display, PseudoElement.FirstLetter);
+            Push(frame);
+            RunOf(Container).AddText(text.Substring(start, length), pending.Style);
+            Finish(Pop());
+            if (start + length < text.Length)
+                RunOf(Container).AddText(text[(start + length)..], style);
+            return;
+        }
         RunOf(Container).AddText(text, style);
+    }
+
+    /// <summary>
+    /// Where the first letter is in a text: after any leading white space, punctuation, then one typographic letter
+    /// unit (a grapheme cluster), then punctuation that follows it; null when the text is only white space.
+    /// </summary>
+    internal static (int Start, int Length)? FirstLetter(string text)
+    {
+        var start = 0;
+        while (start < text.Length && char.IsWhiteSpace(text[start]))
+            start++;
+        if (start == text.Length)
+            return null;
+        var end = start;
+        while (end < text.Length && IsPunctuation(text, end))
+            end += StringInfo.GetNextTextElementLength(text, end);
+        if (end < text.Length && !char.IsWhiteSpace(text[end]))
+            end += StringInfo.GetNextTextElementLength(text, end);
+        while (end < text.Length && IsPunctuation(text, end))
+            end += StringInfo.GetNextTextElementLength(text, end);
+        return (start, end - start);
+
+        static bool IsPunctuation(string s, int i) => char.GetUnicodeCategory(s, i) is UnicodeCategory.OpenPunctuation
+            or UnicodeCategory.ClosePunctuation or UnicodeCategory.InitialQuotePunctuation or UnicodeCategory.FinalQuotePunctuation
+            or UnicodeCategory.OtherPunctuation;
     }
 
     private void AddPseudo(ElementNode element, PseudoElement pseudo)

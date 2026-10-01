@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>A floated ::first-letter is a drop cap the lines beside it wrap around</title>
+<link rel="help" href="https://www.w3.org/TR/css-pseudo-4/#first-letter-pseudo">
+<style>
+  body { margin: 0; }
+  p { margin: 0; width: 80px; }
+  p::first-letter { float: left; font-size: 32px; line-height: 1; padding-right: 4px; color: green; }
+</style>
+<p>ab cd ef gh</p>

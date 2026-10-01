@@ -1,0 +1,62 @@
+=== the first letter gets its own box, in the ::first-letter style
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px }</style><p>ab</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        ::first-letter 0,0 32x32
+        text "a" 0,0 32x32
+        text "b" 32,13 16x16
+
+=== punctuation before and after the letter goes with it, leading white space does not
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px }</style><p> "a." b</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        ::first-letter 0,0 128x32
+        text "\"a.\"" 0,0 128x32
+        text " " 128,13 16x16
+        text "b" 144,13 16x16
+
+=== a floated first letter is a drop cap the following lines wrap around
+<!DOCTYPE html><style>body, p { margin: 0 } p { width: 80px } p::first-letter { float: left; font-size: 32px; line-height: 1; padding-right: 4px }</style><p>ab cd ef gh</p>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    p 0,0 80x48
+      ::first-letter 0,0 36x32
+        line 0,0 32x32
+          text "a" 0,0 32x32
+      (anonymous) 0,0 80x48
+        line 36,0 44x16
+          text "b " 36,0 32x16
+        line 36,16 44x16
+          text "cd " 36,16 48x16
+        line 0,32 80x16
+          text "ef " 0,32 48x16
+          text "gh" 48,32 32x16
+
+=== the first letter may be inside an inline element
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px }</style><p><em>ab</em></p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        em 0,13 48x16
+        ::first-letter 0,0 32x32
+        text "a" 0,0 32x32
+        text "b" 32,13 16x16
+
+=== an image before any text means there is no first letter
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px }</style><p><img style="width: 10px; height: 10px">ab</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        img 0,3 10x10
+        text "ab" 10,0 32x16

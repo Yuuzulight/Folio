@@ -10,6 +10,7 @@ internal sealed class ElementStyles(ComputedStyle style)
     public ComputedStyle? Before { get; set; }
     public ComputedStyle? After { get; set; }
     public ComputedStyle? Marker { get; set; }
+    public ComputedStyle? FirstLetter { get; set; }
 }
 
 internal static class ElementStyleExtensions
@@ -24,6 +25,7 @@ internal static class ElementStyleExtensions
             PseudoElement.Before => styles.Before,
             PseudoElement.After => styles.After,
             PseudoElement.Marker => styles.Marker,
+            PseudoElement.FirstLetter => styles.FirstLetter,
             _ => styles.Style,
         }
         : null;
@@ -104,6 +106,7 @@ internal static class StyleResolver
         var shared = new SharingCache();
         var (matched, pseudoMatched) = (new List<RuleIndex<CascadeRule>.Entry>(), new List<RuleIndex<CascadeRule>.Entry>());
         var (hasBefore, hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
+        var hasFirstLetter = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.FirstLetter));
 
         // Iterative pre-order walk: (element, parent style); a null element marks leaving an element.
         var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent)>();
@@ -149,7 +152,7 @@ internal static class StyleResolver
             {
                 ComputedStyle? Pseudo(PseudoElement pe, bool always = false)
                 {
-                    if (!always && !(pe == PseudoElement.Before ? hasBefore : hasAfter))
+                    if (!always && !(pe switch { PseudoElement.Before => hasBefore, PseudoElement.After => hasAfter, _ => hasFirstLetter }))
                         return null;
                     // With no rules for it, ::before or ::after would have content: normal and generate no box.
                     pseudoMatched.Clear();
@@ -161,6 +164,7 @@ internal static class StyleResolver
                 }
                 styles.Before = Pseudo(PseudoElement.Before);
                 styles.After = Pseudo(PseudoElement.After);
+                styles.FirstLetter = Pseudo(PseudoElement.FirstLetter);
                 if (style.Box.Display == Display.ListItem)
                     styles.Marker = Pseudo(PseudoElement.Marker, always: true);
             }
