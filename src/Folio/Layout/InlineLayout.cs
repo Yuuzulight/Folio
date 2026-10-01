@@ -1014,8 +1014,8 @@ internal static class InlineLayout
             (node.Above, node.Below) = (above, below);
         }
 
-        // vertical-align of a box or atomic inline relative to its parent (text follows its box).
-        // ponytail: sub and super move by fixed fractions of the parent's font size, not the font's own offsets.
+        // vertical-align of a box or atomic inline relative to its parent (text follows its box). sub lowers the baseline
+        // by a fifth of the parent's font size plus a pixel, super raises it by a third plus a pixel.
         void Align(Node node, Node parent)
         {
             if (node.Box is null && node.Piece?.Kind != PieceKind.Atomic)
@@ -1024,8 +1024,8 @@ internal static class InlineLayout
             var (own, p) = (node.Metrics, parent.Metrics);
             node.Shift = align.Kind switch
             {
-                VerticalAlignKind.Sub => -p.Size / 5,
-                VerticalAlignKind.Super => p.Size / 3,
+                VerticalAlignKind.Sub => -(p.Size / 5 + 1),
+                VerticalAlignKind.Super => p.Size / 3 + 1,
                 VerticalAlignKind.TextTop => p.Ascent - own.Above,
                 VerticalAlignKind.TextBottom => own.Below - p.Descent,
                 VerticalAlignKind.Middle => p.XHeight / 2 - (own.Above - own.Below) / 2,
