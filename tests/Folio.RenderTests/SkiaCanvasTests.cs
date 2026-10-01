@@ -35,6 +35,20 @@ public class SkiaCanvasTests
     }
 
     [Fact]
+    public void RoundedSidesKeepTheirCurvedParts()
+    {
+        // A half-coloured circle, the gauge and spinner idiom: the bottom and left sides own their half of the ring,
+        // including where it curves inside the straight inner edges.
+        using var bitmap = Render("<style>body { margin: 0 } div { width: 80px; height: 80px; border: 10px solid; border-radius: 50%; border-color: transparent transparent blue blue }</style><div></div>");
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(27, 89));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(11, 27));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(73, 11));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(89, 73));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(50, 50));
+    }
+
+    [Fact]
     public void RoundedCornersLeaveTheCornerUnpainted()
     {
         using var bitmap = Render("<style>body { margin: 0 } div { width: 60px; height: 60px; border-radius: 30px; background: blue }</style><div></div>");
