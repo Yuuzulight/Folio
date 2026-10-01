@@ -1139,6 +1139,9 @@ internal static class InlineLayout
     {
         if (fragment.Box is FlexContainerBox or GridContainerBox or TableWrapperBox)
             return FirstBaseline(fragment);
+        // A text input or select is aligned by its text's baseline, although it clips its overflow.
+        if (fragment.Box is { Node: Dom.ElementNode { LocalName: "input" or "select" } control } && control.Name.Namespace == Dom.Namespaces.Html)
+            return LastBaseline(fragment);
         if (fragment.Box is { } box && (box.Style.Box.OverflowX != Overflow.Visible || box.Style.Box.OverflowY != Overflow.Visible || box is not BlockContainerBox))
             return null;
         return LastBaseline(fragment);
