@@ -321,7 +321,8 @@ internal static class DisplayListBuilder
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
     }
 
-    // Boxes in box tree order (document order), for ordering positioned boxes and stacking contexts.
+    // Boxes in box tree order (document order), for ordering positioned boxes and stacking contexts. Boxes in inline
+    // content (inline boxes, atomic inlines, floats and positioned boxes) are reached through their paragraph's items.
     private static Dictionary<Box, int> TreeOrder(Box root)
     {
         var order = new Dictionary<Box, int>();
@@ -329,7 +330,14 @@ internal static class DisplayListBuilder
         stack.Push(root);
         while (stack.TryPop(out var box))
         {
-            order[box] = order.Count;
+            if (!order.TryAdd(box, order.Count))
+                continue;
+            var inline = box is BlockContainerBox { Inline: { } context } ? context.Items : null;
+            for (var i = (inline?.Count ?? 0) - 1; i >= 0; i--)
+            {
+                if (inline![i] is { Box: { } item, Kind: not InlineItemKind.CloseBox })
+                    stack.Push(item);
+            }
             for (var i = box.Children.Count - 1; i >= 0; i--)
                 stack.Push(box.Children[i]);
         }
