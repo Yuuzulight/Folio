@@ -459,16 +459,18 @@ internal static class TableLayout
     {
         var n = grid.Columns;
         var (min, max) = (new float[n], new float[n]);
-        for (var c = 0; c < Math.Min(n, grid.ColumnWidths.Count); c++)
-        {
-            if (grid.ColumnWidths[c] is { } w)
-                (min[c], max[c]) = (w, w);
-        }
         var spacing = tableStyle.Text.BorderCollapse == BorderCollapse.Collapse ? 0 : tableStyle.Text.BorderSpacingX;
         foreach (var cell in grid.Cells)
             (cell.Min, cell.Max) = IntrinsicSizes.Contribution(cell.Box, context);
         foreach (var cell in grid.Cells.Where(c => c.ColumnSpan == 1))
             (min[cell.Column], max[cell.Column]) = (Math.Max(min[cell.Column], cell.Min), Math.Max(max[cell.Column], cell.Max));
+        // A col or colgroup width is the column's preferred width, not a minimum: the column's max-content width is
+        // that width (or its content's minimum, if wider), and a narrower table shrinks it towards its minimum.
+        for (var c = 0; c < Math.Min(n, grid.ColumnWidths.Count); c++)
+        {
+            if (grid.ColumnWidths[c] is { } w)
+                max[c] = Math.Max(min[c], w);
+        }
         foreach (var cell in grid.Cells.Where(c => c.ColumnSpan > 1).OrderBy(c => c.ColumnSpan))
         {
             var span = Enumerable.Range(cell.Column, Math.Min(cell.ColumnSpan, n - cell.Column)).ToList();
