@@ -380,11 +380,11 @@ internal static class DisplayListBuilder
             }
 
             if (context.Owner is { } self)
-                PaintBackground(self);
+                PaintBackground(self, context.Text);
             foreach (var c in Sorted(context.Negative))
                 Emit(c);
             foreach (var block in context.Blocks)
-                PaintBackground(block);
+                PaintBackground(block, context.Text);
             foreach (var c in context.Floats)
                 Emit(c);
             foreach (var text in context.Text)
@@ -526,7 +526,8 @@ internal static class DisplayListBuilder
 
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 
-        private void PaintBackground(PaintBox box)
+        /// <param name="text">The text of the stacking context the box paints in, which an inline box clips to.</param>
+        private void PaintBackground(PaintBox box, List<PaintBox> text)
         {
             var style = box.Box.Style;
             // A table wrapper shares the table's style; the table grid box inside it paints the table.
@@ -569,9 +570,11 @@ internal static class DisplayListBuilder
             {
                 // The glyphs, drawn together into a layer that keeps the background only where they are.
                 list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
-                foreach (var text in TextIn(box))
+                // An inline box's text is not inside its fragment but beside it on its lines.
+                var glyphText = box.Box is InlineBox inline ? text.Where(t => IsWithin(t.Fragment.Text?.Inline, inline)) : TextIn(box);
+                foreach (var run in glyphText)
                 {
-                    if (GlyphsOf(text) is { } glyphs)
+                    if (GlyphsOf(run) is { } glyphs)
                         list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: CssColor.Black, Glyphs: glyphs));
                 }
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
@@ -656,6 +659,22 @@ internal static class DisplayListBuilder
         }
 
         // The visible text fragments in a box and its in-flow descendants, placed on the canvas.
+        // Whether text directly in one inline box is inside another. Inline boxes keep no parent box, so this goes by
+        // their elements: the same element's pseudo-element boxes are inside its box, and descendants' boxes are too.
+        private static bool IsWithin(InlineBox? box, InlineBox inline)
+        {
+            if (box is null)
+                return false;
+            if (box.Node == inline.Node)
+                return box == inline || inline.PseudoElement == PseudoElement.None;
+            for (var node = box.Node?.Parent; node is not null; node = node.Parent)
+            {
+                if (node == inline.Node)
+                    return true;
+            }
+            return false;
+        }
+
         private static IEnumerable<PaintBox> TextIn(PaintBox box)
         {
             var stack = new Stack<PaintBox>([box]);

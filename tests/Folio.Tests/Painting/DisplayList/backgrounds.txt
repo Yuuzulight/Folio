@@ -90,3 +90,19 @@ border 0,0 24x24 2 solid rgb(0, 0, 0)
 <!DOCTYPE html><style>body { margin: 0 }</style><div style="width: 20px; height: 20px; border-radius: 5px; box-shadow: 0 0 0 3px red"></div>
 ---
 shadow -3,-3 26x26 radius 8 rgb(255, 0, 0) blur 0 outside 0,0 20x20 radius 5
+
+=== background-clip: text on an inline box masks with the glyphs inside it and its descendants, not the line
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 32px } span { background: blue; background-clip: text; color: transparent } em { font-style: normal }</style><p>a <span>b<em>c</em></span> d</p>
+---
+layer
+fill 64,0 64x32 rgb(0, 0, 255)
+blend destination-in
+glyphs 64,26 32px rgb(0, 0, 0)
+glyphs 96,26 32px rgb(0, 0, 0)
+pop
+pop
+glyphs 0,26 32,26 32px rgb(0, 0, 0)
+glyphs 64,26 32px rgba(0, 0, 0, 0)
+glyphs 96,26 32px rgba(0, 0, 0, 0)
+glyphs 128,26 32px rgb(0, 0, 0)
+glyphs 160,26 32px rgb(0, 0, 0)
