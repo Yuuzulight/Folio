@@ -135,6 +135,9 @@ internal static class GridLayout
             var fragment = item.Fragment = LayOutItem(item, areaWidth, areaHeight, style, context);
             var x = columns[item.Column].Position + item.MarginLeft + Offset(item, areaWidth - item.MarginLeft - item.MarginRight - fragment.Width, horizontal: true, style);
             var y = rows[item.Row].Position + item.MarginTop + Offset(item, areaHeight - item.MarginTop - item.MarginBottom - fragment.Height, horizontal: false, style);
+            // Columns run from the inline start: right to left in a right-to-left grid (css-grid-1 §7.1).
+            if (style.Text.Direction == Direction.Rtl)
+                x = innerWidth - x - fragment.Width;
             fragments.Add(new ChildFragment(x, y, fragment));
         }
         // Positioned children: the area their lines name (css-grid-1 §9.1); auto lines are the padding edges (null).

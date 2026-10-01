@@ -30,6 +30,15 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 
+    /// <summary>
+    /// The content of clip path and mask elements built so far, by element and the viewport it was built for, with its
+    /// node count (see Svg.SvgContext.ReferencedContent).
+    /// </summary>
+    public Dictionary<(Dom.ElementNode Element, System.Numerics.Vector2 Viewport), (IReadOnlyList<Svg.SvgRenderNode> Nodes, int Count)> SvgContent { get; } = [];
+
+    /// <summary>How many nodes of clip path and mask content the references laid out so far have used.</summary>
+    public int SvgReferencedNodes { get; set; }
+
     /// <summary>Each document's elements by id, first in tree order, for url(#id) references (see Svg.SvgContext.Find).</summary>
     public Dictionary<Dom.DocumentNode, Dictionary<string, Dom.ElementNode>> Ids { get; } = [];
 }
@@ -147,6 +156,12 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// others), in coordinates whose origin is the border box's top-left corner; null when no layer does.
     /// </summary>
     public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get; init; }
+
+    /// <summary>
+    /// For a box whose filter list references SVG filter elements: the list with its references resolved, in
+    /// coordinates whose origin is the border box's top-left corner; null when it filters nothing.
+    /// </summary>
+    public Svg.SvgFilterChain? SvgFilters { get; init; }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];

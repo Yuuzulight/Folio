@@ -79,6 +79,18 @@ public class DisplayListPlayerTests
     }
 
     [Fact]
+    public void SvgFilterLayersAreBoundedByTheirLastSubregion()
+    {
+        // The offset moves the box out of what it draws; the filter region (here the bounding box) still holds it.
+        Assert.Equal(new RectF(0, 0, 100, 10), Bounds("<svg width='200' height='100' style='display: block'><filter id='f' x='0' y='0' width='1' height='1'><feOffset dx='50' /></filter>" +
+            "<rect width='100' height='10' fill='red' filter='url(#f)' /></svg>"));
+        var list = new DisplayList();
+        list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: [new Filter(FilterKind.Flood)]));
+        list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+        Assert.Null(DisplayListPlayer.LayerBounds(list)[0]);
+    }
+
+    [Fact]
     public void LayersWithUnknownReachAreNotBounded()
     {
         Assert.Null(Bounds("<div style='perspective: 100px; opacity: .5'><div style='transform: rotateY(30deg); width: 100px; height: 10px; background: red'></div></div>"));

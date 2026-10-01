@@ -92,3 +92,14 @@ html 0,0 800x46
         span 0,23 20x20
         span 20,23 20x20
         span 40,23 20x20
+
+=== a float adds its width to the max-content width of the line it starts on
+<!DOCTYPE html><style>body { margin: 0 } p { margin: 0; float: left } i { float: right; width: 30px; height: 10px }</style><p>abc de<i></i></p>
+---
+html 0,0 800x16
+  body 0,0 800x0
+    p 0,0 126x16
+      i 96,0 30x10
+      line 0,0 96x16
+        text "abc " 0,0 64x16
+        text "de" 64,0 32x16

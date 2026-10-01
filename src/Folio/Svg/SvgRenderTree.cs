@@ -18,6 +18,43 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
 
     /// <summary>What masks the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
     public SvgMask? Mask { get; init; }
+
+    /// <summary>What filters the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
+    public SvgFilterChain? Filters { get; init; }
+}
+
+/// <summary>
+/// A filter list with its url() references resolved (https://drafts.csswg.org/filter-effects-1/#FilterProperty): each
+/// filter function, or its SVG filter element, in order, and what the element's units need: the filtered element's
+/// bounding box and the viewport.
+/// </summary>
+internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, ElementNode? Element)> Filters, CssColor CurrentColor, SvgRect? Bounds, Vector2 Viewport)
+{
+    /// <summary>
+    /// A filter list's chain; null when it filters nothing: none, or a reference to anything but a filter element, which
+    /// ignores the whole list.
+    /// </summary>
+    public static SvgFilterChain? Of(FilterList list, CssColor currentColor, SvgRect? bounds, Vector2 viewport, SvgContext context)
+    {
+        var filters = new List<(FilterFunction, ElementNode?)>();
+        foreach (var function in list.Functions)
+        {
+            if (function.Name != "url")
+                filters.Add((function, null));
+            else if (context.Find(function.Url) is { LocalName: "filter" } element && element.Name.Namespace == Namespaces.Svg)
+                filters.Add((function, element));
+            else
+                return null;
+        }
+        return filters.Count > 0 ? new SvgFilterChain(filters, currentColor, bounds, viewport) : null;
+    }
+
+    /// <summary>
+    /// A CSS box's chain when its filter list references a filter element, for a border box of this size: user units
+    /// are CSS pixels from its top-left corner, and it is the bounding box.
+    /// </summary>
+    public static SvgFilterChain? ForBox(ElementNode element, ComputedStyle style, float width, float height, Layout.LayoutContext layout) =>
+        Of(style.Effects.Filter, style.Inherited.Color, new SvgRect(0, 0, width, height), new Vector2(width, height), new SvgContext(layout, element.OwnerDocument));
 }
 
 /// <summary>
@@ -104,10 +141,13 @@ internal static class SvgRenderTree
         var context = new SvgContext(layout, element.OwnerDocument);
         if (context.Find(url) is not { LocalName: "clipPath" } clip || clip.Name.Namespace != Namespaces.Svg)
             return null;
-        var box = new SvgShapeNode(Matrix3x2.Identity, 1,
-            [new('M', new(0, 0)), new('L', new(width, 0)), new('L', new(width, height)), new('L', new(0, height)), new('Z')], null, null);
-        return ClipPath(clip, box, new Vector2(width, height), context);
+        return ClipPath(clip, Rectangle(new SvgRect(0, 0, width, height), null), new Vector2(width, height), context);
     }
+
+    // A rectangle as a shape filled with this fill (or not filled).
+    private static SvgShapeNode Rectangle(SvgRect r, SvgFill? fill) => new(Matrix3x2.Identity, 1,
+        [new('M', new(r.X, r.Y)), new('L', new(r.X + r.Width, r.Y)), new('L', new(r.X + r.Width, r.Y + r.Height)), new('L', new(r.X, r.Y + r.Height)), new('Z')],
+        fill, null);
 
     // An svg element's viewport: its viewBox mapped into the rectangle, the content clipped to it unless overflow is
     // visible. A viewBox with a zero size disables rendering (https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute).
@@ -151,9 +191,11 @@ internal static class SvgRenderTree
             return null;
         if (style.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } clip && clip.Name.Namespace == Namespaces.Svg)
             node = node with { ClipPath = ClipPath(clip, node, viewport, context) };
-        // In a clip path only the geometry counts, so masks there are ignored.
+        // In a clip path only the geometry counts, so masks and filters there are ignored.
         if (!clipping && MaskReference(style.Mask, context) is var (mask, mode))
             node = node with { Mask = Mask(mask, mode, Bounds(node), viewport, context) };
+        if (!clipping && !style.Effects.Filter.IsNone)
+            node = node with { Filters = SvgFilterChain.Of(style.Effects.Filter, style.Inherited.Color, Bounds(node), viewport, context) };
         return node;
     }
 
@@ -231,7 +273,12 @@ internal static class SvgRenderTree
                 return nothing;
             var region = regionInBox ? new SvgRect(box.X + x, box.Y + y, width, height) : new SvgRect(x, y, width, height);
             var content = contentInBox ? new Matrix3x2(box.Width, 0, 0, box.Height, box.X, box.Y) : Matrix3x2.Identity;
-            return new SvgMask(Children(mask, contentInBox ? Vector2.One : viewport, context), content, region, luminance);
+            var contentViewport = contentInBox ? Vector2.One : viewport;
+            var (children, overBudget) = context.ReferencedContent(mask, contentViewport, () => Children(mask, contentViewport, context));
+            // With the budget for referenced content spent, the mask keeps everything in its region.
+            return overBudget
+                ? new SvgMask([Rectangle(region, new SvgFill(new SvgResolvedPaint(new CssColor(1, 1, 1, 1)), false))], Matrix3x2.Identity, region, false)
+                : new SvgMask(children, content, region, luminance);
         }
         finally
         {
@@ -257,13 +304,25 @@ internal static class SvgRenderTree
                 toUser *= new Matrix3x2(box.Width, 0, 0, box.Height, box.X, box.Y);
                 viewport = Vector2.One;
             }
-            var children = new List<SvgRenderNode>();
-            for (var child = clip.FirstChild; child is not null; child = child.NextSibling)
+            var shapesViewport = viewport;
+            var (children, overBudget) = context.ReferencedContent(clip, viewport, () =>
             {
-                if (child is ElementNode { Name.Namespace: var ns, LocalName: "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "text" } element
-                    && ns == Namespaces.Svg && element.ComputedStyle() is { Box.Display: not Display.None } childStyle
-                    && Node(element, childStyle, viewport, context, clipping: true) is { } node)
-                    children.Add(node);
+                var nodes = new List<SvgRenderNode>();
+                for (var child = clip.FirstChild; child is not null; child = child.NextSibling)
+                {
+                    if (child is ElementNode { Name.Namespace: var ns, LocalName: "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "text" } element
+                        && ns == Namespaces.Svg && element.ComputedStyle() is { Box.Display: not Display.None } childStyle
+                        && Node(element, childStyle, shapesViewport, context, clipping: true) is { } node)
+                        nodes.Add(node);
+                }
+                return nodes;
+            });
+            // With the budget for referenced content spent, the region is the bounding box of its shapes.
+            if (overBudget)
+            {
+                children = Bounds(new SvgContainerNode(Matrix3x2.Identity, 1, children)) is { } bounds
+                    ? [Rectangle(bounds, new SvgFill(new SvgResolvedPaint(CssColor.Black), false))]
+                    : [];
             }
             // The clipPath's own clip path clips its region.
             var own = style?.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } next && next.Name.Namespace == Namespaces.Svg

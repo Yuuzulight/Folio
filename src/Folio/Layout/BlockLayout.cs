@@ -309,6 +309,8 @@ internal static class BlockLayout
         {
             if (children.Count > 0)
                 cursor = Balance(children, dealt, border.TopWidth + padding.Top);
+            // The last child's bottom margin ends a column and is truncated there (css-break-3 §5.2); the columns' height is the content's.
+            pending = default;
             width = fullWidth;
         }
 
@@ -375,6 +377,9 @@ internal static class BlockLayout
                 : null,
             SvgMasks = style.Mask.IsMasked && box.Node is Dom.ElementNode masked
                 ? Svg.SvgRenderTree.BoxMasks(masked, style.Mask, width + frameX, contentHeight + frameY, context)
+                : null,
+            SvgFilters = style.Effects.Filter.HasReference && box.Node is Dom.ElementNode filtered
+                ? Svg.SvgFilterChain.ForBox(filtered, style, width + frameX, contentHeight + frameY, context)
                 : null,
         };
     }
