@@ -20,7 +20,12 @@ internal static class IntrinsicSizes
             return (0, 0);
 
         (float Min, float Max) sizes = (0, 0);
-        if (box is BlockContainerBox { Inline: { } inline } block)
+        if (box is BlockContainerBox { Inline: { } vertical } verticalBlock && box.Style.Text.IsVertical)
+        {
+            var width = VerticalLayout.BlockSize(verticalBlock, vertical, context);
+            sizes = (width, width);
+        }
+        else if (box is BlockContainerBox { Inline: { } inline } block)
         {
             sizes = InlineLayout.Measure(block, inline, context);
         }

@@ -78,6 +78,7 @@ internal enum PropertyId
     TextAlign,
     VerticalAlign,
     Direction,
+    WritingMode,
     UnicodeBidi,
     FlexDirection,
     FlexWrap,
@@ -540,6 +541,8 @@ internal static class Properties
             // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
             Keywords(PropertyId.Direction, "direction", true, "ltr", Enum<Direction>("ltr", "rtl"),
                 s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }),
+            Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", Enum<WritingMode>("horizontal-tb", "vertical-rl", "vertical-lr"),
+                s => s.Text.WritingMode, (b, v) => b.Text = b.Text with { WritingMode = v }),
             Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
                 Enum<UnicodeBidi>("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
                 s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
