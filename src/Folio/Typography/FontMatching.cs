@@ -303,7 +303,8 @@ internal sealed class FontCollection(IFontSource? source = null)
         return true;
     }
 
-    private IEnumerable<string> Resolve(string family) =>
+    // An array, so matching (once per line and run) walks it without an enumerator.
+    private string[] Resolve(string family) =>
         GenericFamilies.TryGetValue(family, out var mapped) ? mapped : [family];
 }
 
