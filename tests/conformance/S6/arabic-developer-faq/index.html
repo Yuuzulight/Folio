@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الأسئلة الشائعة — واجهة برمجة التطبيقات</title>
+<style>
+  body { margin: 0; font-family: "Noto Sans Arabic", "Segoe UI", sans-serif; background: #f6f8fb; color: #1c2430; line-height: 1.8; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 30px 24px 50px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .sub { color: #5b6677; margin: 0 0 22px; }
+  details { background: #fff; border: 1px solid #e1e6ef; border-radius: 12px; padding: 12px 18px; margin-bottom: 12px; }
+  summary { font-weight: 700; font-size: 17px; cursor: pointer; }
+  details p { margin: 10px 0 0; }
+  code, pre { font-family: "Cascadia Mono", Consolas, monospace; direction: ltr; unicode-bidi: isolate; }
+  code { background: #eef2f8; border-radius: 4px; padding: 1px 6px; font-size: 14px; }
+  pre { text-align: left; background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.6; overflow: auto; margin: 12px 0 0; }
+  .k { color: #7dd3fc; } .s { color: #86efac; }
+  .callout { display: flex; gap: 12px; align-items: flex-start; background: #fff7e6; border: 1px solid #f5d394; border-radius: 12px; padding: 12px 16px; margin-top: 18px; }
+  .callout span { font-size: 22px; line-height: 1.3; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>الأسئلة الشائعة للمطورين</h1>
+  <p class="sub">كل ما تحتاج معرفته قبل استخدام <bdi>Rihla API</bdi> الإصدار 2.4</p>
+
+  <details open>
+    <summary>كيف أحصل على مفتاح الوصول؟</summary>
+    <p>سجّل الدخول إلى لوحة التحكم، ثم افتح <strong>الإعدادات ← المفاتيح</strong> واضغط «إنشاء مفتاح جديد». يبدأ كل مفتاح بالبادئة <code>rk_live_</code> ويُعرض مرة واحدة فقط.</p>
+  </details>
+
+  <details open>
+    <summary>ما هو الحد الأقصى لعدد الطلبات؟</summary>
+    <p>الحد الافتراضي هو 600 طلب في الدقيقة لكل مفتاح. عند تجاوزه تعيد الواجهة الرمز <code>429 Too Many Requests</code> مع الترويسة <code>Retry-After</code>.</p>
+  </details>
+
+  <details open>
+    <summary>هل يوجد مثال لطلب حجز؟</summary>
+    <p>نعم، هذا مثال باستخدام <bdi>curl</bdi> لحجز رحلة من الرياض إلى جدة:</p>
+<pre><span class="k">curl</span> -X POST https://api.rihla.example/v2/bookings \
+  -H <span class="s">"Authorization: Bearer rk_live_123"</span> \
+  -d <span class="s">'{"from":"RUH","to":"JED","date":"2026-11-03"}'</span></pre>
+  </details>
+
+  <details>
+    <summary>هل تدعمون العملات المحلية؟</summary>
+    <p>نعم: الريال السعودي (SAR) والدرهم الإماراتي (AED) والجنيه المصري (EGP).</p>
+  </details>
+
+  <div class="callout"><span>⚠️</span><div>سيتم إيقاف الإصدار 1.x في 31 ديسمبر 2026. انتقل إلى الإصدار 2 قبل هذا التاريخ لتجنب انقطاع الخدمة.</div></div>
+</div>
+</body>
+</html>

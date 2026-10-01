@@ -1,0 +1,5 @@
+{
+  "prompt": "Make an illustrated postcard: an SVG sunrise over layered mountains and a lake with gradients, sun rays, clouds, a clipped reflection, pines reused with use, a hiker silhouette, and a handwritten-style note.",
+  "features": ["svg", "linear-gradient-svg", "radial-gradient-svg", "clip-path-svg", "use", "svg-transform", "opacity", "box-shadow"],
+  "viewport": 800
+}

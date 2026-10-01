@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen Health — Product Org Chart</title>
+<style>
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: #f5f7fb;
+    color: #1d2433;
+  }
+  .page { max-width: 960px; margin: 0 auto; padding: 28px 20px 40px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  .lead { margin: 0 0 20px; color: #5b6476; max-width: 640px; line-height: 1.5; }
+  .chart {
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid #e3e8f1;
+    padding: 12px;
+    box-shadow: 0 8px 24px rgba(29, 36, 51, 0.06);
+  }
+  svg { display: block; width: 100%; height: auto; }
+  .node rect { fill: #fff; stroke: #c9d3e6; stroke-width: 1.5; }
+  .node.lead rect { fill: #1d4ed8; stroke: none; }
+  .node.lead text { fill: #fff; }
+  .name { font-size: 13px; font-weight: 700; fill: #1d2433; }
+  .role { font-size: 11px; fill: #6b7489; }
+  .node.lead .role { fill: #c7d7ff; }
+  .link { fill: none; stroke: #9aa6bf; stroke-width: 1.5; marker-end: url(#arrow); }
+  .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  .notes div { background: #fff; border: 1px solid #e3e8f1; border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.45; }
+  .notes b { display: block; margin-bottom: 4px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Product organisation</h1>
+  <p class="lead">Who reports to whom after the October reorg. Squad leads now report directly to the group product managers; design and research sit in a shared platform team.</p>
+
+  <div class="chart">
+    <svg viewBox="0 0 920 430" role="img" aria-label="Org chart">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#9aa6bf"/>
+        </marker>
+        <symbol id="person" viewBox="0 0 24 24">
+          <circle cx="12" cy="8" r="4.5"/>
+          <path d="M3.5 21c0-4.4 3.8-7.5 8.5-7.5s8.5 3.1 8.5 7.5z"/>
+        </symbol>
+      </defs>
+
+      <!-- links -->
+      <path class="link" d="M460,74 V110 H160 V146"/>
+      <path class="link" d="M460,74 V146"/>
+      <path class="link" d="M460,74 V110 H760 V146"/>
+      <path class="link" d="M160,206 V240 H90 V276"/>
+      <path class="link" d="M160,206 V240 H230 V276"/>
+      <path class="link" d="M460,206 V240 H390 V276"/>
+      <path class="link" d="M460,206 V240 H530 V276"/>
+      <path class="link" d="M760,206 V240 H690 V276"/>
+      <path class="link" d="M760,206 V240 H830 V276"/>
+      <path class="link" d="M90,336 V370"/>
+      <path class="link" stroke-dasharray="4 4" d="M530,336 V370"/>
+
+      <!-- VP -->
+      <g class="node lead" transform="translate(370,14)">
+        <rect width="180" height="60" rx="12"/>
+        <use href="#person" x="12" y="17" width="26" height="26" fill="#93b4ff"/>
+        <text x="48" y="28" class="name">Priya Raman</text>
+        <text x="48" y="45" class="role">VP of Product</text>
+      </g>
+
+      <!-- GPMs -->
+      <g class="node" transform="translate(75,146)">
+        <rect width="170" height="60" rx="12"/>
+        <use href="#person" x="12" y="17" width="26" height="26" fill="#f59e0b"/>
+        <text x="46" y="28" class="name">Marcus Lee</text>
+        <text x="46" y="45" class="role">GPM, Patient apps</text>
+      </g>
+      <g class="node" transform="translate(375,146)">
+        <rect width="170" height="60" rx="12"/>
+        <use href="#person" x="12" y="17" width="26" height="26" fill="#10b981"/>
+        <text x="46" y="28" class="name">Ana Souza</text>
+        <text x="46" y="45" class="role">GPM, Clinician tools</text>
+      </g>
+      <g class="node" transform="translate(675,146)">
+        <rect width="170" height="60" rx="12"/>
+        <use href="#person" x="12" y="17" width="26" height="26" fill="#8b5cf6"/>
+        <text x="46" y="28" class="name">Tomasz Nowak</text>
+        <text x="46" y="45" class="role">Head of Platform</text>
+      </g>
+
+      <!-- squads -->
+      <g class="node" transform="translate(20,276)"><rect width="140" height="60" rx="10"/><text x="14" y="27" class="name">Booking</text><text x="14" y="44" class="role">Lead: Hana Ito</text></g>
+      <g class="node" transform="translate(160,276)"><rect width="140" height="60" rx="10"/><text x="14" y="27" class="name">Messaging</text><text x="14" y="44" class="role">Lead: Omar Haddad</text></g>
+      <g class="node" transform="translate(320,276)"><rect width="140" height="60" rx="10"/><text x="14" y="27" class="name">Charting</text><text x="14" y="44" class="role">Lead: Grace Kim</text></g>
+      <g class="node" transform="translate(460,276)"><rect width="140" height="60" rx="10"/><text x="14" y="27" class="name">Prescribing</text><text x="14" y="44" class="role">Lead: open role</text></g>
+      <g class="node" transform="translate(620,276)"><rect width="140" height="60" rx="10"/><text x="14" y="27" class="name">Design system</text><text x="14" y="44" class="role">Lead: Lea Martin</text></g>
+      <g class="node" transform="translate(760,276)"><rect width="140" height="60" rx="10"/><text x="14" y="27" class="name">Research ops</text><text x="14" y="44" class="role">Lead: Sam Okafor</text></g>
+
+      <!-- second level -->
+      <g class="node" transform="translate(20,370)"><rect width="140" height="44" rx="10" fill="#f0f5ff"/><text x="14" y="27" class="role">3 engineers · 1 PM</text></g>
+      <g class="node" transform="translate(460,370)"><rect width="140" height="44" rx="10" stroke-dasharray="5 4"/><text x="14" y="27" class="role">Hiring in Q4</text></g>
+    </svg>
+  </div>
+
+  <div class="notes">
+    <div><b><span class="dot" style="background:#f59e0b"></span>Patient apps</b>Booking and messaging move under one GPM so appointment reminders ship with the inbox.</div>
+    <div><b><span class="dot" style="background:#10b981"></span>Clinician tools</b>Prescribing has an open lead role; Ana covers it until the hire starts.</div>
+    <div><b><span class="dot" style="background:#8b5cf6"></span>Platform</b>Design system and research ops serve every squad and keep their own roadmaps.</div>
+  </div>
+</div>
+</body>
+</html>
