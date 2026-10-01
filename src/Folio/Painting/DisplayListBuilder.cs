@@ -19,6 +19,12 @@ internal static class DisplayListBuilder
     // Scale is the device pixels per CSS pixel its edges snap to (docs/study/12-painting.md), or 0 under a transform.
     private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip, bool LineEnd = false, float Scale = 0)
     {
+        /// <summary>The padding box of the nearest scroll container (or the viewport) on the canvas, for sticky boxes.</summary>
+        public RectF Scrollport { get; init; }
+
+        /// <summary>The border box of the nearest block-level container, which a sticky box may not leave.</summary>
+        public RectF StickyLimit { get; init; }
+
         public Box Box => Fragment.Box!;
 
         /// <summary>The border box, each edge rounded to the nearest device pixel, so neighbours never gap or overlap.</summary>
@@ -75,13 +81,16 @@ internal static class DisplayListBuilder
         var root = rootPlaced.Fragment;
         var order = TreeOrder(root.Box!);
         // The root element's stacking context also holds the positioned boxes placed in the initial containing block.
-        var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null, Scale: root.Box is { IsTransformed: true } ? 0 : deviceScale);
+        var viewport = new RectF(0, 0, initialContainingBlock.Width, initialContainingBlock.Height);
+        var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null, Scale: root.Box is { IsTransformed: true } ? 0 : deviceScale)
+            { Scrollport = viewport, StickyLimit = viewport };
         var rootContext = new Context(rootBox, real: true, 0, 0);
         // A replaced root element (the svg root of an SVG document) paints its content like any replaced box.
         if (root.Svg is not null || root.Box is ReplacedBox { Image: not null })
             rootContext.Text.Add(rootBox);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
-        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale), initialContainingBlock.Children.Skip(1), order);
+        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale) { Scrollport = viewport, StickyLimit = viewport },
+            initialContainingBlock.Children.Skip(1), order);
         // The root group blends with the canvas background, which is painted outside it.
         rootContext.Isolated = false;
 
@@ -101,9 +110,40 @@ internal static class DisplayListBuilder
         return list;
     }
 
+    private static bool IsScrollContainer(Box box) =>
+        box.Style.Box.OverflowX is Overflow.Hidden or Overflow.Scroll or Overflow.Auto
+        || box.Style.Box.OverflowY is Overflow.Hidden or Overflow.Scroll or Overflow.Auto;
+
+    private static RectF PaddingBox(PaintBox box)
+    {
+        var border = box.Box.Style.Border;
+        return box.Rect.Inset(border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+    }
+
+    /// <summary>
+    /// How far a sticky box moves at the scroll position Folio draws (the start): up to keep its bottom inset from the
+    /// scrollport's bottom, then down to keep its top inset from the top, never leaving the box it sits in
+    /// (https://www.w3.org/TR/css-position-3/#stickypos-insets).
+    /// </summary>
+    // ponytail: vertical insets only; left and right stickiness waits for horizontal scrolling.
+    private static float StickyOffset(Box box, PaintBox placed)
+    {
+        var (spacing, port, limit) = (box.Style.Spacing, placed.Scrollport, placed.StickyLimit);
+        var (top, bottom) = (placed.Y, placed.Y + placed.Fragment.Height);
+        var dy = 0f;
+        if (spacing.Bottom is { Kind: SizeKind.Length } b && bottom > port.Y + port.Height - b.Length.Resolve(port.Height))
+            dy = Math.Max(port.Y + port.Height - b.Length.Resolve(port.Height) - bottom, Math.Min(0, limit.Y - top));
+        if (spacing.Top is { Kind: SizeKind.Length } t && top + dy < port.Y + t.Length.Resolve(port.Height))
+            dy = Math.Min(port.Y + t.Length.Resolve(port.Height) - top, Math.Max(dy, limit.Y + limit.Height - bottom));
+        return dy;
+    }
+
     private static bool IsWholeTranslation(Matrix3x2 m, float scale) =>
         scale > 0 && m.M11 == 1 && m.M12 == 0 && m.M21 == 0 && m.M22 == 1
         && MathF.Abs(m.M31 * scale - MathF.Round(m.M31 * scale)) < 0.001f && MathF.Abs(m.M32 * scale - MathF.Round(m.M32 * scale)) < 0.001f;
+
+    // A single-line select is built as a block container holding its chosen option's text.
+    private static bool IsDropDown(Box box) => box is BlockContainerBox { Node: Dom.ElementNode { LocalName: "select" } };
 
     private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
     {
@@ -114,7 +154,16 @@ internal static class DisplayListBuilder
             // subtree are drawn through the transform (docs/study/12-painting.md).
             var scale = child.Fragment.Box is { IsTransformed: true } transformed
                 && !IsWholeTranslation(transformed.Style.Transform.Matrix2D(child.Fragment.Width, child.Fragment.Height), parent.Scale) ? 0 : parent.Scale;
-            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale);
+            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale)
+            {
+                Scrollport = parent.Fragment.Box is { } scroller && IsScrollContainer(scroller) ? PaddingBox(parent) : parent.Scrollport,
+                // A cell's containing block is the table, so rows and row groups pass their limit through.
+                StickyLimit = parent.Fragment.Box is TablePartBox { Part: not (TablePart.Table or TablePart.Cell or TablePart.Caption) } ? parent.StickyLimit
+                    : parent.Fragment.Box is BlockContainerBox or FlexContainerBox or GridContainerBox ? parent.Rect : parent.StickyLimit,
+            };
+            // A cell's content fragment shares the cell's box; the cell has already been moved.
+            if (child.Fragment.Box is { Style.Box.Position: Position.Sticky } sticky && sticky != parent.Fragment.Box)
+                placed = placed with { Y = placed.Y + StickyOffset(sticky, placed) };
             // Line boxes only hold inline content; text is painted with text painting.
             if (child.Fragment.Kind == FragmentKind.Line)
             {
@@ -140,7 +189,7 @@ internal static class DisplayListBuilder
             if (outlined && !ownOutline)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
-            var content = box is ReplacedBox { Image: not null } || placed.Fragment.Svg is not null ? placed : null;
+            var content = box is ReplacedBox { Image: not null } || placed.Fragment.Svg is not null || IsDropDown(box) ? placed : null;
             // A table's positioning and stacking properties apply to its wrapper box (CSS 2 §17.4); the table grid box,
             // which shares the wrapper's style, paints as a plain block inside it.
             if (box is TablePartBox { Part: TablePart.Table })
@@ -331,11 +380,11 @@ internal static class DisplayListBuilder
             }
 
             if (context.Owner is { } self)
-                PaintBackground(self);
+                PaintBackground(self, context.Text);
             foreach (var c in Sorted(context.Negative))
                 Emit(c);
             foreach (var block in context.Blocks)
-                PaintBackground(block);
+                PaintBackground(block, context.Text);
             foreach (var c in context.Floats)
                 Emit(c);
             foreach (var text in context.Text)
@@ -477,7 +526,8 @@ internal static class DisplayListBuilder
 
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 
-        private void PaintBackground(PaintBox box)
+        /// <param name="text">The text of the stacking context the box paints in, which an inline box clips to.</param>
+        private void PaintBackground(PaintBox box, List<PaintBox> text)
         {
             var style = box.Box.Style;
             // A table wrapper shares the table's style; the table grid box inside it paints the table.
@@ -520,9 +570,11 @@ internal static class DisplayListBuilder
             {
                 // The glyphs, drawn together into a layer that keeps the background only where they are.
                 list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
-                foreach (var text in TextIn(box))
+                // An inline box's text is not inside its fragment but beside it on its lines.
+                var glyphText = box.Box is InlineBox inline ? text.Where(t => IsWithin(t.Fragment.Text?.Inline, inline)) : TextIn(box);
+                foreach (var run in glyphText)
                 {
-                    if (GlyphsOf(text) is { } glyphs)
+                    if (GlyphsOf(run) is { } glyphs)
                         list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: CssColor.Black, Glyphs: glyphs));
                 }
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
@@ -607,6 +659,22 @@ internal static class DisplayListBuilder
         }
 
         // The visible text fragments in a box and its in-flow descendants, placed on the canvas.
+        // Whether text directly in one inline box is inside another. Inline boxes keep no parent box, so this goes by
+        // their elements: the same element's pseudo-element boxes are inside its box, and descendants' boxes are too.
+        private static bool IsWithin(InlineBox? box, InlineBox inline)
+        {
+            if (box is null)
+                return false;
+            if (box.Node == inline.Node)
+                return box == inline || inline.PseudoElement == PseudoElement.None;
+            for (var node = box.Node?.Parent; node is not null; node = node.Parent)
+            {
+                if (node == inline.Node)
+                    return true;
+            }
+            return false;
+        }
+
         private static IEnumerable<PaintBox> TextIn(PaintBox box)
         {
             var stack = new Stack<PaintBox>([box]);
@@ -635,7 +703,9 @@ internal static class DisplayListBuilder
             }
             if (box.Fragment.Kind == FragmentKind.Box)
             {
-                if (box.Fragment.Svg is { } svg)
+                if (IsDropDown(box.Box))
+                    PaintDropDownArrow(box);
+                else if (box.Fragment.Svg is { } svg)
                     PaintSvg(box, svg);
                 else
                     PaintImage(box);
@@ -1168,12 +1238,51 @@ internal static class DisplayListBuilder
         // ponytail: a box whose chain leaves an enclosing opacity layer's clips stays clipped by them.
         // A disc fills the marker's square with an ellipse, a circle strokes that ellipse 1px wide (centred on its edge),
         // and a square fills the square, all in the marker's colour.
+        /// <summary>
+        /// A drop-down select's arrow: a chevron in the text colour, centred in the arrow area at the inline end of the
+        /// padding box and halfway down (study 15: static appearance).
+        /// </summary>
+        // ponytail: one chevron size for every font size; scale it when a page shows controls at other sizes.
+        private void PaintDropDownArrow(PaintBox box)
+        {
+            var style = box.Box.Style;
+            if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
+                return;
+            SetClip(box.Clip);
+            var (rect, border) = (box.Rect, style.Border);
+            var half = Layout.BoxTreeBuilder.SelectArrowWidth / 2;
+            var x = style.Text.Direction == Direction.Rtl ? rect.X + border.LeftWidth + half : rect.Right - border.RightWidth - half;
+            var y = rect.Y + rect.Height / 2;
+            var path = new PathData().MoveTo(x - 3.5f, y - 2.25f).LineTo(x, y + 1.25f).LineTo(x + 3.5f, y - 2.25f);
+            list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: style.Inherited.Color, Path: path, Stroke: new Stroke(2.25f)));
+        }
+
+        // A disclosure triangle filling its square (the fragment's height, at its start): pointing to the inline end when
+        // closed, down when open.
+        private void PaintDisclosure(PaintBox box, ListSymbol symbol, ComputedStyle style)
+        {
+            var side = box.Fragment.Height;
+            var rtl = style.Text.Direction == Direction.Rtl;
+            var (x, y) = (rtl ? box.X + box.Fragment.Width - side : box.X, box.Y);
+            PathData Triangle(params float[] uv) => new PathData().MoveTo(x + uv[0] * side, y + uv[1] * side)
+                .LineTo(x + uv[2] * side, y + uv[3] * side).LineTo(x + uv[4] * side, y + uv[5] * side).Close();
+            var path = symbol == ListSymbol.DisclosureOpen ? Triangle(0, 0.07f, 0.5f, 0.93f, 1, 0.07f)
+                : rtl ? Triangle(1, 0, 0.14f, 0.5f, 1, 1)
+                : Triangle(0, 0, 0.86f, 0.5f, 0, 1);
+            list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: style.Inherited.Color, Path: path));
+        }
+
         private void PaintSymbol(PaintBox box, ListSymbol symbol)
         {
             var style = box.Box.Style;
             if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
                 return;
             SetClip(box.Clip);
+            if (symbol is ListSymbol.DisclosureClosed or ListSymbol.DisclosureOpen)
+            {
+                PaintDisclosure(box, symbol, style);
+                return;
+            }
             // Snapped as a whole, so the square stays square and the disc round.
             var side = box.Snap(box.Fragment.Width);
             var rect = new RectF(box.Snap(box.X), box.Snap(box.Y), side, side);

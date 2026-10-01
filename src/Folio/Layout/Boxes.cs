@@ -149,11 +149,11 @@ internal sealed class MarkerBox(ComputedStyle style, Node node, string text) : B
     /// <summary>The list-style-image the marker shows before its text, when it loaded.</summary>
     public ReplacedBox? Image { get; init; }
 
-    /// <summary>For the disc, circle and square list styles: the shape drawn instead of the text.</summary>
+    /// <summary>For the disc, circle and square list styles (outside) and the disclosure ones (inside): the shape drawn instead of the text.</summary>
     public ListSymbol? Symbol { get; init; }
 }
 
-internal enum ListSymbol { Disc, Circle, Square }
+internal enum ListSymbol { Disc, Circle, Square, DisclosureClosed, DisclosureOpen }
 
 internal enum InlineItemKind
 {

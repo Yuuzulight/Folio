@@ -69,6 +69,8 @@ internal static class IntrinsicSizes
     /// <summary>A box's contribution to its parent's intrinsic sizes: its margin box at its min and max widths.</summary>
     public static (float Min, float Max) Contribution(Box box, LayoutContext context)
     {
+        if (box is MarkerBox { Symbol: not null } marker)
+            return (InlineLayout.SymbolFragment(marker, context).Width, InlineLayout.SymbolFragment(marker, context).Width);
         var style = box.Style;
         var spacing = style.Spacing;
         // A table wrapper's own sizes already include the table's border and padding.
