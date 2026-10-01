@@ -47,6 +47,9 @@ internal static class BlockLayout
             : replaced?.Height ?? ContentSize(style.Size.Height, space.ContainingHeight, frameY, borderBox);
         var minHeight = space.FixedHeight is null ? ContentSize(style.Size.MinHeight, space.ContainingHeight, frameY, borderBox) ?? 0 : 0;
         var maxHeight = space.FixedHeight is null ? ContentSize(style.Size.MaxHeight, space.ContainingHeight, frameY, borderBox) ?? float.PositiveInfinity : float.PositiveInfinity;
+        // A table cell's height is a minimum: taller content makes the cell taller (CSS 2 §17.5.3).
+        if (box is TablePartBox { Part: TablePart.Cell } && space.FixedHeight is null && height is { } cellHeight)
+            (minHeight, height) = (Math.Max(minHeight, cellHeight), null);
         // aspect-ratio (css-sizing-4 §5.1): an auto height follows the width through the ratio, in the box-sizing box. It
         // is still at least the content's height unless the box scrolls or clips (the automatic minimum size).
         var fromRatio = false;
