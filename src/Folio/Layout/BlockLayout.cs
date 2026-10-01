@@ -909,10 +909,11 @@ internal static class BlockLayout
         public float Dy { get; init; }
     }
 
-    // A block whose content can break across columns: a plain block container with nothing drawn of its own.
+    // A block whose content can break across columns: a plain block container with nothing drawn of its own. Replaced
+    // boxes (images, svg, form controls) are not block containers, so they stay whole.
     private static bool Splittable(Fragment fragment)
     {
-        if (fragment is not { Kind: FragmentKind.Box, Box: BlockContainerBox { IsAtomicInline: false } box, Children.Count: > 0 } || box is ReplacedBox)
+        if (fragment is not { Kind: FragmentKind.Box, Box: BlockContainerBox { IsAtomicInline: false } box, Children.Count: > 0 })
             return false;
         var style = box.Style;
         return style.Box.Display == Display.Block && !style.Multicol.AvoidBreakInside && !style.Multicol.IsMulticol
