@@ -25,6 +25,12 @@ internal static class SvgFilterPrimitives
     public const float MaxRadius = 256;
 
     /// <summary>
+    /// The most values a convolution kernel may have; a larger one passes its input through. The work grows with the
+    /// kernel times the pixels it covers.
+    /// </summary>
+    public const int MaxKernelSize = 256;
+
+    /// <summary>
     /// The filters of a chain, applied in order, each to the result of the one before. A filter that leaves nothing to
     /// render is a transparent flood.
     /// </summary>
@@ -71,7 +77,8 @@ internal static class SvgFilterPrimitives
             Coordinate(filter, "y", "-10%", SvgAxis.Vertical, regionInBox, 0) + (regionInBox ? box.Y : 0),
             Coordinate(filter, "width", "120%", SvgAxis.Horizontal, regionInBox, 0),
             Coordinate(filter, "height", "120%", SvgAxis.Vertical, regionInBox, 0));
-        if (region.Width <= 0 || region.Height <= 0)
+        // Bounding box fractions can overflow to infinities, which render nothing.
+        if (!(region.Width > 0 && region.Height > 0) || !Finite(region.X, region.Y, region.Width, region.Height))
             return Nothing;
 
         var primitives = new List<Filter>();
@@ -107,7 +114,8 @@ internal static class SvgFilterPrimitives
                         return previous;
                 }
             }
-            float Length(float value, SvgAxis axis) => !primitivesInBox ? value : axis == SvgAxis.Horizontal ? value * box.Width : value * box.Height;
+            float Length(float value, SvgAxis axis) =>
+                !primitivesInBox ? value : (axis == SvgAxis.Horizontal ? value * box.Width : value * box.Height) is var length && float.IsFinite(length) ? length : 0;
             List<float> Numbers(string attribute, params float[] fallback) =>
                 element.GetAttribute(attribute) is { } text && SvgGeometry.Numbers(text) is { Count: > 0 } numbers ? numbers : [.. fallback];
             float Number(string attribute, float fallback) => Numbers(attribute, fallback)[0];
@@ -130,6 +138,8 @@ internal static class SvgFilterPrimitives
             var (left, top) = (Math.Max(x, region.X), Math.Max(y, region.Y));
             var (right, bottom) = (Math.Min(x + w, region.X + region.Width), Math.Min(y + h, region.Y + region.Height));
             var subregion = new RectF(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+            if (!Finite(subregion.X, subregion.Y, subregion.Width, subregion.Height))
+                subregion = new RectF(region.X, region.Y, 0, 0);
 
             // A light source's position: user units, or fractions of the bounding box, z of its normalised diagonal.
             Vector3 Position(Vector3 p) => !primitivesInBox ? p
@@ -232,7 +242,7 @@ internal static class SvgFilterPrimitives
     {
         var order = numbers("order", [3]);
         var (ox, oy) = (order[0], order.Count > 1 ? order[1] : order[0]);
-        if (ox < 1 || oy < 1 || ox != MathF.Floor(ox) || oy != MathF.Floor(oy))
+        if (ox < 1 || oy < 1 || ox != MathF.Floor(ox) || oy != MathF.Floor(oy) || ox * oy > MaxKernelSize)
             return null;
         var (columns, rows) = ((int)ox, (int)oy);
         var kernel = numbers("kernelMatrix", []);
@@ -272,18 +282,28 @@ internal static class SvgFilterPrimitives
             return null;
         float N(string name, float fallback) => light.GetAttribute(name) is { } text && SvgGeometry.Numbers(text) is [var n, ..] ? n : fallback;
         Vector3 At(string x, string y, string z) => position(new(N(x, 0), N(y, 0), N(z, 0)));
-        switch (light.LocalName)
+        var (azimuth, elevation) = (N("azimuth", 0) * MathF.PI / 180, N("elevation", 0) * MathF.PI / 180);
+        var result = light.LocalName switch
         {
-            case "feDistantLight":
-                var (azimuth, elevation) = (N("azimuth", 0) * MathF.PI / 180, N("elevation", 0) * MathF.PI / 180);
-                return new Light(LightKind.Distant,
-                    Direction: new(MathF.Cos(azimuth) * MathF.Cos(elevation), MathF.Sin(azimuth) * MathF.Cos(elevation), MathF.Sin(elevation)));
-            case "fePointLight":
-                return new Light(LightKind.Point, Position: At("x", "y", "z"));
-            default:
-                return new Light(LightKind.Spot, Position: At("x", "y", "z"), Target: At("pointsAtX", "pointsAtY", "pointsAtZ"),
-                    Exponent: N("specularExponent", 1), ConeAngle: light.GetAttribute("limitingConeAngle") is null ? null : Math.Abs(N("limitingConeAngle", 90)));
+            "feDistantLight" => new Light(LightKind.Distant,
+                Direction: new(MathF.Cos(azimuth) * MathF.Cos(elevation), MathF.Sin(azimuth) * MathF.Cos(elevation), MathF.Sin(elevation))),
+            "fePointLight" => new Light(LightKind.Point, Position: At("x", "y", "z")),
+            _ => new Light(LightKind.Spot, Position: At("x", "y", "z"), Target: At("pointsAtX", "pointsAtY", "pointsAtZ"),
+                Exponent: N("specularExponent", 1), ConeAngle: light.GetAttribute("limitingConeAngle") is null ? null : Math.Abs(N("limitingConeAngle", 90))),
+        };
+        // Bounding box fractions can overflow to infinities: such a light lights nothing in particular, so there is none.
+        return Finite(result.Direction.X, result.Direction.Y, result.Direction.Z, result.Position.X, result.Position.Y, result.Position.Z,
+            result.Target.X, result.Target.Y, result.Target.Z) ? result : null;
+    }
+
+    private static bool Finite(params ReadOnlySpan<float> values)
+    {
+        foreach (var value in values)
+        {
+            if (!float.IsFinite(value))
+                return false;
         }
+        return true;
     }
 
     private static readonly Dictionary<string, Painting.BlendMode> BlendModes = new(StringComparer.Ordinal)
