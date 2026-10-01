@@ -6,7 +6,9 @@ Format: "=== name", the HTML document (laid out in an 800x600 viewport), "---", 
 top / right / bottom / left when they differ), "clip <rect>[ radius ...]" or "clip path[ evenodd] <commands>" (M, L, C with their points, and Z), a layer as "[opacity <value>][ filter <primitives>][ backdrop <clip rect> <primitives>][ blend <mode>]" (or "layer"
 for a plain isolated group)
 (primitives: "blur(<standard deviation>)", "shadow(<dx>,<dy>,<standard deviation>,<r>,<g>,<b>,<a>)" and
-"matrix(<20 values>)", colours from 0 to 1), "transform <a>,<b>,<c>,<d>,<e>,<f>" (as matrix(), in canvas coordinates), "decoration <rect> <line style> <colour>[ skip-ink]" (the rectangle's height is the line's thickness; skip-ink
+"matrix(<20 values>)", colours from 0 to 1; SVG filter primitives as "offset", "flood", "composite", "merge", "blend", "erode" or
+"dilate", "transfer", "turbulence" and "displace" with their values, then " in=" and " in2=" (source, alpha or #<index>) when not the
+previous result, " [<subregion>]" and " linear"), "transform <a>,<b>,<c>,<d>,<e>,<f>" (as matrix(), in canvas coordinates), "decoration <rect> <line style> <colour>[ skip-ink]" (the rectangle's height is the line's thickness; skip-ink
 when the line leaves gaps around the glyphs)
 "image <rect> <pixel width>x<pixel height> <smooth|pixelated>", "fill path[ evenodd] <commands> <colour>",
 "stroke path <commands> <width>[ <round|square> cap][ <round|bevel> join| miter <limit other than 4>][ dashes <lengths>[ offset <length>]] <colour>", "shadow <rect>[ radius ...] <colour> blur <standard deviation> <inside|outside> <clip rect>", and "pop". Glyphs
