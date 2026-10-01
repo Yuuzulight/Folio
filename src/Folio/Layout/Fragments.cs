@@ -131,6 +131,12 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// </summary>
     public Svg.SvgClipPath? SvgClip { get; init; }
 
+    /// <summary>
+    /// For a masked box with layers that reference SVG mask elements: each layer's mask, by layer index (null for the
+    /// others), in coordinates whose origin is the border box's top-left corner; null when no layer does.
+    /// </summary>
+    public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get; init; }
+
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
 }

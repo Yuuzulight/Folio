@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<title>mask-image: url() to a mask element masks a box with its content, in the border box's coordinates</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#the-mask-image">
+<style>
+  body { margin: 0; }
+  div { width: 100px; height: 60px; background: blue; mask: url(#m); }
+</style>
+<svg width="0" height="0" style="position: absolute"><mask id="m" maskUnits="userSpaceOnUse"><rect x="10" y="10" width="80" height="40" fill="white" /></mask></svg>
+<div></div>
+<div style="-webkit-mask-image: url(#half); mask-image: url(#half)"></div>
+<svg width="0" height="0" style="position: absolute"><mask id="half" style="mask-type: alpha" maskContentUnits="objectBoundingBox"><rect width="0.5" height="1" /></mask></svg>
