@@ -101,7 +101,7 @@ internal static class InlineLayout
             afterForcedBreak = lineUnits.Count > 0 && lineUnits[^1].MandatoryBreakAfter;
             var clipped = clamp is { } limit && lines.Count == limit - 1 && u < units.Count;
             var line = BuildLine(block, ifc.Text, lineUnits, u == units.Count || afterForcedBreak, openBoxes, right - left, width, strut,
-                levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y), room, clipped);
+                levels.Paragraph, context, environment, left, y, room, clipped);
             if (line.Height > 0 || line.Children.Count > 0)
             {
                 room = Math.Max(0, line.Height - ContentBottom(line));
@@ -149,6 +149,7 @@ internal static class InlineLayout
         public bool Visible { get; init; } // content that makes the line box a real one
         public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
         public string? Replacement { get; init; } // text of an inserted ellipsis, whose run is not the context's text
+        public float X { get; set; } // where the line being built puts it
     }
 
     // Content between two break opportunities: never broken inside.
@@ -685,17 +686,14 @@ internal static class InlineLayout
     }
 
     // The visual order of a line's pieces (L2); edges and markers borrow a neighbour's level.
-    private static List<int> VisualOrder(List<Piece> pieces, int paragraphLevel)
+    /// <returns>Indices into <paramref name="pieces"/> in visual order; null when that is their logical order.</returns>
+    private static List<int>? VisualOrder(List<Piece> pieces, int paragraphLevel)
     {
+        if (paragraphLevel == 0 && !pieces.Exists(p => p.Kind is PieceKind.Text or PieceKind.Atomic && p.Level != 0))
+            return null;
         var levels = new byte[pieces.Count];
-        var any = false;
         for (var i = 0; i < pieces.Count; i++)
-        {
             levels[i] = pieces[i].Kind is PieceKind.Text or PieceKind.Atomic ? pieces[i].Level : byte.MaxValue;
-            any |= levels[i] != byte.MaxValue && levels[i] != 0;
-        }
-        if (!any && paragraphLevel == 0)
-            return [.. Enumerable.Range(0, pieces.Count)];
         for (var i = 0; i < pieces.Count; i++)
         {
             if (levels[i] != byte.MaxValue)
@@ -1107,9 +1105,14 @@ internal static class InlineLayout
         public Node? Parent { get; } = parent;
         public ComputedStyle Style { get; } = style;
         public LineMetrics Metrics { get; } = metrics;
-        public List<Node> Children { get; } = [];
+        private static readonly List<Node> NoChildren = [];
+        private List<Node>? _children;
+        // Text and atomic inlines are leaves: they share an empty list rather than each making one.
+        public List<Node> Children => _children ?? NoChildren;
+        public void Add(Node child) => (_children ??= []).Add(child);
         public InlineBox? Box { get; init; }
         public Piece? Piece { get; init; }
+        public int BoxIndex { get; set; } // for a box, its place in the line's list of boxes
         public float X { get; set; }
         public float End { get; set; }
         public float Shift { get; set; }
@@ -1122,7 +1125,7 @@ internal static class InlineLayout
     /// <param name="lastLine">The paragraph's last line, or one ending at a forced break: text-align-last applies.</param>
     private static Fragment BuildLine(BlockContainerBox block, string text, List<Unit> units, bool lastLine, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
                                       float available, float cbWidth, LineMetrics strut, int paragraphLevel, LayoutContext context,
-                                      Action<Box, float> addOutOfFlow, float room, bool clamped = false)
+                                      Environment environment, float lineLeft, float lineTop, float room, bool clamped = false)
     {
         // A line broken at a soft hyphen ends with a hyphen, drawn in place of the soft hyphen's glyph.
         if (!lastLine && units is [.., { Hyphen: { } hyphenated } hyphenUnit])
@@ -1133,8 +1136,13 @@ internal static class InlineLayout
             hyphenated.Width += hyphenUnit.HyphenWidth;
             hyphenUnit.Width += hyphenUnit.HyphenWidth;
         }
-        var pieces = units.SelectMany(u => u.Pieces).ToList();
-        var contentWidth = units.Sum(u => u.Width) - (units.Count > 0 ? units[^1].TrailingSpace : 0);
+        var pieces = new List<Piece>();
+        var contentWidth = units.Count > 0 ? -units[^1].TrailingSpace : 0;
+        foreach (var unit in units)
+        {
+            pieces.AddRange(unit.Pieces);
+            contentWidth += unit.Width;
+        }
         // A ruby annotation wider than its base overhangs the text on either side of it (RubyLayout).
         for (var i = 0; i < pieces.Count; i++)
         {
@@ -1170,7 +1178,7 @@ internal static class InlineLayout
         }
         // A line ended by a forced break (br, or a preserved segment break) is not empty, even with nothing on it
         // (CSS 2.2 §9.4.2), so blank lines in pre keep their height.
-        var visible = pieces.Any(p => p.Visible) || openBoxes.Count > 0 && pieces.Any(p => p.Kind == PieceKind.Text)
+        var visible = pieces.Exists(p => p.Visible) || openBoxes.Count > 0 && pieces.Exists(p => p.Kind == PieceKind.Text)
                       || units.Count > 0 && units[^1].MandatoryBreakAfter;
         var free = available - contentWidth;
         var rtl = paragraphLevel == 1;
@@ -1191,11 +1199,11 @@ internal static class InlineLayout
         // Horizontal: pieces in visual order (UAX #9 L2 over the line). Box edges and markers take the level of the
         // content next to them, so an inline box's start edge follows its content's direction.
         var order = VisualOrder(pieces, paragraphLevel);
-        var pieceX = new Dictionary<Piece, float>(pieces.Count);
-        foreach (var index in order)
+        for (var i = 0; i < pieces.Count; i++)
         {
-            pieceX[pieces[index]] = x;
-            x += pieces[index].Width;
+            var piece = pieces[order?[i] ?? i];
+            piece.X = x;
+            x += piece.Width;
         }
         var lineEnd = x;
 
@@ -1203,12 +1211,10 @@ internal static class InlineLayout
         var root = new Node(null, block.Style, strut);
         var current = root;
         var boxes = new List<(Node Node, List<Piece> Pieces, Piece? Start, Piece? End)>();
-        var boxIndex = new Dictionary<Node, int>();
         void OpenBox(InlineBox box, ComputedStyle style, Piece? start)
         {
-            var node = new Node(current, style, Metrics(style, context)) { Box = box };
-            current.Children.Add(node);
-            boxIndex[node] = boxes.Count;
+            var node = new Node(current, style, Metrics(style, context)) { Box = box, BoxIndex = boxes.Count };
+            current.Add(node);
             boxes.Add((node, [], start, null));
             current = node;
         }
@@ -1217,7 +1223,7 @@ internal static class InlineLayout
         void Collect(Piece piece)
         {
             for (var n = current; n != root; n = n.Parent!)
-                boxes[boxIndex[n]].Pieces.Add(piece);
+                boxes[n.BoxIndex].Pieces.Add(piece);
         }
         foreach (var (box, style) in openBoxes)
             OpenBox(box, style, null);
@@ -1236,7 +1242,7 @@ internal static class InlineLayout
                     {
                         if (node.Box == piece.Box)
                         {
-                            var i = boxIndex[node];
+                            var i = node.BoxIndex;
                             boxes[i] = boxes[i] with { End = piece };
                             current = node.Parent!;
                             openBoxes.RemoveAt(openBoxes.FindLastIndex(o => o.Box == piece.Box));
@@ -1249,7 +1255,7 @@ internal static class InlineLayout
                     // Fallback fonts size the line only with line-height: normal; otherwise the box's first available
                     // font does (css-inline-3 §4.3, CSS 2.2 §10.8.1), so text adds nothing beyond its box's strut.
                     var face = current.Style.Font.LineHeight.IsNormal ? piece.Run!.Face : PrimaryFace(current.Style, context);
-                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, face)) { Piece = piece, X = pieceX[piece] });
+                    current.Add(new Node(current, current.Style, Metrics(current.Style, face)) { Piece = piece, X = piece.X });
                     break;
                 case PieceKind.Atomic:
                 {
@@ -1261,14 +1267,14 @@ internal static class InlineLayout
                     var (above, below) = baseline is { } b
                         ? (piece.AtomicMarginTop + b, extent - b + piece.AtomicMarginBottom)
                         : (piece.AtomicMarginTop + extent + piece.AtomicMarginBottom, 0f);
-                    current.Children.Add(new Node(current, piece.Style, new LineMetrics(above, below, above, below, 0, 0, above + below))
+                    current.Add(new Node(current, piece.Style, new LineMetrics(above, below, above, below, 0, 0, above + below))
                     {
-                        Piece = piece, X = pieceX[piece] + piece.AtomicMarginLeft,
+                        Piece = piece, X = piece.X + piece.AtomicMarginLeft,
                     });
                     break;
                 }
                 case PieceKind.OutOfFlow:
-                    addOutOfFlow(piece.Box!, pieceX[piece]);
+                    environment.AddOutOfFlow(piece.Box!, lineLeft + piece.X, lineTop);
                     break;
             }
         }
@@ -1280,12 +1286,12 @@ internal static class InlineLayout
                 node.X = node.End = lineEnd;
                 continue;
             }
-            var left = boxPieces.Min(p => pieceX[p]);
-            var right = boxPieces.Max(p => pieceX[p] + p.Width);
+            var left = boxPieces.Min(p => p.X);
+            var right = boxPieces.Max(p => p.X + p.Width);
             if (start is not null)
             {
                 var margin = StartMargin(start.Style, cbWidth);
-                if (pieceX[start] <= left)
+                if (start.X <= left)
                     left += margin;
                 else
                     right -= margin;
@@ -1293,7 +1299,7 @@ internal static class InlineLayout
             if (end is not null)
             {
                 var margin = EndMargin(end.Style, cbWidth);
-                if (pieceX[end] + end.Width >= right)
+                if (end.X + end.Width >= right)
                     right -= margin;
                 else
                     left += margin;
@@ -1330,10 +1336,15 @@ internal static class InlineLayout
             Place(root);
         }
 
-        var boxFragments = new List<ChildFragment>();
+        List<ChildFragment>? boxFragments = null;
         var contentFragments = new List<ChildFragment>();
         Emit(root);
-        return new Fragment(block, available, height, [.. boxFragments, .. contentFragments])
+        if (boxFragments is not null)
+        {
+            boxFragments.AddRange(contentFragments);
+            contentFragments = boxFragments;
+        }
+        return new Fragment(block, available, height, [.. contentFragments])
         {
             Kind = FragmentKind.Line,
             Baseline = root.Baseline,
@@ -1418,7 +1429,7 @@ internal static class InlineLayout
                     var (bt, bb) = vertical ? (style.Border.RightWidth, style.Border.LeftWidth) : (style.Border.TopWidth, style.Border.BottomWidth);
                     var (pt, pb) = (BlockLayout.Resolve(vertical ? style.Spacing.PaddingRight : style.Spacing.PaddingTop, cbWidth),
                         BlockLayout.Resolve(vertical ? style.Spacing.PaddingLeft : style.Spacing.PaddingBottom, cbWidth));
-                    boxFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent - pt - bt,
+                    (boxFragments ??= []).Add(new ChildFragment(child.X, child.Baseline - m.Ascent - pt - bt,
                         new Fragment(box, Math.Max(0, child.End - child.X), m.Ascent + m.Descent + pt + pb + bt + bb, [])));
                     Emit(child);
                 }
