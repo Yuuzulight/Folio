@@ -10,8 +10,7 @@ namespace Folio.Layout;
 /// rows, cells (colspan, rowspan) and columns, fixed and auto column widths, row heights, cell vertical alignment,
 /// border-spacing, and captions around the table grid box in the table wrapper.
 /// </summary>
-// ponytail: with collapsed borders, intrinsic widths use the cells'
-// own borders and conflicts ignore columns and column groups.
+// ponytail: with collapsed borders, conflicts ignore columns and column groups.
 internal static class TableLayout
 {
     private sealed class Cell(TablePartBox box)
@@ -67,10 +66,11 @@ internal static class TableLayout
         if (wrapper.Children.OfType<TablePartBox>().FirstOrDefault(p => p.Part == TablePart.Table) is not { } table)
             return (0, 0);
         var grid = Build(table);
-        var (min, max) = ColumnRanges(grid, table.Style, context);
+        var collapsed = table.Style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
+        var (min, max) = ColumnRanges(grid, table.Style, context, collapsed);
         var (frame, spacing) = Frame(table, 0);
-        if (table.Style.Text.BorderCollapse == BorderCollapse.Collapse)
-            frame = CollapsedFrame(grid, ResolveCollapsedBorders(grid, table));
+        if (collapsed is not null)
+            frame = CollapsedFrame(grid, collapsed);
         var extra = frame.Horizontal + spacing.X * (grid.Columns + 1);
         var captions = wrapper.Children.OfType<TablePartBox>().Where(p => p.Part == TablePart.Caption)
             .Select(c => IntrinsicSizes.Contribution(c, context).Min).DefaultIfEmpty(0).Max();
@@ -108,7 +108,7 @@ internal static class TableLayout
             ? b with { TopWidthPx = b.TopWidth / 2, RightWidthPx = b.RightWidth / 2, BottomWidthPx = b.BottomWidth / 2, LeftWidthPx = b.LeftWidth / 2 }
             : null;
         var n = grid.Columns;
-        var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context);
+        var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed);
         var tableWidth = Math.Max(width, columns.Sum() + frame.Horizontal + spacing.X * (n + 1));
         var columnX = new float[n + 1];
         for (var c = 0; c <= n; c++)
@@ -455,7 +455,8 @@ internal static class TableLayout
 
     // Each column's min-content and max-content width (css-tables-3 §3.9.3): single-column cells first, then spanning
     // cells share out what their columns lack, in proportion to the columns' max-content widths.
-    private static (float[] Min, float[] Max) ColumnRanges(Grid grid, ComputedStyle tableStyle, LayoutContext context)
+    private static (float[] Min, float[] Max) ColumnRanges(Grid grid, ComputedStyle tableStyle, LayoutContext context,
+                                                        Dictionary<Cell, BorderGroup>? collapsed)
     {
         var n = grid.Columns;
         var (min, max) = (new float[n], new float[n]);
@@ -466,7 +467,18 @@ internal static class TableLayout
         }
         var spacing = tableStyle.Text.BorderCollapse == BorderCollapse.Collapse ? 0 : tableStyle.Text.BorderSpacingX;
         foreach (var cell in grid.Cells)
+        {
             (cell.Min, cell.Max) = IntrinsicSizes.Contribution(cell.Box, context);
+            // With collapsed borders a cell holds half of each resolved border between it and its neighbours, not its own.
+            // A border-box width or min-width already includes them, so it stays as given.
+            if (collapsed?[cell] is { } border)
+            {
+                var style = cell.Box.Style;
+                var delta = (border.LeftWidth + border.RightWidth) / 2 - (style.Border.LeftWidth + style.Border.RightWidth);
+                var given = style.Box.BoxSizing != BoxSizing.BorderBox ? 0 : Math.Max(Px(style.Size.Width), Px(style.Size.MinWidth));
+                (cell.Min, cell.Max) = (Math.Max(given, cell.Min + delta), Math.Max(given, cell.Max + delta));
+            }
+        }
         foreach (var cell in grid.Cells.Where(c => c.ColumnSpan == 1))
             (min[cell.Column], max[cell.Column]) = (Math.Max(min[cell.Column], cell.Min), Math.Max(max[cell.Column], cell.Max));
         foreach (var cell in grid.Cells.Where(c => c.ColumnSpan > 1).OrderBy(c => c.ColumnSpan))
@@ -491,6 +503,8 @@ internal static class TableLayout
         return (min, max);
     }
 
+    private static float Px(SizeValue size) => size is { Kind: SizeKind.Length, Length: { HasPercent: false } length } ? length.Px : 0;
+
     private enum ColumnKind { Auto, Fixed, Percent }
 
     /// <summary>
@@ -500,14 +514,14 @@ internal static class TableLayout
     /// the columns with no specified width, in proportion to their maximums; only without such columns does it go to
     /// columns with a length width, and then to percentage columns.
     /// </summary>
-    private static float[] ColumnWidths(Grid grid, ComputedStyle style, float target, LayoutContext context)
+    private static float[] ColumnWidths(Grid grid, ComputedStyle style, float target, LayoutContext context, Dictionary<Cell, BorderGroup>? collapsed)
     {
         var n = grid.Columns;
         if (n == 0)
             return [];
         if (style.Box.TableLayout == TableLayoutMode.Fixed && style.Size.Width.Kind == SizeKind.Length)
             return FixedWidths(grid, target);
-        var (min, max) = ColumnRanges(grid, style, context);
+        var (min, max) = ColumnRanges(grid, style, context, collapsed);
         if (target <= min.Sum())
             return min;
 
