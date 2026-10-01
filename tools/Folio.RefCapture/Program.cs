@@ -62,11 +62,21 @@ public static class Program
         var fonts = Path.Combine(root, "tests", "fonts");
         string Face(string family, string file, int weight, string style) =>
             $"@font-face {{ font-family: \"{family}\"; font-weight: {weight}; font-style: {style}; " +
-            $"src: url(data:font/ttf;base64,{Convert.ToBase64String(File.ReadAllBytes(Path.Combine(fonts, file)))}) format(\"truetype\"); }}";
+            $"src: url(data:font/{(file.EndsWith(".otf") ? "otf" : "ttf")};base64,{Convert.ToBase64String(File.ReadAllBytes(Path.Combine(fonts, file)))}) " +
+            $"format(\"{(file.EndsWith(".otf") ? "opentype" : "truetype")}\"); }}";
         var faces = string.Join('\n',
             Face("Source Sans 3", "SourceSans3-Regular.ttf", 400, "normal"),
             Face("Source Sans 3", "SourceSans3-Bold.ttf", 700, "normal"),
             Face("Source Sans 3", "SourceSans3-It.ttf", 400, "italic"),
+            Face("Noto Color Emoji", "NotoColorEmoji.ttf", 400, "normal"),
+            Face("Noto Sans JP", "NotoSansJP-Regular.otf", 400, "normal"),
+            Face("Noto Sans JP", "NotoSansJP-Bold.otf", 700, "normal"),
+            Face("Noto Sans SC", "NotoSansSC-Regular.otf", 400, "normal"),
+            Face("Noto Sans SC", "NotoSansSC-Bold.otf", 700, "normal"),
+            Face("Noto Sans Arabic", "NotoSansArabic-Regular.ttf", 400, "normal"),
+            Face("Noto Sans Arabic", "NotoSansArabic-Bold.ttf", 700, "normal"),
+            Face("Noto Sans Hebrew", "NotoSansHebrew-Regular.ttf", 400, "normal"),
+            Face("Noto Sans Hebrew", "NotoSansHebrew-Bold.ttf", 700, "normal"),
             Face("Folio Box", "FolioBox.ttf", 400, "normal"));
 
         var corpus = Path.Combine(root, "tests", "conformance");
@@ -148,13 +158,13 @@ public static class Program
     }
 
     // The fixed capture configuration; appended after </html>, so it lands at the end of the body and wins the cascade.
-    // The families match Folio.RenderTests.Conformance.FontFamilies: the bundled text font, then the box font for
-    // characters it lacks, so no system font is ever used.
+    // The families match Folio.RenderTests.Conformance.FontFamilies: the bundled text font, the emoji and script fonts
+    // for characters it lacks, then the box font for anything left, so no system font is ever used.
     private static string Injected(string faces) => $$"""
 
         <style>
         {{faces}}
-        *, *::before, *::after { font-family: "Source Sans 3", "Folio Box" !important; font-synthesis: none !important;
+        *, *::before, *::after { font-family: "Source Sans 3", "Noto Color Emoji", "Noto Sans JP", "Noto Sans SC", "Noto Sans Arabic", "Noto Sans Hebrew", "Folio Box" !important; font-synthesis: none !important;
           animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; }
         html { scrollbar-width: none !important; }
         </style>

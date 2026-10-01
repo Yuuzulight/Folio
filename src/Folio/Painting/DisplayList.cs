@@ -68,6 +68,7 @@ internal enum DisplayItemKind
 /// <param name="Image">For images: the pixels, drawn with <paramref name="Sampling"/>.</param>
 /// <param name="LineStyle">For decorations: solid, dotted, dashed or wavy (a double line is two solid ones).</param>
 /// <param name="Transform">For transforms: the matrix in row-vector form, in canvas coordinates.</param>
+/// <param name="Projection">For transforms under perspective: a projective matrix used instead of <paramref name="Transform"/> (see <see cref="ICanvas.Transform(in System.Numerics.Matrix4x4)"/>).</param>
 /// <param name="Filters">For layers: the filter primitives applied to what the layer holds (filter), or null.</param>
 /// <param name="Backdrop">For layers: the filter primitives applied to the backdrop (backdrop-filter), or null.</param>
 /// <param name="Blend">For layers and fills: how they blend with what is under them.</param>
@@ -79,7 +80,8 @@ internal readonly record struct DisplayItem(DisplayItemKind Kind, RoundedRect Sh
                                             float Blur = 0, bool Inset = false, RoundedRect Box = default,
                                             Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default,
                                             IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null, BlendMode Blend = BlendMode.Normal,
-                                            PathData? Path = null, FillRule Rule = FillRule.NonZero, Stroke? Stroke = null);
+                                            PathData? Path = null, FillRule Rule = FillRule.NonZero, Stroke? Stroke = null,
+                                            System.Numerics.Matrix4x4? Projection = null);
 
 /// <summary>Glyphs of one font at one size, each with its baseline origin on the canvas.</summary>
 internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[] Glyphs, System.Numerics.Vector2[] Origins);
