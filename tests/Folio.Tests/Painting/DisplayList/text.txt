@@ -39,15 +39,15 @@ glyphs 0,13 16px rgb(0, 0, 0)
 <!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px }</style><ul style="list-style-type: circle"><li>a</li></ul><ul style="list-style-type: square"><li>a</li></ul>
 ---
 glyphs 40,13 16px rgb(0, 0, 0)
-stroke path M29.83,8.92 C29.83,10.25 28.75,11.33 27.42,11.33 C26.08,11.33 25,10.25 25,8.92 C25,7.58 26.08,6.5 27.42,6.5 C28.75,6.5 29.83,7.58 29.83,8.92 Z 1 rgb(0, 0, 0)
+stroke path M30,9.5 C30,10.88 28.88,12 27.5,12 C26.12,12 25,10.88 25,9.5 C25,8.12 26.12,7 27.5,7 C28.88,7 30,8.12 30,9.5 Z 1 rgb(0, 0, 0)
 glyphs 40,29 16px rgb(0, 0, 0)
-fill 25,22.5 4.83x4.83 rgb(0, 0, 0)
+fill 25,23 5x5 rgb(0, 0, 0)
 
 === outside list markers are painted in the item's colour
 <!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px; color: blue }</style><ul><li>a</li></ul>
 ---
 glyphs 40,13 16px rgb(0, 0, 255)
-fill 25,6.5 4.83x4.83 radius 2.42 rgb(0, 0, 255)
+fill 25,7 5x5 radius 2.5 rgb(0, 0, 255)
 
 === text shadows go under the text, the last written lowest
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-shadow: 1px 1px red, 2px 2px 4px blue">a</p>

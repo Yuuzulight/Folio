@@ -1113,7 +1113,9 @@ internal static class DisplayListBuilder
             if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
                 return;
             SetClip(box.Clip);
-            var rect = new RectF(box.X, box.Y, box.Fragment.Width, box.Fragment.Height);
+            // Snapped as a whole, so the square stays square and the disc round.
+            var side = box.Snap(box.Fragment.Width);
+            var rect = new RectF(box.Snap(box.X), box.Snap(box.Y), side, side);
             var corner = new Vector2(rect.Width / 2, rect.Height / 2);
             var round = new CornerRadii(corner, corner, corner, corner);
             if (symbol == ListSymbol.Circle)
