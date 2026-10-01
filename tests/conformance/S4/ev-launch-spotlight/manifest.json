@@ -1,0 +1,5 @@
+{
+  "prompt": "Design a dramatic, Apple-style launch page for an electric car, the Arden E1: a spotlit black stage with a huge fading metallic headline and a stylised car with glowing lights and a floor reflection, a specs row, and a gradient panel with a frosted reservation card.",
+  "features": ["mask-image", "background-clip-text", "backdrop-filter", "filter-drop-shadow", "filter-blur", "filter-brightness", "filter-contrast", "mix-blend-mode", "clip-path", "radial-gradient", "linear-gradient", "repeating-linear-gradient", "grid", "flex", "box-shadow"],
+  "viewport": 800
+}

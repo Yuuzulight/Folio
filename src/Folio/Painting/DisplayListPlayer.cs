@@ -195,7 +195,13 @@ internal static class DisplayListPlayer
             return;
         }
 
-        var (o, i) = (outer.Rect, inner.Rect);
+        // Each side owns the region between its outer edge and the joins from the outer corners through the inner
+        // corners (css-backgrounds-3 §5.5). The joins run on into the box until they meet, so a side keeps the part of a
+        // rounded border that curves inside the inner rectangle; i is where the four regions meet.
+        static float Span(float size, float widths) => widths > 0 ? size / widths : float.PositiveInfinity;
+        var o = outer.Rect;
+        var t = MathF.Min(Span(o.Width, widths[1] + widths[3]), Span(o.Height, widths[0] + widths[2]));
+        var i = new RectF(o.X + t * widths[3], o.Y + t * widths[0], o.Width - t * (widths[1] + widths[3]), o.Height - t * (widths[0] + widths[2]));
         for (var side = 0; side < 4; side++)
         {
             if (widths[side] <= 0 || colors[side].A <= 0)

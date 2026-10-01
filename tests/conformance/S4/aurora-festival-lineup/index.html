@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aurora Nights 2027 — Lineup</title>
+<style>
+  :root {
+    --ink: #0d0a1f;
+    --magenta: #ff3d9a;
+    --teal: #22e1c7;
+    --gold: #ffcf4a;
+    --paper: #f7f2ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .hero {
+    position: relative;
+    height: 520px;
+    overflow: hidden;
+    isolation: isolate;
+    background:
+      radial-gradient(circle at 25% 30%, #6b2cff 0, transparent 45%),
+      radial-gradient(circle at 80% 20%, #00a3ff 0, transparent 40%),
+      radial-gradient(circle at 60% 85%, var(--magenta) 0, transparent 45%),
+      #1a0f3d;
+    clip-path: polygon(0 0, 100% 0, 100% 86%, 0 100%);
+  }
+
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 2px, transparent 2px 28px);
+    mix-blend-mode: overlay;
+  }
+
+  .beam {
+    position: absolute;
+    width: 140px;
+    height: 640px;
+    top: -60px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.75), transparent 80%);
+    filter: blur(18px);
+    mix-blend-mode: screen;
+    transform: rotate(18deg);
+    transform-origin: top center;
+  }
+
+  .beam.b1 { left: 12%; }
+  .beam.b2 { left: 48%; transform: rotate(-14deg); background: linear-gradient(180deg, rgba(34,225,199,0.8), transparent 75%); }
+  .beam.b3 { left: 78%; transform: rotate(8deg); background: linear-gradient(180deg, rgba(255,207,74,0.7), transparent 70%); }
+
+  .hero-inner {
+    position: relative;
+    z-index: 2;
+    padding: 72px 48px 0;
+  }
+
+  .dates {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(10px);
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 22px 0 0;
+    font-size: 92px;
+    line-height: 0.9;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
+    mix-blend-mode: difference;
+    color: #fff;
+  }
+
+  .tagline {
+    margin: 18px 0 0;
+    max-width: 420px;
+    font-size: 19px;
+    line-height: 1.45;
+    color: rgba(247,242,255,0.85);
+  }
+
+  .cta {
+    display: inline-block;
+    margin-top: 28px;
+    padding: 14px 28px;
+    border-radius: 12px;
+    background: var(--gold);
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: none;
+    filter: drop-shadow(0 8px 18px rgba(255,207,74,0.55));
+  }
+
+  section { padding: 56px 48px; }
+
+  .section-title {
+    margin: 0 0 24px;
+    font-size: 15px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--teal);
+  }
+
+  .headliners {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+
+  .act {
+    position: relative;
+    height: 220px;
+    border-radius: 18px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .act .photo {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 38%, #f3d9c4 0 22%, transparent 23%),
+      radial-gradient(ellipse at 50% 100%, #3a3550 0 45%, transparent 46%),
+      linear-gradient(160deg, #8a8aa0, #2c2a3a);
+    filter: grayscale(1) contrast(1.2);
+  }
+
+  .act .tint {
+    position: absolute;
+    inset: 0;
+    mix-blend-mode: multiply;
+  }
+
+  .act:nth-child(1) .tint { background: linear-gradient(135deg, var(--magenta), #6b2cff); }
+  .act:nth-child(2) .tint { background: linear-gradient(135deg, var(--teal), #0057ff); }
+  .act:nth-child(3) .tint { background: linear-gradient(135deg, var(--gold), #ff5a1f); }
+
+  .act .name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 14px 16px;
+    background: rgba(13,10,31,0.35);
+    backdrop-filter: blur(12px) saturate(1.4);
+    border-top: 1px solid rgba(255,255,255,0.18);
+  }
+
+  .act .name strong { display: block; font-size: 22px; }
+  .act .name span { font-size: 13px; color: rgba(247,242,255,0.75); }
+
+  .lineup {
+    columns: 3;
+    column-gap: 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lineup li {
+    padding: 8px 0;
+    border-bottom: 1px dashed rgba(247,242,255,0.18);
+    font-size: 17px;
+  }
+
+  .lineup li b { color: var(--gold); font-weight: 700; margin-right: 6px; }
+
+  .tickets {
+    display: flex;
+    gap: 18px;
+  }
+
+  .ticket {
+    flex: 1;
+    padding: 24px;
+    border-radius: 16px;
+    background: linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03));
+    border: 1px solid rgba(255,255,255,0.14);
+    -webkit-mask: radial-gradient(circle 12px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                  radial-gradient(circle 12px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+  }
+
+  .ticket h3 { margin: 0; font-size: 20px; }
+  .ticket .price { margin: 10px 0 4px; font-size: 40px; font-weight: 700; }
+  .ticket p { margin: 0; color: rgba(247,242,255,0.7); font-size: 15px; line-height: 1.5; }
+  .ticket.vip { background: linear-gradient(160deg, rgba(255,61,154,0.35), rgba(107,44,255,0.25)); }
+
+  footer {
+    padding: 28px 48px 40px;
+    font-size: 13px;
+    color: rgba(247,242,255,0.55);
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="beam b1"></div>
+    <div class="beam b2"></div>
+    <div class="beam b3"></div>
+    <div class="hero-inner">
+      <span class="dates">Jul 16 – 18 · Lake Tekapo</span>
+      <h1>Aurora<br>Nights</h1>
+      <p class="tagline">Three nights of electronic music under the darkest skies in the southern hemisphere.</p>
+      <a class="cta" href="#tickets">Get passes</a>
+    </div>
+  </header>
+
+  <section>
+    <h2 class="section-title">Headliners</h2>
+    <div class="headliners">
+      <div class="act"><div class="photo"></div><div class="tint"></div><div class="name"><strong>Mira Sol</strong><span>Friday · Main stage</span></div></div>
+      <div class="act"><div class="photo"></div><div class="tint"></div><div class="name"><strong>Glasshouse</strong><span>Saturday · Main stage</span></div></div>
+      <div class="act"><div class="photo"></div><div class="tint"></div><div class="name"><strong>Kōwhai</strong><span>Sunday · Main stage</span></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section-title">Full lineup</h2>
+    <ul class="lineup">
+      <li><b>Fri</b>Mira Sol</li>
+      <li><b>Fri</b>Low Orbit</li>
+      <li><b>Fri</b>Tidepool</li>
+      <li><b>Fri</b>Harbour Lights</li>
+      <li><b>Sat</b>Glasshouse</li>
+      <li><b>Sat</b>Neon Weka</li>
+      <li><b>Sat</b>Paper Moons</li>
+      <li><b>Sat</b>Static Bloom</li>
+      <li><b>Sun</b>Kōwhai</li>
+      <li><b>Sun</b>Driftwood</li>
+      <li><b>Sun</b>Southern Cross</li>
+      <li><b>Sun</b>Late Signal</li>
+    </ul>
+  </section>
+
+  <section id="tickets">
+    <h2 class="section-title">Passes</h2>
+    <div class="tickets">
+      <div class="ticket">
+        <h3>Day pass</h3>
+        <div class="price">$129</div>
+        <p>One night, all stages, shuttle from Tekapo village.</p>
+      </div>
+      <div class="ticket">
+        <h3>Weekend</h3>
+        <div class="price">$319</div>
+        <p>All three nights plus the Sunday sunrise set.</p>
+      </div>
+      <div class="ticket vip">
+        <h3>Stargazer VIP</h3>
+        <div class="price">$590</div>
+        <p>Weekend pass, observatory tour and a heated lounge.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>Aurora Nights is a dark-sky event. No lasers, no drones, just the lights above.</footer>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "prompt": "Design a soft, elegant product page for a fragrance-free barrier serum from a skincare brand called Dewfold: an arched blush hero with a frosted glass bottle, three round ingredient swatches with feathered edges, and a large pull quote.",
+  "features": ["clip-path", "mix-blend-mode", "backdrop-filter", "filter-blur", "filter-saturate", "filter-hue-rotate", "mask-image", "conic-gradient", "radial-gradient", "repeating-radial-gradient", "linear-gradient", "grid", "flex", "box-shadow"],
+  "viewport": 800
+}

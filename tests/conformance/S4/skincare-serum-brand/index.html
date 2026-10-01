@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dewfold — Barrier Serum</title>
+<style>
+  :root {
+    --cream: #fbf5ef;
+    --blush: #f2c6c2;
+    --clay: #c9826b;
+    --sage: #a9bfa3;
+    --ink: #3b2a26;
+    --soft: #7a6460;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Cormorant Garamond", Georgia, serif;
+    background: var(--cream);
+    color: var(--ink);
+  }
+
+  .announce {
+    padding: 9px;
+    text-align: center;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    background: var(--ink);
+    color: var(--cream);
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 44px;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+  }
+
+  .wordmark { font-family: Georgia, serif; font-size: 28px; font-style: italic; letter-spacing: 0.02em; }
+  header nav { display: flex; gap: 22px; color: var(--soft); }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 20px;
+    padding: 24px 44px 60px;
+  }
+
+  .hero h1 {
+    margin: 0;
+    font-size: 64px;
+    font-weight: 400;
+    line-height: 1.02;
+  }
+
+  .hero h1 em { color: var(--clay); }
+
+  .hero p {
+    margin: 20px 0 0;
+    font-family: system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--soft);
+    max-width: 330px;
+  }
+
+  .shop {
+    display: inline-flex;
+    gap: 14px;
+    align-items: center;
+    margin-top: 28px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--cream);
+    font-family: system-ui, sans-serif;
+    font-size: 15px;
+  }
+
+  .visual {
+    position: relative;
+    height: 420px;
+  }
+
+  .arch {
+    position: absolute;
+    inset: 0 30px 0 30px;
+    background:
+      radial-gradient(circle at 30% 30%, #fff 0, transparent 40%),
+      linear-gradient(180deg, var(--blush), #e8a99c);
+    clip-path: inset(0 round 170px 170px 18px 18px);
+  }
+
+  .petals {
+    position: absolute;
+    inset: 0 30px;
+    background: repeating-radial-gradient(circle at 50% 110%, rgba(255,255,255,0.35) 0 14px, transparent 14px 34px);
+    mix-blend-mode: soft-light;
+    clip-path: inset(0 round 170px 170px 18px 18px);
+  }
+
+  .bottle {
+    position: absolute;
+    left: 50%;
+    top: 80px;
+    width: 120px;
+    height: 270px;
+    margin-left: -60px;
+  }
+
+  .bottle .cap {
+    width: 46px;
+    height: 70px;
+    margin: 0 auto;
+    border-radius: 10px 10px 4px 4px;
+    background: linear-gradient(90deg, #2e211e, #5a433d 45%, #2e211e);
+  }
+
+  .bottle .glass {
+    height: 200px;
+    border-radius: 22px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.55), rgba(255,255,255,0.15) 40%, rgba(255,255,255,0.45));
+    border: 1px solid rgba(255,255,255,0.7);
+    backdrop-filter: blur(6px) brightness(1.08);
+    box-shadow: 0 30px 40px -20px rgba(59, 42, 38, 0.45);
+  }
+
+  .bottle .label {
+    position: relative;
+    top: 70px;
+    margin: 0 14px;
+    padding: 10px 0;
+    text-align: center;
+    font-size: 15px;
+    font-style: italic;
+    background: rgba(251, 245, 239, 0.85);
+  }
+
+  .shadow {
+    position: absolute;
+    left: 50%;
+    bottom: 32px;
+    width: 160px;
+    height: 24px;
+    margin-left: -80px;
+    border-radius: 50%;
+    background: rgba(59, 42, 38, 0.35);
+    filter: blur(8px);
+  }
+
+  .ingredients {
+    padding: 56px 44px;
+    background: #f5ebe2;
+  }
+
+  .ingredients h2 {
+    margin: 0 0 26px;
+    font-size: 40px;
+    font-weight: 400;
+    text-align: center;
+  }
+
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+
+  .ingredient { text-align: center; font-family: system-ui, sans-serif; }
+
+  .swatch {
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    -webkit-mask-image: radial-gradient(circle, #000 55%, transparent 72%);
+    mask-image: radial-gradient(circle, #000 55%, transparent 72%);
+  }
+
+  .swatch.ceramide { background: conic-gradient(from 40deg, #f6d7c9, #fff3ea, #e9b8a5, #f6d7c9); }
+  .swatch.squalane { background: radial-gradient(circle at 35% 35%, #ffffff, #dfe9d9 40%, var(--sage)); }
+  .swatch.niacin { background: linear-gradient(135deg, #f8e6c4, #e9c58e); filter: saturate(1.3) hue-rotate(-10deg); }
+
+  .ingredient b { display: block; font-size: 16px; }
+  .ingredient span { display: block; margin-top: 6px; font-size: 14px; line-height: 1.5; color: var(--soft); }
+
+  .quote {
+    position: relative;
+    margin: 0;
+    padding: 70px 80px;
+    text-align: center;
+    font-size: 30px;
+    line-height: 1.35;
+    font-style: italic;
+    overflow: hidden;
+  }
+
+  .quote::before {
+    content: "";
+    position: absolute;
+    inset: 30px 120px;
+    border-radius: 50%;
+    background: var(--blush);
+    filter: blur(50px);
+    opacity: 0.6;
+    z-index: -1;
+  }
+
+  .quote cite {
+    display: block;
+    margin-top: 18px;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    letter-spacing: 0.08em;
+    color: var(--soft);
+  }
+
+  footer {
+    padding: 26px 44px 40px;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--soft);
+    border-top: 1px solid #ead9cc;
+  }
+</style>
+</head>
+<body>
+  <div class="announce">Free shipping on orders over $40 · Refillable glass, always</div>
+  <header>
+    <span class="wordmark">Dewfold</span>
+    <nav><span>Shop</span><span>Rituals</span><span>Refills</span><span>Bag (0)</span></nav>
+  </header>
+
+  <section class="hero">
+    <div>
+      <h1>Calm skin,<br><em>quietly</em> restored.</h1>
+      <p>Our barrier serum blends three ceramides with plant squalane to soothe redness in a week, without a trace of fragrance.</p>
+      <span class="shop">Shop the serum <span>$38</span></span>
+    </div>
+    <div class="visual">
+      <div class="arch"></div>
+      <div class="petals"></div>
+      <div class="shadow"></div>
+      <div class="bottle">
+        <div class="cap"></div>
+        <div class="glass"><div class="label">Barrier Serum</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ingredients">
+    <h2>Three things, done well</h2>
+    <div class="row">
+      <div class="ingredient"><div class="swatch ceramide"></div><b>Ceramide complex</b><span>Rebuilds the lipid layer that keeps moisture in.</span></div>
+      <div class="ingredient"><div class="swatch squalane"></div><b>Olive squalane</b><span>Weightless oil that sinks in without shine.</span></div>
+      <div class="ingredient"><div class="swatch niacin"></div><b>4% niacinamide</b><span>Evens tone and settles visible redness.</span></div>
+    </div>
+  </section>
+
+  <blockquote class="quote">
+    “The first serum that didn’t sting. My cheeks have stopped looking sunburnt by noon.”
+    <cite>— MAREN, VERIFIED BUYER</cite>
+  </blockquote>
+
+  <footer>Dermatologist tested. Vegan, cruelty free, and made in small batches in Portland.</footer>
+</body>
+</html>
