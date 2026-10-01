@@ -79,6 +79,12 @@ internal sealed record SvgClipPath(IReadOnlyList<SvgRenderNode> Children, Matrix
 internal sealed record SvgContainerNode(Matrix3x2 Transform, float Opacity, IReadOnlyList<SvgRenderNode> Children, SvgRect? Clip = null)
     : SvgRenderNode(Transform, Opacity);
 
+/// <summary>
+/// A foreignObject (https://www.w3.org/TR/SVG2/embedded.html#ForeignObjectElement): its HTML content laid out by CSS
+/// in a box of <paramref name="Rect"/>'s size, placed at its corner and clipped to it.
+/// </summary>
+internal sealed record SvgForeignNode(Matrix3x2 Transform, float Opacity, SvgRect Rect, Layout.Fragment Content) : SvgRenderNode(Transform, Opacity);
+
 /// <summary>A fill: its paint and whether the fill rule is evenodd.</summary>
 internal readonly record struct SvgFill(SvgResolvedPaint Paint, bool EvenOdd);
 
@@ -374,6 +380,17 @@ internal static class SvgRenderTree
                 return PathDataParser.Parse(element.GetAttribute("d") ?? "", upToError: true) is { } path ? Shape(path, markable: true) : null;
             case "text":
                 return SvgText.Build(element, style, transform, viewport, context, clipping);
+            case "foreignObject" when !clipping:
+            {
+                // Its children are laid out as the content of a block of its width and height.
+                var rect = new SvgRect(X("x"), Y("y"), X("width"), Y("height"));
+                if (rect.Width <= 0 || rect.Height <= 0 || style.Inherited.Visibility != Visibility.Visible
+                    || Layout.BoxTreeBuilder.BuildContents(element) is not { } contents)
+                    return null;
+                var content = Layout.BlockLayout.Layout(contents,
+                    new Layout.ConstraintSpace(rect.Width, rect.Height, FixedWidth: rect.Width, FixedHeight: rect.Height), context.Layout);
+                return new SvgForeignNode(transform, style.Box.Opacity, rect, content);
+            }
             default:
                 return null;
         }

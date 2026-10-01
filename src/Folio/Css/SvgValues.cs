@@ -123,10 +123,10 @@ internal static class SvgProperties
                                                      Func<ComputedStyle, LengthPercentage> get, Action<StyleBuilder, LengthPercentage> set) =>
         new(id, name, true, initial, r => LengthOrNumber(r, nonNegative), ToLength, get, set);
 
-    private static Property<T> Keywords<T>(PropertyId id, string name, string initial, Dictionary<string, T> keywords,
-                                           Func<ComputedStyle, T> get, Action<StyleBuilder, T> set) =>
+    private static Property<T> Keywords<T>(PropertyId id, string name, string initial, KeywordMap<T> keywords,
+                                           Func<ComputedStyle, T> get, Action<StyleBuilder, T> set) where T : struct, Enum =>
         new(id, name, true, initial,
-            r => r.Keyword(keywords.Keys.ToArray()) is { } k ? new KeywordValue(k) : null,
+            r => r.Keyword(keywords.Keys) is { } k ? new KeywordValue(k) : null,
             (v, _) => keywords[((KeywordValue)v).Keyword],
             get, set);
 

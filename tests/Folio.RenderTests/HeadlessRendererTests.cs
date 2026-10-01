@@ -11,6 +11,34 @@ public class HeadlessRendererTests
         return new SKColor(p[2], p[1], p[0], p[3]);
     }
 
+    // A 20px box that slides 100px right over a second, after a 1s delay, and holds its end.
+    private const string Slide = "<style>@keyframes s { from { transform: translateX(0) } to { transform: translateX(100px) } }" +
+        " body { margin: 0 } div { width: 20px; height: 20px; background: blue; animation: s 1s linear 1s forwards }</style><div></div>";
+
+    [Theory]
+    [InlineData(0.5, 10)]   // still in its delay
+    [InlineData(1.5, 60)]   // half way
+    [InlineData(5.0, 110)]  // held at its end
+    public void DrawsAnimationsAtTheRequestedTime(double seconds, int centre)
+    {
+        using var document = Document.Parse(Slide);
+        using var result = HeadlessRenderer.Render(document, new RenderRequest(200, 20, AnimationTime: TimeSpan.FromSeconds(seconds)));
+
+        Assert.Equal(SKColors.Blue, Pixel(result, centre, 10));
+        Assert.Equal(SKColors.White, Pixel(result, centre - 15, 10));
+        Assert.Equal(SKColors.White, Pixel(result, centre + 15, 10));
+    }
+
+    [Fact]
+    public void WithoutATimeTheDocumentIsSettled()
+    {
+        using var document = Document.Parse(Slide);
+        using var result = HeadlessRenderer.Render(document, new RenderRequest(200, 20));
+
+        Assert.Equal(SKColors.Blue, Pixel(result, 110, 10));
+        Assert.Equal(SKColors.White, Pixel(result, 10, 10));
+    }
+
     [Fact]
     public void RendersTheWholeDocumentWhenNoHeightIsGiven()
     {

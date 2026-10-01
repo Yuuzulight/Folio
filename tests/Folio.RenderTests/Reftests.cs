@@ -64,6 +64,7 @@ public class Reftests
     [InlineData("svg/pattern-001")]
     [InlineData("svg/pattern-bounding-box-001")]
     [InlineData("svg/pattern-viewbox-href-001")]
+    [InlineData("svg/foreign-object-001")]
     public void RendersLikeItsReference(string name)
     {
         var result = ReftestRunner.Run(name);
