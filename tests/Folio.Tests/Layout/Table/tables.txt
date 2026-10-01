@@ -94,6 +94,38 @@ html 0,0 800x32
               line 16,8 16x16
                 text "c" 16,8 16x16
 
+=== percentage widths on col elements size their columns
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 200px"><col style="width: 30%"><col style="width: 70%"><tr><td>aaa</td><td>b</td></tr></table>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    table 0,0 200x16
+      table 0,0 200x16
+        tbody 0,0 200x16
+          tr 0,0 200x16
+            td 0,0 60x16
+              line 0,0 60x16
+                text "aaa" 0,0 48x16
+            td 60,0 140x16
+              line 60,0 140x16
+                text "b" 60,0 16x16
+
+=== percentages that ask for more than the table has shrink towards the columns' minimums
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 200px"><col style="width: 50%"><col style="width: 50%"><tr><td>aaaaaaaaaa</td><td>b</td></tr></table>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    table 0,0 200x16
+      table 0,0 200x16
+        tbody 0,0 200x16
+          tr 0,0 200x16
+            td 0,0 160x16
+              line 0,0 160x16
+                text "aaaaaaaaaa" 0,0 160x16
+            td 160,0 40x16
+              line 160,0 40x16
+                text "b" 160,0 16x16
+
 === a taller row-spanning cell stretches the last row it spans; cells are centred by default
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0"><tr><td rowspan=2 style="height: 50px">a</td><td>b</td></tr><tr><td>c</td></tr></table>
 ---
