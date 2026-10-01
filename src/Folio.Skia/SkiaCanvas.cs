@@ -219,6 +219,15 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
                     Table(f.Transfer, 3), Table(f.Transfer, 0), Table(f.Transfer, 1), Table(f.Transfer, 2))), In(f.In)),
                 FilterKind.Turbulence => Turbulence(f.Noise, f.Subregion, owned),
                 FilterKind.DisplacementMap => SKImageFilter.CreateDisplacementMapEffect(ToSkia(f.XChannel), ToSkia(f.YChannel), f.Scale, In(f.In2), In(f.In)),
+                FilterKind.Tile when f is { Source: { Width: > 0, Height: > 0 } src, Subregion: { } dst } =>
+                    // Skia's tile takes no source input: an offset of nothing stands for the source.
+                    SKImageFilter.CreateTile(new SKRect(src.X, src.Y, src.Right, src.Bottom), new SKRect(dst.X, dst.Y, dst.Right, dst.Bottom),
+                        In(f.In) ?? Own(owned, SKImageFilter.CreateOffset(0, 0))),
+                FilterKind.ConvolveMatrix => Convolution(f, In(f.In)),
+                FilterKind.Image when f.Image is { } handle && Image(handle) is { } image && f.Destination is { Width: > 0, Height: > 0 } dest =>
+                    SKImageFilter.CreateImage(image, new SKRect(0, 0, image.Width, image.Height), new SKRect(dest.X, dest.Y, dest.Right, dest.Bottom),
+                        new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None)),
+                FilterKind.DiffuseLighting or FilterKind.SpecularLighting => Lighting(f, In(f.In)),
                 _ => null,
             };
             var result = next is null ? Input(f.In, i) : Own(owned, next);
@@ -232,6 +241,43 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
     }
 
     private static readonly float[] Identity = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+
+    // feConvolveMatrix weighs the source with the kernel turned half way round (Filter Effects 1 §9.9); Skia weighs it
+    // as it is, so the kernel goes in reversed. A kernel that does not fit its size, or a divisor of 0, is no filter.
+    private static SKImageFilter? Convolution(Filter f, SKImageFilter? input)
+    {
+        if (f.Kernel is not { } kernel || f.KernelColumns <= 0 || f.KernelRows <= 0 || kernel.Count != f.KernelColumns * f.KernelRows || f.Divisor == 0
+            || f.TargetX < 0 || f.TargetX >= f.KernelColumns || f.TargetY < 0 || f.TargetY >= f.KernelRows)
+            return null;
+        var reversed = kernel.Reverse().ToArray();
+        var edges = f.EdgeMode switch { EdgeMode.Duplicate => SKShaderTileMode.Clamp, EdgeMode.Wrap => SKShaderTileMode.Repeat, _ => SKShaderTileMode.Decal };
+        // Reversed, kernel entry (x, y) weighs the source at (x - targetX, y - targetY) from the pixel, as in the spec.
+        var offset = new SKPointI(f.TargetX, f.TargetY);
+        return SKImageFilter.CreateMatrixConvolution(new SKSizeI(f.KernelColumns, f.KernelRows), reversed, 1 / f.Divisor, f.Bias, offset, edges,
+            !f.PreserveAlpha, input);
+    }
+
+    // The lighting primitives with their light source (Filter Effects 1 §9.4, §9.17 and the light source elements).
+    private static SKImageFilter? Lighting(Filter f, SKImageFilter? input)
+    {
+        if (f.Light is not { } light)
+            return null;
+        var color = ToSkia(f.Color with { A = 1 });
+        static SKPoint3 P(System.Numerics.Vector3 v) => new(v.X, v.Y, v.Z);
+        // A spot light's cone is the limiting cone angle in degrees; without one it lights the whole half space.
+        var cone = light.ConeAngle ?? 90;
+        return (f.Kind, light.Kind) switch
+        {
+            (FilterKind.DiffuseLighting, LightKind.Distant) => SKImageFilter.CreateDistantLitDiffuse(P(light.Direction), color, f.SurfaceScale, f.LightingConstant, input),
+            (FilterKind.DiffuseLighting, LightKind.Point) => SKImageFilter.CreatePointLitDiffuse(P(light.Position), color, f.SurfaceScale, f.LightingConstant, input),
+            (FilterKind.DiffuseLighting, _) => SKImageFilter.CreateSpotLitDiffuse(P(light.Position), P(light.Target), light.Exponent, cone, color, f.SurfaceScale,
+                f.LightingConstant, input),
+            (_, LightKind.Distant) => SKImageFilter.CreateDistantLitSpecular(P(light.Direction), color, f.SurfaceScale, f.LightingConstant, f.Shininess, input),
+            (_, LightKind.Point) => SKImageFilter.CreatePointLitSpecular(P(light.Position), color, f.SurfaceScale, f.LightingConstant, f.Shininess, input),
+            _ => SKImageFilter.CreateSpotLitSpecular(P(light.Position), P(light.Target), light.Exponent, cone, color, f.SurfaceScale,
+                f.LightingConstant, f.Shininess, input),
+        };
+    }
 
     // Black with the input's alpha (SourceAlpha).
     private static readonly float[] AlphaOnly = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0];
