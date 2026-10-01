@@ -1257,12 +1257,32 @@ internal static class DisplayListBuilder
             list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: style.Inherited.Color, Path: path, Stroke: new Stroke(2.25f)));
         }
 
+        // A disclosure triangle filling its square (the fragment's height, at its start): pointing to the inline end when
+        // closed, down when open.
+        private void PaintDisclosure(PaintBox box, ListSymbol symbol, ComputedStyle style)
+        {
+            var side = box.Fragment.Height;
+            var rtl = style.Text.Direction == Direction.Rtl;
+            var (x, y) = (rtl ? box.X + box.Fragment.Width - side : box.X, box.Y);
+            PathData Triangle(params float[] uv) => new PathData().MoveTo(x + uv[0] * side, y + uv[1] * side)
+                .LineTo(x + uv[2] * side, y + uv[3] * side).LineTo(x + uv[4] * side, y + uv[5] * side).Close();
+            var path = symbol == ListSymbol.DisclosureOpen ? Triangle(0, 0.07f, 0.5f, 0.93f, 1, 0.07f)
+                : rtl ? Triangle(1, 0, 0.14f, 0.5f, 1, 1)
+                : Triangle(0, 0, 0.86f, 0.5f, 0, 1);
+            list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: style.Inherited.Color, Path: path));
+        }
+
         private void PaintSymbol(PaintBox box, ListSymbol symbol)
         {
             var style = box.Box.Style;
             if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
                 return;
             SetClip(box.Clip);
+            if (symbol is ListSymbol.DisclosureClosed or ListSymbol.DisclosureOpen)
+            {
+                PaintDisclosure(box, symbol, style);
+                return;
+            }
             // Snapped as a whole, so the square stays square and the disc round.
             var side = box.Snap(box.Fragment.Width);
             var rect = new RectF(box.Snap(box.X), box.Snap(box.Y), side, side);
