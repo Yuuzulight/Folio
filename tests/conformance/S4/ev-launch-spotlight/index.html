@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arden E1 — Reserve yours</title>
+<style>
+  :root {
+    --black: #030304;
+    --graphite: #141518;
+    --line: rgba(255, 255, 255, 0.09);
+    --text: #f5f5f7;
+    --muted: #8a8b93;
+    --amber: #ffb547;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "SF Pro Display", system-ui, sans-serif;
+    background: var(--black);
+    color: var(--text);
+  }
+
+  nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 40px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  nav .model { color: var(--text); font-weight: 600; font-size: 15px; letter-spacing: 0.3em; }
+  nav .reserve { padding: 7px 14px; border-radius: 999px; background: var(--text); color: var(--black); font-weight: 600; }
+
+  .stage {
+    position: relative;
+    height: 500px;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 50% 70% at 50% 0%, rgba(255, 255, 255, 0.28), transparent 70%);
+  }
+
+  .stage h1 {
+    position: relative;
+    margin: 30px 0 0;
+    font-size: 110px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    background: linear-gradient(180deg, #ffffff, #5b5c63);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 95%);
+    mask-image: linear-gradient(180deg, #000 55%, transparent 95%);
+  }
+
+  .stage .kicker { position: relative; margin: 0; font-size: 18px; color: var(--muted); }
+
+  .car {
+    position: absolute;
+    left: 50%;
+    bottom: 70px;
+    width: 600px;
+    height: 170px;
+    margin-left: -300px;
+  }
+
+  .car .body {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 34px;
+    height: 80px;
+    border-radius: 60px 90px 26px 26px / 40px 60px 26px 26px;
+    background: linear-gradient(180deg, #43454d, #17181c 70%);
+    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  }
+
+  .car .cabin {
+    position: absolute;
+    left: 150px;
+    right: 170px;
+    bottom: 104px;
+    height: 56px;
+    background: linear-gradient(180deg, #2a2c33, #0c0d10);
+    clip-path: polygon(14% 0, 78% 0, 100% 100%, 0 100%);
+  }
+
+  .car .glass {
+    position: absolute;
+    left: 175px;
+    right: 195px;
+    bottom: 108px;
+    height: 44px;
+    background: linear-gradient(100deg, rgba(160, 190, 255, 0.35), rgba(255, 255, 255, 0.05) 55%, rgba(160, 190, 255, 0.2));
+    clip-path: polygon(14% 0, 78% 0, 100% 100%, 0 100%);
+    mix-blend-mode: screen;
+  }
+
+  .car .light {
+    position: absolute;
+    bottom: 80px;
+    width: 70px;
+    height: 6px;
+    border-radius: 3px;
+    background: #fff;
+    filter: drop-shadow(0 0 8px #fff) drop-shadow(0 0 20px rgba(255, 255, 255, 0.7));
+  }
+
+  .car .light.front { right: 14px; }
+  .car .light.rear { left: 14px; background: #ff3b3b; filter: drop-shadow(0 0 10px #ff3b3b); }
+
+  .car .wheel {
+    position: absolute;
+    bottom: 6px;
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, #2b2c31 0 30%, #6f717a 31% 36%, #111 37%);
+  }
+
+  .car .wheel.f { right: 80px; }
+  .car .wheel.r { left: 80px; }
+
+  .floor {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 120px;
+    background: radial-gradient(ellipse 45% 40% at 50% 30%, rgba(255, 255, 255, 0.18), transparent 70%);
+  }
+
+  .reflection {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 600px;
+    height: 70px;
+    margin-left: -300px;
+    background: linear-gradient(180deg, #2a2b30, transparent);
+    filter: blur(6px) brightness(0.6);
+    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent);
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent);
+  }
+
+  .specs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    margin: 0 40px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .spec { padding: 26px 0; text-align: center; }
+  .spec + .spec { border-left: 1px solid var(--line); }
+  .spec b { display: block; font-size: 34px; font-weight: 600; letter-spacing: -0.02em; }
+  .spec span { font-size: 13px; color: var(--muted); }
+
+  .panel {
+    position: relative;
+    margin: 60px 40px;
+    height: 300px;
+    border-radius: 24px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 25% 60%, var(--amber), transparent 35%),
+      radial-gradient(circle at 80% 30%, #6a7dff, transparent 40%),
+      #1a1b20;
+  }
+
+  .panel .stripes {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.06) 0 12px, transparent 12px 40px);
+  }
+
+  .panel .card {
+    position: absolute;
+    right: 28px;
+    top: 28px;
+    bottom: 28px;
+    width: 300px;
+    padding: 26px;
+    border-radius: 18px;
+    background: rgba(20, 21, 24, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(24px) brightness(0.9) contrast(1.1);
+    -webkit-backdrop-filter: blur(24px) brightness(0.9) contrast(1.1);
+  }
+
+  .panel h2 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+  .panel p { margin: 12px 0 0; font-size: 15px; line-height: 1.55; color: #c3c4cc; }
+  .panel .price { margin-top: 26px; font-size: 14px; color: var(--muted); }
+  .panel .price b { display: block; margin-top: 4px; font-size: 30px; color: var(--text); }
+
+  .panel .copy {
+    position: absolute;
+    left: 32px;
+    bottom: 30px;
+    font-size: 44px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    mix-blend-mode: overlay;
+  }
+
+  footer { padding: 10px 40px 40px; font-size: 12px; color: #55565e; }
+</style>
+</head>
+<body>
+  <nav><span>Arden</span><span class="model">E1</span><span class="reserve">Reserve</span></nav>
+
+  <section class="stage">
+    <h1>Arden E1</h1>
+    <p class="kicker">Quiet power. 610 km on a single charge.</p>
+    <div class="floor"></div>
+    <div class="reflection"></div>
+    <div class="car">
+      <div class="cabin"></div>
+      <div class="glass"></div>
+      <div class="body"></div>
+      <div class="light front"></div>
+      <div class="light rear"></div>
+      <div class="wheel r"></div>
+      <div class="wheel f"></div>
+    </div>
+  </section>
+
+  <div class="specs">
+    <div class="spec"><b>610 km</b><span>WLTP range</span></div>
+    <div class="spec"><b>3.9 s</b><span>0 – 100 km/h</span></div>
+    <div class="spec"><b>18 min</b><span>10 – 80% charge</span></div>
+    <div class="spec"><b>5 ★</b><span>Safety rating</span></div>
+  </div>
+
+  <section class="panel">
+    <div class="stripes"></div>
+    <div class="copy">Built for<br>long nights.</div>
+    <div class="card">
+      <h2>Founders Edition</h2>
+      <p>Amber interior, forged 21" wheels and lifetime fast charging on the Arden network.</p>
+      <div class="price">Starting at<b>€64,900</b></div>
+    </div>
+  </section>
+
+  <footer>Range and performance figures are preliminary and subject to homologation. Vehicle shown is a pre-production model.</footer>
+</body>
+</html>

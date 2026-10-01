@@ -1,0 +1,5 @@
+{
+  "prompt": "Build a portfolio landing page for an architecture studio, Haldane & Roe: a duotone hero of a building silhouette with a big overlaid headline, a short practice statement, a two-column project grid with colour-washed images and big numbers, and an angled dark contact block.",
+  "features": ["mix-blend-mode", "isolation", "clip-path", "filter-grayscale", "filter-contrast", "filter-brightness", "linear-gradient", "repeating-linear-gradient", "conic-gradient", "radial-gradient", "grid", "flex"],
+  "viewport": 800
+}
