@@ -176,18 +176,19 @@ internal static class InlineLayout
     {
         var text = ifc.Text;
         var breaks = LineBreaker.Find(text);
-        var nowrap = new bool[text.Length];
-        var noHyphens = new bool[text.Length];
-        var wordBreak = new WordBreakStyle[text.Length];
+        // Per offset, made only when some text asks for them (most paragraphs wrap normally).
+        bool[]? nowrap = null, noHyphens = null;
+        WordBreakStyle[]? wordBreak = null;
         foreach (var item in ifc.Items)
         {
             if (item.Kind != InlineItemKind.Text)
                 continue;
             if (item.Style.Text.TextWrapMode == TextWrapMode.Nowrap)
-                Array.Fill(nowrap, true, item.Start, item.Length);
+                Array.Fill(nowrap ??= new bool[text.Length], true, item.Start, item.Length);
             if (item.Style.Text.Hyphens == Hyphens.None)
-                Array.Fill(noHyphens, true, item.Start, item.Length);
-            Array.Fill(wordBreak, item.Style.TextSpacing.WordBreak, item.Start, item.Length);
+                Array.Fill(noHyphens ??= new bool[text.Length], true, item.Start, item.Length);
+            if (item.Style.TextSpacing.WordBreak != WordBreakStyle.Normal)
+                Array.Fill(wordBreak ??= new WordBreakStyle[text.Length], item.Style.TextSpacing.WordBreak, item.Start, item.Length);
         }
         // A soft wrap opportunity at an offset, unless the text before it does not wrap (or is a soft hyphen with
         // hyphens: none, https://www.w3.org/TR/css-text-3/#hyphens-property); hard breaks always count. word-break
@@ -198,14 +199,15 @@ internal static class InlineLayout
                 return BreakKind.None;
             if (breaks[offset] == BreakKind.Mandatory)
                 return BreakKind.Mandatory;
-            if (nowrap[offset - 1] || text[offset - 1] == SoftHyphen && noHyphens[offset - 1])
+            if (nowrap?[offset - 1] == true || text[offset - 1] == SoftHyphen && noHyphens?[offset - 1] == true)
                 return BreakKind.None;
             var (before, after) = (text[offset - 1], text[offset]);
             var letters = !char.IsWhiteSpace(before) && !char.IsWhiteSpace(after) && !char.IsLowSurrogate(after)
                           && CharUnicodeInfo.GetUnicodeCategory(after) is not (UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark
                               or UnicodeCategory.EnclosingMark or UnicodeCategory.Format);
-            return breaks[offset] == BreakKind.Allowed ? (wordBreak[offset - 1] == WordBreakStyle.KeepAll && letters && char.IsLetterOrDigit(before) && char.IsLetterOrDigit(after) ? BreakKind.None : BreakKind.Allowed)
-                : wordBreak[offset - 1] == WordBreakStyle.BreakAll && letters ? BreakKind.Allowed
+            var wordBreakBefore = wordBreak?[offset - 1] ?? WordBreakStyle.Normal;
+            return breaks[offset] == BreakKind.Allowed ? (wordBreakBefore == WordBreakStyle.KeepAll && letters && char.IsLetterOrDigit(before) && char.IsLetterOrDigit(after) ? BreakKind.None : BreakKind.Allowed)
+                : wordBreakBefore == WordBreakStyle.BreakAll && letters ? BreakKind.Allowed
                 : HyphenBeforeDigit(offset) ? BreakKind.Allowed
                 : BreakKind.None;
         }
@@ -536,7 +538,9 @@ internal static class InlineLayout
     }
 
     // Bidi levels of a paragraph's text (per UTF-16 offset) and atomic inlines, with its paragraph level.
-    private sealed record Levels(byte[] Text, Dictionary<Box, byte> Atomics, int Paragraph);
+    private sealed record Levels(byte[] Text, IReadOnlyDictionary<Box, byte> Atomics, int Paragraph);
+
+    private static readonly IReadOnlyDictionary<Box, byte> NoAtomics = new Dictionary<Box, byte>();
 
     /// <summary>
     /// Resolves the paragraph's bidi levels (UAX #9) with the embeddings, isolates and overrides its inline boxes ask
@@ -546,6 +550,9 @@ internal static class InlineLayout
     {
         var text = ifc.Text;
         int? paragraph = block.Style.Box.UnicodeBidi == UnicodeBidi.Plaintext ? null : block.Style.Text.Direction == Direction.Rtl ? 1 : 0;
+        // Most paragraphs are left to right throughout: every level is 0, with nothing to collect or resolve.
+        if (paragraph == 0 && !HasRightToLeft(ifc))
+            return new Levels(new byte[text.Length], NoAtomics, 0);
         var codePoints = new List<int>(text.Length + 8);
         var textIndex = new int[text.Length];
         var atomicIndex = new Dictionary<Box, int>();
@@ -582,7 +589,7 @@ internal static class InlineLayout
             }
         }
         if (!needed)
-            return new Levels(new byte[text.Length], [], 0);
+            return new Levels(new byte[text.Length], NoAtomics, 0);
 
         var (levels, resolved) = Bidi.Resolve(codePoints.ToArray(), paragraph);
         byte Level(int index) => levels[index] == Bidi.Removed ? (byte)resolved : levels[index];
@@ -590,6 +597,29 @@ internal static class InlineLayout
         for (var i = 0; i < text.Length; i++)
             textLevels[i] = Level(textIndex[i]);
         return new Levels(textLevels, atomicIndex.ToDictionary(a => a.Key, a => Level(a.Value)), resolved);
+    }
+
+    // Whether a left-to-right paragraph needs its levels resolved: some inline box asks for bidi controls, or some text
+    // is right to left or an Arabic number (the classes BidiLevels looks for).
+    private static bool HasRightToLeft(InlineFormattingContext ifc)
+    {
+        var text = ifc.Text;
+        foreach (var item in ifc.Items)
+        {
+            if (item.Kind is InlineItemKind.OpenBox or InlineItemKind.CloseBox && Controls(item.Style).Open.Length > 0)
+                return true;
+            if (item.Kind != InlineItemKind.Text)
+                continue;
+            for (var i = item.Start; i < item.Start + item.Length; i++)
+            {
+                var cp = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+                if (cp > 0xFFFF)
+                    i++;
+                if (UnicodeData.Bidi(cp) is BidiClass.R or BidiClass.AL or BidiClass.AN)
+                    return true;
+            }
+        }
+        return false;
     }
 
     // The controls an inline box's unicode-bidi and direction stand for, at its start and end.

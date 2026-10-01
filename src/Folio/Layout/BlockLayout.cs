@@ -119,6 +119,8 @@ internal static class BlockLayout
         // first and last; its own relative offset does not move them.
         void PlaceInInlineContainingBlocks(InlineFormattingContext inline, List<ChildFragment> lines, int from, float x0, float y0)
         {
+            if (outOfFlow.Count == from)
+                return; // nothing was carried up from this paragraph
             var owners = InlineContainingBlocks(inline);
             if (owners.Count == 0)
                 return;
