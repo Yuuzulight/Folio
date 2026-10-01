@@ -188,6 +188,30 @@ public class TypographyTests
     }
 
     [Fact]
+    public void LayoutsOnSeveralThreadsCanShareOneCollection()
+    {
+        // The test suites lay out on several threads with one collection; its caches fill as they go.
+        var fonts = new FontCollection();
+        fonts.Add(Box);
+        string[] families = ["Folio Box"];
+        Parallel.For(0, 8, t =>
+        {
+            for (var i = 0; i < 20_000; i++)
+            {
+                var c = (char)('A' + (i * 7 + t) % 26);
+                Assert.Same(Box, fonts.FaceForCluster(families, FaceStyle.Normal, 400 + i % 9 * 100, 100, [c]));
+                if (i % 5_000 == 0)
+                    fonts.DeclareWebFamily("Web " + t); // clears the cluster cache under the readers
+            }
+        });
+
+        var html = string.Concat(Enumerable.Range(0, 200).Select(i => $"<p>Row {i} item {i * 37 % 1000}</p>"));
+        var heights = new float[8];
+        Parallel.For(0, 8, t => heights[t] = Folio.Tests.Layout.BlockLayoutTests.LayOut(html).Height);
+        Assert.All(heights, h => Assert.Equal(heights[0], h));
+    }
+
+    [Fact]
     public void CollectionMatchesFamiliesAndFallsBackPerCluster()
     {
         var fonts = FontCollection.FromFolder(FontsFolder);
