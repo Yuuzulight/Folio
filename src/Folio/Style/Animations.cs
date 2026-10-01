@@ -6,18 +6,45 @@ internal enum AnimationDirection { Normal, Reverse, Alternate, AlternateReverse 
 
 internal enum AnimationFillMode { None, Forwards, Backwards, Both }
 
+internal enum AnimationPlayState { Running, Paused }
+
+internal enum TransitionBehavior { Normal, AllowDiscrete }
+
 /// <summary>
-/// The animation properties M1 keeps (not inherited): one entry per <c>animation-name</c>, the other lists repeating
-/// when shorter. A null name is <c>none</c>.
+/// The animation properties (not inherited): one entry per <c>animation-name</c>, the other lists repeating when
+/// shorter. A null name is <c>none</c>. Durations and delays are in seconds.
 /// </summary>
 internal sealed record AnimationGroup(IReadOnlyList<string?> Names, IReadOnlyList<float> IterationCounts,
                                       IReadOnlyList<AnimationDirection> Directions, IReadOnlyList<AnimationFillMode> FillModes)
 {
     public static AnimationGroup Initial { get; } = new([null], [1], [AnimationDirection.Normal], [AnimationFillMode.None]);
+
+    public IReadOnlyList<float> Durations { get; init; } = [0];
+
+    public IReadOnlyList<float> Delays { get; init; } = [0];
+
+    public IReadOnlyList<Easing> TimingFunctions { get; init; } = [Easing.Ease];
+
+    public IReadOnlyList<AnimationPlayState> PlayStates { get; init; } = [AnimationPlayState.Running];
+}
+
+/// <summary>
+/// The transition properties (not inherited), one entry per <c>transition-property</c> item (a lowercased property
+/// name, <c>all</c> or <c>none</c>). Durations and delays are in seconds. Transitions start in M3, when
+/// styles can change.
+/// </summary>
+internal sealed record TransitionGroup(IReadOnlyList<string> Properties, IReadOnlyList<float> Durations, IReadOnlyList<Easing> TimingFunctions,
+                                       IReadOnlyList<float> Delays, IReadOnlyList<TransitionBehavior> Behaviors)
+{
+    public static TransitionGroup Initial { get; } = new(["all"], [0], [Easing.Ease], [0], [TransitionBehavior.Normal]);
 }
 
 /// <summary>One keyframe block of a <c>@keyframes</c> rule: its offsets (0 to 1) and declarations.</summary>
-internal sealed record Keyframe(IReadOnlyList<float> Offsets, IReadOnlyList<CascadeDeclaration> Declarations);
+internal sealed record Keyframe(IReadOnlyList<float> Offsets, IReadOnlyList<CascadeDeclaration> Declarations)
+{
+    /// <summary>The block's <c>animation-timing-function</c>: the easing from this keyframe to the next; null for the animation's own.</summary>
+    public Easing? Easing { get; init; }
+}
 
 /// <summary>
 /// M1's animations (docs/study/04-cascade-and-computed-values.md): an animation that fills forwards is resolved to
