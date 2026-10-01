@@ -228,6 +228,9 @@ internal static class DisplayListBuilder
             : new RectF(rect.X, -Far, rect.Width, 2 * Far), default);
     }
 
+    private static RectF Snapped(PaintBox box, RectF r) =>
+        new(box.Snap(r.X), box.Snap(r.Y), box.Snap(r.X + r.Width) - box.Snap(r.X), box.Snap(r.Y + r.Height) - box.Snap(r.Y));
+
     private static RoundedRect BorderBox(PaintBox box)
     {
         var border = box.Box.Style.Border;
@@ -533,9 +536,10 @@ internal static class DisplayListBuilder
                     TopColor = border.TopColor.Resolve(current), RightColor = border.RightColor.Resolve(current),
                     BottomColor = border.BottomColor.Resolve(current), LeftColor = border.LeftColor.Resolve(current),
                 };
-                // A collapsed table border is centred on the cell's edges, half outside it, and has no radii.
+                // A collapsed table border is centred on the cell's edges, half outside it, and has no radii; its edges snap
+                // to device pixels like a box's, so a 1px border is one solid pixel and neighbours share it exactly.
                 var borderShape = box.Fragment.PaintedBorder is not null && box.Box is TablePartBox { Part: TablePart.Cell }
-                    ? new RoundedRect(box.Rect.Inset(-border.TopWidth / 2, -border.RightWidth / 2, -border.BottomWidth / 2, -border.LeftWidth / 2), default)
+                    ? new RoundedRect(Snapped(box, box.Rect.Inset(-border.TopWidth / 2, -border.RightWidth / 2, -border.BottomWidth / 2, -border.LeftWidth / 2)), default)
                     : shape;
                 list.Items.Add(new DisplayItem(DisplayItemKind.Border, borderShape, Border: used));
             }
