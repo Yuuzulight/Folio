@@ -1,0 +1,5 @@
+{
+  "prompt": "Build a kanban board for a two-week sprint with four columns, task cards with tags, story points and assignees, a sprint progress bar, and one card shown mid-drag.",
+  "features": ["grid", "flex", "custom-properties", "border-radius", "box-shadow", "transform", "rotate", "scale", "css-animations", "pseudo-elements"],
+  "viewport": 800
+}
