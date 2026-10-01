@@ -144,6 +144,12 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// </summary>
     public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get; init; }
 
+    /// <summary>
+    /// For a box whose filter list references SVG filter elements: each filter of the list, in order, as primitives in
+    /// coordinates whose origin is the border box's top-left corner; null when it filters nothing.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<Painting.Filter>>? SvgFilters { get; init; }
+
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
 }

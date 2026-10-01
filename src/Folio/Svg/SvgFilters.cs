@@ -46,6 +46,14 @@ internal static class SvgFilters
         return filters.Count > 0 ? filters : null;
     }
 
+    /// <summary>
+    /// A CSS box's filters (https://drafts.csswg.org/filter-effects-1/#FilterProperty) when its list references a filter
+    /// element, for a border box of this size: user units are CSS pixels from its top-left corner, and it is the
+    /// bounding box. Null when the list filters nothing.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<Filter>>? ForBox(ElementNode element, ComputedStyle style, float width, float height, Layout.LayoutContext layout) =>
+        Build(style.Effects.Filter, style, new SvgRect(0, 0, width, height), new Vector2(width, height), new SvgContext(layout, element.OwnerDocument));
+
     private static readonly Filter[] Nothing = [new Filter(FilterKind.Flood)];
 
     // A filter element's primitives: its region from x, y, width and height in filterUnits (the bounding box by

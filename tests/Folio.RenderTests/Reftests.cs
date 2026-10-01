@@ -22,6 +22,7 @@ public class Reftests
     [InlineData("css-pseudo/first-letter-float-001")]
     [InlineData("filter-effects/opacity-function-001")]
     [InlineData("filter-effects/grayscale-grey-001")]
+    [InlineData("filter-effects/filter-url-001")]
     [InlineData("compositing/mix-blend-mode-normal-001")]
     [InlineData("compositing/isolation-isolate-001")]
     [InlineData("css-masking/clip-path-inset-001")]
