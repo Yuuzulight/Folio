@@ -841,20 +841,25 @@ internal static class InlineLayout
         var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
         var spacing = style.TextSpacing;
         var key = (face, style.Font.Size, Features(style.Font), spacing.LetterSpacing, spacing.WordSpacing, spacing.TabSize);
-        if (!cache.Runs.TryGetValue(key, out var byText))
-            cache.Runs[key] = byText = new(StringComparer.Ordinal);
-        if (!byText.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out var kept))
+        ShapedRun? kept;
+        // One font collection may be shared by layouts on several threads (the test suites share one).
+        lock (cache)
         {
-            if (cache.Count >= 20_000)
+            if (!cache.Runs.TryGetValue(key, out var byText))
+                cache.Runs[key] = byText = new(StringComparer.Ordinal);
+            if (!byText.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out kept))
             {
-                (cache.Count, byText) = (0, new(StringComparer.Ordinal));
-                cache.Runs.Clear();
-                cache.Runs[key] = byText;
+                if (cache.Count >= 20_000)
+                {
+                    (cache.Count, byText) = (0, new(StringComparer.Ordinal));
+                    cache.Runs.Clear();
+                    cache.Runs[key] = byText;
+                }
+                var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
+                kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
+                byText[text.Substring(start, length)] = kept;
+                cache.Count++;
             }
-            var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
-            kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
-            byText[text.Substring(start, length)] = kept;
-            cache.Count++;
         }
         return new ShapedRun(face, kept.Size, [.. kept.Glyphs], [.. kept.Clusters.Select(c => c + start)], [.. kept.Advances])
         {

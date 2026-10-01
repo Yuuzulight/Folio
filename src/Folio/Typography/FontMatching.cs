@@ -67,11 +67,13 @@ internal sealed class FontCollection(IFontSource? source = null)
 {
     private readonly Dictionary<string, List<FontFace>> _families = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _opened = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<int, string?> _characterFallbacks = [];
+    // The caches below fill while text is laid out; a collection shared by documents laid out on different threads
+    // (the test suites share one) must not corrupt them, so they are concurrent dictionaries.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string?> _characterFallbacks = new();
 
     // The face found for a one-character cluster, by the style's family list (shared between equal font groups), style,
     // weight, stretch and character: text asks for the same few characters in the same fonts over and over.
-    private readonly Dictionary<(IReadOnlyList<string> Families, FaceStyle Style, int Weight, float Stretch, char Char), FontFace?> _clusterFaces = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(IReadOnlyList<string> Families, FaceStyle Style, int Weight, float Stretch, char Char), FontFace?> _clusterFaces = new();
     private readonly Dictionary<string, List<WebFace>> _webFamilies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A collection for a document's font settings.</summary>
