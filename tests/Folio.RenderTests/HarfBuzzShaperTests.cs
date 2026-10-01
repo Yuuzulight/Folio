@@ -45,6 +45,22 @@ public class HarfBuzzShaperTests
         }
     }
 
+    // font-variant-numeric asks for figure features: the text font's default figures are tabular, and pnum swaps in
+    // proportional ones by GSUB single substitution, which tnum swaps back.
+    [Fact]
+    public void FigureFeaturesComeFromGsubSingleSubstitution()
+    {
+        var face = Fonts.Value.Match("Source Sans 3", FaceStyle.Normal, 400, 100)!;
+
+        var tabular = SimpleShaper.Shape("1180", 0, 4, face, 16);
+        var proportional = SimpleShaper.Shape("1180", 0, 4, face, 16, "pnum");
+
+        Assert.All(tabular.Advances, a => Assert.Equal(tabular.Advances[3], a, 3));
+        Assert.True(proportional.Advances[0] < proportional.Advances[3], "a proportional 1 is narrower than a 0");
+        Assert.NotEqual(tabular.Glyphs[0], proportional.Glyphs[0]);
+        Assert.Equal(face.GlyphFor('x'), SimpleShaper.Shape("x", 0, 1, face, 16, "pnum").Glyphs[0]); // not covered: unchanged
+    }
+
     [Fact]
     public void SystemFontSourceOpensTheFamilyItMatches()
     {
