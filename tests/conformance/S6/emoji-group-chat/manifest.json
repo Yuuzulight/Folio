@@ -1,0 +1,5 @@
+{
+  "prompt": "Render a group chat screen planning a lake trip: chat bubbles full of emoji including skin tones, ZWJ sequences, flags and a big emoji-only message, reactions and a poll.",
+  "features": ["emoji", "emoji-zwj", "emoji-skin-tones", "emoji-flags", "flex", "float"],
+  "viewport": 800
+}

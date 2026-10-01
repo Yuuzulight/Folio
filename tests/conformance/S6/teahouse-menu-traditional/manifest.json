@@ -1,0 +1,5 @@
+{
+  "prompt": "Design a Traditional Chinese tea house menu with bilingual item names, dotted leaders to prices, short descriptions, a signature badge and section headings with rules.",
+  "features": ["cjk", "lang-attribute", "flex", "generated-content", "tabular-nums"],
+  "viewport": 800
+}

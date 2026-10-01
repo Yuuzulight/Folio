@@ -1,0 +1,5 @@
+{
+  "prompt": "Build a laptop comparison page with an SVG radar chart of five scores for two models, spec cards with small SVG icons as data-URL images, and a verdict box.",
+  "features": ["svg", "svg-text", "polygon", "fill-opacity", "stroke-dasharray", "svg-image-data-url", "flex", "linear-gradient"],
+  "viewport": 800
+}
