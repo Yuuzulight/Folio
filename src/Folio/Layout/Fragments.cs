@@ -30,6 +30,11 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 
+    /// <summary>
+    /// The tracks a grid lends each of its subgrids, per axis, once it has sized them (see GridLayout): a subgrid laid
+    /// out without an entry for an axis has no tracks there, as with none.
+    /// </summary>
+    public Dictionary<Box, (AdoptedTracks? Columns, AdoptedTracks? Rows)> Subgrids { get; } = [];
     /// <summary>Each document's elements by id, first in tree order, for url(#id) references (see Svg.SvgContext.Find).</summary>
     public Dictionary<Dom.DocumentNode, Dictionary<string, Dom.ElementNode>> Ids { get; } = [];
 }

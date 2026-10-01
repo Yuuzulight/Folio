@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<title>Reference: the same cards with their rows set explicitly</title>
+<style>
+  body { margin: 0; }
+  .cards { display: grid; grid-template-columns: repeat(3, 120px); column-gap: 10px; }
+  .card { display: grid; grid-template-rows: 34px 50px 18px; padding: 6px; background: #ddd; }
+  .title { background: blue; }
+  .body { background: orange; }
+  .foot { background: green; }
+</style>
+<div class="cards">
+  <div class="card"><div class="title" style="height: 20px"></div><div class="body" style="height: 50px"></div><div class="foot" style="height: 10px"></div></div>
+  <div class="card"><div class="title" style="height: 34px"></div><div class="body" style="height: 20px"></div><div class="foot" style="height: 10px"></div></div>
+  <div class="card"><div class="title" style="height: 10px"></div><div class="body" style="height: 30px"></div><div class="foot" style="height: 18px"></div></div>
+</div>
