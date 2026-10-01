@@ -92,6 +92,7 @@ public class FolioView : Control
         {
             BaseUri = baseUri ?? Options.BaseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion || SystemReducedMotion(),
             UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.Fonts,
+            ResourceLoader = Options.ResourceLoader,
         };
         _document?.Dispose();
         _document = Document.Parse(html, options);

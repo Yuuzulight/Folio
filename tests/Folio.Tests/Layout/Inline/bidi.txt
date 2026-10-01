@@ -48,3 +48,21 @@ html 0,0 800x16
       line 0,0 800x16
         span 772,0 28x16
         text "א" rtl 776,0 16x16
+
+=== white space at a line's end takes the paragraph's level and hangs off the end edge, left in right-to-left text
+<!DOCTYPE html><style>body, p { margin: 0 } p { width: 48px }</style><p dir=rtl>\u05D0\u05D1 \u05D2</p><p style="width: 64px">a \u05D0\u05D1 b</p>
+---
+html 0,0 800x64
+  body 0,0 800x64
+    p 0,0 48x32
+      line 0,0 48x16
+        text "אב " rtl 0,0 48x16
+      line 0,16 48x16
+        text "ג" rtl 32,16 16x16
+    p 0,32 64x32
+      line 0,32 64x16
+        text "a " 0,32 32x16
+        text "אב" rtl 32,32 32x16
+        text " " 64,32 16x16
+      line 0,48 64x16
+        text "b" 0,48 16x16

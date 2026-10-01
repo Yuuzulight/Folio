@@ -251,14 +251,15 @@ public sealed class Document : IDisposable
         (_frame, _animatedBoxes) = (null, null);
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
-        var sources = new StyleSources(ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+        var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
         var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         if (!_webFontsLoaded)
         {
             // Web fonts load once, synchronously, before the first layout, so font-display never has a swap to do.
             // Styles are resolved again when some loaded, since ex and ch measure the first available font.
             _webFontsLoaded = true;
-            if (WebFonts.Load(fontFaces, _fonts, sources.Loader) > 0)
+            if (WebFonts.Load(fontFaces, _fonts, sources.Loader,
+                    message => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, "@font-face"))) > 0)
                 StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         }
         // Images load once per document (docs/study/16-resources-and-security.md: data: URLs only by default).
