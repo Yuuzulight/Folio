@@ -16,6 +16,8 @@ public static class Program
     {
         if (args is ["bench", .. var rest])
             return Bench(rest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 20);
+        if (args is ["cold"])
+            return Cold();
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -55,6 +57,24 @@ public static class Program
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.
         if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } summary)
             File.AppendAllText(summary, "### Benchmarks\n\n" + table);
+        return 0;
+    }
+
+    // cold: the first document in a fresh process (no warm-up), parse and style, with the JIT work they cause. Run it
+    // in a new process each time; the bench command warms up first and so never shows this.
+    private static int Cold()
+    {
+        var (jitStart, methodsStart) = (System.Runtime.JitInfo.GetCompilationTime(), System.Runtime.JitInfo.GetCompiledMethodCount());
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        var document = Folio.Html.TreeBuilder.Parse("<!DOCTYPE html><title>t</title><style>p { color: #333; margin: 1em 0 } .a { display: flex; gap: 4px }</style><p class=a>Hello <b>world</b></p>");
+        var parsed = System.Diagnostics.Stopwatch.GetTimestamp();
+        var (jitParsed, methodsParsed) = (System.Runtime.JitInfo.GetCompilationTime(), System.Runtime.JitInfo.GetCompiledMethodCount());
+        Folio.Style.StyleResolver.Resolve(document, new Folio.Css.MediaContext(800, 600));
+        var styled = System.Diagnostics.Stopwatch.GetTimestamp();
+        var (jitStyled, methodsStyled) = (System.Runtime.JitInfo.GetCompilationTime(), System.Runtime.JitInfo.GetCompiledMethodCount());
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"parse {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(start, parsed))} ms ({methodsParsed - methodsStart} methods, {Ms(jitParsed - jitStart)} ms JIT), " +
+            $"style {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(parsed, styled))} ms ({methodsStyled - methodsParsed} methods, {Ms(jitStyled - jitParsed)} ms JIT)"));
         return 0;
     }
 

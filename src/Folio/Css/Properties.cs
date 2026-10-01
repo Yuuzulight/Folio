@@ -399,11 +399,11 @@ internal static class Properties
         var rows = new List<Property>
         {
             Keywords(PropertyId.Display, "display", false, "inline", DisplayKeywords, b => b.Box.Display, (b, v) => b.Box = b.Box with { Display = v }),
-            Keywords(PropertyId.Position, "position", false, "static", Enum<Position>("static", "relative", "absolute", "fixed", "sticky"), s => s.Box.Position, (b, v) => b.Box = b.Box with { Position = v }),
-            Keywords(PropertyId.Float, "float", false, "none", Enum<FloatSide>("none", "left", "right", "inline-start", "inline-end"), s => s.Box.Float, (b, v) => b.Box = b.Box with { Float = v }),
-            Keywords(PropertyId.Clear, "clear", false, "none", Enum<Clear>("none", "left", "right", "both", "inline-start", "inline-end"), s => s.Box.Clear, (b, v) => b.Box = b.Box with { Clear = v }),
-            Keywords(PropertyId.BoxSizing, "box-sizing", false, "content-box", Enum<BoxSizing>("content-box", "border-box"), s => s.Box.BoxSizing, (b, v) => b.Box = b.Box with { BoxSizing = v }),
-            Keywords(PropertyId.Visibility, "visibility", true, "visible", Enum<Visibility>("visible", "hidden", "collapse"), s => s.Inherited.Visibility, (b, v) => b.Inherited = b.Inherited with { Visibility = v }),
+            Keywords(PropertyId.Position, "position", false, "static", KeywordMap<Position>.InOrder("static", "relative", "absolute", "fixed", "sticky"), s => s.Box.Position, (b, v) => b.Box = b.Box with { Position = v }),
+            Keywords(PropertyId.Float, "float", false, "none", KeywordMap<FloatSide>.InOrder("none", "left", "right", "inline-start", "inline-end"), s => s.Box.Float, (b, v) => b.Box = b.Box with { Float = v }),
+            Keywords(PropertyId.Clear, "clear", false, "none", KeywordMap<Clear>.InOrder("none", "left", "right", "both", "inline-start", "inline-end"), s => s.Box.Clear, (b, v) => b.Box = b.Box with { Clear = v }),
+            Keywords(PropertyId.BoxSizing, "box-sizing", false, "content-box", KeywordMap<BoxSizing>.InOrder("content-box", "border-box"), s => s.Box.BoxSizing, (b, v) => b.Box = b.Box with { BoxSizing = v }),
+            Keywords(PropertyId.Visibility, "visibility", true, "visible", KeywordMap<Visibility>.InOrder("visible", "hidden", "collapse"), s => s.Inherited.Visibility, (b, v) => b.Inherited = b.Inherited with { Visibility = v }),
             Keywords(PropertyId.OverflowX, "overflow-x", false, "visible", OverflowKeywords, s => s.Box.OverflowX, (b, v) => b.Box = b.Box with { OverflowX = v }),
             Keywords(PropertyId.OverflowY, "overflow-y", false, "visible", OverflowKeywords, s => s.Box.OverflowY, (b, v) => b.Box = b.Box with { OverflowY = v }),
             new Property<int?>(PropertyId.ZIndex, "z-index", false, "auto",
@@ -470,7 +470,7 @@ internal static class Properties
                     : r.Number() is { } n && n is >= 1 and <= 1000 ? new NumberValue(n) : null,
                 ComputeFontWeight,
                 s => s.Font.Weight, (b, v) => b.Font = b.Font with { Weight = v }),
-            Keywords(PropertyId.FontStyle, "font-style", true, "normal", Enum<Style.FontStyle>("normal", "italic", "oblique"), s => s.Font.Style, (b, v) => b.Font = b.Font with { Style = v }),
+            Keywords(PropertyId.FontStyle, "font-style", true, "normal", KeywordMap<Style.FontStyle>.InOrder("normal", "italic", "oblique"), s => s.Font.Style, (b, v) => b.Font = b.Font with { Style = v }),
             new Property<LineHeight>(PropertyId.LineHeight, "line-height", true, "normal",
                 r => r.Keyword("normal") is not null ? new KeywordValue("normal")
                     : r.Number(nonNegative: true) is { } n ? new NumberValue(n)
@@ -484,15 +484,15 @@ internal static class Properties
                 s => s.Font.LineHeight, (b, v) => b.Font = b.Font with { LineHeight = v }),
 
             Keywords(PropertyId.WhiteSpaceCollapse, "white-space-collapse", true, "collapse",
-                Enum<WhiteSpaceCollapse>("collapse", "preserve", "preserve-breaks", "preserve-spaces", "break-spaces"),
+                KeywordMap<WhiteSpaceCollapse>.InOrder("collapse", "preserve", "preserve-breaks", "preserve-spaces", "break-spaces"),
                 s => s.Text.WhiteSpaceCollapse, (b, v) => b.Text = b.Text with { WhiteSpaceCollapse = v }),
-            Keywords(PropertyId.TextWrapMode, "text-wrap-mode", true, "wrap", Enum<TextWrapMode>("wrap", "nowrap"),
+            Keywords(PropertyId.TextWrapMode, "text-wrap-mode", true, "wrap", KeywordMap<TextWrapMode>.InOrder("wrap", "nowrap"),
                 s => s.Text.TextWrapMode, (b, v) => b.Text = b.Text with { TextWrapMode = v }),
             new Property<ListStyleType>(PropertyId.ListStyleType, "list-style-type", true, "disc",
                 GeneratedContentParsing.ListStyleType,
                 (v, _) => ((ListStyleTypeValue)v).Type,
                 s => s.Text.ListStyleType, (b, v) => b.Text = b.Text with { ListStyleType = v }),
-            Keywords(PropertyId.ListStylePosition, "list-style-position", true, "outside", Enum<ListStylePosition>("outside", "inside"),
+            Keywords(PropertyId.ListStylePosition, "list-style-position", true, "outside", KeywordMap<ListStylePosition>.InOrder("outside", "inside"),
                 s => s.Text.ListStylePosition, (b, v) => b.Text = b.Text with { ListStylePosition = v }),
             new Property<ContentValue>(PropertyId.Content, "content", false, "normal",
                 GeneratedContentParsing.Content,
@@ -568,8 +568,8 @@ internal static class Properties
             Radius(PropertyId.BorderBottomRightRadius, "border-bottom-right-radius", s => s.Border.BottomRightRadius, (b, v) => b.Border = b.Border with { BottomRightRadius = v }),
             Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
             // https://www.w3.org/TR/compositing-1/#isolation
-            Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
-            Keywords(PropertyId.MaskType, "mask-type", false, "luminance", Enum<MaskType>("luminance", "alpha"), s => s.Mask.Type, (b, v) => b.Mask = b.Mask with { Type = v }),
+            Keywords(PropertyId.Isolation, "isolation", false, "auto", KeywordMap<Isolation>.InOrder("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
+            Keywords(PropertyId.MaskType, "mask-type", false, "luminance", KeywordMap<MaskType>.InOrder("luminance", "alpha"), s => s.Mask.Type, (b, v) => b.Mask = b.Mask with { Type = v }),
             // https://drafts.csswg.org/compositing-2/#mix-blend-mode and #background-blend-mode (plus-lighter blends whole elements only).
             Keywords(PropertyId.MixBlendMode, "mix-blend-mode", false, "normal", BlendKeywords, s => s.Effects.MixBlendMode, (b, v) => b.Effects = b.Effects with { MixBlendMode = v }),
             Layers<Style.BlendMode, Style.BlendMode>(PropertyId.BackgroundBlendMode, "background-blend-mode", "normal",
@@ -584,18 +584,18 @@ internal static class Properties
                 (v, ctx) => v is KeywordValue k ? new VerticalAlign(VerticalAlignKeywords[k.Keyword]) : new VerticalAlign(VerticalAlignKind.Length, ctx.LengthPercentage(v)),
                 s => s.Box.VerticalAlign, (b, v) => b.Box = b.Box with { VerticalAlign = v }),
             // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
-            Keywords(PropertyId.Direction, "direction", true, "ltr", Enum<Direction>("ltr", "rtl"),
+            Keywords(PropertyId.Direction, "direction", true, "ltr", KeywordMap<Direction>.InOrder("ltr", "rtl"),
                 s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }),
-            Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", Enum<WritingMode>("horizontal-tb", "vertical-rl", "vertical-lr"),
+            Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", KeywordMap<WritingMode>.InOrder("horizontal-tb", "vertical-rl", "vertical-lr"),
                 s => s.Text.WritingMode, (b, v) => b.Text = b.Text with { WritingMode = v }),
             Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
-                Enum<UnicodeBidi>("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
+                KeywordMap<UnicodeBidi>.InOrder("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
                 s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
 
             // https://www.w3.org/TR/css-flexbox-1/ and css-align-3 (safe and unsafe are accepted and ignored)
-            Keywords(PropertyId.FlexDirection, "flex-direction", false, "row", Enum<FlexDirection>("row", "row-reverse", "column", "column-reverse"),
+            Keywords(PropertyId.FlexDirection, "flex-direction", false, "row", KeywordMap<FlexDirection>.InOrder("row", "row-reverse", "column", "column-reverse"),
                 s => s.Flex.Direction, (b, v) => b.Flex = b.Flex with { Direction = v }),
-            Keywords(PropertyId.FlexWrap, "flex-wrap", false, "nowrap", Enum<FlexWrap>("nowrap", "wrap", "wrap-reverse"),
+            Keywords(PropertyId.FlexWrap, "flex-wrap", false, "nowrap", KeywordMap<FlexWrap>.InOrder("nowrap", "wrap", "wrap-reverse"),
                 s => s.Flex.Wrap, (b, v) => b.Flex = b.Flex with { Wrap = v }),
             Aligned(PropertyId.JustifyContent, "justify-content", ContentAlignKeywords, s => s.Flex.JustifyContent, (b, v) => b.Flex = b.Flex with { JustifyContent = v }),
             Aligned(PropertyId.AlignContent, "align-content", ContentAlignKeywords, s => s.Flex.AlignContent, (b, v) => b.Flex = b.Flex with { AlignContent = v }),
@@ -642,18 +642,18 @@ internal static class Properties
             Aligned(PropertyId.JustifyItems, "justify-items", JustifyKeywords, s => s.Grid.JustifyItems, (b, v) => b.Grid = b.Grid with { JustifyItems = v }),
             Aligned(PropertyId.JustifySelf, "justify-self", JustifyKeywords, s => s.Grid.JustifySelf, (b, v) => b.Grid = b.Grid with { JustifySelf = v }, "auto"),
             // https://www.w3.org/TR/css-tables-3/
-            Keywords(PropertyId.TableLayout, "table-layout", false, "auto", Enum<TableLayoutMode>("auto", "fixed"),
+            Keywords(PropertyId.TableLayout, "table-layout", false, "auto", KeywordMap<TableLayoutMode>.InOrder("auto", "fixed"),
                 s => s.Box.TableLayout, (b, v) => b.Box = b.Box with { TableLayout = v }),
-            Keywords(PropertyId.BorderCollapse, "border-collapse", true, "separate", Enum<BorderCollapse>("separate", "collapse"),
+            Keywords(PropertyId.BorderCollapse, "border-collapse", true, "separate", KeywordMap<BorderCollapse>.InOrder("separate", "collapse"),
                 s => s.Text.BorderCollapse, (b, v) => b.Text = b.Text with { BorderCollapse = v }),
             new Property<(float X, float Y)>(PropertyId.BorderSpacing, "border-spacing", true, "0",
                 r => r.LengthPercentage(allowPercent: false, nonNegative: true) is { } x
                     ? new RadiusValue(x, r.LengthPercentage(allowPercent: false, nonNegative: true) ?? x) : null,
                 (v, ctx) => (ctx.LengthPercentage(((RadiusValue)v).X).Px, ctx.LengthPercentage(((RadiusValue)v).Y).Px),
                 s => (s.Text.BorderSpacingX, s.Text.BorderSpacingY), (b, v) => b.Text = b.Text with { BorderSpacingX = v.X, BorderSpacingY = v.Y }),
-            Keywords(PropertyId.CaptionSide, "caption-side", true, "top", Enum<CaptionSide>("top", "bottom"),
+            Keywords(PropertyId.CaptionSide, "caption-side", true, "top", KeywordMap<CaptionSide>.InOrder("top", "bottom"),
                 s => s.Text.CaptionSide, (b, v) => b.Text = b.Text with { CaptionSide = v }),
-            Keywords(PropertyId.EmptyCells, "empty-cells", true, "show", Enum<EmptyCells>("show", "hide"),
+            Keywords(PropertyId.EmptyCells, "empty-cells", true, "show", KeywordMap<EmptyCells>.InOrder("show", "hide"),
                 s => s.Text.EmptyCells, (b, v) => b.Text = b.Text with { EmptyCells = v }),
             new Property<GridAreas>(PropertyId.GridTemplateAreas, "grid-template-areas", false, "none", GridParsing.Areas,
                 (v, _) => ((GridAreasValue)v).Areas, s => s.Grid.Areas, (b, v) => b.Grid = b.Grid with { Areas = v }),
@@ -662,7 +662,7 @@ internal static class Properties
             new Property<TextDecorationLine>(PropertyId.TextDecorationLine, "text-decoration-line", false, "none", DecorationLine,
                 (v, _) => ((KeywordValue)v).Keyword.Split(' ').Aggregate(TextDecorationLine.None, (line, k) => line | DecorationLineKeywords.GetValueOrDefault(k)),
                 s => s.Decoration.Line, (b, v) => b.Decoration = b.Decoration with { Line = v }),
-            Keywords(PropertyId.TextDecorationStyle, "text-decoration-style", false, "solid", Enum<TextDecorationStyle>("solid", "double", "dotted", "dashed", "wavy"),
+            Keywords(PropertyId.TextDecorationStyle, "text-decoration-style", false, "solid", KeywordMap<TextDecorationStyle>.InOrder("solid", "double", "dotted", "dashed", "wavy"),
                 s => s.Decoration.Style, (b, v) => b.Decoration = b.Decoration with { Style = v }),
             Color(PropertyId.TextDecorationColor, "text-decoration-color", "currentcolor", s => s.Decoration.Color, (b, v) => b.Decoration = b.Decoration with { Color = v }),
             new Property<float?>(PropertyId.TextDecorationThickness, "text-decoration-thickness", false, "auto",
@@ -683,12 +683,12 @@ internal static class Properties
                 r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : r.LengthPercentage(allowPercent: false, nonNegative: true),
                 (v, ctx) => v is NumberValue n ? new TabSize(n.Number, false) : new TabSize(Math.Max(0, ctx.LengthPercentage(v).Resolve(0)), true),
                 s => s.TextSpacing.TabSize, (b, v) => b.TextSpacing = b.TextSpacing with { TabSize = v }),
-            Keywords(PropertyId.WordBreak, "word-break", true, "normal", Enum<WordBreakStyle>("normal", "break-all", "keep-all", "break-word"),
+            Keywords(PropertyId.WordBreak, "word-break", true, "normal", KeywordMap<WordBreakStyle>.InOrder("normal", "break-all", "keep-all", "break-word"),
                 s => s.TextSpacing.WordBreak, (b, v) => b.TextSpacing = b.TextSpacing with { WordBreak = v }),
-            Keywords(PropertyId.OverflowWrap, "overflow-wrap", true, "normal", Enum<OverflowWrap>("normal", "break-word", "anywhere"),
+            Keywords(PropertyId.OverflowWrap, "overflow-wrap", true, "normal", KeywordMap<OverflowWrap>.InOrder("normal", "break-word", "anywhere"),
                 s => s.TextSpacing.OverflowWrap, (b, v) => b.TextSpacing = b.TextSpacing with { OverflowWrap = v }),
             Keywords(PropertyId.TextTransform, "text-transform", true, "none",
-                Enum<TextTransform>("none", "capitalize", "uppercase", "lowercase", "full-width", "full-size-kana"),
+                KeywordMap<TextTransform>.InOrder("none", "capitalize", "uppercase", "lowercase", "full-width", "full-size-kana"),
                 s => s.TextSpacing.Transform, (b, v) => b.TextSpacing = b.TextSpacing with { Transform = v }),
             // https://www.w3.org/TR/css-fonts-4/#font-variant-numeric-prop: normal | [ figure || spacing || fraction || ordinal || slashed-zero ]
             new Property<string>(PropertyId.FontVariantNumeric, "font-variant-numeric", true, "normal", VariantNumeric,
@@ -746,7 +746,7 @@ internal static class Properties
             // https://www.w3.org/TR/css-ui-4/#outline-props (outline-color: auto is currentcolor)
             BorderWidth(PropertyId.OutlineWidth, "outline-width", s => s.Outline.WidthPx, (b, v) => b.Outline = b.Outline with { WidthPx = v }),
             Keywords(PropertyId.OutlineStyle, "outline-style", false, "none",
-                Enum<OutlineStyle>("auto", "none", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"),
+                KeywordMap<OutlineStyle>.InOrder("auto", "none", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"),
                 s => s.Outline.Style, (b, v) => b.Outline = b.Outline with { Style = v }),
             new Property<CssColor>(PropertyId.OutlineColor, "outline-color", false, "auto",
                 r => r.Keyword("auto") is not null ? new ColorValue(CssColor.CurrentColor) : r.ColorSpecified(),
@@ -838,18 +838,18 @@ internal static class Properties
                 (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Shadows.Box, (b, v) => b.Shadows = b.Shadows with { Box = v }),
             new Property<IReadOnlyList<Shadow>>(PropertyId.TextShadow, "text-shadow", true, "none", r => ShadowList(r, box: false),
                 (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Text.TextShadows ?? [], (b, v) => b.Text = b.Text with { TextShadows = v.Count == 0 ? null : v }),
-            Keywords(PropertyId.Hyphens, "hyphens", true, "manual", Enum<Hyphens>("manual", "none", "auto"),
+            Keywords(PropertyId.Hyphens, "hyphens", true, "manual", KeywordMap<Hyphens>.InOrder("manual", "none", "auto"),
                 s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
             // https://www.w3.org/TR/css-images-3/#the-object-fit, #the-object-position, #the-image-rendering
-            Keywords(PropertyId.ObjectFit, "object-fit", false, "fill", Enum<ObjectFit>("fill", "contain", "cover", "none", "scale-down"),
+            Keywords(PropertyId.ObjectFit, "object-fit", false, "fill", KeywordMap<ObjectFit>.InOrder("fill", "contain", "cover", "none", "scale-down"),
                 s => s.Replaced.Fit, (b, v) => b.Replaced = b.Replaced with { Fit = v }),
             new Property<Style.BackgroundPosition>(PropertyId.ObjectPosition, "object-position", false, "50% 50%",
                 r => BackgroundParsing.Position(r) is { } p ? new PositionValue(p) : null,
                 (v, ctx) => ComputePosition(((PositionValue)v).Position, ctx),
                 s => s.Replaced.Position, (b, v) => b.Replaced = b.Replaced with { Position = v }),
-            Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", Enum<ImageRendering>("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
+            Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", KeywordMap<ImageRendering>.InOrder("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
                 s => s.Inherited.ImageRendering, (b, v) => b.Inherited = b.Inherited with { ImageRendering = v }),
-            Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", Enum<SkipInk>("auto", "none", "all"),
+            Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", KeywordMap<SkipInk>.InOrder("auto", "none", "all"),
                 s => s.Text.SkipInk, (b, v) => b.Text = b.Text with { SkipInk = v }),
         };
 
@@ -874,7 +874,7 @@ internal static class Properties
         return table;
     }
 
-    private static readonly Dictionary<string, Display> DisplayKeywords = new()
+    private static readonly KeywordMap<Display> DisplayKeywords = new()
     {
         ["inline"] = Display.Inline, ["block"] = Display.Block, ["inline-block"] = Display.InlineBlock,
         ["flow-root"] = Display.FlowRoot, ["list-item"] = Display.ListItem, ["flex"] = Display.Flex,
@@ -886,7 +886,7 @@ internal static class Properties
         ["ruby"] = Display.Ruby, ["ruby-text"] = Display.RubyText, ["none"] = Display.None,
     };
 
-    private static readonly Dictionary<string, ContentAlign> ContentAlignKeywords = new()
+    private static readonly KeywordMap<ContentAlign> ContentAlignKeywords = new()
     {
         ["normal"] = ContentAlign.Normal, ["flex-start"] = ContentAlign.FlexStart, ["flex-end"] = ContentAlign.FlexEnd,
         ["center"] = ContentAlign.Center, ["space-between"] = ContentAlign.SpaceBetween, ["space-around"] = ContentAlign.SpaceAround,
@@ -894,7 +894,7 @@ internal static class Properties
         ["end"] = ContentAlign.End, ["left"] = ContentAlign.Left, ["right"] = ContentAlign.Right,
     };
 
-    private static readonly Dictionary<string, ItemAlign> ItemAlignKeywords = new()
+    private static readonly KeywordMap<ItemAlign> ItemAlignKeywords = new()
     {
         ["auto"] = ItemAlign.Auto, ["normal"] = ItemAlign.Normal, ["stretch"] = ItemAlign.Stretch, ["flex-start"] = ItemAlign.FlexStart,
         ["flex-end"] = ItemAlign.FlexEnd, ["center"] = ItemAlign.Center, ["baseline"] = ItemAlign.Baseline, ["start"] = ItemAlign.Start,
@@ -902,7 +902,7 @@ internal static class Properties
     };
 
     // An alignment keyword, optionally after safe/unsafe (overflow alignment is not supported) or first/last (baseline).
-    private static Property<T> Aligned<T>(PropertyId id, string name, Dictionary<string, T> keywords,
+    private static Property<T> Aligned<T>(PropertyId id, string name, KeywordMap<T> keywords,
                                           Func<ComputedStyle, T> get, Action<StyleBuilder, T> set, string initial = "normal") where T : struct, Enum =>
         new(id, name, false, initial,
             r =>
@@ -918,7 +918,7 @@ internal static class Properties
             (v, _) => ((KeywordValue)v).Keyword == "last baseline" ? (T)(object)ItemAlign.LastBaseline : keywords[((KeywordValue)v).Keyword],
             get, set);
 
-    private static readonly Dictionary<string, ItemAlign> JustifyKeywords = new(ItemAlignKeywords)
+    private static readonly KeywordMap<ItemAlign> JustifyKeywords = new(ItemAlignKeywords)
     {
         ["left"] = ItemAlign.Start, ["right"] = ItemAlign.End, ["legacy"] = ItemAlign.Normal,
     };
@@ -947,14 +947,14 @@ internal static class Properties
             (v, ctx) => v is KeywordValue ? default : ctx.LengthPercentage(v, nonNegative: true),
             get, set);
 
-    private static readonly Dictionary<string, VerticalAlignKind> VerticalAlignKeywords = new()
+    private static readonly KeywordMap<VerticalAlignKind> VerticalAlignKeywords = new()
     {
         ["baseline"] = VerticalAlignKind.Baseline, ["sub"] = VerticalAlignKind.Sub, ["super"] = VerticalAlignKind.Super,
         ["text-top"] = VerticalAlignKind.TextTop, ["text-bottom"] = VerticalAlignKind.TextBottom, ["middle"] = VerticalAlignKind.Middle,
         ["top"] = VerticalAlignKind.Top, ["bottom"] = VerticalAlignKind.Bottom,
     };
 
-    private static readonly Dictionary<string, TextDecorationLine> DecorationLineKeywords = new()
+    private static readonly KeywordMap<TextDecorationLine> DecorationLineKeywords = new()
     {
         ["underline"] = TextDecorationLine.Underline, ["overline"] = TextDecorationLine.Overline,
         ["line-through"] = TextDecorationLine.LineThrough, ["blink"] = TextDecorationLine.Blink,
@@ -970,7 +970,7 @@ internal static class Properties
             seen.Add(r.Keyword(k)!);
         return seen.Count == 0 ? null : new KeywordValue(string.Join(' ', seen));
     }
-    private static readonly Dictionary<string, Style.TextAlign> TextAlignKeywords = Enum<Style.TextAlign>("start", "end", "left", "right", "center", "justify");
+    private static readonly KeywordMap<Style.TextAlign> TextAlignKeywords = KeywordMap<Style.TextAlign>.InOrder("start", "end", "left", "right", "center", "justify");
 
     // letter-spacing and word-spacing: normal or a length-percentage of 1em, computed to px.
     private static Property<float> TextSpacingLength(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
@@ -1064,13 +1064,13 @@ internal static class Properties
             return new Shadow(L(0), L(1), Math.Max(0, L(2)), L(3), s.Color is null ? CssColor.CurrentColor : ctx.Color(s.Color, ctx.CurrentColor), s.Inset);
         }).ToList();
 
-    private static readonly Dictionary<string, Style.BlendMode> BlendKeywords = Enum<Style.BlendMode>("normal", "multiply", "screen", "overlay", "darken",
+    private static readonly KeywordMap<Style.BlendMode> BlendKeywords = KeywordMap<Style.BlendMode>.InOrder("normal", "multiply", "screen", "overlay", "darken",
         "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-lighter");
 
-    private static readonly Dictionary<string, Overflow> OverflowKeywords = Enum<Overflow>("visible", "hidden", "clip", "scroll", "auto");
+    private static readonly KeywordMap<Overflow> OverflowKeywords = KeywordMap<Overflow>.InOrder("visible", "hidden", "clip", "scroll", "auto");
 
-    private static readonly Dictionary<string, BorderStyle> BorderStyleKeywords =
-        Enum<BorderStyle>("none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset");
+    private static readonly KeywordMap<BorderStyle> BorderStyleKeywords =
+        KeywordMap<BorderStyle>.InOrder("none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset");
 
     // https://www.w3.org/TR/css-fonts-4/#absolute-size-mapping (medium = 16px)
     private static readonly Dictionary<string, float> FontSizeKeywords = new()
@@ -1079,14 +1079,10 @@ internal static class Properties
         ["xx-large"] = 32, ["xxx-large"] = 48,
     };
 
-    // Keywords listed in the enum's declaration order.
-    private static Dictionary<string, T> Enum<T>(params string[] keywords) where T : struct, Enum =>
-        keywords.Select((k, i) => (k, i)).ToDictionary(x => x.k, x => System.Enum.GetValues<T>()[x.i]);
-
-    private static Property<T> Keywords<T>(PropertyId id, string name, bool inherited, string initial, Dictionary<string, T> keywords,
-                                           Func<ComputedStyle, T> get, Action<StyleBuilder, T> set) =>
+    private static Property<T> Keywords<T>(PropertyId id, string name, bool inherited, string initial, KeywordMap<T> keywords,
+                                           Func<ComputedStyle, T> get, Action<StyleBuilder, T> set) where T : struct, Enum =>
         new(id, name, inherited, initial,
-            r => r.Keyword(keywords.Keys.ToArray()) is { } k ? new KeywordValue(k) : null,
+            r => r.Keyword(keywords.Keys) is { } k ? new KeywordValue(k) : null,
             (v, _) => keywords[((KeywordValue)v).Keyword],
             get, set);
 

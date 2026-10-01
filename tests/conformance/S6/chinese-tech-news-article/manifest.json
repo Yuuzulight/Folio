@@ -1,0 +1,5 @@
+{
+  "prompt": "Write a Simplified Chinese news article about electric buses with a headline, byline, statistic cards, a pull quote and tags, mixing in numbers and some English.",
+  "features": ["cjk", "lang-attribute", "grid", "blockquote", "generated-content"],
+  "viewport": 800
+}

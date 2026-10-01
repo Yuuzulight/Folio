@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a Kyoto station departure board in Japanese with English and Chinese subtitles: a header with a clock, a table of Shinkansen trains with coloured badges, delays and a scrolling-style notice line.",
+  "features": ["cjk", "table", "tabular-nums", "emoji", "flex"],
+  "viewport": 800
+}
