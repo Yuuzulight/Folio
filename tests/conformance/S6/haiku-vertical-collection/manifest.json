@@ -1,0 +1,5 @@
+{
+  "prompt": "Lay out four seasonal haiku as vertical Japanese text cards, read right to left, with season badges, poet names and furigana on hard kanji.",
+  "features": ["cjk", "writing-mode", "ruby", "flex", "logical-properties"],
+  "viewport": 800
+}

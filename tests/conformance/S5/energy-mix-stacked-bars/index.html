@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regional Energy Mix 2019–2028</title>
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, sans-serif; color: #1e293b; background: #ffffff; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 52px; }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: #0f766e; text-transform: uppercase; }
+  h1 { margin: 4px 0 8px; font-size: 27px; line-height: 1.2; }
+  .intro { color: #475569; max-width: 680px; margin: 0 0 20px; }
+  .chart-card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 16px 8px; }
+  svg { display: block; width: 100%; height: auto; }
+  .axis text { font-size: 11px; fill: #64748b; }
+  .val { font-size: 10px; fill: #334155; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; padding: 10px 4px; color: #334155; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+  .legend .forecast::before { background: repeating-linear-gradient(45deg, #94a3b8 0 2px, #e2e8f0 2px 5px); }
+  .source { font-size: 12px; color: #94a3b8; margin-top: 10px; }
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 22px; }
+  .facts div { border-left: 3px solid #0f766e; padding-left: 12px; }
+  .facts strong { display: block; font-size: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Grid outlook</div>
+  <h1>Wind and solar overtake gas by 2027</h1>
+  <p class="intro">Share of electricity generated in the region by source, in terawatt-hours. Bars after 2025 are the utility commission's central forecast and are shown hatched.</p>
+
+  <div class="chart-card">
+    <svg viewBox="0 0 840 360" role="img" aria-label="Stacked bar chart of generation by source">
+      <defs>
+        <pattern id="hatch-wind" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="#5eead4"/><rect width="3" height="8" fill="#0d9488"/>
+        </pattern>
+        <pattern id="hatch-solar" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="#fde68a"/><rect width="3" height="8" fill="#f59e0b"/>
+        </pattern>
+        <pattern id="hatch-gas" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="#cbd5e1"/><rect width="3" height="8" fill="#64748b"/>
+        </pattern>
+        <pattern id="hatch-hydro" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="#bfdbfe"/><rect width="3" height="8" fill="#3b82f6"/>
+        </pattern>
+      </defs>
+      <g transform="translate(50,20)">
+        <g class="axis">
+          <g stroke="#e2e8f0">
+            <line x1="0" y1="0" x2="770" y2="0"/><line x1="0" y1="70" x2="770" y2="70"/><line x1="0" y1="140" x2="770" y2="140"/>
+            <line x1="0" y1="210" x2="770" y2="210"/><line x1="0" y1="280" x2="770" y2="280" stroke="#94a3b8"/>
+          </g>
+          <text x="-8" y="4" text-anchor="end">80</text><text x="-8" y="74" text-anchor="end">60</text>
+          <text x="-8" y="144" text-anchor="end">40</text><text x="-8" y="214" text-anchor="end">20</text>
+          <text x="-8" y="284" text-anchor="end">0</text>
+          <text transform="translate(-38,140) rotate(-90)" text-anchor="middle">TWh</text>
+        </g>
+
+        <!-- 1 TWh = 3.5 px. Bars 46 wide every 77 px. Stack order bottom-up: hydro, gas, wind, solar -->
+        <g id="bars">
+          <!-- 2019: hydro 18 gas 34 wind 8 solar 3 -->
+          <rect x="15" y="217" width="46" height="63" fill="#3b82f6"/><rect x="15" y="98" width="46" height="119" fill="#64748b"/>
+          <rect x="15" y="70" width="46" height="28" fill="#0d9488"/><rect x="15" y="59.5" width="46" height="10.5" fill="#f59e0b"/>
+          <!-- 2020 -->
+          <rect x="92" y="217" width="46" height="63" fill="#3b82f6"/><rect x="92" y="105" width="46" height="112" fill="#64748b"/>
+          <rect x="92" y="70" width="46" height="35" fill="#0d9488"/><rect x="92" y="56" width="46" height="14" fill="#f59e0b"/>
+          <!-- 2021 -->
+          <rect x="169" y="220.5" width="46" height="59.5" fill="#3b82f6"/><rect x="169" y="112" width="46" height="108.5" fill="#64748b"/>
+          <rect x="169" y="70" width="46" height="42" fill="#0d9488"/><rect x="169" y="49" width="46" height="21" fill="#f59e0b"/>
+          <!-- 2022 -->
+          <rect x="246" y="217" width="46" height="63" fill="#3b82f6"/><rect x="246" y="119" width="46" height="98" fill="#64748b"/>
+          <rect x="246" y="70" width="46" height="49" fill="#0d9488"/><rect x="246" y="42" width="46" height="28" fill="#f59e0b"/>
+          <!-- 2023 -->
+          <rect x="323" y="217" width="46" height="63" fill="#3b82f6"/><rect x="323" y="129.5" width="46" height="87.5" fill="#64748b"/>
+          <rect x="323" y="73.5" width="46" height="56" fill="#0d9488"/><rect x="323" y="38.5" width="46" height="35" fill="#f59e0b"/>
+          <!-- 2024 -->
+          <rect x="400" y="217" width="46" height="63" fill="#3b82f6"/><rect x="400" y="140" width="46" height="77" fill="#64748b"/>
+          <rect x="400" y="77" width="46" height="63" fill="#0d9488"/><rect x="400" y="35" width="46" height="42" fill="#f59e0b"/>
+          <!-- 2025 -->
+          <rect x="477" y="217" width="46" height="63" fill="#3b82f6"/><rect x="477" y="147" width="46" height="70" fill="#64748b"/>
+          <rect x="477" y="77" width="46" height="70" fill="#0d9488"/><rect x="477" y="28" width="46" height="49" fill="#f59e0b"/>
+          <!-- 2026 forecast -->
+          <rect x="554" y="217" width="46" height="63" fill="url(#hatch-hydro)"/><rect x="554" y="157.5" width="46" height="59.5" fill="url(#hatch-gas)"/>
+          <rect x="554" y="80.5" width="46" height="77" fill="url(#hatch-wind)"/><rect x="554" y="24.5" width="46" height="56" fill="url(#hatch-solar)"/>
+          <!-- 2027 forecast -->
+          <rect x="631" y="217" width="46" height="63" fill="url(#hatch-hydro)"/><rect x="631" y="168" width="46" height="49" fill="url(#hatch-gas)"/>
+          <rect x="631" y="84" width="46" height="84" fill="url(#hatch-wind)"/><rect x="631" y="21" width="46" height="63" fill="url(#hatch-solar)"/>
+          <!-- 2028 forecast -->
+          <rect x="708" y="217" width="46" height="63" fill="url(#hatch-hydro)"/><rect x="708" y="178.5" width="46" height="38.5" fill="url(#hatch-gas)"/>
+          <rect x="708" y="87.5" width="46" height="91" fill="url(#hatch-wind)"/><rect x="708" y="17.5" width="46" height="70" fill="url(#hatch-solar)"/>
+        </g>
+
+        <g class="val" text-anchor="middle">
+          <text x="38" y="52">63</text><text x="115" y="49">64</text><text x="192" y="42">66</text><text x="269" y="35">68</text>
+          <text x="346" y="31">69</text><text x="423" y="28">70</text><text x="500" y="21">72</text><text x="577" y="17">73</text>
+          <text x="654" y="14">74</text><text x="731" y="11">75</text>
+        </g>
+
+        <line x1="539" y1="-10" x2="539" y2="290" stroke="#0f766e" stroke-dasharray="4 4"/>
+        <text x="545" y="296" font-size="11" fill="#0f766e">forecast →</text>
+
+        <g class="axis" text-anchor="middle">
+          <text x="38" y="298">2019</text><text x="115" y="298">2020</text><text x="192" y="298">2021</text><text x="269" y="298">2022</text>
+          <text x="346" y="298">2023</text><text x="423" y="298">2024</text><text x="500" y="298">2025</text><text x="577" y="314">2026</text>
+          <text x="654" y="314">2027</text><text x="731" y="314">2028</text>
+        </g>
+      </g>
+    </svg>
+    <div class="legend">
+      <span style="--c:#f59e0b">Solar</span>
+      <span style="--c:#0d9488">Wind</span>
+      <span style="--c:#64748b">Natural gas</span>
+      <span style="--c:#3b82f6">Hydro</span>
+      <span class="forecast">Forecast</span>
+    </div>
+  </div>
+  <p class="source">Source: Regional Utility Commission annual reports, 2019–2025; 2026–2028 central scenario.</p>
+
+  <section class="facts">
+    <div><strong>+79%</strong>wind output since 2019</div>
+    <div><strong>4×</strong>solar generation by 2028</div>
+    <div><strong>−67%</strong>gas-fired share over the decade</div>
+  </section>
+</main>
+</body>
+</html>

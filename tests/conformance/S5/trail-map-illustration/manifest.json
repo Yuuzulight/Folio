@@ -1,0 +1,5 @@
+{
+  "prompt": "Illustrate a hiking trail map in SVG: terrain with patterned forest, water and marsh, contour ellipses, three dashed trail loops, a bridge, a compass and a scale bar, plus a colour key.",
+  "features": ["svg", "svg-pattern", "pattern-transform", "radial-gradient-svg", "stroke-dasharray", "svg-transform", "flex"],
+  "viewport": 800
+}

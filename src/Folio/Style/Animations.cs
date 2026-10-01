@@ -1,4 +1,5 @@
 using Folio.Css;
+using Folio.Dom;
 
 namespace Folio.Style;
 
@@ -64,15 +65,14 @@ internal static class Animations
     /// The element's style with its animations applied at <paramref name="time"/> (seconds on the document timeline;
     /// null for the settled document), or null when no animation has an effect.
     /// </summary>
-    /// <param name="styleWith">The element's style with declarations added to the animation origin of the cascade.</param>
+    /// <param name="keyframeStyle">The element's style with a keyframe block's declarations in the animation origin of the cascade.</param>
     public static ComputedStyle? Sample(ComputedStyle underlying, ComputedStyle parent, IReadOnlyDictionary<string, List<Keyframe>> keyframes,
-                                        double? time, Func<IReadOnlyList<CascadeDeclaration>, ComputedStyle> styleWith, Dictionary<object, object>? groups = null)
+                                        double? time, Func<Keyframe, ComputedStyle> keyframeStyle, Dictionary<object, object>? groups = null)
     {
         var group = underlying.Animation;
         if (ReferenceEquals(group, AnimationGroup.Initial) || keyframes.Count == 0)
             return null;
         StyleBuilder? builder = null;
-        Dictionary<Keyframe, ComputedStyle>? styles = null;
         for (var i = 0; i < group.Names.Count; i++)
         {
             if (group.Names[i] is not { } name || !keyframes.TryGetValue(name, out var blocks)
@@ -96,16 +96,37 @@ internal static class Animations
         }
         return builder?.Build(groups);
 
-        ComputedStyle Style(Keyframe? block)
-        {
-            if (block is null)
-                return underlying;
-            styles ??= [];
-            if (!styles.TryGetValue(block, out var style))
-                styles[block] = style = styleWith(block.Declarations);
-            return style;
-        }
+        ComputedStyle Style(Keyframe? block) => block is null ? underlying : keyframeStyle(block);
     }
+
+    /// <summary>Whether any animation of the style still changes after <paramref name="time"/>: it runs and has not ended.</summary>
+    public static bool IsRunning(AnimationGroup group, IReadOnlyDictionary<string, List<Keyframe>> keyframes, double time)
+    {
+        for (var i = 0; i < group.Names.Count; i++)
+        {
+            var (duration, iterations) = (group.Durations[i % group.Durations.Count], group.IterationCounts[i % group.IterationCounts.Count]);
+            if (group.Names[i] is { } name && keyframes.ContainsKey(name) && group.PlayStates[i % group.PlayStates.Count] == AnimationPlayState.Running
+                && duration > 0 && iterations > 0 && time < group.Delays[i % group.Delays.Count] + duration * iterations)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Properties whose animation only changes painting (docs/study/14-invalidation.md): no box, line or position
+    /// depends on them, and they are not inherited, so a frame restyles only the animated element and rebuilds the
+    /// display list from the last layout.
+    /// </summary>
+    private static readonly HashSet<PropertyId> PaintOnly =
+    [
+        PropertyId.Opacity, PropertyId.Transform, PropertyId.Translate, PropertyId.Rotate, PropertyId.Scale, PropertyId.TransformOrigin,
+        PropertyId.Filter, PropertyId.BackdropFilter, PropertyId.BackgroundColor, PropertyId.BackgroundPosition, PropertyId.BoxShadow,
+        PropertyId.BorderTopColor, PropertyId.BorderRightColor, PropertyId.BorderBottomColor, PropertyId.BorderLeftColor, PropertyId.OutlineColor,
+    ];
+
+    /// <summary>Whether every property the style's animations animate is paint-only.</summary>
+    public static bool AnimatesPaintOnly(AnimationGroup group, IReadOnlyDictionary<string, List<Keyframe>> keyframes) =>
+        group.Names.All(name => name is null || !keyframes.TryGetValue(name, out var blocks) || ByProperty.GetValue(blocks, PerProperty).Keys.All(PaintOnly.Contains));
 
     // Each animated property's keyframes in offset order, the last block at an offset winning, with the underlying value
     // (null) at 0 and 1 where no block sets the property (https://www.w3.org/TR/css-animations-1/#keyframes).
@@ -177,5 +198,35 @@ internal static class Animations
             _ => double.IsInfinity(current) || (current + (direction == AnimationDirection.AlternateReverse ? 1 : 0)) % 2 == 0,
         };
         return forwards ? simple : 1 - simple;
+    }
+}
+
+/// <summary>
+/// An element with animations, as the last full style pass left it: what a frame needs to sample it again without
+/// restyling the document. Keyframe styles are computed once and kept.
+/// </summary>
+internal sealed class AnimatedElement(ElementNode element, ComputedStyle underlying, ComputedStyle parent,
+                                      IReadOnlyDictionary<string, List<Keyframe>> keyframes, Func<IReadOnlyList<CascadeDeclaration>, ComputedStyle> styleWith)
+{
+    private readonly Dictionary<Keyframe, ComputedStyle> _keyframeStyles = [];
+
+    public ElementNode Element { get; } = element;
+
+    /// <summary>The style without animations.</summary>
+    public ComputedStyle Underlying { get; } = underlying;
+
+    public bool PaintOnly { get; } = Animations.AnimatesPaintOnly(underlying.Animation, keyframes);
+
+    public bool IsRunning(double time) => Animations.IsRunning(Underlying.Animation, keyframes, time);
+
+    /// <summary>The style at a time (null for the settled document).</summary>
+    public ComputedStyle Sample(double? time, Dictionary<object, object>? groups = null) =>
+        Animations.Sample(Underlying, parent, keyframes, time, KeyframeStyle, groups) ?? Underlying;
+
+    private ComputedStyle KeyframeStyle(Keyframe block)
+    {
+        if (!_keyframeStyles.TryGetValue(block, out var style))
+            _keyframeStyles[block] = style = styleWith(block.Declarations);
+        return style;
     }
 }

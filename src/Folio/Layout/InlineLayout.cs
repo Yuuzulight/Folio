@@ -29,7 +29,7 @@ internal static class InlineLayout
         BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context)
     {
         var levels = BidiLevels(block, ifc);
-        var units = Units(block, ifc, width, context, levels);
+        var units = Measured.TryGetValue(context, out var measured) && measured.Remove(ifc, out var kept) ? kept : Units(block, ifc, width, context, levels);
         var strut = Metrics(block.Style, context);
         var lines = new List<ChildFragment>();
         var hasLineBoxes = false;
@@ -160,6 +160,11 @@ internal static class InlineLayout
         public ushort HyphenGlyph { get; set; }
         public float HyphenWidth { get; set; }
     }
+
+    // Units measured for intrinsic sizes, kept for the layout that usually follows (a table cell, a shrink-to-fit box)
+    // when they cannot depend on the width: text only, no inline boxes or atomic inlines. Layout takes them rather
+    // than sharing them, since it may split units; a second layout breaks the text again.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LayoutContext, Dictionary<InlineFormattingContext, List<Unit>>> Measured = [];
 
     // Break the content into units; atomic inlines are laid out only for layout, not for measuring.
     private static List<Unit> Units(BlockContainerBox block, InlineFormattingContext ifc, float width, LayoutContext context, Levels levels,
@@ -463,13 +468,17 @@ internal static class InlineLayout
 
     /// <summary>
     /// Min-content (the widest unit) and max-content (the widest line with only forced breaks) widths
-    /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own.
+    /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own for min-content and
+    /// beside the line they start on for max-content.
     /// </summary>
     public static (float Min, float Max) Measure(BlockContainerBox block, InlineFormattingContext ifc, LayoutContext context)
     {
         float min = 0, max = 0, line = 0;
         var first = true;
-        foreach (var unit in Units(block, ifc, 0, context, BidiLevels(block, ifc), layOutAtomics: false))
+        var units = Units(block, ifc, 0, context, BidiLevels(block, ifc), layOutAtomics: false);
+        if (ifc.Items.All(i => i.Kind == InlineItemKind.Text))
+            Measured.GetOrCreateValue(context)[ifc] = units;
+        foreach (var unit in units)
         {
             var (unitMin, unitMax) = (unit.Width - unit.TrailingSpace + unit.HyphenWidth, unit.Width);
             // overflow-wrap: anywhere (and word-break: break-word) may break between any two characters for min-content;
@@ -488,9 +497,12 @@ internal static class InlineLayout
                 if (piece.Kind is PieceKind.Atomic or PieceKind.Float)
                 {
                     var c = IntrinsicSizes.Contribution(piece.Box!, context);
+                    // A float takes its own width beside the line it starts on, so its max-content width adds to that
+                    // line's; its min-content width stands alone.
                     if (piece.Kind == PieceKind.Float)
                     {
-                        (min, max) = (Math.Max(min, c.Min), Math.Max(max, c.Max));
+                        min = Math.Max(min, c.Min);
+                        unitMax += c.Max;
                         continue;
                     }
                     (unitMin, unitMax) = (unitMin + c.Min, unitMax + c.Max);

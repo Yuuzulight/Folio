@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Hours vs. Exam Scores</title>
+<style>
+  body { margin: 0; font-family: "Source Serif Pro", Georgia, serif; background: #fdfdfc; color: #222; }
+  .paper { max-width: 760px; margin: 0 auto; padding: 40px 30px 60px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .authors { font-style: italic; color: #555; margin-bottom: 18px; }
+  h2 { font-size: 18px; margin: 26px 0 8px; }
+  p { line-height: 1.65; font-size: 16px; margin: 0 0 12px; text-align: justify; }
+  figure { margin: 20px 0; }
+  figcaption { font-size: 14px; color: #444; line-height: 1.45; margin-top: 6px; }
+  figcaption b { font-weight: 700; }
+  svg { display: block; width: 100%; height: auto; font-family: Arial, sans-serif; }
+  .tick text { font-size: 11px; fill: #333; }
+  .lbl { font-size: 12px; fill: #222; }
+  table { border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+  td, th { padding: 4px 14px; border-top: 1px solid #999; border-bottom: 1px solid #999; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<div class="paper">
+  <h1>Does more study time pay off?</h1>
+  <div class="authors">A. Mensah and L. Fischer · Statistics 201 project · Fall 2026</div>
+
+  <h2>1. Method</h2>
+  <p>We surveyed 40 students in two sections of Introductory Statistics about the hours they studied during the week before the midterm, then matched the answers to their midterm scores. Students in the morning section are shown in blue and the evening section in orange.</p>
+
+  <figure>
+    <svg viewBox="0 0 700 420" role="img" aria-label="Scatter plot">
+      <g transform="translate(64,20)">
+        <rect width="600" height="330" fill="#fafafa" stroke="#bbb"/>
+        <g stroke="#e6e6e6">
+          <line x1="100" y1="0" x2="100" y2="330"/><line x1="200" y1="0" x2="200" y2="330"/><line x1="300" y1="0" x2="300" y2="330"/>
+          <line x1="400" y1="0" x2="400" y2="330"/><line x1="500" y1="0" x2="500" y2="330"/>
+          <line x1="0" y1="66" x2="600" y2="66"/><line x1="0" y1="132" x2="600" y2="132"/><line x1="0" y1="198" x2="600" y2="198"/><line x1="0" y1="264" x2="600" y2="264"/>
+        </g>
+        <g class="tick">
+          <g text-anchor="middle">
+            <text x="0" y="348">0</text><text x="100" y="348">2</text><text x="200" y="348">4</text><text x="300" y="348">6</text>
+            <text x="400" y="348">8</text><text x="500" y="348">10</text><text x="600" y="348">12</text>
+          </g>
+          <g text-anchor="end">
+            <text x="-8" y="334">50</text><text x="-8" y="268">60</text><text x="-8" y="202">70</text>
+            <text x="-8" y="136">80</text><text x="-8" y="70">90</text><text x="-8" y="4">100</text>
+          </g>
+        </g>
+        <text x="300" y="374" text-anchor="middle" class="lbl">Hours studied in the week before the exam</text>
+        <text transform="translate(-44,165) rotate(-90)" text-anchor="middle" class="lbl">Midterm score (%)</text>
+
+        <!-- regression line: score = 58.4 + 2.9 * hours -->
+        <line x1="0" y1="274.4" x2="600" y2="44.7" stroke="#444" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="470" y="78" class="lbl" font-style="italic">r = 0.71</text>
+
+        <g fill="#2563eb" fill-opacity="0.75" stroke="#1e3a8a" stroke-width="0.8">
+          <circle cx="50" cy="256" r="5"/><circle cx="75" cy="231" r="5"/><circle cx="100" cy="270" r="5"/><circle cx="125" cy="218" r="5"/>
+          <circle cx="150" cy="205" r="5"/><circle cx="175" cy="225" r="5"/><circle cx="200" cy="185" r="5"/><circle cx="225" cy="198" r="5"/>
+          <circle cx="250" cy="165" r="5"/><circle cx="275" cy="172" r="5"/><circle cx="300" cy="139" r="5"/><circle cx="325" cy="159" r="5"/>
+          <circle cx="350" cy="126" r="5"/><circle cx="375" cy="145" r="5"/><circle cx="400" cy="106" r="5"/><circle cx="425" cy="119" r="5"/>
+          <circle cx="450" cy="92" r="5"/><circle cx="500" cy="79" r="5"/><circle cx="550" cy="66" r="5"/><circle cx="575" cy="40" r="5"/>
+        </g>
+        <g fill="#ea580c" fill-opacity="0.75" stroke="#7c2d12" stroke-width="0.8">
+          <rect x="45" y="285" width="9" height="9"/><rect x="95" y="241" width="9" height="9"/><rect x="120" y="261" width="9" height="9"/>
+          <rect x="145" y="228" width="9" height="9"/><rect x="170" y="241" width="9" height="9"/><rect x="195" y="208" width="9" height="9"/>
+          <rect x="220" y="221" width="9" height="9"/><rect x="245" y="195" width="9" height="9"/><rect x="270" y="215" width="9" height="9"/>
+          <rect x="295" y="175" width="9" height="9"/><rect x="320" y="182" width="9" height="9"/><rect x="345" y="149" width="9" height="9"/>
+          <rect x="370" y="162" width="9" height="9"/><rect x="395" y="129" width="9" height="9"/><rect x="420" y="142" width="9" height="9"/>
+          <rect x="445" y="116" width="9" height="9"/><rect x="470" y="103" width="9" height="9"/><rect x="495" y="122" width="9" height="9"/>
+          <rect x="520" y="90" width="9" height="9"/><rect x="545" y="83" width="9" height="9"/>
+        </g>
+
+        <!-- legend -->
+        <g transform="translate(20,20)">
+          <rect width="150" height="50" fill="#fff" stroke="#bbb"/>
+          <circle cx="16" cy="17" r="5" fill="#2563eb" fill-opacity="0.75" stroke="#1e3a8a"/>
+          <text x="30" y="21" class="lbl">Morning section</text>
+          <rect x="11.5" y="29.5" width="9" height="9" fill="#ea580c" fill-opacity="0.75" stroke="#7c2d12"/>
+          <text x="30" y="38" class="lbl">Evening section</text>
+        </g>
+      </g>
+    </svg>
+    <figcaption><b>Figure 1.</b> Midterm score against reported study hours (n = 40). The dashed line is the least-squares fit; each extra hour is worth about 2.9 points.</figcaption>
+  </figure>
+
+  <h2>2. Results</h2>
+  <table>
+    <thead><tr><th>Section</th><th>n</th><th>Mean hours</th><th>Mean score</th><th>r</th></tr></thead>
+    <tbody>
+      <tr><td>Morning</td><td>20</td><td>6.1</td><td>76.8</td><td>0.74</td></tr>
+      <tr><td>Evening</td><td>20</td><td>5.8</td><td>73.2</td><td>0.68</td></tr>
+      <tr><td>All</td><td>40</td><td>5.95</td><td>75.0</td><td>0.71</td></tr>
+    </tbody>
+  </table>
+  <p>The relationship is strong and roughly linear in both sections. Evening students scored slightly lower at every level of study time, which may reflect that many of them work during the day.</p>
+</div>
+</body>
+</html>
