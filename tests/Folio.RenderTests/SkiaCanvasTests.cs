@@ -152,6 +152,20 @@ public class SkiaCanvasTests
     }
 
     [Fact]
+    public void PerspectiveForeshortensATiltedBox()
+    {
+        // Turned 60° about its left edge under a 100px perspective from the top-left corner: the right edge recedes
+        // to x ≈ 27 and spans only y 0 to 54, where flattened it would be at x 50 at full height.
+        using var bitmap = Render("<style>body { margin: 0 }</style><div style='perspective: 100px; perspective-origin: 0 0'>" +
+            "<div style='height: 100px; width: 100px; background: blue; transform-origin: 0 0; transform: rotateY(60deg)'></div></div>");
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(5, 80));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(24, 10));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(24, 70));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(40, 10));
+    }
+
+    [Fact]
     public void UnderlinesSkipTheGlyphsInkUnderATransform()
     {
         // Doubled from the top-left corner: the first glyph's gap spans x -4 to 36, the line shows under the space.
