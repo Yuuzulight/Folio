@@ -18,6 +18,12 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
 
     /// <summary>What masks the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
     public SvgMask? Mask { get; init; }
+
+    /// <summary>
+    /// The filters applied to the node, in order, each a list of primitives in its user space (after
+    /// <see cref="Transform"/>); null when nothing filters it.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<Painting.Filter>>? Filters { get; init; }
 }
 
 /// <summary>
@@ -145,9 +151,11 @@ internal static class SvgRenderTree
             return null;
         if (style.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } clip && clip.Name.Namespace == Namespaces.Svg)
             node = node with { ClipPath = ClipPath(clip, node, viewport, context) };
-        // In a clip path only the geometry counts, so masks there are ignored.
+        // In a clip path only the geometry counts, so masks and filters there are ignored.
         if (!clipping && MaskReference(style.Mask, context) is var (mask, mode))
             node = node with { Mask = Mask(mask, mode, Bounds(node), viewport, context) };
+        if (!clipping && !style.Effects.Filter.IsNone)
+            node = node with { Filters = SvgFilters.Build(style.Effects.Filter, style, Bounds(node), viewport, context) };
         return node;
     }
 

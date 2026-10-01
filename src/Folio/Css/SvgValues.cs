@@ -67,6 +67,9 @@ internal static class SvgProperties
                 ["use-script"] = DominantBaseline.Auto, ["no-change"] = DominantBaseline.Auto, ["reset-size"] = DominantBaseline.Auto,
             },
             s => s.Svg.DominantBaseline, (b, v) => b.Svg = b.Svg with { DominantBaseline = v }),
+        Keywords(PropertyId.ColorInterpolationFilters, "color-interpolation-filters", "auto",
+            new() { ["auto"] = ColorInterpolation.Auto, ["srgb"] = ColorInterpolation.Srgb, ["linearrgb"] = ColorInterpolation.Linearrgb },
+            s => s.Svg.ColorInterpolationFilters, (b, v) => b.Svg = b.Svg with { ColorInterpolationFilters = v }),
     ];
 
     /// <summary>stop-color and stop-opacity, which are not inherited.</summary>
@@ -78,6 +81,12 @@ internal static class SvgProperties
             r => r.Number() is { } n ? new NumberValue(n) : r.LengthPercentage() is PercentageValue p ? p : null,
             (v, _) => Math.Clamp(v is PercentageValue p ? p.Percent / 100 : ((NumberValue)v).Number, 0, 1),
             s => s.SvgStop.StopOpacity, (b, v) => b.SvgStop = b.SvgStop with { StopOpacity = v }),
+        new Property<CssColor>(PropertyId.FloodColor, "flood-color", false, "black", r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor),
+            s => s.SvgStop.FloodColor, (b, v) => b.SvgStop = b.SvgStop with { FloodColor = v }),
+        new Property<float>(PropertyId.FloodOpacity, "flood-opacity", false, "1",
+            r => r.Number() is { } n ? new NumberValue(n) : r.LengthPercentage() is PercentageValue p ? p : null,
+            (v, _) => Math.Clamp(v is PercentageValue p ? p.Percent / 100 : ((NumberValue)v).Number, 0, 1),
+            s => s.SvgStop.FloodOpacity, (b, v) => b.SvgStop = b.SvgStop with { FloodOpacity = v }),
     ];
 
     // none | <color> | <url> [none | <color>]? (https://www.w3.org/TR/SVG2/painting.html#SpecifyingPaint)

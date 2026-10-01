@@ -56,6 +56,8 @@ public class Reftests
     [InlineData("svg/clip-path-union-001")]
     [InlineData("svg/mask-001")]
     [InlineData("svg/mask-alpha-001")]
+    [InlineData("svg/filter-offset-001")]
+    [InlineData("svg/filter-flood-001")]
     [InlineData("svg/use-symbol-001")]
     [InlineData("svg/marker-001")]
     [InlineData("svg/marker-orient-001")]

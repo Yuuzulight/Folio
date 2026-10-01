@@ -94,12 +94,43 @@ public class DisplayListTests
     private static string Blend(Folio.Painting.BlendMode mode) => mode == Folio.Painting.BlendMode.Normal ? ""
         : " blend " + string.Concat(mode.ToString().Select((c, i) => char.IsUpper(c) && i > 0 ? $"-{char.ToLowerInvariant(c)}" : $"{char.ToLowerInvariant(c)}"));
 
-    private static string Filter(Filter f) => f.Kind switch
+    // A primitive, then its inputs when not the previous result, its subregion and linear light when set.
+    private static string Filter(Filter f)
     {
-        FilterKind.Blur => $"blur({N(f.StdDeviation)})",
-        FilterKind.DropShadow => $"shadow({N(f.Offset.X)},{N(f.Offset.Y)},{N(f.StdDeviation)},{N(f.Color.R)},{N(f.Color.G)},{N(f.Color.B)},{N(f.Color.A)})",
-        _ => $"matrix({string.Join(",", f.Matrix!.Select(N))})",
-    };
+        var (sx, sy) = f.Deviations is { } d ? (d.X, d.Y) : (f.StdDeviation, f.StdDeviation);
+        var deviation = sx == sy ? N(sx) : $"{N(sx)},{N(sy)}";
+        var color = $"{N(f.Color.R)},{N(f.Color.G)},{N(f.Color.B)},{N(f.Color.A)}";
+        var text = f.Kind switch
+        {
+            FilterKind.Blur => $"blur({deviation})",
+            FilterKind.DropShadow => $"shadow({N(f.Offset.X)},{N(f.Offset.Y)},{deviation},{color})",
+            FilterKind.ColorMatrix => $"matrix({string.Join(",", f.Matrix!.Select(N))})",
+            FilterKind.Offset => $"offset({N(f.Offset.X)},{N(f.Offset.Y)})",
+            FilterKind.Flood => $"flood({color})",
+            FilterKind.Composite => $"composite({f.Operator.ToString().ToLowerInvariant()}{(f.Coefficients is { } k ? "," + string.Join(",", k.Select(N)) : "")})",
+            FilterKind.Merge => $"merge({string.Join(",", f.Inputs!.Select(Input))})",
+            FilterKind.Blend => $"blend({Blend(f.Blend).Replace(" blend ", "")})",
+            FilterKind.Morphology => $"{(f.Dilate ? "dilate" : "erode")}({N(f.Radius.X)},{N(f.Radius.Y)})",
+            FilterKind.ComponentTransfer => $"transfer({string.Join(";", f.Transfer!.Select(t => $"{t.Kind.ToString().ToLowerInvariant()}{(t.Values is { Count: > 0 } v ? " " + string.Join(",", v.Select(N)) : "")}"))})",
+            FilterKind.Turbulence => $"turbulence({N(f.Noise!.BaseFrequency.X)},{N(f.Noise.BaseFrequency.Y)},{f.Noise.Octaves},{N(f.Noise.Seed)}{(f.Noise.Fractal ? ",fractal" : "")}{(f.Noise.Stitch ? ",stitch" : "")})",
+            _ => $"displace({N(f.Scale)},{f.XChannel},{f.YChannel})",
+        };
+        if (f.In.Source != FilterSource.Previous)
+            text += $" in={Input(f.In)}";
+        if (f.Kind is FilterKind.Composite or FilterKind.Blend or FilterKind.DisplacementMap)
+            text += $" in2={Input(f.In2)}";
+        if (f.Subregion is { } r)
+            text += $" [{Shape(new RoundedRect(r, default))}]";
+        return f.LinearRgb ? text + " linear" : text;
+
+        static string Input(FilterInput input) => input.Source switch
+        {
+            FilterSource.SourceGraphic => "source",
+            FilterSource.SourceAlpha => "alpha",
+            FilterSource.Result => $"#{input.Index}",
+            _ => "previous",
+        };
+    }
 
     private static string Path(PathData path) => string.Join(" ", path.Commands.Select(c => c.Verb switch
     {

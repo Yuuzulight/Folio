@@ -64,18 +64,30 @@ internal static class SvgPainter
         else if (mask is not null)
             Push(new DisplayItem(DisplayItemKind.PushLayer));
         var beforeContent = pushed;
+        // A filter applies to the node before its clip path, mask and opacity
+        // (https://drafts.csswg.org/filter-effects-1/#placement): one layer per filter, the last outermost, inside a
+        // layer for the opacity.
+        var opacity = node.Opacity;
+        if (node.Filters is { } filters)
+        {
+            if (opacity < 1)
+                Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: opacity));
+            for (var i = filters.Count - 1; i >= 0; i--)
+                Push(new DisplayItem(DisplayItemKind.PushLayer, Filters: filters[i]));
+            opacity = 1;
+        }
 
         switch (node)
         {
             case SvgContainerNode container:
-                if (container.Opacity < 1)
-                    Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: container.Opacity));
+                if (opacity < 1)
+                    Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: opacity));
                 foreach (var child in container.Children)
                     Emit(child, items);
                 break;
             case SvgTextNode text:
                 // One run takes the opacity into its colour; several are grouped, as they may overlap.
-                var textFade = text.Opacity;
+                var textFade = opacity;
                 if (textFade < 1 && text.Runs.Count > 1)
                 {
                     Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: textFade));
@@ -90,7 +102,7 @@ internal static class SvgPainter
             case SvgShapeNode shape:
                 // A shape with one paint takes its opacity into the paint's colour; with both, or with markers, they are
                 // grouped.
-                var fade = shape.Opacity;
+                var fade = opacity;
                 if (fade < 1 && (shape.Fill is not null && shape.Stroke is not null || shape.Markers is not null))
                 {
                     Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: fade));

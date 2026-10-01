@@ -2,8 +2,11 @@ using Folio.Style;
 
 namespace Folio.Css;
 
-/// <summary>A specified filter function: its lower-case name, its arguments and, for drop-shadow, its colour.</summary>
-internal sealed record FilterFunctionValue(string Name, IReadOnlyList<CssValue> Arguments, CssValue? Color = null) : CssValue;
+/// <summary>
+/// A specified filter function: its lower-case name, its arguments and, for drop-shadow, its colour; for a url()
+/// reference, "url" and the URL.
+/// </summary>
+internal sealed record FilterFunctionValue(string Name, IReadOnlyList<CssValue> Arguments, CssValue? Color = null, string? Url = null) : CssValue;
 
 /// <summary>A specified filter list; empty is <c>none</c>.</summary>
 internal sealed record FilterListValue(IReadOnlyList<FilterFunctionValue> Functions) : CssValue;
@@ -12,7 +15,6 @@ internal sealed record FilterListValue(IReadOnlyList<FilterFunctionValue> Functi
 /// <c>filter</c> (https://drafts.csswg.org/filter-effects-1/#FilterProperty) and <c>backdrop-filter</c>
 /// (https://drafts.csswg.org/filter-effects-2/#BackdropFilterProperty): grammars and computation for the property table.
 /// </summary>
-// ponytail: url() references to SVG filters are not accepted (the declaration is dropped) until SVG filters exist.
 internal static class FilterProperties
 {
     public static IEnumerable<Property> Rows =>
@@ -24,7 +26,7 @@ internal static class FilterProperties
     private static Property<FilterList> Row(PropertyId id, string name, Func<ComputedStyle, FilterList> get, Action<StyleBuilder, FilterList> set) =>
         new(id, name, false, "none", Parse, Compute, get, set);
 
-    // none | <filter-function>+
+    // none | [ <filter-function> | <url> ]+
     private static CssValue? Parse(ValueReader r)
     {
         if (r.Keyword("none") is not null)
@@ -41,6 +43,8 @@ internal static class FilterProperties
     // Each argument is optional except drop-shadow's lengths; none may be negative, except a hue-rotate angle.
     private static FilterFunctionValue? Function(ValueReader r)
     {
+        if (r.Url() is { } url)
+            return new FilterFunctionValue("url", [], Url: url);
         var mark = r.Mark;
         foreach (var name in Names)
         {
@@ -91,6 +95,7 @@ internal static class FilterProperties
         float Px(int i) => i < args.Count ? context.LengthPercentage(args[i]).Px : 0;
         return function.Name switch
         {
+            "url" => new FilterFunction("url", 0, Url: function.Url),
             "blur" => new FilterFunction("blur", Px(0)),
             "hue-rotate" => new FilterFunction("hue-rotate", args.Count > 0 ? ((AngleValue)args[0]).Degrees : 0),
             "drop-shadow" => new FilterFunction("drop-shadow", Px(2), Px(0), Px(1),
