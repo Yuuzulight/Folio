@@ -87,7 +87,7 @@ internal sealed partial class TreeBuilder
         Table,
     }
 
-    private bool InScope(string name, Scope scope = Scope.Default) => InScope(e => IsHtml(e, name), scope);
+    private bool InScope(string name, Scope scope = Scope.Default) => _open.HasHtml(name) && InScope(e => IsHtml(e, name), scope);
 
     private bool InScope(ElementNode target, Scope scope = Scope.Default) => InScope(e => e == target, scope);
 
