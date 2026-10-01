@@ -580,6 +580,47 @@ internal static class DisplayListBuilder
         /// <param name="text">The text of the stacking context the box paints in, which an inline box clips to.</param>
         private void PaintBackground(PaintBox box, List<PaintBox> text)
         {
+            PaintBackgroundAndBorder(box, text);
+            PaintColumnRules(box);
+        }
+
+        // Column rules (css-multicol-1 §4.2) go over the container's background and border, under its content, each down
+        // the middle of its gap: solid (and the 3D styles), double as two lines, dashed and dotted as strokes along it.
+        // ponytail: groove, ridge, inset and outset draw as solid.
+        private void PaintColumnRules(PaintBox box)
+        {
+            var style = box.Box.Style;
+            if (box.Fragment.ColumnRules is not { Count: > 0 } rules || style.Inherited.Visibility != Visibility.Visible)
+                return;
+            var multicol = style.Multicol;
+            var (width, color) = (multicol.RuleWidth, multicol.RuleColor.Resolve(style.Inherited.Color));
+            SetClip(box.Clip);
+            foreach (var r in rules)
+            {
+                var rect = new RectF(box.X + r.X, box.Y + r.Y, r.Width, r.Height);
+                var x = rect.X + width / 2;
+                switch (multicol.RuleStyle)
+                {
+                    case BorderStyle.Dashed or BorderStyle.Dotted:
+                        var dotted = multicol.RuleStyle == BorderStyle.Dotted;
+                        // Dots are round, centred a width apart from their ends; dashes are as long as for borders.
+                        var (from, to) = dotted ? (rect.Y + width / 2, rect.Bottom - width / 2) : (rect.Y, rect.Bottom);
+                        var stroke = dotted ? new Stroke(width, LineCap.Round, [0, 2 * width]) : new Stroke(width, LineCap.Butt, [width >= 3 ? 2 * width : 3 * width, width >= 3 ? width : 2 * width]);
+                        list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Path: new PathData().MoveTo(x, from).LineTo(x, to), Stroke: stroke));
+                        break;
+                    case BorderStyle.Double when width >= 3:
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect with { Width = width / 3 }, default), color));
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect with { X = rect.Right - width / 3, Width = width / 3 }, default), color));
+                        break;
+                    default:
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color));
+                        break;
+                }
+            }
+        }
+
+        private void PaintBackgroundAndBorder(PaintBox box, List<PaintBox> text)
+        {
             var style = box.Box.Style;
             // A table wrapper shares the table's style; the table grid box inside it paints the table.
             if (style.Inherited.Visibility != Visibility.Visible || box.Box is TableWrapperBox || box.Fragment.SkipsDecorations)

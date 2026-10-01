@@ -192,6 +192,12 @@ internal enum PropertyId
     TransitionBehavior,
     ColumnCount,
     ColumnWidth,
+    ColumnRuleWidth,
+    ColumnRuleStyle,
+    ColumnRuleColor,
+    ColumnSpan,
+    ColumnFill,
+    BreakInside,
     Fill,
     FillOpacity,
     FillRule,
@@ -1137,7 +1143,7 @@ internal static class Properties
 
     // Border widths are lengths (no percentages); thin/medium/thick are 1/3/5px. A none or hidden style makes the
     // computed width 0 (BorderGroup's accessors).
-    private static Property<float> BorderWidth(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
+    internal static Property<float> BorderWidth(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
         new(id, name, false, "medium",
             r => r.Keyword("thin", "medium", "thick") is { } k ? new KeywordValue(k) : r.LengthPercentage(allowPercent: false, nonNegative: true),
             (v, ctx) => v switch
@@ -1207,7 +1213,7 @@ internal static class Properties
             (v, _) => ((CounterListValue)v).Changes,
             get, set);
 
-    private static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
+    internal static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
         new(id, name, false, initial, r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor), get, set);
 
     private static float ComputeFontSize(CssValue value, ComputeContext context)
