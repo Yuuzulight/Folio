@@ -1,0 +1,5 @@
+{
+  "prompt": "Draw an org chart for a product team as inline SVG: rounded boxes with person icons from a symbol, connector lines with arrowheads, a dashed node for an open role, and notes below.",
+  "features": ["svg", "svg-text", "marker", "use-symbol", "stroke-dasharray", "grid", "box-shadow"],
+  "viewport": 800
+}

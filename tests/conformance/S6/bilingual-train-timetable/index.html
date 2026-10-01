@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>京都駅 発車時刻表 / Kyoto Station Departures</title>
+<style>
+  body { margin: 0; background: #101418; color: #e9eef2; font-family: "Noto Sans JP", sans-serif; }
+  .board { max-width: 860px; margin: 24px auto; background: #1a2026; border-radius: 12px; overflow: hidden; border: 1px solid #2a333c; }
+  .head { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: #0d6efd; }
+  .head h1 { margin: 0; font-size: 22px; }
+  .head h1 small { display: block; font-size: 13px; font-weight: 400; opacity: 0.85; }
+  .clock { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 12px; color: #93a4b5; text-align: left; padding: 10px 16px; font-weight: 400; border-bottom: 1px solid #2a333c; }
+  th span { display: block; font-size: 10px; }
+  td { padding: 12px 16px; border-bottom: 1px solid #252d35; font-size: 17px; }
+  td.time { font-size: 22px; font-weight: 700; color: #ffd84d; font-variant-numeric: tabular-nums; width: 90px; }
+  .train { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 14px; font-weight: 700; }
+  .nozomi { background: #f2c94c; color: #111; }
+  .hikari { background: #eb5757; color: #fff; }
+  .kodama { background: #2f80ed; color: #fff; }
+  .dest small, .note small { display: block; font-size: 12px; color: #93a4b5; }
+  .note { color: #f2994a; font-size: 14px; }
+  .ticker { padding: 10px 16px; background: #0b0f13; color: #f2c94c; font-size: 14px; white-space: nowrap; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="head">
+    <h1>新幹線 上り 発車案内<small>Shinkansen departures for Tokyo · 往东京方向</small></h1>
+    <div class="clock">14:27</div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>発車<span>Time</span></th><th>列車<span>Train</span></th><th>行先<span>Destination</span></th><th>番線<span>Track</span></th><th>備考<span>Remarks</span></th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="time">14:33</td><td><span class="train nozomi">のぞみ 232</span></td><td class="dest">東京<small>Tokyo</small></td><td>12</td><td class="note">定刻<small>On time</small></td></tr>
+      <tr><td class="time">14:40</td><td><span class="train hikari">ひかり 646</span></td><td class="dest">東京<small>Tokyo</small></td><td>11</td><td class="note">5分遅れ<small>Delayed 5 min</small></td></tr>
+      <tr><td class="time">14:46</td><td><span class="train nozomi">のぞみ 234</span></td><td class="dest">品川<small>Shinagawa</small></td><td>12</td><td class="note">定刻<small>On time</small></td></tr>
+      <tr><td class="time">14:52</td><td><span class="train kodama">こだま 720</span></td><td class="dest">名古屋<small>Nagoya</small></td><td>14</td><td class="note">各駅停車<small>All stations</small></td></tr>
+      <tr><td class="time">15:03</td><td><span class="train nozomi">のぞみ 236</span></td><td class="dest">東京<small>Tokyo</small></td><td>12</td><td class="note">🍱 車内販売なし<small>No trolley service</small></td></tr>
+    </tbody>
+  </table>
+  <div class="ticker">⚠ 強風のため一部列車に遅れが出ています。 Some trains are delayed due to strong winds. 因强风部分列车晚点。</div>
+</div>
+</body>
+</html>

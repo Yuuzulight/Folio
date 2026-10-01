@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>四季の俳句</title>
+<style>
+  body { margin: 0; background: #f4efe6; color: #2a2a2a; font-family: "Noto Serif JP", "Noto Sans JP", serif; }
+  header { text-align: center; padding: 30px 20px 10px; }
+  header h1 { margin: 0; font-size: 30px; letter-spacing: 0.3em; }
+  header p { margin: 8px 0 0; color: #7a6f60; font-size: 14px; }
+  .poems { display: flex; flex-direction: row-reverse; flex-wrap: wrap; justify-content: center; gap: 22px; padding: 24px 20px 40px; }
+  .poem {
+    writing-mode: vertical-rl;
+    height: 320px;
+    background: #fffaf0;
+    border: 1px solid #e3d8c3;
+    border-radius: 8px;
+    padding: 20px 16px;
+    font-size: 20px;
+    line-height: 1.9;
+    box-shadow: 0 6px 16px rgba(90, 70, 40, 0.1);
+  }
+  .poem .season { font-size: 13px; color: #fff; background: var(--c); border-radius: 4px; padding: 6px 2px; margin-block-end: 14px; display: inline-block; }
+  .poem .author { font-size: 14px; color: #7a6f60; margin-block-start: 1.2em; display: block; }
+  rt { font-size: 0.5em; color: #9a8b74; }
+  .note { max-width: 640px; margin: 0 auto 40px; padding: 0 20px; font-size: 15px; line-height: 1.9; }
+</style>
+</head>
+<body>
+<header>
+  <h1>四季の俳句</h1>
+  <p>松尾芭蕉・与謝蕪村・小林一茶・正岡子規より</p>
+</header>
+
+<section class="poems">
+  <div class="poem" style="--c:#d97c95"><span class="season">春</span><br>菜の花や<br>月は東に<br>日は西に<span class="author">与謝蕪村</span></div>
+  <div class="poem" style="--c:#3f8f6b"><span class="season">夏</span><br><ruby>閑<rt>しず</rt></ruby>かさや<br>岩にしみ入る<br><ruby>蝉<rt>せみ</rt></ruby>の声<span class="author">松尾芭蕉</span></div>
+  <div class="poem" style="--c:#c36b2c"><span class="season">秋</span><br>柿くへば<br>鐘が鳴るなり<br><ruby>法隆寺<rt>ほうりゅうじ</rt></ruby><span class="author">正岡子規</span></div>
+  <div class="poem" style="--c:#5a7ab0"><span class="season">冬</span><br>これがまあ<br>つひの<ruby>栖<rt>すみか</rt></ruby>か<br>雪五尺<span class="author">小林一茶</span></div>
+</section>
+
+<p class="note">俳句は五・七・五の十七音で季節を詠む短い詩です。縦書きで読むときは、右の列から左の列へ進みます。読みにくい漢字にはふりがなを付けました。</p>
+</body>
+</html>

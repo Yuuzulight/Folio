@@ -1,0 +1,5 @@
+{
+  "prompt": "Write an Arabic right-to-left developer FAQ for an API with expandable questions, inline code, a left-to-right code block and a warning callout.",
+  "features": ["rtl", "arabic", "bidi", "bdi", "details", "code", "unicode-bidi", "emoji"],
+  "viewport": 800
+}
