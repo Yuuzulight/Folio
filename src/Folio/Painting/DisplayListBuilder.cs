@@ -634,7 +634,9 @@ internal static class DisplayListBuilder
             // Blended background layers blend with each other and the colour only, in an isolated group
             // (https://drafts.csswg.org/compositing-2/#background-blend-mode).
             var modes = style.Effects.BackgroundBlendModes;
-            var blended = box.Box != canvasBox && style.Background.Images.Where((image, i) => image is GradientImage or UrlImage && modes[i % modes.Count] != Style.BlendMode.Normal).Any();
+            var blended = false;
+            for (var i = 0; i < style.Background.Images.Count && box.Box != canvasBox && !blended; i++)
+                blended = style.Background.Images[i] is GradientImage or UrlImage && modes[i % modes.Count] != Style.BlendMode.Normal;
             // background-clip: text paints the background only inside the glyphs of the box's text and its in-flow
             // descendants' (css-backgrounds-4 §3.1): the background goes into a layer that the glyphs then mask.
             // ponytail: when any layer clips to text, the colour and every layer do.
@@ -681,11 +683,13 @@ internal static class DisplayListBuilder
             {
                 SetClip(box.Clip);
                 var current = style.Inherited.Color;
-                var used = border with
-                {
-                    TopColor = border.TopColor.Resolve(current), RightColor = border.RightColor.Resolve(current),
-                    BottomColor = border.BottomColor.Resolve(current), LeftColor = border.LeftColor.Resolve(current),
-                };
+                var used = !(border.TopColor.IsCurrentColor || border.RightColor.IsCurrentColor || border.BottomColor.IsCurrentColor || border.LeftColor.IsCurrentColor)
+                    ? border
+                    : border with
+                    {
+                        TopColor = border.TopColor.Resolve(current), RightColor = border.RightColor.Resolve(current),
+                        BottomColor = border.BottomColor.Resolve(current), LeftColor = border.LeftColor.Resolve(current),
+                    };
                 // A collapsed table border is centred on the cell's edges, half outside it, and has no radii; its edges snap
                 // to device pixels like a box's, so a 1px border is one solid pixel and neighbours share it exactly.
                 var borderShape = box.Fragment.PaintedBorder is not null && box.Box is TablePartBox { Part: TablePart.Cell }
