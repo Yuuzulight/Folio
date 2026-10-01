@@ -57,6 +57,7 @@ internal sealed class FontFace : IFontHandle
     private readonly ushort[] _advances;
     private readonly Dictionary<uint, short> _kerning;
     private readonly GposKerning? _gposKerning;
+    private readonly GsubSubstitution? _gsub;
 
     private FontFace(FontData data, Dictionary<string, (int, int)> tables)
     {
@@ -81,6 +82,7 @@ internal sealed class FontFace : IFontHandle
         _cmap = CharacterMap.Read(Table("cmap"));
         _kerning = TryTable("kern") is { } kern ? ReadKern(kern) : [];
         _gposKerning = TryTable("GPOS") is { } gpos ? GposKerning.Read(gpos) : null;
+        _gsub = TryTable("GSUB") is { } gsub ? GsubSubstitution.Read(gsub) : null;
 
         Weight = (macStyle & 1) != 0 ? 700 : 400;
         Style = (macStyle & 2) != 0 ? FaceStyle.Italic : FaceStyle.Normal;
@@ -207,6 +209,9 @@ internal sealed class FontFace : IFontHandle
 
     /// <summary>Advance width in font units.</summary>
     public int Advance(ushort glyph) => glyph < _advances.Length ? _advances[glyph] : 0;
+
+    /// <summary>A glyph after the single substitutions of the space-separated feature tags (such as "tnum").</summary>
+    public ushort Substitute(ushort glyph, string features) => _gsub?.Substitute(glyph, features) ?? glyph;
 
     /// <summary>
     /// Kerning between two glyphs in font units: from the GPOS kern feature when the font has one, else from the kern table.
