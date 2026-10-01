@@ -166,6 +166,12 @@ internal enum PropertyId
     MaskClip,
     MaskComposite,
     MaskType,
+    MaskBorderSource,
+    MaskBorderSlice,
+    MaskBorderWidth,
+    MaskBorderOutset,
+    MaskBorderRepeat,
+    MaskBorderMode,
     BorderImageSource,
     BorderImageSlice,
     BorderImageWidth,
@@ -186,6 +192,12 @@ internal enum PropertyId
     TransitionBehavior,
     ColumnCount,
     ColumnWidth,
+    ColumnRuleWidth,
+    ColumnRuleStyle,
+    ColumnRuleColor,
+    ColumnSpan,
+    ColumnFill,
+    BreakInside,
     Fill,
     FillOpacity,
     FillRule,
@@ -336,7 +348,7 @@ internal static class Properties
     {
         (Factories, ByName) = BuildTable();
         Table = new Property?[Factories.Length];
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Append(("mask-border", new Shorthand(BorderImageProperties.MaskBorderLonghands, BorderImageProperties.MaskBorderShorthand))).Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -413,7 +425,7 @@ internal static class Properties
     // How to make each row, and the property names. Rows defined in their own files are made here already, and kept.
     private static (Func<Property>[] Factories, Dictionary<string, PropertyId> Names) BuildTable()
     {
-        var factories = new Func<Property>?[System.Enum.GetValues<PropertyId>().Length];
+        var factories = new Func<Property>[System.Enum.GetValues<PropertyId>().Length];
         var names = new Dictionary<string, PropertyId>(StringComparer.Ordinal);
         void Row(PropertyId id, string name, Func<Property> make)
         {
@@ -871,6 +883,7 @@ internal static class Properties
         Rows(FilterProperties.Rows);
         Rows([ShapeProperties.Row]);
         Rows(MaskProperties.Rows);
+        Rows(BorderImageProperties.MaskBorderRows);
         Rows(BorderImageProperties.Rows);
         Rows(AnimationProperties.Rows);
         Rows(MulticolProperties.Rows);
@@ -880,7 +893,7 @@ internal static class Properties
 
         if (factories.Any(f => f is null))
             throw new InvalidOperationException("Every PropertyId needs a table row.");
-        return (factories!, names);
+        return (factories, names);
     }
 
     private static readonly KeywordMap<Display> DisplayKeywords = new()
@@ -1136,7 +1149,7 @@ internal static class Properties
 
     // Border widths are lengths (no percentages); thin/medium/thick are 1/3/5px. A none or hidden style makes the
     // computed width 0 (BorderGroup's accessors).
-    private static Property<float> BorderWidth(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
+    internal static Property<float> BorderWidth(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
         new(id, name, false, "medium",
             r => r.Keyword("thin", "medium", "thick") is { } k ? new KeywordValue(k) : r.LengthPercentage(allowPercent: false, nonNegative: true),
             (v, ctx) => v switch
@@ -1206,7 +1219,7 @@ internal static class Properties
             (v, _) => ((CounterListValue)v).Changes,
             get, set);
 
-    private static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
+    internal static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
         new(id, name, false, initial, r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor), get, set);
 
     private static float ComputeFontSize(CssValue value, ComputeContext context)
