@@ -166,6 +166,12 @@ internal enum PropertyId
     MaskClip,
     MaskComposite,
     MaskType,
+    MaskBorderSource,
+    MaskBorderSlice,
+    MaskBorderWidth,
+    MaskBorderOutset,
+    MaskBorderRepeat,
+    MaskBorderMode,
     BorderImageSource,
     BorderImageSlice,
     BorderImageWidth,
@@ -335,7 +341,7 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Append(("mask-border", new Shorthand(BorderImageProperties.MaskBorderLonghands, BorderImageProperties.MaskBorderShorthand))).Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -860,6 +866,7 @@ internal static class Properties
         rows.AddRange(FilterProperties.Rows);
         rows.Add(ShapeProperties.Row);
         rows.AddRange(MaskProperties.Rows);
+        rows.AddRange(BorderImageProperties.MaskBorderRows);
         rows.AddRange(BorderImageProperties.Rows);
         rows.AddRange(AnimationProperties.Rows);
         rows.AddRange(MulticolProperties.Rows);

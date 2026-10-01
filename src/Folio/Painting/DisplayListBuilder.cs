@@ -634,7 +634,7 @@ internal static class DisplayListBuilder
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
             // A border image that can be drawn replaces the border styles (collapsed table borders have none).
-            if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border))
+            if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border, style.BorderImage, "border-image-source"))
                 return;
             if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
             {
@@ -989,6 +989,35 @@ internal static class DisplayListBuilder
         // ponytail: with no-clip a layer's tiles cover the border box and the origin box only.
         private void PaintMask(PaintBox box, MaskGroup mask)
         {
+            if (mask.HasLayers)
+                PaintMaskLayers(box, mask);
+            if (mask.MaskBorder.Source is not NoImage)
+                PaintMaskBorder(box, mask);
+        }
+
+        /// <summary>
+        /// The mask border (https://drafts.csswg.org/css-masking-1/#mask-borders): its image cut and laid out as a border
+        /// image would be, as a mask of its own over what the box painted (and its mask layers): alpha, or luminance by
+        /// mask-border-mode. An image that does not load masks the box away.
+        /// </summary>
+        private void PaintMaskBorder(PaintBox box, MaskGroup mask)
+        {
+            var border = box.Box.Style.Border;
+            list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
+            var luminance = mask.BorderMode == MaskType.Luminance;
+            if (luminance)
+            {
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: FilterPrimitives.LuminanceToAlpha));
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(BorderImageArea(box, border, mask.MaskBorder), default), CssColor.Black));
+            }
+            PaintBorderImage(box, border, mask.MaskBorder, "mask-border-source", clip: false);
+            if (luminance)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+        }
+
+        private void PaintMaskLayers(PaintBox box, MaskGroup mask)
+        {
             var sampling = box.Box.Style.Inherited.ImageRendering is ImageRendering.Pixelated or ImageRendering.CrispEdges ? ImageSampling.Pixelated : ImageSampling.Smooth;
             list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
             for (var i = mask.Images.Count - 1; i >= 0; i--)
@@ -1054,20 +1083,24 @@ internal static class DisplayListBuilder
         /// both ways (https://drafts.csswg.org/css-backgrounds-3/#border-image-process). False when there is no image to
         /// draw, so the border styles are used.
         /// </summary>
-        private bool PaintBorderImage(PaintBox box, BorderGroup border)
+        // The border image area: the border box grown by the outsets, multiples of the border width or lengths.
+        private static RectF BorderImageArea(PaintBox box, BorderGroup border, BorderImageGroup borderImage)
+        {
+            static float Outset(BorderImageSide side, float borderWidth) => side.Number is { } n ? n * borderWidth : side.Length?.Px ?? 0;
+            var o = borderImage.Outset;
+            return box.Rect.Inset(-Outset(o.Top, border.TopWidth), -Outset(o.Right, border.RightWidth),
+                -Outset(o.Bottom, border.BottomWidth), -Outset(o.Left, border.LeftWidth));
+        }
+
+        private bool PaintBorderImage(PaintBox box, BorderGroup border, BorderImageGroup borderImage, string what, bool clip = true)
         {
             var style = box.Box.Style;
-            var borderImage = style.BorderImage;
             var gradient = borderImage.Source is GradientImage { Computed: { } g } ? g : null;
-            var image = borderImage.Source is UrlImage url ? images?.Load(url.Url, "border-image-source") : null;
+            var image = borderImage.Source is UrlImage url ? images?.Load(url.Url, what) : null;
             if (gradient is null && image is null)
                 return false;
 
-            // Outsets are multiples of the border width or lengths.
-            static float Outset(BorderImageSide side, float borderWidth) => side.Number is { } n ? n * borderWidth : side.Length?.Px ?? 0;
-            var o = borderImage.Outset;
-            var area = box.Rect.Inset(-Outset(o.Top, border.TopWidth), -Outset(o.Right, border.RightWidth),
-                -Outset(o.Bottom, border.BottomWidth), -Outset(o.Left, border.LeftWidth));
+            var area = BorderImageArea(box, border, borderImage);
             var (imageWidth, imageHeight) = image is not null ? ((float)image.Width, (float)image.Height) : (area.Width, area.Height);
             if (area.Width <= 0 || area.Height <= 0 || imageWidth <= 0 || imageHeight <= 0)
                 return true;
@@ -1084,7 +1117,8 @@ internal static class DisplayListBuilder
             var f = Math.Min(1, Math.Min(wl + wr > 0 ? area.Width / (wl + wr) : 1, wt + wb > 0 ? area.Height / (wt + wb) : 1));
             (wt, wr, wb, wl) = (wt * f, wr * f, wb * f, wl * f);
 
-            SetClip(box.Clip);
+            if (clip)
+                SetClip(box.Clip);
             var (x0, x1, x2, x3) = (area.X, area.X + wl, area.Right - wr, area.Right);
             var (y0, y1, y2, y3) = (area.Y, area.Y + wt, area.Bottom - wb, area.Bottom);
             var (mw, mh) = (imageWidth - sl - sr, imageHeight - st - sb);

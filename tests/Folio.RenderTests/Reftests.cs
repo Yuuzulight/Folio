@@ -33,6 +33,7 @@ public class Reftests
     [InlineData("css-masking/clip-path-url-003")]
     [InlineData("css-masking/mask-image-opaque-001")]
     [InlineData("css-masking/mask-image-hard-stop-001")]
+    [InlineData("css-masking/mask-border-001")]
     [InlineData("css-masking/mask-image-url-001")]
     [InlineData("css-backgrounds/background-image-url-repeat-001")]
     [InlineData("css-backgrounds/border-image-repeat-stretch-001")]
