@@ -1,0 +1,29 @@
+SVG patterns (SVG 2 §14.3): tiles drawn one by one inside the shape's path, each clipped to its tile.
+
+=== a pattern used inside its own content paints nothing there
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="20" height="10"><pattern id="p" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="5" height="5" fill="url(#p)" /><rect x="5" width="5" height="5" fill="blue" /></pattern><rect width="20" height="10" fill="url(#p)" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 20x10
+clip path M0,0 L20,0 L20,10 L0,10 Z
+transform 1,0,0,1,0,0
+clip 0,0 10x10
+fill path M5,0 L10,0 L10,5 L5,5 Z rgb(0, 0, 255)
+pop
+pop
+transform 1,0,0,1,10,0
+clip 0,0 10x10
+fill path M5,0 L10,0 L10,5 L5,5 Z rgb(0, 0, 255)
+pop
+pop
+pop
+pop
+pop
+
+=== a fill needing too many tiles draws none
+<!DOCTYPE html><style>body { margin: 0 } svg { display: block }</style><svg width="200" height="200"><pattern id="p" patternUnits="userSpaceOnUse" width="0.5" height="0.5"><rect width="1" height="1" fill="blue" /></pattern><rect width="200" height="200" fill="url(#p)" /></svg>
+---
+transform 1,0,0,1,0,0
+clip 0,0 200x200
+pop
+pop

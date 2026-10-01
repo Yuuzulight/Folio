@@ -78,6 +78,7 @@ internal enum PropertyId
     TextAlign,
     VerticalAlign,
     Direction,
+    WritingMode,
     UnicodeBidi,
     FlexDirection,
     FlexWrap,
@@ -164,6 +165,7 @@ internal enum PropertyId
     MaskOrigin,
     MaskClip,
     MaskComposite,
+    MaskType,
     BorderImageSource,
     BorderImageSlice,
     BorderImageWidth,
@@ -204,6 +206,36 @@ internal enum PropertyId
     MarkerStart,
     MarkerMid,
     MarkerEnd,
+    MarginBlockStart,
+    MarginBlockEnd,
+    MarginInlineStart,
+    MarginInlineEnd,
+    PaddingBlockStart,
+    PaddingBlockEnd,
+    PaddingInlineStart,
+    PaddingInlineEnd,
+    InsetBlockStart,
+    InsetBlockEnd,
+    InsetInlineStart,
+    InsetInlineEnd,
+    BorderBlockStartWidth,
+    BorderBlockEndWidth,
+    BorderInlineStartWidth,
+    BorderInlineEndWidth,
+    BorderBlockStartStyle,
+    BorderBlockEndStyle,
+    BorderInlineStartStyle,
+    BorderInlineEndStyle,
+    BorderBlockStartColor,
+    BorderBlockEndColor,
+    BorderInlineStartColor,
+    BorderInlineEndColor,
+    InlineSize,
+    BlockSize,
+    MinInlineSize,
+    MinBlockSize,
+    MaxInlineSize,
+    MaxBlockSize,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -237,6 +269,12 @@ internal abstract class Property(PropertyId id, string name, bool inherited, str
     /// <summary>Copies the parent's computed value.</summary>
     public abstract void Inherit(StyleBuilder builder, ComputedStyle parent);
 
+    /// <summary>
+    /// Sets the value <paramref name="progress"/> of the way from one style's computed value to another's
+    /// (<see cref="Interpolation"/>); values that do not interpolate flip half way.
+    /// </summary>
+    public abstract void Interpolate(StyleBuilder builder, ComputedStyle from, ComputedStyle to, double progress);
+
     /// <summary>The computed value as text, for tests and diagnostics.</summary>
     public abstract string Describe(ComputedStyle style);
 }
@@ -257,6 +295,13 @@ internal sealed class Property<T>(
     public override void Apply(StyleBuilder builder, CssValue value, ComputeContext context) => set(builder, compute(value, context));
 
     public override void Inherit(StyleBuilder builder, ComputedStyle parent) => set(builder, get(parent));
+
+    public override void Interpolate(StyleBuilder builder, ComputedStyle from, ComputedStyle to, double progress)
+    {
+        var (a, b) = (get(from), get(to));
+        // The ends are the keyframes' own values, so a finished animation leaves exactly its last keyframe (none stays none).
+        set(builder, progress is 0 or 1 ? (progress == 0 ? a : b) : Interpolation.Lerp(a, b, progress) is T value ? value : progress < 0.5 ? a : b);
+    }
 
     public override string Describe(ComputedStyle style) => Format(get(style));
 
@@ -287,7 +332,7 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands))
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -524,6 +569,7 @@ internal static class Properties
             Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
             // https://www.w3.org/TR/compositing-1/#isolation
             Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
+            Keywords(PropertyId.MaskType, "mask-type", false, "luminance", Enum<MaskType>("luminance", "alpha"), s => s.Mask.Type, (b, v) => b.Mask = b.Mask with { Type = v }),
             // https://drafts.csswg.org/compositing-2/#mix-blend-mode and #background-blend-mode (plus-lighter blends whole elements only).
             Keywords(PropertyId.MixBlendMode, "mix-blend-mode", false, "normal", BlendKeywords, s => s.Effects.MixBlendMode, (b, v) => b.Effects = b.Effects with { MixBlendMode = v }),
             Layers<Style.BlendMode, Style.BlendMode>(PropertyId.BackgroundBlendMode, "background-blend-mode", "normal",
@@ -540,6 +586,8 @@ internal static class Properties
             // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
             Keywords(PropertyId.Direction, "direction", true, "ltr", Enum<Direction>("ltr", "rtl"),
                 s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }),
+            Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", Enum<WritingMode>("horizontal-tb", "vertical-rl", "vertical-lr"),
+                s => s.Text.WritingMode, (b, v) => b.Text = b.Text with { WritingMode = v }),
             Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
                 Enum<UnicodeBidi>("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
                 s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
@@ -812,6 +860,7 @@ internal static class Properties
         rows.AddRange(BorderImageProperties.Rows);
         rows.AddRange(AnimationProperties.Rows);
         rows.AddRange(MulticolProperties.Rows);
+        rows.AddRange(LogicalProperties.Rows);
         rows.AddRange(SvgProperties.Rows);
         rows.AddRange(SvgProperties.StopRows);
 
@@ -834,7 +883,7 @@ internal static class Properties
         ["table-header-group"] = Display.TableHeaderGroup, ["table-footer-group"] = Display.TableFooterGroup,
         ["table-row"] = Display.TableRow, ["table-cell"] = Display.TableCell, ["table-column-group"] = Display.TableColumnGroup,
         ["table-column"] = Display.TableColumn, ["table-caption"] = Display.TableCaption, ["contents"] = Display.Contents,
-        ["none"] = Display.None,
+        ["ruby"] = Display.Ruby, ["ruby-text"] = Display.RubyText, ["none"] = Display.None,
     };
 
     private static readonly Dictionary<string, ContentAlign> ContentAlignKeywords = new()

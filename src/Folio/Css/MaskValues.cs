@@ -6,8 +6,7 @@ namespace Folio.Css;
 /// The mask layer properties and the <c>mask</c> shorthand (https://drafts.csswg.org/css-masking-1/#positioned-masks),
 /// with the <c>-webkit-mask-*</c> names artifacts write for older engines.
 /// </summary>
-// ponytail: url() references to SVG <mask> elements are treated as images (which fail to load, a transparent layer);
-// mask-border waits for its own work.
+// ponytail: mask-border waits for its own work.
 internal static class MaskProperties
 {
     public static IEnumerable<Property> Rows =>

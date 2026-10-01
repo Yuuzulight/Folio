@@ -21,6 +21,8 @@ internal static class BlockLayout
         // stop work gracefully).
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
             return new Fragment(box, 0, 0, []) { Exclusions = space.Exclusions };
+        if (box is BlockContainerBox { Inline: { } verticalLines } vertical && style.Text.IsVertical)
+            return VerticalLayout.Layout(vertical, verticalLines, space, context);
 
         // A table wrapper has the table's style, but its border and padding belong to the table grid box inside it.
         var wrapper = box is TableWrapperBox;
@@ -362,6 +364,9 @@ internal static class BlockLayout
                 ? Svg.SvgRenderTree.Build(svg, width, contentHeight, context) : null,
             SvgClip = style.Effects.ClipPath.Url is { } clipUrl && box.Node is Dom.ElementNode clipped
                 ? Svg.SvgRenderTree.BoxClipPath(clipped, clipUrl, width + frameX, contentHeight + frameY, context)
+                : null,
+            SvgMasks = style.Mask.IsMasked && box.Node is Dom.ElementNode masked
+                ? Svg.SvgRenderTree.BoxMasks(masked, style.Mask, width + frameX, contentHeight + frameY, context)
                 : null,
         };
     }
