@@ -1,0 +1,11 @@
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="100" height="100">
+<filter id="kernel" color-interpolation-filters="sRGB"><feConvolveMatrix order="17" kernelMatrix="1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1" /><feConvolveMatrix order="1e30" kernelMatrix="1" /><feConvolveMatrix kernelMatrix="1 1 1 1 1 1 1 1 1" divisor="1e-30" bias="1e30" targetX="1e30" /><feTile in="SourceGraphic" /></filter>
+<filter id="box" x="-3e38" width="1e38"><feFlood /></filter>
+<filter id="light" primitiveUnits="objectBoundingBox"><feDiffuseLighting surfaceScale="3e38" diffuseConstant="3e38"><fePointLight x="3e38" y="-3e38" z="3e38" /></feDiffuseLighting><feSpecularLighting specularConstant="3e38" specularExponent="3e38"><feSpotLight x="0.5" y="0.5" z="3e38" pointsAtZ="-3e38" specularExponent="3e38" limitingConeAngle="3e38" /></feSpecularLighting><feDiffuseLighting><feDistantLight azimuth="3e38" elevation="-3e38" /></feDiffuseLighting></filter>
+<filter id="tile" primitiveUnits="objectBoundingBox"><feFlood width="1e-30" height="1e-30" /><feTile /><feFlood x="-3e38" width="3e38" /><feTile /><feImage href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC" x="-3e38" width="3e38" height="3e38" preserveAspectRatio="xMidYMid slice" /><feImage href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC" width="0" /></filter>
+<rect width="100" height="40" fill="blue" filter="url(#kernel)" />
+<rect y="60" width="10" height="10" filter="url(#box)" />
+<rect x="20" y="60" width="10" height="10" filter="url(#light)" />
+<rect x="40" y="60" width="10" height="10" filter="url(#tile)" />
+</svg>

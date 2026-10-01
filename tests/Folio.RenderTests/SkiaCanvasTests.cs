@@ -489,6 +489,15 @@ public class SkiaCanvasTests
     }
 
     [Fact]
+    public void FilterPrimitivesPastTheirLimitsRenderAndKernelsTooLargePassTheirInputThrough()
+    {
+        // The fuzzer's regression input: kernels too large, overflowing bounding box units, tiny and huge tiles and images.
+        using var bitmap = Render(File.ReadAllText(Path.Combine(RepoPaths.Tests, "Folio.Fuzz", "Regressions", "svg", "filter-primitive-limits.html")));
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(50, 20));
+    }
+
+    [Fact]
     public void ConvolutionsWithKernelsOfTheWrongSizeChangeNothing()
     {
         using var bitmap = Filtered(new Filter(FilterKind.ConvolveMatrix) { Kernel = [1, 0], KernelColumns = 3, KernelRows = 1 });
@@ -549,7 +558,7 @@ public class SkiaCanvasTests
         var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
         StyleResolver.Resolve(document, new MediaContext(100, 100));
         var images = new Folio.Imaging.ImageLoader(Folio.Resources.ResourceLoader.DataUrlsOnly, null);
-        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 100, 100, BoxFont.Value);
+        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 100, 100, BoxFont.Value, images: images);
         var list = DisplayListBuilder.Build(fragment, images);
 
         var bitmap = new SKBitmap(new SKImageInfo(100, 100, SKColorType.Bgra8888, SKAlphaType.Premul));
