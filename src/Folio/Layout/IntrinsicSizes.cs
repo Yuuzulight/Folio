@@ -20,9 +20,9 @@ internal static class IntrinsicSizes
             return (0, 0);
 
         (float Min, float Max) sizes = (0, 0);
-        if (box is BlockContainerBox { Inline: { } vertical } verticalBlock && box.Style.Text.IsVertical)
+        if (VerticalLayout.Applies(box) is { } verticalBlock)
         {
-            var width = VerticalLayout.BlockSize(verticalBlock, vertical, context);
+            var width = VerticalLayout.BlockSize(verticalBlock, context);
             sizes = (width, width);
         }
         else if (box is BlockContainerBox { Inline: { } inline } block)

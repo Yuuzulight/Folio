@@ -372,7 +372,6 @@ internal sealed record ReplacedGroup(ObjectFit Fit, BackgroundPosition Position)
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
-/// <summary>Multi-column properties (not inherited): column-count and column-width, null for auto.</summary>
 /// <summary>
 /// Multi-column and fragmentation properties (not inherited): the column count and width, the column rule (its width
 /// as specified, used only with a visible style), whether the box spans all columns, whether a container with a
