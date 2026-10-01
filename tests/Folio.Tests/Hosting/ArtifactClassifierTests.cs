@@ -65,7 +65,7 @@ public class ArtifactClassifierTests
     [InlineData("<style>.a { --bg: radial-gradient(red, blue) }</style>", "uses CSS gradients")]
     [InlineData("<style>.a { -webkit-background-clip: text }</style>", "uses the CSS property -webkit-background-clip")]
     [InlineData("<style>.a { background-clip: text }</style>", "uses background-clip: text")]
-    [InlineData("<style>.a { mask-border-slice: 30 }</style>", "uses the CSS property mask-border-slice")]
+    [InlineData("<style>.a { shape-outside: circle() }</style>", "uses the CSS property shape-outside")]
     [InlineData("<style>.a { display: grid; width: 12 }</style>", "uses a CSS value Folio does not support: width: 12")]
     [InlineData("<style>input:required { color: red }</style>", "uses a CSS selector Folio does not support: input:required")]
     [InlineData("<style>@font-face { font-family: X; src: url(data:font/woff2;base64,AA==) }</style>", "uses web fonts (@font-face)")]

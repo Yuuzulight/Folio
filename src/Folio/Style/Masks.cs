@@ -22,16 +22,31 @@ internal readonly record struct MaskClip(GeometryBox? Box)
 /// <summary>
 /// Mask layers (not inherited, https://drafts.csswg.org/css-masking-1/#positioned-masks): the layer count is the image
 /// list's; the other lists repeat when shorter. The first layer is the top one. <paramref name="Type"/> is mask-type,
-/// which applies to SVG mask elements.
+/// which applies to SVG mask elements. <paramref name="Border"/> is the mask border
+/// (https://drafts.csswg.org/css-masking-1/#mask-borders), an alpha or luminance mask by <paramref name="BorderMode"/>.
 /// </summary>
 internal sealed record MaskGroup(IReadOnlyList<ImageValue> Images, IReadOnlyList<MaskMode> Modes, IReadOnlyList<RepeatStyle> Repeats,
                                  IReadOnlyList<BackgroundPosition> Positions, IReadOnlyList<BackgroundSize> Sizes, IReadOnlyList<GeometryBox> Origins,
-                                 IReadOnlyList<MaskClip> Clips, IReadOnlyList<MaskComposite> Composites, MaskType Type = MaskType.Luminance)
+                                 IReadOnlyList<MaskClip> Clips, IReadOnlyList<MaskComposite> Composites, MaskType Type = MaskType.Luminance,
+                                 BorderImageGroup? Border = null, MaskType BorderMode = MaskType.Alpha)
 {
     public static MaskGroup Initial { get; } = new([NoImage.Instance], [MaskMode.MatchSource], [new RepeatStyle(BackgroundRepeat.Repeat, BackgroundRepeat.Repeat)],
         [new BackgroundPosition(default, default)], [new BackgroundSize(BackgroundSizeKind.Explicit, SizeValue.Auto, SizeValue.Auto)],
-        [GeometryBox.BorderBox], [new MaskClip(GeometryBox.BorderBox)], [MaskComposite.Add]);
+        [GeometryBox.BorderBox], [new MaskClip(GeometryBox.BorderBox)], [MaskComposite.Add], Border: BorderInitial);
 
-    /// <summary>Whether the element is masked: some layer has an image. Layers of none alone mask nothing.</summary>
-    public bool IsMasked => Images.Any(i => i is not NoImage);
+    /// <summary>The mask border's initial values: no source, slices of 0, auto widths, no outset, stretched.</summary>
+    public static BorderImageGroup BorderInitial { get; } = BorderImageGroup.Initial with
+    {
+        Slice = new(new(0, false), new(0, false), new(0, false), new(0, false), false),
+        Width = new(new(null, null), new(null, null), new(null, null), new(null, null)),
+    };
+
+    /// <summary>The mask border, its initial values when none is set.</summary>
+    public BorderImageGroup MaskBorder => Border ?? BorderInitial;
+
+    /// <summary>Whether the element is masked: some layer or the mask border has an image. Layers of none alone mask nothing.</summary>
+    public bool IsMasked => Images.Any(i => i is not NoImage) || MaskBorder.Source is not NoImage;
+
+    /// <summary>Whether some mask layer has an image.</summary>
+    public bool HasLayers => Images.Any(i => i is not NoImage);
 }
