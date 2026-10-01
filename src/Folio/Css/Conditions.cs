@@ -5,8 +5,8 @@ namespace Folio.Css;
 /// <summary>What media queries are evaluated against (docs/study/03-css-parsing-and-selectors.md, @media).</summary>
 internal sealed record MediaContext(float Width, float Height, float DeviceScale = 1, bool DarkColorScheme = false)
 {
-    /// <summary>M1 resolves animations to their end state, so it reports reduced motion.</summary>
-    public bool ReducedMotion { get; init; } = true;
+    /// <summary>prefers-reduced-motion: reduce (the host's setting, FolioOptions.ReducedMotion).</summary>
+    public bool ReducedMotion { get; init; }
 }
 
 /// <summary>

@@ -1238,7 +1238,7 @@ internal sealed partial class TreeBuilder
             ClearFormattingToLastMarker();
             _templateModes.RemoveAt(_templateModes.Count - 1);
             ResetInsertionMode();
-            Process(_mode, t);
+            _reprocessEndOfFile = true; // the dispatcher reprocesses it, in a loop rather than one nested call per template
         }
     }
 

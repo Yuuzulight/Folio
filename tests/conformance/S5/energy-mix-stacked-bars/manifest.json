@@ -1,0 +1,5 @@
+{
+  "prompt": "Write an energy outlook article with an SVG stacked bar chart of generation by source from 2019 to 2028, forecast years hatched with patterns, a rotated axis title and a legend.",
+  "features": ["svg", "svg-pattern", "pattern-transform", "svg-text", "text-rotate", "grid", "flex", "custom-properties"],
+  "viewport": 800
+}
