@@ -11,7 +11,6 @@ namespace Folio.Layout;
 /// everything on the baseline, <c>text-indent</c>, <c>text-align</c> with justification, and hyphens shown where lines
 /// break at soft hyphens.
 /// </summary>
-// ponytail: bidi's L1 reset of whitespace at soft line ends is not done yet.
 internal static class InlineLayout
 {
     /// <summary>What the enclosing block layout provides: floats and positioned boxes are its to place.</summary>
@@ -578,6 +577,53 @@ internal static class InlineLayout
         };
     }
 
+    /// <summary>
+    /// Gives the white space at the end of a line the paragraph's level (UAX #9 L1), splitting it off the text piece
+    /// it ends; returns its width.
+    /// </summary>
+    private static float TrailingWhiteSpaceAtParagraphLevel(List<Piece> pieces, string text, int paragraphLevel)
+    {
+        var width = 0f;
+        for (var i = pieces.Count - 1; i >= 0; i--)
+        {
+            var piece = pieces[i];
+            if (piece.Kind is PieceKind.BoxStart or PieceKind.BoxEnd or PieceKind.Float or PieceKind.OutOfFlow)
+                continue;
+            if (piece is not { Kind: PieceKind.Text, Run: { } run, Replacement: null })
+                break;
+            var split = piece.GlyphEnd;
+            while (split > piece.GlyphStart && text[run.Clusters[split - 1]] is ' ' or '\t' or '　')
+                split--;
+            if (split < piece.GlyphEnd && piece.Level != paragraphLevel)
+            {
+                var spaces = 0f;
+                for (var g = split; g < piece.GlyphEnd; g++)
+                    spaces += run.Advances[g];
+                var white = new Piece(PieceKind.Text, piece.Style, spaces)
+                {
+                    Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = false, Level = (byte)paragraphLevel,
+                };
+                if (split == piece.GlyphStart)
+                {
+                    pieces[i] = white;
+                }
+                else
+                {
+                    pieces[i] = new Piece(PieceKind.Text, piece.Style, piece.Width - spaces)
+                    {
+                        Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = piece.Visible, Level = piece.Level,
+                    };
+                    pieces.Insert(i + 1, white);
+                }
+            }
+            for (var g = split; g < piece.GlyphEnd; g++)
+                width += run.Advances[g];
+            if (split > piece.GlyphStart)
+                break;
+        }
+        return width;
+    }
+
     // The visual order of a line's pieces (L2); edges and markers borrow a neighbour's level.
     private static List<int> VisualOrder(List<Piece> pieces, int paragraphLevel)
     {
@@ -993,6 +1039,11 @@ internal static class InlineLayout
         var x = align == TextAlign.Center ? free / 2
             : align == TextAlign.Right || align == TextAlign.End && !rtl || align is TextAlign.Start or TextAlign.Justify && rtl ? free
             : 0;
+        // White space at the end of the line takes the paragraph's level (UAX #9 L1), so it sits at the line's end
+        // edge, where it hangs: in a right-to-left paragraph, off the left.
+        var hanging = TrailingWhiteSpaceAtParagraphLevel(pieces, text, paragraphLevel);
+        if (rtl)
+            x -= hanging;
 
         // Horizontal: pieces in visual order (UAX #9 L2 over the line). Box edges and markers take the level of the
         // content next to them, so an inline box's start edge follows its content's direction.
