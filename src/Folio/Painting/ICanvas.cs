@@ -21,6 +21,13 @@ public interface ICanvas
     /// </summary>
     void Transform(in Matrix3x2 matrix);
 
+    /// <summary>
+    /// Multiplies the current transform by a projective one (a 3D transform seen through perspective), in row-vector
+    /// form: a point (x, y) maps to (x·M11 + y·M21 + M41, x·M12 + y·M22 + M42) divided by w = x·M14 + y·M24 + M44. The
+    /// z row and column are ignored. A canvas that cannot project draws it without the division.
+    /// </summary>
+    void Transform(in Matrix4x4 matrix) => Transform(new Matrix3x2(matrix.M11, matrix.M12, matrix.M21, matrix.M22, matrix.M41, matrix.M42));
+
     /// <summary>Intersects the clip with a (rounded) rectangle, antialiased.</summary>
     void ClipRoundedRect(in RoundedRect rect);
 

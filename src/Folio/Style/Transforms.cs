@@ -106,9 +106,24 @@ internal readonly record struct TransformOrigin(LengthPercentage X, LengthPercen
 }
 
 /// <summary>Transform properties (not inherited): https://www.w3.org/TR/css-transforms-2/.</summary>
-internal sealed record TransformGroup(TransformList Transform, TransformList Translate, TransformList Rotate, TransformList Scale, TransformOrigin Origin)
+/// <param name="Perspective">The <c>perspective</c> distance in px the box views its children from; null is none.</param>
+internal sealed record TransformGroup(TransformList Transform, TransformList Translate, TransformList Rotate, TransformList Scale, TransformOrigin Origin,
+                                      float? Perspective = null, TransformOrigin PerspectiveOrigin = default)
 {
-    public static TransformGroup Initial { get; } = new(TransformList.None, TransformList.None, TransformList.None, TransformList.None, TransformOrigin.Center);
+    public static TransformGroup Initial { get; } = new(TransformList.None, TransformList.None, TransformList.None, TransformList.None, TransformOrigin.Center,
+        null, TransformOrigin.Center);
+
+    /// <summary>
+    /// The perspective matrix for the box's children (https://www.w3.org/TR/css-transforms-2/#perspective-matrix),
+    /// relative to the box's top-left corner; null without a perspective.
+    /// </summary>
+    public Matrix4x4? PerspectiveMatrix(float width, float height)
+    {
+        if (Perspective is not { } d)
+            return null;
+        var (ox, oy) = (PerspectiveOrigin.X.Resolve(width), PerspectiveOrigin.Y.Resolve(height));
+        return Matrix4x4.CreateTranslation(-ox, -oy, 0) * new PerspectiveOp(d).ToMatrix(width, height) * Matrix4x4.CreateTranslation(ox, oy, 0);
+    }
 
     /// <summary>Whether any of the transform properties is set: the box is transformed and establishes a stacking context.</summary>
     public bool IsTransformed => !(Transform.IsNone && Translate.IsNone && Rotate.IsNone && Scale.IsNone);
