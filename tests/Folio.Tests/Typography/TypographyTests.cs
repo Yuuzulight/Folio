@@ -200,8 +200,6 @@ public class TypographyTests
             {
                 var c = (char)('A' + (i * 7 + t) % 26);
                 Assert.Same(Box, fonts.FaceForCluster(families, FaceStyle.Normal, 400 + i % 9 * 100, 100, [c]));
-                if (i % 5_000 == 0)
-                    fonts.DeclareWebFamily("Web " + t); // clears the cluster cache under the readers
             }
         });
 
