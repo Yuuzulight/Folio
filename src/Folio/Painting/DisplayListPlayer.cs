@@ -1,3 +1,4 @@
+using System.Numerics;
 using Folio.Css;
 using Folio.Style;
 
@@ -175,7 +176,8 @@ internal static class DisplayListPlayer
     /// Paints a border between its outer edge and its padding edge (css-backgrounds-3 §4): each side in the region
     /// bounded by the diagonal joins at the corners, in its own style and colour.
     /// </summary>
-    // ponytail: dash and dot spacing is fixed (3 × width and 2 × width) rather than adjusted to fit each side.
+    // ponytail: dots, and dashes around rounded corners, keep a fixed spacing (2 × width, and 3 × width) rather than
+    // one fitted to each side.
     private static void PaintBorder(ICanvas canvas, RoundedRect outer, BorderGroup border)
     {
         float[] widths = [border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth];
@@ -223,6 +225,21 @@ internal static class DisplayListPlayer
                 FillRing(outer, At(1f / 3), color);
                 FillRing(At(2f / 3), inner, color);
                 break;
+            // Square-cornered dashes run along each side from corner to corner, a dash at each end: 3 × width long with
+            // gaps near 2 × width for thin borders, 2 × width long with gaps near the width from 3px up.
+            case BorderStyle.Dashed when outer.Radii.IsZero:
+                var o = outer.Rect;
+                var (from, to) = side switch
+                {
+                    Side.Top => (new Vector2(o.X, o.Y + width / 2), new Vector2(o.Right, o.Y + width / 2)),
+                    Side.Right => (new Vector2(o.Right - width / 2, o.Y), new Vector2(o.Right - width / 2, o.Bottom)),
+                    Side.Bottom => (new Vector2(o.Right, o.Bottom - width / 2), new Vector2(o.X, o.Bottom - width / 2)),
+                    _ => (new Vector2(o.X + width / 2, o.Bottom), new Vector2(o.X + width / 2, o.Y)),
+                };
+                var dash = width >= 3 ? 2 * width : 3 * width;
+                var gap = DashGap(Vector2.Distance(from, to), dash, width >= 3 ? width : 2 * width);
+                canvas.StrokePath(new PathData().MoveTo(from.X, from.Y).LineTo(to.X, to.Y), new Stroke(width, LineCap.Butt, [dash, gap]), new Paint(ToRgba(color)));
+                break;
             case BorderStyle.Dashed or BorderStyle.Dotted:
                 var dotted = style == BorderStyle.Dotted;
                 var stroke = new Stroke(width, dotted ? LineCap.Round : LineCap.Butt, dotted ? [0, 2 * width] : [3 * width, 3 * width]);
@@ -241,6 +258,18 @@ internal static class DisplayListPlayer
                 FillRing(outer, inner, color);
                 break;
         }
+    }
+
+    // The gap that fits a whole number of dashes into the length with a dash at each end, of the two counts nearest
+    // the preferred gap: the one whose gap is closer to it (or the longer gap when the shorter would vanish).
+    private static float DashGap(float length, float dash, float gap)
+    {
+        var fewer = MathF.Floor((int)(length + gap) / (dash + gap));
+        if (fewer < 2)
+            return gap; // too short to fit two dashes: the stroke's own pattern
+        var more = fewer + 1;
+        var (fewerGap, moreGap) = ((length - fewer * dash) / (fewer - 1), (length - more * dash) / (more - 1));
+        return moreGap <= 0 || MathF.Abs(fewerGap - gap) < MathF.Abs(moreGap - gap) ? fewerGap : moreGap;
     }
 
     private static PathData Ring(in RoundedRect outer, in RoundedRect inner) => new PathData().AddRoundedRect(outer).AddRoundedRect(inner);

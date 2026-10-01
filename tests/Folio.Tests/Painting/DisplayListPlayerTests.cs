@@ -60,7 +60,8 @@ public class DisplayListPlayerTests
         var calls = Replay("<style>body { margin: 0 }</style><div style='border: 3px dashed red; border-top-style: dotted; height: 10px'></div>");
 
         Assert.Contains("stroke 3 Round 0,6", calls);
-        Assert.Contains("stroke 3 Butt 9,9", calls);
+        // 3px dashes are 6px long; the 16px-high sides fit two of them with a 4px gap, one at each end.
+        Assert.Contains("stroke 3 Butt 6,4", calls);
     }
 
     private static List<string> Replay(string html)
