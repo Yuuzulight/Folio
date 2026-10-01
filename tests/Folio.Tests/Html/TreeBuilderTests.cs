@@ -41,6 +41,15 @@ public class TreeBuilderTests
     }
 
     [Fact]
+    public void EndOfFileClosesManyOpenTemplatesWithoutNesting()
+    {
+        // Each open template is closed by reprocessing the end of file; 50,000 nested calls would overflow the stack.
+        var document = TreeBuilder.Parse(string.Concat(Enumerable.Repeat("<template><table>", 50_000)) + "x");
+
+        Assert.NotNull(document.DocumentElement);
+    }
+
+    [Fact]
     public void NodeLimitStopsParsingAndKeepsWhatIsDone()
     {
         var errors = new List<string>();

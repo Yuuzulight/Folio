@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>山嵐茶館 菜單</title>
+<style>
+  body { margin: 0; background: #1f2a24; font-family: "Noto Sans TC", "Noto Sans SC", sans-serif; color: #2c2c24; }
+  .menu { max-width: 720px; margin: 30px auto; background: #f6f1e4; border-radius: 6px; padding: 30px 36px 36px; box-shadow: 0 16px 40px rgba(0,0,0,0.35); }
+  .brand { text-align: center; border-bottom: 3px double #8a7b55; padding-bottom: 14px; margin-bottom: 18px; }
+  .brand h1 { margin: 0; font-size: 34px; letter-spacing: 0.4em; }
+  .brand p { margin: 6px 0 0; color: #6c6146; font-size: 14px; letter-spacing: 0.1em; }
+  h2 { font-size: 18px; color: #6a3e1e; margin: 22px 0 10px; display: flex; align-items: center; gap: 10px; }
+  h2::after { content: ""; flex: 1; border-top: 1px solid #c9bb95; }
+  .item { display: flex; align-items: baseline; gap: 8px; margin: 8px 0; font-size: 16px; }
+  .item .name { white-space: nowrap; }
+  .item .en { color: #8a7b55; font-size: 13px; }
+  .item .dots { flex: 1; border-bottom: 2px dotted #b9aa82; transform: translateY(-4px); }
+  .item .price { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .desc { margin: -4px 0 10px; font-size: 13px; color: #6c6146; }
+  .badge { font-size: 11px; background: #a33b20; color: #fff; border-radius: 3px; padding: 1px 5px; }
+  .foot { margin-top: 24px; text-align: center; font-size: 13px; color: #6c6146; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="menu">
+  <div class="brand">
+    <h1>山嵐茶館</h1>
+    <p>SHANLAN TEA HOUSE · 台北・大稻埕</p>
+  </div>
+
+  <h2>台灣茶 Taiwanese Teas</h2>
+  <div class="item"><span class="name">凍頂烏龍 <span class="en">Dong Ding Oolong</span></span><span class="dots"></span><span class="price">NT$ 280</span></div>
+  <p class="desc">南投鹿谷，中焙火，帶有焦糖與堅果香氣。</p>
+  <div class="item"><span class="name">東方美人 <span class="en">Oriental Beauty</span> <span class="badge">招牌</span></span><span class="dots"></span><span class="price">NT$ 360</span></div>
+  <p class="desc">小綠葉蟬叮咬後自然發酵，蜜香濃郁。</p>
+  <div class="item"><span class="name">梨山高冷茶 <span class="en">Lishan High Mountain</span></span><span class="dots"></span><span class="price">NT$ 420</span></div>
+  <div class="item"><span class="name">日月潭紅玉 <span class="en">Ruby Black Tea No.18</span></span><span class="dots"></span><span class="price">NT$ 300</span></div>
+
+  <h2>茶點 Tea Snacks</h2>
+  <div class="item"><span class="name">鳳梨酥（兩入）<span class="en">Pineapple Cake</span></span><span class="dots"></span><span class="price">NT$ 120</span></div>
+  <div class="item"><span class="name">芝麻湯圓 <span class="en">Sesame Tangyuan</span></span><span class="dots"></span><span class="price">NT$ 150</span></div>
+  <div class="item"><span class="name">茶香滷蛋 <span class="en">Tea-braised Egg</span></span><span class="dots"></span><span class="price">NT$ 40</span></div>
+
+  <h2>套餐 Sets</h2>
+  <div class="item"><span class="name">雙人品茗套餐 <span class="en">Tasting Set for Two</span></span><span class="dots"></span><span class="price">NT$ 880</span></div>
+  <p class="desc">任選兩款茶葉，附三樣茶點與茶藝師示範沖泡（約60分鐘）。</p>
+
+  <div class="foot">每位低消一壺茶 · 另收一成服務費<br>營業時間：週二至週日 11:00–21:00 · 週一公休</div>
+</div>
+</body>
+</html>

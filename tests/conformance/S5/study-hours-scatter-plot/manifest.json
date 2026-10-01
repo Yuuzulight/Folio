@@ -1,0 +1,5 @@
+{
+  "prompt": "Write a short statistics project report with an SVG scatter plot of study hours against exam scores for two sections, a dashed regression line, rotated axis label, legend and a results table.",
+  "features": ["svg", "svg-text", "text-rotate", "stroke-dasharray", "table", "serif-typography"],
+  "viewport": 800
+}

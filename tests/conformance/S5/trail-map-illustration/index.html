@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cedar Ridge — Trail Map</title>
+<style>
+  body { margin: 0; background: #efe9dc; font-family: "Gill Sans", "Trebuchet MS", sans-serif; color: #3b3326; }
+  .sheet { max-width: 900px; margin: 0 auto; padding: 26px 22px 40px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: 0.04em; text-transform: uppercase; }
+  .tag { color: #7a6a52; margin: 4px 0 16px; }
+  .map { background: #f8f3e7; border: 2px solid #3b3326; border-radius: 6px; overflow: hidden; }
+  svg { display: block; width: 100%; height: auto; }
+  .place { font-size: 12px; font-weight: 700; fill: #3b3326; letter-spacing: 0.05em; }
+  .small { font-size: 10px; fill: #5a4d39; }
+  .key { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 14px; font-size: 14px; }
+  .key span { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 26px; height: 6px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h1>Cedar Ridge trails</h1>
+  <p class="tag">Three marked loops from the north trailhead. Distances are round trips.</p>
+
+  <div class="map">
+    <svg viewBox="0 0 860 520" role="img" aria-label="Trail map">
+      <defs>
+        <pattern id="water" patternUnits="userSpaceOnUse" width="12" height="12" patternTransform="rotate(30)">
+          <rect width="12" height="12" fill="#bfdbe6"/>
+          <path d="M0 6 H12" stroke="#93c3d6" stroke-width="2"/>
+        </pattern>
+        <pattern id="forest" patternUnits="userSpaceOnUse" width="18" height="18">
+          <rect width="18" height="18" fill="#d6e5c3"/>
+          <circle cx="5" cy="5" r="3" fill="#9cbf7d"/>
+          <circle cx="14" cy="13" r="3" fill="#9cbf7d"/>
+        </pattern>
+        <pattern id="marsh" width="10" height="8" patternUnits="userSpaceOnUse">
+          <rect width="10" height="8" fill="#e4ecd2"/>
+          <path d="M2 6 V2 M5 6 V1 M8 6 V3" stroke="#8aa36c" stroke-width="1"/>
+        </pattern>
+        <radialGradient id="peak" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#cbbd9c"/><stop offset="1" stop-color="#e9e0cb"/>
+        </radialGradient>
+      </defs>
+
+      <!-- terrain -->
+      <rect width="860" height="520" fill="#efe7d4"/>
+      <path d="M0,330 C120,300 210,350 320,320 C430,290 520,360 640,340 C740,320 800,360 860,350 V520 H0 Z" fill="url(#forest)"/>
+      <ellipse cx="620" cy="150" rx="150" ry="95" fill="url(#peak)"/>
+      <ellipse cx="620" cy="150" rx="100" ry="62" fill="none" stroke="#b9a983" stroke-width="1.2"/>
+      <ellipse cx="620" cy="150" rx="55" ry="34" fill="none" stroke="#b9a983" stroke-width="1.2"/>
+      <path d="M90,120 C150,80 240,90 280,140 C310,180 260,230 190,230 C120,230 50,170 90,120 Z" fill="url(#water)" stroke="#6ea9c0" stroke-width="2"/>
+      <path d="M240,420 C280,400 340,410 360,440 C370,470 320,490 270,480 C230,470 220,440 240,420 Z" fill="url(#marsh)"/>
+      <path d="M280,140 C330,170 360,230 420,250 C480,270 520,300 560,380 C590,440 640,480 700,520" fill="none" stroke="#6ea9c0" stroke-width="4" stroke-linecap="round"/>
+
+      <!-- trails -->
+      <path d="M430,60 C420,120 360,150 330,200 C300,250 330,300 390,300 C450,300 470,240 470,180 C470,120 450,90 430,60" fill="none" stroke="#d64545" stroke-width="4" stroke-dasharray="10 6" stroke-linecap="round"/>
+      <path d="M430,60 C520,70 600,70 640,110 C680,150 660,210 600,220 C540,230 500,190 470,180" fill="none" stroke="#2f6fcf" stroke-width="4" stroke-dasharray="2 7" stroke-linecap="round"/>
+      <path d="M390,300 C380,360 330,400 300,440 C280,470 300,500 340,505" fill="none" stroke="#e0a42f" stroke-width="4" stroke-linecap="round"/>
+
+      <!-- bridge -->
+      <g transform="translate(531,331) rotate(52)">
+        <rect x="-14" y="-6" width="28" height="12" fill="#8a6a43"/>
+        <path d="M-14,-6 H14 M-14,6 H14" stroke="#4a3a24" stroke-width="2"/>
+      </g>
+
+      <!-- trailhead -->
+      <g transform="translate(430,60)">
+        <circle r="14" fill="#3b3326"/>
+        <text y="5" text-anchor="middle" font-size="13" font-weight="700" fill="#f8f3e7">P</text>
+      </g>
+      <g transform="translate(620,150)">
+        <path d="M-10,8 L0,-10 L10,8 Z" fill="#3b3326"/>
+        <text y="26" text-anchor="middle" class="small">Cedar Peak 1,284 m</text>
+      </g>
+
+      <text x="150" y="168" class="place" text-anchor="middle">LAKE AVERY</text>
+      <text x="300" y="456" class="place" text-anchor="middle">WILLOW MARSH</text>
+      <text x="458" y="48" class="small">North trailhead</text>
+      <text x="470" y="275" class="small" transform="rotate(28 470 275)">Avery Creek</text>
+
+      <!-- compass and scale -->
+      <g transform="translate(70,440)">
+        <circle r="26" fill="#f8f3e7" stroke="#3b3326" stroke-width="1.5"/>
+        <path d="M0,-20 L6,0 L0,20 L-6,0 Z" fill="#3b3326"/>
+        <path d="M0,-20 L6,0 L-6,0 Z" fill="#d64545"/>
+        <text y="-30" text-anchor="middle" class="small">N</text>
+      </g>
+      <g transform="translate(700,480)">
+        <rect width="50" height="6" fill="#3b3326"/><rect x="50" width="50" height="6" fill="#f8f3e7" stroke="#3b3326"/>
+        <text y="22" class="small">0</text><text x="88" y="22" class="small">1 km</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="key">
+    <span><i class="swatch" style="background: repeating-linear-gradient(90deg, #d64545 0 10px, transparent 10px 16px)"></i>Lake loop · 6.4 km</span>
+    <span><i class="swatch" style="background: repeating-linear-gradient(90deg, #2f6fcf 0 3px, transparent 3px 9px)"></i>Summit loop · 8.1 km</span>
+    <span><i class="swatch" style="background:#e0a42f"></i>Marsh spur · 2.2 km</span>
+  </div>
+</div>
+</body>
+</html>
