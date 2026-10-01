@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprint 14 — Board</title>
+<style>
+  :root {
+    --bg: #f3f4f8;
+    --column: #e9ebf2;
+    --card: #ffffff;
+    --text: #1f2430;
+    --muted: #6a7184;
+    --line: #dcdfe8;
+    --blue: #3b6fe0;
+    --violet: #7b5ce6;
+    --amber: #d9891a;
+    --green: #1f9d6b;
+    --rose: #d6455d;
+    --radius: 10px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px 14px;
+  }
+
+  h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+  .sprint-meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .people { display: flex; align-items: center; }
+  .people span {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid var(--bg);
+    margin-left: -8px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .people span:first-child { margin-left: 0; }
+
+  .progress {
+    margin: 0 24px 18px;
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 1px 2px rgba(25, 30, 50, 0.06);
+  }
+  .progress .label { font-weight: 600; white-space: nowrap; }
+  .track {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--column);
+    overflow: hidden;
+  }
+  .track .fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, var(--violet), var(--blue));
+    transform-origin: left center;
+    animation: fill-in 1.2s ease-out both;
+  }
+  @keyframes fill-in { from { transform: scaleX(0); } to { transform: scaleX(0.62); } }
+  .progress .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    padding: 0 24px 28px;
+  }
+
+  .column {
+    background: var(--column);
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .column h2 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 2px 4px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .count {
+    background: rgba(0, 0, 0, 0.07);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .card {
+    position: relative;
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 10px 11px 9px;
+    margin-bottom: 9px;
+    box-shadow: 0 1px 2px rgba(25, 30, 50, 0.08);
+    animation: rise 0.45s ease-out both;
+  }
+  .card:nth-child(3) { animation-delay: 0.08s; }
+  .card:nth-child(4) { animation-delay: 0.16s; }
+  .card:nth-child(5) { animation-delay: 0.24s; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .card.dragging {
+    rotate: -3deg;
+    scale: 1.02;
+    box-shadow: 0 12px 24px rgba(25, 30, 50, 0.18);
+    outline: 2px solid var(--blue);
+    z-index: 2;
+  }
+
+  .card.blocked::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--rose);
+  }
+
+  .card .key { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+  .card .title { margin: 2px 0 8px; font-weight: 600; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 5px;
+  }
+  .tag.api { background: #e6edfd; color: var(--blue); }
+  .tag.ui { background: #efe9fd; color: var(--violet); }
+  .tag.bug { background: #fde8eb; color: var(--rose); }
+  .tag.ops { background: #fcf1df; color: var(--amber); }
+
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .points {
+    display: inline-grid;
+    place-items: center;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--column);
+    color: var(--text);
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .who {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .new {
+    position: absolute;
+    top: -6px;
+    right: 10px;
+    background: var(--green);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    rotate: 6deg;
+  }
+
+  .done .title { color: var(--muted); text-decoration: line-through; }
+  .check {
+    display: inline-block;
+    width: 12px;
+    height: 7px;
+    border-left: 2px solid var(--green);
+    border-bottom: 2px solid var(--green);
+    transform: rotate(-45deg) translate(1px, -1px);
+    margin-right: 6px;
+  }
+
+  .add {
+    border: 1.5px dashed #c5c9d6;
+    border-radius: var(--radius);
+    padding: 8px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Sprint 14 · Checkout revamp</h1>
+    <div class="sprint-meta">Mar 3 – Mar 14 · 9 working days left</div>
+  </div>
+  <div class="people">
+    <span style="background:#3b6fe0">AK</span>
+    <span style="background:#7b5ce6">RM</span>
+    <span style="background:#1f9d6b">JS</span>
+    <span style="background:#d9891a">LT</span>
+    <span style="background:#6a7184">+2</span>
+  </div>
+</header>
+
+<div class="progress">
+  <span class="label">Sprint progress</span>
+  <div class="track"><div class="fill"></div></div>
+  <span class="pct">31 of 50 points</span>
+</div>
+
+<section class="board">
+  <div class="column">
+    <h2>To do <span class="count">4</span></h2>
+    <article class="card">
+      <div class="key">CHK-212</div>
+      <div class="title">Saved addresses dropdown</div>
+      <div class="tags"><span class="tag ui">UI</span></div>
+      <div class="foot"><span class="points">3</span><span class="who" style="background:#7b5ce6">RM</span></div>
+    </article>
+    <article class="card">
+      <span class="new">NEW</span>
+      <div class="key">CHK-219</div>
+      <div class="title">Rate-limit the coupon endpoint</div>
+      <div class="tags"><span class="tag api">API</span><span class="tag ops">Ops</span></div>
+      <div class="foot"><span class="points">2</span><span class="who" style="background:#3b6fe0">AK</span></div>
+    </article>
+    <article class="card">
+      <div class="key">CHK-207</div>
+      <div class="title">Gift wrap option on order summary</div>
+      <div class="tags"><span class="tag ui">UI</span></div>
+      <div class="foot"><span class="points">5</span><span class="who" style="background:#d9891a">LT</span></div>
+    </article>
+    <div class="add">+ Add card</div>
+  </div>
+
+  <div class="column">
+    <h2>In progress <span class="count">3</span></h2>
+    <article class="card">
+      <div class="key">CHK-198</div>
+      <div class="title">One-page checkout layout</div>
+      <div class="tags"><span class="tag ui">UI</span><span class="tag api">API</span></div>
+      <div class="foot"><span class="points">8</span><span class="who" style="background:#7b5ce6">RM</span></div>
+    </article>
+    <article class="card dragging">
+      <div class="key">CHK-204</div>
+      <div class="title">Apple Pay button placement</div>
+      <div class="tags"><span class="tag ui">UI</span></div>
+      <div class="foot"><span class="points">3</span><span class="who" style="background:#1f9d6b">JS</span></div>
+    </article>
+    <article class="card blocked">
+      <div class="key">CHK-201</div>
+      <div class="title">Tax service timeout on EU orders</div>
+      <div class="tags"><span class="tag bug">Bug</span><span class="tag api">API</span></div>
+      <div class="foot"><span class="points">5</span><span class="who" style="background:#3b6fe0">AK</span></div>
+    </article>
+  </div>
+
+  <div class="column">
+    <h2>Review <span class="count">2</span></h2>
+    <article class="card">
+      <div class="key">CHK-196</div>
+      <div class="title">Inline card validation messages</div>
+      <div class="tags"><span class="tag ui">UI</span></div>
+      <div class="foot"><span class="points">3</span><span class="who" style="background:#d9891a">LT</span></div>
+    </article>
+    <article class="card">
+      <div class="key">CHK-190</div>
+      <div class="title">Retry failed webhooks with backoff</div>
+      <div class="tags"><span class="tag api">API</span><span class="tag ops">Ops</span></div>
+      <div class="foot"><span class="points">5</span><span class="who" style="background:#1f9d6b">JS</span></div>
+    </article>
+  </div>
+
+  <div class="column">
+    <h2>Done <span class="count">5</span></h2>
+    <article class="card done">
+      <div class="title"><span class="check"></span>Remove legacy cart cookie</div>
+      <div class="foot"><span>CHK-181</span><span class="points">2</span></div>
+    </article>
+    <article class="card done">
+      <div class="title"><span class="check"></span>Order total rounding fix</div>
+      <div class="foot"><span>CHK-185</span><span class="points">1</span></div>
+    </article>
+    <article class="card done">
+      <div class="title"><span class="check"></span>Shipping estimate API</div>
+      <div class="foot"><span>CHK-176</span><span class="points">8</span></div>
+    </article>
+    <article class="card done">
+      <div class="title"><span class="check"></span>Promo banner copy</div>
+      <div class="foot"><span>CHK-188</span><span class="points">1</span></div>
+    </article>
+  </div>
+</section>
+</body>
+</html>
