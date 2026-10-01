@@ -28,7 +28,7 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
 /// filter function, or its SVG filter element, in order, and what the element's units need: the filtered element's
 /// bounding box and the viewport.
 /// </summary>
-internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, ElementNode? Element)> Filters, CssColor CurrentColor, SvgRect? Bounds, Vector2 Viewport)
+internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, SvgFilterReference? Reference)> Filters, CssColor CurrentColor)
 {
     /// <summary>
     /// A filter list's chain; null when it filters nothing: none, or a reference to anything but a filter element, which
@@ -36,17 +36,17 @@ internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, El
     /// </summary>
     public static SvgFilterChain? Of(FilterList list, CssColor currentColor, SvgRect? bounds, Vector2 viewport, SvgContext context)
     {
-        var filters = new List<(FilterFunction, ElementNode?)>();
+        var filters = new List<(FilterFunction, SvgFilterReference?)>();
         foreach (var function in list.Functions)
         {
             if (function.Name != "url")
                 filters.Add((function, null));
             else if (context.Find(function.Url) is { LocalName: "filter" } element && element.Name.Namespace == Namespaces.Svg)
-                filters.Add((function, element));
+                filters.Add((function, SvgFilterReference.Get(element, bounds, viewport, context.Layout)));
             else
                 return null;
         }
-        return filters.Count > 0 ? new SvgFilterChain(filters, currentColor, bounds, viewport) : null;
+        return filters.Count > 0 ? new SvgFilterChain(filters, currentColor) : null;
     }
 
     /// <summary>
@@ -55,6 +55,34 @@ internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, El
     /// </summary>
     public static SvgFilterChain? ForBox(ElementNode element, ComputedStyle style, float width, float height, Layout.LayoutContext layout) =>
         Of(style.Effects.Filter, style.Inherited.Color, new SvgRect(0, 0, width, height), new Vector2(width, height), new SvgContext(layout, element.OwnerDocument));
+}
+
+/// <summary>
+/// A filter element as a layout uses it: the bounding box (only where its units need one) and the viewport its lengths
+/// resolve against. Every element and box that uses the filter in the same way shares one, so painting builds its
+/// primitives once.
+/// </summary>
+// ponytail: an element's bounding box includes its position, so SVG elements share a filter in bounding box units only
+// when they share their box too; CSS boxes, whose box starts at 0, share it by size.
+internal sealed class SvgFilterReference(ElementNode element, SvgRect? bounds, Vector2 viewport)
+{
+    public ElementNode Element { get; } = element;
+
+    public SvgRect? Bounds { get; } = bounds;
+
+    public Vector2 Viewport { get; } = viewport;
+
+    /// <summary>The layout's reference for this filter element used with this bounding box and viewport.</summary>
+    public static SvgFilterReference Get(ElementNode element, SvgRect? bounds, Vector2 viewport, Layout.LayoutContext layout)
+    {
+        static bool BoxUnits(ElementNode e, string name, bool byDefault) => e.GetAttribute(name)?.Trim() is { } units
+            ? units == "objectBoundingBox" || units != "userSpaceOnUse" && byDefault
+            : byDefault;
+        var key = (element, BoxUnits(element, "filterUnits", true) || BoxUnits(element, "primitiveUnits", false) ? bounds : null, viewport);
+        if (!layout.SvgFilters.TryGetValue(key, out var reference))
+            layout.SvgFilters[key] = reference = new SvgFilterReference(key.element, key.Item2, viewport);
+        return reference;
+    }
 }
 
 /// <summary>
