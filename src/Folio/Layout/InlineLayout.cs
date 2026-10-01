@@ -686,6 +686,32 @@ internal static class InlineLayout
         return runs;
     }
 
+    // The OpenType features the style turns on, as space-separated tags: font-variant-numeric's keywords, then
+    // font-feature-settings' tags with a non-zero value.
+    // ponytail: only features made of single substitutions take effect (study 11); fractions and ordinals do not.
+    private static string Features(FontGroup font)
+    {
+        if (font.VariantNumeric == "normal" && font.FeatureSettings == "normal")
+            return "";
+        var tags = new List<string>();
+        foreach (var keyword in font.VariantNumeric.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (keyword switch { "lining-nums" => "lnum", "oldstyle-nums" => "onum", "proportional-nums" => "pnum", "tabular-nums" => "tnum",
+                    "slashed-zero" => "zero", _ => null } is { } tag)
+                tags.Add(tag);
+        }
+        if (font.FeatureSettings != "normal")
+        {
+            foreach (var setting in font.FeatureSettings.Split(", "))
+            {
+                var parts = setting.Split(' ');
+                if (parts.Length == 2 && parts[1] != "0")
+                    tags.Add(parts[0].Trim('"'));
+            }
+        }
+        return string.Join(' ', tags);
+    }
+
     private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft)
     {
         var size = style.Font.Size;
@@ -701,7 +727,7 @@ internal static class InlineLayout
         }
         else
         {
-            run = SimpleShaper.Shape(text, start, length, face, size);
+            run = SimpleShaper.Shape(text, start, length, face, size, Features(style.Font));
         }
         // Controls and format characters take no space; a tab is tab-size spaces or a length. letter-spacing follows
         // every typographic character unit and word-spacing every word separator (css-text-3 §8.1, css-text-4 §9).

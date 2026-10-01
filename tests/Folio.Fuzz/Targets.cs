@@ -84,11 +84,13 @@ internal static class Targets
         new[] { "reftests", "goldens" }.SelectMany(folder => Directory.GetFiles(Path.Combine(RepoPaths.Tests, folder, "svg"), "*.html"))
             .Select(File.ReadAllBytes);
 
-    // Web font unwrapping, then the font reader and its kerning, as a document's @font-face would run them.
+    // Web font unwrapping, then the font reader, its kerning and its substitutions, as a document's @font-face would run them.
     private static void Font(byte[] data)
     {
-        if (WebFontDecoder.Decode(data) is { } sfnt && FontFace.Parse(sfnt) is { } face)
-            face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
+        if (WebFontDecoder.Decode(data) is not { } sfnt || FontFace.Parse(sfnt) is not { } face)
+            return;
+        face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
+        face.Substitute(face.GlyphFor('1'), "pnum tnum");
     }
 
     private static IEnumerable<byte[]> FontSeeds()

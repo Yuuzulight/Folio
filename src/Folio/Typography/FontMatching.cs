@@ -318,14 +318,16 @@ internal static class SimpleShaper
         return true;
     }
 
-    public static ShapedRun Shape(string text, int start, int length, FontFace face, float size)
+    /// <param name="features">Space-separated feature tags whose single substitutions apply (such as "tnum"), or "".</param>
+    public static ShapedRun Shape(string text, int start, int length, FontFace face, float size, string features = "")
     {
         var glyphs = new List<ushort>(length);
         var clusters = new List<int>(length);
         for (var i = start; i < start + length;)
         {
             var rune = Rune.GetRuneAt(text, i);
-            glyphs.Add(face.GlyphFor(rune.Value));
+            var glyph = face.GlyphFor(rune.Value);
+            glyphs.Add(features.Length == 0 ? glyph : face.Substitute(glyph, features));
             clusters.Add(i);
             i += rune.Utf16SequenceLength;
         }
