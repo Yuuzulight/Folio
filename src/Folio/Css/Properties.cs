@@ -165,6 +165,7 @@ internal enum PropertyId
     MaskOrigin,
     MaskClip,
     MaskComposite,
+    MaskType,
     BorderImageSource,
     BorderImageSlice,
     BorderImageWidth,
@@ -205,6 +206,36 @@ internal enum PropertyId
     MarkerStart,
     MarkerMid,
     MarkerEnd,
+    MarginBlockStart,
+    MarginBlockEnd,
+    MarginInlineStart,
+    MarginInlineEnd,
+    PaddingBlockStart,
+    PaddingBlockEnd,
+    PaddingInlineStart,
+    PaddingInlineEnd,
+    InsetBlockStart,
+    InsetBlockEnd,
+    InsetInlineStart,
+    InsetInlineEnd,
+    BorderBlockStartWidth,
+    BorderBlockEndWidth,
+    BorderInlineStartWidth,
+    BorderInlineEndWidth,
+    BorderBlockStartStyle,
+    BorderBlockEndStyle,
+    BorderInlineStartStyle,
+    BorderInlineEndStyle,
+    BorderBlockStartColor,
+    BorderBlockEndColor,
+    BorderInlineStartColor,
+    BorderInlineEndColor,
+    InlineSize,
+    BlockSize,
+    MinInlineSize,
+    MinBlockSize,
+    MaxInlineSize,
+    MaxBlockSize,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -288,7 +319,7 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands))
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -525,6 +556,7 @@ internal static class Properties
             Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
             // https://www.w3.org/TR/compositing-1/#isolation
             Keywords(PropertyId.Isolation, "isolation", false, "auto", Enum<Isolation>("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
+            Keywords(PropertyId.MaskType, "mask-type", false, "luminance", Enum<MaskType>("luminance", "alpha"), s => s.Mask.Type, (b, v) => b.Mask = b.Mask with { Type = v }),
             // https://drafts.csswg.org/compositing-2/#mix-blend-mode and #background-blend-mode (plus-lighter blends whole elements only).
             Keywords(PropertyId.MixBlendMode, "mix-blend-mode", false, "normal", BlendKeywords, s => s.Effects.MixBlendMode, (b, v) => b.Effects = b.Effects with { MixBlendMode = v }),
             Layers<Style.BlendMode, Style.BlendMode>(PropertyId.BackgroundBlendMode, "background-blend-mode", "normal",
@@ -815,6 +847,7 @@ internal static class Properties
         rows.AddRange(BorderImageProperties.Rows);
         rows.AddRange(AnimationProperties.Rows);
         rows.AddRange(MulticolProperties.Rows);
+        rows.AddRange(LogicalProperties.Rows);
         rows.AddRange(SvgProperties.Rows);
         rows.AddRange(SvgProperties.StopRows);
 
