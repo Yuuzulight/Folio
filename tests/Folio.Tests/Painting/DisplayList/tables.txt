@@ -1,10 +1,10 @@
 === collapsed borders are painted once per cell, centred on its edges; the table paints none
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-collapse: collapse; border: 1px solid red"><tr><td style="border: 2px solid">a</td><td style="border: 4px solid">b</td></tr></table>
 ---
-border 0,1 23x22 2 solid rgb(0, 0, 0) / 4 solid rgb(0, 0, 0) / 2 solid rgb(0, 0, 0) / 2 solid rgb(0, 0, 0)
-border 19,0 28x24 4 solid rgb(0, 0, 0)
+border 0,1 22x22 2 solid rgb(0, 0, 0) / 4 solid rgb(0, 0, 0) / 2 solid rgb(0, 0, 0) / 2 solid rgb(0, 0, 0)
+border 18,0 24x24 4 solid rgb(0, 0, 0)
 glyphs 2,17 16px rgb(0, 0, 0)
-glyphs 23,17 16px rgb(0, 0, 0)
+glyphs 22,17 16px rgb(0, 0, 0)
 
 === empty-cells hide leaves empty cells unpainted
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="empty-cells: hide; border-spacing: 0"><tr><td style="background: red; width: 10px; height: 10px"></td><td style="background: blue">x</td></tr></table>

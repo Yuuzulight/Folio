@@ -3,16 +3,16 @@
 ---
 html 0,0 800x24
   body 0,0 800x24
-    table 0,0 47x24
-      table 0,0 47x24
-        tbody 1,2 44x20
-          tr 1,2 44x20
-            td 1,2 20x20
-              line 2,4 17x16
+    table 0,0 42x24
+      table 0,0 42x24
+        tbody 1,2 39x20
+          tr 1,2 39x20
+            td 1,2 19x20
+              line 2,4 16x16
                 text "a" 2,4 16x16
-            td 21,2 24x20
-              line 23,4 20x16
-                text "b" 23,4 16x16
+            td 20,2 20x20
+              line 22,4 16x16
+                text "b" 22,4 16x16
 
 === the border, cellspacing and cellpadding attributes
 <!DOCTYPE html><style>body { margin: 0 }</style><table border=1 cellspacing=0 cellpadding=3><tr><td>a</td></tr></table>
@@ -26,3 +26,19 @@ html 0,0 800x26
             td 1,1 24x24
               line 5,5 16x16
                 text "a" 5,5 16x16
+=== collapsed borders: a cell's width holds half of each border between it and its neighbours, and a border-box min-width stays as given
+<!DOCTYPE html><style>body { margin: 0 } table { border-collapse: collapse } td { padding: 0 2px; border: 4px solid black }</style><table><tr><td>a</td><td style="box-sizing: border-box; min-width: 40px">b</td></tr></table>
+---
+html 0,0 800x24
+  body 0,0 800x24
+    table 0,0 68x24
+      table 0,0 68x24
+        tbody 2,2 64x20
+          tr 2,2 64x20
+            td 2,2 24x20
+              line 6,4 16x16
+                text "a" 6,4 16x16
+            td 26,2 40x20
+              line 30,4 32x16
+                text "b" 30,4 16x16
+
