@@ -58,7 +58,10 @@ internal static class DisplayListPlayer
                     break;
                 case DisplayItemKind.PushTransform:
                     canvas.Save();
-                    canvas.Transform(item.Transform);
+                    if (item.Projection is { } projection)
+                        canvas.Transform(projection);
+                    else
+                        canvas.Transform(item.Transform);
                     open.Push(item.Kind);
                     break;
                 case DisplayItemKind.Pop when open.TryPop(out var kind):

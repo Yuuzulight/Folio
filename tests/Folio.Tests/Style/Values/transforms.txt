@@ -78,3 +78,18 @@ transform-origin: 0px 50%
 transform-origin: left; transform-origin: top 10px; transform-origin: left left; transform-origin: 1px 2px 3%
 ---
 transform-origin: 0px 50%
+
+=== perspective is none or a non-negative length
+perspective: 2em; perspective: -1px; perspective: 50%
+---
+perspective: 32
+
+=== perspective-origin takes keywords and length-percentages, and no z
+perspective-origin: right 10px; perspective-origin: 1px 2px 3px
+---
+perspective-origin: 100% 10px
+
+=== perspective-origin defaults to the centre
+display: block
+---
+perspective-origin: 50% 50%
