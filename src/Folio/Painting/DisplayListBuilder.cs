@@ -142,6 +142,9 @@ internal static class DisplayListBuilder
         scale > 0 && m.M11 == 1 && m.M12 == 0 && m.M21 == 0 && m.M22 == 1
         && MathF.Abs(m.M31 * scale - MathF.Round(m.M31 * scale)) < 0.001f && MathF.Abs(m.M32 * scale - MathF.Round(m.M32 * scale)) < 0.001f;
 
+    // A single-line select is built as a block container holding its chosen option's text.
+    private static bool IsDropDown(Box box) => box is BlockContainerBox { Node: Dom.ElementNode { LocalName: "select" } };
+
     private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
     {
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
@@ -186,7 +189,7 @@ internal static class DisplayListBuilder
             if (outlined && !ownOutline)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
-            var content = box is ReplacedBox { Image: not null } || placed.Fragment.Svg is not null ? placed : null;
+            var content = box is ReplacedBox { Image: not null } || placed.Fragment.Svg is not null || IsDropDown(box) ? placed : null;
             // A table's positioning and stacking properties apply to its wrapper box (CSS 2 §17.4); the table grid box,
             // which shares the wrapper's style, paints as a plain block inside it.
             if (box is TablePartBox { Part: TablePart.Table })
@@ -681,7 +684,9 @@ internal static class DisplayListBuilder
             }
             if (box.Fragment.Kind == FragmentKind.Box)
             {
-                if (box.Fragment.Svg is { } svg)
+                if (IsDropDown(box.Box))
+                    PaintDropDownArrow(box);
+                else if (box.Fragment.Svg is { } svg)
                     PaintSvg(box, svg);
                 else
                     PaintImage(box);
@@ -1214,6 +1219,25 @@ internal static class DisplayListBuilder
         // ponytail: a box whose chain leaves an enclosing opacity layer's clips stays clipped by them.
         // A disc fills the marker's square with an ellipse, a circle strokes that ellipse 1px wide (centred on its edge),
         // and a square fills the square, all in the marker's colour.
+        /// <summary>
+        /// A drop-down select's arrow: a chevron in the text colour, centred in the arrow area at the inline end of the
+        /// padding box and halfway down (study 15: static appearance).
+        /// </summary>
+        // ponytail: one chevron size for every font size; scale it when a page shows controls at other sizes.
+        private void PaintDropDownArrow(PaintBox box)
+        {
+            var style = box.Box.Style;
+            if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
+                return;
+            SetClip(box.Clip);
+            var (rect, border) = (box.Rect, style.Border);
+            var half = Layout.BoxTreeBuilder.SelectArrowWidth / 2;
+            var x = style.Text.Direction == Direction.Rtl ? rect.X + border.LeftWidth + half : rect.Right - border.RightWidth - half;
+            var y = rect.Y + rect.Height / 2;
+            var path = new PathData().MoveTo(x - 3.5f, y - 2.25f).LineTo(x, y + 1.25f).LineTo(x + 3.5f, y - 2.25f);
+            list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: style.Inherited.Color, Path: path, Stroke: new Stroke(2.25f)));
+        }
+
         private void PaintSymbol(PaintBox box, ListSymbol symbol)
         {
             var style = box.Box.Style;

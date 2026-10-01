@@ -1,0 +1,14 @@
+=== a drop-down select draws its arrow in the text colour at the inline end, halfway down
+<!DOCTYPE html><style>body { margin: 0 } select { display: block; width: 100px; padding: 0; border: 1px solid; font-size: 16px; color: red; background: none }</style><select><option>a</option></select><select dir="rtl"><option>b</option></select>
+---
+border 0,0 102x20 radius 2 1 solid rgb(255, 0, 0)
+border 0,20 102x20 radius 2 1 solid rgb(255, 0, 0)
+stroke path M89.5,7.75 L93,11.25 L96.5,7.75 2.25 rgb(255, 0, 0)
+clip 1,1 100x18 radius 1
+glyphs 5,15 16px rgb(255, 0, 0)
+pop
+stroke path M5.5,27.75 L9,31.25 L12.5,27.75 2.25 rgb(255, 0, 0)
+clip 1,21 100x18 radius 1
+glyphs 81,35 16px rgb(255, 0, 0)
+pop
+

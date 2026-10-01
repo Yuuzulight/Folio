@@ -24,12 +24,14 @@ html 0,0 800x16
 === a select shows its selected option, else its first
 <!DOCTYPE html><style>body { margin: 0 } select { padding: 0; border: 0; font-size: 16px }</style><select><option>a</option><option selected>bb</option></select><select><option>c</option></select>
 ---
-html 0,0 800x16
-  body 0,0 800x16
-    line 0,0 800x16
-      select 0,0 32x16
-        line 0,0 32x16
-          text "bb" 0,0 32x16
-      select 32,0 16x16
-        line 32,0 16x16
-          text "c" 32,0 16x16
+html 0,0 800x18
+  body 0,0 800x18
+    line 0,0 800x18
+      select 0,0 53x18
+        (anonymous) 0,0 53x18
+          line 4,1 32x16
+            text "bb" 4,1 32x16
+      select 53,0 37x18
+        (anonymous) 53,0 37x18
+          line 57,1 16x16
+            text "c" 57,1 16x16
