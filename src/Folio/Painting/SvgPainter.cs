@@ -130,6 +130,19 @@ internal static class SvgPainter
             items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
+    /// <summary>
+    /// Draws an SVG mask's content for a CSS box's mask layer, its coordinates' origin at <paramref name="origin"/>,
+    /// clipped to the mask's region.
+    /// </summary>
+    public static void PaintMaskContent(SvgMask mask, Vector2 origin, List<DisplayItem> items)
+    {
+        items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(origin)));
+        items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(mask.Region.X, mask.Region.Y, mask.Region.Width, mask.Region.Height), default)));
+        Emit(new SvgContainerNode(mask.ContentTransform, 1, mask.Children), items);
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
+    }
+
     // A mask over what was drawn: its content, in a destination-in layer clipped to its region. A luminance mask is drawn
     // over opaque black and turned into alpha, so its alpha is the luminance of its colour times its own alpha.
     private static void MaskItems(SvgMask mask, List<DisplayItem> items)

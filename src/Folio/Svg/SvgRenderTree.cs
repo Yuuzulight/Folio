@@ -151,6 +151,27 @@ internal static class SvgRenderTree
         return node;
     }
 
+    /// <summary>
+    /// The masks a CSS box's mask layers reference (https://drafts.csswg.org/css-masking-1/#the-mask-image), by layer, for
+    /// a border box of this size: user units are CSS pixels from its top-left corner, and it is the bounding box. Null
+    /// when no layer references a mask element.
+    /// </summary>
+    public static SvgMask?[]? BoxMasks(ElementNode element, MaskGroup masks, float width, float height, Layout.LayoutContext layout)
+    {
+        var context = new SvgContext(layout, element.OwnerDocument);
+        var result = new SvgMask?[masks.Images.Count];
+        var any = false;
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (masks.Images[i] is UrlImage url && context.Find(url.Url) is { LocalName: "mask" } mask && mask.Name.Namespace == Namespaces.Svg)
+            {
+                result[i] = Mask(mask, masks.Modes[i % masks.Modes.Count], new SvgRect(0, 0, width, height), new Vector2(width, height), context);
+                any = true;
+            }
+        }
+        return any ? result : null;
+    }
+
     // The top mask layer that references an SVG mask element, and its mask-mode.
     // ponytail: other mask layers (images, gradients, more references) are ignored on SVG elements.
     private static (ElementNode Mask, MaskMode Mode)? MaskReference(MaskGroup masks, SvgContext context)
