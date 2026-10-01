@@ -1293,40 +1293,43 @@ internal static class InlineLayout
     }
 
     /// <summary>
-    /// Shares the free space out among the line's word separators (spaces and no-break spaces), widening their glyphs
-    /// (https://www.w3.org/TR/css-text-3/#justify-algos, text-justify: auto). Spaces hanging at the end do not count.
-    /// Returns false when there is nothing to widen.
+    /// Shares the free space out among the line's justification opportunities (https://www.w3.org/TR/css-text-3/#justify-algos,
+    /// text-justify: auto), widening the glyphs before them: word separators (spaces and no-break spaces), and the
+    /// gaps beside CJK characters, which have no separators. Nothing after the line's last content counts, so spaces
+    /// hanging at the end do not. Returns false when there is nothing to widen.
     /// </summary>
-    // ponytail: no expansion between letters of scripts without word separators (CJK), and none in atomic inlines.
+    // ponytail: none in atomic inlines.
     private static bool Justify(List<Piece> pieces, string text, float free)
     {
-        var separators = new List<(Piece Piece, int Glyph)>();
+        // The line's clusters in order, each as its text piece and last glyph; null stands for an atomic inline.
+        var clusters = new List<(Piece? Piece, int Glyph)>();
         foreach (var piece in pieces)
         {
+            if (piece.Kind == PieceKind.Atomic)
+                clusters.Add((null, 0));
             if (piece.Kind != PieceKind.Text)
                 continue;
             for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
             {
-                if (text[piece.Run!.Clusters[g]] is ' ' or '\u00A0')
-                    separators.Add((piece, g));
+                if (g + 1 == piece.GlyphEnd || piece.Run!.Clusters[g + 1] != piece.Run.Clusters[g])
+                    clusters.Add((piece, g));
             }
         }
-        // Drop the trailing spaces: separators after the last other glyph or atomic inline.
-        for (var i = pieces.Count - 1; i >= 0; i--)
+        int CodePoint(int i)
         {
-            var piece = pieces[i];
-            if (piece.Kind == PieceKind.Atomic)
-                break;
-            if (piece.Kind != PieceKind.Text)
-                continue;
-            var g = piece.GlyphEnd - 1;
-            while (g >= piece.GlyphStart && separators.Count > 0 && separators[^1] == (piece, g))
-            {
-                separators.RemoveAt(separators.Count - 1);
-                g--;
-            }
-            if (g >= piece.GlyphStart)
-                break;
+            var at = clusters[i].Piece!.Run!.Clusters[clusters[i].Glyph];
+            return char.IsSurrogatePair(text, at) ? char.ConvertToUtf32(text[at], text[at + 1]) : text[at];
+        }
+        bool IsSpace(int i) => clusters[i].Piece is not null && text[clusters[i].Piece!.Run!.Clusters[clusters[i].Glyph]] is ' ' or '\u00A0';
+        var last = clusters.Count - 1;
+        while (last >= 0 && IsSpace(last))
+            last--;
+        var separators = new List<(Piece Piece, int Glyph)>();
+        for (var i = 0; i < last; i++)
+        {
+            if (clusters[i].Piece is { } piece
+                && (IsSpace(i) || clusters[i + 1].Piece is not null && (RubyLayout.IsCjk(CodePoint(i)) || RubyLayout.IsCjk(CodePoint(i + 1)))))
+                separators.Add((piece, clusters[i].Glyph));
         }
         if (separators.Count == 0)
             return false;
