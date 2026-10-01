@@ -54,9 +54,10 @@ internal static class StyleResolver
     /// Where link elements and @import load from; by default only data: URLs, with no base URL.
     /// </param>
     /// <param name="measure">Measures fonts for ex and ch; without it they are 0.5em.</param>
+    /// <param name="animationTime">Seconds on the document timeline animations are sampled at; null for the settled document.</param>
     /// <returns>The <c>@font-face</c> rules of the user and author stylesheets, in that order.</returns>
     public static List<FontFaceRule> Resolve(DocumentNode document, MediaContext media, string? userStyleSheet = null, StyleSources? sources = null,
-                                             FontMeasure? measure = null)
+                                             FontMeasure? measure = null, double? animationTime = null)
     {
         sources ??= new StyleSources(Resources.ResourceLoader.DataUrlsOnly, null);
         sources = sources with
@@ -136,12 +137,16 @@ internal static class StyleResolver
             {
                 var (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints);
                 style = StyleBuilder.Compute(values, Context(item.Parent, custom), groups);
-                // Animations that fill forwards hold their end state: their keyframes join the cascade and the style is
-                // computed again.
-                if (Animations.EndState(style.Animation, keyframes) is { } animated)
+                // Animations at the document time: each keyframe's declarations join the cascade's animation origin and
+                // the values are interpolated between them.
+                if (!ReferenceEquals(style.Animation, AnimationGroup.Initial) && keyframes.Count > 0)
                 {
-                    (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints, animated);
-                    style = StyleBuilder.Compute(values, Context(item.Parent, custom), groups);
+                    var parent = item.Parent;
+                    style = Animations.Sample(style, parent, keyframes, animationTime, declarations =>
+                    {
+                        var (keyed, keyedCustom) = Cascade.Compute(matched, inline, int.MaxValue, hints, declarations);
+                        return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
+                    }, groups) ?? style;
                 }
                 if (sharable)
                     shared.Add(item.Parent, rootFontSize, matched, style);

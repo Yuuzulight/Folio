@@ -237,6 +237,12 @@ internal abstract class Property(PropertyId id, string name, bool inherited, str
     /// <summary>Copies the parent's computed value.</summary>
     public abstract void Inherit(StyleBuilder builder, ComputedStyle parent);
 
+    /// <summary>
+    /// Sets the value <paramref name="progress"/> of the way from one style's computed value to another's
+    /// (<see cref="Interpolation"/>); values that do not interpolate flip half way.
+    /// </summary>
+    public abstract void Interpolate(StyleBuilder builder, ComputedStyle from, ComputedStyle to, double progress);
+
     /// <summary>The computed value as text, for tests and diagnostics.</summary>
     public abstract string Describe(ComputedStyle style);
 }
@@ -257,6 +263,13 @@ internal sealed class Property<T>(
     public override void Apply(StyleBuilder builder, CssValue value, ComputeContext context) => set(builder, compute(value, context));
 
     public override void Inherit(StyleBuilder builder, ComputedStyle parent) => set(builder, get(parent));
+
+    public override void Interpolate(StyleBuilder builder, ComputedStyle from, ComputedStyle to, double progress)
+    {
+        var (a, b) = (get(from), get(to));
+        // The ends are the keyframes' own values, so a finished animation leaves exactly its last keyframe (none stays none).
+        set(builder, progress is 0 or 1 ? (progress == 0 ? a : b) : Interpolation.Lerp(a, b, progress) is T value ? value : progress < 0.5 ? a : b);
+    }
 
     public override string Describe(ComputedStyle style) => Format(get(style));
 
