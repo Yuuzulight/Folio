@@ -50,6 +50,10 @@ internal static class SvgPainter
 
         if (!node.Transform.IsIdentity)
             Push(new DisplayItem(DisplayItemKind.PushTransform, Transform: node.Transform));
+        // A mask groups the node in a layer of its own, which the mask is applied to once the node is drawn.
+        if (node.Mask is not null)
+            Push(new DisplayItem(DisplayItemKind.PushLayer));
+        var beforeClip = pushed;
         if (node is SvgContainerNode { Clip: { } clip })
             Push(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(clip.X, clip.Y, clip.Width, clip.Height), default)));
         // A clip path of one plain shape clips with its path; any other is a mask of its region, drawn over the node's
@@ -116,8 +120,33 @@ internal static class SvgPainter
             Emit(new SvgContainerNode(mask.Transform, 1, mask.Children) { ClipPath = mask.ClipPath }, items);
             items.Add(new DisplayItem(DisplayItemKind.Pop));
         }
+        if (node.Mask is { } svgMask)
+        {
+            for (; pushed > beforeClip; pushed--)
+                items.Add(new DisplayItem(DisplayItemKind.Pop));
+            MaskItems(svgMask, items);
+        }
         for (var i = 0; i < pushed; i++)
             items.Add(new DisplayItem(DisplayItemKind.Pop));
+    }
+
+    // A mask over what was drawn: its content, in a destination-in layer clipped to its region. A luminance mask is drawn
+    // over opaque black and turned into alpha, so its alpha is the luminance of its colour times its own alpha.
+    private static void MaskItems(SvgMask mask, List<DisplayItem> items)
+    {
+        var region = new RoundedRect(new RectF(mask.Region.X, mask.Region.Y, mask.Region.Width, mask.Region.Height), default);
+        items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
+        items.Add(new DisplayItem(DisplayItemKind.PushClip, region));
+        if (mask.Luminance)
+        {
+            items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: FilterPrimitives.LuminanceToAlpha));
+            items.Add(new DisplayItem(DisplayItemKind.Fill, region, CssColor.Black));
+        }
+        Emit(new SvgContainerNode(mask.ContentTransform, 1, mask.Children), items);
+        if (mask.Luminance)
+            items.Add(new DisplayItem(DisplayItemKind.Pop));
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
     // A clip path that is one shape with no clip path of its own, or nothing at all, as a path clip in the clipped

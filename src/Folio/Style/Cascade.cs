@@ -298,11 +298,12 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
         return result;
     }
 
-    // Image URLs made absolute, where they have a base to resolve against.
+    // Image URLs made absolute, where they have a base to resolve against. A URL that is only a fragment stays a
+    // reference into this document (https://drafts.csswg.org/css-values-4/#local-urls), as for an SVG mask.
     private static CssValue ResolveUrls(CssValue value, string? baseUrl)
     {
         ImageValue Resolve(ImageValue image) =>
-            image is UrlImage url && Resources.ResourceLoader.Resolve(baseUrl, url.Url) is { } absolute ? new UrlImage(absolute) : image;
+            image is UrlImage url && !url.Url.StartsWith('#') && Resources.ResourceLoader.Resolve(baseUrl, url.Url) is { } absolute ? new UrlImage(absolute) : image;
         return baseUrl is null ? value : value switch
         {
             LayerListValue<ImageValue> layers when layers.Items.Any(i => i is UrlImage) => new LayerListValue<ImageValue>([.. layers.Items.Select(Resolve)]),

@@ -6,6 +6,10 @@ namespace Folio.Painting;
 /// <summary>Filter functions as filter primitives: their equivalents in https://drafts.csswg.org/filter-effects-1/#ShorthandEquivalents.</summary>
 internal static class FilterPrimitives
 {
+    /// <summary>The luminance-to-alpha matrix of feColorMatrix (https://drafts.csswg.org/filter-effects-1/#feColorMatrixElement).</summary>
+    public static readonly Filter[] LuminanceToAlpha =
+        [new Filter(FilterKind.ColorMatrix, Matrix: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2125f, 0.7154f, 0.0721f, 0, 0])];
+
     /// <summary>A filter list's primitives, currentcolor resolved against <paramref name="currentColor"/>; null for none.</summary>
     public static Filter[]? Of(FilterList list, CssColor currentColor) =>
         list.IsNone ? null : [.. list.Functions.Select(f => Of(f, currentColor))];

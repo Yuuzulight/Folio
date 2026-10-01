@@ -921,10 +921,6 @@ internal static class DisplayListBuilder
             }
         }
 
-        // The luminance-to-alpha matrix of feColorMatrix (https://drafts.csswg.org/filter-effects-1/#feColorMatrixElement).
-        private static readonly Filter[] LuminanceToAlpha =
-            [new Filter(FilterKind.ColorMatrix, Matrix: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2125f, 0.7154f, 0.0721f, 0, 0])];
-
         /// <summary>
         /// The mask (https://drafts.csswg.org/css-masking-1/#the-mask-image-rendering-model): its layers, bottom first, each
         /// drawn into a layer of its own and composited onto those below by its mask-composite operator (the bottom one,
@@ -953,7 +949,7 @@ internal static class DisplayListBuilder
                     MaskComposite.Exclude => BlendMode.Xor,
                     _ => BlendMode.Normal,
                 };
-                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: luminance ? LuminanceToAlpha : null, Blend: operation));
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: luminance ? FilterPrimitives.LuminanceToAlpha : null, Blend: operation));
                 var origin = ReferenceBox(box, mask.Origins[i % mask.Origins.Count]).Rect;
                 // The mask painting area is the box's rectangle, without its corners (unlike background-clip).
                 var clip = mask.Clips[i % mask.Clips.Count].Box is { } clipBox ? new RoundedRect(ReferenceBox(box, clipBox).Rect, default) : (RoundedRect?)null;
