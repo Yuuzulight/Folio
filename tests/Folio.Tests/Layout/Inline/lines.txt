@@ -1,3 +1,12 @@
+=== half the leading goes above the text, rounded down to whole pixels, the rest below
+<!DOCTYPE html><style>body, p { margin: 0 } p { line-height: 23px }</style><p>a</p>
+---
+html 0,0 800x23
+  body 0,0 800x23
+    p 0,0 800x23
+      line 0,0 800x23
+        text "a" 0,3 16x16
+
 === a short paragraph is one line split at its break opportunity
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>Hello world</p>
 ---

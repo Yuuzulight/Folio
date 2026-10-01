@@ -797,8 +797,10 @@ internal static class InlineLayout
             { Px: { } px } => px,
             var l => l.Number * size,
         };
-        var halfLeading = (lineHeight - ascent - descent) / 2;
-        return new LineMetrics(ascent, descent, ascent + halfLeading, descent + halfLeading, xHeight, size, lineHeight);
+        // Half the leading goes above the text, rounded down to whole pixels so baselines stay on the pixel grid; the
+        // rest goes below.
+        var above = ascent + MathF.Floor((lineHeight - ascent - descent) / 2);
+        return new LineMetrics(ascent, descent, above, lineHeight - above, xHeight, size, lineHeight);
     }
 
     // The line as a tree: the root (the block's strut), inline boxes, and text and atomic leaves. Each node's
