@@ -111,7 +111,7 @@ internal static class SvgRenderTree
         return new SvgContainerNode(transform, opacity, [new SvgContainerNode(map, 1, Children(svg, size, context))], clips ? rect : null);
     }
 
-    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, SvgContext context)
+    internal static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, SvgContext context)
     {
         var nodes = new List<SvgRenderNode>();
         // Content that nests deeper than the stack allows is left out (study 16: limits stop work gracefully).
