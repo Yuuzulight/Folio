@@ -11,8 +11,8 @@ namespace Folio.Painting;
 /// their equivalents, and SVG filter elements (https://drafts.csswg.org/filter-effects-1/#FilterElement) as graphs of
 /// their primitives, in the filtered element's user space.
 /// </summary>
-// ponytail: feImage, feTile, feConvolveMatrix and the lighting primitives pass their input through; baseFrequency is
-// not scaled by primitiveUnits="objectBoundingBox".
+// ponytail: an feImage of an element draws nothing, kernelUnitLength is ignored, and baseFrequency is not scaled by
+// primitiveUnits="objectBoundingBox".
 internal static class SvgFilterPrimitives
 {
     /// <summary>How many primitives one filter element may have; later ones are left out.</summary>
@@ -30,7 +30,7 @@ internal static class SvgFilterPrimitives
     /// </summary>
     public static IReadOnlyList<IReadOnlyList<Filter>> Of(SvgFilterChain chain) =>
         [.. chain.Filters.Select(f => f.Reference is { } reference
-            ? Built.GetValue(reference, r => Element(r.Element, r.Bounds, r.Viewport))
+            ? Built.GetValue(reference, r => Element(r.Element, r.Bounds, r.Viewport, r.Images))
             : (IReadOnlyList<Filter>)[FilterPrimitives.Of(f.Function, chain.CurrentColor)])];
 
     // Each filter element's primitives for one use in a layout, built the first time it is painted and kept as long as
@@ -41,7 +41,7 @@ internal static class SvgFilterPrimitives
 
     // A filter element's primitives: its region from x, y, width and height in filterUnits (the bounding box by
     // default, from -10% to 120%), each primitive's subregion in primitiveUnits (user space by default) within it.
-    private static IReadOnlyList<Filter> Element(ElementNode filter, SvgRect? bounds, Vector2 viewport)
+    private static IReadOnlyList<Filter> Element(ElementNode filter, SvgRect? bounds, Vector2 viewport, Imaging.ImageLoader? images)
     {
         var fontSize = filter.ComputedStyle()?.Font.Size ?? 16;
         bool BoxUnits(string name, bool byDefault) => filter.GetAttribute(name)?.Trim() is { } units
@@ -122,6 +122,29 @@ internal static class SvgFilterPrimitives
                 return new Rgba(color.R, color.G, color.B, color.A * (style?.SvgStop.FloodOpacity ?? 1));
             }
 
+            // The subregion: x, y, width and height in primitiveUnits, the filter region for those missing, within it.
+            float Edge(string attribute, SvgAxis axis, float otherwise) =>
+                element.GetAttribute(attribute) is null ? otherwise : Coordinate(element, attribute, null, axis, primitivesInBox, otherwise) + (primitivesInBox && attribute is "x" or "y" ? (axis == SvgAxis.Horizontal ? box.X : box.Y) : 0);
+            var (x, y) = (Edge("x", SvgAxis.Horizontal, region.X), Edge("y", SvgAxis.Vertical, region.Y));
+            var (w, h) = (Edge("width", SvgAxis.Horizontal, region.Width), Edge("height", SvgAxis.Vertical, region.Height));
+            var (left, top) = (Math.Max(x, region.X), Math.Max(y, region.Y));
+            var (right, bottom) = (Math.Min(x + w, region.X + region.Width), Math.Min(y + h, region.Y + region.Height));
+            var subregion = new RectF(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+
+            // A light source's position: user units, or fractions of the bounding box, z of its normalised diagonal.
+            Vector3 Position(Vector3 p) => !primitivesInBox ? p
+                : new(box.X + p.X * box.Width, box.Y + p.Y * box.Height, p.Z * MathF.Sqrt((box.Width * box.Width + box.Height * box.Height) / 2));
+            Filter? Lighting(FilterKind kind, float constant, float shininess = 1)
+            {
+                if (LightSource(element, Position) is not { } light)
+                    return null;
+                var color = (style?.SvgStop.LightingColor ?? new CssColor(1, 1, 1, 1)).Resolve(style?.Inherited.Color ?? CssColor.Black);
+                return new Filter(kind, Color: new Rgba(color.R, color.G, color.B, 1))
+                {
+                    Light = light, SurfaceScale = Number("surfaceScale", 1), LightingConstant = Math.Max(0, constant), Shininess = shininess,
+                };
+            }
+
             var input = Input(element, "in");
             var primitive = name switch
             {
@@ -159,20 +182,22 @@ internal static class SvgFilterPrimitives
                     Scale = Length(Number("scale", 0), SvgAxis.Horizontal), In2 = Input(element, "in2"),
                     XChannel = Channel(element.GetAttribute("xChannelSelector")), YChannel = Channel(element.GetAttribute("yChannelSelector")),
                 },
+                // The input's subregion repeated; the source and its alpha span the filter region.
+                "feTile" => new Filter(FilterKind.Tile)
+                {
+                    Source = input is { Source: FilterSource.Result, Index: var i } && i < primitives.Count && primitives[i].Subregion is { } r
+                        ? r : new RectF(region.X, region.Y, region.Width, region.Height),
+                },
+                "feConvolveMatrix" => Convolution(element, Numbers),
+                "feImage" => Image(element, images, subregion),
+                "feDiffuseLighting" => Lighting(FilterKind.DiffuseLighting, Number("diffuseConstant", 1)),
+                "feSpecularLighting" => Lighting(FilterKind.SpecularLighting, Number("specularConstant", 1), Math.Clamp(Number("specularExponent", 1), 1, 128)),
                 _ => null,
             } ?? new Filter(FilterKind.Offset); // what an unsupported or disabled primitive does: its input, unchanged
 
-            // The subregion: x, y, width and height in primitiveUnits, the filter region for those missing, within it.
-            float Edge(string attribute, SvgAxis axis, float otherwise) =>
-                element.GetAttribute(attribute) is null ? otherwise : Coordinate(element, attribute, null, axis, primitivesInBox, otherwise) + (primitivesInBox && attribute is "x" or "y" ? (axis == SvgAxis.Horizontal ? box.X : box.Y) : 0);
-            var (x, y) = (Edge("x", SvgAxis.Horizontal, region.X), Edge("y", SvgAxis.Vertical, region.Y));
-            var (w, h) = (Edge("width", SvgAxis.Horizontal, region.Width), Edge("height", SvgAxis.Vertical, region.Height));
-            var (left, top) = (Math.Max(x, region.X), Math.Max(y, region.Y));
-            var (right, bottom) = (Math.Min(x + w, region.X + region.Width), Math.Min(y + h, region.Y + region.Height));
-            var subregion = new RectF(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
-
+            // An image is in sRGB and a tile only moves pixels, so neither works in linear light.
             var linear = style?.Svg.ColorInterpolationFilters != ColorInterpolation.Srgb
-                && primitive.Kind is not (FilterKind.Offset or FilterKind.Flood or FilterKind.Morphology);
+                && primitive.Kind is not (FilterKind.Offset or FilterKind.Flood or FilterKind.Morphology or FilterKind.Tile or FilterKind.Image);
             primitives.Add(primitive with { In = input, Subregion = subregion, LinearRgb = linear });
             if (element.GetAttribute("result")?.Trim() is { Length: > 0 } resultName)
                 results[resultName] = primitives.Count - 1;
@@ -197,6 +222,68 @@ internal static class SvgFilterPrimitives
         {
             Operator = op, In2 = in2, Coefficients = op == CompositeOperator.Arithmetic ? [K("k1"), K("k2"), K("k3"), K("k4")] : null,
         };
+    }
+
+    // feConvolveMatrix (https://drafts.csswg.org/filter-effects-1/#feConvolveMatrixElement): an order of positive
+    // integers (3 by default) and a kernel of that many values, or the input passes through. The divisor defaults to
+    // the kernel's sum (1 when that is 0), as it does when given as 0; the target to the kernel's middle; the edge mode
+    // to duplicate.
+    private static Filter? Convolution(ElementNode element, Func<string, float[], List<float>> numbers)
+    {
+        var order = numbers("order", [3]);
+        var (ox, oy) = (order[0], order.Count > 1 ? order[1] : order[0]);
+        if (ox < 1 || oy < 1 || ox != MathF.Floor(ox) || oy != MathF.Floor(oy))
+            return null;
+        var (columns, rows) = ((int)ox, (int)oy);
+        var kernel = numbers("kernelMatrix", []);
+        if (kernel.Count != columns * rows)
+            return null;
+        var sum = kernel.Sum();
+        var divisor = numbers("divisor", [0])[0] is var d && d != 0 ? d : sum != 0 ? sum : 1;
+        int Target(string name, int size) => element.GetAttribute(name) is null ? size / 2 : (int)numbers(name, [0])[0];
+        return new Filter(FilterKind.ConvolveMatrix)
+        {
+            Kernel = kernel, KernelColumns = columns, KernelRows = rows, TargetX = Target("targetX", columns), TargetY = Target("targetY", rows),
+            Divisor = divisor, Bias = numbers("bias", [0])[0],
+            EdgeMode = element.GetAttribute("edgeMode")?.Trim() switch { "wrap" => EdgeMode.Wrap, "none" => EdgeMode.None, _ => EdgeMode.Duplicate },
+            PreserveAlpha = element.GetAttribute("preserveAlpha")?.Trim() == "true",
+        };
+    }
+
+    // feImage (https://drafts.csswg.org/filter-effects-1/#feImageElement): its image fitted into the subregion by
+    // preserveAspectRatio; transparent when it does not load or names an element.
+    private static Filter Image(ElementNode element, Imaging.ImageLoader? images, RectF subregion)
+    {
+        if ((element.GetAttribute("href") ?? element.GetAttribute("xlink:href"))?.Trim() is not { Length: > 0 } href || href.StartsWith('#')
+            || images?.Load(href, "feImage") is not { } image)
+            return new Filter(FilterKind.Flood);
+        var fit = SvgGeometry.ViewBoxTransform(new SvgRect(0, 0, image.Width, image.Height), element.GetAttribute("preserveAspectRatio"),
+            new SvgRect(subregion.X, subregion.Y, subregion.Width, subregion.Height));
+        return new Filter(FilterKind.Image) { Image = image, Destination = new RectF(fit.M31, fit.M32, image.Width * fit.M11, image.Height * fit.M22) };
+    }
+
+    // The light source of a lighting primitive: its first feDistantLight, fePointLight or feSpotLight child
+    // (https://drafts.csswg.org/filter-effects-1/#LightSourceDefinitions); without one the input passes through.
+    private static Light? LightSource(ElementNode element, Func<Vector3, Vector3> position)
+    {
+        var light = element.Children.OfType<ElementNode>()
+            .FirstOrDefault(n => n.Name.Namespace == Namespaces.Svg && n.LocalName is "feDistantLight" or "fePointLight" or "feSpotLight");
+        if (light is null)
+            return null;
+        float N(string name, float fallback) => light.GetAttribute(name) is { } text && SvgGeometry.Numbers(text) is [var n, ..] ? n : fallback;
+        Vector3 At(string x, string y, string z) => position(new(N(x, 0), N(y, 0), N(z, 0)));
+        switch (light.LocalName)
+        {
+            case "feDistantLight":
+                var (azimuth, elevation) = (N("azimuth", 0) * MathF.PI / 180, N("elevation", 0) * MathF.PI / 180);
+                return new Light(LightKind.Distant,
+                    Direction: new(MathF.Cos(azimuth) * MathF.Cos(elevation), MathF.Sin(azimuth) * MathF.Cos(elevation), MathF.Sin(elevation)));
+            case "fePointLight":
+                return new Light(LightKind.Point, Position: At("x", "y", "z"));
+            default:
+                return new Light(LightKind.Spot, Position: At("x", "y", "z"), Target: At("pointsAtX", "pointsAtY", "pointsAtZ"),
+                    Exponent: N("specularExponent", 1), ConeAngle: light.GetAttribute("limitingConeAngle") is null ? null : Math.Abs(N("limitingConeAngle", 90)));
+        }
     }
 
     private static readonly Dictionary<string, Painting.BlendMode> BlendModes = new(StringComparer.Ordinal)

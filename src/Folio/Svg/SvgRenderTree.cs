@@ -72,6 +72,9 @@ internal sealed class SvgFilterReference(ElementNode element, SvgRect? bounds, V
 
     public Vector2 Viewport { get; } = viewport;
 
+    /// <summary>Where feImage's images load from; none means they do not load.</summary>
+    public Imaging.ImageLoader? Images { get; init; }
+
     /// <summary>The layout's reference for this filter element used with this bounding box and viewport.</summary>
     public static SvgFilterReference Get(ElementNode element, SvgRect? bounds, Vector2 viewport, Layout.LayoutContext layout)
     {
@@ -80,7 +83,7 @@ internal sealed class SvgFilterReference(ElementNode element, SvgRect? bounds, V
             : byDefault;
         var key = (element, BoxUnits(element, "filterUnits", true) || BoxUnits(element, "primitiveUnits", false) ? bounds : null, viewport);
         if (!layout.SvgFilters.TryGetValue(key, out var reference))
-            layout.SvgFilters[key] = reference = new SvgFilterReference(key.element, key.Item2, viewport);
+            layout.SvgFilters[key] = reference = new SvgFilterReference(key.element, key.Item2, viewport) { Images = layout.Images };
         return reference;
     }
 }

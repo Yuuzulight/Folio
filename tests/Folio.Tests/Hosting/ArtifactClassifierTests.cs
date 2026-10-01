@@ -52,7 +52,7 @@ public class ArtifactClassifierTests
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
     [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
     [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
-    [InlineData("<svg><filter id=f><feImage href=\"#r\" /></filter><rect id=r filter=\"url(#f)\" /></svg>", "uses SVG <feImage>")]
+    [InlineData("<svg><filter id=f><feImage href=\"#r\" /></filter><rect id=r filter=\"url(#f)\" /></svg>", "uses an SVG <feImage> of an element")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
     [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
     [InlineData("<svg><text rotate=\"10\">a</text></svg>", "uses the SVG text attribute rotate")]
@@ -91,6 +91,9 @@ public class ArtifactClassifierTests
     [InlineData("<style>.a { clip-path: url(#c) }</style><svg width=0 height=0><clipPath id=c><circle r=5 /></clipPath></svg><div class=a></div>")]
     [InlineData("<svg><filter id=f><feGaussianBlur stdDeviation=2 result=b /><feMerge><feMergeNode in=b /><feMergeNode in=SourceGraphic /></feMerge></filter><rect width=5 height=5 filter=\"url(#f)\" /></svg>")]
     [InlineData("<style>.a { filter: url(#f) drop-shadow(0 2px 4px black) }</style><svg width=0 height=0><filter id=f><feGaussianBlur stdDeviation=2 /></filter></svg><div class=a></div>")]
+    [InlineData("<svg><filter id=f><feTile /><feConvolveMatrix kernelMatrix=\"1 0 0 0 1 0 0 0 1\" /><feDiffuseLighting><feDistantLight /></feDiffuseLighting>"
+        + "<feSpecularLighting><fePointLight /></feSpecularLighting><feDiffuseLighting><feSpotLight /></feDiffuseLighting>"
+        + "<feImage href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC\" /></filter><rect width=5 height=5 filter=\"url(#f)\" /></svg>")]
     [InlineData("<svg><mask id=m maskUnits=userSpaceOnUse style=\"mask-type: alpha\"><rect width=5 height=5 fill=white /></mask><rect width=5 height=5 mask=\"url(#m)\" /></svg>")]
     [InlineData("<svg><defs><symbol id=i viewBox=\"0 0 24 24\"><path d=\"M0 0h24\" /></symbol></defs><use href=\"#i\" width=16 height=16 fill=red /></svg>")]
     [InlineData("<svg><marker id=a orient=auto-start-reverse markerWidth=6 markerHeight=6 refX=3 refY=3><path d=\"M0 0L6 3L0 6z\" /></marker>"
