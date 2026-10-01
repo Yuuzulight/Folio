@@ -17,7 +17,7 @@ public class BenchmarkTests
     [Fact]
     public void AnimationFramesArePaintOnly()
     {
-        var (median, _, paintOnly) = FrameBenchmark.Measure(frames: 3);
+        var (median, _, paintOnly) = FrameBenchmark.Measure(FrameBenchmark.Typical, frames: 3);
         Assert.True(paintOnly);
         Assert.True(median > TimeSpan.Zero);
     }

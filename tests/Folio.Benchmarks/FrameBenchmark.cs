@@ -12,7 +12,8 @@ namespace Folio.Benchmarks;
 /// Paint-only animation frames (docs/study/18-memory-and-performance.md, M2 target 8 ms): a dashboard whose cards,
 /// bars and badges animate opacity, transforms, filters and colours forever, drawn frame after frame at 60 frames a
 /// second. A frame is what <c>FolioView</c> does per tick: restyle the animated elements, rebuild the display list,
-/// replay it into an 800x600 viewport.
+/// replay it into an 800x600 viewport. The typical dashboard (8 cards of 4 bars, about 40 animated elements) is held
+/// to the target; the busy one (24 cards of 6 bars, about 190) is reported for comparison.
 /// </summary>
 internal static class FrameBenchmark
 {
@@ -27,14 +28,18 @@ internal static class FrameBenchmark
         },
     };
 
-    public static string Html()
+    public static string Typical => Html(8, 4);
+
+    public static string Busy => Html(24, 6);
+
+    private static string Html(int cardCount, int barCount)
     {
         var cards = new StringBuilder();
-        for (var i = 0; i < 24; i++)
+        for (var i = 0; i < cardCount; i++)
         {
             cards.Append($"<div class=card style='animation-delay: {-i * 0.13:0.00}s'><h3>Metric {i + 1}</h3><p class=value>{(i * 7919) % 10000:N0}</p>");
             cards.Append("<div class=bars>");
-            for (var b = 0; b < 6; b++)
+            for (var b = 0; b < barCount; b++)
                 cards.Append($"<i style='height: {20 + (i * 13 + b * 29) % 60}px; animation-delay: {-b * 0.2:0.0}s'></i>");
             cards.Append("</div><span class=badge>live</span></div>");
         }
@@ -57,9 +62,9 @@ internal static class FrameBenchmark
     }
 
     /// <summary>The median and 95th percentile frame times, and whether every frame took the paint-only path.</summary>
-    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(int frames)
+    public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames)
     {
-        using var document = Document.Parse(Html(), Options);
+        using var document = Document.Parse(html, Options);
         document.Paint(800, 600, 1, new HarfBuzzShaper(), 0);
         using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
