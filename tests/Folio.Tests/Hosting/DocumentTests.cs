@@ -193,7 +193,7 @@ public class DocumentTests
         Assert.Equal(3, messages.Count); // once per URL, however often the document is painted
         Assert.Contains(messages, m => m.Contains("https://example.invalid/docs/photo.png") && m.Contains("https:"));
         Assert.Contains(messages, m => m.Contains("file:"));
-        Assert.Contains(messages, m => m.Contains("not a PNG or JPEG"));
+        Assert.Contains(messages, m => m.Contains("not a PNG, JPEG or SVG"));
     }
 
     [Fact]
@@ -208,7 +208,7 @@ public class DocumentTests
         var reports = document.Diagnostics.Where(d => d.Code == DiagnosticCode.ResourceNotLoaded).ToList();
         Assert.Equal(2, reports.Count);
         Assert.Contains(reports, d => d.Feature == "background-image" && d.Message.Contains("https://example.invalid/docs/bg.png"));
-        Assert.Contains(reports, d => d.Feature == "list-style-image" && d.Message.Contains("not a PNG or JPEG"));
+        Assert.Contains(reports, d => d.Feature == "list-style-image" && d.Message.Contains("not a PNG, JPEG or SVG"));
     }
 
     [Fact]
