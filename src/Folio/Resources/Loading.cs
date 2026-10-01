@@ -3,7 +3,7 @@ using System.Text;
 namespace Folio.Resources;
 
 /// <summary>What a load is for (docs/study/16-resources-and-security.md).</summary>
-internal enum ResourceKind
+public enum ResourceKind
 {
     Stylesheet,
     Image,
@@ -12,23 +12,36 @@ internal enum ResourceKind
     SvgImage,
 }
 
-internal sealed record ResourceRequest(string Url, ResourceKind Kind);
+/// <summary>A load a document asks for: an absolute URL and what it is for.</summary>
+public sealed record ResourceRequest(string Url, ResourceKind Kind);
 
-/// <summary>A loaded resource, or why it was not loaded.</summary>
-internal sealed record ResourceResponse(byte[]? Data, string? ContentType, string? Error)
+/// <summary>A loaded resource (its bytes and MIME type, if known), or why it was not loaded.</summary>
+public sealed record ResourceResponse(byte[]? Data, string? ContentType, string? Error)
 {
     public bool Succeeded => Data is not null;
+
+    public static ResourceResponse Loaded(byte[] data, string? contentType = null) => new(data, contentType, null);
 
     public static ResourceResponse Refused(string reason) => new(null, null, reason);
 }
 
 /// <summary>
-/// The minimal loader M1 needs (docs/study/16-resources-and-security.md, option B, deny by default): <c>data:</c> URLs
-/// always, <c>file:</c> URLs only under folders the host allowed, and nothing else. There is no network code here,
-/// so with default options no request ever leaves the process. The public loader interface is a separate change.
+/// A document's loads (docs/study/16-resources-and-security.md, option B, deny by default): <c>data:</c> URLs always,
+/// <c>file:</c> URLs under folders allowed here, and everything else only through the host's <see cref="IResourceLoader"/>.
+/// With default options nothing but <c>data:</c> URLs loads, so no request ever leaves the process.
 /// </summary>
-internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = null, int maxBytes = 8 * 1024 * 1024)
+/// <param name="host">The host's loader; null loads nothing beyond data: URLs and the allowed folders.</param>
+// ponytail: loads are synchronous, made while styling before the first layout, each within HostTimeout; a load that
+// finishes later is not waited for.
+internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = null, int maxBytes = ResourceLoader.MaxResourceBytes,
+                                     IResourceLoader? host = null)
 {
+    /// <summary>The largest resource loaded (the font file limit of study 16, the largest resource type).</summary>
+    public const int MaxResourceBytes = 20 * 1024 * 1024;
+
+    /// <summary>How long a load through the host's loader may take.</summary>
+    public static readonly TimeSpan HostTimeout = TimeSpan.FromSeconds(10);
+
     private readonly LocalFolder[] _folders = (allowedFolders ?? []).Select(f => new LocalFolder(f)).ToArray();
 
     /// <summary>Loads nothing but <c>data:</c> URLs: the default.</summary>
@@ -62,7 +75,25 @@ internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = nul
             return ResourceResponse.Refused(lastError ?? "Not found.");
         }
 
+        if (host is not null && FromHost(host, request) is { } hosted)
+            return hosted.Data is { Length: var length } && length > MaxBytes ? ResourceResponse.Refused($"The resource is larger than {MaxBytes} bytes.") : hosted;
         return ResourceResponse.Refused($"Loading {Scheme(url)} URLs is not allowed.");
+    }
+
+    // The host's answer within the timeout; its loader runs off this thread, so one that awaits on a UI thread's
+    // context cannot deadlock it. A loader that throws counts as a refusal.
+    private static ResourceResponse? FromHost(IResourceLoader host, ResourceRequest request)
+    {
+        using var cancel = new CancellationTokenSource(HostTimeout);
+        try
+        {
+            var load = Task.Run(() => host.LoadAsync(request, cancel.Token), cancel.Token);
+            return load.Wait(HostTimeout) ? load.Result : ResourceResponse.Refused("The load timed out.");
+        }
+        catch (AggregateException e)
+        {
+            return ResourceResponse.Refused(e.InnerException is OperationCanceledException ? "The load timed out." : "The loader failed.");
+        }
     }
 
     // A URL scheme: a letter, then letters, digits, "+", "-" or ".", then ":" (so "/a" and "C:" paths are not taken as absolute URLs).
