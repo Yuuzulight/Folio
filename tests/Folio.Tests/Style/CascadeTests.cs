@@ -21,7 +21,7 @@ public class CascadeTests
         var media = new MediaContext(
             viewport is null ? 800 : float.Parse(viewport[1], CultureInfo.InvariantCulture),
             viewport is null ? 600 : float.Parse(viewport[2], CultureInfo.InvariantCulture),
-            DarkColorScheme: test.Directives.Contains("dark"));
+            DarkColorScheme: test.Directives.Contains("dark")) { ReducedMotion = test.Directives.Contains("reduced-motion") };
         var document = TreeBuilder.Parse(test.Input);
         // "time 1.5": animations sampled 1.5 s into the document timeline instead of settled.
         var time = test.Directives.FirstOrDefault(d => d.StartsWith("time ", StringComparison.Ordinal)) is { } t
