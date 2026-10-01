@@ -48,6 +48,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>How many nodes of clip path and mask content the references laid out so far have used.</summary>
     public int SvgReferencedNodes { get; set; }
 
+    /// <summary>The SVG filter elements in use, each once per bounding box and viewport (see Svg.SvgFilterReference).</summary>
+    public Dictionary<(Dom.ElementNode Element, Svg.SvgRect? Bounds, System.Numerics.Vector2 Viewport), Svg.SvgFilterReference> SvgFilters { get; } = [];
+
     /// <summary>Each document's elements by id, first in tree order, for url(#id) references (see Svg.SvgContext.Find).</summary>
     public Dictionary<Dom.DocumentNode, Dictionary<string, Dom.ElementNode>> Ids { get; } = [];
 }

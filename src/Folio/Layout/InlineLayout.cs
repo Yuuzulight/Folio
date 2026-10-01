@@ -205,8 +205,14 @@ internal static class InlineLayout
                               or UnicodeCategory.EnclosingMark or UnicodeCategory.Format);
             return breaks[offset] == BreakKind.Allowed ? (wordBreak[offset - 1] == WordBreakStyle.KeepAll && letters && char.IsLetterOrDigit(before) && char.IsLetterOrDigit(after) ? BreakKind.None : BreakKind.Allowed)
                 : wordBreak[offset - 1] == WordBreakStyle.BreakAll && letters ? BreakKind.Allowed
+                : HyphenBeforeDigit(offset) ? BreakKind.Allowed
                 : BreakKind.None;
         }
+        // A tailoring of UAX #14 LB25 (css-text-3 §5.1 lets UAs tailor): a hyphen-minus keeps the digits after it only
+        // when it starts the number ("-5" after a space). After a letter or digit ("A-10294", "9-12") the line may
+        // break after it, as the reference browser does.
+        bool HyphenBeforeDigit(int offset) =>
+            text[offset - 1] == '-' && char.IsAsciiDigit(text[offset]) && offset >= 2 && char.IsLetterOrDigit(text[offset - 2]);
 
         var units = new List<Unit>();
         var unit = new Unit();

@@ -60,3 +60,30 @@ html 0,0 800x16
       line 0,0 800x16
         img 0,3 10x10
         text "ab" 10,0 32x16
+
+=== the first letter of a block is in its first child block when no text comes before it
+<!DOCTYPE html><style>body, p { margin: 0 } div::first-letter { font-size: 32px }</style><div>
+  <p>ab</p><p>cd</p></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 800x48
+      p 0,0 800x32
+        line 0,0 800x32
+          ::first-letter 0,0 32x32
+          text "a" 0,0 32x32
+          text "b" 32,13 16x16
+      p 0,32 800x16
+        line 0,32 800x16
+          text "cd" 0,32 32x16
+
+=== ::first-letter ignores the properties it may not take
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px; display: block; width: 100px; position: absolute }</style><p>ab</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        ::first-letter 0,0 32x32
+        text "a" 0,0 32x32
+        text "b" 32,13 16x16
