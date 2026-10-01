@@ -1,19 +1,19 @@
 using System.Numerics;
 using Folio.Css;
 using Folio.Dom;
-using Folio.Painting;
 using Folio.Style;
+using Folio.Svg;
 
-namespace Folio.Svg;
+namespace Folio.Painting;
 
 /// <summary>
-/// An element's filter list as filter primitives (https://drafts.csswg.org/filter-effects-1/#FilterProperty): filter
-/// functions as their equivalents, and url() references to SVG filter elements
-/// (https://drafts.csswg.org/filter-effects-1/#FilterElement) as graphs of their primitives, in the element's user space.
+/// A filter chain as filter primitives (https://drafts.csswg.org/filter-effects-1/#FilterProperty): filter functions as
+/// their equivalents, and SVG filter elements (https://drafts.csswg.org/filter-effects-1/#FilterElement) as graphs of
+/// their primitives, in the filtered element's user space.
 /// </summary>
 // ponytail: feImage, feTile, feConvolveMatrix and the lighting primitives pass their input through; baseFrequency is
 // not scaled by primitiveUnits="objectBoundingBox".
-internal static class SvgFilters
+internal static class SvgFilterPrimitives
 {
     /// <summary>How many primitives one filter element may have; later ones are left out.</summary>
     public const int MaxPrimitives = 256;
@@ -25,26 +25,13 @@ internal static class SvgFilters
     public const float MaxRadius = 256;
 
     /// <summary>
-    /// The filters of a list, applied in order, each to the result of the one before; null when it filters nothing (a
-    /// reference to anything but a filter element ignores the whole list). A filter that leaves nothing to render is a
-    /// transparent flood.
+    /// The filters of a chain, applied in order, each to the result of the one before. A filter that leaves nothing to
+    /// render is a transparent flood.
     /// </summary>
-    public static IReadOnlyList<IReadOnlyList<Filter>>? Build(FilterList list, ComputedStyle style, SvgRect? bounds, Vector2 viewport, SvgContext context)
-    {
-        var filters = new List<IReadOnlyList<Filter>>();
-        foreach (var function in list.Functions)
-        {
-            if (function.Name != "url")
-            {
-                filters.Add([FilterPrimitives.Of(function, style.Inherited.Color)]);
-                continue;
-            }
-            if (context.Find(function.Url) is not { LocalName: "filter" } element || element.Name.Namespace != Namespaces.Svg)
-                return null;
-            filters.Add(Element(element, bounds, viewport));
-        }
-        return filters.Count > 0 ? filters : null;
-    }
+    public static IReadOnlyList<IReadOnlyList<Filter>> Of(SvgFilterChain chain) =>
+        [.. chain.Filters.Select(f => f.Element is { } element
+            ? Element(element, chain.Bounds, chain.Viewport)
+            : (IReadOnlyList<Filter>)[FilterPrimitives.Of(f.Function, chain.CurrentColor)])];
 
     /// <summary>
     /// A CSS box's filters (https://drafts.csswg.org/filter-effects-1/#FilterProperty) when its list references a filter
