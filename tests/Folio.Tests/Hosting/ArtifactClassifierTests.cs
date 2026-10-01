@@ -70,7 +70,6 @@ public class ArtifactClassifierTests
     [InlineData("<style>input:required { color: red }</style>", "uses a CSS selector Folio does not support: input:required")]
     [InlineData("<style>@font-face { font-family: X; src: url(data:font/woff2;base64,AA==) }</style>", "uses web fonts (@font-face)")]
     [InlineData("<style>@container (min-width: 1px) { .a { color: red } }</style>", "uses @container")]
-    [InlineData("<style>@media (max-width: 600px) { .a { filter: url(#glow) } }</style>", "uses filter: url() in CSS")]
     [InlineData("<style>.a { & .b { offset-path: ray(45deg) } }</style>", "uses the CSS property offset-path")]
     public void UnsupportedContentNeedsTheBrowser(string html, string reason)
     {
@@ -91,6 +90,7 @@ public class ArtifactClassifierTests
     [InlineData("<svg><clipPath id=c clipPathUnits=objectBoundingBox><circle cx=.5 cy=.5 r=.5 clip-rule=evenodd /></clipPath><rect width=5 height=5 clip-path=\"url(#c)\" /></svg>")]
     [InlineData("<style>.a { clip-path: url(#c) }</style><svg width=0 height=0><clipPath id=c><circle r=5 /></clipPath></svg><div class=a></div>")]
     [InlineData("<svg><filter id=f><feGaussianBlur stdDeviation=2 result=b /><feMerge><feMergeNode in=b /><feMergeNode in=SourceGraphic /></feMerge></filter><rect width=5 height=5 filter=\"url(#f)\" /></svg>")]
+    [InlineData("<style>.a { filter: url(#f) drop-shadow(0 2px 4px black) }</style><svg width=0 height=0><filter id=f><feGaussianBlur stdDeviation=2 /></filter></svg><div class=a></div>")]
     [InlineData("<svg><mask id=m maskUnits=userSpaceOnUse style=\"mask-type: alpha\"><rect width=5 height=5 fill=white /></mask><rect width=5 height=5 mask=\"url(#m)\" /></svg>")]
     [InlineData("<svg><defs><symbol id=i viewBox=\"0 0 24 24\"><path d=\"M0 0h24\" /></symbol></defs><use href=\"#i\" width=16 height=16 fill=red /></svg>")]
     [InlineData("<svg><marker id=a orient=auto-start-reverse markerWidth=6 markerHeight=6 refX=3 refY=3><path d=\"M0 0L6 3L0 6z\" /></marker>"
