@@ -919,7 +919,8 @@ internal static class InlineLayout
     /// the ideographic baseline (OpenType BASE), or above the descender when the font has none.
     /// </summary>
     internal static float EmTop(ComputedStyle style, LayoutContext context) =>
-        PrimaryFace(style, context) is { } face ? (face.UnitsPerEm + face.IdeographicBaseline) * style.Font.Size / face.UnitsPerEm : 0.8f * style.Font.Size;
+        style.Text.IsVertical ? style.Font.Size / 2 // vertical text sits on the central baseline, mid-em
+        : PrimaryFace(style, context) is { } face ? (face.UnitsPerEm + face.IdeographicBaseline) * style.Font.Size / face.UnitsPerEm : 0.8f * style.Font.Size;
 
     /// <summary>The ascent, descent (below the baseline, positive) and x-height of the style's first available font, in px.</summary>
     internal static (float Ascent, float Descent, float XHeight) FontMetrics(ComputedStyle style, LayoutContext context)

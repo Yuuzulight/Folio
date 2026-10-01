@@ -32,3 +32,24 @@ html 0,0 800x244
           text "な" 198.78,0 27x20
           text "漢" 198.78,20 27x20
           text "字" 198.78,40 27x20
+
+=== block children stack from the right, each as tall as the box, and ruby annotations go on the right of their bases
+<!DOCTYPE html><style>body, p { margin: 0 } rt { font-size: 10px }</style><div style="writing-mode: vertical-rl; height: 100px; font: 20px/1.5 serif"><p style="margin: 0 10px">ab</p><p>c<ruby>x<rt>yy</rt></ruby></p></div>
+---
+html 0,0 800x100
+  body 0,0 800x100
+    div 0,0 85x100
+      p 45,0 30x100
+        line 45,0 30x100
+          text "ab" 50,0 20x40
+      p 0,0 35x100
+        line 0,0 35x100
+          ruby 5,20 20x20
+          text "c" 5,0 20x20
+          (anonymous) 0,20 30x20
+            rt 25,20 10x20
+              line 25,20 10x20
+                text "yy" 25,20 10x20
+            (anonymous) 0,20 30x20
+              line 0,20 30x20
+                text "x" 5,20 20x20

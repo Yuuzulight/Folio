@@ -21,8 +21,8 @@ internal static class BlockLayout
         // stop work gracefully).
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
             return new Fragment(box, 0, 0, []) { Exclusions = space.Exclusions };
-        if (box is BlockContainerBox { Inline: { } verticalLines } vertical && style.Text.IsVertical)
-            return VerticalLayout.Layout(vertical, verticalLines, space, context);
+        if (VerticalLayout.Applies(box) is { } vertical)
+            return VerticalLayout.Layout(vertical, space, context);
 
         // A table wrapper has the table's style, but its border and padding belong to the table grid box inside it.
         var wrapper = box is TableWrapperBox;
