@@ -26,7 +26,8 @@ internal static class InlineLayout
 
     /// <summary>Lines of an inline formatting context, from <paramref name="top"/> down, in content-box coordinates.</summary>
     public static (List<ChildFragment> Lines, float Bottom, bool HasLineBoxes) Layout(
-        BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context)
+        BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context,
+        float roomAbove = 0)
     {
         var levels = BidiLevels(block, ifc);
         var units = Units(block, ifc, width, context, levels);
@@ -39,9 +40,10 @@ internal static class InlineLayout
         var indent = block.Node is Dom.ElementNode ? block.Style.Text.TextIndent : default; // not in anonymous blocks
         var rtl = levels.Paragraph == 1;
         var afterForcedBreak = true;
-        // The room above a line that ruby annotations may reach into without moving it: the block's top padding and margin
-        // above the first line, the space below the previous line's content above the others.
-        var room = BlockLayout.Resolve(block.Style.Spacing.PaddingTop, width) + Math.Max(0, BlockLayout.Margin(block.Style.Spacing.MarginTop, width));
+        // The room above a line that ruby annotations may reach into without moving it: the block's top padding, and the
+        // room above the block unless a top border closes it off, for the first line; the space below the previous
+        // line's content for the others.
+        var room = BlockLayout.Resolve(block.Style.Spacing.PaddingTop, width) + (block.Style.Border.TopWidth > 0 ? 0 : roomAbove);
 
         // line-clamp (css-overflow-4 §4): only that many lines are laid out; the last one ends with an ellipsis when
         // content was left out.
@@ -111,7 +113,7 @@ internal static class InlineLayout
     }
 
     // The bottom of a line's text and atomic inlines, from its top; a ruby column's is its base's text's.
-    private static float ContentBottom(Fragment line)
+    internal static float ContentBottom(Fragment line)
     {
         var bottom = 0f;
         foreach (var child in line.Children)

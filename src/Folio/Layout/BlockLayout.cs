@@ -86,6 +86,7 @@ internal static class BlockLayout
         var atTop = collapseTop;            // no content placed yet, so margins still adjoin the top edge
         var cursor = 0f;                    // bottom of the last placed content, from the content box top
         var hasContent = false;
+        Fragment? previous = null;          // the last in-flow child placed
         var outOfFlow = new List<OutOfFlowBox>();
 
         // Adds a child fragment, shifted by its relative offset, and carries up its positioned descendants.
@@ -235,7 +236,11 @@ internal static class BlockLayout
             }
             else
             {
-                fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y), context);
+                // Ruby annotations on the child's first line may reach into the margins above it and the space below the
+                // content before it (the parent's room, when the child's margins collapse through its top).
+                var room = atTop ? (collapseTop ? space.AnnotationRoom : Math.Max(0, Margin(child.Style.Spacing.MarginTop, width)))
+                    : TrailingRoom(previous) + Math.Max(0, y - cursor);
+                fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y, AnnotationRoom: room), context);
             }
             x += fragment.MarginLeft;
 
@@ -244,7 +249,7 @@ internal static class BlockLayout
                 Place(child, fragment, x, border.TopWidth + padding.Top + y);
                 if (!childIndependent)
                     exclusions = fragment.Exclusions ?? exclusions;
-                (cursor, atTop, hasContent) = (y + fragment.Height, false, true);
+                (cursor, atTop, hasContent, previous) = (y + fragment.Height, false, true, fragment);
                 pending = fragment.CollapsesThrough ? MarginStrut.Of(Margin(child.Style.Spacing.MarginBottom, width)) : fragment.BottomMargins;
                 continue;
             }
@@ -266,6 +271,7 @@ internal static class BlockLayout
             if (!childIndependent)
                 exclusions = MoveFloats(fragment, exclusions, placedY - y);
             cursor = placedY + fragment.Height;
+            previous = fragment;
             pending = fragment.BottomMargins;
             hasContent = true;
         }
@@ -282,7 +288,7 @@ internal static class BlockLayout
                 PlaceFloat,
                 (child, x, y) => outOfFlow.Add(new(child, border.LeftWidth + padding.Left + x, border.TopWidth + padding.Top + y)));
             var carriedBefore = outOfFlow.Count;
-            var (lines, bottom, hasLineBoxes) = InlineLayout.Layout(container, inline, width, top, environment, context);
+            var (lines, bottom, hasLineBoxes) = InlineLayout.Layout(container, inline, width, top, environment, context, space.AnnotationRoom);
             foreach (var line in lines)
                 children.Add(line with { X = line.X + border.LeftWidth + padding.Left, Y = line.Y + border.TopWidth + padding.Top });
             PlaceInInlineContainingBlocks(inline, lines, carriedBefore, border.LeftWidth + padding.Left, border.TopWidth + padding.Top);
@@ -392,6 +398,23 @@ internal static class BlockLayout
             }
         }
         return owners;
+    }
+
+    // The space below the content of a box's last line, when nothing (border, padding) closes the box under it: room
+    // that ruby annotations on the next box's first line may reach into.
+    private static float TrailingRoom(Fragment? fragment)
+    {
+        if (fragment is null || fragment.Box is { } box && (box.Style.Border.BottomWidth > 0 || box.Style.Spacing.PaddingBottom != LengthPercentage.Zero))
+            return 0;
+        for (var i = fragment.Children.Count - 1; i >= 0; i--)
+        {
+            var child = fragment.Children[i].Fragment;
+            if (child.Kind == FragmentKind.Line && child.Height > 0)
+                return Math.Max(0, child.Height - InlineLayout.ContentBottom(child));
+            if (child.Kind == FragmentKind.Box && child.Box is { IsFloat: false, IsAbsolutelyPositioned: false })
+                return TrailingRoom(child);
+        }
+        return 0;
     }
 
     // A positioned box is the containing block of its absolutely positioned descendants (CSS 2.2 §10.1); a transformed
