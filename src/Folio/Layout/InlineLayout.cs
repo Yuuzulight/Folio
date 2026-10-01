@@ -1349,16 +1349,16 @@ internal static class InlineLayout
         return true;
     }
 
-    // The central baseline of an atomic inline standing in a vertical line, from its side facing the line's over side
-    // (the right in vertical-rl): the middle of its last line, or of the box when it has none.
+    // The central baseline of an atomic inline standing in a vertical line, from its right side, which faces the line's
+    // over side: its last line's (turned, so that line's baseline is measured from its right edge), or the middle of the
+    // box when it has none.
     private static float CentralBaseline(Fragment fragment, WritingMode mode)
     {
         var lines = fragment.Children.Where(c => c.Fragment.Kind == FragmentKind.Line).ToList();
         if (lines.Count == 0)
             return fragment.Width / 2;
         var last = mode == WritingMode.VerticalRl ? lines.MinBy(l => l.X) : lines.MaxBy(l => l.X);
-        var middle = last.X + last.Fragment.Width / 2;
-        return mode == WritingMode.VerticalRl ? fragment.Width - middle : middle;
+        return fragment.Width - (last.X + last.Fragment.Width) + last.Fragment.Baseline;
     }
 
     // The baseline of an atomic inline, from its top: an inline-block's is its last in-flow line box's (none when it
