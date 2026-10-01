@@ -182,3 +182,38 @@ html 0,0 800x70
       line 0,30 800x40
         text "a" 0,36 30x30
         text "ā" 30,30 15.12x40
+
+=== line heights keep 64ths: a length rounds to the nearest, a number times the rounded font size rounds down
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="font-size: 14.4px; line-height: 1.6">a</p><p style="font-size: 16px; line-height: 1.44">a</p><p style="font-size: 16px; line-height: 23.04px">a</p><p style="font-size: 20px; line-height: 1.4">a</p>
+---
+html 0,0 800x97.12
+  body 0,0 800x97.12
+    p 0,0 800x23.05
+      line 0,0 800x23.05
+        text "a" 0,4 14.4x15
+    p 0,23.05 800x23.03
+      line 0,23.05 800x23.03
+        text "a" 0,26.05 16x16
+    p 0,46.08 800x23.05
+      line 0,46.08 800x23.05
+        text "a" 0,49.08 16x16
+    p 0,69.12 800x28
+      line 0,69.12 800x28
+        text "a" 0,73.12 20x20
+
+=== a line may break after a hyphen between a letter or digit and digits, but not after one that starts a number
+<!DOCTYPE html><style>body, p { margin: 0 } p { width: 80px }</style><p>xx A-10294</p><p>xxx -1234</p>
+---
+html 0,0 800x64
+  body 0,0 800x64
+    p 0,0 80x32
+      line 0,0 80x16
+        text "xx " 0,0 48x16
+        text "A-" 48,0 32x16
+      line 0,16 80x16
+        text "10294" 0,16 80x16
+    p 0,32 80x32
+      line 0,32 80x16
+        text "xxx " 0,32 64x16
+      line 0,48 80x16
+        text "-1234" 0,48 80x16

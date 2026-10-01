@@ -1359,7 +1359,10 @@ internal static class DisplayListBuilder
         {
             var (border, spacing, w) = (box.Box.Style.Border, box.Box.Style.Spacing, box.Fragment.Width);
             SetClip(box.Clip);
-            SvgPainter.Paint(svg, new Vector2(box.X + border.LeftWidth + spacing.PaddingLeft.Resolve(w), box.Y + border.TopWidth + spacing.PaddingTop.Resolve(w)), list.Items);
+            // The drawing starts on a whole device pixel, as other replaced content does, so its strokes and edges fall
+            // on the same pixels as in the reference.
+            SvgPainter.Paint(svg, new Vector2(box.Snap(box.X + border.LeftWidth + spacing.PaddingLeft.Resolve(w)),
+                box.Snap(box.Y + border.TopWidth + spacing.PaddingTop.Resolve(w))), list.Items);
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

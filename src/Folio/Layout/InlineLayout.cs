@@ -205,8 +205,14 @@ internal static class InlineLayout
                               or UnicodeCategory.EnclosingMark or UnicodeCategory.Format);
             return breaks[offset] == BreakKind.Allowed ? (wordBreak[offset - 1] == WordBreakStyle.KeepAll && letters && char.IsLetterOrDigit(before) && char.IsLetterOrDigit(after) ? BreakKind.None : BreakKind.Allowed)
                 : wordBreak[offset - 1] == WordBreakStyle.BreakAll && letters ? BreakKind.Allowed
+                : HyphenBeforeDigit(offset) ? BreakKind.Allowed
                 : BreakKind.None;
         }
+        // A tailoring of UAX #14 LB25 (css-text-3 §5.1 lets UAs tailor): a hyphen-minus keeps the digits after it only
+        // when it starts the number ("-5" after a space). After a letter or digit ("A-10294", "9-12") the line may
+        // break after it, as the reference browser does.
+        bool HyphenBeforeDigit(int offset) =>
+            text[offset - 1] == '-' && char.IsAsciiDigit(text[offset]) && offset >= 2 && char.IsLetterOrDigit(text[offset - 2]);
 
         var units = new List<Unit>();
         var unit = new Unit();
@@ -800,20 +806,62 @@ internal static class InlineLayout
             var upright = vertical && IsUpright(char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i]);
             if (i > runStart && (face != runFace || upright != runUpright))
             {
-                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, style, context, rightToLeft, runUpright));
+                runs.Add(ShapeRunCached(text, runStart, i - runStart, runFace, style, context, rightToLeft, runUpright));
                 runStart = i;
             }
             (runFace, runUpright) = (face, upright);
             i += clusterLength;
         }
         if (end > runStart)
-            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, style, context, rightToLeft, runUpright));
+            runs.Add(ShapeRunCached(text, runStart, end - runStart, runFace, style, context, rightToLeft, runUpright));
         return runs;
     }
 
     // The OpenType features the style turns on, as space-separated tags: font-variant-numeric's keywords, then
     // font-feature-settings' tags with a non-zero value.
     // ponytail: only features made of single substitutions take effect (study 11); fractions and ordinals do not.
+    // Shaped runs of short, simply shaped text, by what shaping reads, kept per font collection (so per document, across
+    // layouts): table cells, labels and list items repeat the same words in the same fonts. Each use gets its own copy,
+    // since lines change runs (hyphens, justification, mirroring). Complex shaping can depend on the text around a run,
+    // so only runs the simple shaper handles are kept.
+    // ponytail: the whole cache is dropped when it reaches 20,000 runs.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FontCollection, ShapeCache> ShapeCaches = [];
+
+    private sealed class ShapeCache
+    {
+        public Dictionary<(FontFace Face, float Size, string Features, float Letter, float Word, TabSize Tab), Dictionary<string, ShapedRun>> Runs { get; } = [];
+        public int Count { get; set; }
+    }
+
+    private static ShapedRun ShapeRunCached(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
+                                            bool upright)
+    {
+        if (face is null || upright || length > 32 || !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+            return ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
+        var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
+        var spacing = style.TextSpacing;
+        var key = (face, style.Font.Size, Features(style.Font), spacing.LetterSpacing, spacing.WordSpacing, spacing.TabSize);
+        if (!cache.Runs.TryGetValue(key, out var byText))
+            cache.Runs[key] = byText = new(StringComparer.Ordinal);
+        if (!byText.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out var kept))
+        {
+            if (cache.Count >= 20_000)
+            {
+                (cache.Count, byText) = (0, new(StringComparer.Ordinal));
+                cache.Runs.Clear();
+                cache.Runs[key] = byText;
+            }
+            var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
+            kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
+            byText[text.Substring(start, length)] = kept;
+            cache.Count++;
+        }
+        return new ShapedRun(face, kept.Size, [.. kept.Glyphs], [.. kept.Clusters.Select(c => c + start)], [.. kept.Advances])
+        {
+            Offsets = kept.Offsets is { } offsets ? [.. offsets] : null,
+        };
+    }
+
     private static string Features(FontGroup font)
     {
         if (font.VariantNumeric == "normal" && font.FeatureSettings == "normal")
@@ -990,14 +1038,16 @@ internal static class InlineLayout
         if (style.Text.IsVertical)
             ascent = descent = (ascent + descent) / 2;
         var xHeight = face is { XHeight: > 0 } ? face.XHeight * size / face.UnitsPerEm : size / 2;
+        // Line heights are kept in 64ths of a pixel, as browsers keep layout lengths, so a long run of lines adds up as it
+        // does there: a length rounds to the nearest 64th; a number multiplies the font size, itself rounded to a 64th,
+        // and the product rounds down.
+        static float Nearest64th(float px) => MathF.Round(px * 64, MidpointRounding.AwayFromZero) / 64;
         var lineHeight = style.Font.LineHeight switch
         {
             { IsNormal: true } => ascent + descent + gap,
-            { Px: { } px } => px,
-            var l => l.Number * size,
+            { Px: { } px } => Nearest64th(px),
+            var l => MathF.Floor(Nearest64th(size) * l.Number * 64 + 0.001f) / 64, // the bit absorbs float error in numbers like 1.4
         };
-        // Line heights are kept in 64ths of a pixel, rounded down, so a long run of lines adds up as it does in browsers.
-        lineHeight = MathF.Floor(lineHeight * 64) / 64;
         // Half the leading goes above the text, rounded down to whole pixels so baselines stay on the pixel grid; the
         // rest goes below.
         var above = ascent + MathF.Floor((lineHeight - ascent - descent) / 2);

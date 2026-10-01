@@ -27,6 +27,7 @@ public class Reftests
     [InlineData("filter-effects/filter-url-001")]
     [InlineData("compositing/mix-blend-mode-normal-001")]
     [InlineData("compositing/isolation-isolate-001")]
+    [InlineData("css-grid/subgrid-001")]
     [InlineData("css-masking/clip-path-inset-001")]
     [InlineData("css-masking/clip-path-circle-001")]
     [InlineData("css-masking/clip-path-url-001")]

@@ -1,0 +1,41 @@
+=== a row subgrid's items size the parent's rows, so cards line up their parts; padding sits on the edge tracks
+<!DOCTYPE html><style>body { margin: 0 } .g { display: grid; grid-template-columns: 100px 100px; column-gap: 10px; row-gap: 4px } .card { display: grid; grid-row: span 3; grid-template-rows: subgrid; padding: 5px } p { margin: 0 }</style><div class="g"><div class="card"><p id="a1" style="height: 10px"></p><p id="b1" style="height: 30px"></p><p id="c1" style="height: 5px"></p></div><div class="card"><p id="a2" style="height: 20px"></p><p id="b2" style="height: 10px"></p><p id="c2" style="height: 15px"></p></div></div>
+---
+html 0,0 800x83
+  body 0,0 800x83
+    div 0,0 800x83
+      div 0,0 100x83
+        p#a1 5,5 90x10
+        p#b1 5,29 90x30
+        p#c1 5,63 90x5
+      div 110,0 100x83
+        p#a2 115,5 90x20
+        p#b2 115,29 90x10
+        p#c2 115,63 90x15
+
+=== a column subgrid's items size the parent's columns, and the subgrid adopts them with the parent's line names
+<!DOCTYPE html><style>body { margin: 0 } .g { display: grid; grid-template-columns: [label] auto [field] 1fr; column-gap: 8px; width: 300px } .row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid } span { display: block; height: 10px }</style><div class="g"><div class="row"><span style="width: 40px"></span><span></span></div><div class="row"><span style="width: 70px"></span><span style="grid-column: field"></span></div></div>
+---
+html 0,0 800x20
+  body 0,0 800x20
+    div 0,0 300x20
+      div 0,0 300x10
+        span 0,0 40x10
+        span 78,0 222x10
+      div 0,10 300x10
+        span 0,10 70x10
+        span 78,10 222x10
+
+=== items beyond a subgrid's span stay inside it, and a subgrid outside a grid has no tracks of its own
+<!DOCTYPE html><style>body { margin: 0 } p { margin: 0; height: 10px }</style><div style="display: grid; grid-template-columns: 50px 50px 50px"><div style="display: grid; grid-column: span 2; grid-template-columns: subgrid"><p></p><p></p><p style="grid-column: 5"></p></div></div><div style="display: grid; grid-template-rows: subgrid"><p></p><p></p></div>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    div 0,0 800x10
+      div 0,0 100x10
+        p 0,0 50x10
+        p 50,0 50x10
+        p 50,0 50x10
+    div 0,10 800x20
+      p 0,10 800x10
+      p 0,20 800x10
