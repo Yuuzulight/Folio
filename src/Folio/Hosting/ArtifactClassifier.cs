@@ -38,9 +38,10 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
 /// <item>elements Folio draws only as empty boxes: MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
-/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, masks, <c>use</c>,
-///   <c>symbol</c> and markers: other SVG elements (patterns, images, filters, animation, ...), <c>url()</c>
-///   references in filters, stroked text and the text attributes Folio does not lay out;</item>
+/// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, masks, filters
+///   with the common primitives, <c>use</c>, <c>symbol</c> and markers: other SVG elements (patterns, images, lighting,
+///   animation, ...), <c>filter: url()</c> in style sheets (which could reach CSS boxes), stroked text and the text
+///   attributes Folio does not lay out;</item>
 /// <item>CSS that Folio's property table does not know or cannot parse, gradients, <c>background-clip: text</c>,
 ///   selectors it cannot match, and <c>@font-face</c>, <c>@container</c>, <c>@counter-style</c>, <c>@scope</c>.
 ///   Not counted: declarations that only matter to interaction (<c>cursor</c>, <c>transition</c>, ...), rules
@@ -193,22 +194,16 @@ public static class ArtifactClassifier
         [
             "svg", "g", "a", "defs", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "tspan", "title",
             "desc", "metadata", "style", "script", "linearGradient", "radialGradient", "stop", "clipPath", "use", "symbol", "marker", "mask",
+            "filter", "feGaussianBlur", "feOffset", "feFlood", "feDropShadow", "feComposite", "feMerge", "feMergeNode", "feBlend",
+            "feColorMatrix", "feComponentTransfer", "feFuncR", "feFuncG", "feFuncB", "feFuncA", "feMorphology", "feTurbulence",
+            "feDisplacementMap",
         ];
-
-        // Presentation attributes that take a url() reference to something Folio does not draw yet. Paints take url()
-        // references to gradients, which draw, or to patterns, which are routed out as elements.
-        private static readonly string[] SvgReferences = ["filter"];
 
         private void Svg(Element element)
         {
             var name = element.LocalName;
             if (!SvgElements.Contains(name))
                 Unsupported.Add($"uses SVG <{name}>");
-            foreach (var attribute in SvgReferences)
-            {
-                if (element.GetAttribute(attribute)?.Contains("url(", StringComparison.OrdinalIgnoreCase) == true)
-                    Unsupported.Add($"uses an SVG {attribute} reference");
-            }
             if (element.GetAttribute("vector-effect") is { } effect && effect.Trim() != "none")
                 Unsupported.Add("uses vector-effect");
             if (name is not ("text" or "tspan"))
@@ -357,6 +352,11 @@ public static class ArtifactClassifier
                 else if (!Properties.ContainsVar(declaration.Value) && Properties.Parse(source, declaration) is null)
                 {
                     Unsupported.Add($"uses a CSS value Folio does not support: {declaration.Name}: {Shorten(text)}");
+                }
+                else if (declaration.Name is "filter" && Text(source, declaration.Value).Contains("url(", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Style sheets cannot tell SVG elements, whose filter references draw, from CSS boxes, whose do not yet.
+                    Unsupported.Add("uses filter: url() in CSS");
                 }
                 else if (declaration.Name is "background" or "background-clip"
                          && declaration.Value.Any(v => v is PreservedToken { Token: { Kind: CssTokenKind.Ident, Value: var ident } } && ident.Equals("text", StringComparison.OrdinalIgnoreCase)))
