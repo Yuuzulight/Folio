@@ -514,7 +514,7 @@ internal static class Cascade
         {
             var physical = LogicalProperties.Physical(id, mode, direction);
             if (!ranks.TryGetValue(physical, out var other) || rank < other)
-                (values[physical], ranks[physical]) = (values[id], rank);
+                (values[physical], ranks[physical]) = (values[id] is UnparsedValue { Shorthand: not null } pending ? pending with { Longhand = id } : values[id], rank);
             values.Remove(id);
         }
     }

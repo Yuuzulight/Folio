@@ -47,3 +47,10 @@
 #a padding-left: 0px
 #b margin-right: 16px
 #b margin-top: 0px
+
+=== a flow-relative shorthand with var() resolves into the physical side
+<!DOCTYPE html><style>p { --w: 5px; border-inline-start: var(--w) solid red }</style><p id=a dir=rtl>x</p>
+---
+#a border-right-width: 5
+#a border-right-style: solid
+#a border-left-width: 0
