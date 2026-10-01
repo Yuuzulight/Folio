@@ -5,6 +5,9 @@ namespace Folio.Style;
 /// <summary>https://drafts.csswg.org/css-masking-1/#the-mask-mode (images are alpha masks under match-source).</summary>
 internal enum MaskMode { MatchSource, Alpha, Luminance }
 
+/// <summary>https://drafts.csswg.org/css-masking-1/#the-mask-type: how an SVG mask element's content becomes a mask.</summary>
+internal enum MaskType { Luminance, Alpha }
+
 /// <summary>https://drafts.csswg.org/css-masking-1/#the-mask-composite: source over, source out, source in and xor.</summary>
 internal enum MaskComposite { Add, Subtract, Intersect, Exclude }
 
@@ -18,11 +21,12 @@ internal readonly record struct MaskClip(GeometryBox? Box)
 
 /// <summary>
 /// Mask layers (not inherited, https://drafts.csswg.org/css-masking-1/#positioned-masks): the layer count is the image
-/// list's; the other lists repeat when shorter. The first layer is the top one.
+/// list's; the other lists repeat when shorter. The first layer is the top one. <paramref name="Type"/> is mask-type,
+/// which applies to SVG mask elements.
 /// </summary>
 internal sealed record MaskGroup(IReadOnlyList<ImageValue> Images, IReadOnlyList<MaskMode> Modes, IReadOnlyList<RepeatStyle> Repeats,
                                  IReadOnlyList<BackgroundPosition> Positions, IReadOnlyList<BackgroundSize> Sizes, IReadOnlyList<GeometryBox> Origins,
-                                 IReadOnlyList<MaskClip> Clips, IReadOnlyList<MaskComposite> Composites)
+                                 IReadOnlyList<MaskClip> Clips, IReadOnlyList<MaskComposite> Composites, MaskType Type = MaskType.Luminance)
 {
     public static MaskGroup Initial { get; } = new([NoImage.Instance], [MaskMode.MatchSource], [new RepeatStyle(BackgroundRepeat.Repeat, BackgroundRepeat.Repeat)],
         [new BackgroundPosition(default, default)], [new BackgroundSize(BackgroundSizeKind.Explicit, SizeValue.Auto, SizeValue.Auto)],

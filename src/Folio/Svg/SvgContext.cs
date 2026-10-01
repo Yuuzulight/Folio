@@ -14,6 +14,9 @@ internal sealed partial class SvgContext(Layout.LayoutContext layout, DocumentNo
     /// <summary>The clip paths being built, outermost first: one met again is a reference cycle.</summary>
     public HashSet<ElementNode> Clipping { get; } = [];
 
+    /// <summary>The masks being built: one met again inside its own content is a reference cycle.</summary>
+    public HashSet<ElementNode> Masking { get; } = [];
+
     /// <summary>The markers being built: one met again inside its own content is a reference cycle.</summary>
     public HashSet<ElementNode> Marking { get; } = [];
 
