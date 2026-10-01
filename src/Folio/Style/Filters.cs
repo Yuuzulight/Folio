@@ -32,6 +32,9 @@ internal sealed class FilterList(IReadOnlyList<FilterFunction> functions) : IEqu
 
     public bool IsNone => Functions.Count == 0;
 
+    /// <summary>Whether the list references an SVG filter element.</summary>
+    public bool HasReference => Functions.Any(f => f.Name == "url");
+
     public bool Equals(FilterList? other) => other is not null && Functions.SequenceEqual(other.Functions);
 
     public override bool Equals(object? obj) => Equals(obj as FilterList);

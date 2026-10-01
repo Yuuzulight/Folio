@@ -31,6 +31,12 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 
     /// <summary>
+    /// The tracks a grid lends each of its subgrids, per axis, once it has sized them (see GridLayout): a subgrid laid
+    /// out without an entry for an axis has no tracks there, as with none.
+    /// </summary>
+    public Dictionary<Box, (AdoptedTracks? Columns, AdoptedTracks? Rows)> Subgrids { get; } = [];
+
+    /// <summary>
     /// The content of clip path and mask elements built so far, by element and the viewport it was built for, with its
     /// node count (see Svg.SvgContext.ReferencedContent).
     /// </summary>
@@ -38,6 +44,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
 
     /// <summary>How many nodes of clip path and mask content the references laid out so far have used.</summary>
     public int SvgReferencedNodes { get; set; }
+
+    /// <summary>The SVG filter elements in use, each once per bounding box and viewport (see Svg.SvgFilterReference).</summary>
+    public Dictionary<(Dom.ElementNode Element, Svg.SvgRect? Bounds, System.Numerics.Vector2 Viewport), Svg.SvgFilterReference> SvgFilters { get; } = [];
 
     /// <summary>Each document's elements by id, first in tree order, for url(#id) references (see Svg.SvgContext.Find).</summary>
     public Dictionary<Dom.DocumentNode, Dictionary<string, Dom.ElementNode>> Ids { get; } = [];
@@ -54,9 +63,13 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
 /// <param name="FixedWidth">A border-box width already decided by the parent's algorithm (absolute positioning).</param>
 /// <param name="FixedHeight">A border-box height already decided by the parent's algorithm.</param>
 /// <param name="Border">Border widths decided by the parent's algorithm (collapsed table borders), instead of the style's.</param>
+/// <param name="AnnotationRoom">
+/// The free space above the box's border box that ruby annotations on its first line may reach into: the margins above
+/// it and the space below the previous content's last line.
+/// </param>
 internal readonly record struct ConstraintSpace(
     float ContainingWidth, float? ContainingHeight, ExclusionSpace? Exclusions = null, float BfcLeft = 0, float BfcTop = 0,
-    float? FixedWidth = null, float? FixedHeight = null, Style.BorderGroup? Border = null);
+    float? FixedWidth = null, float? FixedHeight = null, Style.BorderGroup? Border = null, float AnnotationRoom = 0);
 
 /// <summary>
 /// An absolutely or fixed positioned box on its way up to its containing block (study 10, option A), with its static
@@ -152,6 +165,12 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// others), in coordinates whose origin is the border box's top-left corner; null when no layer does.
     /// </summary>
     public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get; init; }
+
+    /// <summary>
+    /// For a box whose filter list references SVG filter elements: the list with its references resolved, in
+    /// coordinates whose origin is the border box's top-left corner; null when it filters nothing.
+    /// </summary>
+    public Svg.SvgFilterChain? SvgFilters { get; init; }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];

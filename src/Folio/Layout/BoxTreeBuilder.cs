@@ -97,9 +97,10 @@ internal sealed class BoxTreeBuilder
 
     private Frame Container => _containers.Peek();
 
-    // A block container whose ::first-letter is still to come: the first letter of its first line of text.
-    // ponytail: only text in the container's own inline content counts; a first line inside a child block, and the
-    // properties ::first-letter may not set, are not handled yet.
+    // A block container whose ::first-letter is still to come: the first letter of its first line of text, which may be
+    // in a block inside it (the frame then moves down to that block).
+    // ponytail: the letter's style inherits from the element whose ::first-letter it is, not from the inline element the
+    // letter sits in, and an atomic ::before ends the search.
     private (ElementNode Element, Frame Frame, ComputedStyle Style)? _firstLetter;
 
     private void Push(Frame frame)
@@ -233,6 +234,7 @@ internal sealed class BoxTreeBuilder
             return false;
         }
 
+        var outer = Container;
         var frame = OpenBox(element, style, display, PseudoElement.None);
         if (display == Display.Ruby)
             frame = new Frame(FrameKind.Inline, frame.Box, style) { ElementNode = element, IsRuby = true };
@@ -240,6 +242,8 @@ internal sealed class BoxTreeBuilder
         if (frame is { Kind: FrameKind.Block, Box: BlockContainerBox } && element.PseudoStyle(PseudoElement.FirstLetter) is { } firstLetter
             && firstLetter.Box.Display != Display.None)
             _firstLetter = (element, frame, firstLetter);
+        else if (_firstLetter is { } pending && pending.Frame == outer && frame is { Kind: FrameKind.Block, Box: BlockContainerBox { IsAtomicInline: false } })
+            _firstLetter = pending with { Frame = frame }; // the first line is inside this block
         if (display == Display.ListItem)
             AddMarker(element);
         AddPseudo(element, PseudoElement.Before);
@@ -323,8 +327,10 @@ internal sealed class BoxTreeBuilder
     private void Place(Box box, bool inlineLevel)
     {
         var container = Container;
-        // Anything but text before the first letter (a block, an image, an inline block) means there is none.
-        if (_firstLetter?.Frame == container)
+        // Anything but text before the first letter (an image, an inline block, a float) means there is none; a block
+        // that comes before any inline content holds the first line instead (Enter passes the search down to it).
+        if (_firstLetter?.Frame == container && !(box is BlockContainerBox && !inlineLevel && !box.IsFloat && !box.IsAbsolutelyPositioned
+                                                   && container.Run is null or { IsWhitespaceOnly: true }))
             _firstLetter = null;
         var insideInline = _frames.Peek().Kind == FrameKind.Inline;
         if (inlineLevel && container.Kind == FrameKind.Block)
