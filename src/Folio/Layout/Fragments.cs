@@ -30,6 +30,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 
+    /// <summary>Grid items laid out so far, by the space they were laid out in and, for subgrids, the tracks lent to them (see GridLayout).</summary>
+    public Dictionary<(Box Box, ConstraintSpace Space, (AdoptedTracks? Columns, AdoptedTracks? Rows) Lent), Fragment> GridItems { get; } = [];
+
     /// <summary>
     /// The tracks a grid lends each of its subgrids, per axis, once it has sized them (see GridLayout): a subgrid laid
     /// out without an entry for an axis has no tracks there, as with none.
