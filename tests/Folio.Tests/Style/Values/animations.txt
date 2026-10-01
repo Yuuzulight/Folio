@@ -1,0 +1,98 @@
+=== animation timing initial values
+color: red
+---
+animation-duration: 0
+animation-delay: 0
+animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1)
+animation-play-state: running
+transition-property: all
+transition-duration: 0
+transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1)
+transition-delay: 0
+transition-behavior: normal
+
+=== animation timing longhands, times in seconds
+animation-duration: 1.5s, 250ms, auto; animation-delay: -1s, 20ms; animation-play-state: paused, running
+---
+animation-duration: 1.5, 0.25, 0
+animation-delay: -1, 0.02
+animation-play-state: paused, running
+
+=== negative durations are invalid
+animation-duration: 2s; animation-duration: -1s; transition-duration: 3s; transition-duration: -2s
+---
+animation-duration: 2
+transition-duration: 3
+
+=== easing keywords
+animation-timing-function: linear, ease-in, ease-out, ease-in-out, step-start, step-end
+---
+animation-timing-function: linear, cubic-bezier(0.42, 0, 1, 1), cubic-bezier(0, 0, 0.58, 1), cubic-bezier(0.42, 0, 0.58, 1), steps(1, jump-start), steps(1, jump-end)
+
+=== easing functions
+animation-timing-function: cubic-bezier(0.1, -0.6, 0.2, 1.5), steps(4), steps(3, start), steps(2, jump-none), steps(5, jump-both)
+---
+animation-timing-function: cubic-bezier(0.1, -0.6, 0.2, 1.5), steps(4, jump-end), steps(3, jump-start), steps(2, jump-none), steps(5, jump-both)
+
+=== linear() fills in its inputs
+animation-timing-function: linear(0, 0.25 20% 40%, 1)
+---
+animation-timing-function: linear(0 0%, 0.25 20%, 0.25 40%, 1 100%)
+
+=== invalid easing functions are dropped
+animation-timing-function: ease-in; animation-timing-function: cubic-bezier(2, 0, 1, 1); animation-timing-function: steps(0); animation-timing-function: steps(1, jump-none); animation-timing-function: linear(0); animation-timing-function: steps(2, middle)
+---
+animation-timing-function: cubic-bezier(0.42, 0, 1, 1)
+
+=== the animation shorthand keeps every part
+animation: 2s ease-out 500ms infinite alternate both paused spin, 1s fade
+---
+animation-name: spin, fade
+animation-duration: 2, 1
+animation-timing-function: cubic-bezier(0, 0, 0.58, 1), cubic-bezier(0.25, 0.1, 0.25, 1)
+animation-delay: 0.5, 0
+animation-iteration-count: Infinity, 1
+animation-direction: alternate, normal
+animation-fill-mode: both, none
+animation-play-state: paused, running
+
+=== a negative first time is not a duration
+animation: 1s fade; animation: -1s fade
+---
+animation-duration: 1
+
+=== -webkit- timing names
+-webkit-animation-duration: 3s; -webkit-transition-delay: 1s; -webkit-animation-timing-function: steps(2)
+---
+animation-duration: 3
+transition-delay: 1
+animation-timing-function: steps(2, jump-end)
+
+=== transition longhands
+transition-property: opacity, Transform; transition-duration: 200ms; transition-timing-function: ease-in; transition-delay: 50ms; transition-behavior: allow-discrete
+---
+transition-property: opacity, transform
+transition-duration: 0.2
+transition-timing-function: cubic-bezier(0.42, 0, 1, 1)
+transition-delay: 0.05
+transition-behavior: allow-discrete
+
+=== transition-property none only on its own
+transition-property: color; transition-property: none, color; transition-property: initial, color
+---
+transition-property: color
+
+=== the transition shorthand
+transition: opacity 300ms ease-out 100ms, transform .5s allow-discrete
+---
+transition-property: opacity, transform
+transition-duration: 0.3, 0.5
+transition-timing-function: cubic-bezier(0, 0, 0.58, 1), cubic-bezier(0.25, 0.1, 0.25, 1)
+transition-delay: 0.1, 0
+transition-behavior: normal, allow-discrete
+
+=== the transition shorthand defaults to all, and takes none alone
+transition: 1s; -webkit-transition: none 2s
+---
+transition-property: none
+transition-duration: 2
