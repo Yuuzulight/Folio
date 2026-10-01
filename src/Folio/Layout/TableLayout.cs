@@ -29,6 +29,7 @@ internal static class TableLayout
         public List<TablePartBox> Rows { get; } = [];
         public List<Cell> Cells { get; } = [];
         public List<float?> ColumnWidths { get; } = []; // from col and colgroup
+        public List<float> ColumnPercents { get; } = []; // percentage widths from col and colgroup, 0 for none
         public int Columns;
     }
 
@@ -400,8 +401,12 @@ internal static class TableLayout
             foreach (var column in columns)
             {
                 float? width = column.Style.Size.Width is { Kind: SizeKind.Length } w && !w.Length.HasPercent ? w.Length.Px : null;
+                var percent = column.Style.Size.Width is { Kind: SizeKind.Length, Length: { Calc: null, Px: 0, Percent: > 0 } p } ? p.Percent : 0;
                 for (var i = 0; i < Attribute(column, "span", 1, 1, 1000); i++)
+                {
                     grid.ColumnWidths.Add(width);
+                    grid.ColumnPercents.Add(percent);
+                }
             }
         }
 
@@ -511,6 +516,8 @@ internal static class TableLayout
         {
             if (grid.ColumnWidths[c] is not null)
                 kinds[c] = ColumnKind.Fixed;
+            else if (grid.ColumnPercents[c] > 0)
+                (kinds[c], percents[c]) = (ColumnKind.Percent, grid.ColumnPercents[c]);
         }
         foreach (var cell in grid.Cells.Where(c => c.ColumnSpan == 1))
         {
@@ -530,9 +537,15 @@ internal static class TableLayout
         var (othersMin, othersMax) = (others.Sum(c => min[c]), others.Sum(c => max[c]));
         if (rest < othersMin)
         {
-            // The percentages leave the other columns too little: every column goes back to its share of the minimums.
-            var sumMin = min.Sum();
-            return [.. min.Select(m => m + (target - sumMin) * (sumMin > 0 ? m / sumMin : 1f / n))];
+            // The percentages ask for more than there is: the other columns keep their minimums, and the percentage
+            // columns go from their minimums towards their percentages in the space left.
+            var percentColumns = Enumerable.Range(0, n).Except(others).ToList();
+            var (space, minSum, wantSum) = (target - othersMin, percentColumns.Sum(c => min[c]), percentColumns.Sum(c => widths[c]));
+            foreach (var c in others)
+                widths[c] = min[c];
+            foreach (var c in percentColumns)
+                widths[c] = min[c] + (widths[c] - min[c]) * (wantSum > minSum ? Math.Max(0, space - minSum) / (wantSum - minSum) : 0);
+            return widths;
         }
         if (rest <= othersMax)
         {
