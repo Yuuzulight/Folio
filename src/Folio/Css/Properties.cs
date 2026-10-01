@@ -204,6 +204,7 @@ internal enum PropertyId
     StopOpacity,
     FloodColor,
     FloodOpacity,
+    LightingColor,
     ColorInterpolationFilters,
     ClipRule,
     MarkerStart,

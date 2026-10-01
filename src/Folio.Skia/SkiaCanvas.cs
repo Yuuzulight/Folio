@@ -227,7 +227,7 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
                 FilterKind.Image when f.Image is { } handle && Image(handle) is { } image && f.Destination is { Width: > 0, Height: > 0 } dest =>
                     SKImageFilter.CreateImage(image, new SKRect(0, 0, image.Width, image.Height), new SKRect(dest.X, dest.Y, dest.Right, dest.Bottom),
                         new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None)),
-                FilterKind.DiffuseLighting or FilterKind.SpecularLighting => Lighting(f, In(f.In)),
+                FilterKind.DiffuseLighting or FilterKind.SpecularLighting => Lighting(f, In(f.In), linear),
                 _ => null,
             };
             var result = next is null ? Input(f.In, i) : Own(owned, next);
@@ -258,11 +258,13 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
     }
 
     // The lighting primitives with their light source (Filter Effects 1 §9.4, §9.17 and the light source elements).
-    private static SKImageFilter? Lighting(Filter f, SKImageFilter? input)
+    // The light's colour is in the working space too: linear light when the primitive works there.
+    private static SKImageFilter? Lighting(Filter f, SKImageFilter? input, bool linear)
     {
         if (f.Light is not { } light)
             return null;
-        var color = ToSkia(f.Color with { A = 1 });
+        static float Linear(float c) => c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        var color = ToSkia(linear ? new Rgba(Linear(f.Color.R), Linear(f.Color.G), Linear(f.Color.B), 1) : f.Color with { A = 1 });
         static SKPoint3 P(System.Numerics.Vector3 v) => new(v.X, v.Y, v.Z);
         // A spot light's cone is the limiting cone angle in degrees; without one it lights the whole half space.
         var cone = light.ConeAngle ?? 90;

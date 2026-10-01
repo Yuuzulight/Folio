@@ -53,7 +53,7 @@ public class BlockLayoutTests
         var document = TreeBuilder.Parse(html);
         StyleResolver.Resolve(document, new MediaContext(width, height), measure: InlineLayout.MeasureWith(BoxFont.Value));
         var images = new Folio.Imaging.ImageLoader(Folio.Resources.ResourceLoader.DataUrlsOnly, null);
-        return LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, width, height, BoxFont.Value);
+        return LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, width, height, BoxFont.Value, images: images);
     }
 
     // The fragment tree below the initial containing block, border boxes in page coordinates.

@@ -30,6 +30,9 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
 /// </summary>
 internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, ElementNode? Element)> Filters, CssColor CurrentColor, SvgRect? Bounds, Vector2 Viewport)
 {
+    /// <summary>Where feImage's images load from; none means they do not load.</summary>
+    public Imaging.ImageLoader? Images { get; init; }
+
     /// <summary>
     /// A filter list's chain; null when it filters nothing: none, or a reference to anything but a filter element, which
     /// ignores the whole list.
@@ -46,7 +49,7 @@ internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, El
             else
                 return null;
         }
-        return filters.Count > 0 ? new SvgFilterChain(filters, currentColor, bounds, viewport) : null;
+        return filters.Count > 0 ? new SvgFilterChain(filters, currentColor, bounds, viewport) { Images = context.Layout.Images } : null;
     }
 
     /// <summary>
