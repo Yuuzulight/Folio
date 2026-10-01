@@ -301,6 +301,8 @@ internal static class BlockLayout
         {
             if (children.Count > 0)
                 cursor = Balance(children, dealt, border.TopWidth + padding.Top);
+            // The last child's bottom margin ends a column and is truncated there (css-break-3 §5.2); the columns' height is the content's.
+            pending = default;
             width = fullWidth;
         }
 
