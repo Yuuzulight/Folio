@@ -1,0 +1,5 @@
+{
+  "prompt": "Build an aggressive esports team homepage for VOLTSHIFT: neon slashes and a glowing shield logo in the hero, angled cut-corner buttons and match rows, a five-player roster with colour-flash overlays, and a greyed-out sponsor strip.",
+  "features": ["clip-path", "mix-blend-mode", "isolation", "filter-drop-shadow", "filter-grayscale", "filter-opacity", "mask-image", "radial-gradient", "linear-gradient", "repeating-linear-gradient", "calc", "grid", "flex"],
+  "viewport": 800
+}
