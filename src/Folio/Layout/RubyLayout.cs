@@ -109,6 +109,6 @@ internal static class RubyLayout
     private static int CodePoint(string text, int i) => char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
 
     // Ideographs, kana, Hangul, CJK symbols and punctuation, and full-width forms.
-    private static bool IsCjk(int c) =>
+    internal static bool IsCjk(int c) =>
         c is >= 0x2E80 and <= 0x9FFF or >= 0xAC00 and <= 0xD7AF or >= 0xF900 and <= 0xFAFF or >= 0xFF00 and <= 0xFFEF or >= 0x20000 and <= 0x3FFFF;
 }

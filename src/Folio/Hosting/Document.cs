@@ -235,7 +235,7 @@ public sealed class Document : IDisposable
 
     // The last full paint's box tree and layout, which a paint-only animation frame paints again.
     private (Box Root, Fragment Page, float Scale)? _frame;
-    private Dictionary<ElementNode, List<Box>>? _animatedBoxes;
+    private Dictionary<(ElementNode, PseudoElement), List<Box>>? _animatedBoxes;
 
     /// <summary>How many times the document has been laid out (for tests of the paint-only path).</summary>
     internal int LayoutCount { get; private set; }
@@ -291,13 +291,22 @@ public sealed class Document : IDisposable
         var animated = StyleResolver.Animated(Node);
         if (animated.Any(a => !a.PaintOnly))
             return null;
-        _animatedBoxes ??= BoxesOf(frame.Root, animated.Select(a => a.Element).ToHashSet());
+        _animatedBoxes ??= BoxesOf(frame.Root, animated.Select(a => (a.Element, a.PseudoElement)).ToHashSet());
         foreach (var element in animated)
         {
             var style = element.Sample(time);
             if (element.Element.StyleData is ElementStyles styles)
-                styles.Style = style;
-            foreach (var box in _animatedBoxes.GetValueOrDefault(element.Element) ?? [])
+            {
+                switch (element.PseudoElement)
+                {
+                    case PseudoElement.Before: styles.Before = style; break;
+                    case PseudoElement.After: styles.After = style; break;
+                    case PseudoElement.Marker: styles.Marker = style; break;
+                    case PseudoElement.FirstLetter: styles.FirstLetter = style; break;
+                    default: styles.Style = style; break;
+                }
+            }
+            foreach (var box in _animatedBoxes.GetValueOrDefault((element.Element, element.PseudoElement)) ?? [])
             {
                 var containsFixed = box.ContainsFixed;
                 box.Style = style;
@@ -310,14 +319,14 @@ public sealed class Document : IDisposable
         }
         return DisplayListBuilder.Build(frame.Page, _images, frame.Scale);
 
-        static Dictionary<ElementNode, List<Box>> BoxesOf(Box root, HashSet<ElementNode> elements)
+        static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
-            var boxes = new Dictionary<ElementNode, List<Box>>();
+            var boxes = new Dictionary<(ElementNode, PseudoElement), List<Box>>();
             var stack = new Stack<Box>([root]);
             while (stack.TryPop(out var box))
             {
-                if (box is { Node: ElementNode element, PseudoElement: PseudoElement.None } && elements.Contains(element))
-                    (boxes.TryGetValue(element, out var list) ? list : boxes[element] = []).Add(box);
+                if (box.Node is ElementNode element && elements.Contains((element, box.PseudoElement)))
+                    (boxes.TryGetValue((element, box.PseudoElement), out var list) ? list : boxes[(element, box.PseudoElement)] = []).Add(box);
                 foreach (var child in box.Children)
                     stack.Push(child);
             }

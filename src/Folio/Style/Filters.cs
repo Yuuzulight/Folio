@@ -6,12 +6,14 @@ namespace Folio.Style;
 /// <summary>
 /// One computed filter function (https://drafts.csswg.org/filter-effects-1/#supported-filter-functions): blur and
 /// drop-shadow lengths in px (<see cref="Amount"/> holding the standard deviation), percentages as numbers, hue-rotate
-/// in degrees. A drop shadow's offset is (<see cref="X"/>, <see cref="Y"/>) and its colour <see cref="Color"/>.
+/// in degrees. A drop shadow's offset is (<see cref="X"/>, <see cref="Y"/>) and its colour <see cref="Color"/>. A url()
+/// reference to an SVG filter element is named "url", with the text inside url() as <see cref="Url"/>.
 /// </summary>
-internal sealed record FilterFunction(string Name, float Amount, float X = 0, float Y = 0, CssColor Color = default)
+internal sealed record FilterFunction(string Name, float Amount, float X = 0, float Y = 0, CssColor Color = default, string? Url = null)
 {
     public override string ToString() => Name switch
     {
+        "url" => $"url({Url})",
         "blur" => $"blur({N(Amount)}px)",
         "hue-rotate" => $"hue-rotate({N(Amount)}deg)",
         "drop-shadow" => $"drop-shadow({Color} {N(X)}px {N(Y)}px {N(Amount)}px)",

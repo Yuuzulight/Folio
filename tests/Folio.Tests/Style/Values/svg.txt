@@ -155,3 +155,17 @@ marker: url(#m)
 marker-start: url(#m)
 marker-mid: url(#m)
 marker-end: url(#m)
+
+=== flood-color and flood-opacity are not inherited, color-interpolation-filters is
+%parent flood-color: red; flood-opacity: 0.5; color-interpolation-filters: sRGB
+---
+flood-color: rgb(0, 0, 0)
+flood-opacity: 1
+color-interpolation-filters: srgb
+
+=== the flood and filter colour properties
+flood-color: currentcolor; color: blue; flood-opacity: 150%; color-interpolation-filters: linearRGB
+---
+flood-color: currentcolor
+flood-opacity: 1
+color-interpolation-filters: linearrgb

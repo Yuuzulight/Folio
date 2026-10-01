@@ -61,16 +61,22 @@ internal sealed record SvgGroup(SvgPaint Fill, float FillOpacity, SvgFillRule Fi
                                 LengthPercentage StrokeWidth, StrokeLinecap StrokeLinecap, StrokeLinejoin StrokeLinejoin, float StrokeMiterlimit,
                                 DashArray StrokeDasharray, LengthPercentage StrokeDashoffset, PaintOrder PaintOrder, TextAnchor TextAnchor,
                                 DominantBaseline DominantBaseline, SvgFillRule ClipRule = SvgFillRule.Nonzero, MarkerReference MarkerStart = default,
-                                MarkerReference MarkerMid = default, MarkerReference MarkerEnd = default)
+                                MarkerReference MarkerMid = default, MarkerReference MarkerEnd = default,
+                                ColorInterpolation ColorInterpolationFilters = ColorInterpolation.Auto)
 {
     public static SvgGroup Initial { get; } = new(new SvgPaint(CssColor.Black), 1, SvgFillRule.Nonzero, SvgPaint.None, 1, new LengthPercentage(1),
         StrokeLinecap.Butt, StrokeLinejoin.Miter, 4, DashArray.None, default, PaintOrder.Normal, TextAnchor.Start, DominantBaseline.Auto);
 }
 
 /// <summary>
-/// The gradient stop properties (not inherited): stop-color and stop-opacity (https://www.w3.org/TR/SVG2/pservers.html#StopColorProperties).
+/// The gradient stop and filter flood properties (not inherited): stop-color and stop-opacity
+/// (https://www.w3.org/TR/SVG2/pservers.html#StopColorProperties), flood-color and flood-opacity
+/// (https://drafts.csswg.org/filter-effects-1/#FloodColorProperty).
 /// </summary>
-internal sealed record SvgStopGroup(CssColor StopColor, float StopOpacity)
+internal sealed record SvgStopGroup(CssColor StopColor, float StopOpacity, CssColor FloodColor = default, float FloodOpacity = 1)
 {
-    public static SvgStopGroup Initial { get; } = new(CssColor.Black, 1);
+    public static SvgStopGroup Initial { get; } = new(CssColor.Black, 1, CssColor.Black);
 }
+
+/// <summary>https://drafts.csswg.org/filter-effects-1/#ColorInterpolationFiltersProperty (auto is linearRGB).</summary>
+internal enum ColorInterpolation { Auto, Srgb, Linearrgb }
