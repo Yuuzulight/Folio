@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a city climate-goals infographic: a gradient header, three SVG progress rings with percentages, and an icon strip of key numbers drawn with SVG symbols.",
+  "features": ["svg", "svg-text", "stroke-dasharray", "linear-gradient-svg", "radial-gradient-svg", "use-symbol", "grid", "linear-gradient"],
+  "viewport": 800
+}

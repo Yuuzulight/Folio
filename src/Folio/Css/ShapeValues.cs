@@ -24,7 +24,7 @@ internal static class ShapeProperties
             : Style.ClipPath.None,
         s => s.Effects.ClipPath, (b, v) => b.Effects = b.Effects with { ClipPath = v });
 
-    private static readonly Dictionary<string, GeometryBox> Boxes = new()
+    private static readonly KeywordMap<GeometryBox> Boxes = new()
     {
         ["border-box"] = GeometryBox.BorderBox, ["padding-box"] = GeometryBox.PaddingBox, ["content-box"] = GeometryBox.ContentBox,
         ["margin-box"] = GeometryBox.MarginBox, ["fill-box"] = GeometryBox.FillBox, ["stroke-box"] = GeometryBox.StrokeBox,

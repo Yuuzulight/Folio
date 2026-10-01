@@ -1,0 +1,5 @@
+{
+  "prompt": "Create an Arabic right-to-left product page for a coffee roaster: header nav, product photo panel, price in Arabic numerals, tasting-note chips, a spec table with dates and ratios, buttons and a review quote.",
+  "features": ["rtl", "arabic", "bidi", "bdi", "logical-properties", "grid", "flex", "radial-gradient", "emoji"],
+  "viewport": 800
+}

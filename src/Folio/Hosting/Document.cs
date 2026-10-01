@@ -233,16 +233,26 @@ public sealed class Document : IDisposable
         return null;
     }
 
+    // The last full paint's box tree and layout, which a paint-only animation frame paints again.
+    private (Box Root, Fragment Page, float Scale)? _frame;
+    private Dictionary<(ElementNode, PseudoElement), List<Box>>? _animatedBoxes;
+
+    /// <summary>How many times the document has been laid out (for tests of the paint-only path).</summary>
+    internal int LayoutCount { get; private set; }
+
     /// <summary>
     /// Styles, lays out and paints the document in a viewport (the pipeline in docs/architecture.md): its display list
     /// and the height of its content, from the canvas origin.
     /// </summary>
-    internal (DisplayList List, float Height) Paint(float viewportWidth, float viewportHeight, float deviceScale = 1, ITextShaper? shaper = null)
+    /// <param name="animationTime">Seconds on the document timeline to sample animations at; null for the settled document.</param>
+    internal (DisplayList List, float Height) Paint(float viewportWidth, float viewportHeight, float deviceScale = 1, ITextShaper? shaper = null,
+                                                   double? animationTime = null)
     {
-        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark);
+        (_frame, _animatedBoxes) = (null, null);
+        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
         var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
-        var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts));
+        var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         if (!_webFontsLoaded)
         {
             // Web fonts load once, synchronously, before the first layout, so font-display never has a swap to do.
@@ -250,7 +260,7 @@ public sealed class Document : IDisposable
             _webFontsLoaded = true;
             if (WebFonts.Load(fontFaces, _fonts, sources.Loader,
                     message => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, "@font-face"))) > 0)
-                StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts));
+                StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         }
         // Images load once per document (docs/study/16-resources-and-security.md: data: URLs only by default).
         _images ??= new Imaging.ImageLoader(sources.Loader, StyleResolver.BaseUrl(Node, Options.BaseUri?.AbsoluteUri),
@@ -258,9 +268,70 @@ public sealed class Document : IDisposable
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (new DisplayList(), 0);
         var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
+        LayoutCount++;
+        _frame = (root, page, deviceScale);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         return (DisplayListBuilder.Build(page, _images, deviceScale), height);
+    }
+
+    /// <summary>Whether an animation still changes after <paramref name="time"/> (seconds on the document timeline).</summary>
+    internal bool AnimationsRunning(double time) => StyleResolver.Animated(Node).Any(a => a.IsRunning(time));
+
+    /// <summary>
+    /// The display list at another animation time when every animation is paint-only (docs/study/14-invalidation.md):
+    /// only the animated elements are styled again, and the last layout is painted with their new styles. Null when
+    /// the document needs a full <see cref="Paint"/> instead: nothing is laid out yet, an animation changes layout, or
+    /// a box stops or starts being a containing block for fixed descendants.
+    /// </summary>
+    internal DisplayList? PaintFrame(double time)
+    {
+        if (_frame is not { } frame || _images is null)
+            return null;
+        var animated = StyleResolver.Animated(Node);
+        if (animated.Any(a => !a.PaintOnly))
+            return null;
+        _animatedBoxes ??= BoxesOf(frame.Root, animated.Select(a => (a.Element, a.PseudoElement)).ToHashSet());
+        foreach (var element in animated)
+        {
+            var style = element.Sample(time);
+            if (element.Element.StyleData is ElementStyles styles)
+            {
+                switch (element.PseudoElement)
+                {
+                    case PseudoElement.Before: styles.Before = style; break;
+                    case PseudoElement.After: styles.After = style; break;
+                    case PseudoElement.Marker: styles.Marker = style; break;
+                    case PseudoElement.FirstLetter: styles.FirstLetter = style; break;
+                    default: styles.Style = style; break;
+                }
+            }
+            foreach (var box in _animatedBoxes.GetValueOrDefault((element.Element, element.PseudoElement)) ?? [])
+            {
+                var containsFixed = box.ContainsFixed;
+                box.Style = style;
+                if (box.ContainsFixed != containsFixed)
+                {
+                    _frame = null;
+                    return null;
+                }
+            }
+        }
+        return DisplayListBuilder.Build(frame.Page, _images, frame.Scale);
+
+        static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
+        {
+            var boxes = new Dictionary<(ElementNode, PseudoElement), List<Box>>();
+            var stack = new Stack<Box>([root]);
+            while (stack.TryPop(out var box))
+            {
+                if (box.Node is ElementNode element && elements.Contains((element, box.PseudoElement)))
+                    (boxes.TryGetValue((element, box.PseudoElement), out var list) ? list : boxes[(element, box.PseudoElement)] = []).Add(box);
+                foreach (var child in box.Children)
+                    stack.Push(child);
+            }
+            return boxes;
+        }
     }
 
     public void Dispose()
