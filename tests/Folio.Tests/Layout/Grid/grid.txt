@@ -67,3 +67,12 @@ html 0,0 800x20
       div 0,0 30x10
       div 0,10 30x10
       div 30,0 30x10
+
+=== columns run from the right in a right-to-left grid
+<!DOCTYPE html><style>body { margin: 0 } div { display: grid; grid-template-columns: 100px 200px; width: 400px } span { height: 10px }</style><div dir=rtl><span id=a></span><span id=b></span></div>
+---
+html 0,0 800x10
+  body 0,0 800x10
+    div 0,0 400x10
+      span#a 300,0 100x10
+      span#b 100,0 200x10
