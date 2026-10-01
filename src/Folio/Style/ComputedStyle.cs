@@ -363,6 +363,14 @@ internal sealed record ReplacedGroup(ObjectFit Fit, BackgroundPosition Position)
 /// <summary>Generated content and counters (not inherited).</summary>
 internal sealed record GeneratedGroup(ContentValue Content, IReadOnlyList<CounterChange> CounterReset, IReadOnlyList<CounterChange> CounterIncrement, IReadOnlyList<CounterChange> CounterSet);
 
+/// <summary>Multi-column properties (not inherited): column-count and column-width, null for auto.</summary>
+internal sealed record MulticolGroup(int? Count, float? Width)
+{
+    public static MulticolGroup Initial { get; } = new(null, null);
+
+    public bool IsMulticol => Count is not null || Width is not null;
+}
+
 /// <summary>An element's computed style: references to shared groups.</summary>
 internal sealed class ComputedStyle
 {
@@ -389,6 +397,7 @@ internal sealed class ComputedStyle
     public MaskGroup Mask { get; init; } = MaskGroup.Initial;
     public BorderImageGroup BorderImage { get; init; } = BorderImageGroup.Initial;
     public AnimationGroup Animation { get; init; } = AnimationGroup.Initial;
+    public MulticolGroup Multicol { get; init; } = MulticolGroup.Initial;
     public SvgGroup Svg { get; init; } = SvgGroup.Initial;
     public SvgStopGroup SvgStop { get; init; } = SvgStopGroup.Initial;
 

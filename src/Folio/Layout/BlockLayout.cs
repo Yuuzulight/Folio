@@ -62,6 +62,11 @@ internal static class BlockLayout
         var definiteHeight = height is { } h ? Clamp(h, minHeight, maxHeight) : (float?)null;
 
         var independent = EstablishesIndependentFormattingContext(box);
+        // A multi-column container lays its content out at the column width, then deals it into balanced columns.
+        var columns = box is BlockContainerBox && style.Multicol.IsMulticol ? ColumnGeometry(style, width) : ((int Count, float Width, float Gap)?)null;
+        var fullWidth = width;
+        if (columns is { } geometry)
+            width = geometry.Width;
         var collapseTop = !independent && border.TopWidth == 0 && padding.Top == 0;
         var bottomEdgeOpen = !independent && border.BottomWidth == 0 && padding.Bottom == 0;
         var collapseBottom = bottomEdgeOpen && height is null;
@@ -245,6 +250,13 @@ internal static class BlockLayout
                 cursor = bottom;
                 hasContent = true;
             }
+        }
+
+        if (columns is { } dealt)
+        {
+            if (children.Count > 0)
+                cursor = Balance(children, dealt, border.TopWidth + padding.Top);
+            width = fullWidth;
         }
 
         // Height: auto is the flow's extent; min and max apply either way (§10.6.3, §10.7). An independent formatting
@@ -620,6 +632,77 @@ internal static class BlockLayout
     /// its children's and floats outside do not reach in (https://www.w3.org/TR/CSS22/visuren.html#block-formatting
     /// and css-display-3 §2.3).
     /// </summary>
+    /// <summary>
+    /// The number and width of a multi-column container's columns and the gap between them
+    /// (https://www.w3.org/TR/css-multicol-1/#pseudo-algorithm), for its content width.
+    /// </summary>
+    // ponytail: column-gap: 0 is taken for normal (1em), which the shared gap property does not tell apart.
+    private static (int Count, float Width, float Gap) ColumnGeometry(ComputedStyle style, float available)
+    {
+        var gapValue = style.Flex.ColumnGap;
+        var gap = gapValue == default ? style.Font.Size : gapValue.Resolve(available);
+        var (count, columnWidth) = (style.Multicol.Count, style.Multicol.Width);
+        var n = columnWidth is { } w
+            ? Math.Max(1, (int)MathF.Floor((available + gap) / (Math.Max(w, 0.0001f) + gap)))
+            : count ?? 1;
+        if (count is { } c && columnWidth is not null)
+            n = Math.Min(n, c);
+        return (n, Math.Max(0, (available + gap) / n - gap), gap);
+    }
+
+    /// <summary>
+    /// Deals a column's laid-out content into balanced columns: its pieces (block children, line boxes, floats) stay
+    /// whole and in order, and the shortest column height that fits them all in the columns is used
+    /// (column-fill: balance). Moves the pieces into their columns and returns the content height.
+    /// </summary>
+    // ponytail: pieces are never split, so a tall block lands whole in one column; break-before/after are not read.
+    private static float Balance(List<ChildFragment> children, (int Count, float Width, float Gap) columns, float top)
+    {
+        var order = children.Select((c, i) => (Child: c, Index: i)).OrderBy(p => p.Child.Y).ThenBy(p => p.Index).Select(p => p.Index).ToArray();
+        float Top(int k) => children[order[k]].Y;
+        float Bottom(int k) => children[order[k]].Y + children[order[k]].Fragment.Height;
+
+        // The column starts that fit with columns at most `height` tall, or null if they need more columns.
+        List<int>? Starts(float height)
+        {
+            var starts = new List<int> { 0 };
+            for (var k = 1; k < order.Length; k++)
+            {
+                if (Bottom(k) - Top(starts[^1]) > height + 0.01f)
+                {
+                    if (starts.Count == columns.Count)
+                        return null;
+                    starts.Add(k);
+                }
+            }
+            return starts;
+        }
+
+        var tallest = Enumerable.Range(0, order.Length).Max(k => Bottom(k) - Top(k));
+        var (low, high) = (Math.Max(tallest, (Bottom(order.Length - 1) - Top(0)) / columns.Count), Bottom(order.Length - 1) - Top(0));
+        for (var i = 0; i < 40 && high - low > 0.01f; i++)
+        {
+            var mid = (low + high) / 2;
+            if (Starts(mid) is null)
+                low = mid;
+            else
+                high = mid;
+        }
+        var chosen = Starts(high) ?? [0];
+        var height = 0f;
+        for (var c = 0; c < chosen.Count; c++)
+        {
+            var (from, to) = (chosen[c], c + 1 < chosen.Count ? chosen[c + 1] : order.Length);
+            var dy = Top(chosen[0]) - Top(from);
+            var dx = c * (columns.Width + columns.Gap);
+            for (var k = from; k < to; k++)
+                height = Math.Max(height, Bottom(k) + dy - top);
+            for (var k = from; k < to; k++)
+                children[order[k]] = children[order[k]] with { X = children[order[k]].X + dx, Y = children[order[k]].Y + dy };
+        }
+        return height;
+    }
+
     private static bool EstablishesIndependentFormattingContext(Box box)
     {
         var style = box.Style.Box;
@@ -629,6 +712,7 @@ internal static class BlockLayout
             || box is TablePartBox { Part: TablePart.Cell or TablePart.Caption }
             || box.Parent is FlexContainerBox or GridContainerBox
             || style.Display == Display.FlowRoot
+            || box.Style.Multicol.IsMulticol
             || style.OverflowX is Overflow.Hidden or Overflow.Scroll or Overflow.Auto
             || style.OverflowY is Overflow.Hidden or Overflow.Scroll or Overflow.Auto;
     }

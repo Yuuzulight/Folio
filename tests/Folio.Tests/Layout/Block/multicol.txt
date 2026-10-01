@@ -1,0 +1,49 @@
+=== two columns share the blocks evenly, the column gap normal being 1em
+<!DOCTYPE html><style>body, ul { margin: 0; padding: 0 } ul { columns: 2; width: 200px; list-style: none }</style><ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    ul 0,0 200x32
+      li 0,0 92x16
+        line 0,0 92x16
+          text "a" 0,0 16x16
+      li 0,16 92x16
+        line 0,16 92x16
+          text "b" 0,16 16x16
+      li 108,0 92x16
+        line 108,0 92x16
+          text "c" 108,0 16x16
+      li 108,16 92x16
+        line 108,16 92x16
+          text "d" 108,16 16x16
+
+=== column-width fits as many columns as the width allows, at least that wide
+<!DOCTYPE html><style>body, div { margin: 0 } div { column-width: 100px; column-gap: 10px; width: 340px }</style><div><p style="margin: 0">a</p><p style="margin: 0">b</p><p style="margin: 0">c</p></div>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    div 0,0 340x16
+      p 0,0 106.67x16
+        line 0,0 106.67x16
+          text "a" 0,0 16x16
+      p 116.67,0 106.67x16
+        line 116.67,0 106.67x16
+          text "b" 116.67,0 16x16
+      p 233.33,0 106.67x16
+        line 233.33,0 106.67x16
+          text "c" 233.33,0 16x16
+
+=== lines of text are dealt into columns too
+<!DOCTYPE html><style>body, div { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px }</style><div>aa bb cc dd</div>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    div 0,0 100x32
+      line 0,0 40x16
+        text "aa " 0,0 48x16
+      line 0,16 40x16
+        text "bb " 0,16 48x16
+      line 60,0 40x16
+        text "cc " 60,0 48x16
+      line 60,16 40x16
+        text "dd" 60,16 32x16
