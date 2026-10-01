@@ -142,7 +142,7 @@ glyphs 20,13 16px rgb(0, 0, 0)
 <!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-left: 30px; list-style-image: url(data:text/plain,x) }</style><ul><li>a</li></ul>
 ---
 glyphs 30,13 16px rgb(0, 0, 0)
-glyphs -2,13 14,13 16px rgb(0, 0, 0)
+fill 15,6.5 4.83x4.83 radius 2.42 rgb(0, 0, 0)
 
 === right to left, the image marker is on the far side of its space
 <!DOCTYPE html><style>body { margin: 0 } ul { margin: 0; padding-right: 30px; direction: rtl; list-style-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC) }</style><ul><li>a</li></ul>

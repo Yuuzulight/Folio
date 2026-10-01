@@ -393,7 +393,10 @@ internal sealed class BoxTreeBuilder
         }
         else if (container.Box is BlockContainerBox block)
         {
-            block.Marker = new MarkerBox(style, element, text) { Parent = block, Image = imageBox };
+            var symbol = imageBox is null && style.Generated.Content.Kind != ContentKind.Items
+                ? style.Text.ListStyleType.CounterStyle switch { "disc" => ListSymbol.Disc, "circle" => ListSymbol.Circle, "square" => ListSymbol.Square, _ => (ListSymbol?)null }
+                : null;
+            block.Marker = new MarkerBox(style, element, text) { Parent = block, Image = imageBox, Symbol = symbol };
             if (imageBox is not null)
                 imageBox.Parent = block.Marker;
         }

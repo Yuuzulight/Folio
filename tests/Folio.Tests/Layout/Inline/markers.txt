@@ -2,7 +2,7 @@ Outside list markers (CSS Lists 3 section 3): the marker's text ends where the l
 that line's baseline, whether the line is the item's own or in a block inside it. Markers are "text" fragments showing
 the marker string.
 
-=== a bullet ends where the first line starts
+=== a disc is a square a third of the ascent plus half a pixel wide, two thirds of the ascent plus 7px before the line, half the ascent above its baseline
 <!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px }</style><ul><li>aa</li></ul>
 ---
 html 0,0 800x16
@@ -11,7 +11,23 @@ html 0,0 800x16
       li 40,0 760x16
         line 40,0 760x16
           text "aa" 40,0 32x16
-        text "• " 8,0 32x16
+        ::marker 25,6.5 4.83x4.83
+
+=== circle and square markers are shapes too, and right to left they sit past the line's end
+<!DOCTYPE html><style>body, ul { margin: 0 } ul { padding: 0 40px }</style><ul style="list-style-type: circle"><li>a</li></ul><ul style="list-style-type: square" dir=rtl><li>a</li></ul>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    ul 0,0 800x16
+      li 40,0 720x16
+        line 40,0 720x16
+          text "a" 40,0 16x16
+        ::marker 25,6.5 4.83x4.83
+    ul 0,16 800x16
+      li 40,16 720x16
+        line 40,16 720x16
+          text "a" 744,16 16x16
+        ::marker 770.17,22.5 4.83x4.83
 
 === ordered markers count down from start when reversed
 <!DOCTYPE html><style>body, ol { margin: 0 } ol { padding-left: 40px }</style><ol start=4 reversed><li>a<li>b</ol>
