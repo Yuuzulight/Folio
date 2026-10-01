@@ -157,6 +157,15 @@ internal sealed class BoxTreeBuilder
         if (blockify)
             display = Blockified(display);
 
+        // Text-like controls show their value as text in a box of their own (study 15: static appearance).
+        if (ControlText(element) is { } controlText)
+        {
+            var control = OpenBox(element, style, IsInlineLevel(display) ? Display.InlineBlock : Blockified(display), PseudoElement.None);
+            Push(control);
+            AddText(controlText, style);
+            Finish(Pop());
+            return false;
+        }
         if (replaced is { } kind)
         {
             var (source, density) = kind == ReplacedKind.Image ? ImageSource(element, _deviceScale) : (null, 1);
@@ -556,6 +565,46 @@ internal sealed class BoxTreeBuilder
             "input" or "select" or "textarea" or "progress" or "meter" => ReplacedKind.FormControl,
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// The text a text-like form control shows in its static state: a text input's value (its placeholder when empty,
+    /// a bullet per character for passwords), a textarea's text, a single-line select's selected option (else its
+    /// first); null for other elements, which keep their replaced box.
+    /// </summary>
+    // ponytail: placeholders are drawn in the control's own colour, and a select's arrow is not drawn.
+    private static string? ControlText(ElementNode element)
+    {
+        if (element.Name.Namespace != Namespaces.Html)
+            return null;
+        switch (element.LocalName)
+        {
+            case "input":
+                var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type is not ("text" or "email" or "search" or "url" or "tel" or "password" or "number"))
+                    return null;
+                var value = element.GetAttribute("value") ?? "";
+                if (value.Length == 0)
+                    return element.GetAttribute("placeholder") ?? "";
+                return type == "password" ? new string('•', value.Length) : value;
+            case "textarea":
+                return element.TextContent ?? "";
+            case "select" when element.GetAttribute("multiple") is null && (!int.TryParse(element.GetAttribute("size"), out var size) || size <= 1):
+                var options = Descendants(element).Where(e => e.LocalName == "option").ToList();
+                var chosen = options.LastOrDefault(o => o.GetAttribute("selected") is not null) ?? options.FirstOrDefault();
+                return chosen is null ? "" : string.Join(" ", (chosen.GetAttribute("label") ?? chosen.TextContent ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
+            default:
+                return null;
+        }
+
+        static IEnumerable<ElementNode> Descendants(ElementNode root)
+        {
+            for (Node? node = root.FirstChild; node is not null && node != root; node = node.NextInTree(root))
+            {
+                if (node is ElementNode e)
+                    yield return e;
+            }
+        }
     }
 
     private static bool IsInlineLevel(Display display) =>

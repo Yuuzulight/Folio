@@ -11,6 +11,12 @@ area, base, basefont, datalist, head, link, meta, noembed, noframes, param, rp, 
 [hidden]:not([hidden=until-found i]):not(embed) { display: none; }
 embed[hidden] { display: inline; height: 0; width: 0; }
 input[type=hidden i] { display: none !important; }
+/* Form controls in their static appearance (study 15): a small font, a thin rounded border, white field. */
+input, textarea, select, button { font-size: 13.3333px; }
+input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]), textarea, select { padding: 1px 2px; border: 1px solid #767676; border-radius: 2px; background-color: white; color: black; }
+input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]), select { white-space: pre; overflow: hidden; }
+input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]) { width: 20ch; }
+textarea { white-space: pre-wrap; overflow: auto; width: 20ch; height: 2.6em; }
 
 /* 15.3.2 The page */
 html, body { display: block; }

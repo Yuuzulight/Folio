@@ -1,0 +1,35 @@
+=== a text input shows its value on one line in its own box
+<!DOCTYPE html><style>body { margin: 0 } input { width: 100px; padding: 0; border: 0; font-size: 16px }</style><input value="hello world">
+---
+html 0,0 800x16
+  body 0,0 800x16
+    line 0,0 800x16
+      input 0,0 100x16
+        line 0,0 100x16
+          text "hello world" 0,0 176x16
+
+=== an empty input shows its placeholder, a password bullets
+<!DOCTYPE html><style>body { margin: 0 } input { width: 100px; padding: 0; border: 0; font-size: 16px }</style><input placeholder="ab"><input type=password value="xyz">
+---
+html 0,0 800x16
+  body 0,0 800x16
+    line 0,0 800x16
+      input 0,0 100x16
+        line 0,0 100x16
+          text "ab" 0,0 32x16
+      input 100,0 100x16
+        line 100,0 100x16
+          text "•••" 100,0 48x16
+
+=== a select shows its selected option, else its first
+<!DOCTYPE html><style>body { margin: 0 } select { padding: 0; border: 0; font-size: 16px }</style><select><option>a</option><option selected>bb</option></select><select><option>c</option></select>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    line 0,0 800x16
+      select 0,0 32x16
+        line 0,0 32x16
+          text "bb" 0,0 32x16
+      select 32,0 16x16
+        line 32,0 16x16
+          text "c" 32,0 16x16
