@@ -58,4 +58,18 @@ public class PropertySyntaxTests
         Assert.Null(length.Compute("1em", null));
         Assert.Null(length.Compute("10vw", null));
     }
+
+    [Theory]
+    [InlineData("<length>", "10px", "20px", 0.25, "12.5px")]
+    [InlineData("<angle>", "0deg", "360deg", 0.5, "180deg")]
+    [InlineData("<color>", "rgb(255, 0, 0)", "rgb(0, 0, 255)", 0.5, "rgb(128, 0, 128)")]
+    [InlineData("<integer>", "0", "3", 0.4, "1")]
+    [InlineData("<length>+", "1px 2px", "3px 6px", 0.5, "2px 4px")]
+    [InlineData("<transform-function>", "rotate(0deg)", "rotate(90deg)", 0.5, "rotate(45deg)")]
+    [InlineData("<length>+", "1px", "1px 2px", 0.5, null)]
+    [InlineData("<transform-function>", "rotate(0deg)", "scale(2)", 0.5, null)]
+    [InlineData("small | large", "small", "large", 0.5, null)]
+    [InlineData("*", "1px", "2px", 0.5, null)]
+    public void InterpolatesComputedValuesOfTheSameShape(string syntax, string from, string to, double p, string? expected) =>
+        Assert.Equal(expected, PropertySyntax.Parse(syntax) is { } parsed ? parsed.Interpolate(from, to, p) : PropertySyntax.Universal.Interpolate(from, to, p));
 }
