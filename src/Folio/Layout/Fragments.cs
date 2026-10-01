@@ -29,6 +29,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
+
+    /// <summary>Each document's elements by id, first in tree order, for url(#id) references (see Svg.SvgContext.Find).</summary>
+    public Dictionary<Dom.DocumentNode, Dictionary<string, Dom.ElementNode>> Ids { get; } = [];
 }
 
 /// <summary>
@@ -119,8 +122,21 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// <summary>For line boxes: the baseline, from the top of the line.</summary>
     public float Baseline { get; init; }
 
+    /// <summary>
+    /// For a ruby column (and its baseline in <see cref="Baseline"/>): how far its annotation's em box reaches above its
+    /// top, and how far the annotation may overhang the text on either side.
+    /// </summary>
+    public float RubyOver { get; init; } = float.NegativeInfinity;
+    public float RubyOverhang { get; init; }
+
     /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
     public Svg.SvgContainerNode? Svg { get; init; }
+
+    /// <summary>
+    /// For a box whose clip-path is a url() reference to an SVG clipPath element: that clip path, in coordinates whose
+    /// origin is the border box's top-left corner; null otherwise, and then a reference clips nothing.
+    /// </summary>
+    public Svg.SvgClipPath? SvgClip { get; init; }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];

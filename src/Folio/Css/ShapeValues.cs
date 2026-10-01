@@ -14,9 +14,8 @@ internal sealed record ClipPathValue(ShapeFunctionValue? Shape, GeometryBox? Box
 
 /// <summary>
 /// <c>clip-path</c> (https://drafts.csswg.org/css-masking-1/#the-clip-path) with the basic shapes of
-/// https://drafts.csswg.org/css-shapes-1/#basic-shape-functions.
+/// https://drafts.csswg.org/css-shapes-1/#basic-shape-functions, or a url() reference to an SVG clipPath element.
 /// </summary>
-// ponytail: url() references to <clipPath> are not accepted (the declaration is dropped) until inline SVG exists.
 internal static class ShapeProperties
 {
     public static Property Row { get; } = new Property<ClipPath>(PropertyId.ClipPath, "clip-path", false, "none", ParseClipPath,
