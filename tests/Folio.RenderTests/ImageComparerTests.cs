@@ -145,4 +145,68 @@ public class ImageComparerTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    // A 300x150 page with a 200x100 box: a 1px dark border around a light fill, its top left corner at (left, top).
+    private static PixelBuffer Page(int left, int top = 20, int lineY = -1)
+    {
+        var page = Solid(300, 150, 255, 255, 255);
+        for (var y = top; y < top + 100; y++)
+        {
+            for (var x = left; x < left + 200; x++)
+            {
+                var border = x == left || x == left + 199 || y == top || y == top + 99;
+                var value = (byte)(border ? 0x33 : 0xEE);
+                page.Pixel(x, y)[0] = page.Pixel(x, y)[1] = page.Pixel(x, y)[2] = value;
+            }
+        }
+        if (lineY >= 0)
+        {
+            for (var x = 0; x < 300; x++)
+                page.Pixel(x, lineY)[0] = page.Pixel(x, lineY)[1] = page.Pixel(x, lineY)[2] = 0;
+        }
+        return page;
+    }
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(-1, 0)]
+    [InlineData(0, 1)]
+    public void ConformanceForgivesADifferenceOfOnePixel(int dx, int dy)
+    {
+        var result = ImageComparer.Compare(Page(20), Page(20 + dx, 20 + dy), Tolerance.Conformance);
+
+        Assert.True(result.Passed, $"{result.DifferingRatio:P2} differ");
+    }
+
+    // The conformance rule forgives glyph edges, not layout: a box two pixels off still fails.
+    [Theory]
+    [InlineData(2, 0)]
+    [InlineData(-2, 0)]
+    [InlineData(0, 2)]
+    public void ConformanceFailsABoxShiftedByTwoPixels(int dx, int dy)
+    {
+        var result = ImageComparer.Compare(Page(20), Page(20 + dx, 20 + dy), Tolerance.Conformance);
+
+        Assert.False(result.Passed, $"{result.DifferingRatio:P2} differ");
+    }
+
+    [Fact]
+    public void ConformanceFailsALineOnlyOneSideHas()
+    {
+        // Each white pixel of the expected page has a white neighbour in the actual one; the line's own pixels do not.
+        var result = ImageComparer.Compare(Page(20), Page(20, lineY: 130), Tolerance.Conformance);
+
+        Assert.False(result.Passed);
+        Assert.Equal(300, result.DifferingPixels);
+    }
+
+    [Theory]
+    [InlineData(48, true)]
+    [InlineData(49, false)]
+    public void ConformanceThresholdStillApplies(int delta, bool passes)
+    {
+        var result = ImageComparer.Compare(Solid(20, 20, 100, 100, 100), Solid(20, 20, 100, 100, (byte)(100 + delta)), Tolerance.Conformance);
+
+        Assert.Equal(passes, result.Passed);
+    }
 }
