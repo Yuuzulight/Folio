@@ -397,6 +397,7 @@ internal sealed class ComputedStyle
     public MaskGroup Mask { get; init; } = MaskGroup.Initial;
     public BorderImageGroup BorderImage { get; init; } = BorderImageGroup.Initial;
     public AnimationGroup Animation { get; init; } = AnimationGroup.Initial;
+    public TransitionGroup Transition { get; init; } = TransitionGroup.Initial;
     public MulticolGroup Multicol { get; init; } = MulticolGroup.Initial;
     public SvgGroup Svg { get; init; } = SvgGroup.Initial;
     public SvgStopGroup SvgStop { get; init; } = SvgStopGroup.Initial;

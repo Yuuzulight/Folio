@@ -39,6 +39,7 @@ internal sealed class StyleBuilder
         Mask = initial.Mask;
         BorderImage = initial.BorderImage;
         Animation = initial.Animation;
+        Transition = initial.Transition;
         Multicol = initial.Multicol;
         Svg = parent.Svg;
         SvgStop = initial.SvgStop;
@@ -67,6 +68,7 @@ internal sealed class StyleBuilder
     public MaskGroup Mask { get; set; }
     public BorderImageGroup BorderImage { get; set; }
     public AnimationGroup Animation { get; set; }
+    public TransitionGroup Transition { get; set; }
     public MulticolGroup Multicol { get; set; }
     public SvgGroup Svg { get; set; }
     public SvgStopGroup SvgStop { get; set; }
@@ -169,6 +171,7 @@ internal sealed class StyleBuilder
             Mask = Share(Mask, initial.Mask, groups),
             BorderImage = Share(BorderImage, initial.BorderImage, groups),
             Animation = Share(Animation, initial.Animation, groups),
+            Transition = Share(Transition, initial.Transition, groups),
             Multicol = Share(Multicol, initial.Multicol, groups),
             Svg = Share(Svg, _parent.Svg, groups),
             SvgStop = Share(SvgStop, initial.SvgStop, groups),
