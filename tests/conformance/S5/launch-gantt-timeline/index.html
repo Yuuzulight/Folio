@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas 3.0 Launch Plan</title>
+<style>
+  body { margin: 0; font-family: "Helvetica Neue", Arial, sans-serif; background: #fafafa; color: #18181b; }
+  .page { max-width: 980px; margin: 0 auto; padding: 28px 20px 44px; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2px solid #18181b; padding-bottom: 10px; margin-bottom: 16px; }
+  h1 { font-size: 24px; margin: 0; }
+  .status { font-size: 13px; background: #fef3c7; color: #92400e; border-radius: 6px; padding: 4px 10px; font-weight: 600; }
+  svg { display: block; width: 100%; height: auto; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; }
+  .row-label { font-size: 12px; fill: #27272a; }
+  .group-label { font-size: 11px; font-weight: 700; fill: #71717a; letter-spacing: 0.08em; }
+  .week { font-size: 10px; fill: #71717a; }
+  .bar-text { font-size: 10px; fill: #fff; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e4e4e7; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #71717a; }
+  .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+  .ok { background: #dcfce7; color: #166534; }
+  .risk { background: #fee2e2; color: #991b1b; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <h1>Atlas 3.0 launch plan</h1>
+    <span class="status">At risk: localisation</span>
+  </div>
+
+  <svg viewBox="0 0 940 360" role="img" aria-label="Gantt chart">
+    <defs>
+      <pattern id="weekend" width="70" height="300" patternUnits="userSpaceOnUse" x="160">
+        <rect x="50" width="20" height="300" fill="#f4f4f5"/>
+      </pattern>
+      <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="6" height="6" fill="#fca5a5"/>
+        <rect width="3" height="6" fill="#ef4444"/>
+      </pattern>
+      <linearGradient id="done" x1="0" x2="1">
+        <stop offset="0" stop-color="#22c55e"/><stop offset="1" stop-color="#16a34a"/>
+      </linearGradient>
+    </defs>
+
+    <!-- week grid: 10 weeks, 70px each, starting x=160 -->
+    <rect x="160" y="30" width="700" height="300" fill="url(#weekend)"/>
+    <g stroke="#e4e4e7">
+      <line x1="160" y1="30" x2="160" y2="330"/><line x1="230" y1="30" x2="230" y2="330"/><line x1="300" y1="30" x2="300" y2="330"/>
+      <line x1="370" y1="30" x2="370" y2="330"/><line x1="440" y1="30" x2="440" y2="330"/><line x1="510" y1="30" x2="510" y2="330"/>
+      <line x1="580" y1="30" x2="580" y2="330"/><line x1="650" y1="30" x2="650" y2="330"/><line x1="720" y1="30" x2="720" y2="330"/>
+      <line x1="790" y1="30" x2="790" y2="330"/><line x1="860" y1="30" x2="860" y2="330"/>
+    </g>
+    <g class="week" text-anchor="middle">
+      <text x="195" y="20">W36</text><text x="265" y="20">W37</text><text x="335" y="20">W38</text><text x="405" y="20">W39</text>
+      <text x="475" y="20">W40</text><text x="545" y="20">W41</text><text x="615" y="20">W42</text><text x="685" y="20">W43</text>
+      <text x="755" y="20">W44</text><text x="825" y="20">W45</text>
+    </g>
+
+    <!-- groups -->
+    <text x="16" y="50" class="group-label">BUILD</text>
+    <text x="24" y="76" class="row-label">API freeze</text>
+    <text x="24" y="104" class="row-label">Sync engine</text>
+    <text x="24" y="132" class="row-label">Mobile release</text>
+    <text x="16" y="164" class="group-label">QUALITY</text>
+    <text x="24" y="190" class="row-label">Beta programme</text>
+    <text x="24" y="218" class="row-label">Localisation</text>
+    <text x="16" y="250" class="group-label">GO TO MARKET</text>
+    <text x="24" y="276" class="row-label">Docs and videos</text>
+    <text x="24" y="304" class="row-label">Launch event</text>
+
+    <!-- bars -->
+    <rect x="160" y="64" width="140" height="18" rx="4" fill="url(#done)"/>
+    <text x="168" y="77" class="bar-text">Done</text>
+    <rect x="230" y="92" width="280" height="18" rx="4" fill="#3b82f6"/>
+    <rect x="230" y="92" width="196" height="18" rx="4" fill="#1d4ed8"/>
+    <text x="238" y="105" class="bar-text">70%</text>
+    <rect x="440" y="120" width="210" height="18" rx="4" fill="#8b5cf6"/>
+    <rect x="370" y="178" width="280" height="18" rx="4" fill="#f59e0b"/>
+    <rect x="440" y="206" width="245" height="18" rx="4" fill="url(#hatch)"/>
+    <text x="448" y="219" class="bar-text" fill="#7f1d1d">2 weeks late</text>
+    <rect x="580" y="264" width="210" height="18" rx="4" fill="#14b8a6"/>
+    <!-- milestone diamond -->
+    <path d="M825,296 L835,306 L825,316 L815,306 Z" fill="#18181b"/>
+    <text x="812" y="310" text-anchor="end" font-size="11" fill="#18181b">Nov 6</text>
+
+    <!-- dependency arrow -->
+    <path d="M510,101 C530,101 530,129 548,129" fill="none" stroke="#71717a" stroke-width="1.2" stroke-dasharray="3 3"/>
+
+    <!-- today line -->
+    <line x1="462" y1="30" x2="462" y2="330" stroke="#ef4444" stroke-width="2"/>
+    <rect x="442" y="333" width="40" height="18" rx="4" fill="#ef4444"/>
+    <text x="462" y="346" text-anchor="middle" font-size="10" fill="#fff" font-weight="700">Today</text>
+  </svg>
+
+  <table>
+    <thead><tr><th>Workstream</th><th>Owner</th><th>Next checkpoint</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Sync engine</td><td>R. Okonkwo</td><td>Load test, Oct 9</td><td><span class="pill ok">On track</span></td></tr>
+      <tr><td>Localisation</td><td>M. Becker</td><td>German and Japanese strings, Oct 13</td><td><span class="pill risk">Late</span></td></tr>
+      <tr><td>Launch event</td><td>J. Alvarez</td><td>Venue contract, Oct 20</td><td><span class="pill ok">On track</span></td></tr>
+    </tbody>
+  </table>
+</div>
+</body>
+</html>

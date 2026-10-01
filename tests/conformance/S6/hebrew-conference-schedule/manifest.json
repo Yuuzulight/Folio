@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a dark Hebrew right-to-left conference schedule with day tabs, a table of talks with times, speakers and rooms, English product names isolated with bdi, and break rows with emoji.",
+  "features": ["rtl", "hebrew", "bidi", "bdi", "logical-properties", "table", "border-radius", "emoji"],
+  "viewport": 800
+}
