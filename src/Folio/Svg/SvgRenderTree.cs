@@ -104,10 +104,13 @@ internal static class SvgRenderTree
         var context = new SvgContext(layout, element.OwnerDocument);
         if (context.Find(url) is not { LocalName: "clipPath" } clip || clip.Name.Namespace != Namespaces.Svg)
             return null;
-        var box = new SvgShapeNode(Matrix3x2.Identity, 1,
-            [new('M', new(0, 0)), new('L', new(width, 0)), new('L', new(width, height)), new('L', new(0, height)), new('Z')], null, null);
-        return ClipPath(clip, box, new Vector2(width, height), context);
+        return ClipPath(clip, Rectangle(new SvgRect(0, 0, width, height), null), new Vector2(width, height), context);
     }
+
+    // A rectangle as a shape filled with this fill (or not filled).
+    private static SvgShapeNode Rectangle(SvgRect r, SvgFill? fill) => new(Matrix3x2.Identity, 1,
+        [new('M', new(r.X, r.Y)), new('L', new(r.X + r.Width, r.Y)), new('L', new(r.X + r.Width, r.Y + r.Height)), new('L', new(r.X, r.Y + r.Height)), new('Z')],
+        fill, null);
 
     // An svg element's viewport: its viewBox mapped into the rectangle, the content clipped to it unless overflow is
     // visible. A viewBox with a zero size disables rendering (https://www.w3.org/TR/SVG2/coords.html#ViewBoxAttribute).
@@ -231,7 +234,12 @@ internal static class SvgRenderTree
                 return nothing;
             var region = regionInBox ? new SvgRect(box.X + x, box.Y + y, width, height) : new SvgRect(x, y, width, height);
             var content = contentInBox ? new Matrix3x2(box.Width, 0, 0, box.Height, box.X, box.Y) : Matrix3x2.Identity;
-            return new SvgMask(Children(mask, contentInBox ? Vector2.One : viewport, context), content, region, luminance);
+            var contentViewport = contentInBox ? Vector2.One : viewport;
+            var (children, overBudget) = context.ReferencedContent(mask, contentViewport, () => Children(mask, contentViewport, context));
+            // With the budget for referenced content spent, the mask keeps everything in its region.
+            return overBudget
+                ? new SvgMask([Rectangle(region, new SvgFill(new SvgResolvedPaint(new CssColor(1, 1, 1, 1)), false))], Matrix3x2.Identity, region, false)
+                : new SvgMask(children, content, region, luminance);
         }
         finally
         {
@@ -257,13 +265,25 @@ internal static class SvgRenderTree
                 toUser *= new Matrix3x2(box.Width, 0, 0, box.Height, box.X, box.Y);
                 viewport = Vector2.One;
             }
-            var children = new List<SvgRenderNode>();
-            for (var child = clip.FirstChild; child is not null; child = child.NextSibling)
+            var shapesViewport = viewport;
+            var (children, overBudget) = context.ReferencedContent(clip, viewport, () =>
             {
-                if (child is ElementNode { Name.Namespace: var ns, LocalName: "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "text" } element
-                    && ns == Namespaces.Svg && element.ComputedStyle() is { Box.Display: not Display.None } childStyle
-                    && Node(element, childStyle, viewport, context, clipping: true) is { } node)
-                    children.Add(node);
+                var nodes = new List<SvgRenderNode>();
+                for (var child = clip.FirstChild; child is not null; child = child.NextSibling)
+                {
+                    if (child is ElementNode { Name.Namespace: var ns, LocalName: "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "text" } element
+                        && ns == Namespaces.Svg && element.ComputedStyle() is { Box.Display: not Display.None } childStyle
+                        && Node(element, childStyle, shapesViewport, context, clipping: true) is { } node)
+                        nodes.Add(node);
+                }
+                return nodes;
+            });
+            // With the budget for referenced content spent, the region is the bounding box of its shapes.
+            if (overBudget)
+            {
+                children = Bounds(new SvgContainerNode(Matrix3x2.Identity, 1, children)) is { } bounds
+                    ? [Rectangle(bounds, new SvgFill(new SvgResolvedPaint(CssColor.Black), false))]
+                    : [];
             }
             // The clipPath's own clip path clips its region.
             var own = style?.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } next && next.Name.Namespace == Namespaces.Svg
