@@ -90,7 +90,7 @@ public class BlockLayoutTests
 
     private static string Label(Box? box) => box switch
     {
-        { PseudoElement: not PseudoElement.None and var pe } => "::" + pe.ToString().ToLowerInvariant(),
+        { PseudoElement: not PseudoElement.None and var pe } => "::" + string.Concat(pe.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? "-" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString())),
         { Node: ElementNode e } => e.LocalName + (e.GetAttribute("id") is { } id ? "#" + id : ""),
         _ => "(anonymous)",
     };
