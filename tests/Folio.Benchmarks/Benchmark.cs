@@ -39,6 +39,7 @@ internal static class Benchmark
         yield return ("generated/report", Report());
         yield return ("generated/table-5000", Table(5000));
         yield return ("generated/nested-svg-2700", NestedSvg(2700));
+        yield return ("generated/nested-div-20000", NestedDivs(20000));
 
         var root = RepoPaths.Tests;
         var corpora = new (string Prefix, string? Folder)[]
@@ -152,6 +153,12 @@ internal static class Benchmark
     private static string NestedSvg(int depth) =>
         "<!DOCTYPE html><html><body><svg width=\"80\" height=\"60\">" + string.Concat(Enumerable.Repeat("<g>", depth)) +
         "<rect width=\"40\" height=\"30\"/></svg></body></html>";
+
+    /// <summary>
+    /// Divs nested far past the parser's depth limit (#197): every start tag once walked the whole stack of open
+    /// elements looking for a p, so parsing took quadratic time.
+    /// </summary>
+    private static string NestedDivs(int depth) => "<!DOCTYPE html><html><body>" + string.Concat(Enumerable.Repeat("<div>x", depth)) + "</body></html>";
 
     /// <summary>A large data table, the corpus 95th percentile example in study 18.</summary>
     private static string Table(int rows)
