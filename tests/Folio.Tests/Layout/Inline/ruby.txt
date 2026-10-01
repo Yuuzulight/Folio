@@ -137,3 +137,32 @@ html 0,0 800x60
           (anonymous) 40,0 20x60
             line 40,0 20x60
               text "紙" 40,20 20x20
+
+=== a first line's annotation reaches into the margins above its block and the space below the previous block's last line, unless a top border closes it off
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 20px; line-height: 1.5 } rt { font-size: 10px }</style><p style="line-height: 2">xx</p><p><ruby>xxxx<rt>xxxxx</rt></ruby></p><p style="margin-top: 3px; border-top: 1px solid"><ruby>xxxx<rt>xxxxx</rt></ruby></p>
+---
+html 0,0 800x109
+  body 0,0 800x109
+    p 0,0 800x40
+      line 0,0 800x40
+        text "xx" 0,10 40x20
+    p 0,40 800x30
+      line 0,40 800x30
+        ruby 0,45 80x20
+        (anonymous) 0,40 80x30
+          rt 15,35 50x10
+            line 15,35 50x10
+              text "xxxxx" 15,35 50x10
+          (anonymous) 0,40 80x30
+            line 0,40 80x30
+              text "xxxx" 0,45 80x20
+    p 0,73 800x36
+      line 0,74 800x35
+        ruby 0,84 80x20
+        (anonymous) 0,79 80x30
+          rt 15,74 50x10
+            line 15,74 50x10
+              text "xxxxx" 15,74 50x10
+          (anonymous) 0,79 80x30
+            line 0,79 80x30
+              text "xxxx" 0,84 80x20

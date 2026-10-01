@@ -18,6 +18,43 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
 
     /// <summary>What masks the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
     public SvgMask? Mask { get; init; }
+
+    /// <summary>What filters the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
+    public SvgFilterChain? Filters { get; init; }
+}
+
+/// <summary>
+/// A filter list with its url() references resolved (https://drafts.csswg.org/filter-effects-1/#FilterProperty): each
+/// filter function, or its SVG filter element, in order, and what the element's units need: the filtered element's
+/// bounding box and the viewport.
+/// </summary>
+internal sealed record SvgFilterChain(IReadOnlyList<(FilterFunction Function, ElementNode? Element)> Filters, CssColor CurrentColor, SvgRect? Bounds, Vector2 Viewport)
+{
+    /// <summary>
+    /// A filter list's chain; null when it filters nothing: none, or a reference to anything but a filter element, which
+    /// ignores the whole list.
+    /// </summary>
+    public static SvgFilterChain? Of(FilterList list, CssColor currentColor, SvgRect? bounds, Vector2 viewport, SvgContext context)
+    {
+        var filters = new List<(FilterFunction, ElementNode?)>();
+        foreach (var function in list.Functions)
+        {
+            if (function.Name != "url")
+                filters.Add((function, null));
+            else if (context.Find(function.Url) is { LocalName: "filter" } element && element.Name.Namespace == Namespaces.Svg)
+                filters.Add((function, element));
+            else
+                return null;
+        }
+        return filters.Count > 0 ? new SvgFilterChain(filters, currentColor, bounds, viewport) : null;
+    }
+
+    /// <summary>
+    /// A CSS box's chain when its filter list references a filter element, for a border box of this size: user units
+    /// are CSS pixels from its top-left corner, and it is the bounding box.
+    /// </summary>
+    public static SvgFilterChain? ForBox(ElementNode element, ComputedStyle style, float width, float height, Layout.LayoutContext layout) =>
+        Of(style.Effects.Filter, style.Inherited.Color, new SvgRect(0, 0, width, height), new Vector2(width, height), new SvgContext(layout, element.OwnerDocument));
 }
 
 /// <summary>
@@ -154,9 +191,11 @@ internal static class SvgRenderTree
             return null;
         if (style.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } clip && clip.Name.Namespace == Namespaces.Svg)
             node = node with { ClipPath = ClipPath(clip, node, viewport, context) };
-        // In a clip path only the geometry counts, so masks there are ignored.
+        // In a clip path only the geometry counts, so masks and filters there are ignored.
         if (!clipping && MaskReference(style.Mask, context) is var (mask, mode))
             node = node with { Mask = Mask(mask, mode, Bounds(node), viewport, context) };
+        if (!clipping && !style.Effects.Filter.IsNone)
+            node = node with { Filters = SvgFilterChain.Of(style.Effects.Filter, style.Inherited.Color, Bounds(node), viewport, context) };
         return node;
     }
 

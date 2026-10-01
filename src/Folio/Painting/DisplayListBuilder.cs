@@ -359,12 +359,15 @@ internal static class DisplayListBuilder
         public void Emit(Context context)
         {
             var owner = context.Real ? context.Owner : null;
-            var (filters, filterOpacity) = owner is null ? (null, 1) : FilterPrimitives.ForLayer(owner.Box.Style.Effects.Filter, owner.Box.Style.Inherited.Color);
+            // A list that references SVG filter elements is a layer per filter, laid out with the box; its opacity() stays a filter.
+            var references = owner is not null && owner.Box.Style.Effects.Filter.HasReference;
+            var svgFilters = references && owner!.Fragment.SvgFilters is { } chain ? SvgFilterPrimitives.Of(chain) : null;
+            var (filters, filterOpacity) = owner is null || references ? (null, 1) : FilterPrimitives.ForLayer(owner.Box.Style.Effects.Filter, owner.Box.Style.Inherited.Color);
             var opacity = (owner is not null && owner.Box.Style.Box.Opacity < 1 ? owner.Box.Style.Box.Opacity : 1) * filterOpacity;
             var backdrop = owner is null ? null : FilterPrimitives.Of(owner.Box.Style.Effects.BackdropFilter, owner.Box.Style.Inherited.Color);
             var blend = owner is null ? BlendMode.Normal : Blend(owner.Box.Style.Effects.MixBlendMode);
             var mask = owner is not null && owner.Box.Style.Mask.IsMasked ? owner.Box.Style.Mask : null;
-            var layered = opacity < 1 || filters is not null || backdrop is not null || blend != BlendMode.Normal || context.Isolated || mask is not null;
+            var layered = opacity < 1 || filters is not null || svgFilters is not null || backdrop is not null || blend != BlendMode.Normal || context.Isolated || mask is not null;
             // A mask applies after the filter and before opacity, so with both the filter gets a layer of its own inside.
             var innerFilter = mask is not null && filters is not null;
             var transform = owner is not null && owner.Box.IsTransformed ? Transform(owner) : (Matrix4x4?)null;
@@ -403,6 +406,14 @@ internal static class DisplayListBuilder
                         Filters: innerFilter ? null : filters, Backdrop: backdrop, Blend: blend));
                 if (innerFilter)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: filters));
+                if (svgFilters is not null)
+                {
+                    // The filters are in the border box's coordinates: the layers start there, the content goes back.
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(clipOrigin)));
+                    for (var i = svgFilters.Count - 1; i >= 0; i--)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: svgFilters[i]));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(-clipOrigin)));
+                }
                 _floor = _open.Count;
             }
 
@@ -428,6 +439,8 @@ internal static class DisplayListBuilder
             {
                 PopTo(_floor);
                 if (innerFilter)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                for (var i = 0; svgFilters is not null && i < svgFilters.Count + 2; i++)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 if (mask is not null)
                     PaintMask(owner!, mask);
