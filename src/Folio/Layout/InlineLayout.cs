@@ -463,7 +463,8 @@ internal static class InlineLayout
 
     /// <summary>
     /// Min-content (the widest unit) and max-content (the widest line with only forced breaks) widths
-    /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own.
+    /// (css-sizing-3 §5.1); atomic inlines count with their own contributions, floats on their own for min-content and
+    /// beside the line they start on for max-content.
     /// </summary>
     public static (float Min, float Max) Measure(BlockContainerBox block, InlineFormattingContext ifc, LayoutContext context)
     {
@@ -488,9 +489,12 @@ internal static class InlineLayout
                 if (piece.Kind is PieceKind.Atomic or PieceKind.Float)
                 {
                     var c = IntrinsicSizes.Contribution(piece.Box!, context);
+                    // A float takes its own width beside the line it starts on, so its max-content width adds to that
+                    // line's; its min-content width stands alone.
                     if (piece.Kind == PieceKind.Float)
                     {
-                        (min, max) = (Math.Max(min, c.Min), Math.Max(max, c.Max));
+                        min = Math.Max(min, c.Min);
+                        unitMax += c.Max;
                         continue;
                     }
                     (unitMin, unitMax) = (unitMin + c.Min, unitMax + c.Max);
