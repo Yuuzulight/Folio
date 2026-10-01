@@ -94,3 +94,16 @@ html 0,0 800x20
   body 0,0 800x20
     div#p 5,5 800x20
       div#a 5,5 10x10
+
+=== a relatively positioned inline box is the containing block of its absolute descendants
+<!DOCTYPE html><style>body { margin: 0 }</style>
+<div style="margin-top: 50px; padding-left: 20px">ab <span id=p style="position: relative; padding: 2px; border: 1px solid">cd<span id=a style="position: absolute; left: 0; right: 0; bottom: 0; height: 4px"></span></span></div>
+---
+html 0,0 800x66
+  body 0,50 800x16
+    div 0,50 800x16
+      line 20,50 780x16
+        span#p 68,47 38x22
+        text "ab " 20,50 48x16
+        text "cd" 71,50 32x16
+      span#a 69,64 36x4
