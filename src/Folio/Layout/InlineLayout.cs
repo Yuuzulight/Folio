@@ -955,14 +955,16 @@ internal static class InlineLayout
         if (style.Text.IsVertical)
             ascent = descent = (ascent + descent) / 2;
         var xHeight = face is { XHeight: > 0 } ? face.XHeight * size / face.UnitsPerEm : size / 2;
+        // Line heights are kept in 64ths of a pixel, as browsers keep layout lengths, so a long run of lines adds up as it
+        // does there: a length rounds to the nearest 64th; a number multiplies the font size, itself rounded to a 64th,
+        // and the product rounds down.
+        static float Nearest64th(float px) => MathF.Round(px * 64, MidpointRounding.AwayFromZero) / 64;
         var lineHeight = style.Font.LineHeight switch
         {
             { IsNormal: true } => ascent + descent + gap,
-            { Px: { } px } => px,
-            var l => l.Number * size,
+            { Px: { } px } => Nearest64th(px),
+            var l => MathF.Floor(Nearest64th(size) * l.Number * 64 + 0.001f) / 64, // the bit absorbs float error in numbers like 1.4
         };
-        // Line heights are kept in 64ths of a pixel, rounded down, so a long run of lines adds up as it does in browsers.
-        lineHeight = MathF.Floor(lineHeight * 64) / 64;
         // Half the leading goes above the text, rounded down to whole pixels so baselines stay on the pixel grid; the
         // rest goes below.
         var above = ascent + MathF.Floor((lineHeight - ascent - descent) / 2);
