@@ -10,7 +10,8 @@ public class DisplayListPlayerTests
     {
         var calls = Replay("<style>body { margin: 0 }</style><div style='opacity: .5; overflow: hidden; height: 10px'><div style='height: 20px; background: red'></div></div>");
 
-        Assert.Equal(["layer 0.5", "save", "clip-rrect", "fill-rrect", "restore", "pop-layer"], calls);
+        // The layer is bounded by a clip around what it draws.
+        Assert.Equal(["save", "clip-rrect", "layer 0.5", "save", "clip-rrect", "fill-rrect", "restore", "pop-layer", "restore"], calls);
     }
 
     [Fact]
@@ -18,7 +19,7 @@ public class DisplayListPlayerTests
     {
         var calls = Replay("<style>body { margin: 0 }</style><div style='filter: blur(1px) invert(1); backdrop-filter: blur(2px); width: 20px; height: 10px'></div>");
 
-        Assert.Equal(["layer 1 filters 2 backdrop 1 20x10", "pop-layer"], calls);
+        Assert.Equal(["save", "clip-rrect", "layer 1 filters 2 backdrop 1 20x10", "pop-layer", "restore"], calls);
     }
 
     [Fact]
@@ -62,6 +63,32 @@ public class DisplayListPlayerTests
         Assert.Contains("stroke 3 Round 0,6", calls);
         // 3px dashes are 6px long; the 16px-high sides fit two of them with a 4px gap, one at each end.
         Assert.Contains("stroke 3 Butt 6,4", calls);
+    }
+
+    [Fact]
+    public void LayersAreBoundedByWhatTheyDrawAndHowFarTheirFiltersReach()
+    {
+        // A 100x10 fill at the top left; its antialiased edges add a pixel all round.
+        Assert.Equal(new RectF(-1, -1, 102, 12), Bounds("<div style='opacity: .5; width: 100px; height: 10px; background: red'></div>"));
+        // A 2px blur reaches three standard deviations further.
+        Assert.Equal(new RectF(-7, -7, 114, 24), Bounds("<div style='filter: blur(2px); width: 100px; height: 10px; background: red'></div>"));
+        // A drop shadow adds its offset copy.
+        Assert.Equal(new RectF(-1, -1, 112, 17), Bounds("<div style='filter: drop-shadow(10px 5px 0 black); width: 100px; height: 10px; background: red'></div>"));
+        // Content under a transform inside the layer is mapped out of it.
+        Assert.Equal(new RectF(49, -1, 102, 12), Bounds("<div style='opacity: .5'><div style='transform: translateX(50px); width: 100px; height: 10px; background: red'></div></div>"));
+    }
+
+    [Fact]
+    public void LayersWithUnknownReachAreNotBounded()
+    {
+        Assert.Null(Bounds("<div style='perspective: 100px; opacity: .5'><div style='transform: rotateY(30deg); width: 100px; height: 10px; background: red'></div></div>"));
+    }
+
+    private static RectF? Bounds(string html)
+    {
+        var list = DisplayListBuilder.Build(BlockLayoutTests.LayOut("<!DOCTYPE html><style>body { margin: 0 }</style>" + html));
+        var first = list.Items.FindIndex(i => i.Kind == DisplayItemKind.PushLayer);
+        return DisplayListPlayer.LayerBounds(list)[first];
     }
 
     private static List<string> Replay(string html)
