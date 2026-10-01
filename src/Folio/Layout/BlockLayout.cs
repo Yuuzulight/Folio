@@ -317,6 +317,9 @@ internal static class BlockLayout
             // box and size if large SVG shows up in profiles.
             Svg = (box as ReplacedBox)?.SvgRoot is { } svg
                 ? Svg.SvgRenderTree.Build(svg, width, contentHeight, context) : null,
+            SvgClip = style.Effects.ClipPath.Url is { } clipUrl && box.Node is Dom.ElementNode clipped
+                ? Svg.SvgRenderTree.BoxClipPath(clipped, clipUrl, width + frameX, contentHeight + frameY, context)
+                : null,
         };
     }
 

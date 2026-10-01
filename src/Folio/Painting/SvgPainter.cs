@@ -19,6 +19,24 @@ internal static class SvgPainter
         items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
+    /// <summary>
+    /// A CSS box's SVG clip path, its coordinates' origin at <paramref name="origin"/> on the canvas, as a path clip; null
+    /// when it is more than one plain shape and is drawn with <see cref="PaintClipMask"/> instead.
+    /// </summary>
+    public static DisplayItem? ClipItem(SvgClipPath clip, Vector2 origin) =>
+        ClipPathItem(clip with { Transform = clip.Transform * Matrix3x2.CreateTranslation(origin) });
+
+    /// <summary>
+    /// Draws a CSS box's SVG clip path as a destination-in layer over what the box painted, so that stays only inside
+    /// the clip region; its own clip path is in the box's coordinates, like the region.
+    /// </summary>
+    public static void PaintClipMask(SvgClipPath clip, Vector2 origin, List<DisplayItem> items)
+    {
+        items.Add(new DisplayItem(DisplayItemKind.PushLayer, Blend: BlendMode.DestinationIn));
+        Paint(new SvgContainerNode(Matrix3x2.Identity, 1, [new SvgContainerNode(clip.Transform, 1, clip.Children)]) { ClipPath = clip.ClipPath }, origin, items);
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
+    }
+
     private static void Emit(SvgRenderNode node, List<DisplayItem> items)
     {
         if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())

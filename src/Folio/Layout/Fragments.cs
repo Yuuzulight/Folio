@@ -122,6 +122,12 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
     public Svg.SvgContainerNode? Svg { get; init; }
 
+    /// <summary>
+    /// For a box whose clip-path is a url() reference to an SVG clipPath element: that clip path, in coordinates whose
+    /// origin is the border box's top-left corner; null otherwise, and then a reference clips nothing.
+    /// </summary>
+    public Svg.SvgClipPath? SvgClip { get; init; }
+
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
 }
