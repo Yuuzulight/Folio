@@ -162,7 +162,17 @@ internal sealed class BoxTreeBuilder
         {
             var control = OpenBox(element, style, IsInlineLevel(display) ? Display.InlineBlock : Blockified(display), PseudoElement.None);
             Push(control);
+            // A drop-down select's text sits in an inner box padded inside the author's padding, with room for the arrow.
+            var inner = control.Box is BlockContainerBox && element.LocalName == "select";
+            if (inner)
+            {
+                var box = new BlockContainerBox(SelectInnerStyle(style), null);
+                Place(box, inlineLevel: false);
+                Push(new Frame(FrameKind.Block, box, box.Style));
+            }
             AddText(controlText, style);
+            if (inner)
+                Finish(Pop());
             Finish(Pop());
             return false;
         }
@@ -572,7 +582,7 @@ internal sealed class BoxTreeBuilder
     /// a bullet per character for passwords), a textarea's text, a single-line select's selected option (else its
     /// first); null for other elements, which keep their replaced box.
     /// </summary>
-    // ponytail: placeholders are drawn in the control's own colour, and a select's arrow is not drawn.
+    // ponytail: placeholders are drawn in the control's own colour.
     private static string? ControlText(ElementNode element)
     {
         if (element.Name.Namespace != Namespaces.Html)
@@ -646,6 +656,25 @@ internal sealed class BoxTreeBuilder
         };
         return StyleBuilder.Compute(new Dictionary<PropertyId, CssValue> { [PropertyId.Display] = new KeywordValue(keyword) },
             new ComputeContext(parent, parent.Font.Size, 0, 0));
+    }
+
+    /// <summary>The width at the end of a drop-down select that its arrow is drawn in (study 15).</summary>
+    internal const float SelectArrowWidth = 16;
+
+    // The inner box of a drop-down select: 1px above and below the text, 4px before it, and the arrow after it.
+    private static ComputedStyle SelectInnerStyle(ComputedStyle select)
+    {
+        static LengthValue Px(float px) => new(new Length(px, LengthUnit.Px));
+        var (start, end) = (Px(4), Px(1 + SelectArrowWidth));
+        var rtl = select.Text.Direction == Direction.Rtl;
+        return StyleBuilder.Compute(new Dictionary<PropertyId, CssValue>
+        {
+            [PropertyId.Display] = new KeywordValue("block"),
+            [PropertyId.PaddingTop] = Px(1),
+            [PropertyId.PaddingBottom] = Px(1),
+            [PropertyId.PaddingLeft] = rtl ? end : start,
+            [PropertyId.PaddingRight] = rtl ? start : end,
+        }, new ComputeContext(select, select.Font.Size, 0, 0));
     }
 
     // ---------------------------------------------------------------- table fix-up
