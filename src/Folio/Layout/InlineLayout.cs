@@ -26,7 +26,8 @@ internal static class InlineLayout
 
     /// <summary>Lines of an inline formatting context, from <paramref name="top"/> down, in content-box coordinates.</summary>
     public static (List<ChildFragment> Lines, float Bottom, bool HasLineBoxes) Layout(
-        BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context)
+        BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context,
+        float roomAbove = 0)
     {
         var levels = BidiLevels(block, ifc);
         var units = Measured.TryGetValue(context, out var measured) && measured.Remove(ifc, out var kept) ? kept : Units(block, ifc, width, context, levels);
@@ -39,9 +40,10 @@ internal static class InlineLayout
         var indent = block.Node is Dom.ElementNode ? block.Style.Text.TextIndent : default; // not in anonymous blocks
         var rtl = levels.Paragraph == 1;
         var afterForcedBreak = true;
-        // The room above a line that ruby annotations may reach into without moving it: the block's top padding and margin
-        // above the first line, the space below the previous line's content above the others.
-        var room = BlockLayout.Resolve(block.Style.Spacing.PaddingTop, width) + Math.Max(0, BlockLayout.Margin(block.Style.Spacing.MarginTop, width));
+        // The room above a line that ruby annotations may reach into without moving it: the block's top padding, and the
+        // room above the block unless a top border closes it off, for the first line; the space below the previous
+        // line's content for the others.
+        var room = BlockLayout.Resolve(block.Style.Spacing.PaddingTop, width) + (block.Style.Border.TopWidth > 0 ? 0 : roomAbove);
 
         // line-clamp (css-overflow-4 §4): only that many lines are laid out; the last one ends with an ellipsis when
         // content was left out.
@@ -111,7 +113,7 @@ internal static class InlineLayout
     }
 
     // The bottom of a line's text and atomic inlines, from its top; a ruby column's is its base's text's.
-    private static float ContentBottom(Fragment line)
+    internal static float ContentBottom(Fragment line)
     {
         var bottom = 0f;
         foreach (var child in line.Children)
@@ -142,6 +144,7 @@ internal static class InlineLayout
         public float AtomicMarginLeft { get; set; }
         public float AtomicMarginTop { get; init; }
         public float AtomicMarginBottom { get; init; }
+        public bool AtomicUpright { get; init; } // in a vertical line, not turned with it: its width is its extent across the line
         public bool Visible { get; init; } // content that makes the line box a real one
         public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
         public string? Replacement { get; init; } // text of an inserted ellipsis, whose run is not the context's text
@@ -303,12 +306,19 @@ internal static class InlineLayout
                     var fragment = symbol ?? (box is RubyColumnBox ruby ? RubyLayout.Layout(ruby, width, context)
                         : BlockLayout.Layout(box, new ConstraintSpace(width, null), context));
                     var spacing = symbol is null ? box.Style.Spacing : ComputedStyle.Initial.Spacing;
-                    var (ml, mr) = (BlockLayout.Margin(spacing.MarginLeft, width), BlockLayout.Margin(spacing.MarginRight, width));
-                    var (mt, mb) = (BlockLayout.Margin(spacing.MarginTop, width), BlockLayout.Margin(spacing.MarginBottom, width));
-                    Add(new Piece(PieceKind.Atomic, box.Style, ml + fragment.Width + mr)
+                    // In a vertical line an atomic inline keeps its own orientation (a ruby column turns with the line):
+                    // its height runs along the line, its top and bottom margins are its inline ones, and its right and
+                    // left ones (in vertical-rl) face the line's over and under sides.
+                    var upright = block.Style.Text.IsVertical && box is not RubyColumnBox && symbol is null;
+                    var rl = block.Style.Text.WritingMode == WritingMode.VerticalRl;
+                    var (left, right, top, bottom) = (BlockLayout.Margin(spacing.MarginLeft, width), BlockLayout.Margin(spacing.MarginRight, width),
+                        BlockLayout.Margin(spacing.MarginTop, width), BlockLayout.Margin(spacing.MarginBottom, width));
+                    var (ml, mr) = upright ? (top, bottom) : (left, right);
+                    var (mt, mb) = !upright ? (top, bottom) : rl ? (right, left) : (left, right);
+                    Add(new Piece(PieceKind.Atomic, box.Style, ml + (upright ? fragment.Height : fragment.Width) + mr)
                     {
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
-                        Level = levels.Atomics.GetValueOrDefault(box),
+                        Level = levels.Atomics.GetValueOrDefault(box), AtomicUpright = upright,
                     });
                     if (wraps)
                         Close();
@@ -701,9 +711,20 @@ internal static class InlineLayout
     }
 
     // An inline box's margin, border and padding at its inline start and end: left and right, swapped in rtl.
-    private static float InlineStart(ComputedStyle style, float cbWidth) => style.Text.Direction == Direction.Rtl ? Right(style, cbWidth) : Left(style, cbWidth);
+    // In vertical text the inline axis runs down: the start edge is the top (the bottom right to left).
+    private static float InlineStart(ComputedStyle style, float cbWidth) =>
+        style.Text.IsVertical ? (style.Text.Direction == Direction.Rtl ? Bottom(style, cbWidth) : Top(style, cbWidth))
+        : style.Text.Direction == Direction.Rtl ? Right(style, cbWidth) : Left(style, cbWidth);
 
-    private static float InlineEnd(ComputedStyle style, float cbWidth) => style.Text.Direction == Direction.Rtl ? Left(style, cbWidth) : Right(style, cbWidth);
+    private static float InlineEnd(ComputedStyle style, float cbWidth) =>
+        style.Text.IsVertical ? (style.Text.Direction == Direction.Rtl ? Top(style, cbWidth) : Bottom(style, cbWidth))
+        : style.Text.Direction == Direction.Rtl ? Left(style, cbWidth) : Right(style, cbWidth);
+
+    private static float Top(ComputedStyle style, float cbWidth) =>
+        BlockLayout.Margin(style.Spacing.MarginTop, cbWidth) + style.Border.TopWidth + BlockLayout.Resolve(style.Spacing.PaddingTop, cbWidth);
+
+    private static float Bottom(ComputedStyle style, float cbWidth) =>
+        BlockLayout.Margin(style.Spacing.MarginBottom, cbWidth) + style.Border.BottomWidth + BlockLayout.Resolve(style.Spacing.PaddingBottom, cbWidth);
 
     private static float Left(ComputedStyle style, float cbWidth) =>
         BlockLayout.Margin(style.Spacing.MarginLeft, cbWidth) + style.Border.LeftWidth + BlockLayout.Resolve(style.Spacing.PaddingLeft, cbWidth);
@@ -711,11 +732,21 @@ internal static class InlineLayout
     private static float Right(ComputedStyle style, float cbWidth) =>
         BlockLayout.Margin(style.Spacing.MarginRight, cbWidth) + style.Border.RightWidth + BlockLayout.Resolve(style.Spacing.PaddingRight, cbWidth);
 
-    private static float StartMargin(ComputedStyle style, float cbWidth) =>
-        BlockLayout.Margin(style.Text.Direction == Direction.Rtl ? style.Spacing.MarginRight : style.Spacing.MarginLeft, cbWidth);
+    private static float StartMargin(ComputedStyle style, float cbWidth) => BlockLayout.Margin((style.Text.IsVertical, style.Text.Direction) switch
+    {
+        (true, Direction.Rtl) => style.Spacing.MarginBottom,
+        (true, _) => style.Spacing.MarginTop,
+        (false, Direction.Rtl) => style.Spacing.MarginRight,
+        _ => style.Spacing.MarginLeft,
+    }, cbWidth);
 
-    private static float EndMargin(ComputedStyle style, float cbWidth) =>
-        BlockLayout.Margin(style.Text.Direction == Direction.Rtl ? style.Spacing.MarginLeft : style.Spacing.MarginRight, cbWidth);
+    private static float EndMargin(ComputedStyle style, float cbWidth) => BlockLayout.Margin((style.Text.IsVertical, style.Text.Direction) switch
+    {
+        (true, Direction.Rtl) => style.Spacing.MarginTop,
+        (true, _) => style.Spacing.MarginBottom,
+        (false, Direction.Rtl) => style.Spacing.MarginLeft,
+        _ => style.Spacing.MarginRight,
+    }, cbWidth);
 
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
@@ -936,8 +967,12 @@ internal static class InlineLayout
     /// How far the top of the ideographic em box of the style's first available font is above the baseline: an em above
     /// the ideographic baseline (OpenType BASE), or above the descender when the font has none.
     /// </summary>
-    internal static float EmTop(ComputedStyle style, LayoutContext context) =>
-        PrimaryFace(style, context) is { } face ? (face.UnitsPerEm + face.IdeographicBaseline) * style.Font.Size / face.UnitsPerEm : 0.8f * style.Font.Size;
+    internal static float EmTop(ComputedStyle style, LayoutContext context, FontFace? used = null) =>
+        style.Text.IsVertical ? style.Font.Size / 2 // vertical text sits on the central baseline, mid-em
+        : (used ?? PrimaryFace(style, context)) is { } face ? (face.UnitsPerEm + face.IdeographicBaseline) * style.Font.Size / face.UnitsPerEm : 0.8f * style.Font.Size;
+
+    /// <summary>The descent (below the baseline, positive) of a face at the style's size, as line metrics round it.</summary>
+    internal static float Descent(ComputedStyle style, FontFace? face) => Metrics(style, face).Descent;
 
     /// <summary>The ascent, descent (below the baseline, positive) and x-height of the style's first available font, in px.</summary>
     internal static (float Ascent, float Descent, float XHeight) FontMetrics(ComputedStyle style, LayoutContext context)
@@ -1131,10 +1166,11 @@ internal static class InlineLayout
                     Collect(piece);
                     // Its baseline is its last line's, or its bottom margin edge (CSS 2.2 §10.8.1).
                     var fragment = piece.Atomic!;
-                    var baseline = AtomicBaseline(fragment);
+                    var baseline = piece.AtomicUpright ? CentralBaseline(fragment, block.Style.Text.WritingMode) : AtomicBaseline(fragment);
+                    var extent = piece.AtomicUpright ? fragment.Width : fragment.Height;
                     var (above, below) = baseline is { } b
-                        ? (piece.AtomicMarginTop + b, fragment.Height - b + piece.AtomicMarginBottom)
-                        : (piece.AtomicMarginTop + fragment.Height + piece.AtomicMarginBottom, 0f);
+                        ? (piece.AtomicMarginTop + b, extent - b + piece.AtomicMarginBottom)
+                        : (piece.AtomicMarginTop + extent + piece.AtomicMarginBottom, 0f);
                     current.Children.Add(new Node(current, piece.Style, new LineMetrics(above, below, above, below, 0, 0, above + below))
                     {
                         Piece = piece, X = pieceX[piece] + piece.AtomicMarginLeft,
@@ -1287,8 +1323,11 @@ internal static class InlineLayout
                 {
                     var m = child.Metrics;
                     var style = child.Style;
-                    var (bt, bb) = (style.Border.TopWidth, style.Border.BottomWidth);
-                    var (pt, pb) = (BlockLayout.Resolve(style.Spacing.PaddingTop, cbWidth), BlockLayout.Resolve(style.Spacing.PaddingBottom, cbWidth));
+                    // Across a vertical line, the over side is the right one.
+                    var vertical = style.Text.IsVertical;
+                    var (bt, bb) = vertical ? (style.Border.RightWidth, style.Border.LeftWidth) : (style.Border.TopWidth, style.Border.BottomWidth);
+                    var (pt, pb) = (BlockLayout.Resolve(vertical ? style.Spacing.PaddingRight : style.Spacing.PaddingTop, cbWidth),
+                        BlockLayout.Resolve(vertical ? style.Spacing.PaddingLeft : style.Spacing.PaddingBottom, cbWidth));
                     boxFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent - pt - bt,
                         new Fragment(box, Math.Max(0, child.End - child.X), m.Ascent + m.Descent + pt + pb + bt + bb, [])));
                     Emit(child);
@@ -1311,40 +1350,43 @@ internal static class InlineLayout
     }
 
     /// <summary>
-    /// Shares the free space out among the line's word separators (spaces and no-break spaces), widening their glyphs
-    /// (https://www.w3.org/TR/css-text-3/#justify-algos, text-justify: auto). Spaces hanging at the end do not count.
-    /// Returns false when there is nothing to widen.
+    /// Shares the free space out among the line's justification opportunities (https://www.w3.org/TR/css-text-3/#justify-algos,
+    /// text-justify: auto), widening the glyphs before them: word separators (spaces and no-break spaces), and the
+    /// gaps beside CJK characters, which have no separators. Nothing after the line's last content counts, so spaces
+    /// hanging at the end do not. Returns false when there is nothing to widen.
     /// </summary>
-    // ponytail: no expansion between letters of scripts without word separators (CJK), and none in atomic inlines.
+    // ponytail: none in atomic inlines.
     private static bool Justify(List<Piece> pieces, string text, float free)
     {
-        var separators = new List<(Piece Piece, int Glyph)>();
+        // The line's clusters in order, each as its text piece and last glyph; null stands for an atomic inline.
+        var clusters = new List<(Piece? Piece, int Glyph)>();
         foreach (var piece in pieces)
         {
+            if (piece.Kind == PieceKind.Atomic)
+                clusters.Add((null, 0));
             if (piece.Kind != PieceKind.Text)
                 continue;
             for (var g = piece.GlyphStart; g < piece.GlyphEnd; g++)
             {
-                if (text[piece.Run!.Clusters[g]] is ' ' or '\u00A0')
-                    separators.Add((piece, g));
+                if (g + 1 == piece.GlyphEnd || piece.Run!.Clusters[g + 1] != piece.Run.Clusters[g])
+                    clusters.Add((piece, g));
             }
         }
-        // Drop the trailing spaces: separators after the last other glyph or atomic inline.
-        for (var i = pieces.Count - 1; i >= 0; i--)
+        int CodePoint(int i)
         {
-            var piece = pieces[i];
-            if (piece.Kind == PieceKind.Atomic)
-                break;
-            if (piece.Kind != PieceKind.Text)
-                continue;
-            var g = piece.GlyphEnd - 1;
-            while (g >= piece.GlyphStart && separators.Count > 0 && separators[^1] == (piece, g))
-            {
-                separators.RemoveAt(separators.Count - 1);
-                g--;
-            }
-            if (g >= piece.GlyphStart)
-                break;
+            var at = clusters[i].Piece!.Run!.Clusters[clusters[i].Glyph];
+            return char.IsSurrogatePair(text, at) ? char.ConvertToUtf32(text[at], text[at + 1]) : text[at];
+        }
+        bool IsSpace(int i) => clusters[i].Piece is not null && text[clusters[i].Piece!.Run!.Clusters[clusters[i].Glyph]] is ' ' or '\u00A0';
+        var last = clusters.Count - 1;
+        while (last >= 0 && IsSpace(last))
+            last--;
+        var separators = new List<(Piece Piece, int Glyph)>();
+        for (var i = 0; i < last; i++)
+        {
+            if (clusters[i].Piece is { } piece
+                && (IsSpace(i) || clusters[i + 1].Piece is not null && (RubyLayout.IsCjk(CodePoint(i)) || RubyLayout.IsCjk(CodePoint(i + 1)))))
+                separators.Add((piece, clusters[i].Glyph));
         }
         if (separators.Count == 0)
             return false;
@@ -1355,6 +1397,18 @@ internal static class InlineLayout
             piece.Width += extra;
         }
         return true;
+    }
+
+    // The central baseline of an atomic inline standing in a vertical line, from its right side, which faces the line's
+    // over side: its last line's (turned, so that line's baseline is measured from its right edge), or the middle of the
+    // box when it has none.
+    private static float CentralBaseline(Fragment fragment, WritingMode mode)
+    {
+        var lines = fragment.Children.Where(c => c.Fragment.Kind == FragmentKind.Line).ToList();
+        if (lines.Count == 0)
+            return fragment.Width / 2;
+        var last = mode == WritingMode.VerticalRl ? lines.MinBy(l => l.X) : lines.MaxBy(l => l.X);
+        return fragment.Width - (last.X + last.Fragment.Width) + last.Fragment.Baseline;
     }
 
     // The baseline of an atomic inline, from its top: an inline-block's is its last in-flow line box's (none when it

@@ -44,6 +44,8 @@ internal static class Targets
             "<![CDATA[", "]]>", "<!--", "&#x", "&amp;", "xmlns:x=\"", "<g>", "</g>", "<path d=\"", "M0 0", "A1 1 0 1 1", "C", "Z", " viewBox=\"",
             " preserveAspectRatio=\"", " transform=\"", "rotate(", "matrix(", "<text", "<tspan", " x=\"", " dx=\"", "%", "e9", "-", ".",
             " stroke-dasharray=\"", "url(#", "<rect", "<circle", " r=\"", "<polygon points=\"", "<svg", " width=\"", " style=\"", "<style>",
+            "<mask", "<filter", "<feGaussianBlur stdDeviation=\"", "<feTurbulence baseFrequency=\"", "<feMorphology radius=\"", " result=\"", " in=\"",
+            " in2=\"", " numOctaves=\"", " primitiveUnits=\"objectBoundingBox\"", " filter=\"", " mask=\"",
             "<pattern id=\"", " patternUnits=\"userSpaceOnUse\"", " patternTransform=\"", " href=\"#", " fill=\"url(#",
             "<foreignObject width=\"", "<div xmlns=\"http://www.w3.org/1999/xhtml\">"]),
     ];

@@ -59,6 +59,24 @@ public class AnimationFrameTests
     }
 
     [Fact]
+    public void GeneratedContentAnimates()
+    {
+        const string html = "<!DOCTYPE html><style>@keyframes f { from { opacity: 0 } to { opacity: 1 } }" +
+            " div::after { content: ''; display: block; height: 10px; background: red; animation: f 1s linear forwards }</style><div></div>";
+        using var settled = Document.Parse(html);
+        var (end, _) = settled.Paint(800, 600);
+        Assert.DoesNotContain(end.Items, i => i.Kind == DisplayItemKind.PushLayer); // opacity 1: no layer
+
+        using var document = Document.Parse(html);
+        var (start, _) = document.Paint(800, 600, animationTime: 0.25);
+        Assert.Equal(0.25f, Opacity(start), 3);
+        var frame = document.PaintFrame(0.75);
+        Assert.NotNull(frame);
+        Assert.Equal(0.75f, Opacity(frame), 3);
+        Assert.Equal(1, document.LayoutCount);
+    }
+
+    [Fact]
     public void NoAnimationsNoFrames()
     {
         using var document = Document.Parse("<p>still</p>");

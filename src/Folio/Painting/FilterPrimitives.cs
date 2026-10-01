@@ -11,8 +11,10 @@ internal static class FilterPrimitives
         [new Filter(FilterKind.ColorMatrix, Matrix: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2125f, 0.7154f, 0.0721f, 0, 0])];
 
     /// <summary>A filter list's primitives, currentcolor resolved against <paramref name="currentColor"/>; null for none.</summary>
+    // A list with url() references to SVG filter elements is built with the SVG filter code instead; in backdrop-filter
+    // they are left out.
     public static Filter[]? Of(FilterList list, CssColor currentColor) =>
-        list.IsNone ? null : [.. list.Functions.Select(f => Of(f, currentColor))];
+        list.Functions.Where(f => f.Name != "url").Select(f => Of(f, currentColor)).ToArray() is { Length: > 0 } filters ? filters : null;
 
     /// <summary>
     /// A filter list's primitives for a layer, with opacity() functions at the end taken out as an opacity to multiply
@@ -26,7 +28,8 @@ internal static class FilterPrimitives
             opacity *= Math.Min(last.Amount, 1);
             count--;
         }
-        return (count == 0 ? null : [.. list.Functions.Take(count).Select(f => Of(f, currentColor))], opacity);
+        var filters = list.Functions.Take(count).Where(f => f.Name != "url").Select(f => Of(f, currentColor)).ToArray();
+        return (filters.Length == 0 ? null : filters, opacity);
     }
 
     public static Filter Of(FilterFunction function, CssColor currentColor)
@@ -43,9 +46,12 @@ internal static class FilterPrimitives
         }
     }
 
-    // The component transfers (brightness, contrast, invert, opacity) are linear functions or two-entry tables, so each
-    // is a matrix too. Amounts of grayscale, sepia, invert and opacity above 1 count as 1.
-    private static float[] ColorMatrix(string name, float a)
+    /// <summary>
+    /// A filter function's colour matrix. The component transfers (brightness, contrast, invert, opacity) are linear
+    /// functions or two-entry tables, so each is a matrix too. Amounts of grayscale, sepia, invert and opacity above 1
+    /// count as 1.
+    /// </summary>
+    public static float[] ColorMatrix(string name, float a)
     {
         var s = 1 - Math.Min(a, 1);
         switch (name)
