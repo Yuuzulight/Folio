@@ -237,8 +237,10 @@ internal static class BlockLayout
             else
             {
                 // Ruby annotations on the child's first line may reach into the margins above it and the space below the
-                // content before it (the parent's room, when the child's margins collapse through its top).
-                var room = atTop ? (collapseTop ? space.AnnotationRoom : Math.Max(0, Margin(child.Style.Spacing.MarginTop, width)))
+                // content before it (the parent's room, when the child's margins collapse through its top); not in the
+                // columns of a multi-column container, which the reference keeps apart.
+                var room = columns is not null ? 0
+                    : atTop ? (collapseTop ? space.AnnotationRoom : Math.Max(0, Margin(child.Style.Spacing.MarginTop, width)))
                     : TrailingRoom(previous) + Math.Max(0, y - cursor);
                 fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y, AnnotationRoom: room), context);
             }
