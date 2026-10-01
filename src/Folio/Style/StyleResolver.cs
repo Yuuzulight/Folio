@@ -147,7 +147,7 @@ internal static class StyleResolver
                     {
                         var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent);
                         return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
-                    });
+                    }, registered);
                     animations.Add(animated);
                     style = animated.Sample(animationTime, groups);
                     // Each animated element keeps its own style, so a frame can change it alone.
@@ -170,6 +170,8 @@ internal static class StyleResolver
                     if (!always && pseudoMatched.Count == 0)
                         return null;
                     var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null, parent: style);
+                    if (pe == PseudoElement.FirstLetter)
+                        pseudoValues = FirstLetterProperties(pseudoValues);
                     var pseudoStyle = StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
                     if (ReferenceEquals(pseudoStyle.Animation, AnimationGroup.Initial) || keyframes.Count == 0)
                         return pseudoStyle;
@@ -341,5 +343,25 @@ internal static class StyleResolver
                 return Resources.ResourceLoader.Resolve(documentUrl, href) ?? documentUrl;
         }
         return documentUrl;
+    }
+
+    // The properties ::first-letter takes (https://www.w3.org/TR/css-pseudo-4/#first-letter-styling): fonts, colour,
+    // backgrounds, text decoration and shadows, case, spacing, line height, vertical-align, margins, padding, borders,
+    // box shadows and float. The rest are ignored.
+    private static readonly string[] FirstLetterPrefixes =
+    [
+        "font", "color", "background", "text-decoration", "text-shadow", "text-transform", "letter-spacing", "word-spacing",
+        "line-height", "vertical-align", "margin", "padding", "border", "box-shadow", "float",
+    ];
+
+    private static Dictionary<PropertyId, CssValue> FirstLetterProperties(Dictionary<PropertyId, CssValue> values)
+    {
+        foreach (var id in values.Keys.ToList())
+        {
+            var name = Properties.Get(id).Name;
+            if (!FirstLetterPrefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal)))
+                values.Remove(id);
+        }
+        return values;
     }
 }
