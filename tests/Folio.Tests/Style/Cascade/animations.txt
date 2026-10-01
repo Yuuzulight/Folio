@@ -15,10 +15,10 @@
 ---
 #a opacity: 1
 
-=== infinite animations never end
+=== settled, an infinite animation that fills forwards shows its last keyframe
 <!DOCTYPE html><style>@keyframes spin { to { margin-top: 9px } } p { animation: spin 1s linear infinite forwards }</style><p id=a>x</p>
 ---
-#a margin-top: 16px
+#a margin-top: 9px
 
 === reverse ends on the first keyframe
 <!DOCTYPE html><style>@keyframes m { 0% { margin-top: 1px } 100% { margin-top: 2px } } p { animation: m 1s reverse forwards }</style><p id=a>x</p>
@@ -85,3 +85,79 @@
 <!DOCTYPE html><style>@media (min-width: 1px) { @keyframes m { to { margin-top: 1px } } } p { animation: m 1s forwards }</style><p id=a>x</p>
 ---
 #a margin-top: 1px
+
+=== settled, a fractional iteration count ends part way
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 0px } to { margin-top: 10px } } p { animation: m 1s linear 1.5 forwards }</style><p id=a>x</p>
+---
+#a margin-top: 5px
+
+=== at a time, a linear animation is part way
+%time 1
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 0px } to { margin-top: 10px } } p { animation: m 2s linear }</style><p id=a>x</p>
+---
+#a margin-top: 5px
+
+=== a missing first keyframe starts from the underlying value
+%time 0.5
+<!DOCTYPE html><style>@keyframes m { to { margin-top: 10px } } p { margin-top: 0; animation: m 1s linear }</style><p id=a>x</p>
+---
+#a margin-top: 5px
+
+=== before its delay an animation fills backwards only when asked
+%time 0.5
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 0px } to { margin-top: 10px } } #a { animation: m 1s 1s } #b { animation: m 1s 1s backwards }</style><p id=a>x</p><p id=b>y</p>
+---
+#a margin-top: 16px
+#b margin-top: 0px
+
+=== after its end an animation without forwards fill has no effect
+%time 3
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 0px } to { margin-top: 10px } } #a { animation: m 1s } #b { animation: m 1s forwards }</style><p id=a>x</p><p id=b>y</p>
+---
+#a margin-top: 16px
+#b margin-top: 10px
+
+=== iterations, alternate directions and infinite runs
+%time 1.25
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 0px } to { margin-top: 8px } } #a { animation: m 1s linear 3 alternate } #b { animation: m 1s linear infinite } #c { animation: m 1s linear 3 alternate-reverse } #d { animation: m 1s linear reverse 2 }</style><p id=a>x</p><p id=b>y</p><p id=c>z</p><p id=d>w</p>
+---
+#a margin-top: 6px
+#b margin-top: 2px
+#c margin-top: 2px
+#d margin-top: 6px
+
+=== the animation's easing applies to each keyframe interval, and a keyframe can set its own
+%time 0.25
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 0px } 50% { margin-top: 10px; animation-timing-function: linear } to { margin-top: 20px } } #a { animation: m 1s steps(2) } #b { animation: m 1s linear } @keyframes n { from { margin-top: 0px; animation-timing-function: step-end } to { margin-top: 10px } } #c { animation: n 1s linear }</style><p id=a>x</p><p id=b>y</p><p id=c>z</p>
+---
+#a margin-top: 5px
+#b margin-top: 5px
+#c margin-top: 0px
+
+=== a paused animation holds its start
+%time 5
+<!DOCTYPE html><style>@keyframes m { from { margin-top: 2px } to { margin-top: 10px } } p { animation: m 1s linear paused }</style><p id=a>x</p>
+---
+#a margin-top: 2px
+
+=== colours, opacity, transforms and filters interpolate
+%time 0.5
+<!DOCTYPE html><style>@keyframes m { from { color: red; opacity: 0; transform: translateY(20px) scale(0.5); filter: blur(10px) } to { color: blue; opacity: 1; transform: none; filter: none } } p { animation: m 1s linear }</style><p id=a>x</p>
+---
+#a color: rgb(128, 0, 128)
+#a opacity: 0.5
+#a transform: translate(0px, 10px) scale(0.75, 0.75)
+#a filter: blur(5px)
+
+=== discrete values flip half way, and a child inherits the animated value
+%time 0.6
+<!DOCTYPE html><style>@keyframes m { from { text-align: left; color: rgb(0, 0, 0) } to { text-align: right; color: rgb(100, 100, 100) } } div { animation: m 1s linear }</style><div id=a><p id=b>x</p></div>
+---
+#a text-align: right
+#b color: rgb(60, 60, 60)
+
+=== a flow-relative property in keyframes animates its physical one
+%time 0.5
+<!DOCTYPE html><style>@keyframes m { from { margin-inline-start: 0px } to { margin-inline-start: 10px } } p { animation: m 1s linear }</style><p id=a>x</p>
+---
+#a margin-left: 5px

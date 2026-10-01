@@ -47,56 +47,135 @@ internal sealed record Keyframe(IReadOnlyList<float> Offsets, IReadOnlyList<Casc
 }
 
 /// <summary>
-/// M1's animations (docs/study/04-cascade-and-computed-values.md): an animation that fills forwards is resolved to
-/// its end state, so a page whose content fades in is drawn as it looks once the animation has run. Other animations,
-/// and transitions, have no effect until there is a timeline.
+/// CSS animations sampled at a time (https://www.w3.org/TR/css-animations-1/, timing from
+/// https://www.w3.org/TR/web-animations-1/#timing-model): each animation's keyframes are computed in the element's
+/// context and interpolated per property, later animations winning. Without a time the document is settled, as the
+/// conformance references are: every animation runs with no duration and no delay, so one that fills forwards shows
+/// where it ends and any other has no effect.
 /// </summary>
-// ponytail: an iteration count that is not a whole number would end between keyframes; those animations are
-// ignored rather than interpolated, until interpolation arrives with the timeline (M2).
+// ponytail: every animation starts at time 0 and a paused one stays at its start; animations that start or pause
+// later wait for style changes (M3). A property that depends on another animated one (em on an animated font-size)
+// uses the keyframes' values of both, not the interpolated one.
 internal static class Animations
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<Keyframe>, Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>>> ByProperty = [];
+
     /// <summary>
-    /// The declarations of the keyframes each animation ends on, for the cascade's animation origin: in the order of
-    /// <c>animation-name</c>, so a later animation wins; null when no animation fills forwards.
+    /// The element's style with its animations applied at <paramref name="time"/> (seconds on the document timeline;
+    /// null for the settled document), or null when no animation has an effect.
     /// </summary>
-    public static List<CascadeDeclaration>? EndState(AnimationGroup group, IReadOnlyDictionary<string, List<Keyframe>> keyframes)
+    /// <param name="styleWith">The element's style with declarations added to the animation origin of the cascade.</param>
+    public static ComputedStyle? Sample(ComputedStyle underlying, ComputedStyle parent, IReadOnlyDictionary<string, List<Keyframe>> keyframes,
+                                        double? time, Func<IReadOnlyList<CascadeDeclaration>, ComputedStyle> styleWith, Dictionary<object, object>? groups = null)
     {
+        var group = underlying.Animation;
         if (ReferenceEquals(group, AnimationGroup.Initial) || keyframes.Count == 0)
             return null;
-        List<CascadeDeclaration>? declarations = null;
+        StyleBuilder? builder = null;
+        Dictionary<Keyframe, ComputedStyle>? styles = null;
         for (var i = 0; i < group.Names.Count; i++)
         {
             if (group.Names[i] is not { } name || !keyframes.TryGetValue(name, out var blocks)
-                || EndOffset(group.IterationCounts[i % group.IterationCounts.Count], group.Directions[i % group.Directions.Count],
-                    group.FillModes[i % group.FillModes.Count]) is not { } offset)
+                || Progress(time is { } t && group.PlayStates[i % group.PlayStates.Count] == AnimationPlayState.Running ? t : 0,
+                    time is null ? 0 : group.Durations[i % group.Durations.Count], time is null ? 0 : group.Delays[i % group.Delays.Count],
+                    group.IterationCounts[i % group.IterationCounts.Count], group.Directions[i % group.Directions.Count],
+                    group.FillModes[i % group.FillModes.Count]) is not { } progress)
                 continue;
-            // Keyframes at the same offset merge, later ones winning (https://www.w3.org/TR/css-animations-1/#keyframes).
-            foreach (var block in blocks)
+            var easing = group.TimingFunctions[i % group.TimingFunctions.Count];
+            foreach (var (id, frames) in ByProperty.GetValue(blocks, PerProperty))
             {
-                if (block.Offsets.Contains(offset))
-                    (declarations ??= []).AddRange(block.Declarations);
+                // The keyframes around the progress; at or past the last one, the last pair.
+                var a = 0;
+                while (a < frames.Count - 2 && frames[a + 1].Offset <= progress)
+                    a++;
+                var (from, to) = (frames[a], frames[a + 1]);
+                var local = (progress - from.Offset) / (to.Offset - from.Offset);
+                Properties.Get(id).Interpolate(builder ??= StyleBuilder.From(underlying, parent), Style(from.Block), Style(to.Block),
+                    (from.Block?.Easing ?? easing).Apply(local));
             }
         }
-        return declarations;
+        return builder?.Build(groups);
+
+        ComputedStyle Style(Keyframe? block)
+        {
+            if (block is null)
+                return underlying;
+            styles ??= [];
+            if (!styles.TryGetValue(block, out var style))
+                styles[block] = style = styleWith(block.Declarations);
+            return style;
+        }
+    }
+
+    // Each animated property's keyframes in offset order, the last block at an offset winning, with the underlying value
+    // (null) at 0 and 1 where no block sets the property (https://www.w3.org/TR/css-animations-1/#keyframes).
+    private static Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>> PerProperty(List<Keyframe> blocks)
+    {
+        var result = new Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>>();
+        foreach (var block in blocks)
+        {
+            foreach (var id in block.Declarations.Select(d => d.Id).Distinct())
+            {
+                if (!result.TryGetValue(id, out var frames))
+                    result[id] = frames = [];
+                foreach (var offset in block.Offsets)
+                {
+                    frames.RemoveAll(f => f.Offset == offset);
+                    frames.Add((offset, block));
+                }
+            }
+        }
+        foreach (var frames in result.Values)
+        {
+            frames.Sort((x, y) => x.Offset.CompareTo(y.Offset));
+            if (frames[0].Offset > 0)
+                frames.Insert(0, (0, null));
+            if (frames[^1].Offset < 1)
+                frames.Add((1, null));
+        }
+        return result;
     }
 
     /// <summary>
-    /// The keyframe offset a finished animation holds (https://www.w3.org/TR/web-animations-1/#calculating-the-directed-progress):
-    /// the end of its last iteration, run in that iteration's direction; null if it does not fill forwards or never ends.
+    /// The iteration progress of an animation at a local time, after direction and before keyframe easing
+    /// (https://www.w3.org/TR/web-animations-1/#calculating-the-directed-progress); null when it has no effect then.
+    /// Times are in seconds.
     /// </summary>
-    public static float? EndOffset(float iterations, AnimationDirection direction, AnimationFillMode fill)
+    public static double? Progress(double time, double duration, double delay, double iterations, AnimationDirection direction, AnimationFillMode fill)
     {
-        if (fill is not (AnimationFillMode.Forwards or AnimationFillMode.Both) || float.IsInfinity(iterations) || iterations != MathF.Floor(iterations))
-            return null;
-        // With no iterations the animation ends where the first one would start.
-        var last = Math.Max(0, (int)iterations - 1);
+        var activeDuration = duration == 0 || iterations == 0 ? 0 : duration * iterations;
+        var end = Math.Max(delay + activeDuration, 0);
+        var (fillsBackwards, fillsForwards) = (fill is AnimationFillMode.Backwards or AnimationFillMode.Both, fill is AnimationFillMode.Forwards or AnimationFillMode.Both);
+        double activeTime;
+        var (before, after) = (false, false);
+        if (time < Math.Max(Math.Min(delay, end), 0))
+        {
+            if (!fillsBackwards)
+                return null;
+            (before, activeTime) = (true, Math.Max(time - delay, 0));
+        }
+        else if (time >= Math.Max(Math.Min(delay + activeDuration, end), 0))
+        {
+            if (!fillsForwards)
+                return null;
+            (after, activeTime) = (true, Math.Max(Math.Min(time - delay, activeDuration), 0));
+        }
+        else
+        {
+            activeTime = time - delay;
+        }
+
+        var overall = duration == 0 ? (before ? 0 : iterations) : activeTime / duration;
+        var simple = double.IsInfinity(overall) ? 0 : overall % 1;
+        if (simple == 0 && !before && activeTime == activeDuration && iterations != 0)
+            simple = 1;
+        var current = after && double.IsInfinity(iterations) ? double.PositiveInfinity : simple == 1 ? Math.Floor(overall) - 1 : Math.Floor(overall);
         var forwards = direction switch
         {
             AnimationDirection.Normal => true,
             AnimationDirection.Reverse => false,
-            AnimationDirection.Alternate => last % 2 == 0,
-            _ => last % 2 == 1,
+            _ => double.IsInfinity(current) || (current + (direction == AnimationDirection.AlternateReverse ? 1 : 0)) % 2 == 0,
         };
-        return iterations == 0 ? (forwards ? 0 : 1) : (forwards ? 1 : 0);
+        return forwards ? simple : 1 - simple;
     }
 }
