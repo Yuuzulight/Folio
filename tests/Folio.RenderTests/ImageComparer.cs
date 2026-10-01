@@ -67,6 +67,8 @@ public static class ImageComparer
     private static bool Matches(PixelBuffer image, PixelBuffer other, int x, int y, Tolerance tolerance)
     {
         var pixel = image.Pixel(x, y);
+        if (x < other.Width && y < other.Height && Within(pixel, other.Pixel(x, y), tolerance.ChannelThreshold))
+            return true; // the common case: the same position
         var r = tolerance.Radius;
         for (var oy = Math.Max(0, y - r); oy <= Math.Min(other.Height - 1, y + r); oy++)
         {
