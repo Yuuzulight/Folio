@@ -80,6 +80,73 @@ internal sealed class PropertySyntax
         return null;
     }
 
+    /// <summary>
+    /// The value <paramref name="p"/> of the way between two computed values
+    /// (https://www.w3.org/TR/css-properties-values-api-1/#animation-behavior-of-custom-properties): colours in
+    /// premultiplied sRGB; anything else number by number where the two have the same shape (the same tokens and
+    /// functions, numbers with the same units), rounded where only an integer matches; null when they do not pair up or the result does not
+    /// match the syntax, and the value then flips half way. Values of the universal syntax never interpolate.
+    /// </summary>
+    public string? Interpolate(string from, string to, double p)
+    {
+        if (IsUniversal)
+            return null;
+        if (SingleColor(from) is { } a && SingleColor(to) is { } b)
+            return Interpolation.Lerp(a, b, p) is CssColor color ? Compute(color.ToString(), null) : null;
+        var (sourceA, valuesA) = CssParser.ParseComponentValues(from);
+        var (sourceB, valuesB) = CssParser.ParseComponentValues(to);
+        var text = new System.Text.StringBuilder();
+        var round = false;
+        if (!Lerp(valuesA, valuesB))
+            return null;
+        if (Compute(text.ToString(), null) is { } value)
+            return value;
+        // An <integer> takes whole numbers: round the numbers that were integers at both ends.
+        (text, round) = (text.Clear(), true);
+        return Lerp(valuesA, valuesB) ? Compute(text.ToString(), null) : null;
+
+        bool Lerp(List<ComponentValue> x, List<ComponentValue> y)
+        {
+            if (x.Count != y.Count)
+                return false;
+            for (var i = 0; i < x.Count; i++)
+            {
+                switch (x[i], y[i])
+                {
+                    case (PreservedToken { Token: var s }, PreservedToken { Token: var t })
+                        when s.Kind == t.Kind && s.Kind is CssTokenKind.Number or CssTokenKind.Percentage or CssTokenKind.Dimension
+                             && string.Equals(s.Value, t.Value, StringComparison.OrdinalIgnoreCase):
+                        var value = s.Number + (t.Number - s.Number) * p;
+                        if (round && s.Kind == CssTokenKind.Number && s.IsInteger && t.IsInteger)
+                            value = Math.Round(value, MidpointRounding.AwayFromZero);
+                        text.Append(N((float)value)).Append(s.Kind == CssTokenKind.Percentage ? "%" : s.Kind == CssTokenKind.Dimension ? s.Value : "");
+                        break;
+                    case (CssFunction f, CssFunction g) when string.Equals(f.Name, g.Name, StringComparison.OrdinalIgnoreCase):
+                        text.Append(f.Name).Append('(');
+                        if (!Lerp(f.Arguments, g.Arguments))
+                            return false;
+                        text.Append(')');
+                        break;
+                    default:
+                        var (u, v) = (sourceA[x[i].Start..x[i].End], sourceB[y[i].Start..y[i].End]);
+                        if (u != v || x[i] is CssFunction or SimpleBlock)
+                            return false;
+                        text.Append(u);
+                        break;
+                }
+            }
+            return true;
+        }
+    }
+
+    // The colour a value is, when it is exactly one colour other than currentcolor.
+    private static CssColor? SingleColor(string text)
+    {
+        var (source, values) = CssParser.ParseComponentValues(text.Trim());
+        var r = new ValueReader(source, values);
+        return r.ColorSpecified() is { } value && r.AtEnd && Fixed.Color(value, CssColor.CurrentColor) is { IsCurrentColor: false } color ? color : null;
+    }
+
     private static string? Match(string text, string type, bool isIdent, char multiplier, ComputeContext? context)
     {
         // ponytail: reparses the text per alternative; syntaxes have one or two.
