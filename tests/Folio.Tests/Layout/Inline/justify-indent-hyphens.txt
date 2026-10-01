@@ -121,3 +121,20 @@ html 0,0 800x16
     p 0,0 64x16
       line 0,0 64x16
         text "aaa\u00ADbbb" 0,0 96x16
+
+=== justified CJK text shares the free space out between its characters, but not after the last
+<!DOCTYPE html><style>body, p { margin: 0 } p { width: 100px; text-align: justify }</style><p>漢字漢字漢字漢 ab</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 100x32
+      line 0,0 100x16
+        text "漢" 0,0 16.8x16
+        text "字" 16.8,0 16.8x16
+        text "漢" 33.6,0 16.8x16
+        text "字" 50.4,0 16.8x16
+        text "漢" 67.2,0 16.8x16
+        text "字" 84,0 16x16
+      line 0,16 100x16
+        text "漢 " 0,16 32x16
+        text "ab" 32,16 32x16

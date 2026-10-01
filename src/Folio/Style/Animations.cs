@@ -257,6 +257,9 @@ internal sealed class AnimatedElement(ElementNode element, ComputedStyle underly
 
     public ElementNode Element { get; } = element;
 
+    /// <summary>The pseudo-element the style is for (::before, ::after, ...), or none for the element itself.</summary>
+    public PseudoElement PseudoElement { get; init; }
+
     /// <summary>The style without animations.</summary>
     public ComputedStyle Underlying { get; } = underlying;
 

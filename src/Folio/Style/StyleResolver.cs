@@ -170,7 +170,18 @@ internal static class StyleResolver
                     if (!always && pseudoMatched.Count == 0)
                         return null;
                     var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null, parent: style);
-                    return StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
+                    var pseudoStyle = StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
+                    if (ReferenceEquals(pseudoStyle.Animation, AnimationGroup.Initial) || keyframes.Count == 0)
+                        return pseudoStyle;
+                    // Generated content animates like an element, its keyframes computed in its own context.
+                    var (originating, rules) = (style, pseudoMatched.ToList());
+                    var animated = new AnimatedElement(element, pseudoStyle, originating, keyframes, declarations =>
+                    {
+                        var (keyed, keyedCustom) = Cascade.Compute(rules, null, 0, null, declarations, originating);
+                        return StyleBuilder.Compute(keyed, Context(originating, keyedCustom), groups);
+                    }) { PseudoElement = pe };
+                    animations.Add(animated);
+                    return animated.Sample(animationTime, groups);
                 }
                 styles.Before = Pseudo(PseudoElement.Before);
                 styles.After = Pseudo(PseudoElement.After);

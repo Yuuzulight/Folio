@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>A filter of one offset moves the element, inside the filter region</title>
+<link rel="help" href="https://drafts.csswg.org/filter-effects-1/#feOffsetElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><filter id="f" filterUnits="userSpaceOnUse" x="0" y="0" width="70" height="100"><feOffset dx="20" dy="10" /></filter><rect x="10" y="20" width="60" height="30" fill="blue" filter="url(#f)" /></svg>

@@ -202,6 +202,9 @@ internal enum PropertyId
     DominantBaseline,
     StopColor,
     StopOpacity,
+    FloodColor,
+    FloodOpacity,
+    ColorInterpolationFilters,
     ClipRule,
     MarkerStart,
     MarkerMid,
@@ -927,7 +930,8 @@ internal static class Properties
         new(id, name, false, "none", GridParsing.TrackList,
             (v, ctx) => v is TrackListValue list
                 ? new TrackList(list.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), list.LineNames,
-                    list.Repeat is { } r ? new AutoRepeat(r.Index, r.Fit, r.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), r.Names) : null)
+                    list.Repeat is { } r ? new AutoRepeat(r.Index, r.Fit, r.Tracks.Select(t => GridParsing.Compute(t, ctx)).ToList(), r.Names) : null,
+                    list.Subgrid)
                 : TrackList.None,
             get, set);
 

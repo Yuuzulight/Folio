@@ -249,13 +249,17 @@ internal static class DisplayListPlayer
 
     private static (RectF?, bool Unknown) Reach(RectF? bounds, bool unknown, IReadOnlyList<Filter>? filters)
     {
+        // A graph of SVG filter primitives (floods, offsets, inputs from other results) reaches as far as its last
+        // primitive's subregion, which crops what it draws; without one its reach is not known.
+        if (filters is { Count: > 0 } list && list.Any(f => f.Kind > FilterKind.DropShadow || f.In.Source != FilterSource.Previous || f.Subregion is not null))
+            return list[^1].Subregion is { } region ? (region, false) : (null, true);
         foreach (var filter in filters ?? [])
         {
             if (filter.Kind == FilterKind.ColorMatrix && filter.Matrix is { Count: 20 } m && m[19] > 0)
                 return (null, true); // it can make transparent pixels visible
             if (bounds is not { } r)
                 continue;
-            var blur = 3 * filter.StdDeviation;
+            var blur = 3 * Math.Max(filter.StdDeviation, filter.Deviations is { } d ? Math.Max(d.X, d.Y) : 0);
             var grown = new RectF(r.X - blur, r.Y - blur, r.Width + 2 * blur, r.Height + 2 * blur);
             bounds = filter.Kind == FilterKind.DropShadow
                 ? Union(r, grown with { X = grown.X + filter.Offset.X, Y = grown.Y + filter.Offset.Y })
