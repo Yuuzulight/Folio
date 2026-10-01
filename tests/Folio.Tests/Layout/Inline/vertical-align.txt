@@ -9,16 +9,30 @@ html 0,0 800x20
         text "a" 0,4 16x16
         text "b" 16,0 16x16
 
-=== sub lowers the baseline by a fifth of the parent's font size
+=== sub lowers the baseline by a fifth of the parent's font size plus a pixel
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="vertical-align: sub">b</span></p>
 ---
-html 0,0 800x19.2
-  body 0,0 800x19.2
-    p 0,0 800x19.2
-      line 0,0 800x19.2
-        span 16,3.2 16x16
+html 0,0 800x20.2
+  body 0,0 800x20.2
+    p 0,0 800x20.2
+      line 0,0 800x20.2
+        span 16,4.2 16x16
         text "a" 0,0 16x16
-        text "b" 16,3.2 16x16
+        text "b" 16,4.2 16x16
+
+=== super raises the baseline by a third of the parent's font size plus a pixel, and sub and sup keep the inherited line height
+<!DOCTYPE html><style>body, p { margin: 0 } p { line-height: 1.5 }</style><p>a<sup>b</sup>c<sub>d</sub></p>
+---
+html 0,0 800x30.53
+  body 0,0 800x30.53
+    p 0,0 800x30.53
+      line 0,0 800x30.53
+        sup 16,3 13.33x14
+        sub 45.33,13.53 13.33x14
+        text "a" 0,7.33 16x16
+        text "b" 16,3 13.33x14
+        text "c" 29.33,7.33 16x16
+        text "d" 45.33,13.53 13.33x14
 
 === middle centres a box on the parent's baseline plus half its x-height
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block; width: 10px; height: 40px; vertical-align: middle"></span></p>

@@ -39,7 +39,6 @@ big { font-size: larger; }
 small { font-size: smaller; }
 sub { vertical-align: sub; font-size: smaller; }
 sup { vertical-align: super; font-size: smaller; }
-sub, sup { line-height: normal; }
 
 /* https://html.spec.whatwg.org/multipage/rendering.html#bidi-rendering */
 [dir]:dir(ltr), bdi:dir(ltr) { direction: ltr; }
