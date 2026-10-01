@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>A luminance mask of a white rectangle leaves that part of the content</title>
+<link rel="help" href="https://drafts.csswg.org/css-masking-1/#MaskElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><mask id="m" maskUnits="userSpaceOnUse"><rect x="10" y="20" width="30" height="40" fill="white" /><rect x="60" y="20" width="30" height="40" fill="black" /></mask><rect width="200" height="100" fill="blue" mask="url(#m)" /></svg>

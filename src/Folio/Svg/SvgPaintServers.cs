@@ -17,8 +17,19 @@ internal enum SvgSpreadMethod { Pad, Reflect, Repeat }
 internal sealed record SvgGradient(bool Radial, Vector2 P1, Vector2 P2, float Radius, float FocusRadius,
                                    IReadOnlyList<(float Offset, CssColor Color)> Stops, SvgSpreadMethod Spread, Matrix3x2 Transform);
 
-/// <summary>A paint ready to draw: a colour with its opacity, or a gradient with the opacity in its stops.</summary>
-internal readonly record struct SvgResolvedPaint(CssColor Color, SvgGradient? Gradient = null);
+/// <summary>
+/// A pattern paint (https://www.w3.org/TR/SVG2/pservers.html#Patterns): <paramref name="Children"/> drawn in every
+/// tile, each a copy of <paramref name="Tile"/> moved by whole tile sizes in pattern space, which
+/// <paramref name="Transform"/> maps to user space. <paramref name="Content"/> maps the children's coordinates into a
+/// tile whose top left corner is the origin.
+/// </summary>
+internal sealed record SvgPattern(SvgRect Tile, Matrix3x2 Transform, Matrix3x2 Content, IReadOnlyList<SvgRenderNode> Children);
+
+/// <summary>
+/// A paint ready to draw: a colour with its opacity, a gradient with the opacity in its stops, or a pattern with the
+/// opacity in the colour's alpha.
+/// </summary>
+internal readonly record struct SvgResolvedPaint(CssColor Color, SvgGradient? Gradient = null, SvgPattern? Pattern = null);
 
 /// <summary>Paint servers: the paints fills and strokes reference with url().</summary>
 internal sealed partial class SvgContext
@@ -35,6 +46,8 @@ internal sealed partial class SvgContext
         {
             return Gradient(gradient, opacity, viewport, bounds);
         }
+        if (paint.Url is { } patternUrl && Find(patternUrl) is { Name.Namespace: var pns, LocalName: "pattern" } pattern && pns == Namespaces.Svg)
+            return opacity > 0 ? Pattern(pattern, opacity, viewport, bounds) : null;
         if (paint.Color is not { } color)
             return null;
         var c = color.Resolve(style.Inherited.Color);
@@ -120,6 +133,69 @@ internal sealed partial class SvgContext
             gradient = new SvgGradient(false, start, end, 0, 0, stops, spread, toUser);
         }
         return new SvgResolvedPaint(default, gradient);
+    }
+
+    /// <summary>The patterns being built: one met again inside its own content is a reference cycle.</summary>
+    public HashSet<ElementNode> Patterning { get; } = [];
+
+    // https://www.w3.org/TR/SVG2/pservers.html#PatternElement: the tile from x, y, width and height (fractions of the
+    // bounding box by default), its content in user units, the bounding box or a viewBox, attributes and content
+    // inherited along href. A tile with no area, or a pattern used inside itself, paints nothing.
+    private SvgResolvedPaint? Pattern(ElementNode element, float opacity, Vector2 viewport, Func<SvgRect?> bounds)
+    {
+        var chain = new List<ElementNode> { element };
+        for (var e = element; chain.Count < MaxHrefChain;)
+        {
+            var next = Find(e.GetAttribute("href") ?? e.GetAttribute("xlink:href"));
+            if (next is not { LocalName: "pattern" } || next.Name.Namespace != Namespaces.Svg || chain.Contains(next))
+                break;
+            chain.Add(next);
+            e = next;
+        }
+        string? Attribute(string name) => chain.Select(p => p.GetAttribute(name)).FirstOrDefault(v => v is not null);
+
+        var userSpace = Attribute("patternUnits")?.Trim() == "userSpaceOnUse";
+        var box = userSpace ? default : bounds();
+        if (!userSpace && box is not { Width: > 0, Height: > 0 })
+            return null;
+        var fontSize = element.ComputedStyle()?.Font.Size ?? 16;
+        // A length in user units, or a number or percentage of the bounding box from its origin.
+        float Length(string name, SvgAxis axis, float origin, float extent)
+        {
+            var text = Attribute(name) ?? "0";
+            if (userSpace)
+                return SvgGeometry.Length(text, axis, viewport, fontSize);
+            var length = SvgGeometry.ParseLength(text, fontSize) ?? (0, false);
+            return origin + (length.Percent ? length.Value / 100 : length.Value) * extent;
+        }
+        var b = box ?? default;
+        var tile = new SvgRect(Length("x", SvgAxis.Horizontal, b.X, b.Width), Length("y", SvgAxis.Vertical, b.Y, b.Height),
+            Length("width", SvgAxis.Horizontal, 0, b.Width), Length("height", SvgAxis.Vertical, 0, b.Height));
+        if (!(tile.Width > 0 && tile.Height > 0 && float.IsFinite(tile.Width) && float.IsFinite(tile.Height)))
+            return null;
+        var transform = SvgGeometry.ParseTransform(Attribute("patternTransform")) ?? Matrix3x2.Identity;
+        if (!float.IsFinite(transform.GetDeterminant()) || Math.Abs(transform.GetDeterminant()) < 1e-12f)
+            return null;
+
+        var viewBox = SvgGeometry.ParseViewBox(Attribute("viewBox"));
+        if (viewBox is { Width: <= 0 } or { Height: <= 0 })
+            return null;
+        var content = viewBox is { } vb ? SvgGeometry.ViewBoxTransform(vb, Attribute("preserveAspectRatio"), new SvgRect(0, 0, tile.Width, tile.Height))
+            : Attribute("patternContentUnits")?.Trim() == "objectBoundingBox" && bounds() is { Width: > 0, Height: > 0 } objectBox ? Matrix3x2.CreateScale(objectBox.Width, objectBox.Height)
+            : Matrix3x2.Identity;
+        var source = chain.FirstOrDefault(p => p.Children.OfType<ElementNode>().Any()) ?? element;
+        if (!Patterning.Add(element))
+            return null;
+        try
+        {
+            var size = viewBox is { } v ? new Vector2(v.Width, v.Height) : viewport;
+            var children = SvgRenderTree.Children(source, size, this);
+            return children.Count == 0 ? null : new SvgResolvedPaint(CssColor.Black with { A = opacity }, Pattern: new SvgPattern(tile, transform, content, children));
+        }
+        finally
+        {
+            Patterning.Remove(element);
+        }
     }
 
     private static bool IsStop(ElementNode element) => element.LocalName == "stop" && element.Name.Namespace == Namespaces.Svg;
