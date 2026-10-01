@@ -72,7 +72,7 @@ internal static class RubyLayout
         var count = 0;
         for (var i = 0; i + 1 < clusters.Count; i++)
         {
-            var (before, after) = (char.ConvertToUtf32(text, clusters[i].Offset), char.ConvertToUtf32(text, clusters[i + 1].Offset));
+            var (before, after) = (CodePoint(text, clusters[i].Offset), CodePoint(text, clusters[i + 1].Offset));
             opportunities[i] = IsCjk(before) || IsCjk(after) || before is ' ' or ' ' or '　';
             count += opportunities[i] ? 1 : 0;
         }
@@ -105,6 +105,8 @@ internal static class RubyLayout
         var spread = new Fragment(line.Box, line.Width + free, line.Height, children) { Kind = FragmentKind.Line, Baseline = line.Baseline };
         return new ChildFragment(0, y, new Fragment(block.Box, width, block.Height, [lineChild with { Fragment = spread }]));
     }
+
+    private static int CodePoint(string text, int i) => char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
 
     // Ideographs, kana, Hangul, CJK symbols and punctuation, and full-width forms.
     private static bool IsCjk(int c) =>
