@@ -81,7 +81,7 @@ internal static class SvgPainter
                     Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: textFade));
                     textFade = 1;
                 }
-                foreach (var run in text.Runs)
+                foreach (var run in text.Runs.Where(r => r.Paint.Pattern is null))
                 {
                     var (color, gradient) = Paint(run.Paint, textFade);
                     items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: color, Gradient: gradient, Glyphs: new GlyphRun(run.Font, run.Size, run.Glyphs, run.Origins)));
@@ -99,7 +99,11 @@ internal static class SvgPainter
                 var path = ToPathData(shape.Path);
                 if (shape.StrokeFirst)
                     StrokeItem(shape, path, fade, items);
-                if (shape.Fill is { } fill)
+                if (shape.Fill is { Paint.Pattern: { } pattern } patterned)
+                {
+                    PatternFill(pattern, patterned, shape, path, fade, items);
+                }
+                else if (shape.Fill is { } fill)
                 {
                     var (color, gradient) = Paint(fill.Paint, fade);
                     items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Gradient: gradient, Path: path,
@@ -128,6 +132,19 @@ internal static class SvgPainter
         }
         for (var i = 0; i < pushed; i++)
             items.Add(new DisplayItem(DisplayItemKind.Pop));
+    }
+
+    /// <summary>
+    /// Draws an SVG mask's content for a CSS box's mask layer, its coordinates' origin at <paramref name="origin"/>,
+    /// clipped to the mask's region.
+    /// </summary>
+    public static void PaintMaskContent(SvgMask mask, Vector2 origin, List<DisplayItem> items)
+    {
+        items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(origin)));
+        items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(mask.Region.X, mask.Region.Y, mask.Region.Width, mask.Region.Height), default)));
+        Emit(new SvgContainerNode(mask.ContentTransform, 1, mask.Children), items);
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
     // A mask over what was drawn: its content, in a destination-in layer clipped to its region. A luminance mask is drawn
@@ -165,13 +182,54 @@ internal static class SvgPainter
 
     private static void StrokeItem(SvgShapeNode shape, PathData path, float fade, List<DisplayItem> items)
     {
-        if (shape.Stroke is not { } s)
+        if (shape.Stroke is not { } s || s.Paint.Pattern is not null)
             return;
         var cap = s.Cap switch { Style.StrokeLinecap.Round => LineCap.Round, Style.StrokeLinecap.Square => LineCap.Square, _ => LineCap.Butt };
         var join = s.Join switch { Style.StrokeLinejoin.Round => LineJoin.Round, Style.StrokeLinejoin.Bevel => LineJoin.Bevel, _ => LineJoin.Miter };
         var stroke = new Stroke(s.Width, cap, s.Dashes, join, s.MiterLimit, s.Dashes is null ? 0 : s.DashOffset);
         var (color, gradient) = Paint(s.Paint, fade);
         items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Gradient: gradient, Path: path, Stroke: stroke));
+    }
+
+    /// <summary>The most tile contents one pattern fill draws (tiles times top-level nodes in the tile); a fill that would need more draws none.</summary>
+    internal const int MaxPatternWork = 20_000;
+
+    // A pattern fill: the shape's path clips copies of the tile laid edge to edge in pattern space over the shape's
+    // bounding box, each clipped to its tile (overflow: hidden), in a layer when the fill is translucent.
+    // ponytail: pattern strokes and text are not drawn; tiles are drawn one by one, not as a cached image shader.
+    private static void PatternFill(SvgPattern pattern, SvgFill fill, SvgShapeNode shape, PathData path, float fade, List<DisplayItem> items)
+    {
+        if (SvgGeometry.Bounds(shape.Path) is not { } bounds || !Matrix3x2.Invert(pattern.Transform, out var inverse))
+            return;
+        var area = SvgGeometry.Transform(bounds, inverse);
+        var tile = pattern.Tile;
+        var (left, top) = (MathF.Floor((area.X - tile.X) / tile.Width), MathF.Floor((area.Y - tile.Y) / tile.Height));
+        var (right, bottom) = (MathF.Ceiling((area.X + area.Width - tile.X) / tile.Width), MathF.Ceiling((area.Y + area.Height - tile.Y) / tile.Height));
+        if (!float.IsFinite(left + top + right + bottom) || (double)(right - left) * (bottom - top) * pattern.Children.Count > MaxPatternWork)
+            return;
+        var opacity = fill.Paint.Color.A * fade;
+        items.Add(new DisplayItem(DisplayItemKind.PushClip, Path: path, Rule: fill.EvenOdd ? FillRule.EvenOdd : FillRule.NonZero));
+        var turned = !pattern.Transform.IsIdentity;
+        if (turned)
+            items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: pattern.Transform));
+        if (opacity < 1)
+            items.Add(new DisplayItem(DisplayItemKind.PushLayer, Opacity: opacity));
+        for (var row = top; row < bottom; row++)
+        {
+            for (var column = left; column < right; column++)
+            {
+                items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(tile.X + column * tile.Width, tile.Y + row * tile.Height)));
+                items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(new RectF(0, 0, tile.Width, tile.Height), default)));
+                Emit(new SvgContainerNode(pattern.Content, 1, pattern.Children), items);
+                items.Add(new DisplayItem(DisplayItemKind.Pop));
+                items.Add(new DisplayItem(DisplayItemKind.Pop));
+            }
+        }
+        if (opacity < 1)
+            items.Add(new DisplayItem(DisplayItemKind.Pop));
+        if (turned)
+            items.Add(new DisplayItem(DisplayItemKind.Pop));
+        items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
     private static CssColor Fade(CssColor color, float opacity) => opacity < 1 ? color with { A = color.A * opacity } : color;

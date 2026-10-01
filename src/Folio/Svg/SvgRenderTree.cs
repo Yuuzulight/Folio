@@ -122,7 +122,7 @@ internal static class SvgRenderTree
         return new SvgContainerNode(transform, opacity, [new SvgContainerNode(map, 1, Children(svg, size, context))], clips ? rect : null);
     }
 
-    private static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, SvgContext context)
+    internal static List<SvgRenderNode> Children(ElementNode parent, Vector2 viewport, SvgContext context)
     {
         var nodes = new List<SvgRenderNode>();
         // Content that nests deeper than the stack allows is left out (study 16: limits stop work gracefully).
@@ -149,6 +149,27 @@ internal static class SvgRenderTree
         if (!clipping && MaskReference(style.Mask, context) is var (mask, mode))
             node = node with { Mask = Mask(mask, mode, Bounds(node), viewport, context) };
         return node;
+    }
+
+    /// <summary>
+    /// The masks a CSS box's mask layers reference (https://drafts.csswg.org/css-masking-1/#the-mask-image), by layer, for
+    /// a border box of this size: user units are CSS pixels from its top-left corner, and it is the bounding box. Null
+    /// when no layer references a mask element.
+    /// </summary>
+    public static SvgMask?[]? BoxMasks(ElementNode element, MaskGroup masks, float width, float height, Layout.LayoutContext layout)
+    {
+        var context = new SvgContext(layout, element.OwnerDocument);
+        var result = new SvgMask?[masks.Images.Count];
+        var any = false;
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (masks.Images[i] is UrlImage url && context.Find(url.Url) is { LocalName: "mask" } mask && mask.Name.Namespace == Namespaces.Svg)
+            {
+                result[i] = Mask(mask, masks.Modes[i % masks.Modes.Count], new SvgRect(0, 0, width, height), new Vector2(width, height), context);
+                any = true;
+            }
+        }
+        return any ? result : null;
     }
 
     // The top mask layer that references an SVG mask element, and its mask-mode.
