@@ -356,6 +356,132 @@ public class SkiaCanvasTests
         Assert.NotEqual(SKColors.White, bitmap.GetPixel(21, 30));
     }
 
+    private static readonly Rgba Red = new(1, 0, 0, 1);
+    private static readonly Rgba Blue = new(0, 0, 1, 1);
+
+    private static FilterInput Result(int index) => new(FilterSource.Result, index);
+
+    [Fact]
+    public void FilterGraphsTakeInputsFromEarlierResults()
+    {
+        // A blue silhouette moved 20px right (flood, in with the source alpha, offset), merged under the source.
+        using var bitmap = Filtered(
+            new Filter(FilterKind.Flood, Color: Blue),
+            new Filter(FilterKind.Composite) { Operator = CompositeOperator.In, In = Result(0), In2 = new(FilterSource.SourceAlpha) },
+            new Filter(FilterKind.Offset, Offset: new(20, 0)),
+            new Filter(FilterKind.Merge) { Inputs = [Result(2), new(FilterSource.SourceGraphic)] });
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(45, 50));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(70, 50));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(85, 50));
+    }
+
+    [Fact]
+    public void FilterSubregionsCropResults()
+    {
+        using var bitmap = Filtered(new Filter(FilterKind.Flood, Color: Blue) { Subregion = new RectF(10, 10, 20, 20) });
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(20, 20));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(35, 20));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(50, 50));
+    }
+
+    [Fact]
+    public void ArithmeticCompositesAddTheirInputs()
+    {
+        // k2 = k3 = 1: the source plus a blue flood.
+        using var bitmap = Filtered(
+            new Filter(FilterKind.Flood, Color: Blue),
+            new Filter(FilterKind.Composite) { Operator = CompositeOperator.Arithmetic, Coefficients = [0, 1, 1, 0], In = new(FilterSource.SourceGraphic), In2 = Result(0) });
+
+        Assert.Equal(SKColors.Magenta, bitmap.GetPixel(50, 50));
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(10, 10));
+    }
+
+    [Fact]
+    public void BlendPrimitivesBlendOntoTheSecondInput()
+    {
+        using var bitmap = Filtered(
+            new Filter(FilterKind.Flood, Color: new Rgba(1, 1, 0, 1)),
+            new Filter(FilterKind.Blend) { Blend = Folio.Painting.BlendMode.Multiply, In = new(FilterSource.SourceGraphic), In2 = Result(0) });
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(50, 50));
+        Assert.Equal(SKColors.Yellow, bitmap.GetPixel(10, 10));
+    }
+
+    [Fact]
+    public void MorphologyFattensAndThins()
+    {
+        using var dilated = Filtered(new Filter(FilterKind.Morphology) { Dilate = true, Radius = new(5, 0) });
+        using var eroded = Filtered(new Filter(FilterKind.Morphology) { Radius = new(5, 5) });
+
+        Assert.Equal(SKColors.Red, dilated.GetPixel(37, 50));
+        Assert.Equal(SKColors.White, dilated.GetPixel(50, 37));
+        Assert.Equal(SKColors.White, eroded.GetPixel(42, 50));
+        Assert.Equal(SKColors.Red, eroded.GetPixel(50, 50));
+    }
+
+    [Fact]
+    public void ComponentTransfersMapEachChannel()
+    {
+        // Red inverted by a table, green made 0 by a discrete function, blue set to a half by a linear one.
+        using var bitmap = Filtered(new Filter(FilterKind.ComponentTransfer)
+        {
+            Transfer = [new TransferFunction(TransferKind.Table, [1, 0]), new TransferFunction(TransferKind.Discrete, [0, 1]), new TransferFunction(TransferKind.Linear, Slope: 0, Intercept: 0.5f)],
+        });
+
+        AssertNear(new SKColor(0, 0, 128), bitmap.GetPixel(50, 50));
+    }
+
+    [Fact]
+    public void LinearLightChangesWhatAMatrixDoesToMidtones()
+    {
+        // Halving the colour in linear light keeps more of it in sRGB than halving it in sRGB does.
+        static Filter Half(bool linear) => new(FilterKind.ColorMatrix, Matrix: [0.5f, 0, 0, 0, 0, 0, 0.5f, 0, 0, 0, 0, 0, 0.5f, 0, 0, 0, 0, 0, 1, 0]) { LinearRgb = linear };
+        using var srgb = Filtered(Half(false));
+        using var linear = Filtered(Half(true));
+
+        AssertNear(new SKColor(128, 0, 0), srgb.GetPixel(50, 50));
+        AssertNear(new SKColor(188, 0, 0), linear.GetPixel(50, 50), 3);
+    }
+
+    [Fact]
+    public void TurbulenceFillsItsSubregionWithNoise()
+    {
+        using var bitmap = Filtered(new Filter(FilterKind.Turbulence) { Noise = new Noise(new(0.1f, 0.1f), Octaves: 2), Subregion = new RectF(0, 0, 50, 50) });
+
+        var colours = Enumerable.Range(0, 10).Select(i => bitmap.GetPixel(5 + i * 4, 25)).Distinct().Count();
+        Assert.True(colours > 3, $"{colours} distinct colours");
+        Assert.Equal(SKColors.White, bitmap.GetPixel(75, 75));
+    }
+
+    [Fact]
+    public void DisplacementMapsMovePixelsByTheirChannels()
+    {
+        // A map whose red channel is 1 and green 0.5 moves every pixel by half the scale along x only: each pixel reads
+        // from 10px to its right, so the square appears 10px to the left.
+        using var bitmap = Filtered(
+            new Filter(FilterKind.Flood, Color: new Rgba(1, 0.5f, 0, 1)),
+            new Filter(FilterKind.DisplacementMap) { Scale = 20, XChannel = ColorChannel.R, YChannel = ColorChannel.G, In = new(FilterSource.SourceGraphic), In2 = Result(0) });
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(32, 50));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(55, 50));
+    }
+
+    // Draws a red 20x20 square at (40, 40) into a layer with these filter primitives, on a white 100x100 surface.
+    private static SKBitmap Filtered(params Filter[] filters)
+    {
+        var bitmap = new SKBitmap(new SKImageInfo(100, 100, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var surface = new SKCanvas(bitmap);
+        surface.Clear(SKColors.White);
+        var canvas = new SkiaCanvas(surface);
+        canvas.PushLayer(new LayerOptions(1, filters));
+        canvas.FillRoundedRect(new RoundedRect(new RectF(40, 40, 20, 20), default), new Paint(Red));
+        canvas.PopLayer();
+        surface.Flush();
+        return bitmap;
+    }
+
     // Lays out and paints a document on a white 100x100 surface.
     private static SKBitmap Render(string html)
     {

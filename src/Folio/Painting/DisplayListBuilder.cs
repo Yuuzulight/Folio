@@ -969,7 +969,9 @@ internal static class DisplayListBuilder
         /// with nothing below, drawn as it is), then applied to what the box painted by keeping it where the mask is opaque. A layer's image is
         /// sized, placed and tiled like a background in its mask-origin box and clipped to its mask-clip box; an image
         /// that does not load, and none, are transparent. A luminance layer is drawn over opaque black and turned into
-        /// alpha, so its alpha is the luminance of its colour times its own alpha.
+        /// alpha, so its alpha is the luminance of its colour times its own alpha. A layer that references an SVG mask
+        /// element is that mask's content in its region, the border box being its bounding box, luminance or alpha by
+        /// its mask-type unless mask-mode says.
         /// </summary>
         // ponytail: with no-clip a layer's tiles cover the border box and the origin box only.
         private void PaintMask(PaintBox box, MaskGroup mask)
@@ -979,11 +981,13 @@ internal static class DisplayListBuilder
             for (var i = mask.Images.Count - 1; i >= 0; i--)
             {
                 var gradient = mask.Images[i] is GradientImage { Computed: { } g } ? g : null;
-                var image = mask.Images[i] is UrlImage url ? images?.Load(url.Url, "mask-image") : null;
+                var svg = box.Fragment.SvgMasks is { } svgMasks ? svgMasks[i] : null;
+                // A reference to an element that is not a mask is a transparent layer, not an image to load.
+                var image = svg is null && mask.Images[i] is UrlImage url && !url.Url.StartsWith('#') ? images?.Load(url.Url, "mask-image") : null;
                 var composite = i == mask.Images.Count - 1 ? MaskComposite.Add : mask.Composites[i % mask.Composites.Count];
-                if (gradient is null && image is null && composite == MaskComposite.Add)
+                if (gradient is null && image is null && svg is null && composite == MaskComposite.Add)
                     continue;
-                var luminance = mask.Modes[i % mask.Modes.Count] == MaskMode.Luminance;
+                var luminance = svg?.Luminance ?? mask.Modes[i % mask.Modes.Count] == MaskMode.Luminance;
                 var operation = composite switch
                 {
                     MaskComposite.Subtract => BlendMode.SourceOut,
@@ -992,6 +996,16 @@ internal static class DisplayListBuilder
                     _ => BlendMode.Normal,
                 };
                 list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, Filters: luminance ? FilterPrimitives.LuminanceToAlpha : null, Blend: operation));
+                if (svg is not null)
+                {
+                    // mask-origin, mask-clip, mask-size, mask-position and mask-repeat do not apply to a mask element.
+                    var region = new RectF(box.Rect.X + svg.Region.X, box.Rect.Y + svg.Region.Y, svg.Region.Width, svg.Region.Height);
+                    if (luminance)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(region, default), CssColor.Black));
+                    SvgPainter.PaintMaskContent(svg, new Vector2(box.Rect.X, box.Rect.Y), list.Items);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                    continue;
+                }
                 var origin = ReferenceBox(box, mask.Origins[i % mask.Origins.Count]).Rect;
                 // The mask painting area is the box's rectangle, without its corners (unlike background-clip).
                 var clip = mask.Clips[i % mask.Clips.Count].Box is { } clipBox ? new RoundedRect(ReferenceBox(box, clipBox).Rect, default) : (RoundedRect?)null;

@@ -31,6 +31,7 @@ public class Reftests
     [InlineData("css-masking/clip-path-url-003")]
     [InlineData("css-masking/mask-image-opaque-001")]
     [InlineData("css-masking/mask-image-hard-stop-001")]
+    [InlineData("css-masking/mask-image-url-001")]
     [InlineData("css-backgrounds/background-image-url-repeat-001")]
     [InlineData("css-backgrounds/border-image-repeat-stretch-001")]
     [InlineData("css-backgrounds/border-image-repeat-repeat-001")]
@@ -58,6 +59,9 @@ public class Reftests
     [InlineData("svg/use-symbol-001")]
     [InlineData("svg/marker-001")]
     [InlineData("svg/marker-orient-001")]
+    [InlineData("svg/pattern-001")]
+    [InlineData("svg/pattern-bounding-box-001")]
+    [InlineData("svg/pattern-viewbox-href-001")]
     [InlineData("svg/foreign-object-001")]
     public void RendersLikeItsReference(string name)
     {

@@ -45,6 +45,18 @@ internal sealed class StyleBuilder
         SvgStop = initial.SvgStop;
     }
 
+    /// <summary>A builder holding a computed style's values, to change some of them (animations).</summary>
+    public static StyleBuilder From(ComputedStyle style, ComputedStyle parent) => new(parent)
+    {
+        _custom = style.Custom,
+        Font = style.Font, Inherited = style.Inherited, Box = style.Box, Size = style.Size, Spacing = style.Spacing,
+        Border = style.Border, Background = style.Background, Text = style.Text, Generated = style.Generated, Flex = style.Flex,
+        Grid = style.Grid, Shadows = style.Shadows, TextSpacing = style.TextSpacing, Quotes = style.Quotes, Outline = style.Outline,
+        Ui = style.Ui, Decoration = style.Decoration, Transform = style.Transform, Replaced = style.Replaced, Effects = style.Effects,
+        Mask = style.Mask, BorderImage = style.BorderImage, Animation = style.Animation, Transition = style.Transition,
+        Multicol = style.Multicol, Svg = style.Svg, SvgStop = style.SvgStop,
+    };
+
     public FontGroup Font { get; set; }
     public InheritedGroup Inherited { get; set; }
     public BoxGroup Box { get; set; }
