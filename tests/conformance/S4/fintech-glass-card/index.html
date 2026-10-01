@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen Card — Spend smarter, earn brighter</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --panel: rgba(255, 255, 255, 0.06);
+    --line: rgba(255, 255, 255, 0.12);
+    --text: #e9eef8;
+    --muted: #8e9ab3;
+    --lime: #c6ff5a;
+    --blue: #4d7cff;
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+
+  body {
+    font-family: Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .logo { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }
+  .logo span { color: var(--lime); }
+
+  .topbar nav { display: flex; gap: 26px; font-size: 14px; color: var(--muted); }
+
+  .topbar .login {
+    padding: 8px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+
+  .hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 24px;
+    align-items: center;
+    padding: 64px 40px 72px;
+    overflow: hidden;
+  }
+
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+    z-index: 0;
+  }
+
+  .orb.a { width: 280px; height: 280px; right: 40px; top: 30px; background: var(--blue); opacity: 0.6; }
+  .orb.b { width: 200px; height: 200px; right: 230px; top: 220px; background: var(--lime); opacity: 0.35; }
+
+  .copy { position: relative; z-index: 1; }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--lime);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 12px var(--lime);
+  }
+
+  h1 {
+    margin-top: 16px;
+    font-size: 54px;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+  }
+
+  .lede {
+    margin-top: 18px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 400px;
+  }
+
+  .actions { display: flex; gap: 12px; margin-top: 30px; }
+
+  .btn {
+    padding: 13px 22px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+  .btn.primary { background: var(--lime); color: #10140a; }
+  .btn.ghost { border: 1px solid var(--line); background: var(--panel); }
+
+  .stage {
+    position: relative;
+    z-index: 1;
+    height: 320px;
+  }
+
+  .card {
+    position: absolute;
+    width: 320px;
+    height: 200px;
+    padding: 22px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.05));
+    backdrop-filter: blur(16px) saturate(1.6);
+    -webkit-backdrop-filter: blur(16px) saturate(1.6);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .card.back {
+    left: 40px;
+    top: 10px;
+    transform: rotate(-9deg);
+    background: linear-gradient(135deg, #2a3cff, #0b1a6b);
+    border-color: transparent;
+  }
+
+  .card.front { left: 10px; top: 96px; }
+
+  .chip {
+    width: 42px;
+    height: 32px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #f5d98b, #b8913a);
+  }
+
+  .number {
+    margin-top: 44px;
+    font-size: 21px;
+    letter-spacing: 0.16em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .holder { display: flex; justify-content: space-between; margin-top: 18px; font-size: 13px; color: rgba(233,238,248,0.8); }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 0 40px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+  }
+
+  .stat { padding: 22px 24px; }
+  .stat + .stat { border-left: 1px solid var(--line); }
+  .stat b { display: block; font-size: 30px; letter-spacing: -0.02em; }
+  .stat span { font-size: 14px; color: var(--muted); }
+
+  .features { padding: 64px 40px; }
+
+  .features h2 { font-size: 32px; letter-spacing: -0.02em; max-width: 460px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 28px;
+  }
+
+  .tile {
+    position: relative;
+    padding: 24px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    overflow: hidden;
+  }
+
+  .tile::after {
+    content: "";
+    position: absolute;
+    right: -40px;
+    bottom: -40px;
+    width: 140px;
+    height: 140px;
+    background: radial-gradient(circle, var(--blue), transparent 70%);
+    opacity: 0.5;
+    filter: blur(10px);
+  }
+
+  .tile h3 { font-size: 18px; }
+  .tile p { margin-top: 8px; font-size: 15px; line-height: 1.5; color: var(--muted); max-width: 280px; }
+
+  .fade-list {
+    margin-top: 14px;
+    padding: 0;
+    list-style: none;
+    font-size: 14px;
+    -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent);
+    mask-image: linear-gradient(180deg, #000 40%, transparent);
+  }
+
+  .fade-list li { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .fade-list .plus { color: var(--lime); }
+
+  .legal { padding: 24px 40px 48px; font-size: 12px; line-height: 1.6; color: #5f6a82; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="logo">lumen<span>.</span></div>
+    <nav><span>Card</span><span>Rewards</span><span>Business</span><span>Security</span></nav>
+    <span class="login">Log in</span>
+  </div>
+
+  <section class="hero">
+    <div class="orb a"></div>
+    <div class="orb b"></div>
+    <div class="copy">
+      <span class="eyebrow">Now in 30 countries</span>
+      <h1>Spend smarter.<br>Earn brighter.</h1>
+      <p class="lede">A metal card with 2% back on everything, no foreign fees, and a budget that keeps itself.</p>
+      <div class="actions">
+        <span class="btn primary">Get your card</span>
+        <span class="btn ghost">Compare plans</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="card back"></div>
+      <div class="card front">
+        <div class="chip"></div>
+        <div class="number">4821 •••• •••• 0397</div>
+        <div class="holder"><span>AVERY QUINN</span><span>09/29</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stats">
+    <div class="stat"><b>2%</b><span>back on every purchase</span></div>
+    <div class="stat"><b>$0</b><span>foreign transaction fees</span></div>
+    <div class="stat"><b>1.4M</b><span>members and counting</span></div>
+  </div>
+
+  <section class="features">
+    <h2>Everything your bank app should have done already.</h2>
+    <div class="grid">
+      <div class="tile">
+        <h3>Auto-budgets</h3>
+        <p>Lumen sorts every purchase and nudges you before a category runs dry.</p>
+      </div>
+      <div class="tile">
+        <h3>Instant cashback</h3>
+        <p>Rewards land the moment a purchase settles, not at the end of the month.</p>
+        <ul class="fade-list">
+          <li><span>Corner Grocer</span><span class="plus">+$1.82</span></li>
+          <li><span>Metro transit</span><span class="plus">+$0.06</span></li>
+          <li><span>Bookshop</span><span class="plus">+$0.54</span></li>
+          <li><span>Pharmacy</span><span class="plus">+$0.31</span></li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Freeze in a tap</h3>
+        <p>Lost your wallet? Lock the card and every virtual number in one swipe.</p>
+      </div>
+      <div class="tile">
+        <h3>Virtual cards</h3>
+        <p>Make a single-use number for every subscription and cancel without calling anyone.</p>
+      </div>
+    </div>
+  </section>
+
+  <p class="legal">Lumen is a financial technology company, not a bank. Banking services provided by our partner bank. Cashback is credited as account balance and is subject to the rewards terms.</p>
+</body>
+</html>
