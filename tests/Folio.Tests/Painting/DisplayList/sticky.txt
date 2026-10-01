@@ -1,0 +1,26 @@
+=== a sticky box below the scrollport moves up to its bottom inset, at the start of scrolling
+<!DOCTYPE html><style>body { margin: 0 } .s { height: 50px; overflow: auto } .f { position: sticky; bottom: 5px; height: 10px; background: red }</style><div class="s"><div style="height: 100px"></div><div class="f"></div></div>
+---
+clip 0,0 800x50
+fill 0,35 800x10 rgb(255, 0, 0)
+pop
+
+=== a sticky box already within its insets stays, and one never leaves its containing block
+<!DOCTYPE html><style>body { margin: 0 } .s { height: 50px; overflow: auto } .f { position: sticky; top: 0; bottom: 0; height: 10px; background: red }</style><div class="s"><div style="height: 45px"><div class="f"></div></div><div style="height: 100px"><div style="height: 80px"></div><div class="f"></div></div></div>
+---
+clip 0,0 800x50
+fill 0,0 800x10 rgb(255, 0, 0)
+fill 0,45 800x10 rgb(255, 0, 0)
+pop
+
+=== sticky table footer cells pin to the bottom of the scrollport
+<!DOCTYPE html><style>body { margin: 0 } .s { max-height: 50px; overflow: auto } table { border-spacing: 0 } td { padding: 0; height: 20px } tfoot td { position: sticky; bottom: 0; background: red }</style><div class="s"><table><tbody><tr><td>a</td></tr><tr><td>b</td></tr><tr><td>c</td></tr></tbody><tfoot><tr><td>t</td></tr></tfoot></table></div>
+---
+clip 0,0 800x50
+glyphs 0,15 16px rgb(0, 0, 0)
+glyphs 0,35 16px rgb(0, 0, 0)
+glyphs 0,55 16px rgb(0, 0, 0)
+fill 0,30 16x20 rgb(255, 0, 0)
+glyphs 0,45 16px rgb(0, 0, 0)
+pop
+

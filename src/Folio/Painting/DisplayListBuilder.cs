@@ -19,6 +19,12 @@ internal static class DisplayListBuilder
     // Scale is the device pixels per CSS pixel its edges snap to (docs/study/12-painting.md), or 0 under a transform.
     private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip, bool LineEnd = false, float Scale = 0)
     {
+        /// <summary>The padding box of the nearest scroll container (or the viewport) on the canvas, for sticky boxes.</summary>
+        public RectF Scrollport { get; init; }
+
+        /// <summary>The border box of the nearest block-level container, which a sticky box may not leave.</summary>
+        public RectF StickyLimit { get; init; }
+
         public Box Box => Fragment.Box!;
 
         /// <summary>The border box, each edge rounded to the nearest device pixel, so neighbours never gap or overlap.</summary>
@@ -75,13 +81,16 @@ internal static class DisplayListBuilder
         var root = rootPlaced.Fragment;
         var order = TreeOrder(root.Box!);
         // The root element's stacking context also holds the positioned boxes placed in the initial containing block.
-        var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null, Scale: root.Box is { IsTransformed: true } ? 0 : deviceScale);
+        var viewport = new RectF(0, 0, initialContainingBlock.Width, initialContainingBlock.Height);
+        var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null, Scale: root.Box is { IsTransformed: true } ? 0 : deviceScale)
+            { Scrollport = viewport, StickyLimit = viewport };
         var rootContext = new Context(rootBox, real: true, 0, 0);
         // A replaced root element (the svg root of an SVG document) paints its content like any replaced box.
         if (root.Svg is not null || root.Box is ReplacedBox { Image: not null })
             rootContext.Text.Add(rootBox);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
-        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale), initialContainingBlock.Children.Skip(1), order);
+        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale) { Scrollport = viewport, StickyLimit = viewport },
+            initialContainingBlock.Children.Skip(1), order);
         // The root group blends with the canvas background, which is painted outside it.
         rootContext.Isolated = false;
 
@@ -101,6 +110,34 @@ internal static class DisplayListBuilder
         return list;
     }
 
+    private static bool IsScrollContainer(Box box) =>
+        box.Style.Box.OverflowX is Overflow.Hidden or Overflow.Scroll or Overflow.Auto
+        || box.Style.Box.OverflowY is Overflow.Hidden or Overflow.Scroll or Overflow.Auto;
+
+    private static RectF PaddingBox(PaintBox box)
+    {
+        var border = box.Box.Style.Border;
+        return box.Rect.Inset(border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+    }
+
+    /// <summary>
+    /// How far a sticky box moves at the scroll position Folio draws (the start): up to keep its bottom inset from the
+    /// scrollport's bottom, then down to keep its top inset from the top, never leaving the box it sits in
+    /// (https://www.w3.org/TR/css-position-3/#stickypos-insets).
+    /// </summary>
+    // ponytail: vertical insets only; left and right stickiness waits for horizontal scrolling.
+    private static float StickyOffset(Box box, PaintBox placed)
+    {
+        var (spacing, port, limit) = (box.Style.Spacing, placed.Scrollport, placed.StickyLimit);
+        var (top, bottom) = (placed.Y, placed.Y + placed.Fragment.Height);
+        var dy = 0f;
+        if (spacing.Bottom is { Kind: SizeKind.Length } b && bottom > port.Y + port.Height - b.Length.Resolve(port.Height))
+            dy = Math.Max(port.Y + port.Height - b.Length.Resolve(port.Height) - bottom, Math.Min(0, limit.Y - top));
+        if (spacing.Top is { Kind: SizeKind.Length } t && top + dy < port.Y + t.Length.Resolve(port.Height))
+            dy = Math.Min(port.Y + t.Length.Resolve(port.Height) - top, Math.Max(dy, limit.Y + limit.Height - bottom));
+        return dy;
+    }
+
     private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
     {
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
@@ -108,7 +145,16 @@ internal static class DisplayListBuilder
         {
             // Snapping stops at a transformed box: its own geometry and its subtree are drawn through the transform.
             var scale = parent.Fragment.Box is { IsTransformed: true } || child.Fragment.Box is { IsTransformed: true } ? 0 : parent.Scale;
-            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale);
+            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale)
+            {
+                Scrollport = parent.Fragment.Box is { } scroller && IsScrollContainer(scroller) ? PaddingBox(parent) : parent.Scrollport,
+                // A cell's containing block is the table, so rows and row groups pass their limit through.
+                StickyLimit = parent.Fragment.Box is TablePartBox { Part: not (TablePart.Table or TablePart.Cell or TablePart.Caption) } ? parent.StickyLimit
+                    : parent.Fragment.Box is BlockContainerBox or FlexContainerBox or GridContainerBox ? parent.Rect : parent.StickyLimit,
+            };
+            // A cell's content fragment shares the cell's box; the cell has already been moved.
+            if (child.Fragment.Box is { Style.Box.Position: Position.Sticky } sticky && sticky != parent.Fragment.Box)
+                placed = placed with { Y = placed.Y + StickyOffset(sticky, placed) };
             // Line boxes only hold inline content; text is painted with text painting.
             if (child.Fragment.Kind == FragmentKind.Line)
             {
