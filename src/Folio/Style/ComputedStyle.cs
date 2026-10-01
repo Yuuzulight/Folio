@@ -25,6 +25,8 @@ internal enum Display
     TableColumn,
     TableCaption,
     Contents,
+    Ruby,
+    RubyText,
     None,
 }
 
@@ -64,6 +66,9 @@ internal enum ListStylePosition { Outside, Inside }
 internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
+
+/// <summary>https://www.w3.org/TR/css-writing-modes-4/#block-flow</summary>
+internal enum WritingMode { HorizontalTb, VerticalRl, VerticalLr }
 
 /// <summary>
 /// A computed shadow (https://www.w3.org/TR/css-backgrounds-3/#box-shadow, css-text-decor-3 §4): offsets, blur radius
@@ -324,7 +329,11 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
                                  float? UnderlineOffset = null,
                                  TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual,
-                                 ImageValue? ListStyleImage = null, IReadOnlyList<Shadow>? TextShadows = null, SkipInk SkipInk = SkipInk.Auto);
+                                 ImageValue? ListStyleImage = null, IReadOnlyList<Shadow>? TextShadows = null, SkipInk SkipInk = SkipInk.Auto,
+                                 WritingMode WritingMode = WritingMode.HorizontalTb)
+{
+    public bool IsVertical => WritingMode != WritingMode.HorizontalTb;
+}
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 
@@ -397,6 +406,7 @@ internal sealed class ComputedStyle
     public MaskGroup Mask { get; init; } = MaskGroup.Initial;
     public BorderImageGroup BorderImage { get; init; } = BorderImageGroup.Initial;
     public AnimationGroup Animation { get; init; } = AnimationGroup.Initial;
+    public TransitionGroup Transition { get; init; } = TransitionGroup.Initial;
     public MulticolGroup Multicol { get; init; } = MulticolGroup.Initial;
     public SvgGroup Svg { get; init; } = SvgGroup.Initial;
     public SvgStopGroup SvgStop { get; init; } = SvgStopGroup.Initial;
