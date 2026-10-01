@@ -68,8 +68,9 @@ internal static class SvgPainter
         // (https://drafts.csswg.org/filter-effects-1/#placement): one layer per filter, the last outermost, inside a
         // layer for the opacity.
         var opacity = node.Opacity;
-        if (node.Filters is { } filters)
+        if (node.Filters is { } chain)
         {
+            var filters = SvgFilterPrimitives.Of(chain);
             if (opacity < 1)
                 Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: opacity));
             for (var i = filters.Count - 1; i >= 0; i--)
