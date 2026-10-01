@@ -1,0 +1,5 @@
+{
+  "prompt": "Write a support playbook page with an SVG flowchart of the refund process: rounded steps with HTML labels, decision diamonds, yes/no arrows and a dashed rare path, followed by numbered notes.",
+  "features": ["svg", "svg-text", "foreignObject", "marker", "polygon", "stroke-dasharray", "serif-typography"],
+  "viewport": 800
+}

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Folio.Dom;
 
 namespace Folio.Html;
@@ -41,7 +42,7 @@ internal sealed partial class TreeBuilder : ITokenSink
     private readonly ParserLimits _limits;
     private readonly Action<string, int>? _parseError;
 
-    private readonly List<ElementNode> _open = [];
+    private readonly OpenElements _open = new();
     private readonly List<ElementNode?> _formatting = []; // null is a marker
     private readonly List<Mode> _templateModes = [];
     private readonly System.Text.StringBuilder _pendingTableText = new();
@@ -55,6 +56,7 @@ internal sealed partial class TreeBuilder : ITokenSink
     private bool _selfClosingAcknowledged;
     private int _nodes;
     private bool _depthReported;
+    private bool _reprocessEndOfFile;
 
     private TreeBuilder(string html, ParserLimits limits, Action<string, int>? parseError)
     {
@@ -103,6 +105,12 @@ internal sealed partial class TreeBuilder : ITokenSink
                 ForeignToken(token);
             else
                 Process(_mode, token);
+            // End of file closes the open templates one by one, reprocessing the token after each.
+            while (_reprocessEndOfFile)
+            {
+                _reprocessEndOfFile = false;
+                Process(_mode, token);
+            }
 
             if (token.Kind == TokenKind.StartTag && token.SelfClosing && !_selfClosingAcknowledged)
                 Error(); // non-void-html-element-start-tag-with-trailing-solidus
@@ -315,4 +323,68 @@ internal sealed partial class TreeBuilder : ITokenSink
     }
 
     private static Token Tag(TokenKind kind, string name) => new() { Kind = kind, Name = name };
+
+    /// <summary>
+    /// The stack of open elements (https://html.spec.whatwg.org/multipage/parsing.html#stack-of-open-elements), counting
+    /// the HTML elements on it by local name and keeping a set of its elements, so a scope check for a name with none
+    /// open, or a check whether an element is open, needs no walk down the stack. Without them, every block start tag
+    /// looks for a p element and every formatting element start tag looks for its predecessors through the whole stack,
+    /// and deeply nested documents parse in quadratic time.
+    /// </summary>
+    private sealed class OpenElements() : Collection<ElementNode>([])
+    {
+        private readonly Dictionary<string, int> _html = new(StringComparer.Ordinal);
+        private readonly HashSet<ElementNode> _elements = [];
+
+        /// <summary>Whether an HTML element with this local name is open.</summary>
+        public bool HasHtml(string localName) => _html.ContainsKey(localName);
+
+        /// <summary>Whether the element is open (an element is on the stack at most once).</summary>
+        public new bool Contains(ElementNode element) => _elements.Contains(element);
+
+        public int FindLastIndex(Predicate<ElementNode> match) => ((List<ElementNode>)Items).FindLastIndex(match);
+
+        public bool Exists(Predicate<ElementNode> match) => ((List<ElementNode>)Items).Exists(match);
+
+        protected override void InsertItem(int index, ElementNode item)
+        {
+            base.InsertItem(index, item);
+            Track(item, 1);
+        }
+
+        protected override void RemoveItem(int index)
+        {
+            Track(this[index], -1);
+            base.RemoveItem(index);
+        }
+
+        protected override void SetItem(int index, ElementNode item)
+        {
+            Track(this[index], -1);
+            base.SetItem(index, item);
+            Track(item, 1);
+        }
+
+        protected override void ClearItems()
+        {
+            _html.Clear();
+            _elements.Clear();
+            base.ClearItems();
+        }
+
+        private void Track(ElementNode element, int change)
+        {
+            if (change > 0)
+                _elements.Add(element);
+            else
+                _elements.Remove(element);
+            if (!IsHtml(element))
+                return;
+            var count = _html.GetValueOrDefault(element.LocalName) + change;
+            if (count > 0)
+                _html[element.LocalName] = count;
+            else
+                _html.Remove(element.LocalName);
+        }
+    }
 }

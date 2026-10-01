@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greenfield City — Climate Goals 2030 Progress</title>
+<style>
+  :root { --ink: #12372a; --muted: #4f6f63; --paper: #f3faf6; --card: #ffffff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Trebuchet MS", system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+  .hero {
+    padding: 34px 28px 26px;
+    background: linear-gradient(135deg, #12372a, #1f6f50);
+    color: #eafff4;
+  }
+  .hero h1 { margin: 0; font-size: 30px; }
+  .hero p { margin: 6px 0 0; max-width: 560px; color: #bfe8d4; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 24px 28px; }
+  .goal { background: var(--card); border-radius: 18px; padding: 18px; text-align: center; box-shadow: 0 6px 18px rgba(18, 55, 42, 0.08); }
+  .goal h2 { font-size: 16px; margin: 8px 0 2px; }
+  .goal p { margin: 0; font-size: 13px; color: var(--muted); }
+  .ring { width: 150px; height: 150px; display: block; margin: 0 auto; }
+  .pct { font-size: 26px; font-weight: 700; fill: #12372a; }
+  .unit { font-size: 11px; fill: #4f6f63; }
+  .icons { padding: 0 28px 28px; }
+  .icons svg { width: 100%; height: auto; display: block; background: #fff; border-radius: 18px; }
+  .caption { font-size: 12px; fill: #4f6f63; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>Climate goals: where we stand</h1>
+  <p>Progress toward the 2030 targets in the city's climate plan, measured at the end of the 2026 fiscal year.</p>
+</header>
+
+<section class="grid">
+  <div class="goal">
+    <svg class="ring" viewBox="0 0 120 120">
+      <defs>
+        <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#059669"/>
+        </linearGradient>
+      </defs>
+      <circle cx="60" cy="60" r="48" fill="none" stroke="#e3f3ea" stroke-width="12"/>
+      <circle cx="60" cy="60" r="48" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round"
+              stroke-dasharray="211.1 301.6" transform="rotate(-90 60 60)"/>
+      <text x="60" y="62" text-anchor="middle" class="pct">70%</text>
+      <text x="60" y="80" text-anchor="middle" class="unit">of target</text>
+    </svg>
+    <h2>Renewable power</h2>
+    <p>58% of city electricity, goal 83%</p>
+  </div>
+
+  <div class="goal">
+    <svg class="ring" viewBox="0 0 120 120">
+      <defs>
+        <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#2563eb"/>
+        </linearGradient>
+      </defs>
+      <circle cx="60" cy="60" r="48" fill="none" stroke="#e3ecfb" stroke-width="12"/>
+      <circle cx="60" cy="60" r="48" fill="none" stroke="url(#g2)" stroke-width="12" stroke-linecap="round"
+              stroke-dasharray="132.7 301.6" transform="rotate(-90 60 60)"/>
+      <text x="60" y="62" text-anchor="middle" class="pct">44%</text>
+      <text x="60" y="80" text-anchor="middle" class="unit">of target</text>
+    </svg>
+    <h2>Transit trips</h2>
+    <p>22% of commutes, goal 50%</p>
+  </div>
+
+  <div class="goal">
+    <svg class="ring" viewBox="0 0 120 120">
+      <defs>
+        <radialGradient id="g3" cx="0.5" cy="0.3" r="0.8">
+          <stop offset="0" stop-color="#fbbf24"/><stop offset="1" stop-color="#d97706"/>
+        </radialGradient>
+      </defs>
+      <circle cx="60" cy="60" r="48" fill="none" stroke="#fbefd9" stroke-width="12"/>
+      <circle cx="60" cy="60" r="48" fill="none" stroke="url(#g3)" stroke-width="12" stroke-linecap="round"
+              stroke-dasharray="259.4 301.6" transform="rotate(-90 60 60)"/>
+      <text x="60" y="62" text-anchor="middle" class="pct">86%</text>
+      <text x="60" y="80" text-anchor="middle" class="unit">of target</text>
+    </svg>
+    <h2>Tree canopy</h2>
+    <p>31% coverage, goal 36%</p>
+  </div>
+</section>
+
+<section class="icons">
+  <svg viewBox="0 0 760 170" role="img" aria-label="Key numbers">
+    <defs>
+      <symbol id="bolt" viewBox="0 0 24 24"><path d="M13 2 L4 14 h6 l-1 8 9-12 h-6 z"/></symbol>
+      <symbol id="bus" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="3"/><rect x="6" y="5" width="12" height="6" rx="1" fill="#fff"/><circle cx="8" cy="20" r="2"/><circle cx="16" cy="20" r="2"/></symbol>
+      <symbol id="tree" viewBox="0 0 24 24"><circle cx="12" cy="9" r="7"/><rect x="11" y="14" width="2" height="8"/></symbol>
+      <symbol id="home" viewBox="0 0 24 24"><path d="M3 11 L12 3 L21 11 V21 H14 V15 H10 V21 H3 Z"/></symbol>
+    </defs>
+    <g transform="translate(30,30)">
+      <circle cx="40" cy="40" r="38" fill="#ecfdf5"/>
+      <use href="#bolt" x="18" y="18" width="44" height="44" fill="#059669"/>
+      <text x="96" y="34" font-size="24" font-weight="700" fill="#12372a">412 MW</text>
+      <text x="96" y="54" class="caption">solar installed on city land</text>
+    </g>
+    <g transform="translate(400,30)">
+      <circle cx="40" cy="40" r="38" fill="#eff6ff"/>
+      <use href="#bus" x="18" y="18" width="44" height="44" fill="#2563eb"/>
+      <text x="96" y="34" font-size="24" font-weight="700" fill="#12372a">68 buses</text>
+      <text x="96" y="54" class="caption">now battery electric</text>
+    </g>
+    <g transform="translate(30,100)">
+      <use href="#tree" x="0" y="0" width="30" height="30" fill="#16a34a"/>
+      <use href="#tree" x="26" y="4" width="26" height="26" fill="#22c55e" opacity="0.8"/>
+      <text x="64" y="21" font-size="15" fill="#12372a">14,200 street trees planted since 2022</text>
+    </g>
+    <g transform="translate(400,100)">
+      <use href="#home" x="0" y="0" width="30" height="30" fill="#b45309"/>
+      <text x="40" y="21" font-size="15" fill="#12372a">3,150 homes retrofitted with heat pumps</text>
+    </g>
+  </svg>
+</section>
+</body>
+</html>
