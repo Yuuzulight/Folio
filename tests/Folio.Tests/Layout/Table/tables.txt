@@ -94,6 +94,22 @@ html 0,0 800x32
               line 16,8 16x16
                 text "c" 16,8 16x16
 
+=== content shorter than a cell's height is aligned within it
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0; height: 30px }</style><table style="border-spacing: 0"><tr><td>a</td><td style="vertical-align: bottom">b</td></tr></table>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    table 0,0 32x30
+      table 0,0 32x30
+        tbody 0,0 32x30
+          tr 0,0 32x30
+            td 0,0 16x30
+              line 0,7 16x16
+                text "a" 0,7 16x16
+            td 16,0 16x30
+              line 16,14 16x16
+                text "b" 16,14 16x16
+
 === a taller row-spanning cell stretches the last row it spans; cells are centred by default
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0"><tr><td rowspan=2 style="height: 50px">a</td><td>b</td></tr><tr><td>c</td></tr></table>
 ---
@@ -104,8 +120,8 @@ html 0,0 800x50
         tbody 0,0 32x50
           tr 0,0 32x16
             td 0,0 16x50
-              line 0,0 16x16
-                text "a" 0,0 16x16
+              line 0,17 16x16
+                text "a" 0,17 16x16
             td 16,0 16x16
               line 16,0 16x16
                 text "b" 16,0 16x16
@@ -124,8 +140,8 @@ html 0,0 800x62
         thead 0,0 48x30
           tr 0,0 48x30
             td 0,0 24x30
-              line 0,0 24x16
-                text "h" 0,0 16x16
+              line 0,7 24x16
+                text "h" 0,7 16x16
             td 24,0 24x30
               line 24,7 24x16
                 text "m" 24,7 16x16
