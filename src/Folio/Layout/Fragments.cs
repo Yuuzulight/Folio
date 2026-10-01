@@ -122,6 +122,13 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// <summary>For line boxes: the baseline, from the top of the line.</summary>
     public float Baseline { get; init; }
 
+    /// <summary>
+    /// For a ruby column (and its baseline in <see cref="Baseline"/>): how far its annotation's em box reaches above its
+    /// top, and how far the annotation may overhang the text on either side.
+    /// </summary>
+    public float RubyOver { get; init; } = float.NegativeInfinity;
+    public float RubyOverhang { get; init; }
+
     /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
     public Svg.SvgContainerNode? Svg { get; init; }
 

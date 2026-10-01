@@ -87,8 +87,10 @@ internal sealed class FontFace : IFontHandle
         Weight = (macStyle & 1) != 0 ? 700 : 400;
         Style = (macStyle & 2) != 0 ? FaceStyle.Italic : FaceStyle.Normal;
         Stretch = 100;
+        IdeographicBaseline = Descent;
         if (TryTable("OS/2") is { Length: >= 78 } os2)
         {
+            IdeographicBaseline = os2.S16(70);
             Weight = Math.Clamp((int)os2.U16(4), 1, 1000);
             StrikeoutSize = os2.S16(26);
             StrikeoutPosition = os2.S16(28);
@@ -108,6 +110,9 @@ internal sealed class FontFace : IFontHandle
                 CapHeight = os2.S16(88);
             }
         }
+
+        if (TryTable("BASE") is { } baseTable && ReadIdeographicBaseline(baseTable) is { } ideographic)
+            IdeographicBaseline = ideographic;
 
         if (TryTable("post") is { Length: >= 16 } post)
         {
@@ -141,6 +146,12 @@ internal sealed class FontFace : IFontHandle
     public int Ascent { get; }
     public int Descent { get; }
     public int LineGap { get; }
+
+    /// <summary>
+    /// The ideographic baseline, the bottom of the ideographic em box, in font units (negative below the alphabetic
+    /// baseline): from the BASE table's horizontal axis, else the typographic descender.
+    /// </summary>
+    public int IdeographicBaseline { get; }
 
     /// <summary>In font units; 0 when the font does not say.</summary>
     public int XHeight { get; }
@@ -258,6 +269,39 @@ internal sealed class FontFace : IFontHandle
             offset += Math.Max((int)length, 6);
         }
         return pairs;
+    }
+
+    // https://learn.microsoft.com/en-us/typography/opentype/spec/base: the horizontal axis's 'ideo' coordinate for the
+    // default script (or the first one listed); null when the table has none or does not hold together.
+    private static int? ReadIdeographicBaseline(FontData table)
+    {
+        try
+        {
+            if (table.U16(4) is var axisOffset && axisOffset == 0)
+                return null;
+            var axis = table.From(axisOffset);
+            if (axis.U16(0) is var tagsOffset && tagsOffset == 0)
+                return null;
+            var tags = axis.From(tagsOffset);
+            var index = -1;
+            for (var i = 0; i < tags.U16(0) && index < 0; i++)
+                index = tags.Tag(2 + 4 * i) == "ideo" ? i : -1;
+            var scripts = axis.From(axis.U16(2));
+            if (index < 0 || scripts.U16(0) == 0)
+                return null;
+            var record = 0;
+            for (var i = 0; i < scripts.U16(0); i++)
+                record = scripts.Tag(2 + 6 * i) == "DFLT" ? i : record;
+            var script = scripts.From(scripts.U16(6 + 6 * record));
+            if (script.U16(0) is var valuesOffset && valuesOffset == 0)
+                return null;
+            var values = script.From(valuesOffset);
+            return index < values.U16(2) ? values.From(values.U16(4 + 2 * index)).S16(2) : null;
+        }
+        catch (Exception e) when (e is InvalidDataException or ArgumentException or IndexOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/name: Windows Unicode names first, then Mac Roman as ASCII.

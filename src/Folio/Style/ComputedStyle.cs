@@ -25,6 +25,8 @@ internal enum Display
     TableColumn,
     TableCaption,
     Contents,
+    Ruby,
+    RubyText,
     None,
 }
 
