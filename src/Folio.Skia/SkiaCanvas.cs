@@ -163,23 +163,129 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         return item;
     }
 
-    // Filter primitives chained in order, each taking the one before as its input (the source for the first). Skia may
-    // return no filter for one that does nothing (a zero blur); the input then goes on unchanged.
-    private static SKImageFilter? Chain(IReadOnlyList<Filter>? filters, SKImageFilter? input, List<IDisposable> owned)
+    // Filter primitives as a graph of image filters (a null filter is the layer's content, Skia's source): each takes its
+    // inputs from the source, its alpha, the primitive before it or an earlier one's result, works in linear light when
+    // asked, and is cropped to its subregion. Skia may return no filter for one that does nothing (a zero blur); its
+    // input then goes on unchanged.
+    private static SKImageFilter? Chain(IReadOnlyList<Filter>? filters, SKImageFilter? source, List<IDisposable> owned)
     {
-        foreach (var f in filters ?? [])
+        if (filters is not { Count: > 0 })
+            return source;
+        var results = new SKImageFilter?[filters.Count];
+        SKImageFilter? alpha = null;
+        SKImageFilter? Input(FilterInput input, int i) => input.Source switch
         {
+            FilterSource.Previous => i == 0 ? source : results[i - 1],
+            FilterSource.SourceAlpha => alpha ??= Own(owned, SKImageFilter.CreateColorFilter(Own(owned, SKColorFilter.CreateColorMatrix(AlphaOnly)), source)),
+            FilterSource.Result when input.Index >= 0 && input.Index < i => results[input.Index],
+            _ => source,
+        };
+        SKImageFilter Color(SKColorFilter filter, SKImageFilter? input) => Own(owned, SKImageFilter.CreateColorFilter(Own(owned, filter), input));
+
+        for (var i = 0; i < filters.Count; i++)
+        {
+            var f = filters[i];
+            // In linear light the inputs are converted from sRGB first and the result back after. A flood's colour is
+            // the same either way; turbulence has no input, its noise being in the working space.
+            var linear = f.LinearRgb && f.Kind is not FilterKind.Flood;
+            SKImageFilter? In(FilterInput input)
+            {
+                var image = Input(input, i);
+                return linear ? Color(SKColorFilter.CreateSrgbToLinearGamma(), image) : image;
+            }
+            var (sx, sy) = f.Deviations is { } d ? (d.X, d.Y) : (f.StdDeviation, f.StdDeviation);
             var next = f.Kind switch
             {
-                FilterKind.Blur => SKImageFilter.CreateBlur(f.StdDeviation, f.StdDeviation, input),
-                FilterKind.DropShadow => SKImageFilter.CreateDropShadow(f.Offset.X, f.Offset.Y, f.StdDeviation, f.StdDeviation, ToSkia(f.Color), input),
-                _ => SKImageFilter.CreateColorFilter(Own(owned, SKColorFilter.CreateColorMatrix([.. f.Matrix ?? []])), input),
+                FilterKind.Blur => SKImageFilter.CreateBlur(sx, sy, In(f.In)),
+                FilterKind.DropShadow => SKImageFilter.CreateDropShadow(f.Offset.X, f.Offset.Y, sx, sy, ToSkia(f.Color), In(f.In)),
+                FilterKind.ColorMatrix => SKImageFilter.CreateColorFilter(Own(owned, SKColorFilter.CreateColorMatrix([.. f.Matrix ?? Identity])), In(f.In)),
+                FilterKind.Offset => SKImageFilter.CreateOffset(f.Offset.X, f.Offset.Y, In(f.In)),
+                FilterKind.Flood => SKImageFilter.CreateShader(Own(owned, SKShader.CreateColor(ToSkia(f.Color))), false),
+                FilterKind.Composite when f.Operator == CompositeOperator.Arithmetic =>
+                    f.Coefficients is { Count: 4 } k ? SKImageFilter.CreateArithmetic(k[0], k[1], k[2], k[3], true, In(f.In2), In(f.In)) : null,
+                FilterKind.Composite => SKImageFilter.CreateBlendMode(f.Operator switch
+                {
+                    CompositeOperator.In => SKBlendMode.SrcIn,
+                    CompositeOperator.Out => SKBlendMode.SrcOut,
+                    CompositeOperator.Atop => SKBlendMode.SrcATop,
+                    CompositeOperator.Xor => SKBlendMode.Xor,
+                    _ => SKBlendMode.SrcOver,
+                }, In(f.In2), In(f.In)),
+                FilterKind.Merge => SKImageFilter.CreateMerge([.. (f.Inputs ?? []).Select(In)]),
+                FilterKind.Blend => SKImageFilter.CreateBlendMode(ToSkia(f.Blend), In(f.In2), In(f.In)),
+                FilterKind.Morphology when f.Dilate => SKImageFilter.CreateDilate(f.Radius.X, f.Radius.Y, In(f.In)),
+                FilterKind.Morphology => SKImageFilter.CreateErode(f.Radius.X, f.Radius.Y, In(f.In)),
+                FilterKind.ComponentTransfer => SKImageFilter.CreateColorFilter(Own(owned, SKColorFilter.CreateTable(
+                    Table(f.Transfer, 3), Table(f.Transfer, 0), Table(f.Transfer, 1), Table(f.Transfer, 2))), In(f.In)),
+                FilterKind.Turbulence => Turbulence(f.Noise, f.Subregion, owned),
+                FilterKind.DisplacementMap => SKImageFilter.CreateDisplacementMapEffect(ToSkia(f.XChannel), ToSkia(f.YChannel), f.Scale, In(f.In2), In(f.In)),
+                _ => null,
             };
-            if (next is not null)
-                input = Own(owned, next);
+            var result = next is null ? Input(f.In, i) : Own(owned, next);
+            if (linear && next is not null)
+                result = Color(SKColorFilter.CreateLinearToSrgbGamma(), result);
+            if (f.Subregion is { } r)
+                result = Own(owned, SKImageFilter.CreateCrop(new SKRect(r.X, r.Y, r.Right, r.Bottom), SKShaderTileMode.Decal, result));
+            results[i] = result;
         }
-        return input;
+        return results[^1];
     }
+
+    private static readonly float[] Identity = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+
+    // Black with the input's alpha (SourceAlpha).
+    private static readonly float[] AlphaOnly = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0];
+
+    // A component transfer function as a table of 256 straight-alpha values
+    // (https://drafts.csswg.org/filter-effects-1/#feComponentTransferElement).
+    private static byte[] Table(IReadOnlyList<TransferFunction>? functions, int channel)
+    {
+        var f = functions is not null && channel < functions.Count ? functions[channel] : null;
+        var v = f?.Values is { Count: > 0 } values ? values : null;
+        var table = new byte[256];
+        for (var i = 0; i < table.Length; i++)
+        {
+            var c = i / 255f;
+            var value = f?.Kind switch
+            {
+                TransferKind.Table when v is { Count: 1 } => v[0],
+                TransferKind.Table when v is not null => Interpolate(v, c),
+                TransferKind.Discrete when v is not null => v[Math.Min((int)(c * v.Count), v.Count - 1)],
+                TransferKind.Linear => f.Slope * c + f.Intercept,
+                TransferKind.Gamma => f.Amplitude * MathF.Pow(c, f.Exponent) + f.Offset,
+                _ => c,
+            };
+            table[i] = (byte)MathF.Round(Math.Clamp(float.IsFinite(value) ? value : 0, 0, 1) * 255);
+        }
+        return table;
+
+        static float Interpolate(IReadOnlyList<float> v, float c)
+        {
+            var k = Math.Min((int)(c * (v.Count - 1)), v.Count - 2);
+            return v[k] + (c * (v.Count - 1) - k) * (v[k + 1] - v[k]);
+        }
+    }
+
+    // Perlin noise everywhere (cropped to the subregion like any result); stitching tiles it at the subregion's size.
+    private static SKImageFilter? Turbulence(Noise? noise, RectF? subregion, List<IDisposable> owned)
+    {
+        if (noise is null || !(noise.BaseFrequency.X >= 0 && noise.BaseFrequency.Y >= 0))
+            return null;
+        var tile = noise.Stitch && subregion is { } r ? new SKSizeI((int)MathF.Round(r.Width), (int)MathF.Round(r.Height)) : SKSizeI.Empty;
+        var (fx, fy, octaves) = (noise.BaseFrequency.X, noise.BaseFrequency.Y, Math.Max(0, noise.Octaves));
+        var shader = noise.Fractal
+            ? SKShader.CreatePerlinNoiseFractalNoise(fx, fy, octaves, noise.Seed, tile)
+            : SKShader.CreatePerlinNoiseTurbulence(fx, fy, octaves, noise.Seed, tile);
+        return shader is null ? null : SKImageFilter.CreateShader(Own(owned, shader), false);
+    }
+
+    private static SKColorChannel ToSkia(ColorChannel channel) => channel switch
+    {
+        ColorChannel.R => SKColorChannel.R,
+        ColorChannel.G => SKColorChannel.G,
+        ColorChannel.B => SKColorChannel.B,
+        _ => SKColorChannel.A,
+    };
 
     public void PopLayer() => canvas.Restore();
 
