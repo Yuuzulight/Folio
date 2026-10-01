@@ -142,6 +142,22 @@ html 0,0 800x30
               line 16,14 16x16
                 text "b" 16,14 16x16
 
+=== col widths are preferred widths: a narrower table shrinks them towards their content
+<!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0; width: 150px"><col style="width: 100px"><col style="width: 100px"><tr><td>a</td><td>bbb</td></tr></table>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    table 0,0 150x16
+      table 0,0 150x16
+        tbody 0,0 150x16
+          tr 0,0 150x16
+            td 0,0 69.12x16
+              line 0,0 69.12x16
+                text "a" 0,0 16x16
+            td 69.12,0 80.88x16
+              line 69.12,0 80.88x16
+                text "bbb" 69.12,0 48x16
+
 === a taller row-spanning cell stretches the last row it spans; cells are centred by default
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-spacing: 0"><tr><td rowspan=2 style="height: 50px">a</td><td>b</td></tr><tr><td>c</td></tr></table>
 ---
