@@ -119,6 +119,8 @@ internal static class BlockLayout
         // first and last; its own relative offset does not move them.
         void PlaceInInlineContainingBlocks(InlineFormattingContext inline, List<ChildFragment> lines, int from, float x0, float y0)
         {
+            if (outOfFlow.Count == from)
+                return; // nothing was carried up from this paragraph
             var owners = InlineContainingBlocks(inline);
             if (owners.Count == 0)
                 return;
@@ -242,7 +244,9 @@ internal static class BlockLayout
                 var room = columns is not null ? 0
                     : atTop ? (collapseTop ? space.AnnotationRoom : Math.Max(0, Margin(child.Style.Spacing.MarginTop, width)))
                     : TrailingRoom(previous) + Math.Max(0, y - cursor);
-                fragment = Layout(child, new ConstraintSpace(width, definiteHeight, exclusions, contentX, contentY + y, AnnotationRoom: room), context);
+                // A column-spanning child of a multi-column container is as wide as the container (css-multicol-1 §6).
+                var childWidth = columns is not null && child.Style.Multicol.SpanAll ? fullWidth : width;
+                fragment = Layout(child, new ConstraintSpace(childWidth, definiteHeight, exclusions, contentX, contentY + y, AnnotationRoom: room), context);
             }
             x += fragment.MarginLeft;
 
@@ -305,10 +309,14 @@ internal static class BlockLayout
             }
         }
 
+        List<ColumnRule>? columnRules = null;
         if (columns is { } dealt)
         {
             if (children.Count > 0)
-                cursor = Balance(children, dealt, border.TopWidth + padding.Top);
+            {
+                (cursor, columnRules) = LayOutColumns(children, dealt, border.LeftWidth + padding.Left, border.TopWidth + padding.Top,
+                    style.Multicol.FillAuto ? definiteHeight : null, style.Multicol.RuleWidth);
+            }
             // The last child's bottom margin ends a column and is truncated there (css-break-3 §5.2); the columns' height is the content's.
             pending = default;
             width = fullWidth;
@@ -368,6 +376,7 @@ internal static class BlockLayout
             CollapsesThrough = collapsesThrough,
             Exclusions = independent ? space.Exclusions : exclusions,
             OutOfFlow = outOfFlow,
+            ColumnRules = columnRules,
             // ponytail: rebuilt on every layout of the box (flex and grid may lay an item out more than once); cache it per
             // box and size if large SVG shows up in profiles.
             Svg = (box as ReplacedBox)?.SvgRoot is { } svg
@@ -756,56 +765,236 @@ internal static class BlockLayout
     }
 
     /// <summary>
-    /// Deals a column's laid-out content into balanced columns: its pieces (block children, line boxes, floats) stay
-    /// whole and in order, and the shortest column height that fits them all in the columns is used
-    /// (column-fill: balance). Moves the pieces into their columns and returns the content height.
+    /// Deals a multi-column container's content, laid out as one column, into its columns (css-multicol-1 §7, §6):
+    /// <list type="bullet">
+    /// <item>The content is cut into pieces at the places a column may break: between block siblings and between line
+    /// boxes, inside plain blocks too (no decorations, effects or <c>break-inside: avoid</c>), keeping at least two lines of
+    /// a paragraph on each side of a break (the initial orphans and widows). Other boxes stay whole. A block that ends up
+    /// in more than one column gets one fragment per column.</item>
+    /// <item>A child with <c>column-span: all</c> (laid out at the container's width) ends one row of columns and starts the
+    /// next below it.</item>
+    /// <item>Each row of columns is balanced to the shortest height that fits it, or, with <c>column-fill: auto</c> and a
+    /// height, filled column by column up to that height.</item>
+    /// </list>
+    /// Moves the content into place and returns the content height and the rules to draw between columns with content.
     /// </summary>
-    // ponytail: pieces are never split, so a tall block lands whole in one column; break-before/after are not read.
-    private static float Balance(List<ChildFragment> children, (int Count, float Width, float Gap) columns, float top)
+    // ponytail: break-before/after and nested spanners are not read; content past the last column with column-fill: auto
+    // stays in it.
+    private static (float Height, List<ColumnRule> Rules) LayOutColumns(List<ChildFragment> children, (int Count, float Width, float Gap) columns,
+                                                                         float left, float top, float? fillHeight, float ruleWidth)
     {
-        var order = children.Select((c, i) => (Child: c, Index: i)).OrderBy(p => p.Child.Y).ThenBy(p => p.Index).Select(p => p.Index).ToArray();
-        float Top(int k) => children[order[k]].Y;
-        float Bottom(int k) => children[order[k]].Y + children[order[k]].Fragment.Height;
+        // The pieces in flow order, at their places in the one-column flow, each with the splittable blocks around it.
+        var pieces = new List<ColumnPiece>();
+        foreach (var child in children)
+            Cut(child, [], child.Fragment.Box?.Style.Multicol.SpanAll == true);
+        void Cut(ChildFragment piece, ChildFragment[] path, bool spanner)
+        {
+            if (spanner || !Splittable(piece.Fragment))
+            {
+                pieces.Add(new ColumnPiece(piece, path, true, spanner));
+                return;
+            }
+            var lines = piece.Fragment.Children.Count(c => c.Fragment.Kind == FragmentKind.Line);
+            var line = 0;
+            ChildFragment[] inside = [.. path, piece];
+            foreach (var inner in piece.Fragment.Children)
+            {
+                var first = pieces.Count;
+                var isLine = inner.Fragment.Kind == FragmentKind.Line;
+                // Orphans and widows (2): a break between this block's lines leaves two of them on each side.
+                var allowed = !isLine || line == 0 || line >= 2 && lines - line >= 2;
+                Cut(inner with { X = inner.X + piece.X, Y = inner.Y + piece.Y }, inside, false);
+                if (pieces.Count > first)
+                    pieces[first] = pieces[first] with { BreakBefore = pieces[first].BreakBefore && allowed };
+                if (isLine)
+                    line++;
+            }
+        }
 
-        // The column starts that fit with columns at most `height` tall, or null if they need more columns.
-        List<int>? Starts(float height)
+        var rules = new List<ColumnRule>();
+        var y = top;                 // where the next row of columns or spanner goes
+        var flowBottom = top;        // the bottom of what was dealt last, in the one-column flow
+        var height = 0f;
+        for (var start = 0; start < pieces.Count;)
+        {
+            if (pieces[start].Spanner)
+            {
+                var spanner = pieces[start].Piece;
+                // The space above it in the flow (its collapsed margin) stays above it.
+                var spannerY = y + Math.Max(0, spanner.Y - flowBottom);
+                pieces[start] = pieces[start] with { Column = -1, Dy = spannerY - spanner.Y };
+                (y, flowBottom) = (spannerY + spanner.Fragment.Height, spanner.Y + spanner.Fragment.Height);
+                height = Math.Max(height, y - top);
+                start++;
+                continue;
+            }
+            var end = start;
+            while (end < pieces.Count && !pieces[end].Spanner)
+                end++;
+            var rowTop = y + Math.Max(0, pieces[start].Piece.Y - flowBottom);
+            var (rowHeight, used) = Deal(pieces, start, end, columns, rowTop, fillHeight is { } fill ? Math.Max(0, fill - (rowTop - top)) : null);
+            for (var c = 1; c < used; c++)
+                rules.Add(new ColumnRule(left + c * (columns.Width + columns.Gap) - (columns.Gap + ruleWidth) / 2, rowTop, ruleWidth, rowHeight));
+            for (var k = start; k < end; k++)
+                flowBottom = Math.Max(flowBottom, pieces[k].Piece.Y + pieces[k].Piece.Fragment.Height);
+            y = rowTop + rowHeight;
+            height = Math.Max(height, y - top);
+            start = end;
+        }
+
+        // How many pieces each split block holds, to tell a block that moved whole from one cut between columns.
+        var pieceCounts = new Dictionary<Fragment, int>(ReferenceEqualityComparer.Instance);
+        foreach (var piece in pieces)
+        {
+            foreach (var block in piece.Path)
+                pieceCounts[block.Fragment] = pieceCounts.GetValueOrDefault(block.Fragment) + 1;
+        }
+        children.Clear();
+        children.AddRange(Rebuild(0, Enumerable.Range(0, pieces.Count).ToList()));
+        return (height, ruleWidth > 0 ? rules : []);
+
+        // The fragments for the pieces given (all inside the same blocks down to `depth`), in their new places: a block
+        // whose pieces all moved alike moves whole; one split across columns gets a fragment per column.
+        List<ChildFragment> Rebuild(int depth, List<int> indices)
+        {
+            var result = new List<ChildFragment>();
+            for (var i = 0; i < indices.Count;)
+            {
+                var piece = pieces[indices[i]];
+                if (piece.Path.Length == depth)
+                {
+                    result.Add(piece.Piece with { X = piece.Piece.X + piece.Dx, Y = piece.Piece.Y + piece.Dy });
+                    i++;
+                    continue;
+                }
+                var block = piece.Path[depth];
+                var j = i;
+                while (j < indices.Count && pieces[indices[j]].Path.Length > depth && ReferenceEquals(pieces[indices[j]].Path[depth].Fragment, block.Fragment))
+                    j++;
+                var inside = indices.GetRange(i, j - i);
+                foreach (var group in inside.GroupBy(k => pieces[k].Column))
+                {
+                    var members = group.ToList();
+                    var (dx, dy) = (pieces[members[0]].Dx, pieces[members[0]].Dy);
+                    if (members.Count == pieceCounts[block.Fragment])
+                    {
+                        result.Add(block with { X = block.X + dx, Y = block.Y + dy });
+                        break;
+                    }
+                    // A fragment of the block for this column: from its top (or this column's first piece) to its last piece.
+                    var placed = Rebuild(depth + 1, members);
+                    // The block's own top and bottom edges go with its first and last pieces.
+                    var (first, last) = (pieces.FindIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)),
+                                         pieces.FindLastIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)));
+                    var fragmentTop = members[0] == first ? block.Y + dy : placed.Min(p => p.Y);
+                    var fragmentBottom = members[^1] == last ? block.Y + block.Fragment.Height + dy : placed.Max(p => p.Y + p.Fragment.Height);
+                    var x = block.X + dx;
+                    result.Add(new ChildFragment(x, fragmentTop, new Fragment(block.Fragment.Box, block.Fragment.Width, Math.Max(0, fragmentBottom - fragmentTop),
+                        [.. placed.Select(p => p with { X = p.X - x, Y = p.Y - fragmentTop })])
+                    {
+                        MarginLeft = block.Fragment.MarginLeft, MarginRight = block.Fragment.MarginRight,
+                    }));
+                }
+                i = j;
+            }
+            return result;
+        }
+    }
+
+    /// <summary>A piece of multi-column content: where it is in the one-column flow, the splittable blocks around it, and how it moves.</summary>
+    private sealed record ColumnPiece(ChildFragment Piece, ChildFragment[] Path, bool BreakBefore, bool Spanner)
+    {
+        public int Column { get; init; }
+        public float Dx { get; init; }
+        public float Dy { get; init; }
+    }
+
+    // A block whose content can break across columns: a plain block container with nothing drawn of its own. Replaced
+    // boxes (images, svg, form controls) are not block containers, so they stay whole.
+    private static bool Splittable(Fragment fragment)
+    {
+        if (fragment is not { Kind: FragmentKind.Box, Box: BlockContainerBox { IsAtomicInline: false } box, Children.Count: > 0 })
+            return false;
+        var style = box.Style;
+        return style.Box.Display == Display.Block && !style.Multicol.AvoidBreakInside && !style.Multicol.IsMulticol
+            && style.Box.Position == Position.Static && style.Box.OverflowX == Overflow.Visible && style.Box.OverflowY == Overflow.Visible
+            && style.Background.Color.A == 0 && style.Background.Images.All(i => i is Css.NoImage) && style.Shadows.Box.Count == 0
+            && style.Border.TopWidth + style.Border.RightWidth + style.Border.BottomWidth + style.Border.LeftWidth == 0
+            && style.Outline.Width == 0 && style.Box.Opacity >= 1 && !box.IsTransformed && style.Effects.Filter.IsNone
+            && fragment.Children.All(c => c.Fragment.Kind is FragmentKind.Line or FragmentKind.Box);
+    }
+
+    /// <summary>
+    /// Puts one row of pieces (between spanners) into columns starting at <paramref name="rowTop"/>: balanced, or filled
+    /// up to <paramref name="fillHeight"/> when there is one. Records each piece's column and move; returns the row's
+    /// height and how many columns got content.
+    /// </summary>
+    private static (float Height, int Used) Deal(List<ColumnPiece> pieces, int start, int end, (int Count, float Width, float Gap) columns,
+                                                 float rowTop, float? fillHeight)
+    {
+        var order = Enumerable.Range(start, end - start).OrderBy(i => pieces[i].Piece.Y).ThenBy(i => i).ToArray();
+        float Top(int k) => pieces[order[k]].Piece.Y;
+        float Bottom(int k) => pieces[order[k]].Piece.Y + pieces[order[k]].Piece.Fragment.Height;
+
+        // Where each column starts when columns are at most `height` tall; null if they need more columns.
+        List<int>? Starts(float height, bool overflow = false)
         {
             var starts = new List<int> { 0 };
             for (var k = 1; k < order.Length; k++)
             {
-                if (Bottom(k) - Top(starts[^1]) > height + 0.01f)
+                if (Bottom(k) - Top(starts[^1]) <= height + 0.01f)
+                    continue;
+                // The column breaks at the last place it may before this piece; with none, the piece overflows it.
+                var at = k;
+                while (at > starts[^1] && !pieces[order[at]].BreakBefore)
+                    at--;
+                if (at == starts[^1])
+                    continue;
+                if (starts.Count == columns.Count)
                 {
-                    if (starts.Count == columns.Count)
-                        return null;
-                    starts.Add(k);
+                    if (overflow)
+                        break; // the rest stays in the last column
+                    return null;
                 }
+                starts.Add(at);
+                k = at;
             }
             return starts;
         }
 
-        var tallest = Enumerable.Range(0, order.Length).Max(k => Bottom(k) - Top(k));
-        var (low, high) = (Math.Max(tallest, (Bottom(order.Length - 1) - Top(0)) / columns.Count), Bottom(order.Length - 1) - Top(0));
-        for (var i = 0; i < 40 && high - low > 0.01f; i++)
+        List<int> chosen;
+        if (fillHeight is { } fill)
         {
-            var mid = (low + high) / 2;
-            if (Starts(mid) is null)
-                low = mid;
-            else
-                high = mid;
+            chosen = Starts(fill, overflow: true)!;
         }
-        var chosen = Starts(high) ?? [0];
+        else
+        {
+            var total = Bottom(order.Length - 1) - Top(0);
+            var (low, high) = (total / columns.Count, total);
+            for (var i = 0; i < 40 && high - low > 0.01f; i++)
+            {
+                var mid = (low + high) / 2;
+                if (Starts(mid) is null)
+                    low = mid;
+                else
+                    high = mid;
+            }
+            chosen = Starts(high) ?? Starts(total, overflow: true)!;
+        }
+
         var height = 0f;
         for (var c = 0; c < chosen.Count; c++)
         {
             var (from, to) = (chosen[c], c + 1 < chosen.Count ? chosen[c + 1] : order.Length);
-            var dy = Top(chosen[0]) - Top(from);
+            var dy = rowTop - Top(from);
             var dx = c * (columns.Width + columns.Gap);
             for (var k = from; k < to; k++)
-                height = Math.Max(height, Bottom(k) + dy - top);
-            for (var k = from; k < to; k++)
-                children[order[k]] = children[order[k]] with { X = children[order[k]].X + dx, Y = children[order[k]].Y + dy };
+            {
+                pieces[order[k]] = pieces[order[k]] with { Column = c, Dx = dx, Dy = dy };
+                height = Math.Max(height, Bottom(k) + dy - rowTop);
+            }
         }
-        return height;
+        return (fillHeight ?? height, chosen.Count);
     }
 
     private static bool EstablishesIndependentFormattingContext(Box box)

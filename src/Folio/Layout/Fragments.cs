@@ -30,6 +30,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     /// <summary>Min-content and max-content widths computed so far (see <see cref="IntrinsicSizes"/>).</summary>
     public Dictionary<Box, (float Min, float Max)> Intrinsic { get; } = [];
 
+    /// <summary>Grid items laid out so far, by the space they were laid out in and, for subgrids, the tracks lent to them (see GridLayout).</summary>
+    public Dictionary<(Box Box, ConstraintSpace Space, (AdoptedTracks? Columns, AdoptedTracks? Rows) Lent), Fragment> GridItems { get; } = [];
+
     /// <summary>
     /// The tracks a grid lends each of its subgrids, per axis, once it has sized them (see GridLayout): a subgrid laid
     /// out without an entry for an axis has no tracks there, as with none.
@@ -44,6 +47,9 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
 
     /// <summary>How many nodes of clip path and mask content the references laid out so far have used.</summary>
     public int SvgReferencedNodes { get; set; }
+
+    /// <summary>The SVG filter elements in use, each once per bounding box and viewport (see Svg.SvgFilterReference).</summary>
+    public Dictionary<(Dom.ElementNode Element, Svg.SvgRect? Bounds, System.Numerics.Vector2 Viewport), Svg.SvgFilterReference> SvgFilters { get; } = [];
 
     /// <summary>Each document's elements by id, first in tree order, for url(#id) references (see Svg.SvgContext.Find).</summary>
     public Dictionary<Dom.DocumentNode, Dictionary<string, Dom.ElementNode>> Ids { get; } = [];
@@ -86,6 +92,9 @@ internal readonly record struct MarginStrut(float Positive, float Negative)
 
     public float Resolve() => Positive + Negative;
 }
+
+/// <summary>A column rule's rectangle, from its multi-column container's border-box origin.</summary>
+internal readonly record struct ColumnRule(float X, float Y, float Width, float Height);
 
 /// <summary>A child fragment at an offset from its parent fragment's border-box origin.</summary>
 internal readonly record struct ChildFragment(float X, float Y, Fragment Fragment);
@@ -168,6 +177,9 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// coordinates whose origin is the border box's top-left corner; null when it filters nothing.
     /// </summary>
     public Svg.SvgFilterChain? SvgFilters { get; init; }
+
+    /// <summary>For a multi-column container: the column rules, as rectangles from its border-box origin.</summary>
+    public IReadOnlyList<ColumnRule>? ColumnRules { get; init; }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];

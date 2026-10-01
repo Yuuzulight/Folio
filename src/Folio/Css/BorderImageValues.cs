@@ -36,6 +36,47 @@ internal static class BorderImageProperties
         PropertyId.BorderImageSource, PropertyId.BorderImageSlice, PropertyId.BorderImageWidth, PropertyId.BorderImageOutset, PropertyId.BorderImageRepeat,
     ];
 
+    /// <summary>
+    /// The mask border properties (https://drafts.csswg.org/css-masking-1/#mask-borders): the border image grammar with
+    /// other initial values (slices of 0, auto widths), and mask-border-mode.
+    /// </summary>
+    // ponytail: the mask shorthand does not reset mask-border, and -webkit-mask-box-image is not accepted.
+    public static IEnumerable<Property> MaskBorderRows =>
+    [
+        new Property<ImageValue>(PropertyId.MaskBorderSource, "mask-border-source", false, "none", Source,
+            (v, ctx) => ((ImageSpecified)v).Image is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : ((ImageSpecified)v).Image,
+            s => s.Mask.MaskBorder.Source, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Source = v } }),
+        new Property<BorderImageSlice>(PropertyId.MaskBorderSlice, "mask-border-slice", false, "0", r => Slice(r),
+            (v, _) => ComputeSlice((BorderImageSliceValue)v), s => s.Mask.MaskBorder.Slice, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Slice = v } }),
+        new Property<BorderImageSides>(PropertyId.MaskBorderWidth, "mask-border-width", false, "auto", r => Sides(r, auto: true, percent: true),
+            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.Mask.MaskBorder.Width, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Width = v } }),
+        new Property<BorderImageSides>(PropertyId.MaskBorderOutset, "mask-border-outset", false, "0", r => Sides(r, auto: false, percent: false),
+            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.Mask.MaskBorder.Outset, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Outset = v } }),
+        new Property<BorderImageRepeats>(PropertyId.MaskBorderRepeat, "mask-border-repeat", false, "stretch", r => Repeat(r),
+            (v, _) => ((BorderImageRepeatValue)v).Repeat, s => s.Mask.MaskBorder.Repeat, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Repeat = v } }),
+        new Property<MaskType>(PropertyId.MaskBorderMode, "mask-border-mode", false, "alpha", MaskBorderMode,
+            (v, _) => ((KeywordValue)v).Keyword == "luminance" ? MaskType.Luminance : MaskType.Alpha, s => s.Mask.BorderMode, (b, v) => b.Mask = b.Mask with { BorderMode = v }),
+    ];
+
+    public static readonly PropertyId[] MaskBorderLonghands =
+    [
+        PropertyId.MaskBorderSource, PropertyId.MaskBorderSlice, PropertyId.MaskBorderWidth, PropertyId.MaskBorderOutset, PropertyId.MaskBorderRepeat,
+        PropertyId.MaskBorderMode,
+    ];
+
+    private static CssValue? MaskBorderMode(ValueReader r) => r.Keyword("luminance", "alpha") is { } k ? new KeywordValue(k) : null;
+
+    /// <summary>The <c>mask-border</c> shorthand: as border-image's, with mask-border-mode as well.</summary>
+    public static List<(PropertyId, CssValue)>? MaskBorderShorthand(ValueReader r)
+    {
+        CssValue? mode = null;
+        if (Shorthand(r, PropertyId.MaskBorderSource, PropertyId.MaskBorderSlice, PropertyId.MaskBorderWidth, PropertyId.MaskBorderOutset,
+                PropertyId.MaskBorderRepeat, reader => mode is null && MaskBorderMode(reader) is { } m ? mode = m : null) is not { } values)
+            return null;
+        values.Add((PropertyId.MaskBorderMode, mode ?? Properties.Get(PropertyId.MaskBorderMode).Initial));
+        return values;
+    }
+
     // none | <image>
     private static CssValue? Source(ValueReader r) =>
         r.Keyword("none") is not null ? new ImageSpecified(NoImage.Instance) : BackgroundParsing.Image(r) is { } image ? new ImageSpecified(image) : null;
@@ -130,8 +171,16 @@ internal static class BorderImageProperties
     /// <summary>
     /// The <c>border-image</c> shorthand: source || slice [ / width | / width? / outset ]? || repeat, the others reset.
     /// </summary>
-    public static List<(PropertyId, CssValue)>? Shorthand(ValueReader r)
+    public static List<(PropertyId, CssValue)>? Shorthand(ValueReader r) =>
+        Shorthand(r, PropertyId.BorderImageSource, PropertyId.BorderImageSlice, PropertyId.BorderImageWidth, PropertyId.BorderImageOutset,
+            PropertyId.BorderImageRepeat, null);
+
+    // The border image grammar for one set of longhands; other components (the mask border's mode) are read by extra,
+    // which returns null when there is none.
+    private static List<(PropertyId, CssValue)>? Shorthand(ValueReader r, PropertyId sourceId, PropertyId sliceId, PropertyId widthId, PropertyId outsetId,
+                                                         PropertyId repeatId, Func<ValueReader, CssValue?>? extra)
     {
+        var any = false;
         CssValue? source = null, slice = null, width = null, outset = null, repeat = null;
         while (!r.AtEnd)
         {
@@ -160,20 +209,24 @@ internal static class BorderImageProperties
             {
                 repeat = rep;
             }
+            else if (extra?.Invoke(r) is not null)
+            {
+                any = true;
+            }
             else
             {
                 return null;
             }
         }
-        if (source is null && slice is null && repeat is null)
+        if (source is null && slice is null && repeat is null && !any)
             return null;
         return
         [
-            (PropertyId.BorderImageSource, source ?? Properties.Get(PropertyId.BorderImageSource).Initial),
-            (PropertyId.BorderImageSlice, slice ?? Properties.Get(PropertyId.BorderImageSlice).Initial),
-            (PropertyId.BorderImageWidth, width ?? Properties.Get(PropertyId.BorderImageWidth).Initial),
-            (PropertyId.BorderImageOutset, outset ?? Properties.Get(PropertyId.BorderImageOutset).Initial),
-            (PropertyId.BorderImageRepeat, repeat ?? Properties.Get(PropertyId.BorderImageRepeat).Initial),
+            (sourceId, source ?? Properties.Get(sourceId).Initial),
+            (sliceId, slice ?? Properties.Get(sliceId).Initial),
+            (widthId, width ?? Properties.Get(widthId).Initial),
+            (outsetId, outset ?? Properties.Get(outsetId).Initial),
+            (repeatId, repeat ?? Properties.Get(repeatId).Initial),
         ];
     }
 }

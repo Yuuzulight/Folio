@@ -106,3 +106,11 @@ glyphs 64,26 32px rgba(0, 0, 0, 0)
 glyphs 96,26 32px rgba(0, 0, 0, 0)
 glyphs 128,26 32px rgb(0, 0, 0)
 glyphs 160,26 32px rgb(0, 0, 0)
+
+=== column rules are drawn between columns with content, over the background and under the content
+<!DOCTYPE html><style>body, div, p { margin: 0 } div { column-count: 3; column-gap: 20px; width: 140px; column-rule: 2px dotted #00f; background: #eee }</style><div><p>aa</p><p>bb</p></div>
+---
+fill 0,0 140x16 rgb(238, 238, 238)
+stroke path M43.33,1 L43.33,15 2 round cap dashes 0,4 rgb(0, 0, 255)
+glyphs 0,13 16,13 16px rgb(0, 0, 0)
+glyphs 53.33,13 69.33,13 16px rgb(0, 0, 0)
