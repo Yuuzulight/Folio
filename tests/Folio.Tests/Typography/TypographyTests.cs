@@ -175,6 +175,19 @@ public class TypographyTests
     }
 
     [Fact]
+    public void ClusterFacesAreRememberedUntilFacesAreAdded()
+    {
+        var fonts = new FontCollection();
+        string[] families = ["Folio Box"];
+
+        Assert.Null(fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "A"));
+        fonts.Add(Box);
+
+        Assert.Same(Box, fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "A"));
+        Assert.Same(Box, fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "A"));
+    }
+
+    [Fact]
     public void CollectionMatchesFamiliesAndFallsBackPerCluster()
     {
         var fonts = FontCollection.FromFolder(FontsFolder);
