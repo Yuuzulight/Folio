@@ -52,8 +52,7 @@ public class ArtifactClassifierTests
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
     [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
     [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
-    [InlineData("<svg><rect mask=\"url(#m)\" /></svg>", "uses an SVG mask reference")]
-    [InlineData("<svg><mask id=m /></svg>", "uses SVG <mask>")]
+    [InlineData("<svg><rect filter=\"url(#f)\" /></svg>", "uses an SVG filter reference")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
     [InlineData("<svg><rect><animate attributeName=x /></rect></svg>", "uses SVG <animate>")]
     [InlineData("<svg><text rotate=\"10\">a</text></svg>", "uses the SVG text attribute rotate")]
@@ -91,6 +90,7 @@ public class ArtifactClassifierTests
         + "<radialGradient id=h href=\"#g\" /></defs><style>circle { stroke: url(#h) }</style><rect fill=\"url(#g)\" /><circle r=5 /></svg>")]
     [InlineData("<svg><clipPath id=c clipPathUnits=objectBoundingBox><circle cx=.5 cy=.5 r=.5 clip-rule=evenodd /></clipPath><rect width=5 height=5 clip-path=\"url(#c)\" /></svg>")]
     [InlineData("<style>.a { clip-path: url(#c) }</style><svg width=0 height=0><clipPath id=c><circle r=5 /></clipPath></svg><div class=a></div>")]
+    [InlineData("<svg><mask id=m maskUnits=userSpaceOnUse style=\"mask-type: alpha\"><rect width=5 height=5 fill=white /></mask><rect width=5 height=5 mask=\"url(#m)\" /></svg>")]
     [InlineData("<svg><defs><symbol id=i viewBox=\"0 0 24 24\"><path d=\"M0 0h24\" /></symbol></defs><use href=\"#i\" width=16 height=16 fill=red /></svg>")]
     [InlineData("<svg><marker id=a orient=auto-start-reverse markerWidth=6 markerHeight=6 refX=3 refY=3><path d=\"M0 0L6 3L0 6z\" /></marker>"
         + "<line x2=50 stroke=black marker-start=\"url(#a)\" marker-end=\"url(#a)\" /></svg>")]

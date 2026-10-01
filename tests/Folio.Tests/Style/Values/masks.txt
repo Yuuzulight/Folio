@@ -67,3 +67,13 @@ mask-composite: add
 mask-origin: border-box
 mask-clip: border-box
 mask-image: none
+
+=== mask-type is luminance unless alpha, and not inherited
+%parent mask-type: alpha
+---
+mask-type: luminance
+
+=== mask-type takes alpha
+mask-type: alpha
+---
+mask-type: alpha

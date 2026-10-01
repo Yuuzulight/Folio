@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>object bounding box tiles start at the box and are fractions of it; content is clipped to each tile</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/pservers.html#PatternElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="120" height="70"><pattern id="p" width="0.25" height="0.5"><rect width="30" height="10" fill="green" /></pattern><rect x="20" y="10" width="80" height="40" fill="url(#p)" /></svg>

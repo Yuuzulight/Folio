@@ -17,7 +17,7 @@ internal enum FragmentKind
 /// <param name="Replacement">The text shown, when it is not the inline formatting context's own (an inserted ellipsis).</param>
 /// <param name="Inline">The inline box the text is directly in, if any.</param>
 internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style,
-                               string? Replacement = null, InlineBox? Inline = null);
+                               string? Replacement = null, InlineBox? Inline = null, bool Turned = false);
 
 /// <summary>What layout needs besides the box tree: the fonts text is measured with.</summary>
 internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = null)
@@ -137,6 +137,12 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// origin is the border box's top-left corner; null otherwise, and then a reference clips nothing.
     /// </summary>
     public Svg.SvgClipPath? SvgClip { get; init; }
+
+    /// <summary>
+    /// For a masked box with layers that reference SVG mask elements: each layer's mask, by layer index (null for the
+    /// others), in coordinates whose origin is the border box's top-left corner; null when no layer does.
+    /// </summary>
+    public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get; init; }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];

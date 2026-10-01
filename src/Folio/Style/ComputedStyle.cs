@@ -67,6 +67,9 @@ internal enum TextAlign { Start, End, Left, Right, Center, Justify }
 
 internal enum Direction { Ltr, Rtl }
 
+/// <summary>https://www.w3.org/TR/css-writing-modes-4/#block-flow</summary>
+internal enum WritingMode { HorizontalTb, VerticalRl, VerticalLr }
+
 /// <summary>
 /// A computed shadow (https://www.w3.org/TR/css-backgrounds-3/#box-shadow, css-text-decor-3 §4): offsets, blur radius
 /// and spread in px, and its colour (currentcolor kept symbolic). Text shadows have no spread and are never inset.
@@ -326,7 +329,11 @@ internal sealed record TextGroup(WhiteSpaceCollapse WhiteSpaceCollapse, TextWrap
                                  CaptionSide CaptionSide = CaptionSide.Top, EmptyCells EmptyCells = EmptyCells.Show,
                                  float? UnderlineOffset = null,
                                  TextIndent TextIndent = default, TextAlign? TextAlignLast = null, Hyphens Hyphens = Hyphens.Manual,
-                                 ImageValue? ListStyleImage = null, IReadOnlyList<Shadow>? TextShadows = null, SkipInk SkipInk = SkipInk.Auto);
+                                 ImageValue? ListStyleImage = null, IReadOnlyList<Shadow>? TextShadows = null, SkipInk SkipInk = SkipInk.Auto,
+                                 WritingMode WritingMode = WritingMode.HorizontalTb)
+{
+    public bool IsVertical => WritingMode != WritingMode.HorizontalTb;
+}
 
 internal enum FlexDirection { Row, RowReverse, Column, ColumnReverse }
 

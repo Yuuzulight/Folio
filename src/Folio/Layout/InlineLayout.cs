@@ -11,7 +11,6 @@ namespace Folio.Layout;
 /// everything on the baseline, <c>text-indent</c>, <c>text-align</c> with justification, and hyphens shown where lines
 /// break at soft hyphens.
 /// </summary>
-// ponytail: bidi's L1 reset of whitespace at soft line ends is not done yet.
 internal static class InlineLayout
 {
     /// <summary>What the enclosing block layout provides: floats and positioned boxes are its to place.</summary>
@@ -578,6 +577,53 @@ internal static class InlineLayout
         };
     }
 
+    /// <summary>
+    /// Gives the white space at the end of a line the paragraph's level (UAX #9 L1), splitting it off the text piece
+    /// it ends; returns its width.
+    /// </summary>
+    private static float TrailingWhiteSpaceAtParagraphLevel(List<Piece> pieces, string text, int paragraphLevel)
+    {
+        var width = 0f;
+        for (var i = pieces.Count - 1; i >= 0; i--)
+        {
+            var piece = pieces[i];
+            if (piece.Kind is PieceKind.BoxStart or PieceKind.BoxEnd or PieceKind.Float or PieceKind.OutOfFlow)
+                continue;
+            if (piece is not { Kind: PieceKind.Text, Run: { } run, Replacement: null })
+                break;
+            var split = piece.GlyphEnd;
+            while (split > piece.GlyphStart && text[run.Clusters[split - 1]] is ' ' or '\t' or '　')
+                split--;
+            if (split < piece.GlyphEnd && piece.Level != paragraphLevel)
+            {
+                var spaces = 0f;
+                for (var g = split; g < piece.GlyphEnd; g++)
+                    spaces += run.Advances[g];
+                var white = new Piece(PieceKind.Text, piece.Style, spaces)
+                {
+                    Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = false, Level = (byte)paragraphLevel,
+                };
+                if (split == piece.GlyphStart)
+                {
+                    pieces[i] = white;
+                }
+                else
+                {
+                    pieces[i] = new Piece(PieceKind.Text, piece.Style, piece.Width - spaces)
+                    {
+                        Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = piece.Visible, Level = piece.Level,
+                    };
+                    pieces.Insert(i + 1, white);
+                }
+            }
+            for (var g = split; g < piece.GlyphEnd; g++)
+                width += run.Advances[g];
+            if (split > piece.GlyphStart)
+                break;
+        }
+        return width;
+    }
+
     // The visual order of a line's pieces (L2); edges and markers borrow a neighbour's level.
     private static List<int> VisualOrder(List<Piece> pieces, int paragraphLevel)
     {
@@ -701,21 +747,24 @@ internal static class InlineLayout
         var runs = new List<ShapedRun>();
         var runStart = start;
         FontFace? runFace = null;
+        var runUpright = false;
+        var vertical = style.Text.IsVertical;
         var end = start + length;
         for (var i = start; i < end;)
         {
             var clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
-            if (i > runStart && face != runFace)
+            var upright = vertical && IsUpright(char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i]);
+            if (i > runStart && (face != runFace || upright != runUpright))
             {
-                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, style, context, rightToLeft));
+                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, style, context, rightToLeft, runUpright));
                 runStart = i;
             }
-            runFace = face;
+            (runFace, runUpright) = (face, upright);
             i += clusterLength;
         }
         if (end > runStart)
-            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, style, context, rightToLeft));
+            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, style, context, rightToLeft, runUpright));
         return runs;
     }
 
@@ -745,13 +794,22 @@ internal static class InlineLayout
         return string.Join(' ', tags);
     }
 
-    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft)
+    private static ShapedRun ShapeRun(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
+                                      bool upright = false)
     {
         var size = style.Font.Size;
         ShapedRun run;
         if (face is null)
         {
             run = new ShapedRun(null, size, new ushort[length], [.. Enumerable.Range(start, length)], [.. Enumerable.Repeat(size / 2, length)]);
+        }
+        else if (upright)
+        {
+            // Upright in vertical text: the vertical alternates (vert), advancing by their advance heights.
+            var shaped = SimpleShaper.Shape(text, start, length, face, size, (Features(style.Font) + " vert").Trim());
+            for (var g = 0; g < shaped.Glyphs.Length; g++)
+                shaped.Advances[g] = face.Vertical(shaped.Glyphs[g]).Advance * size / face.UnitsPerEm;
+            run = new ShapedRun(face, size, shaped.Glyphs, shaped.Clusters, shaped.Advances) { Upright = true };
         }
         else if (context.Shaper is { } shaper && !SimpleShaper.CanShape(text.AsSpan(start, length), face))
         {
@@ -785,6 +843,23 @@ internal static class InlineLayout
         }
         return run;
     }
+
+    /// <summary>
+    /// Whether a character stands upright in vertical text with text-orientation: mixed (UAX #50 Vertical_Orientation U
+    /// or Tu): CJK ideographs, kana, Hangul, CJK symbols and full-width forms, and emoji. The rest is set sideways.
+    /// </summary>
+    // ponytail: ranges, not the UAX #50 table; Tr characters (some brackets) stand upright rather than rotated.
+    internal static bool IsUpright(int c) =>
+        c is >= 0x1100 and <= 0x11FF or >= 0x2E80 and <= 0xA4CF or >= 0xA960 and <= 0xA97F or >= 0xAC00 and <= 0xD7FF
+            or >= 0xF900 and <= 0xFAFF or >= 0xFE10 and <= 0xFE1F or >= 0xFE30 and <= 0xFE4F or >= 0xFF01 and <= 0xFF60 or >= 0xFFE0 and <= 0xFFE6
+            or >= 0x2600 and <= 0x27BF or >= 0x1F000 and <= 0x1FAFF or >= 0x20000 and <= 0x3FFFF;
+
+    /// <summary>
+    /// How far the central baseline of vertical text is above a sideways run's alphabetic baseline: half the difference
+    /// between the font's ascent and descent, rounded as line metrics are.
+    /// </summary>
+    internal static float CentralOffset(FontFace face, float size) =>
+        (MathF.Floor(face.Ascent * size / face.UnitsPerEm + 0.5f) - MathF.Floor(-face.Descent * size / face.UnitsPerEm + 0.5f)) / 2;
 
     private static FaceStyle FaceStyleOf(Style.FontStyle style) => style switch
     {
@@ -863,6 +938,10 @@ internal static class InlineLayout
             : (face.Ascent * size / face.UnitsPerEm, -face.Descent * size / face.UnitsPerEm, face.LineGap * size / face.UnitsPerEm);
         (ascent, descent, gap) = (Whole(ascent), Whole(descent), Whole(gap));
         static float Whole(float px) => MathF.Floor(px + 0.5f);
+        // Vertical lines centre their text on the central baseline (css-writing-modes-4 §4.2): half the font's height on
+        // either side of it.
+        if (style.Text.IsVertical)
+            ascent = descent = (ascent + descent) / 2;
         var xHeight = face is { XHeight: > 0 } ? face.XHeight * size / face.UnitsPerEm : size / 2;
         var lineHeight = style.Font.LineHeight switch
         {
@@ -960,6 +1039,11 @@ internal static class InlineLayout
         var x = align == TextAlign.Center ? free / 2
             : align == TextAlign.Right || align == TextAlign.End && !rtl || align is TextAlign.Start or TextAlign.Justify && rtl ? free
             : 0;
+        // White space at the end of the line takes the paragraph's level (UAX #9 L1), so it sits at the line's end
+        // edge, where it hangs: in a right-to-left paragraph, off the left.
+        var hanging = TrailingWhiteSpaceAtParagraphLevel(pieces, text, paragraphLevel);
+        if (rtl)
+            x -= hanging;
 
         // Horizontal: pieces in visual order (UAX #9 L2 over the line). Box edges and markers take the level of the
         // content next to them, so an inline box's start edge follows its content's direction.
@@ -1019,7 +1103,10 @@ internal static class InlineLayout
                     break;
                 case PieceKind.Text:
                     Collect(piece);
-                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, piece.Run!.Face)) { Piece = piece, X = pieceX[piece] });
+                    // Fallback fonts size the line only with line-height: normal; otherwise the box's first available
+                    // font does (css-inline-3 §4.3, CSS 2.2 §10.8.1), so text adds nothing beyond its box's strut.
+                    var face = current.Style.Font.LineHeight.IsNormal ? piece.Run!.Face : PrimaryFace(current.Style, context);
+                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, face)) { Piece = piece, X = pieceX[piece] });
                     break;
                 case PieceKind.Atomic:
                 {

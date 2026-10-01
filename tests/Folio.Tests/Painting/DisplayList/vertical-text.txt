@@ -1,0 +1,11 @@
+Vertical text (CSS Writing Modes 4) in the test box font at 20px with line-height 1.5: the central baseline is 15px in
+from the line's right edge. Sideways text is drawn as horizontal text turned a quarter clockwise, its alphabetic
+baseline 6px left of the central one; upright glyphs are centred on it and hang 16px (the ascent) from their tops.
+
+=== sideways and upright glyphs in a vertical-rl line
+<!DOCTYPE html><style>body, p { margin: 0 }</style><p style="writing-mode: vertical-rl; font: 20px/1.5 serif; height: 100px">xx漢</p>
+---
+transform 0,1,-1,0,25,0
+glyphs 0,16 20,16 20px rgb(0, 0, 0)
+pop
+glyphs 5,56 20px rgb(0, 0, 0)
