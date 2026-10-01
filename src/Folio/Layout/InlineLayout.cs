@@ -691,9 +691,20 @@ internal static class InlineLayout
     }
 
     // An inline box's margin, border and padding at its inline start and end: left and right, swapped in rtl.
-    private static float InlineStart(ComputedStyle style, float cbWidth) => style.Text.Direction == Direction.Rtl ? Right(style, cbWidth) : Left(style, cbWidth);
+    // In vertical text the inline axis runs down: the start edge is the top (the bottom right to left).
+    private static float InlineStart(ComputedStyle style, float cbWidth) =>
+        style.Text.IsVertical ? (style.Text.Direction == Direction.Rtl ? Bottom(style, cbWidth) : Top(style, cbWidth))
+        : style.Text.Direction == Direction.Rtl ? Right(style, cbWidth) : Left(style, cbWidth);
 
-    private static float InlineEnd(ComputedStyle style, float cbWidth) => style.Text.Direction == Direction.Rtl ? Left(style, cbWidth) : Right(style, cbWidth);
+    private static float InlineEnd(ComputedStyle style, float cbWidth) =>
+        style.Text.IsVertical ? (style.Text.Direction == Direction.Rtl ? Top(style, cbWidth) : Bottom(style, cbWidth))
+        : style.Text.Direction == Direction.Rtl ? Left(style, cbWidth) : Right(style, cbWidth);
+
+    private static float Top(ComputedStyle style, float cbWidth) =>
+        BlockLayout.Margin(style.Spacing.MarginTop, cbWidth) + style.Border.TopWidth + BlockLayout.Resolve(style.Spacing.PaddingTop, cbWidth);
+
+    private static float Bottom(ComputedStyle style, float cbWidth) =>
+        BlockLayout.Margin(style.Spacing.MarginBottom, cbWidth) + style.Border.BottomWidth + BlockLayout.Resolve(style.Spacing.PaddingBottom, cbWidth);
 
     private static float Left(ComputedStyle style, float cbWidth) =>
         BlockLayout.Margin(style.Spacing.MarginLeft, cbWidth) + style.Border.LeftWidth + BlockLayout.Resolve(style.Spacing.PaddingLeft, cbWidth);
@@ -701,11 +712,21 @@ internal static class InlineLayout
     private static float Right(ComputedStyle style, float cbWidth) =>
         BlockLayout.Margin(style.Spacing.MarginRight, cbWidth) + style.Border.RightWidth + BlockLayout.Resolve(style.Spacing.PaddingRight, cbWidth);
 
-    private static float StartMargin(ComputedStyle style, float cbWidth) =>
-        BlockLayout.Margin(style.Text.Direction == Direction.Rtl ? style.Spacing.MarginRight : style.Spacing.MarginLeft, cbWidth);
+    private static float StartMargin(ComputedStyle style, float cbWidth) => BlockLayout.Margin((style.Text.IsVertical, style.Text.Direction) switch
+    {
+        (true, Direction.Rtl) => style.Spacing.MarginBottom,
+        (true, _) => style.Spacing.MarginTop,
+        (false, Direction.Rtl) => style.Spacing.MarginRight,
+        _ => style.Spacing.MarginLeft,
+    }, cbWidth);
 
-    private static float EndMargin(ComputedStyle style, float cbWidth) =>
-        BlockLayout.Margin(style.Text.Direction == Direction.Rtl ? style.Spacing.MarginLeft : style.Spacing.MarginRight, cbWidth);
+    private static float EndMargin(ComputedStyle style, float cbWidth) => BlockLayout.Margin((style.Text.IsVertical, style.Text.Direction) switch
+    {
+        (true, Direction.Rtl) => style.Spacing.MarginTop,
+        (true, _) => style.Spacing.MarginBottom,
+        (false, Direction.Rtl) => style.Spacing.MarginLeft,
+        _ => style.Spacing.MarginRight,
+    }, cbWidth);
 
     // Shapes a stretch of text in runs of one face each, choosing the face per grapheme cluster (study 11, fallback).
     // ponytail: every run goes through SimpleShaper until complex shaping lands (#35); faces missing everywhere show
@@ -1279,8 +1300,11 @@ internal static class InlineLayout
                 {
                     var m = child.Metrics;
                     var style = child.Style;
-                    var (bt, bb) = (style.Border.TopWidth, style.Border.BottomWidth);
-                    var (pt, pb) = (BlockLayout.Resolve(style.Spacing.PaddingTop, cbWidth), BlockLayout.Resolve(style.Spacing.PaddingBottom, cbWidth));
+                    // Across a vertical line, the over side is the right one.
+                    var vertical = style.Text.IsVertical;
+                    var (bt, bb) = vertical ? (style.Border.RightWidth, style.Border.LeftWidth) : (style.Border.TopWidth, style.Border.BottomWidth);
+                    var (pt, pb) = (BlockLayout.Resolve(vertical ? style.Spacing.PaddingRight : style.Spacing.PaddingTop, cbWidth),
+                        BlockLayout.Resolve(vertical ? style.Spacing.PaddingLeft : style.Spacing.PaddingBottom, cbWidth));
                     boxFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent - pt - bt,
                         new Fragment(box, Math.Max(0, child.End - child.X), m.Ascent + m.Descent + pt + pb + bt + bb, [])));
                     Emit(child);
