@@ -1,3 +1,14 @@
+=== line heights are kept in 64ths of a pixel, rounded down
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 13px; line-height: 1.4 }</style><p>a<br>b</p>
+---
+html 0,0 800x36.38
+  body 0,0 800x36.38
+    p 0,0 800x36.38
+      line 0,0 800x18.19
+        text "a" 0,2 13x13
+      line 0,18.19 800x18.19
+        text "b" 0,20.19 13x13
+
 === half the leading goes above the text, rounded down to whole pixels, the rest below
 <!DOCTYPE html><style>body, p { margin: 0 } p { line-height: 23px }</style><p>a</p>
 ---

@@ -797,6 +797,8 @@ internal static class InlineLayout
             { Px: { } px } => px,
             var l => l.Number * size,
         };
+        // Line heights are kept in 64ths of a pixel, rounded down, so a long run of lines adds up as it does in browsers.
+        lineHeight = MathF.Floor(lineHeight * 64) / 64;
         // Half the leading goes above the text, rounded down to whole pixels so baselines stay on the pixel grid; the
         // rest goes below.
         var above = ascent + MathF.Floor((lineHeight - ascent - descent) / 2);
