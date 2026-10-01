@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meet the team</title>
+<style>
+  :root {
+    --bg: #fbf8f3;
+    --card: #ffffff;
+    --ink: #2a2622;
+    --muted: #7b736a;
+    --line: #ece5da;
+    --accent: #e2643a;
+    --teal: #1e8a86;
+    --plum: #7d4e8f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 36px 32px 44px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+  }
+
+  .intro { text-align: center; margin-bottom: 30px; }
+  .eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding: 4px 10px;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+    transform: rotate(-2deg);
+  }
+  h1 { margin: 12px 0 6px; font-size: 32px; letter-spacing: -0.02em; }
+  .intro p { margin: 0 auto; max-width: 460px; color: var(--muted); line-height: 1.5; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+  }
+
+  .card {
+    position: relative;
+    overflow: hidden;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 24px 18px 18px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(60, 40, 20, 0.04);
+    animation: settle 0.6s ease-out both;
+  }
+  .card:nth-child(3n + 2) { animation-delay: 0.1s; }
+  .card:nth-child(3n) { animation-delay: 0.2s; }
+  @keyframes settle {
+    0% { opacity: 0; transform: translateY(16px) rotate(1.5deg); }
+    70% { opacity: 1; transform: translateY(-2px); }
+    100% { opacity: 1; transform: none; }
+  }
+
+  .card.featured {
+    rotate: -1.5deg;
+    scale: 1.03;
+    border-color: #f3c3ae;
+    box-shadow: 0 14px 30px rgba(226, 100, 58, 0.18);
+  }
+
+  .ribbon {
+    position: absolute;
+    top: 16px;
+    right: -34px;
+    width: 130px;
+    padding: 4px 0;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transform: rotate(45deg);
+  }
+
+  .avatar {
+    width: 76px;
+    height: 76px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    position: relative;
+  }
+  .avatar::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    bottom: 4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 3px solid var(--card);
+    background: #3cc47c;
+  }
+  .avatar.away::after { background: #f1b434; }
+  .avatar.off::after { background: #c3bbb0; }
+
+  .name { font-size: 17px; font-weight: 700; }
+  .role { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .skills {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px;
+    margin: 14px 0 16px;
+  }
+  .skills span {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #f5efe6;
+    color: #6a5f53;
+  }
+
+  .meta {
+    display: flex;
+    justify-content: space-around;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .meta b { display: block; color: var(--ink); font-size: 15px; }
+
+  .hiring {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    border: 2px dashed #e0d5c5;
+    background: transparent;
+    box-shadow: none;
+  }
+  .plus {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--accent);
+    position: relative;
+    margin-bottom: 12px;
+    transform: rotate(45deg);
+  }
+  .plus::before, .plus::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 20px;
+    height: 3px;
+    background: #fff;
+    border-radius: 2px;
+    translate: -50% -50%;
+  }
+  .plus::after { rotate: 90deg; }
+  .hiring .name { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="intro">
+    <span class="eyebrow">We're 6 people</span>
+    <h1>Meet the Loomwork team</h1>
+    <p>A small studio making calm software for knitting and sewing shops. Say hi — we read every email.</p>
+  </div>
+
+  <div class="grid">
+    <article class="card featured">
+      <div class="ribbon">Founder</div>
+      <div class="avatar" style="background:linear-gradient(135deg,#e2643a,#f2a65a)">MO</div>
+      <div class="name">Maya Okafor</div>
+      <div class="role">CEO &amp; product</div>
+      <div class="skills"><span>Strategy</span><span>Research</span><span>Pottery</span></div>
+      <div class="meta"><div><b>2019</b>joined</div><div><b>Lagos</b>based in</div></div>
+    </article>
+
+    <article class="card">
+      <div class="avatar away" style="background:linear-gradient(135deg,#1e8a86,#5cc2b0)">TB</div>
+      <div class="name">Tomás Berg</div>
+      <div class="role">Lead engineer</div>
+      <div class="skills"><span>Go</span><span>Postgres</span><span>Infra</span></div>
+      <div class="meta"><div><b>2019</b>joined</div><div><b>Oslo</b>based in</div></div>
+    </article>
+
+    <article class="card">
+      <div class="avatar" style="background:linear-gradient(135deg,#7d4e8f,#c084c9)">PN</div>
+      <div class="name">Priya Nair</div>
+      <div class="role">Product designer</div>
+      <div class="skills"><span>Figma</span><span>Illustration</span><span>Type</span></div>
+      <div class="meta"><div><b>2020</b>joined</div><div><b>Pune</b>based in</div></div>
+    </article>
+
+    <article class="card">
+      <div class="avatar off" style="background:linear-gradient(135deg,#3d5a99,#7f9be0)">JL</div>
+      <div class="name">Jonah Lee</div>
+      <div class="role">Frontend engineer</div>
+      <div class="skills"><span>TypeScript</span><span>A11y</span><span>CSS</span></div>
+      <div class="meta"><div><b>2021</b>joined</div><div><b>Seoul</b>based in</div></div>
+    </article>
+
+    <article class="card">
+      <div class="avatar" style="background:linear-gradient(135deg,#b5543a,#e08c6d)">CR</div>
+      <div class="name">Carla Ruiz</div>
+      <div class="role">Customer success</div>
+      <div class="skills"><span>Support</span><span>Docs</span><span>Spanish</span></div>
+      <div class="meta"><div><b>2022</b>joined</div><div><b>Sevilla</b>based in</div></div>
+    </article>
+
+    <article class="card hiring">
+      <div class="plus"></div>
+      <div class="name">You?</div>
+      <div class="role">We're hiring a backend engineer</div>
+    </article>
+  </div>
+</body>
+</html>

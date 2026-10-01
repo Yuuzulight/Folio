@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your orders</title>
+<style>
+  :root {
+    --bg: #f6f6f4;
+    --card: #fff;
+    --ink: #1c1c1a;
+    --muted: #74746e;
+    --line: #e7e6e1;
+    --brand: #2b59c3;
+    --ok: #23935b;
+    --warn: #c9751a;
+    --sale: #e23d4f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+  }
+
+  .promo {
+    position: relative;
+    overflow: hidden;
+    margin: 20px 24px 0;
+    padding: 16px 20px;
+    border-radius: 12px;
+    background: #1c1c1a;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .promo .tag {
+    display: inline-block;
+    background: var(--sale);
+    padding: 4px 14px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    transform: skewX(-14deg);
+  }
+  .promo .tag span { display: inline-block; transform: skewX(14deg); }
+  .promo p { margin: 0; flex: 1; }
+  .promo .stripes {
+    position: absolute;
+    right: -30px;
+    top: -40px;
+    width: 160px;
+    height: 160px;
+    background: repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 10px, transparent 10px 20px);
+    transform: rotate(30deg);
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 18px;
+    padding: 20px 24px 28px;
+  }
+
+  h1 { grid-column: 1 / -1; margin: 0; font-size: 24px; }
+
+  .order {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    animation: slide 0.5s ease-out both;
+  }
+  .order + .order { animation-delay: 0.12s; }
+  @keyframes slide {
+    from { opacity: 0; translate: -24px 0; }
+  }
+
+  .order-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+  .order-head .id { font-weight: 700; font-size: 15px; }
+  .order-head .date { color: var(--muted); font-size: 13px; }
+  .status {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+  .status.transit { background: #e7eefb; color: var(--brand); }
+  .status.delivered { background: #e2f4ea; color: var(--ok); }
+
+  .items { display: flex; gap: 8px; margin-bottom: 16px; }
+  .thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--a), var(--b));
+    display: grid;
+    place-items: center;
+    color: rgba(255,255,255,0.9);
+    font-weight: 700;
+  }
+  .thumb.more { background: var(--line); color: var(--muted); font-size: 13px; }
+
+  .steps {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    margin: 0 6px;
+  }
+  .steps .rail, .steps .done {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 7px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line);
+  }
+  .steps .done {
+    background: var(--brand);
+    transform-origin: left;
+    transform: scaleX(var(--progress));
+    animation: track 1s ease-in-out both;
+  }
+  @keyframes track { from { transform: scaleX(0); } }
+  .step {
+    position: relative;
+    width: 72px;
+    margin: 0 -28px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .dot {
+    width: 17px;
+    height: 17px;
+    margin: 0 auto 6px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 3px solid var(--line);
+  }
+  .step.reached .dot { border-color: var(--brand); background: var(--brand); }
+  .step.reached { color: var(--ink); }
+  .step.now .dot {
+    background: var(--card);
+    border-color: var(--brand);
+    scale: 1.35;
+    box-shadow: 0 0 0 4px rgba(43, 89, 195, 0.18);
+  }
+  .delivered-all .step.reached .dot { border-color: var(--ok); background: var(--ok); }
+  .delivered-all .done { background: var(--ok); }
+
+  aside h2 { margin: 0 0 10px; font-size: 15px; }
+
+  .toasts { position: relative; height: 96px; }
+  .toast {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  }
+  .toast:nth-child(1) { z-index: 3; }
+  .toast:nth-child(2) { z-index: 2; transform: translateY(14px) scale(0.94); opacity: 0.85; }
+  .toast:nth-child(3) { z-index: 1; transform: translateY(28px) scale(0.88); opacity: 0.6; }
+  .toast b { display: block; margin-bottom: 2px; }
+  .toast small { color: var(--muted); }
+
+  .help {
+    margin-top: 16px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .help a {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .help a:last-child { border-bottom: 0; }
+  .chev {
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid var(--muted);
+    border-right: 2px solid var(--muted);
+    transform: rotate(45deg);
+  }
+</style>
+</head>
+<body>
+  <div class="promo">
+    <span class="tag"><span>SALE</span></span>
+    <p><strong>Spring sale ends Sunday.</strong> Free returns on everything until 30 April.</p>
+    <div class="stripes"></div>
+  </div>
+
+  <main>
+    <h1>Your orders</h1>
+    <div>
+      <article class="order">
+        <div class="order-head">
+          <div><div class="id">Order #48213</div><div class="date">Placed 11 April · 3 items · €86.40</div></div>
+          <span class="status transit">In transit</span>
+        </div>
+        <div class="items">
+          <div class="thumb" style="--a:#e98a5b;--b:#c6533a">T</div>
+          <div class="thumb" style="--a:#5b8de9;--b:#2b59c3">M</div>
+          <div class="thumb" style="--a:#8fcf8a;--b:#3d9a50">P</div>
+        </div>
+        <div class="steps" style="--progress: 0.66">
+          <div class="rail"></div><div class="done"></div>
+          <div class="step reached"><div class="dot"></div>Ordered</div>
+          <div class="step reached"><div class="dot"></div>Packed</div>
+          <div class="step reached now"><div class="dot"></div>Shipped</div>
+          <div class="step"><div class="dot"></div>Delivered</div>
+        </div>
+      </article>
+
+      <article class="order">
+        <div class="order-head">
+          <div><div class="id">Order #47790</div><div class="date">Placed 2 April · 5 items · €142.00</div></div>
+          <span class="status delivered">Delivered</span>
+        </div>
+        <div class="items">
+          <div class="thumb" style="--a:#c49be8;--b:#8a55c2">L</div>
+          <div class="thumb" style="--a:#f0c75e;--b:#d29a1e">S</div>
+          <div class="thumb more">+3</div>
+        </div>
+        <div class="steps delivered-all" style="--progress: 1">
+          <div class="rail"></div><div class="done"></div>
+          <div class="step reached"><div class="dot"></div>Ordered</div>
+          <div class="step reached"><div class="dot"></div>Packed</div>
+          <div class="step reached"><div class="dot"></div>Shipped</div>
+          <div class="step reached"><div class="dot"></div>Delivered</div>
+        </div>
+      </article>
+    </div>
+
+    <aside>
+      <h2>Notifications</h2>
+      <div class="toasts">
+        <div class="toast"><b>Out for delivery</b><small>#48213 arrives today, 14:00–16:00</small></div>
+        <div class="toast"><b>Refund issued</b><small>€19.90 back to your card</small></div>
+        <div class="toast"><b>Review your order</b><small>How was #47790?</small></div>
+      </div>
+      <div class="help">
+        <a href="#">Return an item <span class="chev"></span></a>
+        <a href="#">Change delivery address <span class="chev"></span></a>
+        <a href="#">Contact support <span class="chev"></span></a>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>
