@@ -751,6 +751,11 @@ internal static class DisplayListBuilder
             }
             var run = box.Fragment.Text!;
             var style = run.Style;
+            if (run.Turned)
+            {
+                PaintTurnedText(box, run);
+                return;
+            }
             if (style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || GlyphsOf(box) is not { } glyphRun)
                 return;
             var (glyphs, origins) = (glyphRun.Glyphs, glyphRun.Origins);
@@ -777,6 +782,43 @@ internal static class DisplayListBuilder
             list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: glyphRun));
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => !d.Under).Select(d => d.Item));
+        }
+
+        /// <summary>
+        /// Text in a vertical line (Layout.VerticalLayout): its central baseline runs down the fragment, the text's
+        /// ascent in from its right edge. Upright glyphs are centred on it, each hanging from its vertical origin;
+        /// sideways ones are drawn as horizontal text turned a quarter clockwise, their alphabetic baseline left of it.
+        /// </summary>
+        // ponytail: no decorations or shadows on vertical text yet.
+        private void PaintTurnedText(PaintBox box, Layout.TextRun run)
+        {
+            if (run.Style.Inherited.Visibility != Visibility.Visible || run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
+                return;
+            var count = run.GlyphEnd - run.GlyphStart;
+            var (size, scale) = (run.Run.Size, run.Run.Size / face.UnitsPerEm);
+            var right = box.X + box.Fragment.Width;
+            var glyphs = new ushort[count];
+            var origins = new Vector2[count];
+            var along = 0f;
+            for (var i = 0; i < count; i++)
+            {
+                var g = run.GlyphStart + i;
+                glyphs[i] = run.Run.Glyphs[g];
+                origins[i] = run.Run.Upright
+                    ? new Vector2(right - run.Ascent - face.Advance(glyphs[i]) * scale / 2, box.Y + along + face.Vertical(glyphs[i]).Origin * scale)
+                    : new Vector2(along, run.Ascent + Layout.InlineLayout.CentralOffset(face, size));
+                along += run.Run.Advances[g];
+            }
+            SetClip(box.Clip);
+            var item = new DisplayItem(DisplayItemKind.Glyphs, Color: run.Style.Inherited.Color, Glyphs: new GlyphRun(face, size, glyphs, origins));
+            if (run.Run.Upright)
+            {
+                list.Items.Add(item);
+                return;
+            }
+            list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: new Matrix3x2(0, 1, -1, 0, right, box.Y)));
+            list.Items.Add(item);
+            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
         }
 
         /// <summary>

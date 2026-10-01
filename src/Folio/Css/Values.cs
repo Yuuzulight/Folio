@@ -253,4 +253,8 @@ internal sealed record CssWideValue(CssWideKeyword Keyword) : CssValue;
 /// (https://www.w3.org/TR/css-variables-1/#variables-in-shorthands). For a longhand of a shorthand,
 /// <paramref name="Shorthand"/> names the shorthand whose substituted value is parsed.
 /// </summary>
-internal sealed record UnparsedValue(string Text, string? Shorthand) : CssValue;
+internal sealed record UnparsedValue(string Text, string? Shorthand) : CssValue
+{
+    /// <summary>For a shorthand's flow-relative longhand mapped to a physical one: the longhand to take from the expansion.</summary>
+    public PropertyId? Longhand { get; init; }
+}

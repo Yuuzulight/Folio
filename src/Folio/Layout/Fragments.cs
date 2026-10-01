@@ -17,7 +17,7 @@ internal enum FragmentKind
 /// <param name="Replacement">The text shown, when it is not the inline formatting context's own (an inserted ellipsis).</param>
 /// <param name="Inline">The inline box the text is directly in, if any.</param>
 internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style,
-                               string? Replacement = null, InlineBox? Inline = null);
+                               string? Replacement = null, InlineBox? Inline = null, bool Turned = false);
 
 /// <summary>What layout needs besides the box tree: the fonts text is measured with.</summary>
 internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = null)
@@ -121,6 +121,13 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
 
     /// <summary>For line boxes: the baseline, from the top of the line.</summary>
     public float Baseline { get; init; }
+
+    /// <summary>
+    /// For a ruby column (and its baseline in <see cref="Baseline"/>): how far its annotation's em box reaches above its
+    /// top, and how far the annotation may overhang the text on either side.
+    /// </summary>
+    public float RubyOver { get; init; } = float.NegativeInfinity;
+    public float RubyOverhang { get; init; }
 
     /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
     public Svg.SvgContainerNode? Svg { get; init; }
