@@ -136,6 +136,10 @@ internal static class LogicalProperties
 
         public override void Inherit(StyleBuilder builder, ComputedStyle parent) { }
 
+        // Keyframe styles hold the value in the physical property it maps to under the element's writing mode and direction.
+        public override void Interpolate(StyleBuilder builder, ComputedStyle from, ComputedStyle to, double progress) =>
+            Properties.Get(Physical(Id, from.Text.WritingMode, from.Text.Direction)).Interpolate(builder, from, to, progress);
+
         public override string Describe(ComputedStyle style) => "";
     }
 }

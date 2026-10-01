@@ -23,8 +23,11 @@ public class CascadeTests
             viewport is null ? 600 : float.Parse(viewport[2], CultureInfo.InvariantCulture),
             DarkColorScheme: test.Directives.Contains("dark"));
         var document = TreeBuilder.Parse(test.Input);
+        // "time 1.5": animations sampled 1.5 s into the document timeline instead of settled.
+        var time = test.Directives.FirstOrDefault(d => d.StartsWith("time ", StringComparison.Ordinal)) is { } t
+            ? double.Parse(t[5..], CultureInfo.InvariantCulture) : (double?)null;
 
-        StyleResolver.Resolve(document, media);
+        StyleResolver.Resolve(document, media, animationTime: time);
 
         var actual = test.Expected.Select(line =>
         {

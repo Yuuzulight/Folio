@@ -26,6 +26,8 @@ internal sealed record CubicBezierEasing(double X1, double Y1, double X2, double
 {
     public override double Apply(double input, bool before = false)
     {
+        if (input is 0 or 1)
+            return input;
         // Outside 0 to 1 the curve continues along its end tangents.
         if (input < 0)
             return input * (X1 > 0 ? Y1 / X1 : Y1 == 0 && X2 > 0 ? Y2 / X2 : 0);
