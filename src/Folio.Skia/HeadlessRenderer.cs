@@ -13,13 +13,17 @@ public enum TextAntialiasing
     Subpixel,
 }
 
-/// <summary>What to render: the viewport, the scale, and how text is antialiased.</summary>
+/// <summary>What to render: the viewport, the scale, how text is antialiased, and the moment of the animations.</summary>
 /// <param name="ViewportWidth">The viewport width in CSS pixels.</param>
 /// <param name="ViewportHeight">The viewport height in CSS pixels; null renders the whole document, laid out in a viewport three quarters as tall as it is wide.</param>
 /// <param name="DeviceScale">Device pixels per CSS pixel.</param>
 /// <param name="ResourceWait">How long to wait for allowed loads; nothing loads asynchronously yet, so it has no effect.</param>
+/// <param name="AnimationTime">
+/// The time since the document loaded at which CSS animations are drawn, for deterministic frames. Null draws the
+/// settled document: every animation as if it had no duration and no delay, so one that fills forwards shows its end.
+/// </param>
 public sealed record RenderRequest(int ViewportWidth, int? ViewportHeight = null, float DeviceScale = 1f, TimeSpan? ResourceWait = null,
-                                   TextAntialiasing Text = TextAntialiasing.Greyscale);
+                                   TextAntialiasing Text = TextAntialiasing.Greyscale, TimeSpan? AnimationTime = null);
 
 /// <summary>A rendered image: premultiplied BGRA8 pixels, row-major without padding, and the document's diagnostics.</summary>
 public sealed class RenderResult : IDisposable
@@ -68,7 +72,8 @@ public static class HeadlessRenderer
             throw new ArgumentOutOfRangeException(nameof(request), "DeviceScale must be above 0 and at most 8.");
 
         var layoutHeight = request.ViewportHeight ?? Math.Max(1, request.ViewportWidth * 3 / 4);
-        var (list, documentHeight) = document.Paint(request.ViewportWidth, layoutHeight, request.DeviceScale, new HarfBuzzShaper());
+        var (list, documentHeight) = document.Paint(request.ViewportWidth, layoutHeight, request.DeviceScale, new HarfBuzzShaper(),
+            request.AnimationTime?.TotalSeconds);
         var diagnostics = document.Diagnostics.ToList();
 
         var height = request.ViewportHeight ?? Math.Max(1, (int)Math.Ceiling(documentHeight));

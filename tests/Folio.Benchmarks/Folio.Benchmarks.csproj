@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
+    <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
     <Compile Include="..\Folio.RenderTests\RepoPaths.cs" Link="RepoPaths.cs" />
   </ItemGroup>
 

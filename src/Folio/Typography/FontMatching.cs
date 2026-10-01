@@ -187,21 +187,30 @@ internal sealed class FontCollection(IFontSource? source = null)
 
     /// <summary>
     /// Fallback per grapheme cluster (study 11): the first family in the list whose matched face maps every code point
-    /// of the cluster (emoji-presentation clusters try the emoji family first), then the fallback families for the
-    /// cluster's script. Null means none does; system fallback is the next step.
+    /// of the cluster, then the fallback families for the cluster's script. Emoji-presentation clusters try the emoji
+    /// family first; one that asks for emoji presentation with VS16 takes a face with colour glyphs over an earlier one
+    /// without. Null means none does; system fallback is the next step.
     /// </summary>
     public FontFace? FaceForCluster(IReadOnlyList<string> families, FaceStyle style, int weight, float stretch, ReadOnlySpan<char> cluster)
     {
         IEnumerable<string> candidates = families;
-        if (IsEmojiPresentation(cluster))
+        var emoji = IsEmojiPresentation(cluster);
+        if (emoji)
             candidates = candidates.Prepend("emoji");
         if (ScriptFallbacks.TryGetValue(ScriptOf(cluster), out var fallbacks))
             candidates = candidates.Concat(fallbacks);
+        FontFace? plain = null;
+        var colour = cluster.Contains('\uFE0F');
         foreach (var family in candidates)
         {
-            if (Match(family, style, weight, stretch, cluster) is { } face && CoversAll(face, cluster))
+            if (Match(family, style, weight, stretch, cluster) is not { } face || !CoversAll(face, cluster))
+                continue;
+            if (!colour || HasColorGlyphs(face))
                 return face;
+            plain ??= face;
         }
+        if (plain is not null)
+            return plain;
         // Step 3: the source's own choice for the cluster's first character.
         if (source is not null && Rune.DecodeFromUtf16(cluster, out var rune, out _) == System.Buffers.OperationStatus.Done)
         {
@@ -237,6 +246,9 @@ internal sealed class FontCollection(IFontSource? source = null)
     }
 
     // UTS #51: shown as emoji by default, or asked to be with VS16.
+    // Colour glyph tables: bitmaps (CBDT, sbix), layered outlines (COLR) or SVG documents.
+    private static bool HasColorGlyphs(FontFace face) => face.HasTable("CBDT") || face.HasTable("COLR") || face.HasTable("sbix") || face.HasTable("SVG ");
+
     private static bool IsEmojiPresentation(ReadOnlySpan<char> cluster)
     {
         foreach (var rune in cluster.EnumerateRunes())

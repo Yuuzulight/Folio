@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using Folio.Painting;
 using Folio.Skia;
 using SkiaSharp;
@@ -28,7 +29,9 @@ public sealed class RenderFailedEventArgs(Exception exception) : EventArgs
 
 /// <summary>
 /// Shows an HTML document (docs/architecture.md, WinForms control): lays it out at the control's width, relays it out
-/// on resize and zoom, scrolls the page with the wheel and a scroll bar, and passes link clicks to the host.
+/// on resize and zoom, scrolls the page with the wheel and a scroll bar, passes link clicks to the host, and plays CSS
+/// animations at the display's refresh rate while the control is shown. The document reports
+/// <c>prefers-reduced-motion: reduce</c> when the host's options ask for it or Windows has animations turned off.
 /// </summary>
 // ponytail: each paint replays the whole display list; invalidation by rectangle and hover states come in M3.
 public class FolioView : Control
@@ -40,11 +43,16 @@ public class FolioView : Control
     private float _laidOutWidth = -1;
     private float _zoom = 1f;
 
+    // Animation frames: the document timeline runs while the control is shown and stops while it is hidden.
+    private readonly System.Windows.Forms.Timer _frames = new();
+    private readonly Stopwatch _timeline = new();
+
     public FolioView()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         _scrollBar.ValueChanged += (_, _) => Invalidate();
         Controls.Add(_scrollBar);
+        _frames.Tick += (_, _) => NextFrame();
     }
 
     /// <summary>The options new documents are parsed with.</summary>
@@ -80,15 +88,17 @@ public class FolioView : Control
     public void LoadHtml(string html, Uri? baseUri = null)
     {
         ArgumentNullException.ThrowIfNull(html);
-        var options = baseUri is null ? Options : new FolioOptions
+        var options = new FolioOptions
         {
-            BaseUri = baseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion,
+            BaseUri = baseUri ?? Options.BaseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion || SystemReducedMotion(),
             UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.Fonts,
+            ResourceLoader = Options.ResourceLoader,
         };
         _document?.Dispose();
         _document = Document.Parse(html, options);
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
+        _timeline.Reset();
         DiagnosticsChanged?.Invoke(this, new DiagnosticsEventArgs(_document.Diagnostics));
         Invalidate();
     }
@@ -107,7 +117,7 @@ public class FolioView : Control
             return;
         for (var pass = 0; pass < 2; pass++)
         {
-            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HarfBuzzShaper());
+            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HarfBuzzShaper(), Time);
             var needsBar = _contentHeight > ViewportHeight;
             if (needsBar == _scrollBar.Visible)
                 break;
@@ -116,7 +126,79 @@ public class FolioView : Control
         _laidOutWidth = ViewportWidth;
         _scrollBar.Maximum = (int)Math.Ceiling(_contentHeight * PixelScale);
         _scrollBar.LargeChange = Math.Max(1, ClientSize.Height);
+        if (_document.AnimationsRunning(Time) && !_frames.Enabled)
+        {
+            _frames.Interval = FrameInterval();
+            _frames.Start();
+        }
     }
+
+    // Seconds on the document timeline: how long the document has been shown.
+    private double Time => _timeline.Elapsed.TotalSeconds;
+
+    private bool IsShown => Visible && IsHandleCreated && ClientSize.Width > 0 && ClientSize.Height > 0
+        && FindForm() is not { WindowState: FormWindowState.Minimized };
+
+    // One animation frame: only animated elements are styled again when every animation is paint-only; otherwise the
+    // next paint lays the document out again at the new time. Frames stop when no animation changes any more.
+    private void NextFrame()
+    {
+        if (_document is null || !IsShown)
+        {
+            _timeline.Stop();
+            return;
+        }
+        _timeline.Start();
+        try
+        {
+            if (_document.PaintFrame(Time) is { } list)
+                _list = list;
+            else
+                _laidOutWidth = -1;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _frames.Stop();
+            RenderFailed?.Invoke(this, new RenderFailedEventArgs(ex));
+            return;
+        }
+        Invalidate();
+        if (!_document.AnimationsRunning(Time))
+            _frames.Stop();
+    }
+
+    // The display's refresh interval in milliseconds (16 when unknown).
+    private int FrameInterval()
+    {
+        using var graphics = CreateGraphics();
+        var hdc = graphics.GetHdc();
+        try
+        {
+            var hz = GetDeviceCaps(hdc, VRefresh);
+            return hz > 1 ? Math.Max(1, 1000 / hz) : 16;
+        }
+        finally
+        {
+            graphics.ReleaseHdc(hdc);
+        }
+    }
+
+    // Windows' "Show animations in Windows" setting (SPI_GETCLIENTAREAANIMATION); off means the reader prefers reduced motion.
+    private static bool SystemReducedMotion()
+    {
+        var animations = 1;
+        return SystemParametersInfo(GetClientAreaAnimation, 0, ref animations, 0) && animations == 0;
+    }
+
+    private const int VRefresh = 116;
+    private const uint GetClientAreaAnimation = 0x1042;
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetDeviceCaps(IntPtr hdc, int index);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint action, uint param, ref int value, uint winIni);
 
     private float ScrollTop => _scrollBar.Visible ? _scrollBar.Value / PixelScale : 0;
 
@@ -127,6 +209,8 @@ public class FolioView : Control
             return;
         try
         {
+            if (IsShown)
+                _timeline.Start();
             EnsureLayout();
             var width = Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
             var height = Math.Max(1, ClientSize.Height);
@@ -187,7 +271,10 @@ public class FolioView : Control
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
+            _frames.Dispose();
             _document?.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a dark analytics page for docs traffic with four KPI cards and an SVG line chart of weekly new and returning visitors: gradient area fills, data points, a dashed goal line and a callout.",
+  "features": ["svg", "svg-text", "linear-gradient-svg", "stroke-dasharray", "polyline", "grid", "flex", "custom-properties"],
+  "viewport": 800
+}

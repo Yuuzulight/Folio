@@ -12,4 +12,13 @@ public class BenchmarkTests
             Assert.True(m.Total > TimeSpan.Zero && m.Allocated > 0, name);
         }
     }
+
+    // The frame benchmark's animations all take the paint-only path.
+    [Fact]
+    public void AnimationFramesArePaintOnly()
+    {
+        var (median, _, paintOnly) = FrameBenchmark.Measure(FrameBenchmark.Typical, frames: 3);
+        Assert.True(paintOnly);
+        Assert.True(median > TimeSpan.Zero);
+    }
 }

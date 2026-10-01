@@ -104,22 +104,25 @@ internal static class TableLayout
         var collapsed = style.Text.BorderCollapse == BorderCollapse.Collapse ? ResolveCollapsedBorders(grid, table) : null;
         if (collapsed is not null)
             frame = CollapsedFrame(grid, collapsed);
-        BorderGroup? Half(Cell cell) => collapsed?[cell] is { } b
-            ? b with { TopWidthPx = b.TopWidth / 2, RightWidthPx = b.RightWidth / 2, BottomWidthPx = b.BottomWidth / 2, LeftWidthPx = b.LeftWidth / 2 }
-            : null;
+        var halves = collapsed?.ToDictionary(c => c.Key, c => c.Value with
+        {
+            TopWidthPx = c.Value.TopWidth / 2, RightWidthPx = c.Value.RightWidth / 2, BottomWidthPx = c.Value.BottomWidth / 2, LeftWidthPx = c.Value.LeftWidth / 2,
+        });
+        BorderGroup? Half(Cell cell) => halves?[cell];
         var n = grid.Columns;
         var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed);
         var tableWidth = Math.Max(width, columns.Sum() + frame.Horizontal + spacing.X * (n + 1));
+        // Running sums, so a span's extent is one subtraction however many rows or columns the table has.
         var columnX = new float[n + 1];
-        // Columns run from the inline start: from the right in a right-to-left table (CSS 2.2 §17.5).
+        columnX[0] = frame.Left + spacing.X;
+        for (var c = 1; c <= n; c++)
+            columnX[c] = columnX[c - 1] + columns[c - 1] + spacing.X;
+        float SpanWidth(Cell cell) => columnX[Math.Min(n, cell.Column + cell.ColumnSpan)] - columnX[cell.Column] - spacing.X;
+        // Columns run from the inline start: from the right in a right-to-left table (CSS 2.2 §17.5), mirrored inside
+        // the table's own right border and spacing.
         var rtl = style.Text.Direction == Direction.Rtl;
-        for (var c = 0; c <= n; c++)
-        {
-            columnX[c] = rtl ? tableWidth - frame.Right - spacing.X * (c + 1) - columns.Take(c + 1).Sum()
-                : frame.Left + spacing.X * (c + 1) + columns.Take(c).Sum();
-        }
-        float CellX(Cell cell) => rtl ? columnX[cell.Column + cell.ColumnSpan - 1] : columnX[cell.Column];
-        float SpanWidth(Cell cell) => columns.Skip(cell.Column).Take(cell.ColumnSpan).Sum() + spacing.X * (cell.ColumnSpan - 1);
+        float Mirror(float x, float width) => rtl ? tableWidth - frame.Right - (x - frame.Left) - width : x;
+        float CellX(Cell cell) => Mirror(columnX[cell.Column], SpanWidth(cell));
 
         // Row heights: the tallest single-row cell (baseline-aligned cells by their baselines), the row's own height,
         // then taller row-spanning cells stretch their last row.
@@ -162,12 +165,16 @@ internal static class TableLayout
             tableHeight = th.Length.Px;
         }
         var rowY = new float[rowCount + 1];
-        for (var r = 0; r <= rowCount; r++)
-            rowY[r] = frame.Top + spacing.Y * (r + 1) + heights.Take(r).Sum();
+        rowY[0] = frame.Top + spacing.Y;
+        for (var r = 1; r <= rowCount; r++)
+            rowY[r] = rowY[r - 1] + heights[r - 1] + spacing.Y;
+        var cellsByRow = new List<Cell>[rowCount];
+        foreach (var cell in grid.Cells)
+            (cellsByRow[cell.Row] ??= []).Add(cell);
 
         // Fragments: row groups hold rows, rows hold the cells that start in them.
-        var (gridLeft, gridRight) = n == 0 ? (columnX[0], columnX[0])
-            : rtl ? (columnX[n - 1], columnX[0] + columns[0]) : (columnX[0], columnX[n - 1] + columns[n - 1]);
+        var gridSpan = n == 0 ? 0 : columnX[n - 1] + columns[n - 1] - columnX[0];
+        var (gridLeft, gridRight) = (Mirror(columnX[0], gridSpan), Mirror(columnX[0], gridSpan) + gridSpan);
         var groupFragments = new List<ChildFragment>();
         var carried = new List<OutOfFlowBox>(); // positioned descendants of cells, for the containing block further up
         var rowIndex = 0;
@@ -179,9 +186,9 @@ internal static class TableLayout
             {
                 var r = rowIndex++;
                 var cells = new List<ChildFragment>();
-                foreach (var cell in grid.Cells.Where(c => c.Row == r))
+                foreach (var cell in cellsByRow[r] ?? [])
                 {
-                    var height = heights.Skip(r).Take(cell.RowSpan).Sum() + spacing.Y * (cell.RowSpan - 1);
+                    var height = rowY[r + cell.RowSpan] - rowY[r] - spacing.Y;
                     var content = cell.Fragment!;
                     var offset = cell.Box.Style.Box.VerticalAlign.Kind switch
                     {
@@ -193,7 +200,7 @@ internal static class TableLayout
                     };
                     // empty-cells: hide leaves empty cells undecorated in the separated border model.
                     var hidden = collapsed is null && cell.Box.Style.Text.EmptyCells == EmptyCells.Hide && content.Children.Count == 0;
-                    var placed = new Fragment(cell.Box, content.Width, height, content.Children.Select(c => c with { Y = c.Y + offset }).ToList())
+                    var placed = new Fragment(cell.Box, content.Width, height, offset == 0 ? content.Children : content.Children.Select(c => c with { Y = c.Y + offset }).ToList())
                     {
                         PaintedBorder = collapsed?[cell],
                         SkipsDecorations = hidden,
