@@ -46,6 +46,13 @@ public sealed class FolioOptions
 
     public ResourceLimits Limits { get; init; } = ResourceLimits.Default;
 
+    /// <summary>
+    /// Loads stylesheets, images and fonts beyond <c>data:</c> URLs, which load without it. Null (the default) loads
+    /// nothing else, so no request ever leaves the process. <see cref="Resources.ResourceLoaders"/> has local folders and
+    /// allowlisted HTTPS origins.
+    /// </summary>
+    public Resources.IResourceLoader? ResourceLoader { get; init; }
+
     /// <summary>Whether parse errors are recorded in <see cref="Document.Diagnostics"/>; limit hits always are.</summary>
     public bool CollectDiagnostics { get; init; } = true;
 }
