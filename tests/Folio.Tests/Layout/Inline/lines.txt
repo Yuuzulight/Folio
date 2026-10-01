@@ -168,3 +168,17 @@ html 0,0 800x64
         text "b" 0,32 16x16
     p 0,48 800x16
       line 0,48 800x16
+
+=== a fallback font sizes the line with line-height normal, and only the first available font does otherwise
+<!DOCTYPE html><style>body, p { margin: 0 } p { font: 30px "Folio Box", "Source Sans 3" }</style><p style="line-height: 1">aā</p><p style="line-height: normal">aā</p>
+---
+html 0,0 800x70
+  body 0,0 800x70
+    p 0,0 800x30
+      line 0,0 800x30
+        text "a" 0,0 30x30
+        text "ā" 30,0 15.12x30
+    p 0,30 800x40
+      line 0,30 800x40
+        text "a" 0,36 30x30
+        text "ā" 30,30 15.12x40

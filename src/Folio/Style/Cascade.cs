@@ -418,9 +418,10 @@ internal static class Cascade
 
     /// <summary>The cascaded values from matched rules, the style attribute and presentational hints.</summary>
     /// <param name="animations">Declarations of the animation origin, later ones winning (<see cref="Animations.EndState"/>).</param>
+    /// <param name="parent">The parent's style, whose writing-mode and direction flow-relative properties follow unless the element sets its own.</param>
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
         List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints,
-        List<CascadeDeclaration>? animations = null)
+        List<CascadeDeclaration>? animations = null, ComputedStyle? parent = null)
     {
         var candidates = new List<Candidate>();
         // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.
@@ -451,6 +452,8 @@ internal static class Cascade
 
         var values = new Dictionary<PropertyId, CssValue>();
         var custom = new Dictionary<string, CustomProperties.Declared>(StringComparer.Ordinal);
+        // With flow-relative declarations, the rank each property won at, to settle each against its physical twin.
+        var ranks = candidates.Exists(c => LogicalProperties.IsLogical(c.Declaration.Id)) ? new Dictionary<PropertyId, int>() : null;
         Dictionary<object, Func<Candidate, bool>>? rollbacks = null; // only revert and revert-layer need them
         for (var i = 0; i < candidates.Count; i++)
         {
@@ -481,9 +484,40 @@ internal static class Cascade
             if (c.Declaration.CustomName is { } customName)
                 custom[customName] = resolved is null ? c.Declaration.Custom : new CustomProperties.Declared(null, resolved);
             else
+            {
                 values[c.Declaration.Id] = resolved is { } k && k != keyword ? new CssWideValue(k) : c.Declaration.Value!;
+                ranks?.Add(c.Declaration.Id, i);
+            }
         }
+        if (ranks is not null)
+            MapFlowRelative(values, ranks, parent ?? ComputedStyle.Initial);
         return (values, custom);
+    }
+
+    // Each flow-relative value goes to the physical property it stands for under the element's writing-mode and
+    // direction, unless a higher-ranked declaration set that physical property (css-logical-1 §3).
+    private static void MapFlowRelative(Dictionary<PropertyId, CssValue> values, Dictionary<PropertyId, int> ranks, ComputedStyle parent)
+    {
+        var mode = values.GetValueOrDefault(PropertyId.WritingMode) switch
+        {
+            KeywordValue { Keyword: "vertical-rl" } => WritingMode.VerticalRl,
+            KeywordValue { Keyword: "vertical-lr" } => WritingMode.VerticalLr,
+            KeywordValue or CssWideValue { Keyword: CssWideKeyword.Initial } => WritingMode.HorizontalTb,
+            _ => parent.Text.WritingMode,
+        };
+        var direction = values.GetValueOrDefault(PropertyId.Direction) switch
+        {
+            KeywordValue { Keyword: "rtl" } => Direction.Rtl,
+            KeywordValue or CssWideValue { Keyword: CssWideKeyword.Initial } => Direction.Ltr,
+            _ => parent.Text.Direction,
+        };
+        foreach (var (id, rank) in ranks.Where(r => LogicalProperties.IsLogical(r.Key)).ToList())
+        {
+            var physical = LogicalProperties.Physical(id, mode, direction);
+            if (!ranks.TryGetValue(physical, out var other) || rank < other)
+                (values[physical], ranks[physical]) = (values[id] is UnparsedValue { Shorthand: not null } pending ? pending with { Longhand = id } : values[id], rank);
+            values.Remove(id);
+        }
     }
 
     // A property's key for rollbacks: its id, or a custom property's name.

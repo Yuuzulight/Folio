@@ -183,6 +183,7 @@ internal static class CustomProperties
             return null;
         var (source, values) = CssParser.ParseComponentValues(text);
         var parsed = Properties.Parse(source, new Declaration(value.Shorthand ?? property.Name, values, false));
-        return parsed?.FirstOrDefault(p => p.Id == property.Id).Value;
+        var wanted = value.Longhand ?? property.Id;
+        return parsed?.FirstOrDefault(p => p.Id == wanted).Value;
     }
 }

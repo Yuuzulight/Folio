@@ -1,0 +1,139 @@
+=== an annotation sits over its base and the first line grows to make room for it
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 20px; line-height: 1 } rt { font-size: 10px }</style><p>xx<ruby>xxxx<rt>xxxxx</rt></ruby>yy</p>
+---
+html 0,0 800x30
+  body 0,0 800x30
+    p 0,0 800x30
+      line 0,0 800x30
+        ruby 40,10 80x20
+        text "xx" 0,10 40x20
+        (anonymous) 40,10 80x20
+          rt 55,0 50x10
+            line 55,0 50x10
+              text "xxxxx" 55,0 50x10
+          (anonymous) 40,10 80x20
+            line 40,10 80x20
+              text "xxxx" 40,10 80x20
+        text "yy" 120,10 40x20
+
+=== an annotation reaching into the space below the previous line leaves the line where it is, but moves a first line down
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 20px; line-height: 1.5 } rt { font-size: 10px }</style><p><ruby>xxxx<rt>xxxxx</rt></ruby><br><ruby>xxxx<rt>xxxxx</rt></ruby></p>
+---
+html 0,0 800x65
+  body 0,0 800x65
+    p 0,0 800x65
+      line 0,0 800x35
+        ruby 0,10 80x20
+        (anonymous) 0,5 80x30
+          rt 15,0 50x10
+            line 15,0 50x10
+              text "xxxxx" 15,0 50x10
+          (anonymous) 0,5 80x30
+            line 0,5 80x30
+              text "xxxx" 0,10 80x20
+      line 0,35 800x30
+        ruby 0,40 80x20
+        (anonymous) 0,35 80x30
+          rt 15,30 50x10
+            line 15,30 50x10
+              text "xxxxx" 15,30 50x10
+          (anonymous) 0,35 80x30
+            line 0,35 80x30
+              text "xxxx" 0,40 80x20
+
+=== a wider annotation overhangs the text beside it by half its font size, but not the line's start
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 20px; line-height: 3 } rt { font-size: 10px }</style><p>xx<ruby>x<rt>xxxxxxxx</rt></ruby>yy</p><p><ruby>x<rt>xxxxxxxx</rt></ruby>yy</p>
+---
+html 0,0 800x120
+  body 0,0 800x120
+    p 0,0 800x60
+      line 0,0 800x60
+        ruby 40,20 70x20
+        text "xx" 0,20 40x20
+        (anonymous) 35,0 80x60
+          rt 35,10 80x10
+            line 35,10 80x10
+              text "xxxxxxxx" 35,10 80x10
+          (anonymous) 65,0 20x60
+            line 65,0 20x60
+              text "x" 65,20 20x20
+        text "yy" 110,20 40x20
+    p 0,60 800x60
+      line 0,60 800x60
+        ruby 0,80 75x20
+        (anonymous) 0,60 80x60
+          rt 0,70 80x10
+            line 0,70 80x10
+              text "xxxxxxxx" 0,70 80x10
+          (anonymous) 30,60 20x60
+            line 30,60 20x60
+              text "x" 30,80 20x20
+        text "yy" 75,80 40x20
+
+=== the narrower of base and annotation is spread with half a share at each end between CJK characters, and centred otherwise
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 20px; line-height: 3 } rt { font-size: 10px }</style><p><ruby>漢字<rt>かんじ</rt></ruby> <ruby>漢字<rt>kan</rt></ruby> <ruby>漢<rt>かんじ</rt></ruby></p>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    p 0,0 800x60
+      line 0,0 800x60
+        ruby 0,20 40x20
+        ruby 60,20 40x20
+        ruby 120,20 25x20
+        (anonymous) 0,0 40x60
+          rt 0,10 40x10
+            line 0,10 40x10
+              text "か" 1.67,10 13.33x10
+              text "ん" 15,10 13.33x10
+              text "じ" 28.33,10 10x10
+          (anonymous) 0,0 40x60
+            line 0,0 40x60
+              text "漢" 0,20 20x20
+              text "字" 20,20 20x20
+        text " " 40,20 20x20
+        (anonymous) 60,0 40x60
+          rt 65,10 30x10
+            line 65,10 30x10
+              text "kan" 65,10 30x10
+          (anonymous) 60,0 40x60
+            line 60,0 40x60
+              text "漢" 60,20 20x20
+              text "字" 80,20 20x20
+        text " " 100,20 20x20
+        (anonymous) 115,0 30x60
+          rt 115,10 30x10
+            line 115,10 30x10
+              text "か" 115,10 10x10
+              text "ん" 125,10 10x10
+              text "じ" 135,10 10x10
+          (anonymous) 120,0 20x60
+            line 120,0 20x60
+              text "漢" 120,20 20x20
+
+=== several pairs in one ruby, an empty annotation, and rp hidden
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-size: 20px; line-height: 3 } rt { font-size: 10px }</style><p><ruby>折<rt>お</rt>り<rt></rt>紙<rp>(</rp><rt>がみ</rt><rp>)</rp></ruby></p>
+---
+html 0,0 800x60
+  body 0,0 800x60
+    p 0,0 800x60
+      line 0,0 800x60
+        ruby 0,20 60x20
+        (anonymous) 0,0 20x60
+          rt 5,10 10x10
+            line 5,10 10x10
+              text "お" 5,10 10x10
+          (anonymous) 0,0 20x60
+            line 0,0 20x60
+              text "折" 0,20 20x20
+        (anonymous) 20,0 20x60
+          (anonymous) 20,0 20x60
+            line 20,0 20x60
+              text "り" 20,20 20x20
+        (anonymous) 40,0 20x60
+          rt 40,10 20x10
+            line 40,10 20x10
+              text "が" 40,10 10x10
+              text "み" 50,10 10x10
+          (anonymous) 40,0 20x60
+            line 40,0 20x60
+              text "紙" 40,20 20x20

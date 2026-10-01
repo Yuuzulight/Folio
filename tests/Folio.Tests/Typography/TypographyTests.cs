@@ -24,6 +24,15 @@ public class TypographyTests
     }
 
     [Fact]
+    public void ReadsTheIdeographicBaselineFromBaseOrTheDescender()
+    {
+        var sourceSans = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "SourceSans3-Regular.ttf")))!;
+
+        Assert.Equal(-170, sourceSans.IdeographicBaseline); // its BASE table's 'ideo'
+        Assert.Equal(-200, Box.IdeographicBaseline);        // no BASE table: the typographic descender
+    }
+
+    [Fact]
     public void MapsCharactersToGlyphs()
     {
         Assert.Equal(1, Box.GlyphFor(' '));

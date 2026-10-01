@@ -291,6 +291,9 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
     /// <summary>Glyph offsets from their pen positions (CSS px, y down), from complex shaping; null when all are zero.</summary>
     public System.Numerics.Vector2[]? Offsets { get; init; }
 
+    /// <summary>Set upright in vertical text: advances are advance heights, and glyphs stand on their vertical origins.</summary>
+    public bool Upright { get; init; }
+
     public float Width => Advances.Sum();
 }
 
