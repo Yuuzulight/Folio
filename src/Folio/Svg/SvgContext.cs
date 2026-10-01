@@ -1,3 +1,4 @@
+using System.Numerics;
 using Folio.Dom;
 using Folio.Style;
 
@@ -13,6 +14,51 @@ internal sealed partial class SvgContext(Layout.LayoutContext layout, DocumentNo
 
     /// <summary>The clip paths being built, outermost first: one met again is a reference cycle.</summary>
     public HashSet<ElementNode> Clipping { get; } = [];
+
+    /// <summary>
+    /// How many nodes the content of clip paths and masks may add up to in one layout, counted once for every element or
+    /// box that references them. A page with thousands of references to one large clip path would otherwise draw its
+    /// content thousands of times.
+    /// </summary>
+    public const int MaxReferencedNodes = 100_000;
+
+    /// <summary>
+    /// The content of a clip path or mask element for this viewport, built by <paramref name="build"/> once per layout:
+    /// the layout keeps it when building it followed no other reference and no <c>use</c> instance is restyling, so it
+    /// cannot depend on where the reference came from. Also whether the layout's budget for referenced content
+    /// (<see cref="MaxReferencedNodes"/>) is now spent, in which case the caller uses a simpler stand-in.
+    /// </summary>
+    public (IReadOnlyList<SvgRenderNode> Nodes, bool OverBudget) ReferencedContent(ElementNode element, Vector2 viewport, Func<List<SvgRenderNode>> build)
+    {
+        var cacheable = _instances.Count == 0 && Clipping.Count + Masking.Count == 1;
+        if (!cacheable || !Layout.SvgContent.TryGetValue((element, viewport), out var content))
+        {
+            var nodes = build();
+            content = (nodes, Count(nodes));
+            if (cacheable)
+                Layout.SvgContent[(element, viewport)] = content;
+        }
+        Layout.SvgReferencedNodes += content.Count;
+        return (content.Nodes, Layout.SvgReferencedNodes > MaxReferencedNodes);
+
+        static int Count(IEnumerable<SvgRenderNode> nodes)
+        {
+            var (count, stack) = (0, new Stack<SvgRenderNode>(nodes));
+            while (stack.TryPop(out var node))
+            {
+                count++;
+                var children = node switch
+                {
+                    SvgContainerNode container => container.Children,
+                    SvgShapeNode { Markers: { } markers } => markers,
+                    _ => [],
+                };
+                foreach (var child in children)
+                    stack.Push(child);
+            }
+            return count;
+        }
+    }
 
     /// <summary>The masks being built: one met again inside its own content is a reference cycle.</summary>
     public HashSet<ElementNode> Masking { get; } = [];
