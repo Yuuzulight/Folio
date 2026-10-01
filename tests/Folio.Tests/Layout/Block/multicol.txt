@@ -48,6 +48,102 @@ html 0,0 800x32
       line 60,16 40x16
         text "dd" 60,16 32x16
 
+=== a paragraph breaks across columns between its lines, as one fragment per column
+<!DOCTYPE html><style>body, div, p { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px }</style><div><p>aa bb cc dd ee ff</p></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 100x48
+      p 0,0 40x48
+        line 0,0 40x16
+          text "aa " 0,0 48x16
+        line 0,16 40x16
+          text "bb " 0,16 48x16
+        line 0,32 40x16
+          text "cc " 0,32 48x16
+      p 60,0 40x48
+        line 60,0 40x16
+          text "dd " 60,0 48x16
+        line 60,16 40x16
+          text "ee " 60,16 48x16
+        line 60,32 40x16
+          text "ff" 60,32 32x16
+
+=== at least two lines stay on each side of a break
+<!DOCTYPE html><style>body, div, p { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px }</style><div><p>aa bb cc</p></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 100x48
+      p 0,0 40x48
+        line 0,0 40x16
+          text "aa " 0,0 48x16
+        line 0,16 40x16
+          text "bb " 0,16 48x16
+        line 0,32 40x16
+          text "cc" 0,32 32x16
+
+=== a column-spanning child ends one row of columns and starts the next
+<!DOCTYPE html><style>body, div, p, h2 { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px } h2 { column-span: all; font-size: 16px }</style><div><p>aa</p><p>bb</p><h2>cc</h2><p>dd</p><p>ee</p></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 100x48
+      p 0,0 40x16
+        line 0,0 40x16
+          text "aa" 0,0 32x16
+      p 60,0 40x16
+        line 60,0 40x16
+          text "bb" 60,0 32x16
+      h2 0,16 100x16
+        line 0,16 100x16
+          text "cc" 0,16 32x16
+      p 0,32 40x16
+        line 0,32 40x16
+          text "dd" 0,32 32x16
+      p 60,32 40x16
+        line 60,32 40x16
+          text "ee" 60,32 32x16
+
+=== column-fill: auto fills each column to the height before the next
+<!DOCTYPE html><style>body, div, p { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px; height: 32px; column-fill: auto }</style><div><p>aa</p><p>bb</p><p>cc</p></div>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    div 0,0 100x32
+      p 0,0 40x16
+        line 0,0 40x16
+          text "aa" 0,0 32x16
+      p 0,16 40x16
+        line 0,16 40x16
+          text "bb" 0,16 32x16
+      p 60,0 40x16
+        line 60,0 40x16
+          text "cc" 60,0 32x16
+
+=== a split block inside a split block is cut in the same places, each moving once
+<!DOCTYPE html><style>body, div, p, section { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px }</style><div><section><p>aa bb cc dd ee ff</p></section></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 100x48
+      section 0,0 40x48
+        p 0,0 40x48
+          line 0,0 40x16
+            text "aa " 0,0 48x16
+          line 0,16 40x16
+            text "bb " 0,16 48x16
+          line 0,32 40x16
+            text "cc " 0,32 48x16
+      section 60,0 40x48
+        p 60,0 40x48
+          line 60,0 40x16
+            text "dd " 60,0 48x16
+          line 60,16 40x16
+            text "ee " 60,16 48x16
+          line 60,32 40x16
+            text "ff" 60,32 32x16
+
 === the bottom margin of the last child ends a column and is left out of the height
 <!DOCTYPE html><style>body, ul { margin: 0; padding: 0 } ul { columns: 2; width: 200px; list-style: none } li { margin-bottom: 4px }</style><ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>
 ---

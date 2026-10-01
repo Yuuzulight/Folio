@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<title>Column rules in each style, between columns with content</title>
+<style>
+body { margin: 10px }
+.mc { columns: 3; column-gap: 24px; width: 600px; margin-bottom: 14px; background: #f6f6f6 }
+.mc div { height: 16px; margin-bottom: 4px; background: #b9c4d0 }
+.solid { column-rule: 2px solid #333 }
+.dashed { column-rule: 3px dashed #c33 }
+.dotted { column-rule: 4px dotted #36c }
+.double { column-rule: 6px double #393 }
+.two { column-rule: 2px solid #333 }
+</style>
+<div class="mc solid"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+<div class="mc dashed"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+<div class="mc dotted"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+<div class="mc double"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+<div class="mc two"><div style="height: 40px"></div><div></div></div>
