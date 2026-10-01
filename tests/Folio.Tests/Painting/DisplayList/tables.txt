@@ -1,3 +1,11 @@
+=== odd collapsed borders snap to whole pixels, shared exactly by neighbouring cells
+<!DOCTYPE html><style>body { margin: 0 } table { border-collapse: collapse } td { border: 1px solid black; padding: 0 }</style><table><tr><td>a</td><td>b</td></tr></table>
+---
+border 1,1 18x18 1 solid rgb(0, 0, 0)
+border 18,1 18x18 1 solid rgb(0, 0, 0)
+glyphs 1,14 16px rgb(0, 0, 0)
+glyphs 18,14 16px rgb(0, 0, 0)
+
 === collapsed borders are painted once per cell, centred on its edges; the table paints none
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="border-collapse: collapse; border: 1px solid red"><tr><td style="border: 2px solid">a</td><td style="border: 4px solid">b</td></tr></table>
 ---
