@@ -259,7 +259,7 @@ public sealed class Document : IDisposable
         var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
-        return (DisplayListBuilder.Build(page, _images), height);
+        return (DisplayListBuilder.Build(page, _images, deviceScale), height);
     }
 
     public void Dispose()
