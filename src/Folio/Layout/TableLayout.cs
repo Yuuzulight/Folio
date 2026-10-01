@@ -111,8 +111,14 @@ internal static class TableLayout
         var columns = ColumnWidths(grid, style, Math.Max(0, width - frame.Horizontal - spacing.X * (n + 1)), context, collapsed);
         var tableWidth = Math.Max(width, columns.Sum() + frame.Horizontal + spacing.X * (n + 1));
         var columnX = new float[n + 1];
+        // Columns run from the inline start: from the right in a right-to-left table (CSS 2.2 §17.5).
+        var rtl = style.Text.Direction == Direction.Rtl;
         for (var c = 0; c <= n; c++)
-            columnX[c] = frame.Left + spacing.X * (c + 1) + columns.Take(c).Sum();
+        {
+            columnX[c] = rtl ? tableWidth - frame.Right - spacing.X * (c + 1) - columns.Take(c + 1).Sum()
+                : frame.Left + spacing.X * (c + 1) + columns.Take(c).Sum();
+        }
+        float CellX(Cell cell) => rtl ? columnX[cell.Column + cell.ColumnSpan - 1] : columnX[cell.Column];
         float SpanWidth(Cell cell) => columns.Skip(cell.Column).Take(cell.ColumnSpan).Sum() + spacing.X * (cell.ColumnSpan - 1);
 
         // Row heights: the tallest single-row cell (baseline-aligned cells by their baselines), the row's own height,
@@ -160,7 +166,8 @@ internal static class TableLayout
             rowY[r] = frame.Top + spacing.Y * (r + 1) + heights.Take(r).Sum();
 
         // Fragments: row groups hold rows, rows hold the cells that start in them.
-        var (gridLeft, gridRight) = (columnX[0], n > 0 ? columnX[n - 1] + columns[n - 1] : columnX[0]);
+        var (gridLeft, gridRight) = n == 0 ? (columnX[0], columnX[0])
+            : rtl ? (columnX[n - 1], columnX[0] + columns[0]) : (columnX[0], columnX[n - 1] + columns[n - 1]);
         var groupFragments = new List<ChildFragment>();
         var carried = new List<OutOfFlowBox>(); // positioned descendants of cells, for the containing block further up
         var rowIndex = 0;
@@ -191,8 +198,8 @@ internal static class TableLayout
                         PaintedBorder = collapsed?[cell],
                         SkipsDecorations = hidden,
                     };
-                    cells.Add(new ChildFragment(columnX[cell.Column] - gridLeft, 0, placed));
-                    carried.AddRange(content.OutOfFlow.Select(o => o with { StaticX = o.StaticX + columnX[cell.Column], StaticY = o.StaticY + rowY[r] + offset }));
+                    cells.Add(new ChildFragment(CellX(cell) - gridLeft, 0, placed));
+                    carried.AddRange(content.OutOfFlow.Select(o => o with { StaticX = o.StaticX + CellX(cell), StaticY = o.StaticY + rowY[r] + offset }));
                 }
                 rowFragments.Add(new ChildFragment(0, rowY[r] - rowY[first],
                     new Fragment(row, gridRight - gridLeft, heights[r], cells) { PaintedBorder = collapsed is null ? null : ComputedStyle.Initial.Border }));
