@@ -22,10 +22,12 @@ internal static class RubyLayout
         var overhang = 0f;
         if (annotation is not null && FirstBaseline(annotation) is { } annotationBaseline)
         {
+            // The em boxes are those of the fonts the text is drawn in.
             var style = column.Annotation!.Style;
-            var bottom = baseline - MathF.Floor(InlineLayout.EmTop(column.Base.Style, context));
-            var y = bottom - InlineLayout.FontMetrics(style, context).Descent - annotationBaseline;
-            over = InlineLayout.EmTop(style, context) - (y + annotationBaseline);
+            var annotationFace = UsedFace(annotation);
+            var bottom = baseline - MathF.Floor(InlineLayout.EmTop(column.Base.Style, context, UsedFace(rubyBase)));
+            var y = bottom - (annotationFace is null ? InlineLayout.FontMetrics(style, context).Descent : InlineLayout.Descent(style, annotationFace)) - annotationBaseline;
+            over = InlineLayout.EmTop(style, context, annotationFace) - (y + annotationBaseline);
             children.Add(Spread(annotation, width, y));
             // ruby-overhang (css-ruby-1 §4.4, auto): an annotation wider than its base may overhang the text beside it
             // by up to half its font size on each side.
@@ -40,6 +42,11 @@ internal static class RubyLayout
     // At the max-content width, so the content stays on one line.
     private static Fragment LayOut(BlockContainerBox box, float containingWidth, LayoutContext context) =>
         BlockLayout.Layout(box, new ConstraintSpace(containingWidth, null, FixedWidth: IntrinsicSizes.Contribution(box, context).Max), context);
+
+    // The face of the first glyphs on the block's first line, or null when it has none.
+    private static Typography.FontFace? UsedFace(Fragment block) =>
+        block.Children is [{ Fragment: { Kind: FragmentKind.Line } line }, ..]
+            ? line.Children.Select(c => c.Fragment.Text?.Run.Face).FirstOrDefault(f => f is not null) : null;
 
     private static float? FirstBaseline(Fragment block) =>
         block.Children is [{ Fragment: { Kind: FragmentKind.Line, Height: > 0 } line } child, ..] ? child.Y + line.Baseline : null;

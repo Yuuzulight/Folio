@@ -11,7 +11,8 @@ internal static class FilterPrimitives
         [new Filter(FilterKind.ColorMatrix, Matrix: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2125f, 0.7154f, 0.0721f, 0, 0])];
 
     /// <summary>A filter list's primitives, currentcolor resolved against <paramref name="currentColor"/>; null for none.</summary>
-    // ponytail: url() references to SVG filter elements filter nothing on CSS boxes yet.
+    // A list with url() references to SVG filter elements is built with the SVG filter code instead; in backdrop-filter
+    // they are left out.
     public static Filter[]? Of(FilterList list, CssColor currentColor) =>
         list.Functions.Where(f => f.Name != "url").Select(f => Of(f, currentColor)).ToArray() is { Length: > 0 } filters ? filters : null;
 

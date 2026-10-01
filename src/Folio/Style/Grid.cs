@@ -42,14 +42,18 @@ internal sealed record AutoRepeat(int Index, bool Fit, IReadOnlyList<TrackSize> 
 
 /// <summary>
 /// A computed track list: the tracks (integer repeat() expanded), the names of each line (one more than the tracks),
-/// and an automatic repetition if any.
+/// and an automatic repetition if any. For <c>subgrid</c> (https://www.w3.org/TR/css-grid-2/#subgrids) there are no
+/// tracks, <see cref="Subgrid"/> is set and the line names, as many as were given, name the subgrid's lines from the first.
 /// </summary>
-internal sealed record TrackList(IReadOnlyList<TrackSize> Tracks, IReadOnlyList<IReadOnlyList<string>> LineNames, AutoRepeat? Repeat = null)
+internal sealed record TrackList(IReadOnlyList<TrackSize> Tracks, IReadOnlyList<IReadOnlyList<string>> LineNames, AutoRepeat? Repeat = null,
+                                 bool Subgrid = false)
 {
     public static TrackList None { get; } = new([], [[]]);
 
     public override string ToString()
     {
+        if (Subgrid)
+            return string.Join(" ", ["subgrid", .. LineNames.Select(n => $"[{string.Join(" ", n)}]")]);
         if (Tracks.Count == 0 && Repeat is null)
             return "none";
         var parts = new List<string>();
@@ -65,7 +69,7 @@ internal sealed record TrackList(IReadOnlyList<TrackSize> Tracks, IReadOnlyList<
         return string.Join(" ", parts);
     }
 
-    public bool Equals(TrackList? other) => other is not null && Tracks.SequenceEqual(other.Tracks)
+    public bool Equals(TrackList? other) => other is not null && Subgrid == other.Subgrid && Tracks.SequenceEqual(other.Tracks)
         && LineNames.Count == other.LineNames.Count && LineNames.Zip(other.LineNames).All(p => p.First.SequenceEqual(p.Second))
         && Equals(Repeat, other.Repeat);
 

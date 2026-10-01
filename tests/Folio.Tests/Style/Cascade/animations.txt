@@ -161,3 +161,19 @@
 <!DOCTYPE html><style>@keyframes m { from { margin-inline-start: 0px } to { margin-inline-start: 10px } } p { animation: m 1s linear }</style><p id=a>x</p>
 ---
 #a margin-left: 5px
+
+=== a registered custom property interpolates by its syntax, and what uses it with var() follows
+%time 0.5
+<!DOCTYPE html><style>@property --angle { syntax: '<angle>'; inherits: false; initial-value: 0deg } @property --size { syntax: '<length>'; inherits: false; initial-value: 0px } @keyframes spin { from { --angle: 0deg; --size: 10px } to { --angle: 1turn; --size: 2em } } p { font-size: 10px; animation: spin 1s linear; margin-top: var(--size) }</style><p id=a>x</p>
+---
+#a --angle: 180deg
+#a --size: 15px
+#a margin-top: 15px
+
+=== an unregistered custom property flips half way, and a settled animation that fills forwards keeps its end value
+%time 0.25
+<!DOCTYPE html><style>@keyframes m { from { --tone: red } to { --tone: blue } } @property --n { syntax: '<integer>'; inherits: false; initial-value: 0 } @keyframes count { to { --n: 3 } } #a { animation: m 1s linear } #b { animation: m 1s linear 0s 1 normal both } #c { animation: count 1s linear }</style><p id=a>x</p><p id=b>y</p><p id=c>z</p>
+---
+#a --tone: red
+#b --tone: red
+#c --n: 1
