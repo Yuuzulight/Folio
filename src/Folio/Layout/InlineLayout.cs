@@ -102,7 +102,7 @@ internal static class InlineLayout
                 levels.Paragraph, context, (box, px) => environment.AddOutOfFlow(box, left + px, y), room, clipped);
             if (line.Height > 0 || line.Children.Count > 0)
             {
-                room = line.Height - ContentBottom(line);
+                room = Math.Max(0, line.Height - ContentBottom(line));
                 hasLineBoxes |= line.Height > 0;
                 lines.Add(new ChildFragment(left, y, line));
             }
