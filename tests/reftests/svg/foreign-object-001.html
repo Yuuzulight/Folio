@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<title>foreignObject lays out its HTML content in its rectangle and clips it there</title>
+<link rel="help" href="https://www.w3.org/TR/SVG2/embedded.html#ForeignObjectElement">
+<style>body { margin: 0 } svg { display: block }</style>
+<svg width="200" height="100"><rect width="200" height="100" fill="yellow" /><foreignObject x="20" y="10" width="100" height="40"><div xmlns="http://www.w3.org/1999/xhtml" style="background: blue; color: white; font: 16px/20px serif; padding: 4px">ab cd ef gh ij kl mn op</div></foreignObject></svg>
