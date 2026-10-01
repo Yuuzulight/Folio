@@ -109,6 +109,47 @@ internal static class BlockLayout
             Place(child, fragment, fx + ml - boxX, fy + mt - boxY);
         }
 
+        // An absolutely positioned box inside a positioned inline box has that inline box as its containing block
+        // (CSS 2.2 §10.1, item 4): the padding box around its fragments on the lines. The boxes carried up from this
+        // paragraph (from index `from` of outOfFlow) are laid out against it now; the rest go on up.
+        // ponytail: an inline box split over lines uses the bounding box of all its fragments, not the corners of the
+        // first and last; its own relative offset does not move them.
+        void PlaceInInlineContainingBlocks(InlineFormattingContext inline, List<ChildFragment> lines, int from, float x0, float y0)
+        {
+            var owners = InlineContainingBlocks(inline);
+            if (owners.Count == 0)
+                return;
+            var areas = new Dictionary<Box, (float Left, float Top, float Right, float Bottom)>();
+            foreach (var line in lines)
+            {
+                foreach (var part in line.Fragment.Children)
+                {
+                    if (part.Fragment.Box is not InlineBox owner)
+                        continue;
+                    var (l, t) = (x0 + line.X + part.X, y0 + line.Y + part.Y);
+                    var (r, b) = (l + part.Fragment.Width, t + part.Fragment.Height);
+                    areas[owner] = areas.TryGetValue(owner, out var a)
+                        ? (Math.Min(a.Left, l), Math.Min(a.Top, t), Math.Max(a.Right, r), Math.Max(a.Bottom, b))
+                        : (l, t, r, b);
+                }
+            }
+            var carried = outOfFlow.GetRange(from, outOfFlow.Count - from);
+            outOfFlow.RemoveRange(from, carried.Count);
+            foreach (var o in carried)
+            {
+                if (!owners.TryGetValue(o.Box, out var owner) || !areas.TryGetValue(owner, out var area))
+                {
+                    outOfFlow.Add(o);
+                    continue;
+                }
+                var frame = owner.Style.Border;
+                var (cx, cy) = (area.Left + frame.LeftWidth, area.Top + frame.TopWidth);
+                var (cw, ch) = (Math.Max(0, area.Right - frame.RightWidth - cx), Math.Max(0, area.Bottom - frame.BottomWidth - cy));
+                var placed = PositionedLayout.LayoutAbsolute(o.Box, cw, ch, o.StaticX - cx, o.StaticY - cy, context);
+                Place(o.Box, placed.Fragment, cx + placed.X, cy + placed.Y);
+            }
+        }
+
         if (box is FlexContainerBox flexBox)
         {
             var (items, flexHeight, flexOutOfFlow) = FlexLayout.Layout(flexBox, width, definiteHeight, minHeight, maxHeight, context);
@@ -238,9 +279,11 @@ internal static class BlockLayout
                 (from, to) => exclusions.NextBottom(contentY + from, contentY + to) is { } b ? b - contentY : null,
                 PlaceFloat,
                 (child, x, y) => outOfFlow.Add(new(child, border.LeftWidth + padding.Left + x, border.TopWidth + padding.Top + y)));
+            var carriedBefore = outOfFlow.Count;
             var (lines, bottom, hasLineBoxes) = InlineLayout.Layout(container, inline, width, top, environment, context);
             foreach (var line in lines)
                 children.Add(line with { X = line.X + border.LeftWidth + padding.Left, Y = line.Y + border.TopWidth + padding.Top });
+            PlaceInInlineContainingBlocks(inline, lines, carriedBefore, border.LeftWidth + padding.Left, border.TopWidth + padding.Top);
             if (hasLineBoxes)
             {
                 // Line boxes are content: margins before them no longer adjoin this box's edges.
@@ -318,6 +361,29 @@ internal static class BlockLayout
             Svg = (box as ReplacedBox)?.SvgRoot is { } svg
                 ? Svg.SvgRenderTree.Build(svg, width, contentHeight, context) : null,
         };
+    }
+
+    // The innermost positioned inline box around each absolutely positioned box in a paragraph's items.
+    private static Dictionary<Box, InlineBox> InlineContainingBlocks(InlineFormattingContext inline)
+    {
+        var owners = new Dictionary<Box, InlineBox>();
+        var open = new List<(InlineBox Box, InlineBox? Owner)>();
+        foreach (var item in inline.Items)
+        {
+            switch (item)
+            {
+                case { Kind: InlineItemKind.OpenBox, Box: InlineBox box }:
+                    open.Add((box, box.Style.Box.Position != Position.Static ? box : open.Count > 0 ? open[^1].Owner : null));
+                    break;
+                case { Kind: InlineItemKind.CloseBox, Box: InlineBox box } when open.Count > 0 && open[^1].Box == box:
+                    open.RemoveAt(open.Count - 1);
+                    break;
+                case { Kind: InlineItemKind.OutOfFlow, Box: { Style.Box.Position: Position.Absolute } positioned } when open.Count > 0 && open[^1].Owner is { } owner:
+                    owners[positioned] = owner;
+                    break;
+            }
+        }
+        return owners;
     }
 
     // A positioned box is the containing block of its absolutely positioned descendants (CSS 2.2 §10.1); a transformed

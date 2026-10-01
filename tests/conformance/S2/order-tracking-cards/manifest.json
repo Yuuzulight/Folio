@@ -1,0 +1,5 @@
+{
+  "prompt": "Design an 'Your orders' page for a shop: a sale banner with a slanted tag, order cards with item thumbnails and a shipping progress tracker, and a sidebar with stacked notification toasts and help links.",
+  "features": ["grid", "flex", "custom-properties", "border-radius", "box-shadow", "linear-gradient", "repeating-linear-gradient", "transform", "skew", "scale", "translate", "z-index", "css-animations"],
+  "viewport": 800
+}
