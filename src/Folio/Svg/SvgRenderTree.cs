@@ -15,7 +15,18 @@ internal abstract record SvgRenderNode(Matrix3x2 Transform, float Opacity)
 {
     /// <summary>What clips the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
     public SvgClipPath? ClipPath { get; init; }
+
+    /// <summary>What masks the node, in its user space (after <see cref="Transform"/>); null when nothing does.</summary>
+    public SvgMask? Mask { get; init; }
 }
+
+/// <summary>
+/// A mask (https://drafts.csswg.org/css-masking-1/#svg-masks): <paramref name="Children"/>, which
+/// <paramref name="ContentTransform"/> maps into the masked node's user space, drawn inside <paramref name="Region"/>.
+/// The node stays where they are opaque: their luminance times their alpha when <paramref name="Luminance"/>, else
+/// their alpha. Outside the region it is masked away.
+/// </summary>
+internal sealed record SvgMask(IReadOnlyList<SvgRenderNode> Children, Matrix3x2 ContentTransform, SvgRect Region, bool Luminance);
 
 /// <summary>
 /// A clip region (https://drafts.csswg.org/css-masking-1/#svg-clipping-paths): the union of <paramref name="Children"/>
@@ -130,11 +141,96 @@ internal static class SvgRenderTree
     private static SvgRenderNode? Node(ElementNode element, ComputedStyle style, Vector2 viewport, SvgContext context, bool clipping = false)
     {
         var node = Unclipped(element, style, viewport, context, clipping);
-        if (node is null || style.Effects.ClipPath.Url is not { } url)
-            return node;
-        return context.Find(url) is { LocalName: "clipPath" } clip && clip.Name.Namespace == Namespaces.Svg
-            ? node with { ClipPath = ClipPath(clip, node, viewport, context) }
-            : node;
+        if (node is null)
+            return null;
+        if (style.Effects.ClipPath.Url is { } url && context.Find(url) is { LocalName: "clipPath" } clip && clip.Name.Namespace == Namespaces.Svg)
+            node = node with { ClipPath = ClipPath(clip, node, viewport, context) };
+        // In a clip path only the geometry counts, so masks there are ignored.
+        if (!clipping && MaskReference(style.Mask, context) is var (mask, mode))
+            node = node with { Mask = Mask(mask, mode, Bounds(node), viewport, context) };
+        return node;
+    }
+
+    /// <summary>
+    /// The masks a CSS box's mask layers reference (https://drafts.csswg.org/css-masking-1/#the-mask-image), by layer, for
+    /// a border box of this size: user units are CSS pixels from its top-left corner, and it is the bounding box. Null
+    /// when no layer references a mask element.
+    /// </summary>
+    public static SvgMask?[]? BoxMasks(ElementNode element, MaskGroup masks, float width, float height, Layout.LayoutContext layout)
+    {
+        var context = new SvgContext(layout, element.OwnerDocument);
+        var result = new SvgMask?[masks.Images.Count];
+        var any = false;
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (masks.Images[i] is UrlImage url && context.Find(url.Url) is { LocalName: "mask" } mask && mask.Name.Namespace == Namespaces.Svg)
+            {
+                result[i] = Mask(mask, masks.Modes[i % masks.Modes.Count], new SvgRect(0, 0, width, height), new Vector2(width, height), context);
+                any = true;
+            }
+        }
+        return any ? result : null;
+    }
+
+    // The top mask layer that references an SVG mask element, and its mask-mode.
+    // ponytail: other mask layers (images, gradients, more references) are ignored on SVG elements.
+    private static (ElementNode Mask, MaskMode Mode)? MaskReference(MaskGroup masks, SvgContext context)
+    {
+        for (var i = 0; i < masks.Images.Count; i++)
+        {
+            if (masks.Images[i] is UrlImage url && context.Find(url.Url) is { LocalName: "mask" } mask && mask.Name.Namespace == Namespaces.Svg)
+                return (mask, masks.Modes[i % masks.Modes.Count]);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The mask an element references (https://drafts.csswg.org/css-masking-1/#MaskElement) for a masked node with this
+    /// bounding box: its region from x, y, width and height in maskUnits (the bounding box by default, from -10% to
+    /// 120%), its content in maskContentUnits (user space by default), luminance or alpha by mask-type unless the
+    /// layer's mask-mode says. A reference back to a mask being built, or a bounding box with no area where bounding box
+    /// units need one, masks everything away.
+    /// </summary>
+    private static SvgMask Mask(ElementNode mask, MaskMode mode, SvgRect? bounds, Vector2 viewport, SvgContext context)
+    {
+        var nothing = new SvgMask([], Matrix3x2.Identity, default, false);
+        if (!context.Masking.Add(mask) || !RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            return nothing;
+        try
+        {
+            var style = mask.ComputedStyle();
+            var fontSize = style?.Font.Size ?? 16;
+            var luminance = mode == MaskMode.MatchSource ? style?.Mask.Type != MaskType.Alpha : mode == MaskMode.Luminance;
+            bool BoxUnits(string name, bool byDefault) => mask.GetAttribute(name)?.Trim() is { } units
+                ? units == "objectBoundingBox" || units != "userSpaceOnUse" && byDefault
+                : byDefault;
+            var (regionInBox, contentInBox) = (BoxUnits("maskUnits", true), BoxUnits("maskContentUnits", false));
+            if ((regionInBox || contentInBox) && bounds is not { Width: > 0, Height: > 0 })
+                return nothing;
+            var box = bounds ?? default;
+
+            float Length(string name, string fallback, SvgAxis axis)
+            {
+                var text = mask.GetAttribute(name) ?? fallback;
+                if (!regionInBox)
+                    return SvgGeometry.Length(text, axis, viewport, fontSize, SvgGeometry.Length(fallback, axis, viewport, fontSize));
+                var length = SvgGeometry.ParseLength(text, fontSize) ?? SvgGeometry.ParseLength(fallback, fontSize)!.Value;
+                var fraction = length.Percent ? length.Value / 100 : length.Value;
+                return axis == SvgAxis.Horizontal ? fraction * box.Width : fraction * box.Height;
+            }
+            var (x, y) = (Length("x", "-10%", SvgAxis.Horizontal), Length("y", "-10%", SvgAxis.Vertical));
+            var (width, height) = (Length("width", "120%", SvgAxis.Horizontal), Length("height", "120%", SvgAxis.Vertical));
+            // A region with no area masks everything away.
+            if (width <= 0 || height <= 0)
+                return nothing;
+            var region = regionInBox ? new SvgRect(box.X + x, box.Y + y, width, height) : new SvgRect(x, y, width, height);
+            var content = contentInBox ? new Matrix3x2(box.Width, 0, 0, box.Height, box.X, box.Y) : Matrix3x2.Identity;
+            return new SvgMask(Children(mask, contentInBox ? Vector2.One : viewport, context), content, region, luminance);
+        }
+        finally
+        {
+            context.Masking.Remove(mask);
+        }
     }
 
     // The clip path an element references (https://drafts.csswg.org/css-masking-1/#ClipPathElement): its shapes and
