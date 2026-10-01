@@ -369,7 +369,7 @@ internal static class BlockLayout
                 ? Svg.SvgRenderTree.BoxMasks(masked, style.Mask, width + frameX, contentHeight + frameY, context)
                 : null,
             SvgFilters = style.Effects.Filter.HasReference && box.Node is Dom.ElementNode filtered
-                ? Svg.SvgFilters.ForBox(filtered, style, width + frameX, contentHeight + frameY, context)
+                ? Svg.SvgFilterChain.ForBox(filtered, style, width + frameX, contentHeight + frameY, context)
                 : null,
         };
     }

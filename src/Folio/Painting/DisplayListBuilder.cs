@@ -361,7 +361,7 @@ internal static class DisplayListBuilder
             var owner = context.Real ? context.Owner : null;
             // A list that references SVG filter elements is a layer per filter, laid out with the box; its opacity() stays a filter.
             var references = owner is not null && owner.Box.Style.Effects.Filter.HasReference;
-            var svgFilters = references ? owner!.Fragment.SvgFilters : null;
+            var svgFilters = references && owner!.Fragment.SvgFilters is { } chain ? SvgFilterPrimitives.Of(chain) : null;
             var (filters, filterOpacity) = owner is null || references ? (null, 1) : FilterPrimitives.ForLayer(owner.Box.Style.Effects.Filter, owner.Box.Style.Inherited.Color);
             var opacity = (owner is not null && owner.Box.Style.Box.Opacity < 1 ? owner.Box.Style.Box.Opacity : 1) * filterOpacity;
             var backdrop = owner is null ? null : FilterPrimitives.Of(owner.Box.Style.Effects.BackdropFilter, owner.Box.Style.Inherited.Color);
