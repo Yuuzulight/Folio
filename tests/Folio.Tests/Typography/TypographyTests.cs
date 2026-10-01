@@ -193,14 +193,15 @@ public class TypographyTests
     }
 
     [Fact]
-    public void EmojiPresentationPrefersAFaceWithColourGlyphs()
+    public void Vs16PrefersAFaceWithColourGlyphs()
     {
         var fonts = FontCollection.FromFolder(FontsFolder);
         string[] families = ["Source Sans 3", "Noto Color Emoji"];
 
-        Assert.Equal("Noto Color Emoji", fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "❤️")?.Family); // VS16: emoji
-        Assert.Equal("Source Sans 3", fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "❤")?.Family);         // text by default
-        Assert.Equal("Source Sans 3", fonts.FaceForCluster(["Source Sans 3"], FaceStyle.Normal, 400, 100, "❤️")?.Family); // no colour face to take
+        Assert.Equal("Noto Color Emoji", fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "\u2764\uFE0F")?.Family); // VS16: emoji
+        Assert.Equal("Source Sans 3", fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "\u2764")?.Family);         // text by default
+        Assert.Equal("Source Sans 3", fonts.FaceForCluster(families, FaceStyle.Normal, 400, 100, "\u2615")?.Family);         // emoji by default, but no VS16
+        Assert.Equal("Source Sans 3", fonts.FaceForCluster(["Source Sans 3"], FaceStyle.Normal, 400, 100, "\u2764\uFE0F")?.Family); // no colour face to take
     }
 
     [Fact]

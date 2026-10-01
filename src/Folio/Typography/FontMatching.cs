@@ -188,8 +188,8 @@ internal sealed class FontCollection(IFontSource? source = null)
     /// <summary>
     /// Fallback per grapheme cluster (study 11): the first family in the list whose matched face maps every code point
     /// of the cluster, then the fallback families for the cluster's script. Emoji-presentation clusters try the emoji
-    /// family first, and take a face with colour glyphs over an earlier one without. Null means none does; system
-    /// fallback is the next step.
+    /// family first; one that asks for emoji presentation with VS16 takes a face with colour glyphs over an earlier one
+    /// without. Null means none does; system fallback is the next step.
     /// </summary>
     public FontFace? FaceForCluster(IReadOnlyList<string> families, FaceStyle style, int weight, float stretch, ReadOnlySpan<char> cluster)
     {
@@ -200,11 +200,12 @@ internal sealed class FontCollection(IFontSource? source = null)
         if (ScriptFallbacks.TryGetValue(ScriptOf(cluster), out var fallbacks))
             candidates = candidates.Concat(fallbacks);
         FontFace? plain = null;
+        var colour = cluster.Contains('\uFE0F');
         foreach (var family in candidates)
         {
             if (Match(family, style, weight, stretch, cluster) is not { } face || !CoversAll(face, cluster))
                 continue;
-            if (!emoji || HasColorGlyphs(face))
+            if (!colour || HasColorGlyphs(face))
                 return face;
             plain ??= face;
         }
