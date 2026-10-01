@@ -372,8 +372,16 @@ internal static class DisplayListBuilder
             // (https://www.w3.org/TR/css-transforms-1/#transform-function-lists).
             if (transform is { } singular && Determinant2D(singular) == 0)
                 return;
-            var clipPath = owner is null || owner.Box.Style.Effects.ClipPath.IsNone ? (DisplayItem?)null : ClipPathItem(owner, owner.Box.Style.Effects.ClipPath);
-            var grouped = layered || transform is not null || clipPath is not null;
+            // A url() reference to an SVG clipPath clips with its path when it is one plain shape; any other region is a
+            // mask drawn over the box in a layer of its own. A reference to anything else clips nothing.
+            // ponytail: a backdrop filter under such a mask sees only that layer, not what is behind the box.
+            var svgClip = owner?.Fragment.SvgClip;
+            var clipOrigin = owner is null ? default : new Vector2(BorderBox(owner).Rect.X, BorderBox(owner).Rect.Y);
+            var clipPath = owner is null || owner.Box.Style.Effects.ClipPath.IsNone ? (DisplayItem?)null
+                : owner.Box.Style.Effects.ClipPath.Url is null ? ClipPathItem(owner, owner.Box.Style.Effects.ClipPath)
+                : svgClip is null ? null : SvgPainter.ClipItem(svgClip, clipOrigin);
+            var clipMask = clipPath is null && owner?.Box.Style.Effects.ClipPath.Url is not null ? svgClip : null;
+            var grouped = layered || transform is not null || clipPath is not null || clipMask is not null;
             var floor = _floor;
             // The clips outside stay open under the group; the transform, the clip path and the layer apply to the box and
             // all it holds. The clip path is in the box's coordinates and clips what the layer composites.
@@ -388,6 +396,8 @@ internal static class DisplayListBuilder
                         : new DisplayItem(DisplayItemKind.PushTransform, Projection: matrix));
                 if (clipPath is { } clip)
                     list.Items.Add(clip);
+                else if (clipMask is not null)
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer));
                 if (layered)
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushLayer, backdrop is null ? default : BorderBox(owner), Opacity: opacity,
                         Filters: innerFilter ? null : filters, Backdrop: backdrop, Blend: blend));
@@ -423,7 +433,9 @@ internal static class DisplayListBuilder
                     PaintMask(owner!, mask);
                 if (layered)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
-                if (clipPath is not null)
+                if (clipMask is not null)
+                    SvgPainter.PaintClipMask(clipMask, clipOrigin, list.Items);
+                if (clipPath is not null || clipMask is not null)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                 if (transform is not null)
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));

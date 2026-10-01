@@ -40,8 +40,7 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
 /// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, <c>use</c>,
 ///   <c>symbol</c> and markers: other SVG elements (masks, patterns, images, filters, animation, ...), <c>url()</c>
-///   references in masks and filters (and <c>clip-path: url()</c> in style sheets, which could reach CSS boxes), stroked
-///   text and the text attributes Folio does not lay out;</item>
+///   references in masks and filters, stroked text and the text attributes Folio does not lay out;</item>
 /// <item>CSS that Folio's property table does not know or cannot parse, gradients, <c>background-clip: text</c>,
 ///   selectors it cannot match, and <c>@font-face</c>, <c>@container</c>, <c>@counter-style</c>, <c>@scope</c>.
 ///   Not counted: declarations that only matter to interaction (<c>cursor</c>, <c>transition</c>, ...), rules
@@ -358,11 +357,6 @@ public static class ArtifactClassifier
                 else if (!Properties.ContainsVar(declaration.Value) && Properties.Parse(source, declaration) is null)
                 {
                     Unsupported.Add($"uses a CSS value Folio does not support: {declaration.Name}: {Shorten(text)}");
-                }
-                else if (declaration.Name is "clip-path" && Text(source, declaration.Value).Contains("url(", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Style sheets cannot tell SVG elements, whose clip paths draw, from CSS boxes, whose do not yet.
-                    Unsupported.Add("uses clip-path: url() in CSS");
                 }
                 else if (declaration.Name is "background" or "background-clip"
                          && declaration.Value.Any(v => v is PreservedToken { Token: { Kind: CssTokenKind.Ident, Value: var ident } } && ident.Equals("text", StringComparison.OrdinalIgnoreCase)))

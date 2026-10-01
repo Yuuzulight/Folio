@@ -52,7 +52,8 @@ sup { vertical-align: super; font-size: smaller; }
 [dir], bdi, output { unicode-bidi: isolate; }
 bdo, bdo[dir] { unicode-bidi: isolate-override; }
 ruby { display: ruby; }
-rt { display: ruby-text; }
+rt { display: ruby-text; line-height: normal; }
+ruby > rt { font-size: 50%; }
 :link { color: #0000EE; }
 :visited { color: #551A8B; }
 :link, :visited { text-decoration: underline; cursor: pointer; }
