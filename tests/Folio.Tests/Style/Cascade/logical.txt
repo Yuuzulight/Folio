@@ -1,0 +1,56 @@
+=== flow-relative sides map through direction
+<!DOCTYPE html><style>p { margin-inline-start: 1px; padding-inline-end: 2px; border-inline-start: 3px solid red; margin-block-start: 4px }</style><p id=a>x</p><p id=b dir=rtl>x</p>
+---
+#a margin-left: 1px
+#a padding-right: 2px
+#a border-left-width: 3
+#a border-left-style: solid
+#a margin-top: 4px
+#b margin-right: 1px
+#b padding-left: 2px
+#b border-right-width: 3
+#b margin-top: 4px
+
+=== flow-relative sides map through writing-mode
+<!DOCTYPE html><style>p { margin-block-start: 1px; margin-inline-start: 2px; border-inline-start: 3px solid; inline-size: 50px }</style><p id=a style="writing-mode: vertical-rl">x</p><p id=b style="writing-mode: vertical-lr">x</p>
+---
+#a margin-right: 1px
+#a margin-top: 2px
+#a border-top-width: 3
+#a height: 50px
+#b margin-left: 1px
+#b margin-top: 2px
+
+=== the later of a flow-relative and a physical declaration of a side wins
+<!DOCTYPE html><style>#a { margin-left: 1px; margin-inline-start: 2px } #b { margin-inline-start: 2px; margin-left: 1px } #c { margin-left: 3px !important; margin-inline-start: 2px }</style><p id=a>x</p><p id=b>x</p><p id=c>x</p>
+---
+#a margin-left: 2px
+#b margin-left: 1px
+#c margin-left: 3px
+
+=== the pair shorthands set start then end
+<!DOCTYPE html><style>p { margin-inline: 1px 2px; padding-block: 3px; inset-inline: 4px 5px; border-block: 1px dashed blue }</style><p id=a>x</p>
+---
+#a margin-left: 1px
+#a margin-right: 2px
+#a padding-top: 3px
+#a padding-bottom: 3px
+#a left: 4px
+#a right: 5px
+#a border-bottom-style: dashed
+#a border-top-width: 1
+
+=== the user-agent sheet's margins and list padding are flow-relative
+<!DOCTYPE html><ul id=a dir=rtl><li>x</ul><p id=b style="writing-mode: vertical-rl">x</p>
+---
+#a padding-right: 40px
+#a padding-left: 0px
+#b margin-right: 16px
+#b margin-top: 0px
+
+=== a flow-relative shorthand with var() resolves into the physical side
+<!DOCTYPE html><style>p { --w: 5px; border-inline-start: var(--w) solid red }</style><p id=a dir=rtl>x</p>
+---
+#a border-right-width: 5
+#a border-right-style: solid
+#a border-left-width: 0

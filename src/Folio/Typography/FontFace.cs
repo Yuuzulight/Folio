@@ -221,6 +221,41 @@ internal sealed class FontFace : IFontHandle
     /// <summary>Advance width in font units.</summary>
     public int Advance(ushort glyph) => glyph < _advances.Length ? _advances[glyph] : 0;
 
+    /// <summary>
+    /// For upright glyphs in vertical text: the advance height (vmtx, else an em) and how far the glyph's vertical
+    /// origin is above its baseline (VORG, else the ascent), in font units.
+    /// </summary>
+    public (int Advance, int Origin) Vertical(ushort glyph)
+    {
+        try
+        {
+            var advance = UnitsPerEm;
+            if (TryTable("vhea") is { Length: >= 36 } vhea && TryTable("vmtx") is { } vmtx && vhea.U16(34) is var count and > 0)
+                advance = vmtx.U16(4 * Math.Min((int)glyph, count - 1));
+            var origin = Ascent;
+            if (TryTable("VORG") is { Length: >= 8 } vorg)
+            {
+                origin = vorg.S16(4);
+                for (int lo = 0, hi = vorg.U16(6) - 1; lo <= hi;)
+                {
+                    var mid = (lo + hi) / 2;
+                    var id = vorg.U16(8 + 4 * mid);
+                    if (id == glyph)
+                    {
+                        origin = vorg.S16(10 + 4 * mid);
+                        break;
+                    }
+                    (lo, hi) = id < glyph ? (mid + 1, hi) : (lo, mid - 1);
+                }
+            }
+            return (advance, origin);
+        }
+        catch (InvalidDataException)
+        {
+            return (UnitsPerEm, Ascent);
+        }
+    }
+
     /// <summary>A glyph after the single substitutions of the space-separated feature tags (such as "tnum").</summary>
     public ushort Substitute(ushort glyph, string features) => _gsub?.Substitute(glyph, features) ?? glyph;
 

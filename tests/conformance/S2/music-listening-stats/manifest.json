@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a year-in-review stats page for a music app: a vivid gradient intro card with screen-blended colour glows, a top artists list with round duotone portraits, genre meters, and a row of abstract album covers made from layered blended gradients.",
+  "features": ["mix-blend-mode", "background-blend-mode", "isolation", "clip-path", "filter-grayscale", "filter-contrast", "aspect-ratio", "conic-gradient", "radial-gradient", "repeating-radial-gradient", "linear-gradient", "repeating-linear-gradient", "grid", "flex", "custom-properties", "pseudo-elements"],
+  "viewport": 800
+}
