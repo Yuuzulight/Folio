@@ -417,11 +417,11 @@ internal static class Cascade
     private static readonly int[] StyleAttributeLayer = [int.MaxValue];
 
     /// <summary>The cascaded values from matched rules, the style attribute and presentational hints.</summary>
-    /// <param name="animations">Declarations of the animation origin, later ones winning (<see cref="Animations.EndState"/>).</param>
+    /// <param name="animations">Declarations of the animation origin, later ones winning (a keyframe of <see cref="Animations.Sample"/>).</param>
     /// <param name="parent">The parent's style, whose writing-mode and direction flow-relative properties follow unless the element sets its own.</param>
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
         List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints,
-        List<CascadeDeclaration>? animations = null, ComputedStyle? parent = null)
+        IReadOnlyList<CascadeDeclaration>? animations = null, ComputedStyle? parent = null)
     {
         var candidates = new List<Candidate>();
         // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.
