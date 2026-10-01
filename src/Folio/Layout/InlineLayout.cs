@@ -1052,7 +1052,10 @@ internal static class InlineLayout
                     break;
                 case PieceKind.Text:
                     Collect(piece);
-                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, piece.Run!.Face)) { Piece = piece, X = pieceX[piece] });
+                    // Fallback fonts size the line only with line-height: normal; otherwise the box's first available
+                    // font does (css-inline-3 §4.3, CSS 2.2 §10.8.1), so text adds nothing beyond its box's strut.
+                    var face = current.Style.Font.LineHeight.IsNormal ? piece.Run!.Face : PrimaryFace(current.Style, context);
+                    current.Children.Add(new Node(current, current.Style, Metrics(current.Style, face)) { Piece = piece, X = pieceX[piece] });
                     break;
                 case PieceKind.Atomic:
                 {
