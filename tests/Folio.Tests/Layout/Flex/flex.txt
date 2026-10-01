@@ -1,3 +1,22 @@
+=== inline-flex and inline-grid containers shrink to fit their content
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="text-align: center"><div style="display: inline-flex"><span>a</span><span>b</span></div><div style="display: inline-grid">c</div></div>
+---
+html 0,0 800x19
+  body 0,0 800x19
+    div 0,0 800x19
+      line 0,0 800x19
+        div 376,0 32x16
+          span 376,0 16x16
+            line 376,0 16x16
+              text "a" 376,0 16x16
+          span 392,0 16x16
+            line 392,0 16x16
+              text "b" 392,0 16x16
+        div 408,0 16x16
+          (anonymous) 408,0 16x16
+            line 408,0 16x16
+              text "c" 408,0 16x16
+
 === items sit side by side and the line is as tall as the tallest
 <!DOCTYPE html><style>body { margin: 0 }</style><div style="display: flex"><div style="width: 100px; height: 20px"></div><div style="width: 50px; height: 40px"></div></div>
 ---

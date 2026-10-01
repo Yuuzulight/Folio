@@ -493,7 +493,8 @@ internal static class BlockLayout
         float? Size(SizeValue value) =>
             ContentSize(value, cbWidth, frameX, borderBox) ?? IntrinsicSizes.Keyword(value, box, available, context);
         var width = Size(style.Size.Width)
-            ?? (context is not null && (box.IsFloat || box is BlockContainerBox { IsAtomicInline: true } || box is TableWrapperBox)
+            ?? (context is not null && (box.IsFloat || box is BlockContainerBox { IsAtomicInline: true } or FlexContainerBox { IsAtomicInline: true }
+                    or GridContainerBox { IsAtomicInline: true } || box is TableWrapperBox)
                 ? IntrinsicSizes.FitContent(box, available, context)
                 : null);
         if (replacedWidth is { } used)
