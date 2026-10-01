@@ -812,6 +812,13 @@ internal static class BlockLayout
             start = end;
         }
 
+        // How many pieces each split block holds, to tell a block that moved whole from one cut between columns.
+        var pieceCounts = new Dictionary<Fragment, int>(ReferenceEqualityComparer.Instance);
+        foreach (var piece in pieces)
+        {
+            foreach (var block in piece.Path)
+                pieceCounts[block.Fragment] = pieceCounts.GetValueOrDefault(block.Fragment) + 1;
+        }
         children.Clear();
         children.AddRange(Rebuild(0, Enumerable.Range(0, pieces.Count).ToList()));
         return (height, ruleWidth > 0 ? rules : []);
@@ -839,15 +846,18 @@ internal static class BlockLayout
                 {
                     var members = group.ToList();
                     var (dx, dy) = (pieces[members[0]].Dx, pieces[members[0]].Dy);
-                    if (members.Count == inside.Count)
+                    if (members.Count == pieceCounts[block.Fragment])
                     {
                         result.Add(block with { X = block.X + dx, Y = block.Y + dy });
                         break;
                     }
                     // A fragment of the block for this column: from its top (or this column's first piece) to its last piece.
                     var placed = Rebuild(depth + 1, members);
-                    var fragmentTop = members[0] == inside[0] ? block.Y + dy : placed.Min(p => p.Y);
-                    var fragmentBottom = members[^1] == inside[^1] ? block.Y + block.Fragment.Height + dy : placed.Max(p => p.Y + p.Fragment.Height);
+                    // The block's own top and bottom edges go with its first and last pieces.
+                    var (first, last) = (pieces.FindIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)),
+                                         pieces.FindLastIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)));
+                    var fragmentTop = members[0] == first ? block.Y + dy : placed.Min(p => p.Y);
+                    var fragmentBottom = members[^1] == last ? block.Y + block.Fragment.Height + dy : placed.Max(p => p.Y + p.Fragment.Height);
                     var x = block.X + dx;
                     result.Add(new ChildFragment(x, fragmentTop, new Fragment(block.Fragment.Box, block.Fragment.Width, Math.Max(0, fragmentBottom - fragmentTop),
                         [.. placed.Select(p => p with { X = p.X - x, Y = p.Y - fragmentTop })])

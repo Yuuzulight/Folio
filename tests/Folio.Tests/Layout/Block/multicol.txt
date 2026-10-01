@@ -120,3 +120,26 @@ html 0,0 800x32
       p 60,0 40x16
         line 60,0 40x16
           text "cc" 60,0 32x16
+
+=== a split block inside a split block is cut in the same places, each moving once
+<!DOCTYPE html><style>body, div, p, section { margin: 0 } div { column-count: 2; column-gap: 20px; width: 100px }</style><div><section><p>aa bb cc dd ee ff</p></section></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 100x48
+      section 0,0 40x48
+        p 0,0 40x48
+          line 0,0 40x16
+            text "aa " 0,0 48x16
+          line 0,16 40x16
+            text "bb " 0,16 48x16
+          line 0,32 40x16
+            text "cc " 0,32 48x16
+      section 60,0 40x48
+        p 60,0 40x48
+          line 60,0 40x16
+            text "dd " 60,0 48x16
+          line 60,16 40x16
+            text "ee " 60,16 48x16
+          line 60,32 40x16
+            text "ff" 60,32 32x16
