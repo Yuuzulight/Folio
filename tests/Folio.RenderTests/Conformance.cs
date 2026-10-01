@@ -56,10 +56,11 @@ public static class Conformance
     public static readonly TimeSpan HangTimeout = TimeSpan.FromSeconds(20);
 
     /// <summary>
-    /// The families every artifact is drawn with, here and in tools/Folio.RefCapture: the bundled text font, then the
-    /// box font for characters it lacks, so both sides draw the same glyphs and neither falls back to system fonts.
+    /// The families every artifact is drawn with, here and in tools/Folio.RefCapture: the bundled text font, the emoji
+    /// and script fonts for characters it lacks, then the box font for anything left, so both sides draw the same glyphs
+    /// and neither falls back to system fonts.
     /// </summary>
-    public const string FontFamilies = "\"Source Sans 3\", \"Folio Box\"";
+    public const string FontFamilies = "\"Source Sans 3\", \"Noto Color Emoji\", \"Noto Sans JP\", \"Noto Sans SC\", \"Noto Sans Arabic\", \"Noto Sans Hebrew\", \"Folio Box\"";
 
     /// <summary>The test renderer's bundled fonts, with a user stylesheet whose !important beats the artifact's own families.</summary>
     public static FolioOptions Options { get; } = new()
