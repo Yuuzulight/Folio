@@ -1,0 +1,5 @@
+{
+  "prompt": "Design a dark weekly fitness summary card layout: activity rings, a daily calories bar chart that grows in, stats compared with last week with up/down arrows, and award badges.",
+  "features": ["grid", "flex", "custom-properties", "conic-gradient", "radial-gradient", "linear-gradient", "transform", "transform-origin", "translate", "scale", "css-animations"],
+  "viewport": 800
+}
