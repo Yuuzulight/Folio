@@ -1132,13 +1132,28 @@ internal static class InlineLayout
         return true;
     }
 
-    // The baseline of an inline-block: its last in-flow line box's, from its top; none when it has no line boxes or
-    // clips its overflow.
+    // The baseline of an atomic inline, from its top: an inline-block's is its last in-flow line box's (none when it
+    // clips its overflow); an inline flex, grid or table container's is its first line box's
+    // (css-flexbox-1 §8.5, css-grid-1 §9.3, CSS 2 §17.5.1); none without line boxes.
     private static float? AtomicBaseline(Fragment fragment)
     {
+        if (fragment.Box is FlexContainerBox or GridContainerBox or TableWrapperBox)
+            return FirstBaseline(fragment);
         if (fragment.Box is { } box && (box.Style.Box.OverflowX != Overflow.Visible || box.Style.Box.OverflowY != Overflow.Visible || box is not BlockContainerBox))
             return null;
         return LastBaseline(fragment);
+
+        static float? FirstBaseline(Fragment f)
+        {
+            foreach (var (child, y) in f.Children.Select(c => (c.Fragment, c.Y)))
+            {
+                if (child.Kind == FragmentKind.Line && child.Height > 0)
+                    return y + child.Baseline;
+                if (child.Kind == FragmentKind.Box && child.Box is { IsFloat: false, IsAbsolutelyPositioned: false } && FirstBaseline(child) is { } inner)
+                    return y + inner;
+            }
+            return null;
+        }
 
         static float? LastBaseline(Fragment f)
         {

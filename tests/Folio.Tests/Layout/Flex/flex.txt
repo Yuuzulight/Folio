@@ -1,10 +1,24 @@
+=== an inline-flex container sits on the line by its first item's baseline
+<!DOCTYPE html><style>body { margin: 0 }</style><div>a<div style="display: inline-flex; padding: 4px; font-size: 32px"><span>b</span></div>c</div>
+---
+html 0,0 800x40
+  body 0,0 800x40
+    div 0,0 800x40
+      line 0,0 800x40
+        text "a" 0,17 16x16
+        div 16,0 40x40
+          span 20,4 32x32
+            line 20,4 32x32
+              text "b" 20,4 32x32
+        text "c" 56,17 16x16
+
 === inline-flex and inline-grid containers shrink to fit their content
 <!DOCTYPE html><style>body { margin: 0 }</style><div style="text-align: center"><div style="display: inline-flex"><span>a</span><span>b</span></div><div style="display: inline-grid">c</div></div>
 ---
-html 0,0 800x19
-  body 0,0 800x19
-    div 0,0 800x19
-      line 0,0 800x19
+html 0,0 800x16
+  body 0,0 800x16
+    div 0,0 800x16
+      line 0,0 800x16
         div 376,0 32x16
           span 376,0 16x16
             line 376,0 16x16
