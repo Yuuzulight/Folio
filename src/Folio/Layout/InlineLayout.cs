@@ -769,20 +769,62 @@ internal static class InlineLayout
             var upright = vertical && IsUpright(char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i]);
             if (i > runStart && (face != runFace || upright != runUpright))
             {
-                runs.Add(ShapeRun(text, runStart, i - runStart, runFace, style, context, rightToLeft, runUpright));
+                runs.Add(ShapeRunCached(text, runStart, i - runStart, runFace, style, context, rightToLeft, runUpright));
                 runStart = i;
             }
             (runFace, runUpright) = (face, upright);
             i += clusterLength;
         }
         if (end > runStart)
-            runs.Add(ShapeRun(text, runStart, end - runStart, runFace, style, context, rightToLeft, runUpright));
+            runs.Add(ShapeRunCached(text, runStart, end - runStart, runFace, style, context, rightToLeft, runUpright));
         return runs;
     }
 
     // The OpenType features the style turns on, as space-separated tags: font-variant-numeric's keywords, then
     // font-feature-settings' tags with a non-zero value.
     // ponytail: only features made of single substitutions take effect (study 11); fractions and ordinals do not.
+    // Shaped runs of short, simply shaped text, by what shaping reads, kept per font collection (so per document, across
+    // layouts): table cells, labels and list items repeat the same words in the same fonts. Each use gets its own copy,
+    // since lines change runs (hyphens, justification, mirroring). Complex shaping can depend on the text around a run,
+    // so only runs the simple shaper handles are kept.
+    // ponytail: the whole cache is dropped when it reaches 20,000 runs.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FontCollection, ShapeCache> ShapeCaches = [];
+
+    private sealed class ShapeCache
+    {
+        public Dictionary<(FontFace Face, float Size, string Features, float Letter, float Word, TabSize Tab), Dictionary<string, ShapedRun>> Runs { get; } = [];
+        public int Count { get; set; }
+    }
+
+    private static ShapedRun ShapeRunCached(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
+                                            bool upright)
+    {
+        if (face is null || upright || length > 32 || !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+            return ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
+        var cache = ShapeCaches.GetValue(context.Fonts, _ => new ShapeCache());
+        var spacing = style.TextSpacing;
+        var key = (face, style.Font.Size, Features(style.Font), spacing.LetterSpacing, spacing.WordSpacing, spacing.TabSize);
+        if (!cache.Runs.TryGetValue(key, out var byText))
+            cache.Runs[key] = byText = new(StringComparer.Ordinal);
+        if (!byText.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out var kept))
+        {
+            if (cache.Count >= 20_000)
+            {
+                (cache.Count, byText) = (0, new(StringComparer.Ordinal));
+                cache.Runs.Clear();
+                cache.Runs[key] = byText;
+            }
+            var shaped = ShapeRun(text, start, length, face, style, context, rightToLeft, upright);
+            kept = new ShapedRun(face, shaped.Size, shaped.Glyphs, [.. shaped.Clusters.Select(c => c - start)], shaped.Advances) { Offsets = shaped.Offsets };
+            byText[text.Substring(start, length)] = kept;
+            cache.Count++;
+        }
+        return new ShapedRun(face, kept.Size, [.. kept.Glyphs], [.. kept.Clusters.Select(c => c + start)], [.. kept.Advances])
+        {
+            Offsets = kept.Offsets is { } offsets ? [.. offsets] : null,
+        };
+    }
+
     private static string Features(FontGroup font)
     {
         if (font.VariantNumeric == "normal" && font.FeatureSettings == "normal")
