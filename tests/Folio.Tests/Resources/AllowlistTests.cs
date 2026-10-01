@@ -55,6 +55,7 @@ public class AllowlistTests
         Assert.False(Load(loader, "https://fonts.example/v2/a.css", ResourceKind.Stylesheet)!.Succeeded); // kind
         Assert.False(Load(loader, "http://fonts.example/v2/a.woff2")!.Succeeded);                        // not HTTPS
         Assert.Null(Load(loader, "file:///C:/fonts/a.woff2"));                                            // not this loader's
+        Assert.False(Load(loader, "https://user:secret@fonts.example/v2/a.woff2")!.Succeeded);           // credentials
         Assert.Single(server.Requests);
     }
 
