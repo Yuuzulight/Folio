@@ -17,7 +17,7 @@ internal enum FragmentKind
 /// <param name="Replacement">The text shown, when it is not the inline formatting context's own (an inserted ellipsis).</param>
 /// <param name="Inline">The inline box the text is directly in, if any.</param>
 internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style,
-                               string? Replacement = null, InlineBox? Inline = null);
+                               string? Replacement = null, InlineBox? Inline = null, bool Turned = false);
 
 /// <summary>What layout needs besides the box tree: the fonts text is measured with.</summary>
 internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = null)

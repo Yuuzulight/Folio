@@ -1,0 +1,4 @@
+=== vertical-rl lines run top to bottom from the right, an orthogonal flow sized by its definite height
+<!DOCTYPE html><style>body, p { margin: 0 } p { font-family: "Source Sans 3", "Noto Sans JP" }</style><div style="display: flex; gap: 24px; align-items: flex-start"><p style="writing-mode: vertical-rl; height: 220px; padding: 12px; font-size: 18px; line-height: 1.8">秋の夜長に、<br>温かいお茶と</p><p style="writing-mode: vertical-rl; font-size: 20px; line-height: 1.5">ab漢字</p><p style="writing-mode: vertical-lr; font-size: 20px; line-height: 1.5; height: 60px">漢字かな漢字</p></div>
+---
+
