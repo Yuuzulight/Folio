@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a landing page for a three-night electronic music festival called Aurora Nights: a slanted hero with light beams and a punchy headline, tinted duotone headliner cards with frosted name plates, the full lineup, and ticket-stub style pass cards.",
+  "features": ["clip-path", "mix-blend-mode", "isolation", "filter-blur", "filter-grayscale", "filter-drop-shadow", "backdrop-filter", "mask", "radial-gradient", "linear-gradient", "repeating-linear-gradient", "multi-column", "grid", "flex", "transform"],
+  "viewport": 800
+}

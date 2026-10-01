@@ -1,0 +1,5 @@
+{
+  "prompt": "Create a dark landing page for a cashback credit card called Lumen: a hero with two stacked glassmorphism cards over glowing orbs, a stats strip, and a feature grid where the transactions list fades out at the bottom.",
+  "features": ["backdrop-filter", "filter-blur", "mask-image", "linear-gradient", "radial-gradient", "transform", "box-shadow", "grid", "flex", "custom-properties", "font-variant-numeric"],
+  "viewport": 800
+}
