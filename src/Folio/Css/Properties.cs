@@ -171,6 +171,8 @@ internal enum PropertyId
     AnimationIterationCount,
     AnimationDirection,
     AnimationFillMode,
+    ColumnCount,
+    ColumnWidth,
     Fill,
     FillOpacity,
     FillRule,
@@ -274,7 +276,7 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands))
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -798,6 +800,7 @@ internal static class Properties
         rows.AddRange(MaskProperties.Rows);
         rows.AddRange(BorderImageProperties.Rows);
         rows.AddRange(AnimationProperties.Rows);
+        rows.AddRange(MulticolProperties.Rows);
         rows.AddRange(SvgProperties.Rows);
         rows.AddRange(SvgProperties.StopRows);
 
