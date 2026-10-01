@@ -77,3 +77,29 @@ mask-type: luminance
 mask-type: alpha
 ---
 mask-type: alpha
+
+=== mask-border longhands have their initial values
+display: block
+---
+mask-border-source: none
+mask-border-slice: 0 0 0 0
+mask-border-width: auto auto auto auto
+mask-border-outset: 0 0 0 0
+mask-border-repeat: stretch
+mask-border-mode: alpha
+
+=== the mask-border shorthand sets every longhand, with the mode in any place
+mask-border: luminance linear-gradient(black, white) 30 fill / 10px / 2 round
+---
+mask-border-source: linear-gradient(black, white)
+mask-border-slice: 30 30 30 30 fill
+mask-border-width: 10px 10px 10px 10px
+mask-border-outset: 2 2 2 2
+mask-border-repeat: round
+mask-border-mode: luminance
+
+=== the mask-border shorthand alone resets the rest
+mask-border-slice: 5; mask-border: alpha
+---
+mask-border-slice: 0 0 0 0
+mask-border-mode: alpha

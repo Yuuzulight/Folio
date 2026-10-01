@@ -166,6 +166,12 @@ internal enum PropertyId
     MaskClip,
     MaskComposite,
     MaskType,
+    MaskBorderSource,
+    MaskBorderSlice,
+    MaskBorderWidth,
+    MaskBorderOutset,
+    MaskBorderRepeat,
+    MaskBorderMode,
     BorderImageSource,
     BorderImageSlice,
     BorderImageWidth,
@@ -186,6 +192,12 @@ internal enum PropertyId
     TransitionBehavior,
     ColumnCount,
     ColumnWidth,
+    ColumnRuleWidth,
+    ColumnRuleStyle,
+    ColumnRuleColor,
+    ColumnSpan,
+    ColumnFill,
+    BreakInside,
     Fill,
     FillOpacity,
     FillRule,
@@ -328,23 +340,36 @@ internal sealed class Property<T>(
 /// </summary>
 internal static class Properties
 {
-    private static readonly Property[] Table;
-    private static readonly Dictionary<string, Property> ByName;
+    private static readonly Property?[] Table;
+    private static readonly Func<Property>[] Factories;
+    private static readonly Dictionary<string, PropertyId> ByName;
 
     // A static constructor runs after every field initializer, so the keyword tables below exist by then.
     static Properties()
     {
-        Table = BuildTable();
-        ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
+        (Factories, ByName) = BuildTable();
+        Table = new Property?[Factories.Length];
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Append(("mask-border", new Shorthand(BorderImageProperties.MaskBorderLonghands, BorderImageProperties.MaskBorderShorthand))).Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
-    public static IReadOnlyList<Property> All => Table;
+    /// <summary>Every row, each made now if it was not yet (for tests and tools; documents use only the rows they ask for).</summary>
+    public static IReadOnlyList<Property> All => [.. Enumerable.Range(0, Table.Length).Select(i => Get((PropertyId)i))];
 
-    public static Property Get(PropertyId id) => Table[(int)id];
+    public static Property Get(PropertyId id) => Table[(int)id] ?? Make(id);
 
-    public static Property? Find(string name) => ByName.GetValueOrDefault(name);
+    public static Property? Find(string name) => ByName.TryGetValue(name, out var id) ? Get(id) : null;
+
+    // Rows are made the first time they are asked for: making all of them up front compiled a generic row, its keyword
+    // map and its delegates for every property in a new process, whether a document used the property or not (#203).
+    // Two threads may make the same row; one of them is kept.
+    private static Property Make(PropertyId id)
+    {
+        var row = Factories[(int)id]();
+        if (row.Id != id)
+            throw new InvalidOperationException($"The row made for {id} is {row.Id}.");
+        return System.Threading.Interlocked.CompareExchange(ref Table[(int)id], row, null) ?? row;
+    }
 
     /// <summary>
     /// Parses a declaration into longhand values: CSS-wide keywords, longhands, or shorthands expanded.
@@ -398,484 +423,478 @@ internal static class Properties
 
     // ---------------------------------------------------------------- table
 
-    private static Property[] BuildTable()
+    // How to make each row, and the property names. Rows defined in their own files are made here already, and kept.
+    private static (Func<Property>[] Factories, Dictionary<string, PropertyId> Names) BuildTable()
     {
-        var rows = new List<Property>
+        var factories = new Func<Property>[System.Enum.GetValues<PropertyId>().Length];
+        var names = new Dictionary<string, PropertyId>(StringComparer.Ordinal);
+        void Row(PropertyId id, string name, Func<Property> make)
         {
-            Keywords(PropertyId.Display, "display", false, "inline", DisplayKeywords, b => b.Box.Display, (b, v) => b.Box = b.Box with { Display = v }),
-            Keywords(PropertyId.Position, "position", false, "static", KeywordMap<Position>.InOrder("static", "relative", "absolute", "fixed", "sticky"), s => s.Box.Position, (b, v) => b.Box = b.Box with { Position = v }),
-            Keywords(PropertyId.Float, "float", false, "none", KeywordMap<FloatSide>.InOrder("none", "left", "right", "inline-start", "inline-end"), s => s.Box.Float, (b, v) => b.Box = b.Box with { Float = v }),
-            Keywords(PropertyId.Clear, "clear", false, "none", KeywordMap<Clear>.InOrder("none", "left", "right", "both", "inline-start", "inline-end"), s => s.Box.Clear, (b, v) => b.Box = b.Box with { Clear = v }),
-            Keywords(PropertyId.BoxSizing, "box-sizing", false, "content-box", KeywordMap<BoxSizing>.InOrder("content-box", "border-box"), s => s.Box.BoxSizing, (b, v) => b.Box = b.Box with { BoxSizing = v }),
-            Keywords(PropertyId.Visibility, "visibility", true, "visible", KeywordMap<Visibility>.InOrder("visible", "hidden", "collapse"), s => s.Inherited.Visibility, (b, v) => b.Inherited = b.Inherited with { Visibility = v }),
-            Keywords(PropertyId.OverflowX, "overflow-x", false, "visible", OverflowKeywords, s => s.Box.OverflowX, (b, v) => b.Box = b.Box with { OverflowX = v }),
-            Keywords(PropertyId.OverflowY, "overflow-y", false, "visible", OverflowKeywords, s => s.Box.OverflowY, (b, v) => b.Box = b.Box with { OverflowY = v }),
-            new Property<int?>(PropertyId.ZIndex, "z-index", false, "auto",
-                r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.Integer() is { } i ? new NumberValue(i) : null,
-                (v, _) => v is NumberValue n ? (int)n.Number : null,
-                s => s.Box.ZIndex, (b, v) => b.Box = b.Box with { ZIndex = v }),
-            new Property<float>(PropertyId.Opacity, "opacity", false, "1",
-                r => r.Number() is { } n ? new NumberValue(n) : r.LengthPercentage() is PercentageValue p ? p : null,
-                (v, _) => Math.Clamp(v is PercentageValue p ? p.Percent / 100 : ((NumberValue)v).Number, 0, 1),
-                s => s.Box.Opacity, (b, v) => b.Box = b.Box with { Opacity = v }),
-
-            Size(PropertyId.Width, "width", "auto", "auto", s => s.Size.Width, (b, v) => b.Size = b.Size with { Width = v }),
-            Size(PropertyId.Height, "height", "auto", "auto", s => s.Size.Height, (b, v) => b.Size = b.Size with { Height = v }),
-            Size(PropertyId.MinWidth, "min-width", "auto", "auto", s => s.Size.MinWidth, (b, v) => b.Size = b.Size with { MinWidth = v }),
-            Size(PropertyId.MinHeight, "min-height", "auto", "auto", s => s.Size.MinHeight, (b, v) => b.Size = b.Size with { MinHeight = v }),
-            Size(PropertyId.MaxWidth, "max-width", "none", "none", s => s.Size.MaxWidth, (b, v) => b.Size = b.Size with { MaxWidth = v }),
-            Size(PropertyId.MaxHeight, "max-height", "none", "none", s => s.Size.MaxHeight, (b, v) => b.Size = b.Size with { MaxHeight = v }),
-
-            Offset(PropertyId.MarginTop, "margin-top", "0", s => s.Spacing.MarginTop, (b, v) => b.Spacing = b.Spacing with { MarginTop = v }),
-            Offset(PropertyId.MarginRight, "margin-right", "0", s => s.Spacing.MarginRight, (b, v) => b.Spacing = b.Spacing with { MarginRight = v }),
-            Offset(PropertyId.MarginBottom, "margin-bottom", "0", s => s.Spacing.MarginBottom, (b, v) => b.Spacing = b.Spacing with { MarginBottom = v }),
-            Offset(PropertyId.MarginLeft, "margin-left", "0", s => s.Spacing.MarginLeft, (b, v) => b.Spacing = b.Spacing with { MarginLeft = v }),
-            Padding(PropertyId.PaddingTop, "padding-top", s => s.Spacing.PaddingTop, (b, v) => b.Spacing = b.Spacing with { PaddingTop = v }),
-            Padding(PropertyId.PaddingRight, "padding-right", s => s.Spacing.PaddingRight, (b, v) => b.Spacing = b.Spacing with { PaddingRight = v }),
-            Padding(PropertyId.PaddingBottom, "padding-bottom", s => s.Spacing.PaddingBottom, (b, v) => b.Spacing = b.Spacing with { PaddingBottom = v }),
-            Padding(PropertyId.PaddingLeft, "padding-left", s => s.Spacing.PaddingLeft, (b, v) => b.Spacing = b.Spacing with { PaddingLeft = v }),
-            Offset(PropertyId.Top, "top", "auto", s => s.Spacing.Top, (b, v) => b.Spacing = b.Spacing with { Top = v }),
-            Offset(PropertyId.Right, "right", "auto", s => s.Spacing.Right, (b, v) => b.Spacing = b.Spacing with { Right = v }),
-            Offset(PropertyId.Bottom, "bottom", "auto", s => s.Spacing.Bottom, (b, v) => b.Spacing = b.Spacing with { Bottom = v }),
-            Offset(PropertyId.Left, "left", "auto", s => s.Spacing.Left, (b, v) => b.Spacing = b.Spacing with { Left = v }),
-
-            BorderWidth(PropertyId.BorderTopWidth, "border-top-width", s => s.Border.TopWidth, (b, v) => b.Border = b.Border with { TopWidthPx = v }),
-            BorderWidth(PropertyId.BorderRightWidth, "border-right-width", s => s.Border.RightWidth, (b, v) => b.Border = b.Border with { RightWidthPx = v }),
-            BorderWidth(PropertyId.BorderBottomWidth, "border-bottom-width", s => s.Border.BottomWidth, (b, v) => b.Border = b.Border with { BottomWidthPx = v }),
-            BorderWidth(PropertyId.BorderLeftWidth, "border-left-width", s => s.Border.LeftWidth, (b, v) => b.Border = b.Border with { LeftWidthPx = v }),
-            Keywords(PropertyId.BorderTopStyle, "border-top-style", false, "none", BorderStyleKeywords, s => s.Border.TopStyle, (b, v) => b.Border = b.Border with { TopStyle = v }),
-            Keywords(PropertyId.BorderRightStyle, "border-right-style", false, "none", BorderStyleKeywords, s => s.Border.RightStyle, (b, v) => b.Border = b.Border with { RightStyle = v }),
-            Keywords(PropertyId.BorderBottomStyle, "border-bottom-style", false, "none", BorderStyleKeywords, s => s.Border.BottomStyle, (b, v) => b.Border = b.Border with { BottomStyle = v }),
-            Keywords(PropertyId.BorderLeftStyle, "border-left-style", false, "none", BorderStyleKeywords, s => s.Border.LeftStyle, (b, v) => b.Border = b.Border with { LeftStyle = v }),
-            Color(PropertyId.BorderTopColor, "border-top-color", "currentcolor", s => s.Border.TopColor, (b, v) => b.Border = b.Border with { TopColor = v }),
-            Color(PropertyId.BorderRightColor, "border-right-color", "currentcolor", s => s.Border.RightColor, (b, v) => b.Border = b.Border with { RightColor = v }),
-            Color(PropertyId.BorderBottomColor, "border-bottom-color", "currentcolor", s => s.Border.BottomColor, (b, v) => b.Border = b.Border with { BottomColor = v }),
-            Color(PropertyId.BorderLeftColor, "border-left-color", "currentcolor", s => s.Border.LeftColor, (b, v) => b.Border = b.Border with { LeftColor = v }),
-
-            // color: currentcolor means the parent's colour (https://www.w3.org/TR/css-color-4/#resolving-other-colors).
-            new Property<CssColor>(PropertyId.Color, "color", true, "black",
-                r => r.ColorSpecified(),
-                (v, ctx) => ctx.Color(v, ctx.Parent.Inherited.Color).Resolve(ctx.Parent.Inherited.Color),
-                s => s.Inherited.Color, (b, v) => b.Inherited = b.Inherited with { Color = v }),
-            Color(PropertyId.BackgroundColor, "background-color", "transparent", s => s.Background.Color, (b, v) => b.Background = b.Background with { Color = v }),
-
-            new Property<IReadOnlyList<string>>(PropertyId.FontFamily, "font-family", true, "serif",
-                r => r.FontFamily(),
-                (v, _) => ((FontFamilyValue)v).Families,
-                s => s.Font.Family, (b, v) => b.Font = b.Font with { Family = v }),
-            new Property<float>(PropertyId.FontSize, "font-size", true, "medium",
-                r => r.Keyword(FontSizeKeywords.Keys.ToArray()) is { } k ? new KeywordValue(k)
-                    : r.Keyword("smaller", "larger") is { } rel ? new KeywordValue(rel)
-                    : r.LengthPercentage(nonNegative: true),
-                ComputeFontSize,
-                s => s.Font.Size, (b, v) => b.Font = b.Font with { Size = v }),
-            new Property<int>(PropertyId.FontWeight, "font-weight", true, "normal",
-                r => r.Keyword("normal", "bold", "bolder", "lighter") is { } k ? new KeywordValue(k)
-                    : r.Number() is { } n && n is >= 1 and <= 1000 ? new NumberValue(n) : null,
-                ComputeFontWeight,
-                s => s.Font.Weight, (b, v) => b.Font = b.Font with { Weight = v }),
-            Keywords(PropertyId.FontStyle, "font-style", true, "normal", KeywordMap<Style.FontStyle>.InOrder("normal", "italic", "oblique"), s => s.Font.Style, (b, v) => b.Font = b.Font with { Style = v }),
-            new Property<LineHeight>(PropertyId.LineHeight, "line-height", true, "normal",
-                r => r.Keyword("normal") is not null ? new KeywordValue("normal")
-                    : r.Number(nonNegative: true) is { } n ? new NumberValue(n)
-                    : r.LengthPercentage(nonNegative: true),
-                (v, ctx) => v switch
-                {
-                    KeywordValue => LineHeight.Normal,
-                    NumberValue n => new LineHeight(false, n.Number, null),
-                    _ => new LineHeight(false, 0, ctx.LengthPercentage(v, nonNegative: true).Resolve(ctx.FontSize)),
-                },
-                s => s.Font.LineHeight, (b, v) => b.Font = b.Font with { LineHeight = v }),
-
-            Keywords(PropertyId.WhiteSpaceCollapse, "white-space-collapse", true, "collapse",
-                KeywordMap<WhiteSpaceCollapse>.InOrder("collapse", "preserve", "preserve-breaks", "preserve-spaces", "break-spaces"),
-                s => s.Text.WhiteSpaceCollapse, (b, v) => b.Text = b.Text with { WhiteSpaceCollapse = v }),
-            Keywords(PropertyId.TextWrapMode, "text-wrap-mode", true, "wrap", KeywordMap<TextWrapMode>.InOrder("wrap", "nowrap"),
-                s => s.Text.TextWrapMode, (b, v) => b.Text = b.Text with { TextWrapMode = v }),
-            new Property<ListStyleType>(PropertyId.ListStyleType, "list-style-type", true, "disc",
-                GeneratedContentParsing.ListStyleType,
-                (v, _) => ((ListStyleTypeValue)v).Type,
-                s => s.Text.ListStyleType, (b, v) => b.Text = b.Text with { ListStyleType = v }),
-            Keywords(PropertyId.ListStylePosition, "list-style-position", true, "outside", KeywordMap<ListStylePosition>.InOrder("outside", "inside"),
-                s => s.Text.ListStylePosition, (b, v) => b.Text = b.Text with { ListStylePosition = v }),
-            new Property<ContentValue>(PropertyId.Content, "content", false, "normal",
-                GeneratedContentParsing.Content,
-                (v, _) => ((ContentSpecified)v).Content,
-                s => s.Generated.Content, (b, v) => b.Generated = b.Generated with { Content = v }),
-            Counters(PropertyId.CounterReset, "counter-reset", 0, allowReversed: true,
-                s => s.Generated.CounterReset, (b, v) => b.Generated = b.Generated with { CounterReset = v }),
-            Counters(PropertyId.CounterIncrement, "counter-increment", 1, allowReversed: false,
-                s => s.Generated.CounterIncrement, (b, v) => b.Generated = b.Generated with { CounterIncrement = v }),
-            Counters(PropertyId.CounterSet, "counter-set", 0, allowReversed: false,
-                s => s.Generated.CounterSet, (b, v) => b.Generated = b.Generated with { CounterSet = v }),
-            // https://www.w3.org/TR/css-color-adjust-1/#color-scheme-prop
-            new Property<ColorSchemeValue>(PropertyId.ColorScheme, "color-scheme", true, "normal",
-                r =>
-                {
-                    if (r.Keyword("normal") is not null)
-                        return new ColorSchemeSpecified(ColorSchemeValue.Normal);
-                    bool light = false, dark = false, only = false, any = false;
-                    while (r.Ident() is { } word)
-                    {
-                        any = true;
-                        switch (word.ToLowerInvariant())
-                        {
-                            case "light": light = true; break;
-                            case "dark": dark = true; break;
-                            case "only": only = true; break;
-                            case "normal": return null;
-                        }
-                    }
-                    return any && r.AtEnd ? new ColorSchemeSpecified(new ColorSchemeValue(light, dark, only)) : null;
-                },
-                (v, _) => ((ColorSchemeSpecified)v).Scheme,
-                s => s.Inherited.ColorScheme, (b, v) => b.Inherited = b.Inherited with { ColorScheme = v }),
-
-            new Property<IReadOnlyList<ImageValue>>(PropertyId.BackgroundImage, "background-image", false, "none",
-                BackgroundParsing.ImageList,
-                (v, ctx) => ((LayerListValue<ImageValue>)v).Items
-                    .Select(i => i is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : i).ToList(),
-                s => s.Background.Images, (b, v) => b.Background = b.Background with { Images = v }),
-            Layers<PositionSpecified, Style.BackgroundPosition>(PropertyId.BackgroundPosition, "background-position", "0% 0%",
-                BackgroundParsing.Position,
-                (p, ctx) => new Style.BackgroundPosition(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd)),
-                s => s.Background.Positions, (b, v) => b.Background = b.Background with { Positions = v }),
-            Layers<SizeSpecified, BackgroundSize>(PropertyId.BackgroundSize, "background-size", "auto",
-                BackgroundParsing.Size, ComputeSize,
-                s => s.Background.Sizes, (b, v) => b.Background = b.Background with { Sizes = v }),
-            Layers<RepeatStyle, RepeatStyle>(PropertyId.BackgroundRepeat, "background-repeat", "repeat",
-                BackgroundParsing.Repeat, (x, _) => x,
-                s => s.Background.Repeats, (b, v) => b.Background = b.Background with { Repeats = v }),
-            Layers<BackgroundAttachment, BackgroundAttachment>(PropertyId.BackgroundAttachment, "background-attachment", "scroll",
-                BackgroundParsing.Attachment, (x, _) => x,
-                s => s.Background.Attachments, (b, v) => b.Background = b.Background with { Attachments = v }),
-            Layers<BackgroundBox, BackgroundBox>(PropertyId.BackgroundOrigin, "background-origin", "padding-box",
-                r => BackgroundParsing.Box(r, allowText: false), (x, _) => x,
-                s => s.Background.Origins, (b, v) => b.Background = b.Background with { Origins = v }),
-            Layers<BackgroundBox, BackgroundBox>(PropertyId.BackgroundClip, "background-clip", "border-box",
-                r => BackgroundParsing.Box(r, allowText: true), (x, _) => x,
-                s => s.Background.Clips, (b, v) => b.Background = b.Background with { Clips = v }),
-
-            // https://www.w3.org/TR/css-fonts-4/#font-stretch-prop (as a percentage of normal)
-            new Property<float>(PropertyId.FontStretch, "font-stretch", true, "normal",
-                r => r.Keyword(FontStretchKeywords.Keys.ToArray()) is { } k ? new PercentageValue(FontStretchKeywords[k])
-                    : r.LengthPercentage(allowPercent: true, nonNegative: true) is PercentageValue p ? p : null,
-                (v, _) => ((PercentageValue)v).Percent,
-                s => s.Font.Stretch, (b, v) => b.Font = b.Font with { Stretch = v }),
-            new Property<string>(PropertyId.FontVariantCaps, "font-variant-caps", true, "normal",
-                r => r.Keyword("normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps") is { } k ? new KeywordValue(k) : null,
-                (v, _) => ((KeywordValue)v).Keyword,
-                s => s.Font.VariantCaps, (b, v) => b.Font = b.Font with { VariantCaps = v }),
-
-            Radius(PropertyId.BorderTopLeftRadius, "border-top-left-radius", s => s.Border.TopLeftRadius, (b, v) => b.Border = b.Border with { TopLeftRadius = v }),
-            Radius(PropertyId.BorderTopRightRadius, "border-top-right-radius", s => s.Border.TopRightRadius, (b, v) => b.Border = b.Border with { TopRightRadius = v }),
-            Radius(PropertyId.BorderBottomRightRadius, "border-bottom-right-radius", s => s.Border.BottomRightRadius, (b, v) => b.Border = b.Border with { BottomRightRadius = v }),
-            Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }),
-            // https://www.w3.org/TR/compositing-1/#isolation
-            Keywords(PropertyId.Isolation, "isolation", false, "auto", KeywordMap<Isolation>.InOrder("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }),
-            Keywords(PropertyId.MaskType, "mask-type", false, "luminance", KeywordMap<MaskType>.InOrder("luminance", "alpha"), s => s.Mask.Type, (b, v) => b.Mask = b.Mask with { Type = v }),
-            // https://drafts.csswg.org/compositing-2/#mix-blend-mode and #background-blend-mode (plus-lighter blends whole elements only).
-            Keywords(PropertyId.MixBlendMode, "mix-blend-mode", false, "normal", BlendKeywords, s => s.Effects.MixBlendMode, (b, v) => b.Effects = b.Effects with { MixBlendMode = v }),
-            Layers<Style.BlendMode, Style.BlendMode>(PropertyId.BackgroundBlendMode, "background-blend-mode", "normal",
-                r => r.Keyword("plus-lighter") is null && r.Keyword([.. BlendKeywords.Keys]) is { } k ? BlendKeywords[k] : null, (x, _) => x,
-                s => s.Effects.BackgroundBlendModes, (b, v) => b.Effects = b.Effects with { BackgroundBlendModes = v }),
-            // https://www.w3.org/TR/css-text-3/#text-align-property (match-parent is not supported)
-            Keywords(PropertyId.TextAlign, "text-align", true, "start", TextAlignKeywords,
-                s => s.Text.TextAlign, (b, v) => b.Text = b.Text with { TextAlign = v }),
-            // https://www.w3.org/TR/CSS22/visudet.html#propdef-vertical-align
-            new Property<VerticalAlign>(PropertyId.VerticalAlign, "vertical-align", false, "baseline",
-                r => r.Keyword(VerticalAlignKeywords.Keys.ToArray()) is { } k ? new KeywordValue(k) : r.LengthPercentage(),
-                (v, ctx) => v is KeywordValue k ? new VerticalAlign(VerticalAlignKeywords[k.Keyword]) : new VerticalAlign(VerticalAlignKind.Length, ctx.LengthPercentage(v)),
-                s => s.Box.VerticalAlign, (b, v) => b.Box = b.Box with { VerticalAlign = v }),
-            // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
-            Keywords(PropertyId.Direction, "direction", true, "ltr", KeywordMap<Direction>.InOrder("ltr", "rtl"),
-                s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }),
-            Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", KeywordMap<WritingMode>.InOrder("horizontal-tb", "vertical-rl", "vertical-lr"),
-                s => s.Text.WritingMode, (b, v) => b.Text = b.Text with { WritingMode = v }),
-            Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
-                KeywordMap<UnicodeBidi>.InOrder("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
-                s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
-
-            // https://www.w3.org/TR/css-flexbox-1/ and css-align-3 (safe and unsafe are accepted and ignored)
-            Keywords(PropertyId.FlexDirection, "flex-direction", false, "row", KeywordMap<FlexDirection>.InOrder("row", "row-reverse", "column", "column-reverse"),
-                s => s.Flex.Direction, (b, v) => b.Flex = b.Flex with { Direction = v }),
-            Keywords(PropertyId.FlexWrap, "flex-wrap", false, "nowrap", KeywordMap<FlexWrap>.InOrder("nowrap", "wrap", "wrap-reverse"),
-                s => s.Flex.Wrap, (b, v) => b.Flex = b.Flex with { Wrap = v }),
-            Aligned(PropertyId.JustifyContent, "justify-content", ContentAlignKeywords, s => s.Flex.JustifyContent, (b, v) => b.Flex = b.Flex with { JustifyContent = v }),
-            Aligned(PropertyId.AlignContent, "align-content", ContentAlignKeywords, s => s.Flex.AlignContent, (b, v) => b.Flex = b.Flex with { AlignContent = v }),
-            Aligned(PropertyId.AlignItems, "align-items", ItemAlignKeywords, s => s.Flex.AlignItems, (b, v) => b.Flex = b.Flex with { AlignItems = v }),
-            Aligned(PropertyId.AlignSelf, "align-self", ItemAlignKeywords, s => s.Flex.AlignSelf, (b, v) => b.Flex = b.Flex with { AlignSelf = v }, "auto"),
-            new Property<float>(PropertyId.FlexGrow, "flex-grow", false, "0",
-                r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : null, (v, _) => ((NumberValue)v).Number,
-                s => s.Flex.Grow, (b, v) => b.Flex = b.Flex with { Grow = v }),
-            new Property<float>(PropertyId.FlexShrink, "flex-shrink", false, "1",
-                r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : null, (v, _) => ((NumberValue)v).Number,
-                s => s.Flex.Shrink, (b, v) => b.Flex = b.Flex with { Shrink = v }),
-            new Property<SizeValue>(PropertyId.FlexBasis, "flex-basis", false, "auto",
-                r => r.Keyword("auto", "content", "min-content", "max-content", "fit-content") is { } k ? new KeywordValue(k) : r.LengthPercentage(nonNegative: true),
-                (v, ctx) => v switch
-                {
-                    KeywordValue { Keyword: "auto" } => SizeValue.Auto,
-                    KeywordValue { Keyword: "content" } => new SizeValue(SizeKind.Content),
-                    KeywordValue { Keyword: "min-content" } => new SizeValue(SizeKind.MinContent),
-                    KeywordValue { Keyword: "max-content" } => new SizeValue(SizeKind.MaxContent),
-                    KeywordValue => new SizeValue(SizeKind.FitContent),
-                    _ => SizeValue.Of(ctx.LengthPercentage(v, nonNegative: true)),
-                },
-                s => s.Flex.Basis, (b, v) => b.Flex = b.Flex with { Basis = v }),
-            new Property<int>(PropertyId.Order, "order", false, "0",
-                r => r.Integer() is { } i ? new NumberValue(i) : null, (v, _) => (int)((NumberValue)v).Number,
-                s => s.Flex.Order, (b, v) => b.Flex = b.Flex with { Order = v }),
-            Gap(PropertyId.RowGap, "row-gap", s => s.Flex.RowGap, (b, v) => b.Flex = b.Flex with { RowGap = v }),
-            Gap(PropertyId.ColumnGap, "column-gap", s => s.Flex.ColumnGap, (b, v) => b.Flex = b.Flex with { ColumnGap = v }),
-
-            // https://www.w3.org/TR/css-grid-1/
-            Tracks(PropertyId.GridTemplateColumns, "grid-template-columns", s => s.Grid.TemplateColumns, (b, v) => b.Grid = b.Grid with { TemplateColumns = v }),
-            Tracks(PropertyId.GridTemplateRows, "grid-template-rows", s => s.Grid.TemplateRows, (b, v) => b.Grid = b.Grid with { TemplateRows = v }),
-            AutoTracks(PropertyId.GridAutoColumns, "grid-auto-columns", s => s.Grid.AutoColumns, (b, v) => b.Grid = b.Grid with { AutoColumns = v }),
-            AutoTracks(PropertyId.GridAutoRows, "grid-auto-rows", s => s.Grid.AutoRows, (b, v) => b.Grid = b.Grid with { AutoRows = v }),
-            new Property<string>(PropertyId.GridAutoFlow, "grid-auto-flow", false, "row", GridParsing.AutoFlow,
-                (v, _) => v is GridAutoFlowValue f ? (f.Column ? "column" : "row") + (f.Dense ? " dense" : "") : "row",
-                s => (s.Grid.AutoFlowColumn ? "column" : "row") + (s.Grid.Dense ? " dense" : ""),
-                (b, v) => b.Grid = b.Grid with { AutoFlowColumn = v.StartsWith("column", StringComparison.Ordinal), Dense = v.EndsWith("dense", StringComparison.Ordinal) }),
-            Placement(PropertyId.GridRowStart, "grid-row-start", s => s.Grid.RowStart, (b, v) => b.Grid = b.Grid with { RowStart = v }),
-            Placement(PropertyId.GridRowEnd, "grid-row-end", s => s.Grid.RowEnd, (b, v) => b.Grid = b.Grid with { RowEnd = v }),
-            Placement(PropertyId.GridColumnStart, "grid-column-start", s => s.Grid.ColumnStart, (b, v) => b.Grid = b.Grid with { ColumnStart = v }),
-            Placement(PropertyId.GridColumnEnd, "grid-column-end", s => s.Grid.ColumnEnd, (b, v) => b.Grid = b.Grid with { ColumnEnd = v }),
-            // legacy is accepted and acts as normal.
-            Aligned(PropertyId.JustifyItems, "justify-items", JustifyKeywords, s => s.Grid.JustifyItems, (b, v) => b.Grid = b.Grid with { JustifyItems = v }),
-            Aligned(PropertyId.JustifySelf, "justify-self", JustifyKeywords, s => s.Grid.JustifySelf, (b, v) => b.Grid = b.Grid with { JustifySelf = v }, "auto"),
-            // https://www.w3.org/TR/css-tables-3/
-            Keywords(PropertyId.TableLayout, "table-layout", false, "auto", KeywordMap<TableLayoutMode>.InOrder("auto", "fixed"),
-                s => s.Box.TableLayout, (b, v) => b.Box = b.Box with { TableLayout = v }),
-            Keywords(PropertyId.BorderCollapse, "border-collapse", true, "separate", KeywordMap<BorderCollapse>.InOrder("separate", "collapse"),
-                s => s.Text.BorderCollapse, (b, v) => b.Text = b.Text with { BorderCollapse = v }),
-            new Property<(float X, float Y)>(PropertyId.BorderSpacing, "border-spacing", true, "0",
-                r => r.LengthPercentage(allowPercent: false, nonNegative: true) is { } x
-                    ? new RadiusValue(x, r.LengthPercentage(allowPercent: false, nonNegative: true) ?? x) : null,
-                (v, ctx) => (ctx.LengthPercentage(((RadiusValue)v).X).Px, ctx.LengthPercentage(((RadiusValue)v).Y).Px),
-                s => (s.Text.BorderSpacingX, s.Text.BorderSpacingY), (b, v) => b.Text = b.Text with { BorderSpacingX = v.X, BorderSpacingY = v.Y }),
-            Keywords(PropertyId.CaptionSide, "caption-side", true, "top", KeywordMap<CaptionSide>.InOrder("top", "bottom"),
-                s => s.Text.CaptionSide, (b, v) => b.Text = b.Text with { CaptionSide = v }),
-            Keywords(PropertyId.EmptyCells, "empty-cells", true, "show", KeywordMap<EmptyCells>.InOrder("show", "hide"),
-                s => s.Text.EmptyCells, (b, v) => b.Text = b.Text with { EmptyCells = v }),
-            new Property<GridAreas>(PropertyId.GridTemplateAreas, "grid-template-areas", false, "none", GridParsing.Areas,
-                (v, _) => ((GridAreasValue)v).Areas, s => s.Grid.Areas, (b, v) => b.Grid = b.Grid with { Areas = v }),
-
-            // https://www.w3.org/TR/css-text-decor-4/: percentages of thickness and offset are of 1em.
-            new Property<TextDecorationLine>(PropertyId.TextDecorationLine, "text-decoration-line", false, "none", DecorationLine,
-                (v, _) => ((KeywordValue)v).Keyword.Split(' ').Aggregate(TextDecorationLine.None, (line, k) => line | DecorationLineKeywords.GetValueOrDefault(k)),
-                s => s.Decoration.Line, (b, v) => b.Decoration = b.Decoration with { Line = v }),
-            Keywords(PropertyId.TextDecorationStyle, "text-decoration-style", false, "solid", KeywordMap<TextDecorationStyle>.InOrder("solid", "double", "dotted", "dashed", "wavy"),
-                s => s.Decoration.Style, (b, v) => b.Decoration = b.Decoration with { Style = v }),
-            Color(PropertyId.TextDecorationColor, "text-decoration-color", "currentcolor", s => s.Decoration.Color, (b, v) => b.Decoration = b.Decoration with { Color = v }),
-            new Property<float?>(PropertyId.TextDecorationThickness, "text-decoration-thickness", false, "auto",
-                r => r.Keyword("auto", "from-font") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
-                (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
-                s => s.Decoration.Thickness, (b, v) => b.Decoration = b.Decoration with { Thickness = v }),
-            new Property<float?>(PropertyId.TextUnderlineOffset, "text-underline-offset", true, "auto",
-                r => r.Keyword("auto") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
-                (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
-                s => s.Text.UnderlineOffset, (b, v) => b.Text = b.Text with { UnderlineOffset = v }),
-
-            // https://www.w3.org/TR/css-text-4/#letter-spacing-property and #word-spacing-property: normal is 0;
-            // percentages are of 1em.
-            TextSpacingLength(PropertyId.LetterSpacing, "letter-spacing", s => s.TextSpacing.LetterSpacing, (b, v) => b.TextSpacing = b.TextSpacing with { LetterSpacing = v }),
-            TextSpacingLength(PropertyId.WordSpacing, "word-spacing", s => s.TextSpacing.WordSpacing, (b, v) => b.TextSpacing = b.TextSpacing with { WordSpacing = v }),
-            // https://www.w3.org/TR/css-text-3/#tab-size-property: a non-negative number of spaces or length.
-            new Property<TabSize>(PropertyId.TabSize, "tab-size", true, "8",
-                r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : r.LengthPercentage(allowPercent: false, nonNegative: true),
-                (v, ctx) => v is NumberValue n ? new TabSize(n.Number, false) : new TabSize(Math.Max(0, ctx.LengthPercentage(v).Resolve(0)), true),
-                s => s.TextSpacing.TabSize, (b, v) => b.TextSpacing = b.TextSpacing with { TabSize = v }),
-            Keywords(PropertyId.WordBreak, "word-break", true, "normal", KeywordMap<WordBreakStyle>.InOrder("normal", "break-all", "keep-all", "break-word"),
-                s => s.TextSpacing.WordBreak, (b, v) => b.TextSpacing = b.TextSpacing with { WordBreak = v }),
-            Keywords(PropertyId.OverflowWrap, "overflow-wrap", true, "normal", KeywordMap<OverflowWrap>.InOrder("normal", "break-word", "anywhere"),
-                s => s.TextSpacing.OverflowWrap, (b, v) => b.TextSpacing = b.TextSpacing with { OverflowWrap = v }),
-            Keywords(PropertyId.TextTransform, "text-transform", true, "none",
-                KeywordMap<TextTransform>.InOrder("none", "capitalize", "uppercase", "lowercase", "full-width", "full-size-kana"),
-                s => s.TextSpacing.Transform, (b, v) => b.TextSpacing = b.TextSpacing with { Transform = v }),
-            // https://www.w3.org/TR/css-fonts-4/#font-variant-numeric-prop: normal | [ figure || spacing || fraction || ordinal || slashed-zero ]
-            new Property<string>(PropertyId.FontVariantNumeric, "font-variant-numeric", true, "normal", VariantNumeric,
-                (v, _) => ((KeywordValue)v).Keyword, s => s.Font.VariantNumeric, (b, v) => b.Font = b.Font with { VariantNumeric = v }),
-            // https://www.w3.org/TR/css-fonts-4/#font-feature-settings-prop: normal | [ <string> [ <integer> | on | off ]? ]#
-            new Property<string>(PropertyId.FontFeatureSettings, "font-feature-settings", true, "normal", FeatureSettings,
-                (v, _) => ((KeywordValue)v).Keyword, s => s.Font.FeatureSettings, (b, v) => b.Font = b.Font with { FeatureSettings = v }),
-            // https://www.w3.org/TR/css-content-3/#quotes-property: auto | none | [ <string> <string> ]+
-            new Property<QuotesGroup>(PropertyId.Quotes, "quotes", true, "auto",
-                r =>
-                {
-                    if (r.Keyword("auto", "none") is { } k)
-                        return new KeywordValue(k);
-                    var pairs = new List<(string, string)>();
-                    while (!r.AtEnd)
-                    {
-                        if (r.String() is not { } open || r.String() is not { } close)
-                            return null;
-                        pairs.Add((open, close));
-                    }
-                    return pairs.Count == 0 ? null : new QuotesValue(new QuotesGroup(pairs));
-                },
-                (v, _) => v switch
-                {
-                    KeywordValue { Keyword: "none" } => new QuotesGroup([]),
-                    QuotesValue q => q.Quotes,
-                    _ => QuotesGroup.Initial,
-                },
-                s => s.Quotes, (b, v) => b.Quotes = v),
-            // https://www.w3.org/TR/css-text-3/#text-indent-property: <length-percentage> && hanging? && each-line?
-            new Property<TextIndent>(PropertyId.TextIndent, "text-indent", true, "0",
-                r =>
-                {
-                    CssValue? length = null;
-                    var keywords = new List<string>();
-                    while (!r.AtEnd)
-                    {
-                        if (length is null && r.LengthPercentage() is { } l)
-                            length = l;
-                        else if (r.Keyword("hanging", "each-line") is { } k && !keywords.Contains(k))
-                            keywords.Add(k);
-                        else
-                            return null;
-                    }
-                    return length is null ? null : new TextIndentValue(length, keywords.Contains("hanging"), keywords.Contains("each-line"));
-                },
-                (v, ctx) => v is TextIndentValue t ? new TextIndent(ctx.LengthPercentage(t.Length), t.Hanging, t.EachLine) : default,
-                s => s.Text.TextIndent, (b, v) => b.Text = b.Text with { TextIndent = v }),
-            // https://www.w3.org/TR/css-text-3/#text-align-last-property (auto is null)
-            new Property<Style.TextAlign?>(PropertyId.TextAlignLast, "text-align-last", true, "auto",
-                r => r.Keyword("auto", "start", "end", "left", "right", "center", "justify") is { } k ? new KeywordValue(k) : null,
-                (v, _) => ((KeywordValue)v).Keyword == "auto" ? null : TextAlignKeywords[((KeywordValue)v).Keyword],
-                s => s.Text.TextAlignLast, (b, v) => b.Text = b.Text with { TextAlignLast = v }),
-            // https://www.w3.org/TR/css-text-3/#hyphens-property (auto hyphenates only at soft hyphens: there are no dictionaries)
-            // https://www.w3.org/TR/css-ui-4/#outline-props (outline-color: auto is currentcolor)
-            BorderWidth(PropertyId.OutlineWidth, "outline-width", s => s.Outline.WidthPx, (b, v) => b.Outline = b.Outline with { WidthPx = v }),
-            Keywords(PropertyId.OutlineStyle, "outline-style", false, "none",
-                KeywordMap<OutlineStyle>.InOrder("auto", "none", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"),
-                s => s.Outline.Style, (b, v) => b.Outline = b.Outline with { Style = v }),
-            new Property<CssColor>(PropertyId.OutlineColor, "outline-color", false, "auto",
-                r => r.Keyword("auto") is not null ? new ColorValue(CssColor.CurrentColor) : r.ColorSpecified(),
-                (v, ctx) => ctx.Color(v, ctx.CurrentColor),
-                s => s.Outline.Color, (b, v) => b.Outline = b.Outline with { Color = v }),
-            new Property<float>(PropertyId.OutlineOffset, "outline-offset", false, "0",
-                r => r.LengthPercentage(allowPercent: false),
-                (v, ctx) => ctx.LengthPercentage(v).Resolve(0),
-                s => s.Outline.Offset, (b, v) => b.Outline = b.Outline with { Offset = v }),
-            // https://www.w3.org/TR/css-sizing-4/#aspect-ratio: auto || <ratio> (auto with a ratio prefers a natural one)
-            new Property<float?>(PropertyId.AspectRatio, "aspect-ratio", false, "auto",
-                r =>
-                {
-                    CssValue? ratio = null;
-                    var auto = false;
-                    while (!r.AtEnd)
-                    {
-                        if (!auto && r.Keyword("auto") is not null)
-                            auto = true;
-                        else if (ratio is null && r.Number(nonNegative: true) is { } width)
-                        {
-                            var height = r.Delim('/') ? r.Number(nonNegative: true) : 1;
-                            if (height is null)
-                                return null;
-                            ratio = new NumberValue(width > 0 && height > 0 ? width / height.Value : 0);
-                        }
-                        else
-                            return null;
-                    }
-                    return ratio ?? (auto ? new KeywordValue("auto") : null);
-                },
-                (v, _) => v is NumberValue { Number: > 0 } n ? n.Number : null,
-                s => s.Size.AspectRatio, (b, v) => b.Size = b.Size with { AspectRatio = v }),
-            // https://www.w3.org/TR/css-overflow-3/#text-overflow (one value, for the end of the line)
-            new Property<TextOverflow>(PropertyId.TextOverflow, "text-overflow", false, "clip",
-                r => r.Keyword("clip", "ellipsis") is { } k ? new KeywordValue(k) : r.String() is not null ? new KeywordValue("ellipsis") : null,
-                (v, _) => ((KeywordValue)v).Keyword == "clip" ? TextOverflow.Clip : TextOverflow.Ellipsis,
-                s => s.Box.TextOverflow, (b, v) => b.Box = b.Box with { TextOverflow = v }),
-            // https://www.w3.org/TR/css-overflow-4/#line-clamp: none | <integer [1,∞]> (also as -webkit-line-clamp)
-            new Property<int?>(PropertyId.LineClamp, "line-clamp", false, "none",
-                r => r.Keyword("none") is not null ? new KeywordValue("none") : r.Integer() is { } n && n >= 1 ? new NumberValue(n) : null,
-                (v, _) => v is NumberValue n ? (int)n.Number : null,
-                s => s.Box.LineClamp, (b, v) => b.Box = b.Box with { LineClamp = v }),
-            // https://www.w3.org/TR/css-ui-4/#cursor: [ <url> [ <x> <y> ]? , ]* <keyword>, kept as its keyword for M3.
-            new Property<string>(PropertyId.Cursor, "cursor", true, "auto",
-                r =>
-                {
-                    while (r.Copy().Url() is not null)
-                    {
-                        r.Url();
-                        if (r.Number() is not null && r.Number() is null)
-                            return null;
-                        if (!r.Comma())
-                            return null;
-                    }
-                    return r.Keyword(CursorKeywords) is { } k ? new KeywordValue(k) : null;
-                },
-                (v, _) => ((KeywordValue)v).Keyword,
-                s => s.Ui.Cursor, (b, v) => b.Ui = b.Ui with { Cursor = v }),
-            // https://www.w3.org/TR/css-ui-4/#widget-accent: auto | <color>
-            new Property<CssColor?>(PropertyId.AccentColor, "accent-color", true, "auto",
-                r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),
-                (v, ctx) => v is KeywordValue ? null : ctx.Color(v, ctx.CurrentColor).Resolve(ctx.CurrentColor),
-                s => s.Ui.AccentColor, (b, v) => b.Ui = b.Ui with { AccentColor = v }),
-            // https://www.w3.org/TR/css-overflow-3/#scrollbar-gutter-property and css-scrollbars-1: recorded until
-            // scroll containers have scrollbars (M3).
-            new Property<string>(PropertyId.ScrollbarGutter, "scrollbar-gutter", false, "auto",
-                r => r.Keyword("auto") is not null ? new KeywordValue("auto")
-                    : r.Keyword("stable") is not null ? new KeywordValue(r.Keyword("both-edges") is not null ? "stable both-edges" : "stable")
-                    : r.Keyword("both-edges") is not null && r.Keyword("stable") is not null ? new KeywordValue("stable both-edges") : null,
-                (v, _) => ((KeywordValue)v).Keyword,
-                s => s.Box.ScrollbarGutter, (b, v) => b.Box = b.Box with { ScrollbarGutter = v }),
-            new Property<string>(PropertyId.ScrollbarWidth, "scrollbar-width", false, "auto",
-                r => r.Keyword("auto", "thin", "none") is { } k ? new KeywordValue(k) : null,
-                (v, _) => ((KeywordValue)v).Keyword,
-                s => s.Box.ScrollbarWidth, (b, v) => b.Box = b.Box with { ScrollbarWidth = v }),
-            new Property<string>(PropertyId.ScrollbarColor, "scrollbar-color", true, "auto",
-                r => r.Keyword("auto") is not null ? new KeywordValue("auto")
-                    : r.ColorSpecified() is { } thumb && r.ColorSpecified() is { } track ? new RadiusValue(thumb, track) : null,
-                (v, ctx) => v is RadiusValue pair ? $"{ctx.Color(pair.X, ctx.CurrentColor).Resolve(ctx.CurrentColor)} {ctx.Color(pair.Y, ctx.CurrentColor).Resolve(ctx.CurrentColor)}" : "auto",
-                s => s.Ui.ScrollbarColor, (b, v) => b.Ui = b.Ui with { ScrollbarColor = v }),
-            // https://www.w3.org/TR/css-lists-3/#image-markers: a url() image that loads is the marker.
-            new Property<ImageValue>(PropertyId.ListStyleImage, "list-style-image", true, "none",
-                r => r.Keyword("none") is not null ? new ImageSpecified(NoImage.Instance) : BackgroundParsing.Image(r) is { } image ? new ImageSpecified(image) : null,
-                (v, _) => ((ImageSpecified)v).Image,
-                s => s.Text.ListStyleImage ?? NoImage.Instance, (b, v) => b.Text = b.Text with { ListStyleImage = v }),
-            // https://www.w3.org/TR/css-backgrounds-3/#box-shadow and https://www.w3.org/TR/css-text-decor-3/#text-shadow-property
-            new Property<IReadOnlyList<Shadow>>(PropertyId.BoxShadow, "box-shadow", false, "none", r => ShadowList(r, box: true),
-                (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Shadows.Box, (b, v) => b.Shadows = b.Shadows with { Box = v }),
-            new Property<IReadOnlyList<Shadow>>(PropertyId.TextShadow, "text-shadow", true, "none", r => ShadowList(r, box: false),
-                (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Text.TextShadows ?? [], (b, v) => b.Text = b.Text with { TextShadows = v.Count == 0 ? null : v }),
-            Keywords(PropertyId.Hyphens, "hyphens", true, "manual", KeywordMap<Hyphens>.InOrder("manual", "none", "auto"),
-                s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }),
-            // https://www.w3.org/TR/css-images-3/#the-object-fit, #the-object-position, #the-image-rendering
-            Keywords(PropertyId.ObjectFit, "object-fit", false, "fill", KeywordMap<ObjectFit>.InOrder("fill", "contain", "cover", "none", "scale-down"),
-                s => s.Replaced.Fit, (b, v) => b.Replaced = b.Replaced with { Fit = v }),
-            new Property<Style.BackgroundPosition>(PropertyId.ObjectPosition, "object-position", false, "50% 50%",
-                r => BackgroundParsing.Position(r) is { } p ? new PositionValue(p) : null,
-                (v, ctx) => ComputePosition(((PositionValue)v).Position, ctx),
-                s => s.Replaced.Position, (b, v) => b.Replaced = b.Replaced with { Position = v }),
-            Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", KeywordMap<ImageRendering>.InOrder("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
-                s => s.Inherited.ImageRendering, (b, v) => b.Inherited = b.Inherited with { ImageRendering = v }),
-            Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", KeywordMap<SkipInk>.InOrder("auto", "none", "all"),
-                s => s.Text.SkipInk, (b, v) => b.Text = b.Text with { SkipInk = v }),
-        };
-
-        rows.AddRange(TransformProperties.Rows);
-        rows.AddRange(FilterProperties.Rows);
-        rows.Add(ShapeProperties.Row);
-        rows.AddRange(MaskProperties.Rows);
-        rows.AddRange(BorderImageProperties.Rows);
-        rows.AddRange(AnimationProperties.Rows);
-        rows.AddRange(MulticolProperties.Rows);
-        rows.AddRange(LogicalProperties.Rows);
-        rows.AddRange(SvgProperties.Rows);
-        rows.AddRange(SvgProperties.StopRows);
-
-        var table = new Property[System.Enum.GetValues<PropertyId>().Length];
-        foreach (var row in rows)
-        {
-            table[(int)row.Id] = row;
+            factories[(int)id] = make;
+            names[name] = id;
         }
-        if (table.Any(p => p is null))
+        void Rows(IEnumerable<Property> made)
+        {
+            foreach (var row in made)
+                Row(row.Id, row.Name, () => row);
+        }
+
+        Row(PropertyId.Display, "display", static () => Keywords(PropertyId.Display, "display", false, "inline", DisplayKeywords, b => b.Box.Display, (b, v) => b.Box = b.Box with { Display = v }));
+        Row(PropertyId.Position, "position", static () => Keywords(PropertyId.Position, "position", false, "static", KeywordMap<Position>.InOrder("static", "relative", "absolute", "fixed", "sticky"), s => s.Box.Position, (b, v) => b.Box = b.Box with { Position = v }));
+        Row(PropertyId.Float, "float", static () => Keywords(PropertyId.Float, "float", false, "none", KeywordMap<FloatSide>.InOrder("none", "left", "right", "inline-start", "inline-end"), s => s.Box.Float, (b, v) => b.Box = b.Box with { Float = v }));
+        Row(PropertyId.Clear, "clear", static () => Keywords(PropertyId.Clear, "clear", false, "none", KeywordMap<Clear>.InOrder("none", "left", "right", "both", "inline-start", "inline-end"), s => s.Box.Clear, (b, v) => b.Box = b.Box with { Clear = v }));
+        Row(PropertyId.BoxSizing, "box-sizing", static () => Keywords(PropertyId.BoxSizing, "box-sizing", false, "content-box", KeywordMap<BoxSizing>.InOrder("content-box", "border-box"), s => s.Box.BoxSizing, (b, v) => b.Box = b.Box with { BoxSizing = v }));
+        Row(PropertyId.Visibility, "visibility", static () => Keywords(PropertyId.Visibility, "visibility", true, "visible", KeywordMap<Visibility>.InOrder("visible", "hidden", "collapse"), s => s.Inherited.Visibility, (b, v) => b.Inherited = b.Inherited with { Visibility = v }));
+        Row(PropertyId.OverflowX, "overflow-x", static () => Keywords(PropertyId.OverflowX, "overflow-x", false, "visible", OverflowKeywords, s => s.Box.OverflowX, (b, v) => b.Box = b.Box with { OverflowX = v }));
+        Row(PropertyId.OverflowY, "overflow-y", static () => Keywords(PropertyId.OverflowY, "overflow-y", false, "visible", OverflowKeywords, s => s.Box.OverflowY, (b, v) => b.Box = b.Box with { OverflowY = v }));
+        Row(PropertyId.ZIndex, "z-index", static () => new Property<int?>(PropertyId.ZIndex, "z-index", false, "auto",
+            r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.Integer() is { } i ? new NumberValue(i) : null,
+            (v, _) => v is NumberValue n ? (int)n.Number : null,
+            s => s.Box.ZIndex, (b, v) => b.Box = b.Box with { ZIndex = v }));
+        Row(PropertyId.Opacity, "opacity", static () => new Property<float>(PropertyId.Opacity, "opacity", false, "1",
+            r => r.Number() is { } n ? new NumberValue(n) : r.LengthPercentage() is PercentageValue p ? p : null,
+            (v, _) => Math.Clamp(v is PercentageValue p ? p.Percent / 100 : ((NumberValue)v).Number, 0, 1),
+            s => s.Box.Opacity, (b, v) => b.Box = b.Box with { Opacity = v }));
+        Row(PropertyId.Width, "width", static () => Size(PropertyId.Width, "width", "auto", "auto", s => s.Size.Width, (b, v) => b.Size = b.Size with { Width = v }));
+        Row(PropertyId.Height, "height", static () => Size(PropertyId.Height, "height", "auto", "auto", s => s.Size.Height, (b, v) => b.Size = b.Size with { Height = v }));
+        Row(PropertyId.MinWidth, "min-width", static () => Size(PropertyId.MinWidth, "min-width", "auto", "auto", s => s.Size.MinWidth, (b, v) => b.Size = b.Size with { MinWidth = v }));
+        Row(PropertyId.MinHeight, "min-height", static () => Size(PropertyId.MinHeight, "min-height", "auto", "auto", s => s.Size.MinHeight, (b, v) => b.Size = b.Size with { MinHeight = v }));
+        Row(PropertyId.MaxWidth, "max-width", static () => Size(PropertyId.MaxWidth, "max-width", "none", "none", s => s.Size.MaxWidth, (b, v) => b.Size = b.Size with { MaxWidth = v }));
+        Row(PropertyId.MaxHeight, "max-height", static () => Size(PropertyId.MaxHeight, "max-height", "none", "none", s => s.Size.MaxHeight, (b, v) => b.Size = b.Size with { MaxHeight = v }));
+        Row(PropertyId.MarginTop, "margin-top", static () => Offset(PropertyId.MarginTop, "margin-top", "0", s => s.Spacing.MarginTop, (b, v) => b.Spacing = b.Spacing with { MarginTop = v }));
+        Row(PropertyId.MarginRight, "margin-right", static () => Offset(PropertyId.MarginRight, "margin-right", "0", s => s.Spacing.MarginRight, (b, v) => b.Spacing = b.Spacing with { MarginRight = v }));
+        Row(PropertyId.MarginBottom, "margin-bottom", static () => Offset(PropertyId.MarginBottom, "margin-bottom", "0", s => s.Spacing.MarginBottom, (b, v) => b.Spacing = b.Spacing with { MarginBottom = v }));
+        Row(PropertyId.MarginLeft, "margin-left", static () => Offset(PropertyId.MarginLeft, "margin-left", "0", s => s.Spacing.MarginLeft, (b, v) => b.Spacing = b.Spacing with { MarginLeft = v }));
+        Row(PropertyId.PaddingTop, "padding-top", static () => Padding(PropertyId.PaddingTop, "padding-top", s => s.Spacing.PaddingTop, (b, v) => b.Spacing = b.Spacing with { PaddingTop = v }));
+        Row(PropertyId.PaddingRight, "padding-right", static () => Padding(PropertyId.PaddingRight, "padding-right", s => s.Spacing.PaddingRight, (b, v) => b.Spacing = b.Spacing with { PaddingRight = v }));
+        Row(PropertyId.PaddingBottom, "padding-bottom", static () => Padding(PropertyId.PaddingBottom, "padding-bottom", s => s.Spacing.PaddingBottom, (b, v) => b.Spacing = b.Spacing with { PaddingBottom = v }));
+        Row(PropertyId.PaddingLeft, "padding-left", static () => Padding(PropertyId.PaddingLeft, "padding-left", s => s.Spacing.PaddingLeft, (b, v) => b.Spacing = b.Spacing with { PaddingLeft = v }));
+        Row(PropertyId.Top, "top", static () => Offset(PropertyId.Top, "top", "auto", s => s.Spacing.Top, (b, v) => b.Spacing = b.Spacing with { Top = v }));
+        Row(PropertyId.Right, "right", static () => Offset(PropertyId.Right, "right", "auto", s => s.Spacing.Right, (b, v) => b.Spacing = b.Spacing with { Right = v }));
+        Row(PropertyId.Bottom, "bottom", static () => Offset(PropertyId.Bottom, "bottom", "auto", s => s.Spacing.Bottom, (b, v) => b.Spacing = b.Spacing with { Bottom = v }));
+        Row(PropertyId.Left, "left", static () => Offset(PropertyId.Left, "left", "auto", s => s.Spacing.Left, (b, v) => b.Spacing = b.Spacing with { Left = v }));
+        Row(PropertyId.BorderTopWidth, "border-top-width", static () => BorderWidth(PropertyId.BorderTopWidth, "border-top-width", s => s.Border.TopWidth, (b, v) => b.Border = b.Border with { TopWidthPx = v }));
+        Row(PropertyId.BorderRightWidth, "border-right-width", static () => BorderWidth(PropertyId.BorderRightWidth, "border-right-width", s => s.Border.RightWidth, (b, v) => b.Border = b.Border with { RightWidthPx = v }));
+        Row(PropertyId.BorderBottomWidth, "border-bottom-width", static () => BorderWidth(PropertyId.BorderBottomWidth, "border-bottom-width", s => s.Border.BottomWidth, (b, v) => b.Border = b.Border with { BottomWidthPx = v }));
+        Row(PropertyId.BorderLeftWidth, "border-left-width", static () => BorderWidth(PropertyId.BorderLeftWidth, "border-left-width", s => s.Border.LeftWidth, (b, v) => b.Border = b.Border with { LeftWidthPx = v }));
+        Row(PropertyId.BorderTopStyle, "border-top-style", static () => Keywords(PropertyId.BorderTopStyle, "border-top-style", false, "none", BorderStyleKeywords, s => s.Border.TopStyle, (b, v) => b.Border = b.Border with { TopStyle = v }));
+        Row(PropertyId.BorderRightStyle, "border-right-style", static () => Keywords(PropertyId.BorderRightStyle, "border-right-style", false, "none", BorderStyleKeywords, s => s.Border.RightStyle, (b, v) => b.Border = b.Border with { RightStyle = v }));
+        Row(PropertyId.BorderBottomStyle, "border-bottom-style", static () => Keywords(PropertyId.BorderBottomStyle, "border-bottom-style", false, "none", BorderStyleKeywords, s => s.Border.BottomStyle, (b, v) => b.Border = b.Border with { BottomStyle = v }));
+        Row(PropertyId.BorderLeftStyle, "border-left-style", static () => Keywords(PropertyId.BorderLeftStyle, "border-left-style", false, "none", BorderStyleKeywords, s => s.Border.LeftStyle, (b, v) => b.Border = b.Border with { LeftStyle = v }));
+        Row(PropertyId.BorderTopColor, "border-top-color", static () => Color(PropertyId.BorderTopColor, "border-top-color", "currentcolor", s => s.Border.TopColor, (b, v) => b.Border = b.Border with { TopColor = v }));
+        Row(PropertyId.BorderRightColor, "border-right-color", static () => Color(PropertyId.BorderRightColor, "border-right-color", "currentcolor", s => s.Border.RightColor, (b, v) => b.Border = b.Border with { RightColor = v }));
+        Row(PropertyId.BorderBottomColor, "border-bottom-color", static () => Color(PropertyId.BorderBottomColor, "border-bottom-color", "currentcolor", s => s.Border.BottomColor, (b, v) => b.Border = b.Border with { BottomColor = v }));
+        Row(PropertyId.BorderLeftColor, "border-left-color", static () => Color(PropertyId.BorderLeftColor, "border-left-color", "currentcolor", s => s.Border.LeftColor, (b, v) => b.Border = b.Border with { LeftColor = v }));
+        // color: currentcolor means the parent's colour (https://www.w3.org/TR/css-color-4/#resolving-other-colors).
+        Row(PropertyId.Color, "color", static () => new Property<CssColor>(PropertyId.Color, "color", true, "black",
+            r => r.ColorSpecified(),
+            (v, ctx) => ctx.Color(v, ctx.Parent.Inherited.Color).Resolve(ctx.Parent.Inherited.Color),
+            s => s.Inherited.Color, (b, v) => b.Inherited = b.Inherited with { Color = v }));
+        Row(PropertyId.BackgroundColor, "background-color", static () => Color(PropertyId.BackgroundColor, "background-color", "transparent", s => s.Background.Color, (b, v) => b.Background = b.Background with { Color = v }));
+        Row(PropertyId.FontFamily, "font-family", static () => new Property<IReadOnlyList<string>>(PropertyId.FontFamily, "font-family", true, "serif",
+            r => r.FontFamily(),
+            (v, _) => ((FontFamilyValue)v).Families,
+            s => s.Font.Family, (b, v) => b.Font = b.Font with { Family = v }));
+        Row(PropertyId.FontSize, "font-size", static () => new Property<float>(PropertyId.FontSize, "font-size", true, "medium",
+            r => r.Keyword(FontSizeKeywords.Keys.ToArray()) is { } k ? new KeywordValue(k)
+                : r.Keyword("smaller", "larger") is { } rel ? new KeywordValue(rel)
+                : r.LengthPercentage(nonNegative: true),
+            ComputeFontSize,
+            s => s.Font.Size, (b, v) => b.Font = b.Font with { Size = v }));
+        Row(PropertyId.FontWeight, "font-weight", static () => new Property<int>(PropertyId.FontWeight, "font-weight", true, "normal",
+            r => r.Keyword("normal", "bold", "bolder", "lighter") is { } k ? new KeywordValue(k)
+                : r.Number() is { } n && n is >= 1 and <= 1000 ? new NumberValue(n) : null,
+            ComputeFontWeight,
+            s => s.Font.Weight, (b, v) => b.Font = b.Font with { Weight = v }));
+        Row(PropertyId.FontStyle, "font-style", static () => Keywords(PropertyId.FontStyle, "font-style", true, "normal", KeywordMap<Style.FontStyle>.InOrder("normal", "italic", "oblique"), s => s.Font.Style, (b, v) => b.Font = b.Font with { Style = v }));
+        Row(PropertyId.LineHeight, "line-height", static () => new Property<LineHeight>(PropertyId.LineHeight, "line-height", true, "normal",
+            r => r.Keyword("normal") is not null ? new KeywordValue("normal")
+                : r.Number(nonNegative: true) is { } n ? new NumberValue(n)
+                : r.LengthPercentage(nonNegative: true),
+            (v, ctx) => v switch
+            {
+                KeywordValue => LineHeight.Normal,
+                NumberValue n => new LineHeight(false, n.Number, null),
+                _ => new LineHeight(false, 0, ctx.LengthPercentage(v, nonNegative: true).Resolve(ctx.FontSize)),
+            },
+            s => s.Font.LineHeight, (b, v) => b.Font = b.Font with { LineHeight = v }));
+        Row(PropertyId.WhiteSpaceCollapse, "white-space-collapse", static () => Keywords(PropertyId.WhiteSpaceCollapse, "white-space-collapse", true, "collapse",
+            KeywordMap<WhiteSpaceCollapse>.InOrder("collapse", "preserve", "preserve-breaks", "preserve-spaces", "break-spaces"),
+            s => s.Text.WhiteSpaceCollapse, (b, v) => b.Text = b.Text with { WhiteSpaceCollapse = v }));
+        Row(PropertyId.TextWrapMode, "text-wrap-mode", static () => Keywords(PropertyId.TextWrapMode, "text-wrap-mode", true, "wrap", KeywordMap<TextWrapMode>.InOrder("wrap", "nowrap"),
+            s => s.Text.TextWrapMode, (b, v) => b.Text = b.Text with { TextWrapMode = v }));
+        Row(PropertyId.ListStyleType, "list-style-type", static () => new Property<ListStyleType>(PropertyId.ListStyleType, "list-style-type", true, "disc",
+            GeneratedContentParsing.ListStyleType,
+            (v, _) => ((ListStyleTypeValue)v).Type,
+            s => s.Text.ListStyleType, (b, v) => b.Text = b.Text with { ListStyleType = v }));
+        Row(PropertyId.ListStylePosition, "list-style-position", static () => Keywords(PropertyId.ListStylePosition, "list-style-position", true, "outside", KeywordMap<ListStylePosition>.InOrder("outside", "inside"),
+            s => s.Text.ListStylePosition, (b, v) => b.Text = b.Text with { ListStylePosition = v }));
+        Row(PropertyId.Content, "content", static () => new Property<ContentValue>(PropertyId.Content, "content", false, "normal",
+            GeneratedContentParsing.Content,
+            (v, _) => ((ContentSpecified)v).Content,
+            s => s.Generated.Content, (b, v) => b.Generated = b.Generated with { Content = v }));
+        Row(PropertyId.CounterReset, "counter-reset", static () => Counters(PropertyId.CounterReset, "counter-reset", 0, allowReversed: true,
+            s => s.Generated.CounterReset, (b, v) => b.Generated = b.Generated with { CounterReset = v }));
+        Row(PropertyId.CounterIncrement, "counter-increment", static () => Counters(PropertyId.CounterIncrement, "counter-increment", 1, allowReversed: false,
+            s => s.Generated.CounterIncrement, (b, v) => b.Generated = b.Generated with { CounterIncrement = v }));
+        Row(PropertyId.CounterSet, "counter-set", static () => Counters(PropertyId.CounterSet, "counter-set", 0, allowReversed: false,
+            s => s.Generated.CounterSet, (b, v) => b.Generated = b.Generated with { CounterSet = v }));
+        // https://www.w3.org/TR/css-color-adjust-1/#color-scheme-prop
+        Row(PropertyId.ColorScheme, "color-scheme", static () => new Property<ColorSchemeValue>(PropertyId.ColorScheme, "color-scheme", true, "normal",
+            r =>
+            {
+                if (r.Keyword("normal") is not null)
+                    return new ColorSchemeSpecified(ColorSchemeValue.Normal);
+                bool light = false, dark = false, only = false, any = false;
+                while (r.Ident() is { } word)
+                {
+                    any = true;
+                    switch (word.ToLowerInvariant())
+                    {
+                        case "light": light = true; break;
+                        case "dark": dark = true; break;
+                        case "only": only = true; break;
+                        case "normal": return null;
+                    }
+                }
+                return any && r.AtEnd ? new ColorSchemeSpecified(new ColorSchemeValue(light, dark, only)) : null;
+            },
+            (v, _) => ((ColorSchemeSpecified)v).Scheme,
+            s => s.Inherited.ColorScheme, (b, v) => b.Inherited = b.Inherited with { ColorScheme = v }));
+        Row(PropertyId.BackgroundImage, "background-image", static () => new Property<IReadOnlyList<ImageValue>>(PropertyId.BackgroundImage, "background-image", false, "none",
+            BackgroundParsing.ImageList,
+            (v, ctx) => ((LayerListValue<ImageValue>)v).Items
+                .Select(i => i is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : i).ToList(),
+            s => s.Background.Images, (b, v) => b.Background = b.Background with { Images = v }));
+        Row(PropertyId.BackgroundPosition, "background-position", static () => Layers<PositionSpecified, Style.BackgroundPosition>(PropertyId.BackgroundPosition, "background-position", "0% 0%",
+            BackgroundParsing.Position,
+            (p, ctx) => new Style.BackgroundPosition(FromEdge(ctx.LengthPercentage(p.X), p.XFromEnd), FromEdge(ctx.LengthPercentage(p.Y), p.YFromEnd)),
+            s => s.Background.Positions, (b, v) => b.Background = b.Background with { Positions = v }));
+        Row(PropertyId.BackgroundSize, "background-size", static () => Layers<SizeSpecified, BackgroundSize>(PropertyId.BackgroundSize, "background-size", "auto",
+            BackgroundParsing.Size, ComputeSize,
+            s => s.Background.Sizes, (b, v) => b.Background = b.Background with { Sizes = v }));
+        Row(PropertyId.BackgroundRepeat, "background-repeat", static () => Layers<RepeatStyle, RepeatStyle>(PropertyId.BackgroundRepeat, "background-repeat", "repeat",
+            BackgroundParsing.Repeat, (x, _) => x,
+            s => s.Background.Repeats, (b, v) => b.Background = b.Background with { Repeats = v }));
+        Row(PropertyId.BackgroundAttachment, "background-attachment", static () => Layers<BackgroundAttachment, BackgroundAttachment>(PropertyId.BackgroundAttachment, "background-attachment", "scroll",
+            BackgroundParsing.Attachment, (x, _) => x,
+            s => s.Background.Attachments, (b, v) => b.Background = b.Background with { Attachments = v }));
+        Row(PropertyId.BackgroundOrigin, "background-origin", static () => Layers<BackgroundBox, BackgroundBox>(PropertyId.BackgroundOrigin, "background-origin", "padding-box",
+            r => BackgroundParsing.Box(r, allowText: false), (x, _) => x,
+            s => s.Background.Origins, (b, v) => b.Background = b.Background with { Origins = v }));
+        Row(PropertyId.BackgroundClip, "background-clip", static () => Layers<BackgroundBox, BackgroundBox>(PropertyId.BackgroundClip, "background-clip", "border-box",
+            r => BackgroundParsing.Box(r, allowText: true), (x, _) => x,
+            s => s.Background.Clips, (b, v) => b.Background = b.Background with { Clips = v }));
+        // https://www.w3.org/TR/css-fonts-4/#font-stretch-prop (as a percentage of normal)
+        Row(PropertyId.FontStretch, "font-stretch", static () => new Property<float>(PropertyId.FontStretch, "font-stretch", true, "normal",
+            r => r.Keyword(FontStretchKeywords.Keys.ToArray()) is { } k ? new PercentageValue(FontStretchKeywords[k])
+                : r.LengthPercentage(allowPercent: true, nonNegative: true) is PercentageValue p ? p : null,
+            (v, _) => ((PercentageValue)v).Percent,
+            s => s.Font.Stretch, (b, v) => b.Font = b.Font with { Stretch = v }));
+        Row(PropertyId.FontVariantCaps, "font-variant-caps", static () => new Property<string>(PropertyId.FontVariantCaps, "font-variant-caps", true, "normal",
+            r => r.Keyword("normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps") is { } k ? new KeywordValue(k) : null,
+            (v, _) => ((KeywordValue)v).Keyword,
+            s => s.Font.VariantCaps, (b, v) => b.Font = b.Font with { VariantCaps = v }));
+        Row(PropertyId.BorderTopLeftRadius, "border-top-left-radius", static () => Radius(PropertyId.BorderTopLeftRadius, "border-top-left-radius", s => s.Border.TopLeftRadius, (b, v) => b.Border = b.Border with { TopLeftRadius = v }));
+        Row(PropertyId.BorderTopRightRadius, "border-top-right-radius", static () => Radius(PropertyId.BorderTopRightRadius, "border-top-right-radius", s => s.Border.TopRightRadius, (b, v) => b.Border = b.Border with { TopRightRadius = v }));
+        Row(PropertyId.BorderBottomRightRadius, "border-bottom-right-radius", static () => Radius(PropertyId.BorderBottomRightRadius, "border-bottom-right-radius", s => s.Border.BottomRightRadius, (b, v) => b.Border = b.Border with { BottomRightRadius = v }));
+        Row(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", static () => Radius(PropertyId.BorderBottomLeftRadius, "border-bottom-left-radius", s => s.Border.BottomLeftRadius, (b, v) => b.Border = b.Border with { BottomLeftRadius = v }));
+        // https://www.w3.org/TR/compositing-1/#isolation
+        Row(PropertyId.Isolation, "isolation", static () => Keywords(PropertyId.Isolation, "isolation", false, "auto", KeywordMap<Isolation>.InOrder("auto", "isolate"), s => s.Box.Isolation, (b, v) => b.Box = b.Box with { Isolation = v }));
+        Row(PropertyId.MaskType, "mask-type", static () => Keywords(PropertyId.MaskType, "mask-type", false, "luminance", KeywordMap<MaskType>.InOrder("luminance", "alpha"), s => s.Mask.Type, (b, v) => b.Mask = b.Mask with { Type = v }));
+        // https://drafts.csswg.org/compositing-2/#mix-blend-mode and #background-blend-mode (plus-lighter blends whole elements only).
+        Row(PropertyId.MixBlendMode, "mix-blend-mode", static () => Keywords(PropertyId.MixBlendMode, "mix-blend-mode", false, "normal", BlendKeywords, s => s.Effects.MixBlendMode, (b, v) => b.Effects = b.Effects with { MixBlendMode = v }));
+        Row(PropertyId.BackgroundBlendMode, "background-blend-mode", static () => Layers<Style.BlendMode, Style.BlendMode>(PropertyId.BackgroundBlendMode, "background-blend-mode", "normal",
+            r => r.Keyword("plus-lighter") is null && r.Keyword([.. BlendKeywords.Keys]) is { } k ? BlendKeywords[k] : null, (x, _) => x,
+            s => s.Effects.BackgroundBlendModes, (b, v) => b.Effects = b.Effects with { BackgroundBlendModes = v }));
+        // https://www.w3.org/TR/css-text-3/#text-align-property (match-parent is not supported)
+        Row(PropertyId.TextAlign, "text-align", static () => Keywords(PropertyId.TextAlign, "text-align", true, "start", TextAlignKeywords,
+            s => s.Text.TextAlign, (b, v) => b.Text = b.Text with { TextAlign = v }));
+        // https://www.w3.org/TR/CSS22/visudet.html#propdef-vertical-align
+        Row(PropertyId.VerticalAlign, "vertical-align", static () => new Property<VerticalAlign>(PropertyId.VerticalAlign, "vertical-align", false, "baseline",
+            r => r.Keyword(VerticalAlignKeywords.Keys.ToArray()) is { } k ? new KeywordValue(k) : r.LengthPercentage(),
+            (v, ctx) => v is KeywordValue k ? new VerticalAlign(VerticalAlignKeywords[k.Keyword]) : new VerticalAlign(VerticalAlignKind.Length, ctx.LengthPercentage(v)),
+            s => s.Box.VerticalAlign, (b, v) => b.Box = b.Box with { VerticalAlign = v }));
+        // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
+        Row(PropertyId.Direction, "direction", static () => Keywords(PropertyId.Direction, "direction", true, "ltr", KeywordMap<Direction>.InOrder("ltr", "rtl"),
+            s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }));
+        Row(PropertyId.WritingMode, "writing-mode", static () => Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", KeywordMap<WritingMode>.InOrder("horizontal-tb", "vertical-rl", "vertical-lr"),
+            s => s.Text.WritingMode, (b, v) => b.Text = b.Text with { WritingMode = v }));
+        Row(PropertyId.UnicodeBidi, "unicode-bidi", static () => Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
+            KeywordMap<UnicodeBidi>.InOrder("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
+            s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }));
+        // https://www.w3.org/TR/css-flexbox-1/ and css-align-3 (safe and unsafe are accepted and ignored)
+        Row(PropertyId.FlexDirection, "flex-direction", static () => Keywords(PropertyId.FlexDirection, "flex-direction", false, "row", KeywordMap<FlexDirection>.InOrder("row", "row-reverse", "column", "column-reverse"),
+            s => s.Flex.Direction, (b, v) => b.Flex = b.Flex with { Direction = v }));
+        Row(PropertyId.FlexWrap, "flex-wrap", static () => Keywords(PropertyId.FlexWrap, "flex-wrap", false, "nowrap", KeywordMap<FlexWrap>.InOrder("nowrap", "wrap", "wrap-reverse"),
+            s => s.Flex.Wrap, (b, v) => b.Flex = b.Flex with { Wrap = v }));
+        Row(PropertyId.JustifyContent, "justify-content", static () => Aligned(PropertyId.JustifyContent, "justify-content", ContentAlignKeywords, s => s.Flex.JustifyContent, (b, v) => b.Flex = b.Flex with { JustifyContent = v }));
+        Row(PropertyId.AlignContent, "align-content", static () => Aligned(PropertyId.AlignContent, "align-content", ContentAlignKeywords, s => s.Flex.AlignContent, (b, v) => b.Flex = b.Flex with { AlignContent = v }));
+        Row(PropertyId.AlignItems, "align-items", static () => Aligned(PropertyId.AlignItems, "align-items", ItemAlignKeywords, s => s.Flex.AlignItems, (b, v) => b.Flex = b.Flex with { AlignItems = v }));
+        Row(PropertyId.AlignSelf, "align-self", static () => Aligned(PropertyId.AlignSelf, "align-self", ItemAlignKeywords, s => s.Flex.AlignSelf, (b, v) => b.Flex = b.Flex with { AlignSelf = v }, "auto"));
+        Row(PropertyId.FlexGrow, "flex-grow", static () => new Property<float>(PropertyId.FlexGrow, "flex-grow", false, "0",
+            r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : null, (v, _) => ((NumberValue)v).Number,
+            s => s.Flex.Grow, (b, v) => b.Flex = b.Flex with { Grow = v }));
+        Row(PropertyId.FlexShrink, "flex-shrink", static () => new Property<float>(PropertyId.FlexShrink, "flex-shrink", false, "1",
+            r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : null, (v, _) => ((NumberValue)v).Number,
+            s => s.Flex.Shrink, (b, v) => b.Flex = b.Flex with { Shrink = v }));
+        Row(PropertyId.FlexBasis, "flex-basis", static () => new Property<SizeValue>(PropertyId.FlexBasis, "flex-basis", false, "auto",
+            r => r.Keyword("auto", "content", "min-content", "max-content", "fit-content") is { } k ? new KeywordValue(k) : r.LengthPercentage(nonNegative: true),
+            (v, ctx) => v switch
+            {
+                KeywordValue { Keyword: "auto" } => SizeValue.Auto,
+                KeywordValue { Keyword: "content" } => new SizeValue(SizeKind.Content),
+                KeywordValue { Keyword: "min-content" } => new SizeValue(SizeKind.MinContent),
+                KeywordValue { Keyword: "max-content" } => new SizeValue(SizeKind.MaxContent),
+                KeywordValue => new SizeValue(SizeKind.FitContent),
+                _ => SizeValue.Of(ctx.LengthPercentage(v, nonNegative: true)),
+            },
+            s => s.Flex.Basis, (b, v) => b.Flex = b.Flex with { Basis = v }));
+        Row(PropertyId.Order, "order", static () => new Property<int>(PropertyId.Order, "order", false, "0",
+            r => r.Integer() is { } i ? new NumberValue(i) : null, (v, _) => (int)((NumberValue)v).Number,
+            s => s.Flex.Order, (b, v) => b.Flex = b.Flex with { Order = v }));
+        Row(PropertyId.RowGap, "row-gap", static () => Gap(PropertyId.RowGap, "row-gap", s => s.Flex.RowGap, (b, v) => b.Flex = b.Flex with { RowGap = v }));
+        Row(PropertyId.ColumnGap, "column-gap", static () => Gap(PropertyId.ColumnGap, "column-gap", s => s.Flex.ColumnGap, (b, v) => b.Flex = b.Flex with { ColumnGap = v }));
+        // https://www.w3.org/TR/css-grid-1/
+        Row(PropertyId.GridTemplateColumns, "grid-template-columns", static () => Tracks(PropertyId.GridTemplateColumns, "grid-template-columns", s => s.Grid.TemplateColumns, (b, v) => b.Grid = b.Grid with { TemplateColumns = v }));
+        Row(PropertyId.GridTemplateRows, "grid-template-rows", static () => Tracks(PropertyId.GridTemplateRows, "grid-template-rows", s => s.Grid.TemplateRows, (b, v) => b.Grid = b.Grid with { TemplateRows = v }));
+        Row(PropertyId.GridAutoColumns, "grid-auto-columns", static () => AutoTracks(PropertyId.GridAutoColumns, "grid-auto-columns", s => s.Grid.AutoColumns, (b, v) => b.Grid = b.Grid with { AutoColumns = v }));
+        Row(PropertyId.GridAutoRows, "grid-auto-rows", static () => AutoTracks(PropertyId.GridAutoRows, "grid-auto-rows", s => s.Grid.AutoRows, (b, v) => b.Grid = b.Grid with { AutoRows = v }));
+        Row(PropertyId.GridAutoFlow, "grid-auto-flow", static () => new Property<string>(PropertyId.GridAutoFlow, "grid-auto-flow", false, "row", GridParsing.AutoFlow,
+            (v, _) => v is GridAutoFlowValue f ? (f.Column ? "column" : "row") + (f.Dense ? " dense" : "") : "row",
+            s => (s.Grid.AutoFlowColumn ? "column" : "row") + (s.Grid.Dense ? " dense" : ""),
+            (b, v) => b.Grid = b.Grid with { AutoFlowColumn = v.StartsWith("column", StringComparison.Ordinal), Dense = v.EndsWith("dense", StringComparison.Ordinal) }));
+        Row(PropertyId.GridRowStart, "grid-row-start", static () => Placement(PropertyId.GridRowStart, "grid-row-start", s => s.Grid.RowStart, (b, v) => b.Grid = b.Grid with { RowStart = v }));
+        Row(PropertyId.GridRowEnd, "grid-row-end", static () => Placement(PropertyId.GridRowEnd, "grid-row-end", s => s.Grid.RowEnd, (b, v) => b.Grid = b.Grid with { RowEnd = v }));
+        Row(PropertyId.GridColumnStart, "grid-column-start", static () => Placement(PropertyId.GridColumnStart, "grid-column-start", s => s.Grid.ColumnStart, (b, v) => b.Grid = b.Grid with { ColumnStart = v }));
+        Row(PropertyId.GridColumnEnd, "grid-column-end", static () => Placement(PropertyId.GridColumnEnd, "grid-column-end", s => s.Grid.ColumnEnd, (b, v) => b.Grid = b.Grid with { ColumnEnd = v }));
+        // legacy is accepted and acts as normal.
+        Row(PropertyId.JustifyItems, "justify-items", static () => Aligned(PropertyId.JustifyItems, "justify-items", JustifyKeywords, s => s.Grid.JustifyItems, (b, v) => b.Grid = b.Grid with { JustifyItems = v }));
+        Row(PropertyId.JustifySelf, "justify-self", static () => Aligned(PropertyId.JustifySelf, "justify-self", JustifyKeywords, s => s.Grid.JustifySelf, (b, v) => b.Grid = b.Grid with { JustifySelf = v }, "auto"));
+        // https://www.w3.org/TR/css-tables-3/
+        Row(PropertyId.TableLayout, "table-layout", static () => Keywords(PropertyId.TableLayout, "table-layout", false, "auto", KeywordMap<TableLayoutMode>.InOrder("auto", "fixed"),
+            s => s.Box.TableLayout, (b, v) => b.Box = b.Box with { TableLayout = v }));
+        Row(PropertyId.BorderCollapse, "border-collapse", static () => Keywords(PropertyId.BorderCollapse, "border-collapse", true, "separate", KeywordMap<BorderCollapse>.InOrder("separate", "collapse"),
+            s => s.Text.BorderCollapse, (b, v) => b.Text = b.Text with { BorderCollapse = v }));
+        Row(PropertyId.BorderSpacing, "border-spacing", static () => new Property<(float X, float Y)>(PropertyId.BorderSpacing, "border-spacing", true, "0",
+            r => r.LengthPercentage(allowPercent: false, nonNegative: true) is { } x
+                ? new RadiusValue(x, r.LengthPercentage(allowPercent: false, nonNegative: true) ?? x) : null,
+            (v, ctx) => (ctx.LengthPercentage(((RadiusValue)v).X).Px, ctx.LengthPercentage(((RadiusValue)v).Y).Px),
+            s => (s.Text.BorderSpacingX, s.Text.BorderSpacingY), (b, v) => b.Text = b.Text with { BorderSpacingX = v.X, BorderSpacingY = v.Y }));
+        Row(PropertyId.CaptionSide, "caption-side", static () => Keywords(PropertyId.CaptionSide, "caption-side", true, "top", KeywordMap<CaptionSide>.InOrder("top", "bottom"),
+            s => s.Text.CaptionSide, (b, v) => b.Text = b.Text with { CaptionSide = v }));
+        Row(PropertyId.EmptyCells, "empty-cells", static () => Keywords(PropertyId.EmptyCells, "empty-cells", true, "show", KeywordMap<EmptyCells>.InOrder("show", "hide"),
+            s => s.Text.EmptyCells, (b, v) => b.Text = b.Text with { EmptyCells = v }));
+        Row(PropertyId.GridTemplateAreas, "grid-template-areas", static () => new Property<GridAreas>(PropertyId.GridTemplateAreas, "grid-template-areas", false, "none", GridParsing.Areas,
+            (v, _) => ((GridAreasValue)v).Areas, s => s.Grid.Areas, (b, v) => b.Grid = b.Grid with { Areas = v }));
+        // https://www.w3.org/TR/css-text-decor-4/: percentages of thickness and offset are of 1em.
+        Row(PropertyId.TextDecorationLine, "text-decoration-line", static () => new Property<TextDecorationLine>(PropertyId.TextDecorationLine, "text-decoration-line", false, "none", DecorationLine,
+            (v, _) => ((KeywordValue)v).Keyword.Split(' ').Aggregate(TextDecorationLine.None, (line, k) => line | DecorationLineKeywords.GetValueOrDefault(k)),
+            s => s.Decoration.Line, (b, v) => b.Decoration = b.Decoration with { Line = v }));
+        Row(PropertyId.TextDecorationStyle, "text-decoration-style", static () => Keywords(PropertyId.TextDecorationStyle, "text-decoration-style", false, "solid", KeywordMap<TextDecorationStyle>.InOrder("solid", "double", "dotted", "dashed", "wavy"),
+            s => s.Decoration.Style, (b, v) => b.Decoration = b.Decoration with { Style = v }));
+        Row(PropertyId.TextDecorationColor, "text-decoration-color", static () => Color(PropertyId.TextDecorationColor, "text-decoration-color", "currentcolor", s => s.Decoration.Color, (b, v) => b.Decoration = b.Decoration with { Color = v }));
+        Row(PropertyId.TextDecorationThickness, "text-decoration-thickness", static () => new Property<float?>(PropertyId.TextDecorationThickness, "text-decoration-thickness", false, "auto",
+            r => r.Keyword("auto", "from-font") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
+            (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
+            s => s.Decoration.Thickness, (b, v) => b.Decoration = b.Decoration with { Thickness = v }));
+        Row(PropertyId.TextUnderlineOffset, "text-underline-offset", static () => new Property<float?>(PropertyId.TextUnderlineOffset, "text-underline-offset", true, "auto",
+            r => r.Keyword("auto") is { } k ? new KeywordValue(k) : r.LengthPercentage(),
+            (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Resolve(ctx.FontSize),
+            s => s.Text.UnderlineOffset, (b, v) => b.Text = b.Text with { UnderlineOffset = v }));
+        // https://www.w3.org/TR/css-text-4/#letter-spacing-property and #word-spacing-property: normal is 0;
+        // percentages are of 1em.
+        Row(PropertyId.LetterSpacing, "letter-spacing", static () => TextSpacingLength(PropertyId.LetterSpacing, "letter-spacing", s => s.TextSpacing.LetterSpacing, (b, v) => b.TextSpacing = b.TextSpacing with { LetterSpacing = v }));
+        Row(PropertyId.WordSpacing, "word-spacing", static () => TextSpacingLength(PropertyId.WordSpacing, "word-spacing", s => s.TextSpacing.WordSpacing, (b, v) => b.TextSpacing = b.TextSpacing with { WordSpacing = v }));
+        // https://www.w3.org/TR/css-text-3/#tab-size-property: a non-negative number of spaces or length.
+        Row(PropertyId.TabSize, "tab-size", static () => new Property<TabSize>(PropertyId.TabSize, "tab-size", true, "8",
+            r => r.Number(nonNegative: true) is { } n ? new NumberValue(n) : r.LengthPercentage(allowPercent: false, nonNegative: true),
+            (v, ctx) => v is NumberValue n ? new TabSize(n.Number, false) : new TabSize(Math.Max(0, ctx.LengthPercentage(v).Resolve(0)), true),
+            s => s.TextSpacing.TabSize, (b, v) => b.TextSpacing = b.TextSpacing with { TabSize = v }));
+        Row(PropertyId.WordBreak, "word-break", static () => Keywords(PropertyId.WordBreak, "word-break", true, "normal", KeywordMap<WordBreakStyle>.InOrder("normal", "break-all", "keep-all", "break-word"),
+            s => s.TextSpacing.WordBreak, (b, v) => b.TextSpacing = b.TextSpacing with { WordBreak = v }));
+        Row(PropertyId.OverflowWrap, "overflow-wrap", static () => Keywords(PropertyId.OverflowWrap, "overflow-wrap", true, "normal", KeywordMap<OverflowWrap>.InOrder("normal", "break-word", "anywhere"),
+            s => s.TextSpacing.OverflowWrap, (b, v) => b.TextSpacing = b.TextSpacing with { OverflowWrap = v }));
+        Row(PropertyId.TextTransform, "text-transform", static () => Keywords(PropertyId.TextTransform, "text-transform", true, "none",
+            KeywordMap<TextTransform>.InOrder("none", "capitalize", "uppercase", "lowercase", "full-width", "full-size-kana"),
+            s => s.TextSpacing.Transform, (b, v) => b.TextSpacing = b.TextSpacing with { Transform = v }));
+        // https://www.w3.org/TR/css-fonts-4/#font-variant-numeric-prop: normal | [ figure || spacing || fraction || ordinal || slashed-zero ]
+        Row(PropertyId.FontVariantNumeric, "font-variant-numeric", static () => new Property<string>(PropertyId.FontVariantNumeric, "font-variant-numeric", true, "normal", VariantNumeric,
+            (v, _) => ((KeywordValue)v).Keyword, s => s.Font.VariantNumeric, (b, v) => b.Font = b.Font with { VariantNumeric = v }));
+        // https://www.w3.org/TR/css-fonts-4/#font-feature-settings-prop: normal | [ <string> [ <integer> | on | off ]? ]#
+        Row(PropertyId.FontFeatureSettings, "font-feature-settings", static () => new Property<string>(PropertyId.FontFeatureSettings, "font-feature-settings", true, "normal", FeatureSettings,
+            (v, _) => ((KeywordValue)v).Keyword, s => s.Font.FeatureSettings, (b, v) => b.Font = b.Font with { FeatureSettings = v }));
+        // https://www.w3.org/TR/css-content-3/#quotes-property: auto | none | [ <string> <string> ]+
+        Row(PropertyId.Quotes, "quotes", static () => new Property<QuotesGroup>(PropertyId.Quotes, "quotes", true, "auto",
+            r =>
+            {
+                if (r.Keyword("auto", "none") is { } k)
+                    return new KeywordValue(k);
+                var pairs = new List<(string, string)>();
+                while (!r.AtEnd)
+                {
+                    if (r.String() is not { } open || r.String() is not { } close)
+                        return null;
+                    pairs.Add((open, close));
+                }
+                return pairs.Count == 0 ? null : new QuotesValue(new QuotesGroup(pairs));
+            },
+            (v, _) => v switch
+            {
+                KeywordValue { Keyword: "none" } => new QuotesGroup([]),
+                QuotesValue q => q.Quotes,
+                _ => QuotesGroup.Initial,
+            },
+            s => s.Quotes, (b, v) => b.Quotes = v));
+        // https://www.w3.org/TR/css-text-3/#text-indent-property: <length-percentage> && hanging? && each-line?
+        Row(PropertyId.TextIndent, "text-indent", static () => new Property<TextIndent>(PropertyId.TextIndent, "text-indent", true, "0",
+            r =>
+            {
+                CssValue? length = null;
+                var keywords = new List<string>();
+                while (!r.AtEnd)
+                {
+                    if (length is null && r.LengthPercentage() is { } l)
+                        length = l;
+                    else if (r.Keyword("hanging", "each-line") is { } k && !keywords.Contains(k))
+                        keywords.Add(k);
+                    else
+                        return null;
+                }
+                return length is null ? null : new TextIndentValue(length, keywords.Contains("hanging"), keywords.Contains("each-line"));
+            },
+            (v, ctx) => v is TextIndentValue t ? new TextIndent(ctx.LengthPercentage(t.Length), t.Hanging, t.EachLine) : default,
+            s => s.Text.TextIndent, (b, v) => b.Text = b.Text with { TextIndent = v }));
+        // https://www.w3.org/TR/css-text-3/#text-align-last-property (auto is null)
+        Row(PropertyId.TextAlignLast, "text-align-last", static () => new Property<Style.TextAlign?>(PropertyId.TextAlignLast, "text-align-last", true, "auto",
+            r => r.Keyword("auto", "start", "end", "left", "right", "center", "justify") is { } k ? new KeywordValue(k) : null,
+            (v, _) => ((KeywordValue)v).Keyword == "auto" ? null : TextAlignKeywords[((KeywordValue)v).Keyword],
+            s => s.Text.TextAlignLast, (b, v) => b.Text = b.Text with { TextAlignLast = v }));
+        // https://www.w3.org/TR/css-text-3/#hyphens-property (auto hyphenates only at soft hyphens: there are no dictionaries)
+        // https://www.w3.org/TR/css-ui-4/#outline-props (outline-color: auto is currentcolor)
+        Row(PropertyId.OutlineWidth, "outline-width", static () => BorderWidth(PropertyId.OutlineWidth, "outline-width", s => s.Outline.WidthPx, (b, v) => b.Outline = b.Outline with { WidthPx = v }));
+        Row(PropertyId.OutlineStyle, "outline-style", static () => Keywords(PropertyId.OutlineStyle, "outline-style", false, "none",
+            KeywordMap<OutlineStyle>.InOrder("auto", "none", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"),
+            s => s.Outline.Style, (b, v) => b.Outline = b.Outline with { Style = v }));
+        Row(PropertyId.OutlineColor, "outline-color", static () => new Property<CssColor>(PropertyId.OutlineColor, "outline-color", false, "auto",
+            r => r.Keyword("auto") is not null ? new ColorValue(CssColor.CurrentColor) : r.ColorSpecified(),
+            (v, ctx) => ctx.Color(v, ctx.CurrentColor),
+            s => s.Outline.Color, (b, v) => b.Outline = b.Outline with { Color = v }));
+        Row(PropertyId.OutlineOffset, "outline-offset", static () => new Property<float>(PropertyId.OutlineOffset, "outline-offset", false, "0",
+            r => r.LengthPercentage(allowPercent: false),
+            (v, ctx) => ctx.LengthPercentage(v).Resolve(0),
+            s => s.Outline.Offset, (b, v) => b.Outline = b.Outline with { Offset = v }));
+        // https://www.w3.org/TR/css-sizing-4/#aspect-ratio: auto || <ratio> (auto with a ratio prefers a natural one)
+        Row(PropertyId.AspectRatio, "aspect-ratio", static () => new Property<float?>(PropertyId.AspectRatio, "aspect-ratio", false, "auto",
+            r =>
+            {
+                CssValue? ratio = null;
+                var auto = false;
+                while (!r.AtEnd)
+                {
+                    if (!auto && r.Keyword("auto") is not null)
+                        auto = true;
+                    else if (ratio is null && r.Number(nonNegative: true) is { } width)
+                    {
+                        var height = r.Delim('/') ? r.Number(nonNegative: true) : 1;
+                        if (height is null)
+                            return null;
+                        ratio = new NumberValue(width > 0 && height > 0 ? width / height.Value : 0);
+                    }
+                    else
+                        return null;
+                }
+                return ratio ?? (auto ? new KeywordValue("auto") : null);
+            },
+            (v, _) => v is NumberValue { Number: > 0 } n ? n.Number : null,
+            s => s.Size.AspectRatio, (b, v) => b.Size = b.Size with { AspectRatio = v }));
+        // https://www.w3.org/TR/css-overflow-3/#text-overflow (one value, for the end of the line)
+        Row(PropertyId.TextOverflow, "text-overflow", static () => new Property<TextOverflow>(PropertyId.TextOverflow, "text-overflow", false, "clip",
+            r => r.Keyword("clip", "ellipsis") is { } k ? new KeywordValue(k) : r.String() is not null ? new KeywordValue("ellipsis") : null,
+            (v, _) => ((KeywordValue)v).Keyword == "clip" ? TextOverflow.Clip : TextOverflow.Ellipsis,
+            s => s.Box.TextOverflow, (b, v) => b.Box = b.Box with { TextOverflow = v }));
+        // https://www.w3.org/TR/css-overflow-4/#line-clamp: none | <integer [1,∞]> (also as -webkit-line-clamp)
+        Row(PropertyId.LineClamp, "line-clamp", static () => new Property<int?>(PropertyId.LineClamp, "line-clamp", false, "none",
+            r => r.Keyword("none") is not null ? new KeywordValue("none") : r.Integer() is { } n && n >= 1 ? new NumberValue(n) : null,
+            (v, _) => v is NumberValue n ? (int)n.Number : null,
+            s => s.Box.LineClamp, (b, v) => b.Box = b.Box with { LineClamp = v }));
+        // https://www.w3.org/TR/css-ui-4/#cursor: [ <url> [ <x> <y> ]? , ]* <keyword>, kept as its keyword for M3.
+        Row(PropertyId.Cursor, "cursor", static () => new Property<string>(PropertyId.Cursor, "cursor", true, "auto",
+            r =>
+            {
+                while (r.Copy().Url() is not null)
+                {
+                    r.Url();
+                    if (r.Number() is not null && r.Number() is null)
+                        return null;
+                    if (!r.Comma())
+                        return null;
+                }
+                return r.Keyword(CursorKeywords) is { } k ? new KeywordValue(k) : null;
+            },
+            (v, _) => ((KeywordValue)v).Keyword,
+            s => s.Ui.Cursor, (b, v) => b.Ui = b.Ui with { Cursor = v }));
+        // https://www.w3.org/TR/css-ui-4/#widget-accent: auto | <color>
+        Row(PropertyId.AccentColor, "accent-color", static () => new Property<CssColor?>(PropertyId.AccentColor, "accent-color", true, "auto",
+            r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),
+            (v, ctx) => v is KeywordValue ? null : ctx.Color(v, ctx.CurrentColor).Resolve(ctx.CurrentColor),
+            s => s.Ui.AccentColor, (b, v) => b.Ui = b.Ui with { AccentColor = v }));
+        // https://www.w3.org/TR/css-overflow-3/#scrollbar-gutter-property and css-scrollbars-1: recorded until
+        // scroll containers have scrollbars (M3).
+        Row(PropertyId.ScrollbarGutter, "scrollbar-gutter", static () => new Property<string>(PropertyId.ScrollbarGutter, "scrollbar-gutter", false, "auto",
+            r => r.Keyword("auto") is not null ? new KeywordValue("auto")
+                : r.Keyword("stable") is not null ? new KeywordValue(r.Keyword("both-edges") is not null ? "stable both-edges" : "stable")
+                : r.Keyword("both-edges") is not null && r.Keyword("stable") is not null ? new KeywordValue("stable both-edges") : null,
+            (v, _) => ((KeywordValue)v).Keyword,
+            s => s.Box.ScrollbarGutter, (b, v) => b.Box = b.Box with { ScrollbarGutter = v }));
+        Row(PropertyId.ScrollbarWidth, "scrollbar-width", static () => new Property<string>(PropertyId.ScrollbarWidth, "scrollbar-width", false, "auto",
+            r => r.Keyword("auto", "thin", "none") is { } k ? new KeywordValue(k) : null,
+            (v, _) => ((KeywordValue)v).Keyword,
+            s => s.Box.ScrollbarWidth, (b, v) => b.Box = b.Box with { ScrollbarWidth = v }));
+        Row(PropertyId.ScrollbarColor, "scrollbar-color", static () => new Property<string>(PropertyId.ScrollbarColor, "scrollbar-color", true, "auto",
+            r => r.Keyword("auto") is not null ? new KeywordValue("auto")
+                : r.ColorSpecified() is { } thumb && r.ColorSpecified() is { } track ? new RadiusValue(thumb, track) : null,
+            (v, ctx) => v is RadiusValue pair ? $"{ctx.Color(pair.X, ctx.CurrentColor).Resolve(ctx.CurrentColor)} {ctx.Color(pair.Y, ctx.CurrentColor).Resolve(ctx.CurrentColor)}" : "auto",
+            s => s.Ui.ScrollbarColor, (b, v) => b.Ui = b.Ui with { ScrollbarColor = v }));
+        // https://www.w3.org/TR/css-lists-3/#image-markers: a url() image that loads is the marker.
+        Row(PropertyId.ListStyleImage, "list-style-image", static () => new Property<ImageValue>(PropertyId.ListStyleImage, "list-style-image", true, "none",
+            r => r.Keyword("none") is not null ? new ImageSpecified(NoImage.Instance) : BackgroundParsing.Image(r) is { } image ? new ImageSpecified(image) : null,
+            (v, _) => ((ImageSpecified)v).Image,
+            s => s.Text.ListStyleImage ?? NoImage.Instance, (b, v) => b.Text = b.Text with { ListStyleImage = v }));
+        // https://www.w3.org/TR/css-backgrounds-3/#box-shadow and https://www.w3.org/TR/css-text-decor-3/#text-shadow-property
+        Row(PropertyId.BoxShadow, "box-shadow", static () => new Property<IReadOnlyList<Shadow>>(PropertyId.BoxShadow, "box-shadow", false, "none", r => ShadowList(r, box: true),
+            (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Shadows.Box, (b, v) => b.Shadows = b.Shadows with { Box = v }));
+        Row(PropertyId.TextShadow, "text-shadow", static () => new Property<IReadOnlyList<Shadow>>(PropertyId.TextShadow, "text-shadow", true, "none", r => ShadowList(r, box: false),
+            (v, ctx) => ComputeShadows((ShadowListValue)v, ctx), s => s.Text.TextShadows ?? [], (b, v) => b.Text = b.Text with { TextShadows = v.Count == 0 ? null : v }));
+        Row(PropertyId.Hyphens, "hyphens", static () => Keywords(PropertyId.Hyphens, "hyphens", true, "manual", KeywordMap<Hyphens>.InOrder("manual", "none", "auto"),
+            s => s.Text.Hyphens, (b, v) => b.Text = b.Text with { Hyphens = v }));
+        // https://www.w3.org/TR/css-images-3/#the-object-fit, #the-object-position, #the-image-rendering
+        Row(PropertyId.ObjectFit, "object-fit", static () => Keywords(PropertyId.ObjectFit, "object-fit", false, "fill", KeywordMap<ObjectFit>.InOrder("fill", "contain", "cover", "none", "scale-down"),
+            s => s.Replaced.Fit, (b, v) => b.Replaced = b.Replaced with { Fit = v }));
+        Row(PropertyId.ObjectPosition, "object-position", static () => new Property<Style.BackgroundPosition>(PropertyId.ObjectPosition, "object-position", false, "50% 50%",
+            r => BackgroundParsing.Position(r) is { } p ? new PositionValue(p) : null,
+            (v, ctx) => ComputePosition(((PositionValue)v).Position, ctx),
+            s => s.Replaced.Position, (b, v) => b.Replaced = b.Replaced with { Position = v }));
+        Row(PropertyId.ImageRendering, "image-rendering", static () => Keywords(PropertyId.ImageRendering, "image-rendering", true, "auto", KeywordMap<ImageRendering>.InOrder("auto", "smooth", "high-quality", "pixelated", "crisp-edges"),
+            s => s.Inherited.ImageRendering, (b, v) => b.Inherited = b.Inherited with { ImageRendering = v }));
+        Row(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", static () => Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", KeywordMap<SkipInk>.InOrder("auto", "none", "all"),
+            s => s.Text.SkipInk, (b, v) => b.Text = b.Text with { SkipInk = v }));
+
+        Rows(TransformProperties.Rows);
+        Rows(FilterProperties.Rows);
+        Rows([ShapeProperties.Row]);
+        Rows(MaskProperties.Rows);
+        Rows(BorderImageProperties.MaskBorderRows);
+        Rows(BorderImageProperties.Rows);
+        Rows(AnimationProperties.Rows);
+        Rows(MulticolProperties.Rows);
+        Rows(LogicalProperties.Rows);
+        Rows(SvgProperties.Rows);
+        Rows(SvgProperties.StopRows);
+
+        if (factories.Any(f => f is null))
             throw new InvalidOperationException("Every PropertyId needs a table row.");
-        return table;
+        return (factories, names);
     }
 
     private static readonly KeywordMap<Display> DisplayKeywords = new()
@@ -1131,7 +1150,7 @@ internal static class Properties
 
     // Border widths are lengths (no percentages); thin/medium/thick are 1/3/5px. A none or hidden style makes the
     // computed width 0 (BorderGroup's accessors).
-    private static Property<float> BorderWidth(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
+    internal static Property<float> BorderWidth(PropertyId id, string name, Func<ComputedStyle, float> get, Action<StyleBuilder, float> set) =>
         new(id, name, false, "medium",
             r => r.Keyword("thin", "medium", "thick") is { } k ? new KeywordValue(k) : r.LengthPercentage(allowPercent: false, nonNegative: true),
             (v, ctx) => v switch
@@ -1201,7 +1220,7 @@ internal static class Properties
             (v, _) => ((CounterListValue)v).Changes,
             get, set);
 
-    private static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
+    internal static Property<CssColor> Color(PropertyId id, string name, string initial, Func<ComputedStyle, CssColor> get, Action<StyleBuilder, CssColor> set) =>
         new(id, name, false, initial, r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor), get, set);
 
     private static float ComputeFontSize(CssValue value, ComputeContext context)

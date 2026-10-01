@@ -60,3 +60,68 @@ html 0,0 800x16
       line 0,0 800x16
         img 0,3 10x10
         text "ab" 10,0 32x16
+
+=== the first letter of a block is in its first child block when no text comes before it
+<!DOCTYPE html><style>body, p { margin: 0 } div::first-letter { font-size: 32px }</style><div>
+  <p>ab</p><p>cd</p></div>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    div 0,0 800x48
+      p 0,0 800x32
+        line 0,0 800x32
+          ::first-letter 0,0 32x32
+          text "a" 0,0 32x32
+          text "b" 32,13 16x16
+      p 0,32 800x16
+        line 0,32 800x16
+          text "cd" 0,32 32x16
+
+=== ::first-letter ignores the properties it may not take
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px; display: block; width: 100px; position: absolute }</style><p>ab</p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        ::first-letter 0,0 32x32
+        text "a" 0,0 32x32
+        text "b" 32,13 16x16
+
+=== the first letter inherits from the inline element it is in
+<!DOCTYPE html><style>body, p { margin: 0 } em { font-size: 32px } p::first-letter { color: red }</style><p><em>ab</em></p>
+---
+html 0,0 800x32
+  body 0,0 800x32
+    p 0,0 800x32
+      line 0,0 800x32
+        em 0,0 64x32
+        ::first-letter 0,0 32x32
+        text "a" 0,0 32x32
+        text "b" 32,0 32x32
+
+=== an inline-block ::before before the text means there is no first letter
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px } p::before { content: "x"; display: inline-block }</style><p>ab</p>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    p 0,0 800x16
+      line 0,0 800x16
+        ::before 0,0 16x16
+          line 0,0 16x16
+            text "x" 0,0 16x16
+        text "ab" 16,0 32x16
+
+=== the first letter of a block ::before that comes first is in that ::before
+<!DOCTYPE html><style>body, p { margin: 0 } p::first-letter { font-size: 32px } p::before { content: "x"; display: block }</style><p>ab</p>
+---
+html 0,0 800x48
+  body 0,0 800x48
+    p 0,0 800x48
+      ::before 0,0 800x32
+        line 0,0 800x32
+          ::first-letter 0,0 32x32
+          text "x" 0,0 32x32
+      (anonymous) 0,32 800x16
+        line 0,32 800x16
+          text "ab" 0,32 32x16

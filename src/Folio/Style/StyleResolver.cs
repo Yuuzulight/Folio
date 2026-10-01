@@ -147,7 +147,7 @@ internal static class StyleResolver
                     {
                         var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent);
                         return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
-                    });
+                    }, registered);
                     animations.Add(animated);
                     style = animated.Sample(animationTime, groups);
                     // Each animated element keeps its own style, so a frame can change it alone.
@@ -170,6 +170,8 @@ internal static class StyleResolver
                     if (!always && pseudoMatched.Count == 0)
                         return null;
                     var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null, parent: style);
+                    if (pe == PseudoElement.FirstLetter)
+                        pseudoValues = FirstLetterProperties(pseudoValues);
                     var pseudoStyle = StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
                     if (ReferenceEquals(pseudoStyle.Animation, AnimationGroup.Initial) || keyframes.Count == 0)
                         return pseudoStyle;
@@ -222,6 +224,14 @@ internal static class StyleResolver
     public static ComputedStyle? Restyle(ElementNode element, ComputedStyle parent) =>
         (element.OwnerDocument.StyleState as Restyler)?.Style(element, parent);
 
+    /// <summary>
+    /// An element's ::first-letter style under another parent style: the letter inherits from the inline element it
+    /// sits in (https://www.w3.org/TR/css-pseudo-4/#first-letter-pseudo). Null before the document has been styled.
+    /// </summary>
+    // ponytail: a first letter restyled this way does not animate.
+    public static ComputedStyle? RestyleFirstLetter(ElementNode element, ComputedStyle parent) =>
+        (element.OwnerDocument.StyleState as Restyler)?.FirstLetter(element, parent);
+
     /// <summary>The elements with animations in the document's last style resolution, in tree order.</summary>
     public static IReadOnlyList<AnimatedElement> Animated(DocumentNode document) => (document.StyleState as Restyler)?.Animations ?? [];
 
@@ -244,14 +254,25 @@ internal static class StyleResolver
             _matched.Clear();
             Cascade.Match(element, origins, _context, PseudoElement.None, _matched);
             var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element), parent: parent);
-            return StyleBuilder.Compute(values, new ComputeContext(parent, rootFontSize, media.Width, media.Height)
+            return StyleBuilder.Compute(values, Context(parent, custom), groups);
+        }
+
+        public ComputedStyle FirstLetter(ElementNode element, ComputedStyle parent)
+        {
+            _matched.Clear();
+            Cascade.Match(element, origins, _context, PseudoElement.FirstLetter, _matched);
+            var (values, custom) = Cascade.Compute(_matched, null, 0, null, parent: parent);
+            return StyleBuilder.Compute(FirstLetterProperties(values), Context(parent, custom), groups);
+        }
+
+        private ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
+            new(parent, rootFontSize, media.Width, media.Height)
             {
                 PrefersDark = media.DarkColorScheme,
                 Measure = measure,
                 Custom = CustomProperties.Compute(parent.Custom, custom, registered),
                 Registered = registered,
-            }, groups);
-        }
+            };
     }
 
     /// <summary>
@@ -341,5 +362,25 @@ internal static class StyleResolver
                 return Resources.ResourceLoader.Resolve(documentUrl, href) ?? documentUrl;
         }
         return documentUrl;
+    }
+
+    // The properties ::first-letter takes (https://www.w3.org/TR/css-pseudo-4/#first-letter-styling): fonts, colour,
+    // backgrounds, text decoration and shadows, case, spacing, line height, vertical-align, margins, padding, borders,
+    // box shadows and float. The rest are ignored.
+    private static readonly string[] FirstLetterPrefixes =
+    [
+        "font", "color", "background", "text-decoration", "text-shadow", "text-transform", "letter-spacing", "word-spacing",
+        "line-height", "vertical-align", "margin", "padding", "border", "box-shadow", "float",
+    ];
+
+    private static Dictionary<PropertyId, CssValue> FirstLetterProperties(Dictionary<PropertyId, CssValue> values)
+    {
+        foreach (var id in values.Keys.ToList())
+        {
+            var name = Properties.Get(id).Name;
+            if (!FirstLetterPrefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal)))
+                values.Remove(id);
+        }
+        return values;
     }
 }

@@ -24,6 +24,21 @@ public class DisplayListTests
     }
 
     [Fact]
+    public void ItemsStaySmallAndKeepWhatOnlySomeUse()
+    {
+        // The common fields only: a 5,000-row table paints tens of thousands of items (#196).
+        Assert.True(System.Runtime.CompilerServices.Unsafe.SizeOf<DisplayItem>() <= 128);
+
+        var fill = new DisplayItem(DisplayItemKind.Fill, Color: Folio.Css.CssColor.Black);
+        var moved = new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(3, 4));
+        Assert.Equal(new Vector2(3, 4), moved.Transform.Translation);
+        Assert.Equal(default, fill.Transform);
+        Assert.Equal(1, fill.Opacity);
+        Assert.Equal(moved, fill with { Kind = DisplayItemKind.PushTransform, Color = default, Transform = Matrix3x2.CreateTranslation(3, 4) });
+        Assert.NotEqual(moved, moved with { Transform = Matrix3x2.Identity });
+    }
+
+    [Fact]
     public void PushesAndPopsBalance()
     {
         var list = DisplayListBuilder.Build(BlockLayoutTests.LayOut(

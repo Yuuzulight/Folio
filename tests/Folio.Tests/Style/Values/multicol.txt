@@ -1,0 +1,49 @@
+=== multi-column initial values
+color: red
+---
+column-rule-width: 3
+column-rule-style: none
+column-rule-color: currentcolor
+column-span: False
+column-fill: False
+break-inside: False
+
+=== the column-rule shorthand in any order, keywords for width
+column-rule: dashed thin #f00
+---
+column-rule-width: 1
+column-rule-style: dashed
+column-rule-color: rgb(255, 0, 0)
+
+=== the column-rule shorthand resets what it leaves out
+column-rule-width: 7px; column-rule-color: blue; column-rule: solid
+---
+column-rule-width: 3
+column-rule-style: solid
+column-rule-color: currentcolor
+
+=== column-span, column-fill and break-inside
+column-span: all; column-fill: auto; break-inside: avoid-column
+---
+column-span: True
+column-fill: True
+break-inside: True
+
+=== balance-all balances, avoid-page does not keep a box whole in columns
+column-fill: balance-all; break-inside: avoid-page
+---
+column-fill: False
+break-inside: False
+
+=== the legacy break-inside names take avoid
+page-break-inside: avoid
+---
+break-inside: True
+
+=== invalid multi-column values are dropped
+column-span: 2; column-fill: none; break-inside: always; column-rule: solid solid
+---
+column-span: False
+column-fill: False
+break-inside: False
+column-rule-style: none

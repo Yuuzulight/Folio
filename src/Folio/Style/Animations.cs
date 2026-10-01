@@ -60,19 +60,25 @@ internal sealed record Keyframe(IReadOnlyList<float> Offsets, IReadOnlyList<Casc
 internal static class Animations
 {
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<Keyframe>, Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>>> ByProperty = [];
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<Keyframe>, Dictionary<string, List<(float Offset, Keyframe? Block)>>> ByCustomProperty = [];
 
     /// <summary>
     /// The element's style with its animations applied at <paramref name="time"/> (seconds on the document timeline;
     /// null for the settled document), or null when no animation has an effect.
     /// </summary>
     /// <param name="keyframeStyle">The element's style with a keyframe block's declarations in the animation origin of the cascade.</param>
+    /// <param name="styleWith">The element's style with these declarations in the animation origin, for animated custom properties.</param>
+    /// <param name="registered">The registered custom properties, whose values interpolate by their syntax.</param>
     public static ComputedStyle? Sample(ComputedStyle underlying, ComputedStyle parent, IReadOnlyDictionary<string, List<Keyframe>> keyframes,
-                                        double? time, Func<Keyframe, ComputedStyle> keyframeStyle, Dictionary<object, object>? groups = null)
+                                        double? time, Func<Keyframe, ComputedStyle> keyframeStyle, Dictionary<object, object>? groups = null,
+                                        Func<IReadOnlyList<CascadeDeclaration>, ComputedStyle>? styleWith = null,
+                                        IReadOnlyDictionary<string, RegisteredProperty>? registered = null)
     {
         var group = underlying.Animation;
         if (ReferenceEquals(group, AnimationGroup.Initial) || keyframes.Count == 0)
             return null;
-        StyleBuilder? builder = null;
+        // Each animation's keyframes, progress and easing.
+        var running = new List<(List<Keyframe> Blocks, double Progress, Easing Easing)>();
         for (var i = 0; i < group.Names.Count; i++)
         {
             if (group.Names[i] is not { } name || !keyframes.TryGetValue(name, out var blocks)
@@ -81,22 +87,51 @@ internal static class Animations
                     group.IterationCounts[i % group.IterationCounts.Count], group.Directions[i % group.Directions.Count],
                     group.FillModes[i % group.FillModes.Count]) is not { } progress)
                 continue;
-            var easing = group.TimingFunctions[i % group.TimingFunctions.Count];
-            foreach (var (id, frames) in ByProperty.GetValue(blocks, PerProperty))
+            running.Add((blocks, progress, group.TimingFunctions[i % group.TimingFunctions.Count]));
+        }
+
+        // Custom properties first (https://www.w3.org/TR/css-properties-values-api-1/#animation-behavior-of-custom-properties):
+        // registered ones interpolate by their syntax, others flip half way. The element's style is then computed again
+        // with their values, so everything that uses them with var() follows.
+        var custom = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var (blocks, progress, easing) in running)
+        {
+            foreach (var (name, frames) in ByCustomProperty.GetValue(blocks, PerCustomProperty))
             {
-                // The keyframes around the progress; at or past the last one, the last pair.
-                var a = 0;
-                while (a < frames.Count - 2 && frames[a + 1].Offset <= progress)
-                    a++;
-                var (from, to) = (frames[a], frames[a + 1]);
-                var local = (progress - from.Offset) / (to.Offset - from.Offset);
-                Properties.Get(id).Interpolate(builder ??= StyleBuilder.From(underlying, parent), Style(from.Block), Style(to.Block),
-                    (from.Block?.Easing ?? easing).Apply(local));
+                var (from, to, p) = Around(frames, progress, easing);
+                var (a, b) = (Style(from.Block).Custom.GetValueOrDefault(name), Style(to.Block).Custom.GetValueOrDefault(name));
+                custom[name] = a is not null && b is not null && registered?.GetValueOrDefault(name) is { } registration
+                    && registration.Syntax.Interpolate(a, b, p) is { } value ? value : p < 0.5 ? a : b;
             }
         }
-        return builder?.Build(groups);
+        if (custom.Count > 0 && styleWith is not null)
+            underlying = styleWith([.. custom.Select(c => new CascadeDeclaration(default, null, c.Key,
+                new CustomProperties.Declared(c.Value, c.Value is null ? CssWideKeyword.Unset : null), false))]);
+
+        StyleBuilder? builder = null;
+        foreach (var (blocks, progress, easing) in running)
+        {
+            foreach (var (id, frames) in ByProperty.GetValue(blocks, PerProperty))
+            {
+                var (from, to, p) = Around(frames, progress, easing);
+                Properties.Get(id).Interpolate(builder ??= StyleBuilder.From(underlying, parent), Style(from.Block), Style(to.Block), p);
+            }
+        }
+        return builder?.Build(groups) ?? (custom.Count > 0 && styleWith is not null ? underlying : null);
 
         ComputedStyle Style(Keyframe? block) => block is null ? underlying : keyframeStyle(block);
+    }
+
+    // The keyframes around the progress (at or past the last one, the last pair) and the eased progress between them.
+    private static ((float Offset, Keyframe? Block) From, (float Offset, Keyframe? Block) To, double Progress) Around(
+        List<(float Offset, Keyframe? Block)> frames, double progress, Easing easing)
+    {
+        var a = 0;
+        while (a < frames.Count - 2 && frames[a + 1].Offset <= progress)
+            a++;
+        var (from, to) = (frames[a], frames[a + 1]);
+        var local = (progress - from.Offset) / (to.Offset - from.Offset);
+        return (from, to, (from.Block?.Easing ?? easing).Apply(local));
     }
 
     /// <summary>Whether any animation of the style still changes after <paramref name="time"/>: it runs and has not ended.</summary>
@@ -126,16 +161,25 @@ internal static class Animations
 
     /// <summary>Whether every property the style's animations animate is paint-only.</summary>
     public static bool AnimatesPaintOnly(AnimationGroup group, IReadOnlyDictionary<string, List<Keyframe>> keyframes) =>
-        group.Names.All(name => name is null || !keyframes.TryGetValue(name, out var blocks) || ByProperty.GetValue(blocks, PerProperty).Keys.All(PaintOnly.Contains));
+        group.Names.All(name => name is null || !keyframes.TryGetValue(name, out var blocks)
+            || ByProperty.GetValue(blocks, PerProperty).Keys.All(PaintOnly.Contains) && ByCustomProperty.GetValue(blocks, PerCustomProperty).Count == 0);
 
     // Each animated property's keyframes in offset order, the last block at an offset winning, with the underlying value
     // (null) at 0 and 1 where no block sets the property (https://www.w3.org/TR/css-animations-1/#keyframes).
-    private static Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>> PerProperty(List<Keyframe> blocks)
+    private static Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>> PerProperty(List<Keyframe> blocks) =>
+        Frames(blocks, block => block.Declarations.Where(d => d.CustomName is null).Select(d => d.Id));
+
+    // The same for custom properties, by name.
+    private static Dictionary<string, List<(float Offset, Keyframe? Block)>> PerCustomProperty(List<Keyframe> blocks) =>
+        Frames(blocks, block => block.Declarations.Where(d => d.CustomName is not null).Select(d => d.CustomName!));
+
+    private static Dictionary<TKey, List<(float Offset, Keyframe? Block)>> Frames<TKey>(List<Keyframe> blocks, Func<Keyframe, IEnumerable<TKey>> keys)
+        where TKey : notnull
     {
-        var result = new Dictionary<PropertyId, List<(float Offset, Keyframe? Block)>>();
+        var result = new Dictionary<TKey, List<(float Offset, Keyframe? Block)>>();
         foreach (var block in blocks)
         {
-            foreach (var id in block.Declarations.Select(d => d.Id).Distinct())
+            foreach (var id in keys(block).Distinct())
             {
                 if (!result.TryGetValue(id, out var frames))
                     result[id] = frames = [];
@@ -206,7 +250,8 @@ internal static class Animations
 /// restyling the document. Keyframe styles are computed once and kept.
 /// </summary>
 internal sealed class AnimatedElement(ElementNode element, ComputedStyle underlying, ComputedStyle parent,
-                                      IReadOnlyDictionary<string, List<Keyframe>> keyframes, Func<IReadOnlyList<CascadeDeclaration>, ComputedStyle> styleWith)
+                                      IReadOnlyDictionary<string, List<Keyframe>> keyframes, Func<IReadOnlyList<CascadeDeclaration>, ComputedStyle> styleWith,
+                                      IReadOnlyDictionary<string, RegisteredProperty>? registered = null)
 {
     private readonly Dictionary<Keyframe, ComputedStyle> _keyframeStyles = [];
 
@@ -224,7 +269,7 @@ internal sealed class AnimatedElement(ElementNode element, ComputedStyle underly
 
     /// <summary>The style at a time (null for the settled document).</summary>
     public ComputedStyle Sample(double? time, Dictionary<object, object>? groups = null) =>
-        Animations.Sample(Underlying, parent, keyframes, time, KeyframeStyle, groups) ?? Underlying;
+        Animations.Sample(Underlying, parent, keyframes, time, KeyframeStyle, groups, styleWith, registered) ?? Underlying;
 
     private ComputedStyle KeyframeStyle(Keyframe block)
     {

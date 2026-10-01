@@ -29,9 +29,13 @@ internal static class SvgFilterPrimitives
     /// render is a transparent flood.
     /// </summary>
     public static IReadOnlyList<IReadOnlyList<Filter>> Of(SvgFilterChain chain) =>
-        [.. chain.Filters.Select(f => f.Element is { } element
-            ? Element(element, chain.Bounds, chain.Viewport, chain.Images)
+        [.. chain.Filters.Select(f => f.Reference is { } reference
+            ? Built.GetValue(reference, r => Element(r.Element, r.Bounds, r.Viewport, r.Images))
             : (IReadOnlyList<Filter>)[FilterPrimitives.Of(f.Function, chain.CurrentColor)])];
+
+    // Each filter element's primitives for one use in a layout, built the first time it is painted and kept as long as
+    // that layout's reference is.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SvgFilterReference, IReadOnlyList<Filter>> Built = [];
 
     private static readonly Filter[] Nothing = [new Filter(FilterKind.Flood)];
 
