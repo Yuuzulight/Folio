@@ -57,9 +57,13 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
 /// <param name="FixedWidth">A border-box width already decided by the parent's algorithm (absolute positioning).</param>
 /// <param name="FixedHeight">A border-box height already decided by the parent's algorithm.</param>
 /// <param name="Border">Border widths decided by the parent's algorithm (collapsed table borders), instead of the style's.</param>
+/// <param name="AnnotationRoom">
+/// The free space above the box's border box that ruby annotations on its first line may reach into: the margins above
+/// it and the space below the previous content's last line.
+/// </param>
 internal readonly record struct ConstraintSpace(
     float ContainingWidth, float? ContainingHeight, ExclusionSpace? Exclusions = null, float BfcLeft = 0, float BfcTop = 0,
-    float? FixedWidth = null, float? FixedHeight = null, Style.BorderGroup? Border = null);
+    float? FixedWidth = null, float? FixedHeight = null, Style.BorderGroup? Border = null, float AnnotationRoom = 0);
 
 /// <summary>
 /// An absolutely or fixed positioned box on its way up to its containing block (study 10, option A), with its static
