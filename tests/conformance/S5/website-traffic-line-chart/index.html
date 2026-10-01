@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind Docs — Weekly Traffic</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #111c33;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --grid: #1e2b47;
+    --accent: #38bdf8;
+    --accent-2: #a78bfa;
+    --good: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Inter", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 32px 24px 48px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 22px; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+  .range {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .kpi span { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .kpi strong { display: block; font-size: 22px; margin-top: 4px; }
+  .kpi em { font-style: normal; font-size: 12px; color: var(--good); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 16px;
+    padding: 18px 18px 10px;
+  }
+  .card h2 { margin: 0 0 2px; font-size: 16px; }
+  .card .hint { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  svg { display: block; width: 100%; height: auto; }
+  .tick { font-size: 11px; fill: var(--muted); }
+  .legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); padding: 8px 4px 6px; }
+  .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Docs traffic, last 12 weeks</h1>
+      <p>Unique visitors to docs.northwind.dev, split by new and returning readers.</p>
+    </div>
+    <div class="range">Jul 6 – Sep 27, 2026</div>
+  </header>
+
+  <section class="kpis">
+    <div class="kpi"><span>Visitors</span><strong>184,320</strong><em>▲ 12.4% vs prior</em></div>
+    <div class="kpi"><span>Returning</span><strong>41%</strong><em>▲ 3.1 pts</em></div>
+    <div class="kpi"><span>Avg. read time</span><strong>3m 48s</strong><em>▲ 0m 21s</em></div>
+    <div class="kpi"><span>Search exits</span><strong>6.2%</strong><em>▼ 0.8 pts</em></div>
+  </section>
+
+  <section class="card">
+    <h2>Weekly unique visitors</h2>
+    <p class="hint">Dashed line marks the 15k weekly goal set in Q2.</p>
+    <svg viewBox="0 0 860 320" role="img" aria-label="Line chart of weekly visitors">
+      <defs>
+        <linearGradient id="areaNew" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#38bdf8" stop-opacity="0.45"/>
+          <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="areaRet" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#a78bfa" stop-opacity="0.35"/>
+          <stop offset="1" stop-color="#a78bfa" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+
+      <g transform="translate(56,16)">
+        <!-- gridlines every 4k, chart area 780 x 260, y max 20k -->
+        <g stroke="#1e2b47" stroke-width="1">
+          <line x1="0" y1="0" x2="780" y2="0"/>
+          <line x1="0" y1="52" x2="780" y2="52"/>
+          <line x1="0" y1="104" x2="780" y2="104"/>
+          <line x1="0" y1="156" x2="780" y2="156"/>
+          <line x1="0" y1="208" x2="780" y2="208"/>
+          <line x1="0" y1="260" x2="780" y2="260" stroke="#334155"/>
+        </g>
+        <g class="tick" text-anchor="end">
+          <text x="-10" y="4">20k</text>
+          <text x="-10" y="56">16k</text>
+          <text x="-10" y="108">12k</text>
+          <text x="-10" y="160">8k</text>
+          <text x="-10" y="212">4k</text>
+          <text x="-10" y="264">0</text>
+        </g>
+        <g class="tick" text-anchor="middle">
+          <text x="0" y="282">Jul 6</text>
+          <text x="141.8" y="282">Jul 20</text>
+          <text x="283.6" y="282">Aug 3</text>
+          <text x="425.5" y="282">Aug 17</text>
+          <text x="567.3" y="282">Aug 31</text>
+          <text x="709.1" y="282">Sep 14</text>
+        </g>
+
+        <!-- goal line at 15k -->
+        <line x1="0" y1="65" x2="780" y2="65" stroke="#34d399" stroke-width="1.5" stroke-dasharray="6 5"/>
+        <text x="776" y="58" class="tick" text-anchor="end" fill="#34d399">Goal 15k</text>
+
+        <!-- new visitors -->
+        <path d="M0,143 L70.9,136.5 L141.8,128.7 L212.7,132.6 L283.6,117 L354.5,109.2 L425.5,111.8 L496.4,96.2 L567.3,89.7 L638.2,80.6 L709.1,72.8 L780,63.7 L780,260 L0,260 Z" fill="url(#areaNew)"/>
+        <polyline points="0,143 70.9,136.5 141.8,128.7 212.7,132.6 283.6,117 354.5,109.2 425.5,111.8 496.4,96.2 567.3,89.7 638.2,80.6 709.1,72.8 780,63.7"
+                  fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+
+        <!-- returning visitors -->
+        <path d="M0,200 L70.9,197.4 L141.8,191 L212.7,193.5 L283.6,184.4 L354.5,179.2 L425.5,180.5 L496.4,171.4 L567.3,167.5 L638.2,162.3 L709.1,158.4 L780,153.2 L780,260 L0,260 Z" fill="url(#areaRet)"/>
+        <polyline points="0,200 70.9,197.4 141.8,191 212.7,193.5 283.6,184.4 354.5,179.2 425.5,180.5 496.4,171.4 567.3,167.5 638.2,162.3 709.1,158.4 780,153.2"
+                  fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linejoin="round"/>
+
+        <!-- data points on the new-visitor line -->
+        <g fill="#0f172a" stroke="#38bdf8" stroke-width="2">
+          <circle cx="0" cy="143" r="4"/>
+          <circle cx="141.8" cy="128.7" r="4"/>
+          <circle cx="283.6" cy="117" r="4"/>
+          <circle cx="425.5" cy="111.8" r="4"/>
+          <circle cx="567.3" cy="89.7" r="4"/>
+          <circle cx="709.1" cy="72.8" r="4"/>
+          <circle cx="780" cy="63.7" r="5" fill="#38bdf8"/>
+        </g>
+
+        <!-- callout for the latest week -->
+        <g transform="translate(660,18)">
+          <rect width="112" height="34" rx="8" fill="#1e293b" stroke="#334155"/>
+          <text x="10" y="14" class="tick">Week of Sep 21</text>
+          <text x="10" y="28" font-size="13" font-weight="700" fill="#e2e8f0">15,320 new</text>
+        </g>
+      </g>
+    </svg>
+    <div class="legend">
+      <span><i style="background:#38bdf8"></i>New visitors</span>
+      <span><i style="background:#a78bfa"></i>Returning visitors</span>
+      <span><i style="background:#34d399"></i>Weekly goal</span>
+    </div>
+  </section>
+</div>
+</body>
+</html>

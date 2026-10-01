@@ -56,6 +56,7 @@ internal sealed partial class TreeBuilder : ITokenSink
     private bool _selfClosingAcknowledged;
     private int _nodes;
     private bool _depthReported;
+    private bool _reprocessEndOfFile;
 
     private TreeBuilder(string html, ParserLimits limits, Action<string, int>? parseError)
     {
@@ -104,6 +105,12 @@ internal sealed partial class TreeBuilder : ITokenSink
                 ForeignToken(token);
             else
                 Process(_mode, token);
+            // End of file closes the open templates one by one, reprocessing the token after each.
+            while (_reprocessEndOfFile)
+            {
+                _reprocessEndOfFile = false;
+                Process(_mode, token);
+            }
 
             if (token.Kind == TokenKind.StartTag && token.SelfClosing && !_selfClosingAcknowledged)
                 Error(); // non-void-html-element-start-tag-with-trailing-solidus

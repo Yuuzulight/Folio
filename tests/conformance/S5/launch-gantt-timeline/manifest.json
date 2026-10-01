@@ -1,0 +1,5 @@
+{
+  "prompt": "Make a launch-plan page with an SVG Gantt chart over ten weeks: weekend shading, progress bars, a hatched late task, a milestone diamond, a dependency arrow and a today line, then a status table.",
+  "features": ["svg", "svg-pattern", "linear-gradient-svg", "stroke-dasharray", "svg-text", "table", "border-radius"],
+  "viewport": 800
+}

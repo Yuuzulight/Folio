@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>محمصة الواحة — قهوة إثيوبية</title>
+<style>
+  :root { --brown: #5b3a29; --cream: #fbf4ea; --gold: #c9973f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Noto Sans Arabic", Tahoma, sans-serif; background: var(--cream); color: #2e2018; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 14px 26px; background: var(--brown); color: #fff; }
+  header nav a { color: #f3dcc0; text-decoration: none; margin-inline-start: 18px; font-size: 15px; }
+  .logo { font-size: 20px; font-weight: 700; }
+  .product { display: grid; grid-template-columns: 1fr 1.2fr; gap: 28px; padding: 28px 26px; max-width: 920px; margin: 0 auto; }
+  .photo { background: radial-gradient(circle at 40% 35%, #e9c9a0, #a8714a 60%, #5b3a29); border-radius: 22px; min-height: 300px; display: flex; align-items: flex-end; padding: 16px; }
+  .badge { background: #fff; color: var(--brown); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 700; }
+  h1 { margin: 0 0 6px; font-size: 28px; }
+  .origin { color: #8a6a52; margin: 0 0 14px; }
+  .price { font-size: 26px; font-weight: 700; color: var(--brown); }
+  .price small { font-size: 14px; color: #8a6a52; font-weight: 400; margin-inline-start: 8px; }
+  .notes { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .notes span { border: 1px solid var(--gold); color: #8a5a1c; border-radius: 8px; padding: 3px 10px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 10px 0 18px; }
+  td { padding: 8px 4px; border-bottom: 1px dashed #dcc7ad; }
+  td:last-child { text-align: left; font-weight: 600; }
+  .buy { display: flex; gap: 10px; }
+  .buy button { font: inherit; border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer; }
+  .primary { background: var(--brown); color: #fff; }
+  .secondary { background: transparent; border: 2px solid var(--brown) !important; color: var(--brown); }
+  .review { max-width: 920px; margin: 0 auto 30px; padding: 0 26px; }
+  .review blockquote { margin: 0; background: #fff; border-radius: 14px; padding: 16px 18px; border-inline-start: 5px solid var(--gold); line-height: 1.8; }
+  .review cite { display: block; margin-top: 6px; color: #8a6a52; font-style: normal; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">☕ محمصة الواحة</div>
+  <nav><a href="#">المتجر</a><a href="#">الاشتراكات</a><a href="#">من نحن</a></nav>
+</header>
+
+<section class="product">
+  <div class="photo"><span class="badge">محمّصة هذا الأسبوع</span></div>
+  <div>
+    <h1>إثيوبيا يرغاتشيف</h1>
+    <p class="origin">منطقة غيدو، على ارتفاع ١٩٠٠–٢٢٠٠ متر · معالجة مغسولة</p>
+    <div class="price">٨٥ درهماً <small>لكيس 250 غ</small></div>
+    <div class="notes"><span>ياسمين</span><span>ليمون</span><span>شاي أسود</span><span>عسل</span></div>
+    <table>
+      <tr><td>درجة التحميص</td><td>فاتحة</td></tr>
+      <tr><td>تاريخ التحميص</td><td><bdi>2026-09-29</bdi></td></tr>
+      <tr><td>مناسبة لـ</td><td>V60، Chemex، إسبريسو</td></tr>
+      <tr><td>نسبة التحضير</td><td><span dir="ltr">1 : 16</span></td></tr>
+    </table>
+    <div class="buy">
+      <button class="primary">أضف إلى السلة</button>
+      <button class="secondary">اشترك وفّر 15%</button>
+    </div>
+  </div>
+</section>
+
+<section class="review">
+  <blockquote>
+    من أنقى أنواع القهوة التي جربتها هذا العام. حضّرتها في V60 بدرجة حرارة 93° وكانت الحموضة متوازنة جداً مع طعم يشبه الشاي.
+    <cite>— ليلى م.، دبي · ★★★★★</cite>
+  </blockquote>
+</section>
+</body>
+</html>
