@@ -410,9 +410,11 @@ internal static class GridLayout
         // A grid lays each item out to measure its row's height and again to place it. An item's own grid does the same
         // in both of those layouts, so without reuse a grid nested d deep lays its innermost items out 2^d times; a layout
         // for the same space is the same, and is reused.
+        // A subgrid's layout also depends on the tracks its parent lends it.
         var space = new ConstraintSpace(areaWidth, areaHeight, FixedWidth: width, FixedHeight: height);
-        if (!context.GridItems.TryGetValue((item.Box, space), out var fragment))
-            context.GridItems[(item.Box, space)] = fragment = BlockLayout.Layout(item.Box, space, context);
+        var key = (item.Box, space, context.Subgrids.GetValueOrDefault(item.Box));
+        if (!context.GridItems.TryGetValue(key, out var fragment))
+            context.GridItems[key] = fragment = BlockLayout.Layout(item.Box, space, context);
         return fragment;
     }
 
