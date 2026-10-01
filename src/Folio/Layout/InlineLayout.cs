@@ -142,6 +142,7 @@ internal static class InlineLayout
         public float AtomicMarginLeft { get; set; }
         public float AtomicMarginTop { get; init; }
         public float AtomicMarginBottom { get; init; }
+        public bool AtomicUpright { get; init; } // in a vertical line, not turned with it: its width is its extent across the line
         public bool Visible { get; init; } // content that makes the line box a real one
         public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
         public string? Replacement { get; init; } // text of an inserted ellipsis, whose run is not the context's text
@@ -292,12 +293,19 @@ internal static class InlineLayout
                     var fragment = symbol ?? (box is RubyColumnBox ruby ? RubyLayout.Layout(ruby, width, context)
                         : BlockLayout.Layout(box, new ConstraintSpace(width, null), context));
                     var spacing = symbol is null ? box.Style.Spacing : ComputedStyle.Initial.Spacing;
-                    var (ml, mr) = (BlockLayout.Margin(spacing.MarginLeft, width), BlockLayout.Margin(spacing.MarginRight, width));
-                    var (mt, mb) = (BlockLayout.Margin(spacing.MarginTop, width), BlockLayout.Margin(spacing.MarginBottom, width));
-                    Add(new Piece(PieceKind.Atomic, box.Style, ml + fragment.Width + mr)
+                    // In a vertical line an atomic inline keeps its own orientation (a ruby column turns with the line):
+                    // its height runs along the line, its top and bottom margins are its inline ones, and its right and
+                    // left ones (in vertical-rl) face the line's over and under sides.
+                    var upright = block.Style.Text.IsVertical && box is not RubyColumnBox && symbol is null;
+                    var rl = block.Style.Text.WritingMode == WritingMode.VerticalRl;
+                    var (left, right, top, bottom) = (BlockLayout.Margin(spacing.MarginLeft, width), BlockLayout.Margin(spacing.MarginRight, width),
+                        BlockLayout.Margin(spacing.MarginTop, width), BlockLayout.Margin(spacing.MarginBottom, width));
+                    var (ml, mr) = upright ? (top, bottom) : (left, right);
+                    var (mt, mb) = !upright ? (top, bottom) : rl ? (right, left) : (left, right);
+                    Add(new Piece(PieceKind.Atomic, box.Style, ml + (upright ? fragment.Height : fragment.Width) + mr)
                     {
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
-                        Level = levels.Atomics.GetValueOrDefault(box),
+                        Level = levels.Atomics.GetValueOrDefault(box), AtomicUpright = upright,
                     });
                     if (wraps)
                         Close();
@@ -1114,10 +1122,11 @@ internal static class InlineLayout
                     Collect(piece);
                     // Its baseline is its last line's, or its bottom margin edge (CSS 2.2 §10.8.1).
                     var fragment = piece.Atomic!;
-                    var baseline = AtomicBaseline(fragment);
+                    var baseline = piece.AtomicUpright ? CentralBaseline(fragment, block.Style.Text.WritingMode) : AtomicBaseline(fragment);
+                    var extent = piece.AtomicUpright ? fragment.Width : fragment.Height;
                     var (above, below) = baseline is { } b
-                        ? (piece.AtomicMarginTop + b, fragment.Height - b + piece.AtomicMarginBottom)
-                        : (piece.AtomicMarginTop + fragment.Height + piece.AtomicMarginBottom, 0f);
+                        ? (piece.AtomicMarginTop + b, extent - b + piece.AtomicMarginBottom)
+                        : (piece.AtomicMarginTop + extent + piece.AtomicMarginBottom, 0f);
                     current.Children.Add(new Node(current, piece.Style, new LineMetrics(above, below, above, below, 0, 0, above + below))
                     {
                         Piece = piece, X = pieceX[piece] + piece.AtomicMarginLeft,
@@ -1338,6 +1347,18 @@ internal static class InlineLayout
             piece.Width += extra;
         }
         return true;
+    }
+
+    // The central baseline of an atomic inline standing in a vertical line, from its side facing the line's over side
+    // (the right in vertical-rl): the middle of its last line, or of the box when it has none.
+    private static float CentralBaseline(Fragment fragment, WritingMode mode)
+    {
+        var lines = fragment.Children.Where(c => c.Fragment.Kind == FragmentKind.Line).ToList();
+        if (lines.Count == 0)
+            return fragment.Width / 2;
+        var last = mode == WritingMode.VerticalRl ? lines.MinBy(l => l.X) : lines.MaxBy(l => l.X);
+        var middle = last.X + last.Fragment.Width / 2;
+        return mode == WritingMode.VerticalRl ? fragment.Width - middle : middle;
     }
 
     // The baseline of an atomic inline, from its top: an inline-block's is its last in-flow line box's (none when it

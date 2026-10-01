@@ -53,3 +53,18 @@ html 0,0 800x100
             (anonymous) 0,20 30x20
               line 0,20 30x20
                 text "x" 5,20 20x20
+
+=== an inline-block in a vertical line keeps its orientation and sits on the central baseline, its left margin facing the line's under side
+<!DOCTYPE html><style>body { margin: 0 }</style><div style="writing-mode: vertical-rl; height: 100px; font: 20px/2 serif">x<span style="display: inline-block; font: 10px/1 serif; padding: 0 3px 0 1px; margin-left: 30px">yy</span>z<br>xx</div>
+---
+html 0,0 800x100
+  body 0,0 800x100
+    div 0,0 96x100
+      line 40,0 56x100
+        text "x" 66,0 20x20
+        span 70,20 14x20
+          line 71,20 10x20
+            text "yy" 71,20 10x20
+        text "z" 66,40 20x20
+      line 0,0 40x100
+        text "xx" 10,0 20x40

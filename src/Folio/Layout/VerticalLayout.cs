@@ -128,14 +128,19 @@ internal static class VerticalLayout
     // Text is marked turned for painting. Inline boxes and ruby columns turn with their content; other atomic inlines
     // are placed but not turned.
     private static Fragment Turn(Fragment fragment, bool everything = false) =>
-        new(fragment.Box, fragment.Height, fragment.Width,
-            fragment.Children.Select(c => new ChildFragment(fragment.Height - c.Y - c.Fragment.Height, c.X,
-                everything || c.Fragment.Kind != FragmentKind.Box || c.Fragment.Box is InlineBox ? Turn(c.Fragment, everything)
-                : c.Fragment.Box is RubyColumnBox ? Turn(c.Fragment, everything: true)
-                : c.Fragment)).ToList())
+        new(fragment.Box, fragment.Height, fragment.Width, fragment.Children.Select(c => Turned(c, fragment.Height, everything)).ToList())
         {
             Kind = fragment.Kind,
             Baseline = fragment.Baseline,
             Text = fragment.Text is { } text ? text with { Turned = true } : null,
         };
+
+    // A child of a fragment being turned, placed in its turned parent of logical height height. An atomic inline that keeps
+    // its orientation was placed in the line with its width across it.
+    private static ChildFragment Turned(ChildFragment c, float height, bool everything)
+    {
+        var turns = everything || c.Fragment.Kind != FragmentKind.Box || c.Fragment.Box is InlineBox or RubyColumnBox;
+        var fragment = turns ? Turn(c.Fragment, everything || c.Fragment.Box is RubyColumnBox) : c.Fragment;
+        return new ChildFragment(height - c.Y - fragment.Width, c.X, fragment);
+    }
 }
