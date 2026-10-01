@@ -137,13 +137,14 @@ internal static class TableLayout
         foreach (var cell in grid.Cells.Where(c => c.RowSpan == 1))
         {
             var needed = IsBaseline(cell) ? ascents[cell.Row] - cell.Baseline + cell.Fragment!.Height : cell.Fragment!.Height;
-            heights[cell.Row] = Math.Max(heights[cell.Row], needed);
+            heights[cell.Row] = Math.Max(heights[cell.Row], Math.Max(needed, SpecifiedHeight(cell, Half(cell), SpanWidth(cell))));
         }
         foreach (var cell in grid.Cells.Where(c => c.RowSpan > 1).OrderBy(c => c.RowSpan))
         {
             var spanned = heights.Skip(cell.Row).Take(cell.RowSpan).Sum() + spacing.Y * (cell.RowSpan - 1);
-            if (cell.Fragment!.Height > spanned)
-                heights[cell.Row + cell.RowSpan - 1] += cell.Fragment.Height - spanned;
+            var needed = Math.Max(cell.Fragment!.Height, SpecifiedHeight(cell, Half(cell), SpanWidth(cell)));
+            if (needed > spanned)
+                heights[cell.Row + cell.RowSpan - 1] += needed - spanned;
         }
         // A taller specified table height is shared out among the rows.
         var tableHeight = frame.Vertical + heights.Sum() + spacing.Y * (rowCount + 1);
@@ -359,6 +360,18 @@ internal static class TableLayout
             };
         }
         return result;
+    }
+
+    // A cell's specified height as a border-box height, for the row it is in (0 when auto or a percentage).
+    private static float SpecifiedHeight(Cell cell, BorderGroup? collapsedHalf, float width)
+    {
+        var style = cell.Box.Style;
+        if (style.Size.Height is not { Kind: SizeKind.Length, Length: { HasPercent: false } height })
+            return 0;
+        var border = collapsedHalf ?? style.Border;
+        var frame = border.TopWidth + border.BottomWidth + BlockLayout.Resolve(style.Spacing.PaddingTop, width)
+            + BlockLayout.Resolve(style.Spacing.PaddingBottom, width);
+        return style.Box.BoxSizing == BoxSizing.BorderBox ? Math.Max(height.Px, frame) : height.Px + frame;
     }
 
     private static bool IsBaseline(Cell cell) =>
