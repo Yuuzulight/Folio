@@ -3,11 +3,11 @@
 ---
 border 0,1 23x22 2 solid rgb(0, 0, 0) / 4 solid rgb(0, 0, 0) / 2 solid rgb(0, 0, 0) / 2 solid rgb(0, 0, 0)
 border 19,0 28x24 4 solid rgb(0, 0, 0)
-glyphs 2,16.8 16px rgb(0, 0, 0)
-glyphs 23,16.8 16px rgb(0, 0, 0)
+glyphs 2,17 16px rgb(0, 0, 0)
+glyphs 23,17 16px rgb(0, 0, 0)
 
 === empty-cells hide leaves empty cells unpainted
 <!DOCTYPE html><style>body { margin: 0 } td { padding: 0 }</style><table style="empty-cells: hide; border-spacing: 0"><tr><td style="background: red; width: 10px; height: 10px"></td><td style="background: blue">x</td></tr></table>
 ---
 fill 10,0 16x16 rgb(0, 0, 255)
-glyphs 10,12.8 16px rgb(0, 0, 0)
+glyphs 10,13 16px rgb(0, 0, 0)

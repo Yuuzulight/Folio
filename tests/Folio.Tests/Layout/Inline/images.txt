@@ -8,7 +8,7 @@ html 0,0 800x16
   body 0,0 800x16
     div 0,0 800x16
       line 0,0 800x16
-        img 0,10.8 4x2
+        img 0,11 4x2
 
 === a specified width gives the height through the ratio
 <!DOCTYPE html><style>body { margin: 0 } img { display: block }</style><img style="width: 40px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC">

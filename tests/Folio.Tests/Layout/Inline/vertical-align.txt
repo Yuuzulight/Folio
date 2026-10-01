@@ -27,26 +27,26 @@ html 0,0 800x40
   body 0,0 800x40
     p 0,0 800x40
       line 0,0 800x40
-        text "a" 0,13.6 16x16
+        text "a" 0,13.4 16x16
         span 16,0 10x40
 
 === top and bottom align with the line box
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p>a<span style="display: inline-block; width: 10px; height: 40px"></span><span style="vertical-align: top">b</span></p><p>a<span style="display: inline-block; width: 10px; height: 40px"></span><span style="vertical-align: bottom">b</span></p>
 ---
-html 0,0 800x86.4
-  body 0,0 800x86.4
-    p 0,0 800x43.2
-      line 0,0 800x43.2
+html 0,0 800x86
+  body 0,0 800x86
+    p 0,0 800x43
+      line 0,0 800x43
         span 26,0 16x16
-        text "a" 0,27.2 16x16
+        text "a" 0,27 16x16
         span 16,0 10x40
         text "b" 26,0 16x16
-    p 0,43.2 800x43.2
-      line 0,43.2 800x43.2
-        span 26,70.4 16x16
-        text "a" 0,70.4 16x16
-        span 16,43.2 10x40
-        text "b" 26,70.4 16x16
+    p 0,43 800x43
+      line 0,43 800x43
+        span 26,70 16x16
+        text "a" 0,70 16x16
+        span 16,43 10x40
+        text "b" 26,70 16x16
 
 === text-top aligns with the top of the parent's font
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="font-size: 32px">a<span style="font-size: 16px; vertical-align: text-top">b</span></p>

@@ -85,7 +85,7 @@ html 0,0 800x32
     p 0,0 800x32
       line 0,0 800x32
         span 16,0 32x32
-        text "a" 0,12.8 16x16
+        text "a" 0,13 16x16
         text "b" 16,0 32x32
 
 === lines get shorter beside a float
