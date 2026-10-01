@@ -68,6 +68,16 @@ internal class BlockContainerBox(ComputedStyle style, Node? node, PseudoElement 
     public bool IsAtomicInline { get; init; }
 }
 
+/// <summary>
+/// A ruby base and its annotation (css-ruby-1 §2): an atomic inline whose first child holds the base's content and
+/// whose second, if any, is the annotation (the rt element's box), laid out over the base by RubyLayout.
+/// </summary>
+internal sealed class RubyColumnBox(ComputedStyle style) : BlockContainerBox(style, null)
+{
+    public BlockContainerBox Base => (BlockContainerBox)Children[0];
+    public BlockContainerBox? Annotation => Children.Count > 1 ? (BlockContainerBox)Children[1] : null;
+}
+
 /// <summary>A non-atomic inline box (e.g. span); its content lives in the enclosing inline formatting context.</summary>
 internal sealed class InlineBox(ComputedStyle style, Node? node, PseudoElement pseudoElement = PseudoElement.None) : Box(style, node, pseudoElement);
 

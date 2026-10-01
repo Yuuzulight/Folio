@@ -61,6 +61,14 @@ internal sealed class BoxTreeBuilder
         public Node? ElementNode { get; init; }
 
         public bool CollectsChildren => Kind is FrameKind.Block or FrameKind.Flex or FrameKind.Table;
+
+        /// <summary>For a ruby's Inline frame: the base and annotation pair being filled, if any.</summary>
+        public RubyColumnBox? RubyColumn { get; set; }
+        public bool IsRuby { get; init; }
+
+        /// <summary>For a ruby base's or annotation's frame: the ruby's frame.</summary>
+        public Frame? RubyBaseOf { get; init; }
+        public Frame? RubyAnnotationOf { get; init; }
     }
 
     private Frame Container => _containers.Peek();
@@ -151,6 +159,14 @@ internal sealed class BoxTreeBuilder
         }
 
         var parent = _frames.Peek();
+        if (display == Display.RubyText && (parent.IsRuby || parent.RubyBaseOf is not null))
+        {
+            OpenAnnotation(element, style, parent);
+            return true;
+        }
+        if (parent.IsRuby)
+            OpenRubyBase(parent);
+        parent = _frames.Peek();
         var blockify = Container.Kind == FrameKind.Flex && parent.Kind != FrameKind.Inline
                        || style.Box.Float != FloatSide.None || style.Box.Position is Position.Absolute or Position.Fixed
                        || element.Parent is DocumentNode;
@@ -191,6 +207,8 @@ internal sealed class BoxTreeBuilder
         }
 
         var frame = OpenBox(element, style, display, PseudoElement.None);
+        if (display == Display.Ruby)
+            frame = new Frame(FrameKind.Inline, frame.Box, style) { ElementNode = element, IsRuby = true };
         Push(frame);
         if (frame is { Kind: FrameKind.Block, Box: BlockContainerBox } && element.PseudoStyle(PseudoElement.FirstLetter) is { } firstLetter
             && firstLetter.Box.Display != Display.None)
@@ -203,9 +221,13 @@ internal sealed class BoxTreeBuilder
 
     private void Leave(ElementNode element)
     {
+        if (_frames.Peek().RubyBaseOf is { } ruby && ruby.ElementNode == element)
+            Finish(Pop());
         AddPseudo(element, PseudoElement.After);
         var frame = Pop();
         Finish(frame);
+        if (frame.RubyAnnotationOf is { } annotated)
+            annotated.RubyColumn = null;
         _counters.Leave(element);
     }
 
@@ -214,7 +236,7 @@ internal sealed class BoxTreeBuilder
     {
         switch (display)
         {
-            case Display.Inline or Display.Contents:
+            case Display.Inline or Display.Contents or Display.Ruby or Display.RubyText:
                 var inline = new InlineBox(style, node, pseudo);
                 RunOf(Container).Open(inline);
                 return new Frame(FrameKind.Inline, inline, style) { ElementNode = node };
@@ -241,6 +263,33 @@ internal sealed class BoxTreeBuilder
                 Place(part, inlineLevel: false);
                 return new Frame(part.Part is TablePart.Cell or TablePart.Caption ? FrameKind.Block : FrameKind.Table, part, style);
         }
+    }
+
+    // Ruby (css-ruby-1 §2): each base and the annotation after it become one RubyColumnBox, an atomic inline in the
+    // ruby's inline box. Content in a ruby opens a column and its base; an rt closes the base and fills the annotation.
+    // ponytail: no rtc or rb pairing across levels; a ruby nested in a base is laid out inside that base.
+    private void OpenRubyBase(Frame ruby)
+    {
+        if (ruby.RubyColumn is not null)
+            return;
+        var column = new RubyColumnBox(AnonymousStyle(ruby.Style, Display.Block)) { IsAtomicInline = true };
+        Place(column, inlineLevel: true);
+        var rubyBase = new BlockContainerBox(AnonymousStyle(ruby.Style, Display.Block), null);
+        column.Add(rubyBase);
+        ruby.RubyColumn = column;
+        Push(new Frame(FrameKind.Block, rubyBase, rubyBase.Style) { RubyBaseOf = ruby });
+    }
+
+    private void OpenAnnotation(ElementNode rt, ComputedStyle style, Frame parent)
+    {
+        var ruby = parent.RubyBaseOf ?? parent;
+        if (parent.RubyBaseOf is null)
+            OpenRubyBase(ruby); // an annotation with no base before it
+        Finish(Pop());
+        var annotation = new BlockContainerBox(style, rt);
+        ruby.RubyColumn!.Add(annotation);
+        Push(new Frame(FrameKind.Block, annotation, style) { RubyAnnotationOf = ruby });
+        AddPseudo(rt, PseudoElement.Before);
     }
 
     // Adds a new child box: inline-level boxes (and floats/abspos inside inline content) become items of the run.
@@ -336,6 +385,13 @@ internal sealed class BoxTreeBuilder
     {
         if (style is null || text.Length == 0)
             return;
+        if (_frames.Peek() is { IsRuby: true } ruby)
+        {
+            // White space between a ruby's pairs is not content (css-ruby-1 §2.3).
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+            OpenRubyBase(ruby);
+        }
         if (_firstLetter is { } pending && pending.Frame == Container && FirstLetter(text) is var (start, length))
         {
             // https://www.w3.org/TR/css-pseudo-4/#first-letter-pseudo: the first letter (with the punctuation around
@@ -630,7 +686,7 @@ internal sealed class BoxTreeBuilder
     // https://www.w3.org/TR/css-display-3/#blockify
     private static Display Blockified(Display display) => display switch
     {
-        Display.Inline or Display.InlineBlock => Display.Block,
+        Display.Inline or Display.InlineBlock or Display.Ruby or Display.RubyText => Display.Block,
         Display.InlineFlex => Display.Flex,
         Display.InlineGrid => Display.Grid,
         Display.InlineTable => Display.Table,
