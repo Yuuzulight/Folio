@@ -40,7 +40,7 @@ public sealed record ConformanceResult(ConformanceArtifact Artifact, Conformance
 
 /// <summary>
 /// The conformance suite (docs/study/19-testing.md): renders each artifact at its manifest viewport and compares it
-/// with the reference images captured by tools/Folio.RefCapture. The public corpus is tests/conformance; the private
+/// with the reference images captured by tools/Folio.RefCapture, under <see cref="Tolerance.Conformance"/>. The public corpus is tests/conformance; the private
 /// one (FOLIO_PRIVATE_CORPUS or tests/conformance-private) joins when present, reported separately, with its output
 /// images kept inside it.
 /// </summary>
@@ -136,7 +136,7 @@ public static class Conformance
         if (reference is null)
             return new(artifact, ConformanceOutcome.NoReference, null);
 
-        var tolerance = manifest.Tolerance is { } t ? new Tolerance(t.ChannelThreshold, t.MaxDifferingRatio) : Tolerance.Default;
+        var tolerance = manifest.Tolerance is { } t ? Tolerance.Conformance with { ChannelThreshold = t.ChannelThreshold, MaxDifferingRatio = t.MaxDifferingRatio } : Tolerance.Conformance;
         var primary = ImageComparer.Compare(reference, actual, tolerance);
         if (primary.Passed)
             return new(artifact, ConformanceOutcome.Pass, null);
