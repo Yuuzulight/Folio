@@ -147,7 +147,7 @@ internal static class StyleResolver
                     {
                         var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent);
                         return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
-                    });
+                    }, registered);
                     animations.Add(animated);
                     style = animated.Sample(animationTime, groups);
                     // Each animated element keeps its own style, so a frame can change it alone.
