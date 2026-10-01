@@ -115,7 +115,8 @@ internal static class DisplayListBuilder
                 Collect(context, real, placed, child.Fragment.Children, order);
                 continue;
             }
-            if (child.Fragment.Kind == FragmentKind.Text)
+            // A marker drawn as a shape paints with the text, like the marker text it stands for.
+            if (child.Fragment.Kind == FragmentKind.Text || child.Fragment.Box is MarkerBox { Symbol: not null })
             {
                 context.Text.Add(parent.Fragment.Kind == FragmentKind.Line && child.Fragment == parent.Fragment.Children[^1].Fragment
                     ? placed with { LineEnd = true } : placed);
@@ -551,6 +552,11 @@ internal static class DisplayListBuilder
         // A text fragment's glyphs, left to right or, for right-to-left runs, from its right edge; or replaced content.
         private void PaintText(PaintBox box)
         {
+            if (box.Box is MarkerBox { Symbol: { } symbol })
+            {
+                PaintSymbol(box, symbol);
+                return;
+            }
             if (box.Fragment.Kind == FragmentKind.Box)
             {
                 if (box.Fragment.Svg is { } svg)
@@ -1099,6 +1105,35 @@ internal static class DisplayListBuilder
 
         // Moves from the open clips to the target chain: pops what differs, pushes what is new.
         // ponytail: a box whose chain leaves an enclosing opacity layer's clips stays clipped by them.
+        // A disc fills the marker's square with an ellipse, a circle strokes that ellipse 1px wide (centred on its edge),
+        // and a square fills the square, all in the marker's colour.
+        private void PaintSymbol(PaintBox box, ListSymbol symbol)
+        {
+            var style = box.Box.Style;
+            if (style.Inherited.Visibility != Visibility.Visible || style.Inherited.Color.A <= 0)
+                return;
+            SetClip(box.Clip);
+            // Snapped as a whole, so the square stays square and the disc round.
+            var side = box.Snap(box.Fragment.Width);
+            var rect = new RectF(box.Snap(box.X), box.Snap(box.Y), side, side);
+            var corner = new Vector2(rect.Width / 2, rect.Height / 2);
+            var round = new CornerRadii(corner, corner, corner, corner);
+            if (symbol == ListSymbol.Circle)
+            {
+                const float k = 0.5522848f; // cubic Bezier approximation of a quarter circle
+                var (cx, cy, rx, ry) = (rect.X + rect.Width / 2, rect.Y + rect.Height / 2, rect.Width / 2, rect.Height / 2);
+                var path = new PathData().MoveTo(cx + rx, cy)
+                    .CubicTo(new(cx + rx, cy + k * ry), new(cx + k * rx, cy + ry), new(cx, cy + ry))
+                    .CubicTo(new(cx - k * rx, cy + ry), new(cx - rx, cy + k * ry), new(cx - rx, cy))
+                    .CubicTo(new(cx - rx, cy - k * ry), new(cx - k * rx, cy - ry), new(cx, cy - ry))
+                    .CubicTo(new(cx + k * rx, cy - ry), new(cx + rx, cy - k * ry), new(cx + rx, cy))
+                    .Close();
+                list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: style.Inherited.Color, Path: path, Stroke: new Stroke(1)));
+                return;
+            }
+            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, symbol == ListSymbol.Disc ? round : default), style.Inherited.Color));
+        }
+
         private void SetClip(ClipNode? target)
         {
             var chain = new List<ClipNode>();

@@ -35,11 +35,19 @@ glyphs 96,13 112,13 16px rgb(0, 0, 0)
 fill 784,0 16x16 rgb(0, 255, 0)
 glyphs 784,13 16px rgb(0, 0, 0)
 glyphs 0,13 16px rgb(0, 0, 0)
+=== a circle marker is an ellipse stroked 1px wide, a square one a filled square
+<!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px }</style><ul style="list-style-type: circle"><li>a</li></ul><ul style="list-style-type: square"><li>a</li></ul>
+---
+glyphs 40,13 16px rgb(0, 0, 0)
+stroke path M30,9.5 C30,10.88 28.88,12 27.5,12 C26.12,12 25,10.88 25,9.5 C25,8.12 26.12,7 27.5,7 C28.88,7 30,8.12 30,9.5 Z 1 rgb(0, 0, 0)
+glyphs 40,29 16px rgb(0, 0, 0)
+fill 25,23 5x5 rgb(0, 0, 0)
+
 === outside list markers are painted in the item's colour
 <!DOCTYPE html><style>body, ul { margin: 0 } ul { padding-left: 40px; color: blue }</style><ul><li>a</li></ul>
 ---
 glyphs 40,13 16px rgb(0, 0, 255)
-glyphs 8,13 24,13 16px rgb(0, 0, 255)
+fill 25,7 5x5 radius 2.5 rgb(0, 0, 255)
 
 === text shadows go under the text, the last written lowest
 <!DOCTYPE html><style>body, p { margin: 0 }</style><p style="text-shadow: 1px 1px red, 2px 2px 4px blue">a</p>

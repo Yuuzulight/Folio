@@ -332,6 +332,11 @@ internal static class BlockLayout
     /// </summary>
     private static void PlaceMarker(MarkerBox marker, List<ChildFragment> children, float contentX, float contentY, float contentWidth, LayoutContext context)
     {
+        if (marker.Symbol is not null)
+        {
+            PlaceSymbol(marker, children, contentX, contentY, contentWidth, context);
+            return;
+        }
         var (runs, ascent) = InlineLayout.MarkerText(marker, context);
         var image = marker.Image is { } imageBox ? Layout(imageBox, new ConstraintSpace(contentWidth, null), context) : null;
         if (runs.Count == 0 && image is null)
@@ -353,20 +358,35 @@ internal static class BlockLayout
         }
         if (image is not null && rtl)
             children.Add(new ChildFragment(x, lineY + baseline - image.Height, image));
+    }
 
-        // The first line box in flow order, through in-flow block children, as its box-relative position and baseline.
-        static (float X, float Y, float Width, float Baseline)? FirstLine(IReadOnlyList<ChildFragment> fragments, float dx, float dy)
+    /// <summary>
+    /// Places a disc, circle or square marker as a shape, painted later: a square whose side is a third of the marker
+    /// font's ascent plus half a pixel, with its top half the ascent above the first line's baseline and its near edge
+    /// two thirds of the ascent (in whole pixels) plus 7px before the line's start (past its end, right to left).
+    /// </summary>
+    private static void PlaceSymbol(MarkerBox marker, List<ChildFragment> children, float contentX, float contentY, float contentWidth, LayoutContext context)
+    {
+        var ascent = InlineLayout.FontMetrics(marker.Style, context).Ascent;
+        var size = (ascent * 2 / 3 + 1) / 2;
+        var offset = MathF.Floor(ascent * 2 / 3) + 7;
+        var (lineX, lineY, lineWidth, baseline) = FirstLine(children, 0, 0) ?? (contentX, contentY, contentWidth, ascent);
+        var x = marker.Style.Text.Direction == Style.Direction.Rtl ? lineX + lineWidth + offset - size : lineX - offset;
+        children.Add(new ChildFragment(x, lineY + baseline - ascent / 2, new Fragment(marker, size, size, [])));
+    }
+
+    // The first line box in flow order, through in-flow block children, as its box-relative position and baseline.
+    private static (float X, float Y, float Width, float Baseline)? FirstLine(IReadOnlyList<ChildFragment> fragments, float dx, float dy)
+    {
+        foreach (var child in fragments)
         {
-            foreach (var child in fragments)
-            {
-                if (child.Fragment.Kind == FragmentKind.Line && child.Fragment.Height > 0)
-                    return (dx + child.X, dy + child.Y, child.Fragment.Width, child.Fragment.Baseline);
-                if (child.Fragment is { Kind: FragmentKind.Box, Box: BlockContainerBox { IsFloat: false, IsAbsolutelyPositioned: false, IsAtomicInline: false } }
-                    && FirstLine(child.Fragment.Children, dx + child.X, dy + child.Y) is { } inner)
-                    return inner;
-            }
-            return null;
+            if (child.Fragment.Kind == FragmentKind.Line && child.Fragment.Height > 0)
+                return (dx + child.X, dy + child.Y, child.Fragment.Width, child.Fragment.Baseline);
+            if (child.Fragment is { Kind: FragmentKind.Box, Box: BlockContainerBox { IsFloat: false, IsAbsolutelyPositioned: false, IsAtomicInline: false } }
+                && FirstLine(child.Fragment.Children, dx + child.X, dy + child.Y) is { } inner)
+                return inner;
         }
+        return null;
     }
 
     // The floats after a child that joined this formatting context, with the ones it placed moved by dy: the child
