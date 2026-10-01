@@ -117,6 +117,18 @@ grid-template-columns: repeat(2, [a] 10px) [b]; grid-template-rows: minmax(10px,
 grid-template-columns: [a] 10px [a] 10px [b]
 grid-template-rows: minmax(10px, 1fr) fit-content(50%) 2fr auto
 
+=== subgrid track lists, with and without line names
+grid-template-columns: subgrid [a] [] [b c]; grid-template-rows: subgrid
+---
+grid-template-columns: subgrid [a] [] [b c]
+grid-template-rows: subgrid
+
+=== subgrid takes only line names after it
+grid-template-columns: subgrid 10px; grid-template-rows: subgrid [a] 1fr
+---
+grid-template-columns: none
+grid-template-rows: none
+
 === grid placement shorthands
 grid-area: 2 / 1 / span 2; grid-column: a
 ---

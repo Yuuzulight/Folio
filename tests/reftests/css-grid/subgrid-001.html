@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<title>Cards whose parts line up through row subgrids</title>
+<link rel="help" href="https://www.w3.org/TR/css-grid-2/#subgrids">
+<style>
+  body { margin: 0; }
+  .cards { display: grid; grid-template-columns: repeat(3, 120px); column-gap: 10px; row-gap: 0; }
+  .card { display: grid; grid-row: span 3; grid-template-rows: subgrid; padding: 6px; background: #ddd; }
+  .title { background: blue; }
+  .body { background: orange; }
+  .foot { background: green; }
+</style>
+<div class="cards">
+  <div class="card"><div class="title" style="height: 20px"></div><div class="body" style="height: 50px"></div><div class="foot" style="height: 10px"></div></div>
+  <div class="card"><div class="title" style="height: 34px"></div><div class="body" style="height: 20px"></div><div class="foot" style="height: 10px"></div></div>
+  <div class="card"><div class="title" style="height: 10px"></div><div class="body" style="height: 30px"></div><div class="foot" style="height: 18px"></div></div>
+</div>

@@ -34,6 +34,12 @@ internal sealed class LayoutContext(FontCollection fonts, ITextShaper? shaper = 
     public Dictionary<(Box Box, ConstraintSpace Space), Fragment> GridItems { get; } = [];
 
     /// <summary>
+    /// The tracks a grid lends each of its subgrids, per axis, once it has sized them (see GridLayout): a subgrid laid
+    /// out without an entry for an axis has no tracks there, as with none.
+    /// </summary>
+    public Dictionary<Box, (AdoptedTracks? Columns, AdoptedTracks? Rows)> Subgrids { get; } = [];
+
+    /// <summary>
     /// The content of clip path and mask elements built so far, by element and the viewport it was built for, with its
     /// node count (see Svg.SvgContext.ReferencedContent).
     /// </summary>

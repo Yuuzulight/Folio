@@ -4,6 +4,13 @@ using Folio.Style;
 namespace Folio.Layout;
 
 /// <summary>
+/// Tracks a subgrid takes from its parent grid in one axis (https://www.w3.org/TR/css-grid-2/#subgrid-sizing): fixed
+/// tracks of the parent's sizes, less the subgrid's margin, border and padding at the edges so its lines meet the
+/// parent's, the parent's line names with its own, and the parent's gap.
+/// </summary>
+internal sealed record AdoptedTracks(TrackList List, float Gap);
+
+/// <summary>
 /// Grid layout (https://www.w3.org/TR/css-grid-1/, docs/study/08-layout-grid.md, option A): placement (§8.5), the track
 /// sizing algorithm (§11) for columns then rows, and alignment, as steps named after the spec.
 /// </summary>
@@ -34,6 +41,9 @@ internal static class GridLayout
 
     private static Axis BuildAxis(TrackList list, GridAreas areas, bool rows, float? space, float gap)
     {
+        // subgrid, where no parent grid lends tracks, is none.
+        if (list.Subgrid)
+            list = TrackList.None;
         var tracks = new List<TrackSize>();
         var names = new List<List<string>>();
         var autoFit = new HashSet<int>();
@@ -97,35 +107,104 @@ internal static class GridLayout
         GridContainerBox box, float innerWidth, float? innerHeight, float minHeight, float maxHeight, LayoutContext context)
     {
         var style = box.Style;
-        var columnGap = style.Flex.ColumnGap.Resolve(innerWidth);
-        var rowGap = innerHeight is { } h ? style.Flex.RowGap.Resolve(h) : style.Flex.RowGap.HasPercent ? 0 : style.Flex.RowGap.Px;
-        var columnAxis = BuildAxis(style.Grid.TemplateColumns, style.Grid.Areas, rows: false, innerWidth, columnGap);
-        var rowAxis = BuildAxis(style.Grid.TemplateRows, style.Grid.Areas, rows: true, innerHeight ?? (float.IsFinite(maxHeight) ? maxHeight : null), rowGap);
+        // As a subgrid, the grid takes its tracks in an axis from its parent, which has sized them (css-grid-2 §9).
+        context.Subgrids.TryGetValue(box, out var adopted);
+        var columnGap = adopted.Columns?.Gap ?? style.Flex.ColumnGap.Resolve(innerWidth);
+        var rowGap = adopted.Rows?.Gap ?? (innerHeight is { } h ? style.Flex.RowGap.Resolve(h) : style.Flex.RowGap.HasPercent ? 0 : style.Flex.RowGap.Px);
+        var columnAlign = adopted.Columns is null ? style.Flex.JustifyContent : ContentAlign.Start;
+        var rowAlign = adopted.Rows is null ? style.Flex.AlignContent : ContentAlign.Start;
+        var columnAxis = BuildAxis(adopted.Columns?.List ?? style.Grid.TemplateColumns, style.Grid.Areas, rows: false, innerWidth, columnGap);
+        var rowAxis = BuildAxis(adopted.Rows?.List ?? style.Grid.TemplateRows, style.Grid.Areas, rows: true, innerHeight ?? (float.IsFinite(maxHeight) ? maxHeight : null), rowGap);
         var (items, columns, rows, offsets) = Place(box, columnAxis, rowAxis);
+        if (adopted.Columns is not null)
+            KeepWithin(items, columns, columnAxis.Count, rows: false);
+        if (adopted.Rows is not null)
+            KeepWithin(items, rows, rowAxis.Count, rows: true);
         foreach (var item in items)
             ResolveMargins(item, innerWidth);
 
+        // Subgrid items lend their own items to the tracks they span in the axes they adopt, with the subgrid's margin,
+        // border and padding added at its edges (css-grid-2 §9.4); the subgrid itself does not contribute there.
+        // A row subgrid is laid out once to measure its items, where any other item is laid out to measure its height,
+        // so nested subgrids cost what nested grids do.
+        var subgrids = items.Where(i => Subgridded(i, rows: false) || Subgridded(i, rows: true)).ToList();
+        var lent = new Dictionary<Item, float>();
+        var (columnItems, rowItems) = (items.Where(i => !Subgridded(i, rows: false)).ToList(), items.Where(i => !Subgridded(i, rows: true)).ToList());
+        var subgridItems = new Dictionary<Item, List<Item>>();
+        foreach (var s in subgrids)
+        {
+            context.Subgrids.Remove(s.Box);
+            subgridItems[s] = PlaceSubgrid(s, columnAxis, rowAxis, offsets);
+            if (!Subgridded(s, rows: false))
+                continue;
+            var (start, end) = Frame(s, rows: false, innerWidth);
+            foreach (var c in subgridItems[s])
+            {
+                var proxy = new Item(c.Box) { Column = s.Column + c.Column, ColumnSpan = c.ColumnSpan, Row = s.Row, RowSpan = s.RowSpan };
+                lent[proxy] = (c.Column == 0 ? start : 0) + (c.Column + c.ColumnSpan == s.ColumnSpan ? end : 0);
+                columnItems.Add(proxy);
+            }
+        }
+
         // §11.3 step 1: columns, from the items' width contributions.
-        SizeTracks(columns, innerWidth, Constraint.Definite, columnGap, items, i => (i.Column, i.ColumnSpan),
-            i => IntrinsicSizes.Contribution(i.Box, context), style.Flex.JustifyContent);
-        Distribute(columns, innerWidth, columnGap, style.Flex.JustifyContent);
+        (float, float) Width(Item item)
+        {
+            var (min, max) = IntrinsicSizes.Contribution(item.Box, context);
+            var e = lent.GetValueOrDefault(item);
+            return (min + e, max + e);
+        }
+        SizeTracks(columns, innerWidth, Constraint.Definite, columnGap, columnItems, i => (i.Column, i.ColumnSpan), Width, columnAlign);
+        Distribute(columns, innerWidth, columnGap, columnAlign);
+        foreach (var s in subgrids.Where(s => Subgridded(s, rows: false)))
+            context.Subgrids[s.Box] = (Lend(s, columns, columnAxis, offsets.Column, columnGap, innerWidth, rows: false), null);
+
+        // Row subgrids' items, each at its height in the subgrid laid out at its width.
+        var lentHeights = new Dictionary<Item, float>();
+        foreach (var s in subgrids.Where(s => Subgridded(s, rows: true)))
+        {
+            var spacing = s.Box.Style.Spacing;
+            var border = s.Box.Style.Border;
+            var area = AreaSize(columns, s.Column, s.ColumnSpan, columnGap);
+            var inner = Math.Max(0, area - s.MarginLeft - s.MarginRight - border.LeftWidth - border.RightWidth
+                - BlockLayout.Resolve(spacing.PaddingLeft, area) - BlockLayout.Resolve(spacing.PaddingRight, area));
+            var measured = new Dictionary<Box, Fragment>();
+            foreach (var f in Layout((GridContainerBox)s.Box, inner, null, 0, float.PositiveInfinity, context).Items)
+            {
+                if (f.Fragment.Box is { } b)
+                    measured[b] = f.Fragment;
+            }
+            var (start, end) = Frame(s, rows: true, innerWidth);
+            foreach (var c in subgridItems[s])
+            {
+                if (!measured.TryGetValue(c.Box, out var fragment))
+                    continue;
+                var margins = BlockLayout.Margin(c.Box.Style.Spacing.MarginTop, inner) + BlockLayout.Margin(c.Box.Style.Spacing.MarginBottom, inner);
+                var proxy = new Item(c.Box) { Row = s.Row + c.Row, RowSpan = c.RowSpan, Column = s.Column, ColumnSpan = s.ColumnSpan };
+                lentHeights[proxy] = fragment.Height + margins + (c.Row == 0 ? start : 0) + (c.Row + c.RowSpan == s.RowSpan ? end : 0);
+                rowItems.Add(proxy);
+            }
+        }
 
         // Step 2: rows, from each item's height at its column area's width.
         (float, float) Height(Item item)
         {
+            if (lentHeights.TryGetValue(item, out var lentHeight))
+                return (lentHeight, lentHeight);
             item.Fragment = LayOutItem(item, AreaSize(columns, item.Column, item.ColumnSpan, columnGap), null, style, context);
             var outer = item.MarginTop + item.Fragment.Height + item.MarginBottom;
             return (outer, outer);
         }
-        SizeTracks(rows, innerHeight, innerHeight is null ? Constraint.MaxContent : Constraint.Definite, rowGap, items,
-            i => (i.Row, i.RowSpan), Height, style.Flex.AlignContent);
+        SizeTracks(rows, innerHeight, innerHeight is null ? Constraint.MaxContent : Constraint.Definite, rowGap, rowItems,
+            i => (i.Row, i.RowSpan), Height, rowAlign);
         var height = innerHeight ?? Math.Clamp(Sum(rows, rowGap), minHeight, maxHeight);
         if (innerHeight is null && height > Sum(rows, rowGap) + 0.01f)
         {
             // min-height made the grid taller: its rows are sized again against that height.
-            SizeTracks(rows, height, Constraint.Definite, rowGap, items, i => (i.Row, i.RowSpan), Height, style.Flex.AlignContent);
+            SizeTracks(rows, height, Constraint.Definite, rowGap, rowItems, i => (i.Row, i.RowSpan), Height, rowAlign);
         }
-        Distribute(rows, height, rowGap, style.Flex.AlignContent);
+        Distribute(rows, height, rowGap, rowAlign);
+        foreach (var s in subgrids.Where(s => Subgridded(s, rows: true)))
+            context.Subgrids[s.Box] = (context.Subgrids.GetValueOrDefault(s.Box).Columns, Lend(s, rows, rowAxis, offsets.Row, rowGap, innerWidth, rows: true));
 
         // Items in their areas, with justify-self and align-self.
         var fragments = new List<ChildFragment>(items.Count);
@@ -151,6 +230,93 @@ internal static class GridLayout
                 Edge(columns, columnEnd, offsets.Column, start: false), Edge(rows, rowEnd, offsets.Row, start: false)));
         }
         return (fragments, innerHeight ?? height, positioned);
+    }
+
+    // Whether an item is a subgrid in an axis: a grid whose template there is subgrid.
+    private static bool Subgridded(Item item, bool rows) =>
+        item.Box is GridContainerBox { Style.Grid: var g } && (rows ? g.TemplateRows : g.TemplateColumns).Subgrid;
+
+    // A subgrid's margin, border and padding at the start and end of an axis.
+    private static (float Start, float End) Frame(Item s, bool rows, float basis)
+    {
+        var (spacing, border) = (s.Box.Style.Spacing, s.Box.Style.Border);
+        return rows
+            ? (s.MarginTop + border.TopWidth + BlockLayout.Resolve(spacing.PaddingTop, basis), s.MarginBottom + border.BottomWidth + BlockLayout.Resolve(spacing.PaddingBottom, basis))
+            : (s.MarginLeft + border.LeftWidth + BlockLayout.Resolve(spacing.PaddingLeft, basis), s.MarginRight + border.RightWidth + BlockLayout.Resolve(spacing.PaddingRight, basis));
+    }
+
+    // The names of a subgrid's lines in an axis it adopts: the parent's names of the lines it spans, and its own
+    // (css-grid-2 §9.3).
+    private static List<List<string>> SubgridNames(Item s, Axis parent, int offset, bool rows)
+    {
+        var (start, span) = rows ? (s.Row, s.RowSpan) : (s.Column, s.ColumnSpan);
+        var own = rows ? s.Box.Style.Grid.TemplateRows.LineNames : s.Box.Style.Grid.TemplateColumns.LineNames;
+        var names = new List<List<string>>(span + 1);
+        for (var i = 0; i <= span; i++)
+        {
+            var line = start - offset + i;
+            List<string> merged = line >= 0 && line < parent.Names.Count ? [.. parent.Names[line]] : [];
+            if (i < own.Count)
+                merged.AddRange(own[i]);
+            names.Add(merged);
+        }
+        return names;
+    }
+
+    // A subgrid's items placed in its own grid, with as many tracks as it spans in the axes it adopts; items that would
+    // make implicit tracks there stay inside (css-grid-2 §9.2).
+    private static List<Item> PlaceSubgrid(Item s, Axis columnAxis, Axis rowAxis, (int Row, int Column) offsets)
+    {
+        var sub = (GridContainerBox)s.Box;
+        var g = sub.Style.Grid;
+        Axis Lent(bool rows)
+        {
+            var span = rows ? s.RowSpan : s.ColumnSpan;
+            return new Axis([.. Enumerable.Repeat(TrackSize.Auto, span)], SubgridNames(s, rows ? rowAxis : columnAxis, rows ? offsets.Row : offsets.Column, rows), [], span);
+        }
+        var columns = Subgridded(s, rows: false) ? Lent(rows: false) : BuildAxis(g.TemplateColumns, g.Areas, rows: false, null, 0);
+        var rowsAxis = Subgridded(s, rows: true) ? Lent(rows: true) : BuildAxis(g.TemplateRows, g.Areas, rows: true, null, 0);
+        var (items, columnTracks, rowTracks, _) = Place(sub, columns, rowsAxis);
+        if (Subgridded(s, rows: false))
+            KeepWithin(items, columnTracks, s.ColumnSpan, rows: false);
+        if (Subgridded(s, rows: true))
+            KeepWithin(items, rowTracks, s.RowSpan, rows: true);
+        return items;
+    }
+
+    // Items moved and shortened to fit within the first count tracks of an axis, and the tracks past them dropped.
+    private static void KeepWithin(List<Item> items, List<Track> tracks, int count, bool rows)
+    {
+        count = Math.Max(1, count);
+        foreach (var item in items)
+        {
+            if (rows)
+                (item.Row, item.RowSpan) = (Math.Min(item.Row, count - 1), Math.Max(1, Math.Min(item.RowSpan, count - Math.Min(item.Row, count - 1))));
+            else
+                (item.Column, item.ColumnSpan) = (Math.Min(item.Column, count - 1), Math.Max(1, Math.Min(item.ColumnSpan, count - Math.Min(item.Column, count - 1))));
+        }
+        if (tracks.Count > count)
+            tracks.RemoveRange(count, tracks.Count - count);
+    }
+
+    // The tracks a subgrid takes in an axis: fixed tracks of the sizes it spans, less its margin, border and padding at
+    // its edges so that its lines meet the parent's; the parent's line names with its own; the parent's gap.
+    // ponytail: space that align-content or justify-content put between the parent's tracks is not lent, and the
+    // subgrid's own gap is ignored.
+    private static AdoptedTracks Lend(Item s, List<Track> tracks, Axis axis, int offset, float gap, float basis, bool rows)
+    {
+        var (start, span) = rows ? (s.Row, s.RowSpan) : (s.Column, s.ColumnSpan);
+        var sizes = tracks.Skip(start).Take(span).Select(t => t.Base).ToList();
+        var (frameStart, frameEnd) = Frame(s, rows, basis);
+        if (sizes.Count > 0)
+        {
+            sizes[0] -= frameStart;
+            sizes[^1] -= frameEnd;
+        }
+        var fixedTracks = sizes.Select(size => new TrackBreadth(TrackKind.Length, new LengthPercentage(Math.Max(0, size))))
+            .Select(b => new TrackSize(b, b)).ToList();
+        var names = SubgridNames(s, axis, offset, rows);
+        return new AdoptedTracks(new TrackList(fixedTracks, [.. names.Take(fixedTracks.Count + 1)]), gap);
     }
 
     // A positioned child's lines, without auto-placement: auto (and a span against auto) stays null.
