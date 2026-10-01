@@ -1,0 +1,5 @@
+{
+  "prompt": "Build a smart home control panel for one room: frosted device tiles with on/off switches (off devices look greyed out), a thermostat ring, a front-door camera tile with a scanline overlay, and an energy bar chart that fades in from the left.",
+  "features": ["backdrop-filter", "filter-drop-shadow", "filter-grayscale", "filter-brightness", "filter-opacity", "filter-contrast", "filter-saturate", "mask", "mask-image", "mix-blend-mode", "conic-gradient", "radial-gradient", "linear-gradient", "repeating-linear-gradient", "calc", "grid", "flex", "box-shadow", "pseudo-elements"],
+  "viewport": 800
+}

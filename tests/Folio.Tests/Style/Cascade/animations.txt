@@ -155,3 +155,9 @@
 ---
 #a text-align: right
 #b color: rgb(60, 60, 60)
+
+=== a flow-relative property in keyframes animates its physical one
+%time 0.5
+<!DOCTYPE html><style>@keyframes m { from { margin-inline-start: 0px } to { margin-inline-start: 10px } } p { animation: m 1s linear }</style><p id=a>x</p>
+---
+#a margin-left: 5px

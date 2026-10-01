@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home - Living room</title>
+<style>
+  :root {
+    --bg1: #e9eef5;
+    --bg2: #dfe6f0;
+    --card: rgba(255, 255, 255, 0.6);
+    --ink: #1d2433;
+    --muted: #6b7489;
+    --amber: #ffb02e;
+    --teal: #19b39c;
+    --blue: #3a7bff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "SF Pro Text", system-ui, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at 85% 10%, #ffe2b8, transparent 40%),
+      radial-gradient(circle at 10% 90%, #c9e9ff, transparent 45%),
+      linear-gradient(160deg, var(--bg1), var(--bg2));
+  }
+
+  .wrap { padding: 26px; }
+
+  .top { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
+  .top h1 { margin: 0; font-size: 26px; }
+  .top p { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+
+  .rooms { display: flex; gap: 8px; }
+  .rooms span { padding: 7px 12px; border-radius: 999px; font-size: 13px; background: var(--card); backdrop-filter: blur(10px); }
+  .rooms .on { background: var(--ink); color: #fff; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .tile {
+    position: relative;
+    padding: 16px;
+    border-radius: 20px;
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 8px 24px rgba(29, 36, 51, 0.08);
+    min-height: 130px;
+  }
+
+  .tile.wide { grid-column: span 2; }
+
+  .tile .icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--amber), #ff7a2e);
+    filter: drop-shadow(0 4px 8px rgba(255, 140, 46, 0.45));
+  }
+
+  .tile.off .icon { filter: grayscale(1) brightness(1.3) opacity(0.6); }
+  .tile.off { color: var(--muted); }
+
+  .tile h3 { margin: 14px 0 2px; font-size: 15px; }
+  .tile small { font-size: 13px; color: var(--muted); }
+
+  .switch {
+    position: absolute;
+    right: 14px;
+    top: 16px;
+    width: 38px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--teal);
+  }
+
+  .switch::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+  }
+
+  .tile.off .switch { background: #c7cdd8; }
+  .tile.off .switch::after { right: auto; left: 3px; }
+
+  .thermo {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+
+  .ring {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    flex: none;
+  }
+
+  .ring .track,
+  .ring .fill {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 11px));
+  }
+
+  .ring .track { background: rgba(29, 36, 51, 0.08); }
+  .ring .fill { background: conic-gradient(from 225deg, var(--blue), var(--teal) 120deg, var(--amber) 200deg, transparent 200deg); }
+
+  .ring .temp {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 28px;
+    font-weight: 700;
+  }
+
+  .thermo .modes { display: grid; gap: 6px; font-size: 13px; }
+  .thermo .modes span { padding: 6px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.7); }
+  .thermo .modes .on { background: var(--blue); color: #fff; }
+
+  .camera {
+    position: relative;
+    height: 130px;
+    margin: -16px -16px 0;
+    border-radius: 20px 20px 0 0;
+    overflow: hidden;
+    background:
+      linear-gradient(0deg, #3b4a5e 0 30%, transparent 30%),
+      linear-gradient(180deg, #8fb3d9, #c6d7ea 70%);
+    filter: contrast(1.1) saturate(0.7);
+  }
+
+  .camera .door {
+    position: absolute;
+    left: 40%;
+    bottom: 30%;
+    width: 50px;
+    height: 70px;
+    background: #6d5844;
+  }
+
+  .camera .scan {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 2px, transparent 2px 4px);
+    mix-blend-mode: overlay;
+  }
+
+  .camera .live {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(255, 60, 60, 0.85);
+  }
+
+  .energy { margin-top: 14px; padding: 18px; }
+  .energy h2 { margin: 0 0 12px; font-size: 15px; }
+
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 90px;
+  }
+
+  .bars span {
+    flex: 1;
+    border-radius: 6px 6px 2px 2px;
+    background: linear-gradient(180deg, var(--teal), rgba(25, 179, 156, 0.25));
+  }
+
+  .bars span.peak { background: linear-gradient(180deg, var(--amber), rgba(255, 176, 46, 0.25)); }
+
+  .bars-wrap { -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.35), #000 30%); mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.35), #000 30%); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div><h1>Living room</h1><p>21.5 °C inside · 64% humidity · 3 devices on</p></div>
+      <div class="rooms"><span class="on">Living</span><span>Kitchen</span><span>Bedroom</span><span>Garage</span></div>
+    </div>
+
+    <div class="grid">
+      <div class="tile"><div class="icon"></div><span class="switch"></span><h3>Ceiling lights</h3><small>80% · Warm</small></div>
+      <div class="tile off"><div class="icon"></div><span class="switch"></span><h3>Floor lamp</h3><small>Off since 18:40</small></div>
+      <div class="tile wide">
+        <div class="thermo">
+          <div class="ring"><div class="track"></div><div class="fill"></div><div class="temp">21.5°</div></div>
+          <div><h3 style="margin-top: 0">Thermostat</h3><div class="modes"><span class="on">Heat to 22°</span><span>Eco</span><span>Away</span></div></div>
+        </div>
+      </div>
+      <div class="tile wide"><div class="camera"><div class="door"></div><div class="scan"></div><span class="live">LIVE</span></div><h3>Front door</h3><small>Motion 4 min ago</small></div>
+      <div class="tile"><div class="icon" style="background: linear-gradient(135deg, #8b7bff, #3a7bff)"></div><span class="switch"></span><h3>Speaker</h3><small>Playing · 35%</small></div>
+      <div class="tile off"><div class="icon" style="background: linear-gradient(135deg, #5be3c8, #19b39c)"></div><span class="switch"></span><h3>Air purifier</h3><small>Filter at 12%</small></div>
+    </div>
+
+    <div class="tile energy">
+      <h2>Energy today · 7.4 kWh</h2>
+      <div class="bars-wrap">
+        <div class="bars">
+          <span style="height: 20%"></span><span style="height: 15%"></span><span style="height: 12%"></span><span style="height: 18%"></span>
+          <span style="height: 35%"></span><span style="height: 52%"></span><span style="height: 46%"></span><span style="height: 38%"></span>
+          <span style="height: 41%"></span><span style="height: 44%"></span><span style="height: 60%"></span><span class="peak" style="height: 92%"></span>
+          <span class="peak" style="height: 84%"></span><span style="height: 58%"></span><span style="height: 40%"></span><span style="height: 26%"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

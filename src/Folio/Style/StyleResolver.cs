@@ -135,7 +135,7 @@ internal static class StyleResolver
             var sharable = inline is null && hints is null;
             if (!sharable || shared.Find(item.Parent, rootFontSize, matched) is not { } style)
             {
-                var (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints);
+                var (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints, parent: item.Parent);
                 style = StyleBuilder.Compute(values, Context(item.Parent, custom), groups);
                 // Animations at the document time: each keyframe's declarations join the cascade's animation origin and
                 // the values are interpolated between them.
@@ -144,7 +144,7 @@ internal static class StyleResolver
                     var parent = item.Parent;
                     style = Animations.Sample(style, parent, keyframes, animationTime, declarations =>
                     {
-                        var (keyed, keyedCustom) = Cascade.Compute(matched, inline, int.MaxValue, hints, declarations);
+                        var (keyed, keyedCustom) = Cascade.Compute(matched, inline, int.MaxValue, hints, declarations, parent);
                         return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
                     }, groups) ?? style;
                 }
@@ -164,7 +164,7 @@ internal static class StyleResolver
                     Cascade.Match(element, origins, context, pe, pseudoMatched);
                     if (!always && pseudoMatched.Count == 0)
                         return null;
-                    var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null);
+                    var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null, parent: style);
                     return StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
                 }
                 styles.Before = Pseudo(PseudoElement.Before);
@@ -222,7 +222,7 @@ internal static class StyleResolver
             }
             _matched.Clear();
             Cascade.Match(element, origins, _context, PseudoElement.None, _matched);
-            var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element));
+            var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element), parent: parent);
             return StyleBuilder.Compute(values, new ComputeContext(parent, rootFontSize, media.Width, media.Height)
             {
                 PrefersDark = media.DarkColorScheme,

@@ -78,6 +78,7 @@ internal enum PropertyId
     TextAlign,
     VerticalAlign,
     Direction,
+    WritingMode,
     UnicodeBidi,
     FlexDirection,
     FlexWrap,
@@ -204,6 +205,36 @@ internal enum PropertyId
     MarkerStart,
     MarkerMid,
     MarkerEnd,
+    MarginBlockStart,
+    MarginBlockEnd,
+    MarginInlineStart,
+    MarginInlineEnd,
+    PaddingBlockStart,
+    PaddingBlockEnd,
+    PaddingInlineStart,
+    PaddingInlineEnd,
+    InsetBlockStart,
+    InsetBlockEnd,
+    InsetInlineStart,
+    InsetInlineEnd,
+    BorderBlockStartWidth,
+    BorderBlockEndWidth,
+    BorderInlineStartWidth,
+    BorderInlineEndWidth,
+    BorderBlockStartStyle,
+    BorderBlockEndStyle,
+    BorderInlineStartStyle,
+    BorderInlineEndStyle,
+    BorderBlockStartColor,
+    BorderBlockEndColor,
+    BorderInlineStartColor,
+    BorderInlineEndColor,
+    InlineSize,
+    BlockSize,
+    MinInlineSize,
+    MinBlockSize,
+    MaxInlineSize,
+    MaxBlockSize,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -300,7 +331,7 @@ internal static class Properties
     {
         Table = BuildTable();
         ByName = Table.ToDictionary(p => p.Name, StringComparer.Ordinal);
-        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands))
+        foreach (var (name, shorthand) in MaskProperties.Shorthands.Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
     }
 
@@ -553,6 +584,8 @@ internal static class Properties
             // https://www.w3.org/TR/css-writing-modes-3/#direction and #unicode-bidi
             Keywords(PropertyId.Direction, "direction", true, "ltr", Enum<Direction>("ltr", "rtl"),
                 s => s.Text.Direction, (b, v) => b.Text = b.Text with { Direction = v }),
+            Keywords(PropertyId.WritingMode, "writing-mode", true, "horizontal-tb", Enum<WritingMode>("horizontal-tb", "vertical-rl", "vertical-lr"),
+                s => s.Text.WritingMode, (b, v) => b.Text = b.Text with { WritingMode = v }),
             Keywords(PropertyId.UnicodeBidi, "unicode-bidi", false, "normal",
                 Enum<UnicodeBidi>("normal", "embed", "isolate", "bidi-override", "isolate-override", "plaintext"),
                 s => s.Box.UnicodeBidi, (b, v) => b.Box = b.Box with { UnicodeBidi = v }),
@@ -825,6 +858,7 @@ internal static class Properties
         rows.AddRange(BorderImageProperties.Rows);
         rows.AddRange(AnimationProperties.Rows);
         rows.AddRange(MulticolProperties.Rows);
+        rows.AddRange(LogicalProperties.Rows);
         rows.AddRange(SvgProperties.Rows);
         rows.AddRange(SvgProperties.StopRows);
 
@@ -847,7 +881,7 @@ internal static class Properties
         ["table-header-group"] = Display.TableHeaderGroup, ["table-footer-group"] = Display.TableFooterGroup,
         ["table-row"] = Display.TableRow, ["table-cell"] = Display.TableCell, ["table-column-group"] = Display.TableColumnGroup,
         ["table-column"] = Display.TableColumn, ["table-caption"] = Display.TableCaption, ["contents"] = Display.Contents,
-        ["none"] = Display.None,
+        ["ruby"] = Display.Ruby, ["ruby-text"] = Display.RubyText, ["none"] = Display.None,
     };
 
     private static readonly Dictionary<string, ContentAlign> ContentAlignKeywords = new()

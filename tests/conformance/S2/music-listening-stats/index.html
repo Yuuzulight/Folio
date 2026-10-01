@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your year in music</title>
+<style>
+  :root {
+    --bg: #111014;
+    --card: #1b1a21;
+    --line: #2a2932;
+    --text: #f4f2f8;
+    --muted: #9a96a8;
+    --lime: #c9f75d;
+    --pink: #ff5fa2;
+    --cyan: #4fd8ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Circular", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .page { padding: 28px; }
+
+  .intro {
+    position: relative;
+    padding: 30px;
+    border-radius: 24px;
+    overflow: hidden;
+    background: linear-gradient(120deg, #2b1055, #7597de);
+    background-blend-mode: normal;
+  }
+
+  .intro::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 80% 20%, var(--pink), transparent 40%),
+      radial-gradient(circle at 20% 90%, var(--cyan), transparent 45%);
+    mix-blend-mode: screen;
+    opacity: 0.8;
+  }
+
+  .intro > * { position: relative; }
+  .intro small { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .intro h1 { margin: 10px 0 0; font-size: 46px; line-height: 1; letter-spacing: -0.03em; }
+  .intro .minutes { margin-top: 18px; font-size: 18px; }
+  .intro .minutes b { font-size: 34px; color: var(--lime); }
+
+  .cols { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-top: 16px; }
+
+  .card {
+    padding: 20px;
+    border-radius: 20px;
+    background: var(--card);
+    border: 1px solid var(--line);
+  }
+
+  .card h2 { margin: 0 0 14px; font-size: 16px; }
+
+  .artist {
+    display: grid;
+    grid-template-columns: 22px 54px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+  }
+
+  .artist .rank { font-size: 15px; color: var(--muted); text-align: right; }
+
+  .artist .face {
+    position: relative;
+    width: 54px;
+    height: 54px;
+    clip-path: circle(50%);
+    isolation: isolate;
+  }
+
+  .artist .face .photo {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 38%, #e9d3c2 0 24%, transparent 25%),
+      radial-gradient(ellipse at 50% 105%, #47425a 0 46%, transparent 47%),
+      linear-gradient(160deg, #a7a3b6, #3a3746);
+    filter: grayscale(1) contrast(1.15);
+  }
+
+  .artist .face .tone {
+    position: absolute;
+    inset: 0;
+    mix-blend-mode: multiply;
+  }
+
+  .artist:nth-child(2) .tone { background: linear-gradient(135deg, var(--pink), #7a1fd1); }
+  .artist:nth-child(3) .tone { background: linear-gradient(135deg, var(--cyan), #2347ff); }
+  .artist:nth-child(4) .tone { background: linear-gradient(135deg, var(--lime), #1f9d55); }
+  .artist:nth-child(5) .tone { background: linear-gradient(135deg, #ffb35c, #ff4b2b); }
+
+  .artist b { display: block; font-size: 15px; }
+  .artist span.sub { font-size: 13px; color: var(--muted); }
+  .artist .hours { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .genres { display: grid; gap: 12px; }
+
+  .genre .label { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+  .genre .label span { color: var(--muted); }
+
+  .meter {
+    height: 12px;
+    border-radius: 999px;
+    background: #2a2932;
+    overflow: hidden;
+  }
+
+  .meter i {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--pink), var(--cyan));
+    background-size: 300px 100%;
+  }
+
+  .covers {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .cover {
+    aspect-ratio: 1;
+    border-radius: 12px;
+    background-blend-mode: multiply, normal;
+  }
+
+  .cover:nth-child(1) { background: repeating-linear-gradient(45deg, rgba(0,0,0,0.25) 0 6px, transparent 6px 12px), linear-gradient(135deg, #ff5fa2, #ffb35c); }
+  .cover:nth-child(2) { background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.6), transparent 50%), linear-gradient(135deg, #4fd8ff, #2347ff); background-blend-mode: overlay, normal; }
+  .cover:nth-child(3) { background: repeating-radial-gradient(circle, rgba(0,0,0,0.3) 0 4px, transparent 4px 10px), linear-gradient(135deg, #c9f75d, #1f9d55); }
+  .cover:nth-child(4) { background: linear-gradient(0deg, rgba(0,0,0,0.5), transparent), conic-gradient(from 90deg, #7a1fd1, #ff5fa2, #7a1fd1); background-blend-mode: darken, normal; }
+  .cover:nth-child(5) { background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 3px, transparent 3px 9px), linear-gradient(135deg, #3a3746, #9a96a8); background-blend-mode: screen, normal; }
+  .cover:nth-child(6) { background: radial-gradient(circle, #ffb35c 0 30%, transparent 31%), linear-gradient(135deg, #ff4b2b, #7a1fd1); background-blend-mode: difference, normal; }
+
+  .foot { margin-top: 18px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <div class="page">
+    <section class="intro">
+      <small>Your 2026 wrapped</small>
+      <h1>You had a<br>loud year.</h1>
+      <p class="minutes"><b>41,286</b> minutes listened, top 3% of listeners in your city.</p>
+    </section>
+
+    <div class="cols">
+      <div class="card">
+        <h2>Top artists</h2>
+        <div class="artist"><span class="rank">1</span><span class="face"><span class="photo"></span><span class="tone"></span></span><span><b>Mira Sol</b><span class="sub">Electronic · 212 plays</span></span><span class="hours">58 h</span></div>
+        <div class="artist"><span class="rank">2</span><span class="face"><span class="photo"></span><span class="tone"></span></span><span><b>Glasshouse</b><span class="sub">Indie · 174 plays</span></span><span class="hours">44 h</span></div>
+        <div class="artist"><span class="rank">3</span><span class="face"><span class="photo"></span><span class="tone"></span></span><span><b>Paper Moons</b><span class="sub">Dream pop · 131 plays</span></span><span class="hours">31 h</span></div>
+        <div class="artist"><span class="rank">4</span><span class="face"><span class="photo"></span><span class="tone"></span></span><span><b>Low Orbit</b><span class="sub">Ambient · 97 plays</span></span><span class="hours">27 h</span></div>
+      </div>
+      <div class="card">
+        <h2>Genres</h2>
+        <div class="genres">
+          <div class="genre"><div class="label">Electronic <span>38%</span></div><div class="meter"><i style="width: 38%"></i></div></div>
+          <div class="genre"><div class="label">Indie rock <span>24%</span></div><div class="meter"><i style="width: 24%"></i></div></div>
+          <div class="genre"><div class="label">Dream pop <span>17%</span></div><div class="meter"><i style="width: 17%"></i></div></div>
+          <div class="genre"><div class="label">Ambient <span>12%</span></div><div class="meter"><i style="width: 12%"></i></div></div>
+          <div class="genre"><div class="label">Jazz <span>9%</span></div><div class="meter"><i style="width: 9%"></i></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 16px">
+      <h2>Albums on repeat</h2>
+      <div class="covers"><div class="cover"></div><div class="cover"></div><div class="cover"></div><div class="cover"></div><div class="cover"></div><div class="cover"></div></div>
+    </div>
+
+    <p class="foot">Based on plays from January 1 to November 30. Podcasts are not included.</p>
+  </div>
+</body>
+</html>
