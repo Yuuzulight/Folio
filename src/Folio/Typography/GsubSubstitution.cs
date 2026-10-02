@@ -7,16 +7,43 @@ namespace Folio.Typography;
 /// type 1 in both formats, also behind extension lookups) for the features text asks for, such as <c>tnum</c> for
 /// tabular figures. Reads the table on demand with checked offsets; a malformed table substitutes nothing.
 /// </summary>
-// ponytail: only single substitutions; ligatures and contextual features stay with the complex shaper.
+// ponytail: only single substitutions; ligatures and contextual features stay with the complex shaper, which gets every
+// run with a ligature in it (StartsLigature).
 internal sealed class GsubSubstitution
 {
     private const int Single = 1;
+    private const int Ligature = 4;
     private const int Extension = 7;
 
     private readonly FontData _gsub;
     private readonly ConcurrentDictionary<string, int[]> _subtables = new(StringComparer.Ordinal);
 
+    // The coverage tables of the ligature substitutions text gets by default, read on first use.
+    private int[]? _ligatureCoverages;
+
     private GsubSubstitution(FontData gsub) => _gsub = gsub;
+
+    /// <summary>
+    /// Whether a glyph starts a ligature of the features on by default (liga, clig and rlig: lookup type 4), which only
+    /// the complex shaper forms.
+    /// </summary>
+    public bool StartsLigature(ushort glyph)
+    {
+        try
+        {
+            _ligatureCoverages ??= [.. Subtables("liga clig rlig", Ligature).Select(s => s + _gsub.U16(s + 2))];
+            foreach (var coverage in _ligatureCoverages)
+            {
+                if (CoverageIndex(coverage, glyph) >= 0)
+                    return true;
+            }
+            return false;
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException)
+        {
+            return false;
+        }
+    }
 
     public static GsubSubstitution? Read(FontData gsub) => gsub.Length >= 10 ? new GsubSubstitution(gsub) : null;
 
@@ -27,7 +54,7 @@ internal sealed class GsubSubstitution
         {
             // Looked up first: GetOrAdd with the method group would make a delegate for every glyph.
             if (!_subtables.TryGetValue(features, out var subtables))
-                subtables = _subtables.GetOrAdd(features, Subtables);
+                subtables = _subtables.GetOrAdd(features, f => Subtables(f, Single));
             foreach (var subtable in subtables)
             {
                 if (Apply(subtable, glyph) is { } replaced)
@@ -41,9 +68,10 @@ internal sealed class GsubSubstitution
         }
     }
 
-    // The single-substitution subtables of the space-separated feature tags' lookups, in lookup order, for the Latin
-    // script's default language system, else the default script's, else any feature with that tag.
-    private int[] Subtables(string features)
+    // The subtables of one lookup type (single or ligature substitutions) of the space-separated feature tags' lookups, in
+    // lookup order, for the Latin script's default language system, else the default script's, else any feature with
+    // that tag.
+    private int[] Subtables(string features, int kind)
     {
         try
         {
@@ -69,9 +97,9 @@ internal sealed class GsubSubstitution
                 for (var s = 0; s < _gsub.U16(lookup + 4); s++)
                 {
                     var subtable = lookup + _gsub.U16(lookup + 6 + 2 * s);
-                    if (type == Extension && _gsub.U16(subtable) == 1 && _gsub.U16(subtable + 2) == Single)
+                    if (type == Extension && _gsub.U16(subtable) == 1 && _gsub.U16(subtable + 2) == kind)
                         subtables.Add(checked(subtable + (int)_gsub.U32(subtable + 4)));
-                    else if (type == Single)
+                    else if (type == kind)
                         subtables.Add(subtable);
                 }
             }
