@@ -71,11 +71,12 @@ internal sealed record SvgGroup(SvgPaint Fill, float FillOpacity, SvgFillRule Fi
 /// <summary>
 /// The gradient stop and filter flood properties (not inherited): stop-color and stop-opacity
 /// (https://www.w3.org/TR/SVG2/pservers.html#StopColorProperties), flood-color and flood-opacity
-/// (https://drafts.csswg.org/filter-effects-1/#FloodColorProperty).
+/// (https://drafts.csswg.org/filter-effects-1/#FloodColorProperty), and lighting-color
+/// (https://drafts.csswg.org/filter-effects-1/#LightingColorProperty).
 /// </summary>
-internal sealed record SvgStopGroup(CssColor StopColor, float StopOpacity, CssColor FloodColor = default, float FloodOpacity = 1)
+internal sealed record SvgStopGroup(CssColor StopColor, float StopOpacity, CssColor FloodColor = default, float FloodOpacity = 1, CssColor LightingColor = default)
 {
-    public static SvgStopGroup Initial { get; } = new(CssColor.Black, 1, CssColor.Black);
+    public static SvgStopGroup Initial { get; } = new(CssColor.Black, 1, CssColor.Black, LightingColor: new CssColor(1, 1, 1, 1));
 }
 
 /// <summary>https://drafts.csswg.org/filter-effects-1/#ColorInterpolationFiltersProperty (auto is linearRGB).</summary>

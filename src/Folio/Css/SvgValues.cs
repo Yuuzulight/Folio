@@ -87,6 +87,8 @@ internal static class SvgProperties
             r => r.Number() is { } n ? new NumberValue(n) : r.LengthPercentage() is PercentageValue p ? p : null,
             (v, _) => Math.Clamp(v is PercentageValue p ? p.Percent / 100 : ((NumberValue)v).Number, 0, 1),
             s => s.SvgStop.FloodOpacity, (b, v) => b.SvgStop = b.SvgStop with { FloodOpacity = v }),
+        new Property<CssColor>(PropertyId.LightingColor, "lighting-color", false, "white", r => r.ColorSpecified(), (v, ctx) => ctx.Color(v, ctx.CurrentColor),
+            s => s.SvgStop.LightingColor, (b, v) => b.SvgStop = b.SvgStop with { LightingColor = v }),
     ];
 
     // none | <color> | <url> [none | <color>]? (https://www.w3.org/TR/SVG2/painting.html#SpecifyingPaint)

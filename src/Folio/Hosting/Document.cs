@@ -267,7 +267,7 @@ public sealed class Document : IDisposable
             (message, feature) => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, feature)));
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (new DisplayList(), 0);
-        var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper);
+        var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
         LayoutCount++;
         _frame = (root, page, deviceScale);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.

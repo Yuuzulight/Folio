@@ -217,7 +217,68 @@ public enum FilterKind
     /// <see cref="Filter.YChannel"/>, each from 0 to 1 centred on 0.5, times <see cref="Filter.Scale"/>.
     /// </summary>
     DisplacementMap,
+
+    /// <summary>The input's <see cref="Filter.Source"/> rectangle repeated across the subregion.</summary>
+    Tile,
+
+    /// <summary>
+    /// The input convolved with <see cref="Filter.Kernel"/>, as feConvolveMatrix does: divided by
+    /// <see cref="Filter.Divisor"/>, plus <see cref="Filter.Bias"/>, edges read by <see cref="Filter.EdgeMode"/>.
+    /// </summary>
+    ConvolveMatrix,
+
+    /// <summary><see cref="Filter.Image"/> drawn into <see cref="Filter.Destination"/>; it takes no input.</summary>
+    Image,
+
+    /// <summary>
+    /// Diffuse lighting of the input's alpha as a height map (feDiffuseLighting): <see cref="Filter.Light"/> in
+    /// <see cref="Filter.Color"/>, with <see cref="Filter.SurfaceScale"/> and <see cref="Filter.LightingConstant"/> (kd).
+    /// </summary>
+    DiffuseLighting,
+
+    /// <summary>
+    /// Specular lighting of the input's alpha as a height map (feSpecularLighting): <see cref="Filter.Light"/> in
+    /// <see cref="Filter.Color"/>, with <see cref="Filter.SurfaceScale"/>, <see cref="Filter.LightingConstant"/> (ks)
+    /// and <see cref="Filter.Shininess"/>.
+    /// </summary>
+    SpecularLighting,
 }
+
+/// <summary>How a filter primitive reads pixels past the edges of its input.</summary>
+public enum EdgeMode
+{
+    /// <summary>As transparent black.</summary>
+    None,
+
+    /// <summary>As the nearest edge pixel.</summary>
+    Duplicate,
+
+    /// <summary>From the opposite edge.</summary>
+    Wrap,
+}
+
+/// <summary>The light sources of the lighting primitives (https://drafts.csswg.org/filter-effects-1/#LightSourceDefinitions).</summary>
+public enum LightKind
+{
+    /// <summary>A light infinitely far away, shining along <see cref="Light.Direction"/>.</summary>
+    Distant,
+
+    /// <summary>A light at <see cref="Light.Position"/>.</summary>
+    Point,
+
+    /// <summary>
+    /// A light at <see cref="Light.Position"/> pointing at <see cref="Light.Target"/>, its intensity falling off with
+    /// <see cref="Light.Exponent"/> and cut off outside <see cref="Light.ConeAngle"/> when given.
+    /// </summary>
+    Spot,
+}
+
+/// <summary>
+/// A light source in the layer's coordinates, z towards the viewer. <paramref name="Direction"/> is the unit vector
+/// from the surface towards a distant light.
+/// </summary>
+public sealed record Light(LightKind Kind, Vector3 Direction = default, Vector3 Position = default, Vector3 Target = default,
+                           float Exponent = 1, float? ConeAngle = null);
 
 /// <summary>Where a filter primitive takes an input from.</summary>
 public enum FilterSource
@@ -343,6 +404,57 @@ public sealed record Filter(FilterKind Kind, float StdDeviation = 0, IReadOnlyLi
 
     /// <summary>For a displacement map: the channel of <see cref="In2"/> that moves pixels along y.</summary>
     public ColorChannel YChannel { get; init; } = ColorChannel.A;
+
+    /// <summary>For a tile: the rectangle of the input that is repeated.</summary>
+    public RectF? Source { get; init; }
+
+    /// <summary>
+    /// For a convolution: the kernel matrix, <see cref="KernelColumns"/> by <see cref="KernelRows"/>, row by row, as
+    /// feConvolveMatrix's kernelMatrix.
+    /// </summary>
+    public IReadOnlyList<float>? Kernel { get; init; }
+
+    /// <summary>For a convolution: the kernel's columns.</summary>
+    public int KernelColumns { get; init; }
+
+    /// <summary>For a convolution: the kernel's rows.</summary>
+    public int KernelRows { get; init; }
+
+    /// <summary>For a convolution: the kernel's column over the pixel it computes.</summary>
+    public int TargetX { get; init; }
+
+    /// <summary>For a convolution: the kernel's row over the pixel it computes.</summary>
+    public int TargetY { get; init; }
+
+    /// <summary>For a convolution: what the sum is divided by.</summary>
+    public float Divisor { get; init; } = 1;
+
+    /// <summary>For a convolution: what is added to the result.</summary>
+    public float Bias { get; init; }
+
+    /// <summary>For a convolution: how pixels past the input's edges are read.</summary>
+    public EdgeMode EdgeMode { get; init; }
+
+    /// <summary>For a convolution: leave alpha as it is and convolve only the colour.</summary>
+    public bool PreserveAlpha { get; init; }
+
+    /// <summary>For an image: the image.</summary>
+    public Imaging.IImageHandle? Image { get; init; }
+
+    /// <summary>For an image: where it is drawn.</summary>
+    public RectF Destination { get; init; }
+
+    /// <summary>For lighting: the light.</summary>
+    public Light? Light { get; init; }
+
+    /// <summary>For lighting: the height of an opaque pixel of the input's alpha.</summary>
+    public float SurfaceScale { get; init; } = 1;
+
+    /// <summary>For lighting: kd for diffuse lighting, ks for specular lighting.</summary>
+    public float LightingConstant { get; init; } = 1;
+
+    /// <summary>For specular lighting: the exponent of the specular term.</summary>
+    public float Shininess { get; init; } = 1;
 }
 
 public enum PathVerb
