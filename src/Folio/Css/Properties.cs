@@ -423,7 +423,15 @@ internal static class Properties
 
     // ---------------------------------------------------------------- table
 
-    // How to make each row, and the property names. Rows defined in their own files are made here already, and kept.
+    /// <summary>How to make one row, by its id and name, without making it yet (rows defined in the other areas' files).</summary>
+    internal sealed class LazyRow(PropertyId id, string name, Func<Property> make)
+    {
+        public PropertyId Id { get; } = id;
+        public string Name { get; } = name;
+        public Func<Property> Make { get; } = make;
+    }
+
+    // How to make each row, and the property names. Rows of the logical properties and clip-path are made here already, and kept.
     private static (Func<Property>[] Factories, Dictionary<string, PropertyId> Names) BuildTable()
     {
         var factories = new Func<Property>[System.Enum.GetValues<PropertyId>().Length];
@@ -437,6 +445,11 @@ internal static class Properties
         {
             foreach (var row in made)
                 Row(row.Id, row.Name, () => row);
+        }
+        void Lazy(LazyRow[] rows)
+        {
+            foreach (var row in rows)
+                Row(row.Id, row.Name, row.Make);
         }
 
         Row(PropertyId.Display, "display", static () => Keywords(PropertyId.Display, "display", false, "inline", DisplayKeywords, b => b.Box.Display, (b, v) => b.Box = b.Box with { Display = v }));
@@ -880,17 +893,17 @@ internal static class Properties
         Row(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", static () => Keywords(PropertyId.TextDecorationSkipInk, "text-decoration-skip-ink", true, "auto", KeywordMap<SkipInk>.InOrder("auto", "none", "all"),
             s => s.Text.SkipInk, (b, v) => b.Text = b.Text with { SkipInk = v }));
 
-        Rows(TransformProperties.Rows);
-        Rows(FilterProperties.Rows);
+        Lazy(TransformProperties.Rows);
+        Lazy(FilterProperties.Rows);
         Rows([ShapeProperties.Row]);
-        Rows(MaskProperties.Rows);
-        Rows(BorderImageProperties.MaskBorderRows);
-        Rows(BorderImageProperties.Rows);
-        Rows(AnimationProperties.Rows);
-        Rows(MulticolProperties.Rows);
+        Lazy(MaskProperties.Rows);
+        Lazy(BorderImageProperties.MaskBorderRows);
+        Lazy(BorderImageProperties.Rows);
+        Lazy(AnimationProperties.Rows);
+        Lazy(MulticolProperties.Rows);
         Rows(LogicalProperties.Rows);
-        Rows(SvgProperties.Rows);
-        Rows(SvgProperties.StopRows);
+        Lazy(SvgProperties.Rows);
+        Lazy(SvgProperties.StopRows);
 
         if (factories.Any(f => f is null))
             throw new InvalidOperationException("Every PropertyId needs a table row.");

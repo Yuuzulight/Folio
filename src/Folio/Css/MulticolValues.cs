@@ -10,34 +10,34 @@ namespace Folio.Css;
 /// </summary>
 internal static class MulticolProperties
 {
-    public static IEnumerable<Property> Rows =>
+    public static Properties.LazyRow[] Rows =>
     [
-        new Property<int?>(PropertyId.ColumnCount, "column-count", false, "auto", Count,
+        new(PropertyId.ColumnCount, "column-count", static () => new Property<int?>(PropertyId.ColumnCount, "column-count", false, "auto", Count,
             (v, _) => v is NumberValue n ? (int)n.Number : null,
-            s => s.Multicol.Count, (b, v) => b.Multicol = b.Multicol with { Count = v }),
-        new Property<float?>(PropertyId.ColumnWidth, "column-width", false, "auto", Width,
+            s => s.Multicol.Count, (b, v) => b.Multicol = b.Multicol with { Count = v })),
+        new(PropertyId.ColumnWidth, "column-width", static () => new Property<float?>(PropertyId.ColumnWidth, "column-width", false, "auto", Width,
             (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v, nonNegative: true).Px,
-            s => s.Multicol.Width, (b, v) => b.Multicol = b.Multicol with { Width = v }),
-        Properties.BorderWidth(PropertyId.ColumnRuleWidth, "column-rule-width",
-            s => s.Multicol.RuleWidthPx, (b, v) => b.Multicol = b.Multicol with { RuleWidthPx = v }),
-        new Property<BorderStyle>(PropertyId.ColumnRuleStyle, "column-rule-style", false, "none",
+            s => s.Multicol.Width, (b, v) => b.Multicol = b.Multicol with { Width = v })),
+        new(PropertyId.ColumnRuleWidth, "column-rule-width", static () => Properties.BorderWidth(PropertyId.ColumnRuleWidth, "column-rule-width",
+            s => s.Multicol.RuleWidthPx, (b, v) => b.Multicol = b.Multicol with { RuleWidthPx = v })),
+        new(PropertyId.ColumnRuleStyle, "column-rule-style", static () => new Property<BorderStyle>(PropertyId.ColumnRuleStyle, "column-rule-style", false, "none",
             r => Properties.Get(PropertyId.BorderTopStyle).Parse(r),
             (v, _) => Enum.Parse<BorderStyle>(((KeywordValue)v).Keyword, ignoreCase: true),
-            s => s.Multicol.RuleStyle, (b, v) => b.Multicol = b.Multicol with { RuleStyle = v }),
-        Properties.Color(PropertyId.ColumnRuleColor, "column-rule-color", "currentcolor",
-            s => s.Multicol.RuleColor, (b, v) => b.Multicol = b.Multicol with { RuleColor = v }),
-        new Property<bool>(PropertyId.ColumnSpan, "column-span", false, "none",
+            s => s.Multicol.RuleStyle, (b, v) => b.Multicol = b.Multicol with { RuleStyle = v })),
+        new(PropertyId.ColumnRuleColor, "column-rule-color", static () => Properties.Color(PropertyId.ColumnRuleColor, "column-rule-color", "currentcolor",
+            s => s.Multicol.RuleColor, (b, v) => b.Multicol = b.Multicol with { RuleColor = v })),
+        new(PropertyId.ColumnSpan, "column-span", static () => new Property<bool>(PropertyId.ColumnSpan, "column-span", false, "none",
             r => r.Keyword("none", "all") is { } k ? new KeywordValue(k) : null,
             (v, _) => ((KeywordValue)v).Keyword == "all",
-            s => s.Multicol.SpanAll, (b, v) => b.Multicol = b.Multicol with { SpanAll = v }),
-        new Property<bool>(PropertyId.ColumnFill, "column-fill", false, "balance",
+            s => s.Multicol.SpanAll, (b, v) => b.Multicol = b.Multicol with { SpanAll = v })),
+        new(PropertyId.ColumnFill, "column-fill", static () => new Property<bool>(PropertyId.ColumnFill, "column-fill", false, "balance",
             r => r.Keyword("auto", "balance", "balance-all") is { } k ? new KeywordValue(k) : null,
             (v, _) => ((KeywordValue)v).Keyword == "auto",
-            s => s.Multicol.FillAuto, (b, v) => b.Multicol = b.Multicol with { FillAuto = v }),
-        new Property<bool>(PropertyId.BreakInside, "break-inside", false, "auto",
+            s => s.Multicol.FillAuto, (b, v) => b.Multicol = b.Multicol with { FillAuto = v })),
+        new(PropertyId.BreakInside, "break-inside", static () => new Property<bool>(PropertyId.BreakInside, "break-inside", false, "auto",
             r => r.Keyword("auto", "avoid", "avoid-page", "avoid-column", "avoid-region") is { } k ? new KeywordValue(k) : null,
             (v, _) => ((KeywordValue)v).Keyword is "avoid" or "avoid-column",
-            s => s.Multicol.AvoidBreakInside, (b, v) => b.Multicol = b.Multicol with { AvoidBreakInside = v }),
+            s => s.Multicol.AvoidBreakInside, (b, v) => b.Multicol = b.Multicol with { AvoidBreakInside = v })),
     ];
 
     public static IEnumerable<(string Name, Properties.Shorthand Shorthand)> Shorthands =>

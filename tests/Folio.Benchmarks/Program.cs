@@ -95,6 +95,7 @@ public static class Program
     private static int Cold()
     {
         var (jitStart, methodsStart) = (System.Runtime.JitInfo.GetCompilationTime(), System.Runtime.JitInfo.GetCompiledMethodCount());
+        var allocatedStart = GC.GetTotalAllocatedBytes(precise: true);
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         var document = Folio.Html.TreeBuilder.Parse("<!DOCTYPE html><title>t</title><style>p { color: #333; margin: 1em 0 } .a { display: flex; gap: 4px }</style><p class=a>Hello <b>world</b></p>");
         var parsed = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -102,9 +103,10 @@ public static class Program
         Folio.Style.StyleResolver.Resolve(document, new Folio.Css.MediaContext(800, 600));
         var styled = System.Diagnostics.Stopwatch.GetTimestamp();
         var (jitStyled, methodsStyled) = (System.Runtime.JitInfo.GetCompilationTime(), System.Runtime.JitInfo.GetCompiledMethodCount());
+        var allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedStart;
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"parse {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(start, parsed))} ms ({methodsParsed - methodsStart} methods, {Ms(jitParsed - jitStart)} ms JIT), " +
-            $"style {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(parsed, styled))} ms ({methodsStyled - methodsParsed} methods, {Ms(jitStyled - jitParsed)} ms JIT)"));
+            $"style {Ms(System.Diagnostics.Stopwatch.GetElapsedTime(parsed, styled))} ms ({methodsStyled - methodsParsed} methods, {Ms(jitStyled - jitParsed)} ms JIT), allocated {allocated / 1024} KB"));
         return 0;
     }
 
