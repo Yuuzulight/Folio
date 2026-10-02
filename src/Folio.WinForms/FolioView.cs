@@ -220,7 +220,8 @@ public class FolioView : Control
                 canvas.Clear(_document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
                 canvas.Scale(PixelScale);
                 canvas.Translate(0, -ScrollTop);
-                DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2));
+                DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
+                    new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
             }
             using var image = new Bitmap(width, height, bitmap.RowBytes, PixelFormat.Format32bppPArgb, bitmap.GetPixels());
             e.Graphics.DrawImageUnscaled(image, 0, 0);
