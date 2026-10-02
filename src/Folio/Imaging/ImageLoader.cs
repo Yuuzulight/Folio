@@ -64,6 +64,7 @@ internal sealed class ImageLoader(ResourceLoader loader, string? baseUrl, Action
         if (!Xml.XmlParser.IsSvgDocument(text))
             return null;
         var document = Xml.XmlParser.Parse(text);
+        document.IsImage = true;
         if (document.DocumentElement is not { LocalName: "svg" } root)
             return null;
         // ponytail: media queries inside the image see a 300x150 viewport, not the size it is drawn at.

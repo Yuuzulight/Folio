@@ -39,8 +39,8 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>elements Folio draws only as empty boxes: MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
 /// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, masks, filters
-///   with the common primitives, <c>use</c>, <c>symbol</c> and markers: other SVG elements (patterns, images, lighting,
-///   animation, ...), stroked text and the text attributes Folio does not lay out;</item>
+///   and their primitives, <c>use</c>, <c>symbol</c> and markers: other SVG elements (patterns, images, animation, ...),
+///   an <c>feImage</c> of an element, stroked text and the text attributes Folio does not lay out;</item>
 /// <item>CSS that Folio's property table does not know or cannot parse, gradients, <c>background-clip: text</c>,
 ///   selectors it cannot match, and <c>@font-face</c>, <c>@container</c>, <c>@counter-style</c>, <c>@scope</c>.
 ///   Not counted: declarations that only matter to interaction (<c>cursor</c>, <c>transition</c>, ...), rules
@@ -195,7 +195,8 @@ public static class ArtifactClassifier
             "desc", "metadata", "style", "script", "linearGradient", "radialGradient", "stop", "clipPath", "use", "symbol", "marker", "mask",
             "filter", "feGaussianBlur", "feOffset", "feFlood", "feDropShadow", "feComposite", "feMerge", "feMergeNode", "feBlend",
             "feColorMatrix", "feComponentTransfer", "feFuncR", "feFuncG", "feFuncB", "feFuncA", "feMorphology", "feTurbulence",
-            "feDisplacementMap",
+            "feDisplacementMap", "feTile", "feConvolveMatrix", "feImage", "feDiffuseLighting", "feSpecularLighting", "feDistantLight",
+            "fePointLight", "feSpotLight",
         ];
 
         private void Svg(Element element)
@@ -205,6 +206,14 @@ public static class ArtifactClassifier
                 Unsupported.Add($"uses SVG <{name}>");
             if (element.GetAttribute("vector-effect") is { } effect && effect.Trim() != "none")
                 Unsupported.Add("uses vector-effect");
+            // feImage draws images, not elements.
+            if (name == "feImage" && (element.GetAttribute("href") ?? element.GetAttribute("xlink:href")) is { } image)
+            {
+                if (image.Trim().StartsWith('#'))
+                    Unsupported.Add("uses an SVG <feImage> of an element");
+                else
+                    Image(image);
+            }
             if (name is not ("text" or "tspan"))
                 return;
             foreach (var attribute in (ReadOnlySpan<string>)["rotate", "textLength", "lengthAdjust"])

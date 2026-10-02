@@ -25,6 +25,12 @@ internal sealed class DocumentNode : ContainerNode
 
     public DocumentMode Mode { get; set; }
 
+    /// <summary>
+    /// Whether this is an SVG document used as an image, which loads nothing from outside
+    /// (https://www.w3.org/TR/SVG2/conform.html#secure-static-mode).
+    /// </summary>
+    internal bool IsImage { get; set; }
+
     /// <summary>What the style module needs to style elements again later (typed there, so the DOM layer does not reference it).</summary>
     internal object? StyleState { get; set; }
 

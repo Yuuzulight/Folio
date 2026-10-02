@@ -12,6 +12,9 @@ internal sealed partial class SvgContext(Layout.LayoutContext layout, DocumentNo
 {
     public Layout.LayoutContext Layout { get; } = layout;
 
+    /// <summary>Where images load from: the layout's loader, or data: URLs only inside an SVG image.</summary>
+    public Imaging.ImageLoader? Images => document.IsImage ? Layout.DataUrlImages : Layout.Images;
+
     /// <summary>The clip paths being built, outermost first: one met again is a reference cycle.</summary>
     public HashSet<ElementNode> Clipping { get; } = [];
 

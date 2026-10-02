@@ -128,7 +128,13 @@ public class DisplayListTests
             FilterKind.Morphology => $"{(f.Dilate ? "dilate" : "erode")}({N(f.Radius.X)},{N(f.Radius.Y)})",
             FilterKind.ComponentTransfer => $"transfer({string.Join(";", f.Transfer!.Select(t => $"{t.Kind.ToString().ToLowerInvariant()}{(t.Values is { Count: > 0 } v ? " " + string.Join(",", v.Select(N)) : "")}"))})",
             FilterKind.Turbulence => $"turbulence({N(f.Noise!.BaseFrequency.X)},{N(f.Noise.BaseFrequency.Y)},{f.Noise.Octaves},{N(f.Noise.Seed)}{(f.Noise.Fractal ? ",fractal" : "")}{(f.Noise.Stitch ? ",stitch" : "")})",
-            _ => $"displace({N(f.Scale)},{f.XChannel},{f.YChannel})",
+            FilterKind.DisplacementMap => $"displace({N(f.Scale)},{f.XChannel},{f.YChannel})",
+            FilterKind.Tile => $"tile({Shape(new RoundedRect(f.Source!.Value, default))})",
+            FilterKind.ConvolveMatrix => $"convolve({f.KernelColumns}x{f.KernelRows};{string.Join(",", f.Kernel!.Select(N))};{f.TargetX},{f.TargetY};"
+                + $"{N(f.Divisor)};{N(f.Bias)};{f.EdgeMode.ToString().ToLowerInvariant()}{(f.PreserveAlpha ? ";alpha" : "")})",
+            FilterKind.Image => $"image({f.Image!.Width}x{f.Image.Height};{Shape(new RoundedRect(f.Destination, default))})",
+            _ => $"{(f.Kind == FilterKind.DiffuseLighting ? "diffuse" : "specular")}({LightText(f.Light!)};{color};{N(f.SurfaceScale)};{N(f.LightingConstant)}"
+                + $"{(f.Kind == FilterKind.SpecularLighting ? $";{N(f.Shininess)}" : "")})",
         };
         if (f.In.Source != FilterSource.Previous)
             text += $" in={Input(f.In)}";
@@ -137,6 +143,14 @@ public class DisplayListTests
         if (f.Subregion is { } r)
             text += $" [{Shape(new RoundedRect(r, default))}]";
         return f.LinearRgb ? text + " linear" : text;
+
+        static string V(System.Numerics.Vector3 v) => $"{N(v.X)},{N(v.Y)},{N(v.Z)}";
+        static string LightText(Light light) => light.Kind switch
+        {
+            LightKind.Distant => $"distant({V(light.Direction)})",
+            LightKind.Point => $"point({V(light.Position)})",
+            _ => $"spot({V(light.Position)};{V(light.Target)};{N(light.Exponent)}{(light.ConeAngle is { } cone ? $";{N(cone)}" : "")})",
+        };
 
         static string Input(FilterInput input) => input.Source switch
         {
