@@ -8,7 +8,8 @@ namespace Folio.Benchmarks;
 /// <summary>
 /// <c>bench [iterations]</c> measures every benchmark document and prints a table (also to the GitHub Actions job
 /// summary when run there). Documents over a target get a warning, never a failure: timings on shared machines are
-/// noisy. Anything else runs the harness's own tests.
+/// noisy. <c>gc [runs]</c> shows what layout leaves to the garbage collector on the large generated documents (#397).
+/// Anything else runs the harness's own tests.
 /// </summary>
 public static class Program
 {
@@ -18,6 +19,8 @@ public static class Program
             return Bench(rest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 20);
         if (args is ["cold"])
             return Cold();
+        if (args is ["gc", .. var gcRest])
+            return Gc(gcRest is [var n] ? Math.Max(3, int.Parse(n, CultureInfo.InvariantCulture)) : 7);
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -57,6 +60,25 @@ public static class Program
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.
         if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } summary)
             File.AppendAllText(summary, "### Benchmarks\n\n" + table);
+        return 0;
+    }
+
+    // gc: the layout stage alone, with the collections it causes and what its fragment tree keeps alive; medians of the
+    // runs after two warm-up runs, each run with the previous one's documents gone.
+    private static int Gc(int runs)
+    {
+        var table = new StringBuilder()
+            .AppendLine($"Layout stage, median of {runs - 2} runs after 2 warm-up runs.")
+            .AppendLine()
+            .AppendLine("| Document | Layout ms | GC pause ms | gen0 | gen1 | gen2 | Allocated MB | Retained MB |")
+            .AppendLine("|---|--:|--:|--:|--:|--:|--:|--:|");
+        foreach (var (name, html) in Benchmark.Documents().Where(d => d.Name is "generated/table-5000" or "generated/nested-div-20000"))
+        {
+            var m = Benchmark.MeasureLayoutGc(html, runs);
+            table.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                $"| {name} | {Ms(m.Layout)} | {Ms(m.Pause)} | {m.Gen0} | {m.Gen1} | {m.Gen2} | {Mb(m.Allocated)} | {Mb(m.Retained)} |"));
+        }
+        Console.WriteLine(table);
         return 0;
     }
 

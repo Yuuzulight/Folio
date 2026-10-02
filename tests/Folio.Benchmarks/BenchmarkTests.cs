@@ -13,6 +13,14 @@ public class BenchmarkTests
         }
     }
 
+    // The gc mode lays a document out and sees its fragment tree kept alive.
+    [Fact]
+    public void MeasuresLayoutAndWhatItKeeps()
+    {
+        var m = Benchmark.MeasureLayoutGc("<p>One <b>two</b> three</p><div style='display: flex'><span>four</span></div>", runs: 3);
+        Assert.True(m.Layout > TimeSpan.Zero && m.Allocated > 0 && m.Retained > 0);
+    }
+
     // The frame benchmark's animations all take the paint-only path.
     [Fact]
     public void AnimationFramesArePaintOnly()
