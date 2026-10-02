@@ -333,7 +333,8 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
 
 /// <summary>
 /// Folio's shaper for simple scripts (docs/study/11-text.md, shaping option B): one glyph per character from the
-/// cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. GSUB ligatures come later.
+/// cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. Text with a GSUB ligature goes to the
+/// complex shaper (CanShape).
 /// </summary>
 internal static class SimpleShaper
 {
@@ -341,9 +342,11 @@ internal static class SimpleShaper
     /// Whether the text can be shaped here: every character mapped by the face, only simple scripts, and no
     /// combining marks. Everything else goes to the complex shaper.
     /// </summary>
+    /// <param name="ligatures">Whether the face's default ligatures apply: then text with one goes to the complex shaper.</param>
     // ponytail: scripts are recognised by code point ranges until the Unicode Script tables are generated (study 11).
-    public static bool CanShape(ReadOnlySpan<char> text, FontFace face)
+    public static bool CanShape(ReadOnlySpan<char> text, FontFace face, bool ligatures = false)
     {
+        var count = 0;
         foreach (var rune in text.EnumerateRunes())
         {
             if (!IsSimpleScript(rune.Value) || Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark
@@ -351,6 +354,15 @@ internal static class SimpleShaper
                 return false;
             if (!face.Covers(rune.Value))
                 return false;
+            count++;
+        }
+        if (ligatures && count > 1)
+        {
+            foreach (var rune in text.EnumerateRunes())
+            {
+                if (face.StartsLigature(face.GlyphFor(rune.Value)))
+                    return false;
+            }
         }
         return true;
     }

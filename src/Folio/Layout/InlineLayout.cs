@@ -867,6 +867,10 @@ internal static class InlineLayout
         public int Count { get; set; }
     }
 
+    // Default ligatures form in text with no letter-spacing (css-text-3 §8.2) and no font features the simple shaper
+    // applies itself.
+    private static bool Ligatures(ComputedStyle style) => style.TextSpacing.LetterSpacing == 0 && Features(style.Font).Length == 0;
+
     private static ShapedRun ShapeRunCached(string text, int start, int length, FontFace? face, ComputedStyle style, LayoutContext context, bool rightToLeft,
                                             bool upright)
     {
@@ -948,7 +952,7 @@ internal static class InlineLayout
                 shaped.Advances[g] = face.Vertical(shaped.Glyphs[g]).Advance * size / face.UnitsPerEm;
             run = new ShapedRun(face, size, shaped.Glyphs, shaped.Clusters, shaped.Advances) { Upright = true };
         }
-        else if (context.Shaper is { } shaper && !SimpleShaper.CanShape(text.AsSpan(start, length), face))
+        else if (context.Shaper is { } shaper && !SimpleShaper.CanShape(text.AsSpan(start, length), face, Ligatures(style)))
         {
             var shaped = shaper.Shape(text, start, length, face, size, rightToLeft, null);
             run = new ShapedRun(face, size, shaped.Glyphs, shaped.Clusters, shaped.Advances) { Offsets = shaped.Offsets };
