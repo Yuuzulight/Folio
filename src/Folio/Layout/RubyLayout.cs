@@ -26,7 +26,10 @@ internal static class RubyLayout
             var style = column.Annotation!.Style;
             var annotationFace = UsedFace(annotation);
             var bottom = baseline - MathF.Floor(InlineLayout.EmTop(column.Base.Style, context, UsedFace(rubyBase)));
-            var y = bottom - (annotationFace is null ? InlineLayout.FontMetrics(style, context).Descent : InlineLayout.Descent(style, annotationFace)) - annotationBaseline;
+            // Across a vertical line the annotation's em box sits on the base's, each centred on its upright glyphs.
+            var under = style.Text.IsVertical ? InlineLayout.UprightEmBottom(style, context, annotationFace)
+                : annotationFace is null ? InlineLayout.FontMetrics(style, context).Descent : InlineLayout.Descent(style, annotationFace);
+            var y = bottom - under - annotationBaseline;
             over = InlineLayout.EmTop(style, context, annotationFace) - (y + annotationBaseline);
             children.Add(Spread(annotation, width, y));
             // ruby-overhang (css-ruby-1 §4.4, auto): an annotation wider than its base may overhang the text beside it
