@@ -248,7 +248,9 @@ internal static class InlineLayout
         {
             unit.Pieces.Add(piece);
             unit.Width += piece.Width;
-            unit.TrailingSpace = 0;
+            // Floats and positioned boxes are not on the line: spaces before them still hang at its end.
+            if (piece.Kind is not (PieceKind.Float or PieceKind.OutOfFlow))
+                unit.TrailingSpace = 0;
         }
 
         // The styles of the inline boxes open at each point: whether the content around an atomic inline may wrap is
