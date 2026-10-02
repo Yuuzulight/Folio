@@ -1,0 +1,38 @@
+document "Event sign-up"
+  heading "Event sign-up" level=1
+    text "Event sign-up"
+  text "Full name"
+  textbox "Full name" value="Ada Lovelace" [required]
+  text "Email"
+  textbox "Email" value=""
+  textbox "Password" value="••••••"
+  searchbox "Search sessions" value=""
+  text "Notes"
+  textbox "Notes" value="Vegetarian meal, please." [readonly]
+  text "Ticket type"
+  combobox "Ticket type" value="Student"
+  text "Workshops"
+  listbox "Workshops"
+    option "Typography" [selected]
+    option "Layout"
+    option "Accessibility" [selected]
+  group "Session"
+    text "Session"
+    radio "Morning" [checked]
+    text "Morning"
+    radio "Afternoon"
+    text "Afternoon"
+  checkbox "Send me the agenda" [checked]
+  text "Send me the agenda"
+  checkbox "Join the mailing list" [disabled]
+  text "Join the mailing list"
+  text "Seats"
+  spinbutton "Seats" value="2"
+  text "Volume"
+  slider "Volume" value="5"
+  text "but this part shows"
+  image "Venue map"
+  checkbox "Select all" [mixed]
+  button "More options" [collapsed]
+  button "Submit"
+  button "Start over"
