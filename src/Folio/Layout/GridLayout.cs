@@ -23,7 +23,7 @@ internal static class GridLayout
         public Box Box { get; } = box;
         public int Row, RowSpan = 1, Column, ColumnSpan = 1;
         public float MarginTop, MarginRight, MarginBottom, MarginLeft;
-        public Fragment? Fragment;
+        public Fragment Fragment; // default until laid out
     }
 
     private sealed class Track(TrackSize size)

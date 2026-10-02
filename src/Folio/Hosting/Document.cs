@@ -196,7 +196,7 @@ public sealed class Document : IDisposable
     // ponytail: hit testing follows fragment order, not the stacking tree, and ignores clipping (study 15 comes in M3).
     internal ElementNode? ElementAt(float x, float y)
     {
-        return _page is null ? null : Find(_page, 0, 0);
+        return _page is { } page ? Find(page, 0, 0) : null;
 
         ElementNode? Find(Fragment fragment, float left, float top)
         {
@@ -267,7 +267,8 @@ public sealed class Document : IDisposable
             (message, feature) => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, feature)));
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (new DisplayList(), 0);
-        var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
+        var page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
+        _page = page;
         LayoutCount++;
         _frame = (root, page, deviceScale);
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.

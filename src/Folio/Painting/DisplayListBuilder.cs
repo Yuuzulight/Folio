@@ -184,7 +184,7 @@ internal static class DisplayListBuilder
             : new Surroundings(port, limit, perspective, parent.Around.Table, parent.Around.Cells);
         if (table && around.Cells is { } tableCells)
             context.CollapsedCells[parent] = tableCells;
-        var lastOnLine = parent.Fragment.Kind == FragmentKind.Line && parent.Fragment.Children.Count > 0 ? parent.Fragment.Children[^1].Fragment : null;
+        var lastOnLine = parent.Fragment.Kind == FragmentKind.Line && parent.Fragment.Children.Count > 0 ? parent.Fragment.Children[^1].Fragment : (Fragment?)null;
         foreach (var child in children)
         {
             // Snapping stops at a box transformed by anything but a whole-pixel translation: its own geometry and its
@@ -798,7 +798,7 @@ internal static class DisplayListBuilder
         // A text fragment's glyphs with their baseline origins on the canvas (baselines snap vertically only), or null.
         private static GlyphRun? GlyphsOf(PaintBox box)
         {
-            var run = box.Fragment.Text!;
+            var run = box.Fragment.Text!.Value;
             if (run.Run.Face is not { } face || run.GlyphEnd <= run.GlyphStart)
                 return null;
             var count = run.GlyphEnd - run.GlyphStart;
@@ -847,7 +847,7 @@ internal static class DisplayListBuilder
                     var placed = new PaintBox(child.Fragment, current.X + child.X, current.Y + child.Y, null, Scale: current.Scale) { Around = current.Around };
                     if (child.Fragment.Kind == FragmentKind.Text)
                     {
-                        if (child.Fragment.Text!.Style.Inherited.Visibility == Visibility.Visible)
+                        if (child.Fragment.Text!.Value.Style.Inherited.Visibility == Visibility.Visible)
                             yield return placed;
                     }
                     else if (child.Fragment.Box is not { IsFloat: true } and not { IsAbsolutelyPositioned: true })
@@ -873,7 +873,7 @@ internal static class DisplayListBuilder
                     PaintImage(box);
                 return;
             }
-            var run = box.Fragment.Text!;
+            var run = box.Fragment.Text!.Value;
             var style = run.Style;
             if (run.Turned)
             {

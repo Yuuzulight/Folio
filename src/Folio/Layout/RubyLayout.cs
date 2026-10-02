@@ -13,29 +13,29 @@ internal static class RubyLayout
     public static Fragment Layout(RubyColumnBox column, float containingWidth, LayoutContext context)
     {
         var rubyBase = LayOut(column.Base, containingWidth, context);
-        var annotation = column.Annotation is { } a ? LayOut(a, containingWidth, context) : null;
+        var annotation = column.Annotation is { } a ? LayOut(a, containingWidth, context) : (Fragment?)null;
         var width = Math.Max(rubyBase.Width, annotation?.Width ?? 0);
         var strut = InlineLayout.Strut(column.Base.Style, context);
         var baseline = FirstBaseline(rubyBase) ?? strut.Above;
         var children = new List<ChildFragment>();
         var over = float.NegativeInfinity;
         var overhang = 0f;
-        if (annotation is not null && FirstBaseline(annotation) is { } annotationBaseline)
+        if (annotation is { } text && FirstBaseline(text) is { } annotationBaseline)
         {
             // The em boxes are those of the fonts the text is drawn in.
             var style = column.Annotation!.Style;
-            var annotationFace = UsedFace(annotation);
+            var annotationFace = UsedFace(text);
             var bottom = baseline - MathF.Floor(InlineLayout.EmTop(column.Base.Style, context, UsedFace(rubyBase)));
             // Across a vertical line the annotation's em box sits on the base's, each centred on its upright glyphs.
             var under = style.Text.IsVertical ? InlineLayout.UprightEmBottom(style, context, annotationFace)
                 : annotationFace is null ? InlineLayout.FontMetrics(style, context).Descent : InlineLayout.Descent(style, annotationFace);
             var y = bottom - under - annotationBaseline;
             over = InlineLayout.EmTop(style, context, annotationFace) - (y + annotationBaseline);
-            children.Add(Spread(annotation, width, y));
+            children.Add(Spread(text, width, y));
             // ruby-overhang (css-ruby-1 §4.4, auto): an annotation wider than its base may overhang the text beside it
             // by up to half its font size on each side.
-            if (annotation.Width > rubyBase.Width)
-                overhang = Math.Min(style.Font.Size / 2, (annotation.Width - rubyBase.Width) / 2);
+            if (text.Width > rubyBase.Width)
+                overhang = Math.Min(style.Font.Size / 2, (text.Width - rubyBase.Width) / 2);
         }
         children.Add(Spread(rubyBase, width, 0));
         var height = FirstBaseline(rubyBase) is null ? strut.Above + strut.Below : rubyBase.Height;
@@ -71,7 +71,7 @@ internal static class RubyLayout
         var clusters = new List<(int Run, int Glyph, int Offset)>();
         for (var r = 0; r < runs.Count; r++)
         {
-            var run = runs[r].c.Fragment.Text!;
+            var run = runs[r].c.Fragment.Text!.Value;
             for (var g = run.GlyphStart; g < run.GlyphEnd; g++)
             {
                 if (g + 1 == run.GlyphEnd || run.Run.Clusters[g + 1] != run.Run.Clusters[g])
@@ -95,7 +95,7 @@ internal static class RubyLayout
         {
             if (!opportunities[i])
                 continue;
-            var run = runs[clusters[i].Run].c.Fragment.Text!.Run;
+            var run = runs[clusters[i].Run].c.Fragment.Text!.Value.Run;
             run.Advances[clusters[i].Glyph] += share;
             added[clusters[i].Run] += share;
         }

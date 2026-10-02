@@ -120,7 +120,7 @@ public class BlockLayoutTests
         var label = fragment.Kind switch
         {
             FragmentKind.Line => "line",
-            FragmentKind.Text => $"text \"{CaseFiles.Escape(Text(fragment))}\"{(fragment.Text!.RightToLeft ? " rtl" : "")}",
+            FragmentKind.Text => $"text \"{CaseFiles.Escape(Text(fragment))}\"{(fragment.Text!.Value.RightToLeft ? " rtl" : "")}",
             _ => Label(fragment.Box),
         };
         lines.Add($"{new string(' ', depth * 2)}{label} {N(x)},{N(y)} {N(fragment.Width)}x{N(fragment.Height)}");
@@ -130,10 +130,11 @@ public class BlockLayoutTests
 
     private static string Text(Fragment fragment)
     {
-        if (fragment.Text!.Replacement is { } replacement)
+        var shown = fragment.Text!.Value;
+        if (shown.Replacement is { } replacement)
             return replacement;
-        var (run, text) = (fragment.Text.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
-        var (start, end) = (run.Clusters[fragment.Text.GlyphStart], run.Clusters[fragment.Text.GlyphEnd - 1] + 1);
+        var (run, text) = (shown.Run, ((BlockContainerBox)fragment.Box!).Inline!.Text);
+        var (start, end) = (run.Clusters[shown.GlyphStart], run.Clusters[shown.GlyphEnd - 1] + 1);
         return text[start..end];
     }
 

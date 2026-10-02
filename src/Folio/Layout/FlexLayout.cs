@@ -20,7 +20,7 @@ internal static class FlexLayout
         public float BaseSize, Hypothetical, Min, Max, Target; // main-axis content sizes
         public bool Frozen;
         public float Cross; // border-box cross size once laid out
-        public Fragment? Fragment;
+        public Fragment Fragment; // default until laid out
         public float Baseline; // from the margin-box cross start, for baseline alignment
         public float MainPosition, CrossPosition; // margin-box offsets from the content box
         public float OuterMain(float size) => MarginMainStart + MarginMainEnd + FrameMain + size;

@@ -18,7 +18,7 @@ internal static class TableLayout
         public TablePartBox Box { get; } = box;
         public int Row, Column, RowSpan = 1, ColumnSpan = 1;
         public float Min, Max;
-        public Fragment? Fragment;
+        public Fragment Fragment; // default until laid out
         public float Baseline;
     }
 

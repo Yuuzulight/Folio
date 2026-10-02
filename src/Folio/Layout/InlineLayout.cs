@@ -310,7 +310,7 @@ internal static class InlineLayout
                             Close();
                         break;
                     }
-                    var symbol = box is MarkerBox { Symbol: not null } marker ? SymbolFragment(marker, context) : null;
+                    var symbol = box is MarkerBox { Symbol: not null } marker ? SymbolFragment(marker, context) : (Fragment?)null;
                     var fragment = symbol ?? (box is RubyColumnBox ruby ? RubyLayout.Layout(ruby, width, context)
                         : BlockLayout.Layout(box, new ConstraintSpace(width, null), context));
                     var spacing = symbol is null ? box.Style.Spacing : ComputedStyle.Initial.Spacing;
@@ -1280,7 +1280,7 @@ internal static class InlineLayout
                 {
                     Collect(piece);
                     // Its baseline is its last line's, or its bottom margin edge (CSS 2.2 §10.8.1).
-                    var fragment = piece.Atomic!;
+                    var fragment = piece.Atomic!.Value;
                     var baseline = piece.AtomicUpright ? CentralBaseline(fragment, block.Style.Text.WritingMode) : AtomicBaseline(fragment);
                     var extent = piece.AtomicUpright ? fragment.Width : fragment.Height;
                     var (above, below) = baseline is { } b
@@ -1467,7 +1467,7 @@ internal static class InlineLayout
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)
                 {
-                    contentFragments.Add(new ChildFragment(child.X, child.Baseline - child.Above + atomic.AtomicMarginTop, atomic.Atomic!));
+                    contentFragments.Add(new ChildFragment(child.X, child.Baseline - child.Above + atomic.AtomicMarginTop, atomic.Atomic!.Value));
                 }
             }
         }
