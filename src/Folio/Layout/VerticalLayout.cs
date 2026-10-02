@@ -63,8 +63,7 @@ internal static class VerticalLayout
         var items = new List<(Fragment, float, float)>();
         if (box.Inline is { } inline)
         {
-            var (lines, bottom, _) = InlineLayout.Layout(box, inline, inlineSize, 0,
-                new InlineLayout.Environment((_, _) => (0, inlineSize), (_, _) => null, (_, _) => { }, (_, _, _) => { }), context);
+            var (lines, bottom, _) = InlineLayout.Layout(box, inline, inlineSize, 0, null, context);
             items.AddRange(lines.Select(line => (Turn(line.Fragment), line.Y, line.X)));
             return (items, bottom);
         }
