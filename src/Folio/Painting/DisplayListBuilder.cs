@@ -107,7 +107,7 @@ internal static class DisplayListBuilder
             rootContext.Text.Add(rootBox);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
         Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale) { Around = atViewport },
-            initialContainingBlock.Children.Skip(1), order);
+            initialContainingBlock.Children.Slice(1), order);
         // The root group blends with the canvas background, which is painted outside it.
         rootContext.Isolated = false;
 
@@ -162,7 +162,7 @@ internal static class DisplayListBuilder
     // A single-line select is built as a block container holding its chosen option's text.
     private static bool IsDropDown(Box box) => box is BlockContainerBox { Node: Dom.ElementNode { LocalName: "select" } };
 
-    private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
+    private static void Collect(Context context, Context real, PaintBox parent, ChildList children, Dictionary<Box, int> order)
     {
         // Content that nests deeper than the stack allows is left out rather than overflowing it, as layout does.
         if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())

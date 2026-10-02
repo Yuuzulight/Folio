@@ -15,6 +15,8 @@ internal static class LayoutEngine
     public static Fragment LayoutDocument(Box root, float viewportWidth, float viewportHeight, FontCollection? fonts = null, ITextShaper? shaper = null,
                                           Imaging.ImageLoader? images = null)
     {
+        // The tree's children go into a few large buffers rather than an array per fragment (#397).
+        using var arena = FragmentArena.Open();
         var context = new LayoutContext(fonts ?? new FontCollection(), shaper) { Images = images };
         var fragment = BlockLayout.Layout(root, new ConstraintSpace(viewportWidth, viewportHeight), context);
         // The root establishes a block formatting context, so its margins are its own.
