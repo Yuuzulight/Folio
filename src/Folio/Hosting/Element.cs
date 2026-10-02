@@ -64,5 +64,29 @@ public sealed class Element
     /// <exception cref="ArgumentException">The selector list is not valid.</exception>
     public IReadOnlyList<Element> QuerySelectorAll(string selectors) => _document.Query(Node, selectors).ToList();
 
+    /// <summary>Sets an attribute on this element, marking the element dirty for update.</summary>
+    public void SetAttribute(string name, string value)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(value);
+        Node.SetAttribute(Node.Name.Namespace == Namespaces.Html ? name.ToLowerInvariant() : name, value);
+    }
+
+    /// <summary>Appends a child element to this element.</summary>
+    public Element AppendChild(Element child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        Node.AppendChild(child.Node);
+        return child;
+    }
+
+    /// <summary>Removes a child element from this element.</summary>
+    public Element RemoveChild(Element child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        Node.RemoveChild(child.Node);
+        return child;
+    }
+
     public override string ToString() => $"<{LocalName}>";
 }
