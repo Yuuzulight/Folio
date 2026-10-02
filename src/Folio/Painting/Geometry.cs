@@ -471,7 +471,12 @@ public readonly record struct PathCommand(PathVerb Verb, Vector2 P1 = default, V
 /// <summary>A path of lines and cubic curves in CSS pixels.</summary>
 public sealed class PathData
 {
-    private readonly List<PathCommand> _commands = [];
+    private readonly List<PathCommand> _commands;
+
+    public PathData() => _commands = [];
+
+    // For a path whose size is known, made for every box painted (border rings): the command list never grows.
+    internal PathData(int capacity) => _commands = new(capacity);
 
     public IReadOnlyList<PathCommand> Commands => _commands;
 
@@ -489,6 +494,9 @@ public sealed class PathData
         // Cubic approximation of a quarter ellipse.
         const float K = 0.5522848f;
         var (r, c) = (shape.Rect, shape.Radii);
+        // Square corners: the four sides alone, the same shape without four empty curves.
+        if (c.IsZero)
+            return MoveTo(r.X, r.Y).LineTo(r.Right, r.Y).LineTo(r.Right, r.Bottom).LineTo(r.X, r.Bottom).Close();
         MoveTo(r.X + c.TopLeft.X, r.Y);
         LineTo(r.Right - c.TopRight.X, r.Y);
         CubicTo(new(r.Right - c.TopRight.X * (1 - K), r.Y), new(r.Right, r.Y + c.TopRight.Y * (1 - K)), new(r.Right, r.Y + c.TopRight.Y));
