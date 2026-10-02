@@ -181,6 +181,10 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
             _ => source,
         };
         SKImageFilter Color(SKColorFilter filter, SKImageFilter? input) => Own(owned, SKImageFilter.CreateColorFilter(Own(owned, filter), input));
+        // No input stands for the source; where Skia wants a filter instead (merge inputs, a displacement map, a tile),
+        // an offset of nothing does.
+        SKImageFilter? sourceFilter = null;
+        SKImageFilter OrSource(SKImageFilter? input) => input ?? (sourceFilter ??= Own(owned, SKImageFilter.CreateOffset(0, 0)));
 
         for (var i = 0; i < filters.Count; i++)
         {
@@ -211,18 +215,16 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
                     CompositeOperator.Xor => SKBlendMode.Xor,
                     _ => SKBlendMode.SrcOver,
                 }, In(f.In2), In(f.In)),
-                FilterKind.Merge => SKImageFilter.CreateMerge([.. (f.Inputs ?? []).Select(In)]),
+                FilterKind.Merge => SKImageFilter.CreateMerge([.. (f.Inputs ?? []).Select(input => OrSource(In(input)))]),
                 FilterKind.Blend => SKImageFilter.CreateBlendMode(ToSkia(f.Blend), In(f.In2), In(f.In)),
                 FilterKind.Morphology when f.Dilate => SKImageFilter.CreateDilate(f.Radius.X, f.Radius.Y, In(f.In)),
                 FilterKind.Morphology => SKImageFilter.CreateErode(f.Radius.X, f.Radius.Y, In(f.In)),
                 FilterKind.ComponentTransfer => SKImageFilter.CreateColorFilter(Own(owned, SKColorFilter.CreateTable(
                     Table(f.Transfer, 3), Table(f.Transfer, 0), Table(f.Transfer, 1), Table(f.Transfer, 2))), In(f.In)),
                 FilterKind.Turbulence => Turbulence(f.Noise, f.Subregion, owned),
-                FilterKind.DisplacementMap => SKImageFilter.CreateDisplacementMapEffect(ToSkia(f.XChannel), ToSkia(f.YChannel), f.Scale, In(f.In2), In(f.In)),
+                FilterKind.DisplacementMap => SKImageFilter.CreateDisplacementMapEffect(ToSkia(f.XChannel), ToSkia(f.YChannel), f.Scale, OrSource(In(f.In2)), In(f.In)),
                 FilterKind.Tile when f is { Source: { Width: > 0, Height: > 0 } src, Subregion: { } dst } =>
-                    // Skia's tile takes no source input: an offset of nothing stands for the source.
-                    SKImageFilter.CreateTile(new SKRect(src.X, src.Y, src.Right, src.Bottom), new SKRect(dst.X, dst.Y, dst.Right, dst.Bottom),
-                        In(f.In) ?? Own(owned, SKImageFilter.CreateOffset(0, 0))),
+                    SKImageFilter.CreateTile(new SKRect(src.X, src.Y, src.Right, src.Bottom), new SKRect(dst.X, dst.Y, dst.Right, dst.Bottom), OrSource(In(f.In))),
                 FilterKind.ConvolveMatrix => Convolution(f, In(f.In)),
                 FilterKind.Image when f.Image is { } handle && Image(handle) is { } image && f.Destination is { Width: > 0, Height: > 0 } dest =>
                     SKImageFilter.CreateImage(image, new SKRect(0, 0, image.Width, image.Height), new SKRect(dest.X, dest.Y, dest.Right, dest.Bottom),

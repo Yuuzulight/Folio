@@ -31,6 +31,20 @@ public class DisplayListPlayerTests
     }
 
     [Fact]
+    public void ItemsOutsideTheVisiblePartAreNotDrawn()
+    {
+        // Three 10px blocks, the middle one clipped and the last one moved; the view shows only y 0 to 8 (bounds take a pixel for antialiasing).
+        const string html = "<style>body { margin: 0 } div { height: 10px; background: red }</style><div></div>"
+                            + "<div style='overflow: hidden'><div></div></div><div style='transform: translate(0, -15px)'></div>";
+        var calls = Replay(html, new RectF(0, 0, 100, 8));
+
+        // The first block is drawn, the clipped one is not but its clip stays balanced, and the transformed one is
+        // drawn since its place on the page is not known without the transform.
+        Assert.Equal(["fill-rrect", "save", "clip-rrect", "restore", "save", "transform 1,0,0,1,0,-15", "fill-rrect", "restore"], calls);
+        Assert.Equal(4, Replay(html).Count(c => c == "fill-rrect")); // without a view, every block and the clipped one inside
+    }
+
+    [Fact]
     public void TransformsBecomeSaveTransformRestorePairs()
     {
         var calls = Replay("<style>body { margin: 0 }</style><div style='transform: translate(2px, 3px); height: 10px; background: red'></div>");
@@ -103,10 +117,10 @@ public class DisplayListPlayerTests
         return DisplayListPlayer.LayerBounds(list)[first];
     }
 
-    private static List<string> Replay(string html)
+    private static List<string> Replay(string html, RectF? visible = null)
     {
         var canvas = new RecordingCanvas();
-        DisplayListPlayer.Replay(DisplayListBuilder.Build(BlockLayoutTests.LayOut("<!DOCTYPE html>" + html)), canvas);
+        DisplayListPlayer.Replay(DisplayListBuilder.Build(BlockLayoutTests.LayOut("<!DOCTYPE html>" + html)), canvas, visible);
         return canvas.Calls;
     }
 
