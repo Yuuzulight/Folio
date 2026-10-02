@@ -36,7 +36,7 @@ public class BlockLayoutTests
         Assert.Equal(own, outside.Children.ToArray());
         Assert.True(outside.Children is [{ X: 1 }, { X: 3 }]);
         Assert.Equal([new ChildFragment(3, 4, leaf)], outside.Children.Slice(1).ToArray());
-        Assert.Equal(0, leaf.Children.Count);
+        Assert.Empty(leaf.Children);
 
         // During a layout, children go into the arena's shared buffer, one fragment's after another's.
         using (FragmentArena.Open())
