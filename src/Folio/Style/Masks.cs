@@ -45,8 +45,20 @@ internal sealed record MaskGroup(IReadOnlyList<ImageValue> Images, IReadOnlyList
     public BorderImageGroup MaskBorder => Border ?? BorderInitial;
 
     /// <summary>Whether the element is masked: some layer or the mask border has an image. Layers of none alone mask nothing.</summary>
-    public bool IsMasked => Images.Any(i => i is not NoImage) || MaskBorder.Source is not NoImage;
+    public bool IsMasked => HasLayers || MaskBorder.Source is not NoImage;
 
     /// <summary>Whether some mask layer has an image.</summary>
-    public bool HasLayers => Images.Any(i => i is not NoImage);
+    public bool HasLayers
+    {
+        get
+        {
+            // By index: painting asks for every box, and an enumerator over the list would be an allocation each time.
+            for (var i = 0; i < Images.Count; i++)
+            {
+                if (Images[i] is not NoImage)
+                    return true;
+            }
+            return false;
+        }
+    }
 }
