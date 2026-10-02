@@ -16,19 +16,19 @@ internal sealed record BorderImageRepeatValue(BorderImageRepeats Repeat) : CssVa
 /// </summary>
 internal static class BorderImageProperties
 {
-    public static IEnumerable<Property> Rows =>
+    public static Properties.LazyRow[] Rows =>
     [
-        new Property<ImageValue>(PropertyId.BorderImageSource, "border-image-source", false, "none", Source,
+        new(PropertyId.BorderImageSource, "border-image-source", static () => new Property<ImageValue>(PropertyId.BorderImageSource, "border-image-source", false, "none", Source,
             (v, ctx) => ((ImageSpecified)v).Image is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : ((ImageSpecified)v).Image,
-            s => s.BorderImage.Source, (b, v) => b.BorderImage = b.BorderImage with { Source = v }),
-        new Property<BorderImageSlice>(PropertyId.BorderImageSlice, "border-image-slice", false, "100%", r => Slice(r),
-            (v, _) => ComputeSlice((BorderImageSliceValue)v), s => s.BorderImage.Slice, (b, v) => b.BorderImage = b.BorderImage with { Slice = v }),
-        new Property<BorderImageSides>(PropertyId.BorderImageWidth, "border-image-width", false, "1", r => Sides(r, auto: true, percent: true),
-            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.BorderImage.Width, (b, v) => b.BorderImage = b.BorderImage with { Width = v }),
-        new Property<BorderImageSides>(PropertyId.BorderImageOutset, "border-image-outset", false, "0", r => Sides(r, auto: false, percent: false),
-            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.BorderImage.Outset, (b, v) => b.BorderImage = b.BorderImage with { Outset = v }),
-        new Property<BorderImageRepeats>(PropertyId.BorderImageRepeat, "border-image-repeat", false, "stretch", r => Repeat(r),
-            (v, _) => ((BorderImageRepeatValue)v).Repeat, s => s.BorderImage.Repeat, (b, v) => b.BorderImage = b.BorderImage with { Repeat = v }),
+            s => s.BorderImage.Source, (b, v) => b.BorderImage = b.BorderImage with { Source = v })),
+        new(PropertyId.BorderImageSlice, "border-image-slice", static () => new Property<BorderImageSlice>(PropertyId.BorderImageSlice, "border-image-slice", false, "100%", r => Slice(r),
+            (v, _) => ComputeSlice((BorderImageSliceValue)v), s => s.BorderImage.Slice, (b, v) => b.BorderImage = b.BorderImage with { Slice = v })),
+        new(PropertyId.BorderImageWidth, "border-image-width", static () => new Property<BorderImageSides>(PropertyId.BorderImageWidth, "border-image-width", false, "1", r => Sides(r, auto: true, percent: true),
+            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.BorderImage.Width, (b, v) => b.BorderImage = b.BorderImage with { Width = v })),
+        new(PropertyId.BorderImageOutset, "border-image-outset", static () => new Property<BorderImageSides>(PropertyId.BorderImageOutset, "border-image-outset", false, "0", r => Sides(r, auto: false, percent: false),
+            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.BorderImage.Outset, (b, v) => b.BorderImage = b.BorderImage with { Outset = v })),
+        new(PropertyId.BorderImageRepeat, "border-image-repeat", static () => new Property<BorderImageRepeats>(PropertyId.BorderImageRepeat, "border-image-repeat", false, "stretch", r => Repeat(r),
+            (v, _) => ((BorderImageRepeatValue)v).Repeat, s => s.BorderImage.Repeat, (b, v) => b.BorderImage = b.BorderImage with { Repeat = v })),
     ];
 
     public static readonly PropertyId[] Longhands =
@@ -41,21 +41,21 @@ internal static class BorderImageProperties
     /// other initial values (slices of 0, auto widths), and mask-border-mode.
     /// </summary>
     // ponytail: the mask shorthand does not reset mask-border, and -webkit-mask-box-image is not accepted.
-    public static IEnumerable<Property> MaskBorderRows =>
+    public static Properties.LazyRow[] MaskBorderRows =>
     [
-        new Property<ImageValue>(PropertyId.MaskBorderSource, "mask-border-source", false, "none", Source,
+        new(PropertyId.MaskBorderSource, "mask-border-source", static () => new Property<ImageValue>(PropertyId.MaskBorderSource, "mask-border-source", false, "none", Source,
             (v, ctx) => ((ImageSpecified)v).Image is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : ((ImageSpecified)v).Image,
-            s => s.Mask.MaskBorder.Source, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Source = v } }),
-        new Property<BorderImageSlice>(PropertyId.MaskBorderSlice, "mask-border-slice", false, "0", r => Slice(r),
-            (v, _) => ComputeSlice((BorderImageSliceValue)v), s => s.Mask.MaskBorder.Slice, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Slice = v } }),
-        new Property<BorderImageSides>(PropertyId.MaskBorderWidth, "mask-border-width", false, "auto", r => Sides(r, auto: true, percent: true),
-            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.Mask.MaskBorder.Width, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Width = v } }),
-        new Property<BorderImageSides>(PropertyId.MaskBorderOutset, "mask-border-outset", false, "0", r => Sides(r, auto: false, percent: false),
-            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.Mask.MaskBorder.Outset, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Outset = v } }),
-        new Property<BorderImageRepeats>(PropertyId.MaskBorderRepeat, "mask-border-repeat", false, "stretch", r => Repeat(r),
-            (v, _) => ((BorderImageRepeatValue)v).Repeat, s => s.Mask.MaskBorder.Repeat, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Repeat = v } }),
-        new Property<MaskType>(PropertyId.MaskBorderMode, "mask-border-mode", false, "alpha", MaskBorderMode,
-            (v, _) => ((KeywordValue)v).Keyword == "luminance" ? MaskType.Luminance : MaskType.Alpha, s => s.Mask.BorderMode, (b, v) => b.Mask = b.Mask with { BorderMode = v }),
+            s => s.Mask.MaskBorder.Source, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Source = v } })),
+        new(PropertyId.MaskBorderSlice, "mask-border-slice", static () => new Property<BorderImageSlice>(PropertyId.MaskBorderSlice, "mask-border-slice", false, "0", r => Slice(r),
+            (v, _) => ComputeSlice((BorderImageSliceValue)v), s => s.Mask.MaskBorder.Slice, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Slice = v } })),
+        new(PropertyId.MaskBorderWidth, "mask-border-width", static () => new Property<BorderImageSides>(PropertyId.MaskBorderWidth, "mask-border-width", false, "auto", r => Sides(r, auto: true, percent: true),
+            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.Mask.MaskBorder.Width, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Width = v } })),
+        new(PropertyId.MaskBorderOutset, "mask-border-outset", static () => new Property<BorderImageSides>(PropertyId.MaskBorderOutset, "mask-border-outset", false, "0", r => Sides(r, auto: false, percent: false),
+            (v, ctx) => ComputeSides((BorderImageSidesValue)v, ctx), s => s.Mask.MaskBorder.Outset, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Outset = v } })),
+        new(PropertyId.MaskBorderRepeat, "mask-border-repeat", static () => new Property<BorderImageRepeats>(PropertyId.MaskBorderRepeat, "mask-border-repeat", false, "stretch", r => Repeat(r),
+            (v, _) => ((BorderImageRepeatValue)v).Repeat, s => s.Mask.MaskBorder.Repeat, (b, v) => b.Mask = b.Mask with { Border = b.Mask.MaskBorder with { Repeat = v } })),
+        new(PropertyId.MaskBorderMode, "mask-border-mode", static () => new Property<MaskType>(PropertyId.MaskBorderMode, "mask-border-mode", false, "alpha", MaskBorderMode,
+            (v, _) => ((KeywordValue)v).Keyword == "luminance" ? MaskType.Luminance : MaskType.Alpha, s => s.Mask.BorderMode, (b, v) => b.Mask = b.Mask with { BorderMode = v })),
     ];
 
     public static readonly PropertyId[] MaskBorderLonghands =
