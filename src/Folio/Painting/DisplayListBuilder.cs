@@ -164,6 +164,9 @@ internal static class DisplayListBuilder
 
     private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
     {
+        // Content that nests deeper than the stack allows is left out rather than overflowing it, as layout does.
+        if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            return;
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
         var port = parent.Fragment.Box is { } scroller && IsScrollContainer(scroller) ? PaddingBox(parent) : parent.Scrollport;
         // A cell's containing block is the table, so rows and row groups pass their limit through.
