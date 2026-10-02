@@ -733,7 +733,10 @@ internal static class InlineLayout
                     for (var g = 0; g < run.Glyphs.Length; g++)
                     {
                         if (UnicodeData.Mirror(char.ConvertToUtf32(text, run.Clusters[g])) is { } mirror && face.Covers(mirror))
+                        {
+                            run.Own();
                             run.Glyphs[g] = face.GlyphFor(mirror);
+                        }
                     }
                 }
                 yield return run;
@@ -853,8 +856,9 @@ internal static class InlineLayout
     // font-feature-settings' tags with a non-zero value.
     // ponytail: only features made of single substitutions take effect (study 11); fractions and ordinals do not.
     // Shaped runs of short, simply shaped text, by what shaping reads, kept per font collection (so per document, across
-    // layouts): table cells, labels and list items repeat the same words in the same fonts. Each use gets its own copy,
-    // since lines change runs (hyphens, justification, mirroring). Complex shaping can depend on the text around a run,
+    // layouts): table cells, labels and list items repeat the same words in the same fonts. Each use gets its own run
+    // and clusters but shares the glyphs and advances, which a line that changes them (hyphens, justification,
+    // mirroring) copies first with ShapedRun.Own. Complex shaping can depend on the text around a run,
     // so only runs the simple shaper handles are kept.
     // ponytail: the whole cache is dropped when it reaches 20,000 runs.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FontCollection, ShapeCache> ShapeCaches = [];
@@ -896,10 +900,8 @@ internal static class InlineLayout
         var clusters = new int[kept.Clusters.Length];
         for (var c = 0; c < clusters.Length; c++)
             clusters[c] = kept.Clusters[c] + start;
-        return new ShapedRun(face, kept.Size, [.. kept.Glyphs], clusters, [.. kept.Advances])
-        {
-            Offsets = kept.Offsets is { } offsets ? [.. offsets] : null,
-        };
+        // Glyphs, advances and offsets are shared with the cache: a line that changes them owns them first (#397).
+        return new ShapedRun(face, kept.Size, kept.Glyphs, clusters, kept.Advances, shared: true) { Offsets = kept.Offsets };
     }
 
     private static string Features(FontGroup font) =>
@@ -1148,7 +1150,8 @@ internal static class InlineLayout
         if (!lastLine && units is [.., { Hyphen: { } hyphenated } hyphenUnit])
         {
             var g = hyphenated.GlyphEnd - 1;
-            hyphenated.Run!.Glyphs[g] = hyphenUnit.HyphenGlyph;
+            hyphenated.Run!.Own();
+            hyphenated.Run.Glyphs[g] = hyphenUnit.HyphenGlyph;
             hyphenated.Run.Advances[g] = hyphenUnit.HyphenWidth;
             hyphenated.Width += hyphenUnit.HyphenWidth;
             hyphenUnit.Width += hyphenUnit.HyphenWidth;
@@ -1515,7 +1518,8 @@ internal static class InlineLayout
         var extra = free / separators.Count;
         foreach (var (piece, g) in separators)
         {
-            piece.Run!.Advances[g] += extra;
+            piece.Run!.Own();
+            piece.Run.Advances[g] += extra;
             piece.Width += extra;
         }
         return true;

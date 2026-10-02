@@ -22,6 +22,18 @@ public class InlineLayoutTests
     }
 
     [Fact]
+    public void LinesThatChangeSharedGlyphsLeaveOtherUsesAlone()
+    {
+        // Text of the same words shares its glyphs and advances with the shaped-run cache (#397). Justifying, hyphenating
+        // or mirroring a line changes them, so the line takes its own copy first and the next use of the words is untouched.
+        const string plain = "<p style='width: 100px; font: 10px monospace'>ab cd ef gh</p><p style='direction: rtl; width: 100px; font: 10px monospace'>(ab) cd</p>";
+        var before = BlockLayoutTests.Dump(BlockLayoutTests.LayOut(plain));
+        BlockLayoutTests.LayOut("<p style='width: 100px; font: 10px monospace; text-align: justify'>ab cd ef gh</p>"
+                                + "<p style='width: 50px; font: 10px monospace; hyphens: manual'>ab cd&shy;efgh</p><p style='direction: rtl'>(ab) cd</p>");
+        Assert.Equal(before, BlockLayoutTests.Dump(BlockLayoutTests.LayOut(plain)));
+    }
+
+    [Fact]
     public void LineBuildingGrowsQuadraticallyWithNestingDepth()
     {
         // Each piece of a line joins only the boxes open around it. When every piece was checked against every box on

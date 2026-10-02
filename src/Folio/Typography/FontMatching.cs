@@ -310,17 +310,21 @@ internal sealed class FontCollection(IFontSource? source = null)
 
 /// <summary>A run of glyphs from one face at one size (docs/study/11-text.md, ShapedRun).</summary>
 /// <remarks>A null face means no font was available: the glyphs are blanks.</remarks>
-internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int[] clusters, float[] advances)
+/// <param name="shared">Whether the glyph and advance arrays belong to someone else too (the shaped-run cache): whoever
+/// changes them calls <see cref="Own"/> first.</param>
+internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int[] clusters, float[] advances, bool shared = false)
 {
+    private bool _shared = shared;
+
     public FontFace? Face { get; } = face;
     public float Size { get; } = size;
-    public ushort[] Glyphs { get; } = glyphs;
+    public ushort[] Glyphs { get; private set; } = glyphs;
 
     /// <summary>For each glyph, the UTF-16 index of the character it came from.</summary>
     public int[] Clusters { get; } = clusters;
 
     /// <summary>Advances in CSS px, kerning included.</summary>
-    public float[] Advances { get; } = advances;
+    public float[] Advances { get; private set; } = advances;
 
     /// <summary>Glyph offsets from their pen positions (CSS px, y down), from complex shaping; null when all are zero.</summary>
     public System.Numerics.Vector2[]? Offsets { get; init; }
@@ -329,6 +333,13 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
     public bool Upright { get; init; }
 
     public float Width => Advances.Sum();
+
+    /// <summary>Gives the run its own glyph and advance arrays, if it shares them, before a line changes them.</summary>
+    public void Own()
+    {
+        if (_shared)
+            (Glyphs, Advances, _shared) = ([.. Glyphs], [.. Advances], false);
+    }
 }
 
 /// <summary>
