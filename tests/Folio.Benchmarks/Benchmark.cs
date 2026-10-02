@@ -118,6 +118,35 @@ internal static class Benchmark
         return new LayoutGc(Mid(r => r.Layout), Mid(r => r.Pause), Mid(r => r.Gen0), Mid(r => r.Gen1), Mid(r => r.Gen2), Mid(r => r.Allocated), Mid(r => r.Retained));
     }
 
+    /// <summary>
+    /// A whole render through the public API, as a host does it (parse, style, layout, paint and raster at 1000x800 with
+    /// the system's fonts): its time, collections and pauses (medians after two warm-up renders). Collections that
+    /// layout avoids may only move to the stages after it, so this is the number that counts (#397).
+    /// </summary>
+    public static LayoutGc MeasureRenderGc(string html, int runs)
+    {
+        var options = new FolioOptions { Fonts = new Folio.Typography.FontSettings { Source = new Folio.Skia.SystemFontSource() } };
+        var results = new List<LayoutGc>();
+        for (var run = 0; run < runs; run++)
+            results.Add(RenderOnce(html, options));
+        var kept = results.Skip(2).ToList();
+        T Mid<T>(Func<LayoutGc, T> pick) => kept.Select(pick).Order().ElementAt(kept.Count / 2);
+        return new LayoutGc(Mid(r => r.Layout), Mid(r => r.Pause), Mid(r => r.Gen0), Mid(r => r.Gen1), Mid(r => r.Gen2), Mid(r => r.Allocated), 0);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static LayoutGc RenderOnce(string html, FolioOptions options)
+    {
+        var (pause, allocated, gen0, gen1, gen2) = (GC.GetTotalPauseDuration(), GC.GetTotalAllocatedBytes(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+        var start = Stopwatch.GetTimestamp();
+        using (var document = Document.Parse(html, options))
+        using (Folio.Skia.HeadlessRenderer.Render(document, new Folio.Skia.RenderRequest(1000, 800)))
+        {
+        }
+        return new LayoutGc(Stopwatch.GetElapsedTime(start), GC.GetTotalPauseDuration() - pause, GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1,
+            GC.CollectionCount(2) - gen2, GC.GetTotalAllocatedBytes() - allocated, 0);
+    }
+
     // In its own method, so nothing of one run is still referenced from the stack when the next one starts.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static LayoutGc LayoutOnce(string html)

@@ -78,6 +78,14 @@ public static class Program
             table.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"| {name} | {Ms(m.Layout)} | {Ms(m.Pause)} | {m.Gen0} | {m.Gen1} | {m.Gen2} | {Mb(m.Allocated)} | {Mb(m.Retained)} |"));
         }
+        table.AppendLine().AppendLine($"Whole render (parse to raster at 1000x800, system fonts), median of {runs - 2} renders after 2 warm-up renders.")
+            .AppendLine().AppendLine("| Document | Render ms | GC pause ms | gen0 | gen1 | gen2 | Allocated MB |").AppendLine("|---|--:|--:|--:|--:|--:|--:|");
+        foreach (var (name, html) in Benchmark.Documents().Where(d => d.Name is "generated/table-5000" or "generated/nested-div-20000"))
+        {
+            var m = Benchmark.MeasureRenderGc(html, runs);
+            table.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                $"| {name} | {Ms(m.Layout)} | {Ms(m.Pause)} | {m.Gen0} | {m.Gen1} | {m.Gen2} | {Mb(m.Allocated)} |"));
+        }
         Console.WriteLine(table);
         return 0;
     }
