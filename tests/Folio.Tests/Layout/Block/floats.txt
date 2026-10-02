@@ -99,3 +99,16 @@ html 0,0 800x140
     div#p 0,40 800x10
       div#c 0,40 800x10
         div#f2 100,40 100x10
+
+=== spaces before a float hang at the end of the line: they add nothing to its max-content width
+<!DOCTYPE html><style>body { margin: 0 } div { display: inline-block }</style><div>ab <span style="float: right">c</span></div>
+---
+html 0,0 800x16
+  body 0,0 800x16
+    line 0,0 800x16
+      div 0,0 48x16
+        span 32,0 16x16
+          line 32,0 16x16
+            text "c" 32,0 16x16
+        line 0,0 32x16
+          text "ab " 0,0 48x16
