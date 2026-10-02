@@ -821,7 +821,12 @@ internal static class InlineLayout
     /// <summary>The space between an inside disclosure marker's shape and the text after it.</summary>
     internal const float SymbolGap = 7;
 
-    /// <summary>Text shaped in the style's fonts: one run per font the fallback chooses, with letter- and word-spacing applied.</summary>
+    /// <summary>
+    /// Text shaped in the style's fonts: one run per font the fallback chooses, and per script, with letter- and
+    /// word-spacing applied. Punctuation, spaces and digits (Unicode's Common script) belong to the script before them, so
+    /// a quote closing CJK text is not kerned against the Latin letter after it.
+    /// </summary>
+    // ponytail: scripts are told apart only as CJK or not, enough to keep shaping from reaching across that boundary.
     internal static List<ShapedRun> Shape(string text, int start, int length, ComputedStyle style, LayoutContext context, bool rightToLeft = false)
     {
         var font = style.Font;
@@ -831,19 +836,22 @@ internal static class InlineLayout
         var runStart = start;
         FontFace? runFace = null;
         var runUpright = false;
+        bool? runCjk = null;
         var vertical = style.Text.IsVertical;
         var end = start + length;
         for (var i = start; i < end;)
         {
             var clusterLength = Math.Min(StringInfo.GetNextTextElementLength(text, i), end - i);
             var face = context.Fonts.FaceForCluster(font.Family, faceStyle, font.Weight, font.Stretch, text.AsSpan(i, clusterLength)) ?? primary;
-            var upright = vertical && IsUpright(char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i]);
-            if (i > runStart && (face != runFace || upright != runUpright))
+            var c = char.IsSurrogatePair(text, i) ? char.ConvertToUtf32(text[i], text[i + 1]) : text[i];
+            var upright = vertical && IsUpright(c);
+            bool? cjk = RubyLayout.IsCjk(c) ? true : char.IsLetter(text, i) ? false : null;
+            if (i > runStart && (face != runFace || upright != runUpright || cjk is { } script && runCjk is { } current && script != current))
             {
                 runs.Add(ShapeRunCached(text, runStart, i - runStart, runFace, style, context, rightToLeft, runUpright));
                 runStart = i;
             }
-            (runFace, runUpright) = (face, upright);
+            (runFace, runUpright, runCjk) = (face, upright, cjk ?? runCjk);
             i += clusterLength;
         }
         if (end > runStart)
