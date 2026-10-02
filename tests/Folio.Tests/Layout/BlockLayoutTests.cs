@@ -26,6 +26,39 @@ public class BlockLayoutTests
     }
 
     [Fact]
+    public void ChildrenLiveInTheLayoutsBuffers()
+    {
+        var leaf = new Fragment(null, 1, 1, []);
+        ChildFragment[] own = [new(1, 2, leaf), new(3, 4, leaf)];
+
+        // Outside a layout, an array is kept as it is and a list is copied.
+        var outside = new Fragment(null, 1, 1, own);
+        Assert.Equal(own, outside.Children.ToArray());
+        Assert.True(outside.Children is [{ X: 1 }, { X: 3 }]);
+        Assert.Equal([new ChildFragment(3, 4, leaf)], outside.Children.Slice(1).ToArray());
+        Assert.Equal(0, leaf.Children.Count);
+
+        // During a layout, children go into the arena's shared buffer, one fragment's after another's.
+        using (FragmentArena.Open())
+        {
+            var first = new Fragment(null, 1, 1, own);
+            var second = new Fragment(null, 1, 1, new List<ChildFragment>(own));
+            Assert.Equal(own, first.Children.ToArray());
+            Assert.Equal(own, second.Children.ToArray());
+            Assert.True(System.Runtime.CompilerServices.Unsafe.AreSame(
+                ref System.Runtime.InteropServices.MemoryMarshal.GetReference(second.Children.AsSpan()),
+                ref System.Runtime.CompilerServices.Unsafe.Add(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(first.Children.AsSpan()), 2)));
+        }
+
+        // A whole layout's fragments keep their children: the text of both paragraphs, in three runs, is all there.
+        var page = LayOut("<p>one</p><p>two <b>three</b></p>");
+        Assert.Equal([3, 4, 5], Texts(page));
+
+        static IEnumerable<int> Texts(Fragment fragment) =>
+            fragment.Children.SelectMany(c => c.Fragment.Text is { } t ? [t.GlyphEnd - t.GlyphStart] : Texts(c.Fragment));
+    }
+
+    [Fact]
     public void FragmentsKeepTheirRareFields()
     {
         // Ruby, SVG and column rule fields live apart from the fragment's own (#196); set or not, they read back.
