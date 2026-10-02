@@ -74,6 +74,10 @@ internal sealed class FontCollection(IFontSource? source = null)
     // The face found for a one-character cluster, by the style's family list (shared between equal font groups), style,
     // weight, stretch and character: text asks for the same few characters in the same fonts over and over.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(IReadOnlyList<string> Families, FaceStyle Style, int Weight, float Stretch, char Char), FontFace?> _clusterFaces = new();
+
+    // The best face of each installed family for a style, weight and stretch (see MatchFamily); cleared when faces are added.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Family, FaceStyle Style, int Weight, float Stretch), FontFace?> _styleMatches = new();
+
     private readonly Dictionary<string, List<WebFace>> _webFamilies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A collection for a document's font settings.</summary>
@@ -100,6 +104,7 @@ internal sealed class FontCollection(IFontSource? source = null)
     public void Add(FontFace face)
     {
         _clusterFaces.Clear();
+        _styleMatches.Clear();
         if (!_families.TryGetValue(face.Family, out var faces))
             _families[face.Family] = faces = [];
         faces.Add(face);
@@ -166,12 +171,25 @@ internal sealed class FontCollection(IFontSource? source = null)
         }
         foreach (var name in Resolve(family))
         {
-            Open(name);
-            if (_families.TryGetValue(name, out var faces)
-                && FontMatcher.Match(faces, f => new FaceTraits(f.Weight, f.Style, f.Stretch), stretch, style, weight) is { } face)
+            if (MatchFamily(name, style, weight, stretch) is { } face)
                 return face;
         }
         return null;
+    }
+
+    // The best installed face of one family, remembered: matching runs for every line's strut and every text run, and
+    // a family with many faces (the system's) made its LINQ the largest allocation of a large render (#397).
+    private FontFace? MatchFamily(string name, FaceStyle style, int weight, float stretch)
+    {
+        var key = (name, style, weight, stretch);
+        if (_styleMatches.TryGetValue(key, out var found))
+            return found;
+        Open(name);
+        found = _families.TryGetValue(name, out var faces)
+            ? FontMatcher.Match(faces, f => new FaceTraits(f.Weight, f.Style, f.Stretch), stretch, style, weight)
+            : null;
+        _styleMatches[key] = found;
+        return found;
     }
 
     /// <summary>

@@ -188,6 +188,22 @@ public class TypographyTests
     }
 
     [Fact]
+    public void StyleMatchesAreRememberedUntilFacesAreAdded()
+    {
+        var fonts = new FontCollection();
+        var regular = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "SourceSans3-Regular.ttf")))!;
+        var bold = FontFace.Parse(File.ReadAllBytes(Path.Combine(FontsFolder, "SourceSans3-Bold.ttf")))!;
+
+        Assert.Null(fonts.Match(regular.Family, FaceStyle.Normal, 700, 100));
+        fonts.Add(regular);
+        Assert.Same(regular, fonts.Match(regular.Family, FaceStyle.Normal, 700, 100));
+        Assert.Same(regular, fonts.Match(regular.Family, FaceStyle.Normal, 700, 100));
+        fonts.Add(bold);
+        Assert.Same(bold, fonts.Match(regular.Family, FaceStyle.Normal, 700, 100));
+        Assert.Same(regular, fonts.Match(regular.Family, FaceStyle.Normal, 400, 100));
+    }
+
+    [Fact]
     public void LayoutsOnSeveralThreadsCanShareOneCollection()
     {
         // The test suites lay out on several threads with one collection; its caches fill as they go.
