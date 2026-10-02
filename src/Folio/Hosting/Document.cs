@@ -56,6 +56,13 @@ public sealed class Document : IDisposable
         }
     }
 
+    /// <summary>
+    /// The accessibility tree of the last painted layout (roles, names, values, states and bounds), or null before the
+    /// first paint, since it reads computed styles and fragments.
+    /// </summary>
+    internal Interaction.AccessibleNode? AccessibilityTree() =>
+        _page is { } page ? Interaction.AccessibilityTree.Build(Node, page, Title) : null;
+
     public static Document Parse(string html, FolioOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(html);

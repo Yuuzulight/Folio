@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Event sign-up</title>
+<style>
+  body { font: 16px sans-serif; margin: 20px; }
+  label { display: block; margin: 8px 0; }
+  .offscreen { visibility: hidden; }
+</style>
+</head>
+<body>
+<h1>Event sign-up</h1>
+<form>
+  <label for="name">Full name</label>
+  <input id="name" type="text" value="Ada Lovelace" required>
+  <label>Email <input type="email" placeholder="you@example.com"></label>
+  <input type="password" aria-label="Password" value="secret">
+  <input type="search" title="Search sessions">
+  <label for="notes">Notes</label>
+  <textarea id="notes" readonly>Vegetarian meal, please.</textarea>
+  <span id="ticket-label">Ticket type</span>
+  <select aria-labelledby="ticket-label">
+    <option>Standard</option>
+    <option selected>Student</option>
+    <option disabled>Sold out</option>
+  </select>
+  <label>Workshops
+    <select multiple>
+      <option selected>Typography</option>
+      <option>Layout</option>
+      <option selected>Accessibility</option>
+    </select>
+  </label>
+  <fieldset>
+    <legend>Session</legend>
+    <label><input type="radio" name="session" checked> Morning</label>
+    <label><input type="radio" name="session"> Afternoon</label>
+  </fieldset>
+  <label><input type="checkbox" checked> Send me the agenda</label>
+  <label><input type="checkbox" disabled> Join the mailing list</label>
+  <label>Seats <input type="number" min="1" max="4" value="2"></label>
+  <label>Volume <input type="range" min="0" max="10"></label>
+  <input type="hidden" name="token" value="abc">
+  <p class="offscreen">Hidden note <span style="visibility: visible">but this part shows</span></p>
+  <p aria-hidden="true">Decorative text</p>
+  <p style="display: none">Not rendered</p>
+  <img src="data:," alt="Venue map">
+  <img src="data:," alt="">
+  <div role="checkbox" aria-checked="mixed">Select all</div>
+  <button type="button" aria-expanded="false">More options</button>
+  <input type="submit">
+  <input type="reset" value="Start over">
+</form>
+</body>
+</html>
