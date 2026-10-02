@@ -844,8 +844,11 @@ internal static class DisplayListBuilder
 
         /// <summary>
         /// Text in a vertical line (Layout.VerticalLayout): its central baseline runs down the fragment, the text's
-        /// ascent in from its right edge. Upright glyphs are centred on it, each hanging from its vertical origin;
-        /// sideways ones are drawn as horizontal text turned a quarter clockwise, their alphabetic baseline left of it.
+        /// ascent in from its right edge, and the alphabetic baseline of its first available font left of that. Text in
+        /// any font sits on that alphabetic baseline: sideways glyphs are drawn as horizontal text on it, turned a
+        /// quarter clockwise; upright ones are centred on their own font's central baseline above it, each hanging from
+        /// its vertical origin. So a fallback font's upright glyphs sit as far from the central baseline as its central
+        /// baseline is from the first font's.
         /// </summary>
         // ponytail: no decorations or shadows on vertical text yet.
         private void PaintTurnedText(PaintBox box, Layout.TextRun run)
@@ -855,6 +858,7 @@ internal static class DisplayListBuilder
             var count = run.GlyphEnd - run.GlyphStart;
             var (size, scale) = (run.Run.Size, run.Run.Size / face.UnitsPerEm);
             var right = box.X + box.Fragment.Width;
+            var middle = right - run.Ascent - run.Central + Layout.InlineLayout.CentralOffset(face, size);
             var glyphs = new ushort[count];
             var origins = new Vector2[count];
             var along = 0f;
@@ -863,8 +867,8 @@ internal static class DisplayListBuilder
                 var g = run.GlyphStart + i;
                 glyphs[i] = run.Run.Glyphs[g];
                 origins[i] = run.Run.Upright
-                    ? new Vector2(right - run.Ascent - face.Advance(glyphs[i]) * scale / 2, box.Y + along + face.Vertical(glyphs[i]).Origin * scale)
-                    : new Vector2(along, run.Ascent + Layout.InlineLayout.CentralOffset(face, size));
+                    ? new Vector2(middle - face.Advance(glyphs[i]) * scale / 2, box.Y + along + face.Vertical(glyphs[i]).Origin * scale)
+                    : new Vector2(along, run.Ascent + run.Central);
                 along += run.Run.Advances[g];
             }
             SetClip(box.Clip);
