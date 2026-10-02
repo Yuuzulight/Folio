@@ -180,6 +180,20 @@ public class DocumentTests
     }
 
     [Fact]
+    public void LinksClippedAwayOrCoveredAreNotUnderThePoint()
+    {
+        using var document = Document.Parse("<!DOCTYPE html><body style='margin: 0'>" +
+            "<div style='height: 20px; overflow: hidden'><a href='clipped.html' style='display: block; margin-top: 30px; height: 10px'></a></div>" +
+            "<a href='covered.html' style='display: block; height: 10px'></a>" +
+            "<div style='position: absolute; top: 20px; left: 0; width: 50px; height: 10px'></div>", BoxFont);
+        document.Paint(800, 600);
+
+        Assert.Null(document.LinkAt(5, 35));  // the first link, outside its clipping container
+        Assert.Null(document.LinkAt(5, 25));  // the second, under the positioned box
+        Assert.Equal("https://example.invalid/docs/covered.html", document.LinkAt(100, 25)?.AbsoluteUri);
+    }
+
+    [Fact]
     public void LoadsImagesFromDataUrlsOnlyAndReportsTheRest()
     {
         using var document = Document.Parse("<!DOCTYPE html><img src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP4z8DwH4SRIKoAAAslD/HAvA0nAAAAAElFTkSuQmCC'><img src='photo.png'>" +
