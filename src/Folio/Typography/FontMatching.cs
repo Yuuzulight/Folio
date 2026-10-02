@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Folio.Typography;
@@ -261,16 +263,32 @@ internal sealed class FontCollection(IFontSource? source = null)
         return null;
     }
 
-    // Loads a family from the source the first time it is asked for; faces that fail to parse are skipped.
+    // The parsed faces of each family, per source instance, shared by every document using that instance: a document
+    // used to re-read and re-parse the system's font files (12.9 MB for a large table) on every render (#442). Lazy
+    // asks the source once per family even when documents on several threads open it at the same time; a family whose
+    // source call failed is dropped so the next document asks again. Entries live as long as the source instance does.
+    private static readonly ConditionalWeakTable<IFontSource, ConcurrentDictionary<string, Lazy<FontFace[]>>> SourceFaces = new();
+
+    // Loads a family the first time this collection asks for it; faces that fail to parse are skipped.
     private void Open(string family)
     {
         if (source is null || !_opened.Add(family))
             return;
-        foreach (var handle in source.OpenFamily(family))
+        var families = SourceFaces.GetValue(source, _ => new(StringComparer.OrdinalIgnoreCase));
+        var faces = families.GetOrAdd(family, name => new(() =>
+            [.. source.OpenFamily(name).Select(h => h as FontFace ?? FontFace.Parse(h.Data, h.FaceIndex)).OfType<FontFace>()]));
+        FontFace[] parsed;
+        try
         {
-            if ((handle as FontFace ?? FontFace.Parse(handle.Data, handle.FaceIndex)) is { } face)
-                Add(face);
+            parsed = faces.Value;
         }
+        catch
+        {
+            families.TryRemove(KeyValuePair.Create(family, faces));
+            throw;
+        }
+        foreach (var face in parsed)
+            Add(face);
     }
 
     // The script of a cluster: its first character that is not Common or Inherited, else Common.

@@ -339,6 +339,23 @@ internal static class PaintOrderWalker
         return new CornerRadii(tl * f, tr * f, br * f, bl * f);
     }
 
+    // A box's transform (css-transforms-2 §6) in canvas coordinates: its matrix is relative to the border box's
+    // top-left corner, the reference box being the border box.
+    // Under a parent's perspective, the parent's perspective matrix applies after the box's own transform
+    // (https://www.w3.org/TR/css-transforms-2/#accumulated-3d-transformation-matrix-computation).
+    // ponytail: every box flattens into its parent's plane; preserve-3d and backface-visibility come when pages need them.
+    internal static Matrix4x4 Transform(PaintBox box)
+    {
+        var matrix = Matrix4x4.CreateTranslation(-box.X, -box.Y, 0)
+            * box.Box.Style.Transform.Matrix(box.Fragment.Width, box.Fragment.Height)
+            * Matrix4x4.CreateTranslation(box.X, box.Y, 0);
+        return box.Perspective is { } perspective ? matrix * perspective : matrix;
+    }
+
+    // The determinant of the projective 2D transform a 3D matrix flattens to: the x, y and w rows and columns.
+    internal static float Determinant2D(Matrix4x4 m) =>
+        m.M11 * (m.M22 * m.M44 - m.M24 * m.M42) - m.M12 * (m.M21 * m.M44 - m.M24 * m.M41) + m.M14 * (m.M21 * m.M42 - m.M22 * m.M41);
+
     // Boxes in box tree order (document order), for ordering positioned boxes and stacking contexts. Boxes in inline
     // content (inline boxes, atomic inlines, floats and positioned boxes) are reached through their paragraph's items.
     private static Dictionary<Box, int> TreeOrder(Box root)

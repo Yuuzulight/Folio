@@ -1,6 +1,7 @@
 using Folio.Css;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Interaction;
 using Folio.Layout;
 using Folio.Painting;
 using Folio.Resources;
@@ -54,6 +55,13 @@ public sealed class Document : IDisposable
             static string Collapse(string? text) => string.Join(' ', (text ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
         }
     }
+
+    /// <summary>
+    /// The accessibility tree of the last painted layout (roles, names, values, states and bounds), or null before the
+    /// first paint, since it reads computed styles and fragments.
+    /// </summary>
+    internal Interaction.AccessibleNode? AccessibilityTree() =>
+        _page is { } page ? Interaction.AccessibilityTree.Build(Node, page, Title) : null;
 
     public static Document Parse(string html, FolioOptions? options = null)
     {
@@ -190,32 +198,11 @@ public sealed class Document : IDisposable
     private Fragment? _page;
 
     /// <summary>
-    /// The element under a point of the last painted layout (page coordinates in CSS pixels): the deepest box whose
-    /// border box holds it, later boxes (painted on top) first. Null outside every box or before painting.
+    /// The element under a point of the last painted layout (page coordinates in CSS pixels): the one painted on top
+    /// there, by hit testing in reverse paint order. Null outside every box or before painting.
     /// </summary>
-    // ponytail: hit testing follows fragment order, not the stacking tree, and ignores clipping (study 15 comes in M3).
-    internal ElementNode? ElementAt(float x, float y)
-    {
-        return _page is null ? null : Find(_page, 0, 0);
-
-        ElementNode? Find(Fragment fragment, float left, float top)
-        {
-            for (var i = fragment.Children.Count - 1; i >= 0; i--)
-            {
-                var (child, cx, cy) = (fragment.Children[i].Fragment, left + fragment.Children[i].X, top + fragment.Children[i].Y);
-                if (child.Kind == FragmentKind.Line)
-                {
-                    if (Find(child, cx, cy) is { } inLine)
-                        return inLine;
-                    continue;
-                }
-                if (child.Kind == FragmentKind.Text || x < cx || y < cy || x >= cx + child.Width || y >= cy + child.Height)
-                    continue;
-                return Find(child, cx, cy) ?? (child.Box?.Node as ElementNode);
-            }
-            return null;
-        }
-    }
+    internal ElementNode? ElementAt(float x, float y) =>
+        _page is null ? null : HitTester.Hit(_page, new(x, y), _frame?.Scale ?? 1)?.Node;
 
     /// <summary>The link under a point: the nearest a or area element with an href, resolved against the base URL.</summary>
     internal Uri? LinkAt(float x, float y)

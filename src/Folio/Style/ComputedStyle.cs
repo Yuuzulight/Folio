@@ -40,6 +40,8 @@ internal enum BoxSizing { ContentBox, BorderBox }
 
 internal enum Visibility { Visible, Hidden, Collapse }
 
+internal enum PointerEvents { Auto, None }
+
 internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
 internal enum Isolation { Auto, Isolate }
@@ -128,10 +130,10 @@ internal sealed record OutlineGroup(float WidthPx, OutlineStyle Style, CssColor 
 }
 
 /// <summary>
-/// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color and
-/// scrollbar-color (null is auto).
+/// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color,
+/// scrollbar-color (null is auto) and pointer-events.
 /// </summary>
-internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor)
+internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor, PointerEvents PointerEvents = PointerEvents.Auto)
 {
     public static UiGroup Initial { get; } = new("auto", null, "auto");
 }
