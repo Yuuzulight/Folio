@@ -872,7 +872,7 @@ internal static class BlockLayout
                 }
                 var block = piece.Path[depth];
                 var j = i;
-                while (j < indices.Count && pieces[indices[j]].Path.Length > depth && ReferenceEquals(pieces[indices[j]].Path[depth].Fragment, block.Fragment))
+                while (j < indices.Count && pieces[indices[j]].Path.Length > depth && pieces[indices[j]].Path[depth].Fragment.Equals(block.Fragment))
                     j++;
                 var inside = indices.GetRange(i, j - i);
                 foreach (var group in inside.GroupBy(k => pieces[k].Column))
@@ -887,8 +887,8 @@ internal static class BlockLayout
                     // A fragment of the block for this column: from its top (or this column's first piece) to its last piece.
                     var placed = Rebuild(depth + 1, members);
                     // The block's own top and bottom edges go with its first and last pieces.
-                    var (first, last) = (pieces.FindIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)),
-                                         pieces.FindLastIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)));
+                    var (first, last) = (pieces.FindIndex(p => p.Path.Length > depth && p.Path[depth].Fragment.Equals(block.Fragment)),
+                                         pieces.FindLastIndex(p => p.Path.Length > depth && p.Path[depth].Fragment.Equals(block.Fragment)));
                     var fragmentTop = members[0] == first ? block.Y + dy : placed.Min(p => p.Y);
                     var fragmentBottom = members[^1] == last ? block.Y + block.Fragment.Height + dy : placed.Max(p => p.Y + p.Fragment.Height);
                     var x = block.X + dx;
