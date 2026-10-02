@@ -273,6 +273,57 @@ public class TypographyTests
     }
 
     [Fact]
+    public void DocumentsOnManyThreadsShareOneSourcesParsedFaces()
+    {
+        var source = new CountingSource();
+        var settings = new FontSettings { Source = source };
+
+        var faces = new FontFace?[64];
+        Parallel.For(0, faces.Length, i =>
+        {
+            var fonts = FontCollection.For(settings); // one collection per document, as Document makes them
+            faces[i] = fonts.Match(i % 2 == 0 ? "Folio Box" : "FOLIO BOX", FaceStyle.Normal, 400, 100);
+            Assert.Null(fonts.Match("Missing", FaceStyle.Normal, 400, 100));
+        });
+
+        Assert.All(faces, face => Assert.Same(faces[0], face)); // parsed once, shared
+        Assert.Equal("Folio Box", faces[0]?.Family);
+        Assert.Equal(1, source.Calls["folio box"]); // asked once per family for the instance, not once per document
+        Assert.Equal(1, source.Calls["missing"]);
+    }
+
+    [Fact]
+    public void AFailedFamilyIsAskedForAgain()
+    {
+        var source = new CountingSource { FailFirst = true };
+        var settings = new FontSettings { Source = source };
+
+        Assert.Throws<IOException>(() => FontCollection.For(settings).Match("Folio Box", FaceStyle.Normal, 400, 100));
+        Assert.Equal("Folio Box", FontCollection.For(settings).Match("Folio Box", FaceStyle.Normal, 400, 100)?.Family);
+        Assert.Equal(2, source.Calls["folio box"]);
+    }
+
+    private sealed class CountingSource : IFontSource
+    {
+        public System.Collections.Concurrent.ConcurrentDictionary<string, int> Calls { get; } = new();
+
+        public bool FailFirst { get; init; }
+
+        public IReadOnlyList<IFontHandle> OpenFamily(string family)
+        {
+            var calls = Calls.AddOrUpdate(family.ToLowerInvariant(), 1, (_, n) => n + 1);
+            Thread.Sleep(5); // widen the window for another thread to ask too
+            if (FailFirst && calls == 1)
+                throw new IOException("font file busy");
+            return family.Equals("Folio Box", StringComparison.OrdinalIgnoreCase) ? [new RawFont(BoxFontBytes)] : [];
+        }
+
+        public string? MatchCharacter(int codePoint, int weight, bool italic) => null;
+    }
+
+    private sealed record RawFont(ReadOnlyMemory<byte> Data, int FaceIndex = 0) : IFontHandle;
+
+    [Fact]
     public void FolderSourceIsEmptyForAMissingFolder() =>
         Assert.Empty(new FontFolderSource(Path.Combine(FontsFolder, "missing")).OpenFamily("Folio Box"));
 
