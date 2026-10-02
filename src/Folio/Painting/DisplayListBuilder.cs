@@ -28,6 +28,15 @@ internal static class DisplayListBuilder
         /// <summary>The parent's perspective matrix (perspective property) in canvas coordinates, if it has one.</summary>
         public Matrix4x4? Perspective { get; init; }
 
+        /// <summary>The nearest table grid box around this one, if any.</summary>
+        public PaintBox? Table { get; init; }
+
+        /// <summary>
+        /// For a table with collapsed borders: its cells where layout put them (before sticky positioning), whose borders
+        /// it paints after all its backgrounds.
+        /// </summary>
+        public List<PaintBox>? CollapsedCells { get; init; }
+
         public Box Box => Fragment.Box!;
 
         /// <summary>The border box, each edge rounded to the nearest device pixel, so neighbours never gap or overlap.</summary>
@@ -166,7 +175,11 @@ internal static class DisplayListBuilder
                 Perspective = parent.Fragment.Box?.Style.Transform.PerspectiveMatrix(parent.Fragment.Width, parent.Fragment.Height) is { } perspective
                     ? Matrix4x4.CreateTranslation(-parent.X, -parent.Y, 0) * perspective * Matrix4x4.CreateTranslation(parent.X, parent.Y, 0)
                     : null,
+                Table = parent.Fragment.Box is TablePartBox { Part: TablePart.Table } ? parent : parent.Table,
+                CollapsedCells = child.Fragment is { Box: TablePartBox { Part: TablePart.Table }, PaintedBorder: not null } ? [] : null,
             };
+            if (placed.Table?.CollapsedCells is { } cells && child.Fragment is { PaintedBorder: not null, Box: TablePartBox { Part: TablePart.Cell } })
+                cells.Add(placed);
             // A cell's content fragment shares the cell's box; the cell has already been moved.
             if (child.Fragment.Box is { Style.Box.Position: Position.Sticky } sticky && sticky != parent.Fragment.Box)
                 placed = placed with { Y = placed.Y + StickyOffset(sticky, placed) };
@@ -421,8 +434,19 @@ internal static class DisplayListBuilder
                 PaintBackground(self, context.Text);
             foreach (var c in Sorted(context.Negative))
                 Emit(c);
+            // A table with collapsed borders paints them once all its backgrounds are painted, under any positioned cells
+            // (CSS 2.2 Appendix E, step 4; css-tables-3 §6.5): when the next block is outside it, or at the end.
+            var tables = new Stack<PaintBox>();
             foreach (var block in context.Blocks)
+            {
+                while (tables.TryPeek(out var table) && !Inside(block, table))
+                    PaintCollapsedBorders(tables.Pop());
                 PaintBackground(block, context.Text);
+                if (block.Box is TablePartBox { Part: TablePart.Table } && block.CollapsedCells is { Count: > 0 })
+                    tables.Push(block);
+            }
+            while (tables.TryPop(out var table))
+                PaintCollapsedBorders(table);
             foreach (var c in context.Floats)
                 Emit(c);
             foreach (var text in context.Text)
@@ -577,6 +601,30 @@ internal static class DisplayListBuilder
 
         private static IEnumerable<Context> Sorted(List<Context> contexts) => contexts.OrderBy(c => c.Z).ThenBy(c => c.Order);
 
+        // Whether a box is in a table, by the tables around it (boxes in inline content have no parent box to go by).
+        private static bool Inside(PaintBox box, PaintBox table)
+        {
+            for (var t = box.Table; t is not null; t = t.Table)
+            {
+                if (ReferenceEquals(t, table))
+                    return true;
+            }
+            return false;
+        }
+
+        // A collapsed table border is centred on the cell's edges, half outside it, and has no radii; its edges, not the
+        // cell's, snap to device pixels like a box's, so a 1px border is one solid pixel and neighbours share it exactly.
+        private void PaintCollapsedBorders(PaintBox table)
+        {
+            foreach (var cell in table.CollapsedCells!)
+            {
+                var border = cell.Fragment.PaintedBorder!;
+                if (cell.Box.Style.Inherited.Visibility == Visibility.Visible && !cell.Fragment.SkipsDecorations)
+                    PaintBorder(cell, border, new RoundedRect(Snapped(cell, new RectF(cell.X, cell.Y, cell.Fragment.Width, cell.Fragment.Height)
+                        .Inset(-border.TopWidth / 2, -border.RightWidth / 2, -border.BottomWidth / 2, -border.LeftWidth / 2)), default));
+            }
+        }
+
         /// <param name="text">The text of the stacking context the box paints in, which an inline box clips to.</param>
         private void PaintBackground(PaintBox box, List<PaintBox> text)
         {
@@ -625,8 +673,12 @@ internal static class DisplayListBuilder
             // A table wrapper shares the table's style; the table grid box inside it paints the table.
             if (style.Inherited.Visibility != Visibility.Visible || box.Box is TableWrapperBox || box.Fragment.SkipsDecorations)
                 return;
-            var shape = BorderBox(box);
             var border = box.Fragment.PaintedBorder ?? style.Border;
+            // A cell with collapsed borders is decorated inside them: its half of each is the table's to paint.
+            var shape = box.Fragment.PaintedBorder is not null && box.Box is TablePartBox { Part: TablePart.Cell }
+                ? new RoundedRect(Snapped(box, new RectF(box.X, box.Y, box.Fragment.Width, box.Fragment.Height)
+                    .Inset(border.TopWidth / 2, border.RightWidth / 2, border.BottomWidth / 2, border.LeftWidth / 2)), default)
+                : BorderBox(box);
             var color = box.Box == canvasBox ? CssColor.Transparent : style.Background.Color.Resolve(style.Inherited.Color);
             // Outer shadows go under the background, inset ones over it and under the border (css-backgrounds-3 §7.1).
             if (style.Shadows.Box.Count > 0)
@@ -679,24 +731,25 @@ internal static class DisplayListBuilder
             // A border image that can be drawn replaces the border styles (collapsed table borders have none).
             if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border, style.BorderImage, "border-image-source"))
                 return;
-            if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth > 0)
-            {
-                SetClip(box.Clip);
-                var current = style.Inherited.Color;
-                var used = !(border.TopColor.IsCurrentColor || border.RightColor.IsCurrentColor || border.BottomColor.IsCurrentColor || border.LeftColor.IsCurrentColor)
-                    ? border
-                    : border with
-                    {
-                        TopColor = border.TopColor.Resolve(current), RightColor = border.RightColor.Resolve(current),
-                        BottomColor = border.BottomColor.Resolve(current), LeftColor = border.LeftColor.Resolve(current),
-                    };
-                // A collapsed table border is centred on the cell's edges, half outside it, and has no radii; its edges snap
-                // to device pixels like a box's, so a 1px border is one solid pixel and neighbours share it exactly.
-                var borderShape = box.Fragment.PaintedBorder is not null && box.Box is TablePartBox { Part: TablePart.Cell }
-                    ? new RoundedRect(Snapped(box, box.Rect.Inset(-border.TopWidth / 2, -border.RightWidth / 2, -border.BottomWidth / 2, -border.LeftWidth / 2)), default)
-                    : shape;
-                list.Items.Add(new DisplayItem(DisplayItemKind.Border, borderShape, Border: used));
-            }
+            // A collapsed border is the table's to paint (PaintCollapsedBorders).
+            if (box.Fragment.PaintedBorder is null || box.Box is not TablePartBox { Part: TablePart.Cell })
+                PaintBorder(box, border, shape);
+        }
+
+        private void PaintBorder(PaintBox box, BorderGroup border, RoundedRect shape)
+        {
+            if (border.TopWidth + border.RightWidth + border.BottomWidth + border.LeftWidth <= 0)
+                return;
+            SetClip(box.Clip);
+            var current = box.Box.Style.Inherited.Color;
+            var used = !(border.TopColor.IsCurrentColor || border.RightColor.IsCurrentColor || border.BottomColor.IsCurrentColor || border.LeftColor.IsCurrentColor)
+                ? border
+                : border with
+                {
+                    TopColor = border.TopColor.Resolve(current), RightColor = border.RightColor.Resolve(current),
+                    BottomColor = border.BottomColor.Resolve(current), LeftColor = border.LeftColor.Resolve(current),
+                };
+            list.Items.Add(new DisplayItem(DisplayItemKind.Border, shape, Border: used));
         }
 
         /// <summary>
