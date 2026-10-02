@@ -248,7 +248,9 @@ internal static class InlineLayout
         {
             unit.Pieces.Add(piece);
             unit.Width += piece.Width;
-            unit.TrailingSpace = 0;
+            // Floats and positioned boxes are not on the line: spaces before them still hang at its end.
+            if (piece.Kind is not (PieceKind.Float or PieceKind.OutOfFlow))
+                unit.TrailingSpace = 0;
         }
 
         // The styles of the inline boxes open at each point: whether the content around an atomic inline may wrap is
@@ -990,8 +992,8 @@ internal static class InlineLayout
             or >= 0x2600 and <= 0x27BF or >= 0x1F000 and <= 0x1FAFF or >= 0x20000 and <= 0x3FFFF;
 
     /// <summary>
-    /// How far the central baseline of vertical text is above a sideways run's alphabetic baseline: half the difference
-    /// between the font's ascent and descent, rounded as line metrics are.
+    /// How far a font's central baseline is above its alphabetic baseline: half the difference between its ascent and
+    /// descent, rounded as line metrics are.
     /// </summary>
     internal static float CentralOffset(FontFace face, float size) =>
         (MathF.Floor(face.Ascent * size / face.UnitsPerEm + 0.5f) - MathF.Floor(-face.Descent * size / face.UnitsPerEm + 0.5f)) / 2;
@@ -1040,7 +1042,7 @@ internal static class InlineLayout
 
     // An inline box's layout bounds around the baseline (CSS 2.2 §10.8.1): the font's ascent and descent, with half
     // the leading from line-height added above and below.
-    private readonly record struct LineMetrics(float Ascent, float Descent, float Above, float Below, float XHeight, float Size, float LineHeight);
+    private readonly record struct LineMetrics(float Ascent, float Descent, float Above, float Below, float XHeight, float Size, float LineHeight, float Central = 0);
 
     private static LineMetrics Metrics(ComputedStyle style, LayoutContext context) => Metrics(style, PrimaryFace(style, context));
 
@@ -1056,8 +1058,21 @@ internal static class InlineLayout
     /// the ideographic baseline (OpenType BASE), or above the descender when the font has none.
     /// </summary>
     internal static float EmTop(ComputedStyle style, LayoutContext context, FontFace? used = null) =>
-        style.Text.IsVertical ? style.Font.Size / 2 // vertical text sits on the central baseline, mid-em
+        style.Text.IsVertical ? style.Font.Size / 2 + UprightShift(style, context, used) // vertical text is centred on its font's central baseline
         : (used ?? PrimaryFace(style, context)) is { } face ? (face.UnitsPerEm + face.IdeographicBaseline) * style.Font.Size / face.UnitsPerEm : 0.8f * style.Font.Size;
+
+    /// <summary>
+    /// How far the bottom of the em box of upright vertical text in <paramref name="used"/> is below the line's central
+    /// baseline: half an em, less how far that font's central baseline sits above the first available font's
+    /// (Painting.DisplayListBuilder.PaintTurnedText).
+    /// </summary>
+    internal static float UprightEmBottom(ComputedStyle style, LayoutContext context, FontFace? used) =>
+        style.Font.Size / 2 - UprightShift(style, context, used);
+
+    // How far upright glyphs in a font sit above the central baseline of vertical text: its central baseline above that
+    // of the first available font, the two sharing the alphabetic baseline.
+    private static float UprightShift(ComputedStyle style, LayoutContext context, FontFace? used) =>
+        used is null ? 0 : CentralOffset(used, style.Font.Size) - Metrics(style, context).Central;
 
     /// <summary>The descent (below the baseline, positive) of a face at the style's size, as line metrics round it.</summary>
     internal static float Descent(ComputedStyle style, FontFace? face) => Metrics(style, face).Descent;
@@ -1080,7 +1095,9 @@ internal static class InlineLayout
         (ascent, descent, gap) = (Whole(ascent), Whole(descent), Whole(gap));
         static float Whole(float px) => MathF.Floor(px + 0.5f);
         // Vertical lines centre their text on the central baseline (css-writing-modes-4 §4.2): half the font's height on
-        // either side of it.
+        // either side of it. The alphabetic baseline, which text in other fonts shares, is half the ascent minus the
+        // descent from it.
+        var central = (ascent - descent) / 2;
         if (style.Text.IsVertical)
             ascent = descent = (ascent + descent) / 2;
         var xHeight = face is { XHeight: > 0 } ? face.XHeight * size / face.UnitsPerEm : size / 2;
@@ -1097,7 +1114,7 @@ internal static class InlineLayout
         // Half the leading goes above the text, rounded down to whole pixels so baselines stay on the pixel grid; the
         // rest goes below.
         var above = ascent + MathF.Floor((lineHeight - ascent - descent) / 2);
-        return new LineMetrics(ascent, descent, above, lineHeight - above, xHeight, size, lineHeight);
+        return new LineMetrics(ascent, descent, above, lineHeight - above, xHeight, size, lineHeight, central);
     }
 
     // The line as a tree: the root (the block's strut), inline boxes, and text and atomic leaves. Each node's
@@ -1441,7 +1458,11 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement, node.Box),
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement, node.Box)
+                        {
+                            // The first available font's, whichever font sized the line.
+                            Central = child.Style.Text.IsVertical ? Metrics(child.Style, context).Central : 0,
+                        },
                     }));
                 }
                 else if (child.Piece is { Kind: PieceKind.Atomic } atomic)

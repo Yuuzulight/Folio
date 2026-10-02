@@ -1,8 +1,8 @@
 === odd collapsed borders snap to whole pixels, shared exactly by neighbouring cells
 <!DOCTYPE html><style>body { margin: 0 } table { border-collapse: collapse } td { border: 1px solid black; padding: 0 }</style><table><tr><td>a</td><td>b</td></tr></table>
 ---
-border 1,1 18x18 1 solid rgb(0, 0, 0)
-border 18,1 18x18 1 solid rgb(0, 0, 0)
+border 0,0 18x18 1 solid rgb(0, 0, 0)
+border 17,0 18x18 1 solid rgb(0, 0, 0)
 glyphs 1,14 16px rgb(0, 0, 0)
 glyphs 18,14 16px rgb(0, 0, 0)
 
@@ -19,3 +19,11 @@ glyphs 22,17 16px rgb(0, 0, 0)
 ---
 fill 10,0 16x16 rgb(0, 0, 255)
 glyphs 10,13 16px rgb(0, 0, 0)
+
+=== the table paints collapsed borders after all cell backgrounds and under positioned cells; cell backgrounds stop at the middle of the borders
+<!DOCTYPE html><style>body { margin: 0 } table { border-collapse: collapse } td { padding: 0; width: 10px; height: 10px; border: 2px solid rgb(1, 0, 0) } .a { background: rgb(0, 2, 0) } .b { background: rgb(0, 0, 3); position: relative }</style><table><tr><td class="a"></td><td class="b"></td></tr></table>
+---
+fill 2,2 10x10 rgb(0, 2, 0)
+border 0,0 14x14 2 solid rgb(1, 0, 0)
+border 12,0 14x14 2 solid rgb(1, 0, 0)
+fill 14,2 10x10 rgb(0, 0, 3)
