@@ -224,6 +224,14 @@ internal static class StyleResolver
     public static ComputedStyle? Restyle(ElementNode element, ComputedStyle parent) =>
         (element.OwnerDocument.StyleState as Restyler)?.Style(element, parent);
 
+    /// <summary>
+    /// An element's ::first-letter style under another parent style: the letter inherits from the inline element it
+    /// sits in (https://www.w3.org/TR/css-pseudo-4/#first-letter-pseudo). Null before the document has been styled.
+    /// </summary>
+    // ponytail: a first letter restyled this way does not animate.
+    public static ComputedStyle? RestyleFirstLetter(ElementNode element, ComputedStyle parent) =>
+        (element.OwnerDocument.StyleState as Restyler)?.FirstLetter(element, parent);
+
     /// <summary>The elements with animations in the document's last style resolution, in tree order.</summary>
     public static IReadOnlyList<AnimatedElement> Animated(DocumentNode document) => (document.StyleState as Restyler)?.Animations ?? [];
 
@@ -246,14 +254,25 @@ internal static class StyleResolver
             _matched.Clear();
             Cascade.Match(element, origins, _context, PseudoElement.None, _matched);
             var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element), parent: parent);
-            return StyleBuilder.Compute(values, new ComputeContext(parent, rootFontSize, media.Width, media.Height)
+            return StyleBuilder.Compute(values, Context(parent, custom), groups);
+        }
+
+        public ComputedStyle FirstLetter(ElementNode element, ComputedStyle parent)
+        {
+            _matched.Clear();
+            Cascade.Match(element, origins, _context, PseudoElement.FirstLetter, _matched);
+            var (values, custom) = Cascade.Compute(_matched, null, 0, null, parent: parent);
+            return StyleBuilder.Compute(FirstLetterProperties(values), Context(parent, custom), groups);
+        }
+
+        private ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
+            new(parent, rootFontSize, media.Width, media.Height)
             {
                 PrefersDark = media.DarkColorScheme,
                 Measure = measure,
                 Custom = CustomProperties.Compute(parent.Custom, custom, registered),
                 Registered = registered,
-            }, groups);
-        }
+            };
     }
 
     /// <summary>

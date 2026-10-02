@@ -468,6 +468,76 @@ public class SkiaCanvasTests
         Assert.Equal(SKColors.White, bitmap.GetPixel(55, 50));
     }
 
+    [Fact]
+    public void TilesRepeatTheirSourceAcrossTheSubregion()
+    {
+        // The square's left half, repeated over the whole surface.
+        using var bitmap = Filtered(new Filter(FilterKind.Tile) { Source = new RectF(40, 40, 10, 20), Subregion = new RectF(0, 0, 100, 100) });
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(5, 5));
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(95, 95));
+    }
+
+    [Fact]
+    public void ConvolutionsWeighTheSourceWithTheKernelTurnedRound()
+    {
+        // A 3x1 kernel of 1 0 0 centred on the pixel takes each pixel from its right neighbour (Filter Effects 1 §9.9).
+        using var bitmap = Filtered(new Filter(FilterKind.ConvolveMatrix) { Kernel = [1, 0, 0], KernelColumns = 3, KernelRows = 1, TargetX = 1 });
+
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(39, 50));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(59, 50));
+    }
+
+    [Fact]
+    public void FilterPrimitivesPastTheirLimitsRenderAndKernelsTooLargePassTheirInputThrough()
+    {
+        // The fuzzer's regression input: kernels too large, overflowing bounding box units, tiny and huge tiles and images.
+        using var bitmap = Render(File.ReadAllText(Path.Combine(RepoPaths.Tests, "Folio.Fuzz", "Regressions", "svg", "filter-primitive-limits.html")));
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(50, 20));
+    }
+
+    [Fact]
+    public void ConvolutionsWithKernelsOfTheWrongSizeChangeNothing()
+    {
+        using var bitmap = Filtered(new Filter(FilterKind.ConvolveMatrix) { Kernel = [1, 0], KernelColumns = 3, KernelRows = 1 });
+
+        Assert.Equal(SKColors.White, bitmap.GetPixel(39, 50));
+        Assert.Equal(SKColors.Red, bitmap.GetPixel(50, 50));
+    }
+
+    [Fact]
+    public void ImagePrimitivesDrawTheirImage()
+    {
+        using var bitmap = Filtered(new Filter(FilterKind.Image) { Image = new SolidImage(0, 0, 255), Destination = new RectF(10, 10, 20, 20) });
+
+        Assert.Equal(SKColors.Blue, bitmap.GetPixel(15, 15));
+        Assert.Equal(SKColors.White, bitmap.GetPixel(50, 50));
+    }
+
+    [Theory]
+    [InlineData(FilterKind.DiffuseLighting, LightKind.Distant)]
+    [InlineData(FilterKind.DiffuseLighting, LightKind.Point)]
+    [InlineData(FilterKind.SpecularLighting, LightKind.Distant)]
+    [InlineData(FilterKind.SpecularLighting, LightKind.Spot)]
+    public void LightFromStraightAboveLightsAFlatSurfaceInItsColour(FilterKind kind, LightKind lightKind)
+    {
+        // A flat surface faces the light, so diffuse light is kd times its colour and the specular highlight ks times it.
+        var light = new Light(lightKind, Direction: new(0, 0, 1), Position: new(10, 10, 10_000), Target: new(10, 10, 0), ConeAngle: 45);
+        using var bitmap = Filtered(new Filter(kind, Color: Blue) { Light = light, Subregion = new RectF(0, 0, 20, 20) });
+
+        AssertNear(SKColors.Blue, bitmap.GetPixel(10, 10), 3);
+        Assert.Equal(SKColors.White, bitmap.GetPixel(50, 50));
+    }
+
+    // An image of one colour, 2 by 2 pixels.
+    private sealed class SolidImage(byte r, byte g, byte b) : Folio.Imaging.IImageHandle
+    {
+        public int Width => 2;
+        public int Height => 2;
+        public ReadOnlyMemory<byte> Pixels { get; } = Enumerable.Range(0, 4).SelectMany(_ => new[] { r, g, b, (byte)255 }).ToArray();
+    }
+
     // Draws a red 20x20 square at (40, 40) into a layer with these filter primitives, on a white 100x100 surface.
     private static SKBitmap Filtered(params Filter[] filters)
     {
@@ -488,7 +558,7 @@ public class SkiaCanvasTests
         var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
         StyleResolver.Resolve(document, new MediaContext(100, 100));
         var images = new Folio.Imaging.ImageLoader(Folio.Resources.ResourceLoader.DataUrlsOnly, null);
-        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 100, 100, BoxFont.Value);
+        var fragment = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document, images)!, 100, 100, BoxFont.Value, images: images);
         var list = DisplayListBuilder.Build(fragment, images);
 
         var bitmap = new SKBitmap(new SKImageInfo(100, 100, SKColorType.Bgra8888, SKAlphaType.Premul));

@@ -98,9 +98,8 @@ internal sealed class BoxTreeBuilder
     private Frame Container => _containers.Peek();
 
     // A block container whose ::first-letter is still to come: the first letter of its first line of text, which may be
-    // in a block inside it (the frame then moves down to that block).
-    // ponytail: the letter's style inherits from the element whose ::first-letter it is, not from the inline element the
-    // letter sits in, and an atomic ::before ends the search.
+    // in a block inside it, ::before's included (the frame then moves down to that block). Anything else before the
+    // text, an atomic ::before too, means there is none (Place).
     private (ElementNode Element, Frame Frame, ComputedStyle Style)? _firstLetter;
 
     private void Push(Frame frame)
@@ -242,8 +241,8 @@ internal sealed class BoxTreeBuilder
         if (frame is { Kind: FrameKind.Block, Box: BlockContainerBox } && element.PseudoStyle(PseudoElement.FirstLetter) is { } firstLetter
             && firstLetter.Box.Display != Display.None)
             _firstLetter = (element, frame, firstLetter);
-        else if (_firstLetter is { } pending && pending.Frame == outer && frame is { Kind: FrameKind.Block, Box: BlockContainerBox { IsAtomicInline: false } })
-            _firstLetter = pending with { Frame = frame }; // the first line is inside this block
+        else
+            FirstLetterInto(outer, frame);
         if (display == Display.ListItem)
             AddMarker(element);
         AddPseudo(element, PseudoElement.Before);
@@ -321,6 +320,13 @@ internal sealed class BoxTreeBuilder
         ruby.RubyColumn!.Add(annotation);
         Push(new Frame(FrameKind.Block, annotation, style) { RubyAnnotationOf = ruby });
         AddPseudo(rt, PseudoElement.Before);
+    }
+
+    // A block opened before any inline content of the container searching for its first letter holds its first line.
+    private void FirstLetterInto(Frame outer, Frame frame)
+    {
+        if (_firstLetter is { } pending && pending.Frame == outer && frame is { Kind: FrameKind.Block, Box: BlockContainerBox { IsAtomicInline: false } })
+            _firstLetter = pending with { Frame = frame };
     }
 
     // Adds a new child box: inline-level boxes (and floats/abspos inside inline content) become items of the run.
@@ -428,14 +434,16 @@ internal sealed class BoxTreeBuilder
         if (_firstLetter is { } pending && pending.Frame == Container && FirstLetter(text) is var (start, length))
         {
             // https://www.w3.org/TR/css-pseudo-4/#first-letter-pseudo: the first letter (with the punctuation around
-            // it) gets its own box, inline or floated, styled by ::first-letter.
+            // it) gets its own box, inline or floated, styled by ::first-letter and inheriting from what the text is in.
             _firstLetter = null;
             if (start > 0)
                 RunOf(Container).AddText(text[..start], style);
-            var display = pending.Style.Box.Float != FloatSide.None ? Display.Block : Display.Inline;
-            var frame = OpenBox(pending.Element, pending.Style, display, PseudoElement.FirstLetter);
+            var letterStyle = ReferenceEquals(style, pending.Element.ComputedStyle()) ? pending.Style
+                : StyleResolver.RestyleFirstLetter(pending.Element, style) ?? pending.Style;
+            var display = letterStyle.Box.Float != FloatSide.None ? Display.Block : Display.Inline;
+            var frame = OpenBox(pending.Element, letterStyle, display, PseudoElement.FirstLetter);
             Push(frame);
-            RunOf(Container).AddText(text.Substring(start, length), pending.Style);
+            RunOf(Container).AddText(text.Substring(start, length), letterStyle);
             Finish(Pop());
             if (start + length < text.Length)
                 RunOf(Container).AddText(text[(start + length)..], style);
@@ -480,8 +488,10 @@ internal sealed class BoxTreeBuilder
         var display = style.Box.Display;
         if (Container.Kind == FrameKind.Flex || style.Box.Float != FloatSide.None || style.Box.Position is Position.Absolute or Position.Fixed)
             display = Blockified(display);
+        var outer = Container;
         var frame = OpenBox(element, style, display == Display.Contents ? Display.Inline : display, pseudo);
         Push(frame);
+        FirstLetterInto(outer, frame);
         AddText(text, style);
         Finish(Pop());
     }
