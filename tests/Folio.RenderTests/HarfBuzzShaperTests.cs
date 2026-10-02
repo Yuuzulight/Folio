@@ -109,6 +109,16 @@ public class HarfBuzzShaperTests
         Assert.Equal(3, spaced.Glyphs.Length);
     }
 
+    [Fact]
+    public void PunctuationAfterCjkTextIsNotShapedWithTheLatinTextAfterIt()
+    {
+        // The closing quote takes the script of the CJK text before it, so it is not kerned against the A after it.
+        var runs = Runs("<p style=\"font-family: 'Source Sans 3', 'Noto Sans JP'\">行”A</p>", new HarfBuzzShaper());
+        Assert.Equal(3, runs.Count);
+        var quote = runs[1];
+        Assert.Equal(quote.Face!.Advance(quote.Glyphs[0]) * quote.Size / quote.Face.UnitsPerEm, quote.Advances[0], 3);
+    }
+
     private static List<ShapedRun> Runs(string html, ITextShaper? shaper)
     {
         var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
