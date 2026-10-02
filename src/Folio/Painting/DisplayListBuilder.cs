@@ -1498,6 +1498,9 @@ internal static class DisplayListBuilder
 
         private void SetClip(ClipNode? target)
         {
+            // Already open: most boxes paint under the same clips as the box before them.
+            if (target == (_open.Count > 0 ? _open[^1] : null))
+                return;
             var chain = new List<ClipNode>();
             for (var node = target; node is not null; node = node.Parent)
                 chain.Add(node);
@@ -1511,10 +1514,10 @@ internal static class DisplayListBuilder
                 return;
             }
             PopTo(common);
-            foreach (var node in chain.Skip(common))
+            for (var i = common; i < chain.Count; i++)
             {
-                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, node.Shape));
-                _open.Add(node);
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, chain[i].Shape));
+                _open.Add(chain[i]);
             }
         }
 

@@ -284,15 +284,18 @@ internal static class BlockLayout
         if (box is BlockContainerBox { Inline: { } inline } container)
         {
             var top = atTop ? 0 : cursor + pending.Resolve();
-            var environment = new InlineLayout.Environment(
-                (from, to) =>
-                {
-                    var (l, r) = exclusions.Available(contentY + from, contentY + to, contentX, contentX + width);
-                    return (l - contentX, r - contentX);
-                },
-                (from, to) => exclusions.NextBottom(contentY + from, contentY + to) is { } b ? b - contentY : null,
-                PlaceFloat,
-                (child, x, y) => outOfFlow.Add(new(child, border.LeftWidth + padding.Left + x, border.TopWidth + padding.Top + y)));
+            // Most paragraphs have no floats beside or inside them and no positioned boxes: they need no environment, and
+            // a table cell or list item then makes none of its four delegates.
+            var environment = exclusions.IsEmpty && !inline.Items.Exists(i => i.Kind is InlineItemKind.Float or InlineItemKind.OutOfFlow) ? null
+                : new InlineLayout.Environment(
+                    (from, to) =>
+                    {
+                        var (l, r) = exclusions.Available(contentY + from, contentY + to, contentX, contentX + width);
+                        return (l - contentX, r - contentX);
+                    },
+                    (from, to) => exclusions.NextBottom(contentY + from, contentY + to) is { } b ? b - contentY : null,
+                    PlaceFloat,
+                    (child, x, y) => outOfFlow.Add(new(child, border.LeftWidth + padding.Left + x, border.TopWidth + padding.Top + y)));
             var carriedBefore = outOfFlow.Count;
             var (lines, bottom, hasLineBoxes) = InlineLayout.Layout(container, inline, width, top, environment, context, space.AnnotationRoom);
             foreach (var line in lines)
