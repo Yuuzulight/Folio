@@ -19,14 +19,17 @@ internal static class DisplayListBuilder
     // Scale is the device pixels per CSS pixel its edges snap to (docs/study/12-painting.md), or 0 under a transform.
     private sealed record PaintBox(Fragment Fragment, float X, float Y, ClipNode? Clip, bool LineEnd = false, float Scale = 0)
     {
+        /// <summary>What the box's parent gives all its children: shared, since a large document has tens of thousands of boxes.</summary>
+        public required Surroundings Around { get; init; }
+
         /// <summary>The padding box of the nearest scroll container (or the viewport) on the canvas, for sticky boxes.</summary>
-        public RectF Scrollport { get; init; }
+        public RectF Scrollport => Around.Scrollport;
 
         /// <summary>The border box of the nearest block-level container, which a sticky box may not leave.</summary>
-        public RectF StickyLimit { get; init; }
+        public RectF StickyLimit => Around.StickyLimit;
 
         /// <summary>The parent's perspective matrix (perspective property) in canvas coordinates, if it has one.</summary>
-        public Matrix4x4? Perspective { get; init; }
+        public Matrix4x4? Perspective => Around.Perspective;
 
         public Box Box => Fragment.Box!;
 
@@ -42,6 +45,8 @@ internal static class DisplayListBuilder
 
         public float Snap(float position) => Scale > 0 ? MathF.Floor(position * Scale + 0.5f) / Scale : position;
     }
+
+    private sealed record Surroundings(RectF Scrollport, RectF StickyLimit, Matrix4x4? Perspective);
 
     private sealed class ClipNode(ClipNode? parent, RoundedRect shape)
     {
@@ -85,14 +90,15 @@ internal static class DisplayListBuilder
         var order = TreeOrder(root.Box!);
         // The root element's stacking context also holds the positioned boxes placed in the initial containing block.
         var viewport = new RectF(0, 0, initialContainingBlock.Width, initialContainingBlock.Height);
+        var atViewport = new Surroundings(viewport, viewport, null);
         var rootBox = new PaintBox(root, rootPlaced.X, rootPlaced.Y, null, Scale: root.Box is { IsTransformed: true } ? 0 : deviceScale)
-            { Scrollport = viewport, StickyLimit = viewport };
+            { Around = atViewport };
         var rootContext = new Context(rootBox, real: true, 0, 0);
         // A replaced root element (the svg root of an SVG document) paints its content like any replaced box.
         if (root.Svg is not null || root.Box is ReplacedBox { Image: not null })
             rootContext.Text.Add(rootBox);
         Collect(rootContext, rootContext, rootBox, root.Children, order);
-        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale) { Scrollport = viewport, StickyLimit = viewport },
+        Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale) { Around = atViewport },
             initialContainingBlock.Children.Skip(1), order);
         // The root group blends with the canvas background, which is painted outside it.
         rootContext.Isolated = false;
@@ -151,22 +157,24 @@ internal static class DisplayListBuilder
     private static void Collect(Context context, Context real, PaintBox parent, IEnumerable<ChildFragment> children, Dictionary<Box, int> order)
     {
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
+        var port = parent.Fragment.Box is { } scroller && IsScrollContainer(scroller) ? PaddingBox(parent) : parent.Scrollport;
+        // A cell's containing block is the table, so rows and row groups pass their limit through.
+        var limit = parent.Fragment.Box is TablePartBox { Part: not (TablePart.Table or TablePart.Cell or TablePart.Caption) } ? parent.StickyLimit
+            : parent.Fragment.Box is BlockContainerBox or FlexContainerBox or GridContainerBox ? parent.Rect : parent.StickyLimit;
+        var perspective = parent.Fragment.Box?.Style.Transform.PerspectiveMatrix(parent.Fragment.Width, parent.Fragment.Height) is { } matrix
+            ? Matrix4x4.CreateTranslation(-parent.X, -parent.Y, 0) * matrix * Matrix4x4.CreateTranslation(parent.X, parent.Y, 0)
+            : (Matrix4x4?)null;
+        // The children share one, the parent's own when nothing changes (a line's text, a row's cells).
+        var around = perspective is null && parent.Perspective is null && port == parent.Scrollport && limit == parent.StickyLimit
+            ? parent.Around : new Surroundings(port, limit, perspective);
+        var lastOnLine = parent.Fragment.Kind == FragmentKind.Line && parent.Fragment.Children.Count > 0 ? parent.Fragment.Children[^1].Fragment : null;
         foreach (var child in children)
         {
             // Snapping stops at a box transformed by anything but a whole-pixel translation: its own geometry and its
             // subtree are drawn through the transform (docs/study/12-painting.md).
             var scale = child.Fragment.Box is { IsTransformed: true } transformed
                 && !IsWholeTranslation(transformed.Style.Transform.Matrix2D(child.Fragment.Width, child.Fragment.Height), parent.Scale) ? 0 : parent.Scale;
-            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, Scale: scale)
-            {
-                Scrollport = parent.Fragment.Box is { } scroller && IsScrollContainer(scroller) ? PaddingBox(parent) : parent.Scrollport,
-                // A cell's containing block is the table, so rows and row groups pass their limit through.
-                StickyLimit = parent.Fragment.Box is TablePartBox { Part: not (TablePart.Table or TablePart.Cell or TablePart.Caption) } ? parent.StickyLimit
-                    : parent.Fragment.Box is BlockContainerBox or FlexContainerBox or GridContainerBox ? parent.Rect : parent.StickyLimit,
-                Perspective = parent.Fragment.Box?.Style.Transform.PerspectiveMatrix(parent.Fragment.Width, parent.Fragment.Height) is { } perspective
-                    ? Matrix4x4.CreateTranslation(-parent.X, -parent.Y, 0) * perspective * Matrix4x4.CreateTranslation(parent.X, parent.Y, 0)
-                    : null,
-            };
+            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, child.Fragment == lastOnLine, scale) { Around = around };
             // A cell's content fragment shares the cell's box; the cell has already been moved.
             if (child.Fragment.Box is { Style.Box.Position: Position.Sticky } sticky && sticky != parent.Fragment.Box)
                 placed = placed with { Y = placed.Y + StickyOffset(sticky, placed) };
@@ -179,8 +187,7 @@ internal static class DisplayListBuilder
             // A marker drawn as a shape paints with the text, like the marker text it stands for.
             if (child.Fragment.Kind == FragmentKind.Text || child.Fragment.Box is MarkerBox { Symbol: not null })
             {
-                context.Text.Add(parent.Fragment.Kind == FragmentKind.Line && child.Fragment == parent.Fragment.Children[^1].Fragment
-                    ? placed with { LineEnd = true } : placed);
+                context.Text.Add(placed);
                 continue;
             }
             var box = placed.Box;
@@ -778,7 +785,7 @@ internal static class DisplayListBuilder
             {
                 foreach (var child in current.Fragment.Children)
                 {
-                    var placed = new PaintBox(child.Fragment, current.X + child.X, current.Y + child.Y, null, Scale: current.Scale);
+                    var placed = new PaintBox(child.Fragment, current.X + child.X, current.Y + child.Y, null, Scale: current.Scale) { Around = current.Around };
                     if (child.Fragment.Kind == FragmentKind.Text)
                     {
                         if (child.Fragment.Text!.Style.Inherited.Visibility == Visibility.Visible)
@@ -1495,6 +1502,9 @@ internal static class DisplayListBuilder
 
         private void SetClip(ClipNode? target)
         {
+            // Already open: most boxes paint under the same clips as the box before them.
+            if (target == (_open.Count > 0 ? _open[^1] : null))
+                return;
             var chain = new List<ClipNode>();
             for (var node = target; node is not null; node = node.Parent)
                 chain.Add(node);
@@ -1508,10 +1518,10 @@ internal static class DisplayListBuilder
                 return;
             }
             PopTo(common);
-            foreach (var node in chain.Skip(common))
+            for (var i = common; i < chain.Count; i++)
             {
-                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, node.Shape));
-                _open.Add(node);
+                list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, chain[i].Shape));
+                _open.Add(chain[i]);
             }
         }
 

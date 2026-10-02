@@ -169,33 +169,49 @@ internal sealed class Fragment(Box? box, float width, float height, IReadOnlyLis
     /// For a ruby column (and its baseline in <see cref="Baseline"/>): how far its annotation's em box reaches above its
     /// top, and how far the annotation may overhang the text on either side.
     /// </summary>
-    public float RubyOver { get; init; } = float.NegativeInfinity;
-    public float RubyOverhang { get; init; }
+    public float RubyOver
+    {
+        get => _rare?.RubyOver ?? float.NegativeInfinity;
+        init { if (value != float.NegativeInfinity || _rare is not null) _rare = (_rare ?? Rare.None) with { RubyOver = value }; }
+    }
+
+    public float RubyOverhang { get => _rare?.RubyOverhang ?? 0; init { if (value != 0 || _rare is not null) _rare = (_rare ?? Rare.None) with { RubyOverhang = value }; } }
 
     /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
-    public Svg.SvgContainerNode? Svg { get; init; }
+    public Svg.SvgContainerNode? Svg { get => _rare?.Svg; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { Svg = value }; } }
 
     /// <summary>
     /// For a box whose clip-path is a url() reference to an SVG clipPath element: that clip path, in coordinates whose
     /// origin is the border box's top-left corner; null otherwise, and then a reference clips nothing.
     /// </summary>
-    public Svg.SvgClipPath? SvgClip { get; init; }
+    public Svg.SvgClipPath? SvgClip { get => _rare?.SvgClip; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { SvgClip = value }; } }
 
     /// <summary>
     /// For a masked box with layers that reference SVG mask elements: each layer's mask, by layer index (null for the
     /// others), in coordinates whose origin is the border box's top-left corner; null when no layer does.
     /// </summary>
-    public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get; init; }
+    public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get => _rare?.SvgMasks; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { SvgMasks = value }; } }
 
     /// <summary>
     /// For a box whose filter list references SVG filter elements: the list with its references resolved, in
     /// coordinates whose origin is the border box's top-left corner; null when it filters nothing.
     /// </summary>
-    public Svg.SvgFilterChain? SvgFilters { get; init; }
+    public Svg.SvgFilterChain? SvgFilters { get => _rare?.SvgFilters; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { SvgFilters = value }; } }
 
     /// <summary>For a multi-column container: the column rules, as rectangles from its border-box origin.</summary>
-    public IReadOnlyList<ColumnRule>? ColumnRules { get; init; }
+    public IReadOnlyList<ColumnRule>? ColumnRules { get => _rare?.ColumnRules; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { ColumnRules = value }; } }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
     public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
+
+    // What only ruby columns, SVG and multi-column containers have, kept apart: a large document has tens of thousands of
+    // fragments, and most would otherwise carry seven empty fields (#196). Made only when one is set to something.
+    private Rare? _rare;
+
+    private sealed record Rare(float RubyOver = float.NegativeInfinity, float RubyOverhang = 0, Svg.SvgContainerNode? Svg = null,
+                               Svg.SvgClipPath? SvgClip = null, IReadOnlyList<Svg.SvgMask?>? SvgMasks = null,
+                               Svg.SvgFilterChain? SvgFilters = null, IReadOnlyList<ColumnRule>? ColumnRules = null)
+    {
+        public static readonly Rare None = new();
+    }
 }

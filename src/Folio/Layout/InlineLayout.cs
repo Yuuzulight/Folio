@@ -25,8 +25,10 @@ internal static class InlineLayout
         Action<Box, float, float> AddOutOfFlow);
 
     /// <summary>Lines of an inline formatting context, from <paramref name="top"/> down, in content-box coordinates.</summary>
+    /// <param name="environment">Null when nothing is beside the lines: each has the full width, and floats and
+    /// positioned boxes in them are not placed (callers pass null only when there are none).</param>
     public static (List<ChildFragment> Lines, float Bottom, bool HasLineBoxes) Layout(
-        BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment environment, LayoutContext context,
+        BlockContainerBox block, InlineFormattingContext ifc, float width, float top, Environment? environment, LayoutContext context,
         float roomAbove = 0)
     {
         var (units, levels) = Measured.TryGetValue(context, out var measured) && measured.Remove(ifc, out var kept) ? kept : default;
@@ -58,7 +60,7 @@ internal static class InlineLayout
             var shift = first != indent.Hanging ? indent.Length.Resolve(width) : 0;
             (float Left, float Right) Band()
             {
-                var (l, r) = environment.Available(y, y + bandHeight);
+                var (l, r) = environment?.Available(y, y + bandHeight) ?? (0, width);
                 return rtl ? (l, r - shift) : (l + shift, r);
             }
             var (left, right) = Band();
@@ -71,14 +73,14 @@ internal static class InlineLayout
                 {
                     if (piece.Kind == PieceKind.Float && (placedFloats ??= []).Add(piece.Box!))
                     {
-                        environment.PlaceFloat(piece.Box!, y);
+                        environment?.PlaceFloat(piece.Box!, y);
                         (left, right) = Band();
                     }
                 }
                 var fits = x + unit.Width - unit.TrailingSpace + unit.HyphenWidth <= right - left + 0.01f;
                 if (!fits && lineUnits.Count > 0)
                     break;
-                if (!fits && environment.NextFloatBottom(y, y + bandHeight) is { } below)
+                if (!fits && environment?.NextFloatBottom(y, y + bandHeight) is { } below)
                 {
                     // Too wide beside the floats: the line moves down past them.
                     y = below;
@@ -1140,7 +1142,7 @@ internal static class InlineLayout
     /// <param name="lastLine">The paragraph's last line, or one ending at a forced break: text-align-last applies.</param>
     private static Fragment BuildLine(BlockContainerBox block, string text, List<Unit> units, bool lastLine, List<(InlineBox Box, ComputedStyle Style)> openBoxes,
                                       float available, float cbWidth, LineMetrics strut, int paragraphLevel, LayoutContext context,
-                                      Environment environment, float lineLeft, float lineTop, float room, bool clamped = false)
+                                      Environment? environment, float lineLeft, float lineTop, float room, bool clamped = false)
     {
         // A line broken at a soft hyphen ends with a hyphen, drawn in place of the soft hyphen's glyph.
         if (!lastLine && units is [.., { Hyphen: { } hyphenated } hyphenUnit])
@@ -1289,7 +1291,7 @@ internal static class InlineLayout
                     break;
                 }
                 case PieceKind.OutOfFlow:
-                    environment.AddOutOfFlow(piece.Box!, lineLeft + piece.X, lineTop);
+                    environment?.AddOutOfFlow(piece.Box!, lineLeft + piece.X, lineTop);
                     break;
             }
         }

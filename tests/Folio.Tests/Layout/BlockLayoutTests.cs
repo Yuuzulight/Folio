@@ -26,6 +26,22 @@ public class BlockLayoutTests
     }
 
     [Fact]
+    public void FragmentsKeepTheirRareFields()
+    {
+        // Ruby, SVG and column rule fields live apart from the fragment's own (#196); set or not, they read back.
+        var plain = new Fragment(null, 1, 1, []) { Svg = null, ColumnRules = null, RubyOver = float.NegativeInfinity };
+        Assert.Equal((float.NegativeInfinity, 0f), (plain.RubyOver, plain.RubyOverhang));
+        Assert.Null(plain.Svg);
+        Assert.Null(plain.ColumnRules);
+
+        ColumnRule[] rules = [new(1, 2, 3, 4)];
+        var column = new Fragment(null, 1, 1, []) { RubyOver = 5, ColumnRules = rules, RubyOverhang = 2, SvgClip = null };
+        Assert.Equal((5f, 2f), (column.RubyOver, column.RubyOverhang));
+        Assert.Same(rules, column.ColumnRules);
+        Assert.Null(column.SvgClip);
+    }
+
+    [Fact]
     public void DeepDocumentsLayOutWithoutOverflowingTheStack()
     {
         var document = new DocumentNode();
