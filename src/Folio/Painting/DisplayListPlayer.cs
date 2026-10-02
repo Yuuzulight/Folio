@@ -345,17 +345,21 @@ internal static class DisplayListPlayer
     // one fitted to each side.
     private static void PaintBorder(ICanvas canvas, RoundedRect outer, BorderGroup border)
     {
-        float[] widths = [border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth];
+        // One solid colour all round: a single ring. Checked before anything is made: most boxes with a border, and
+        // every cell of a table with collapsed borders, take this path.
+        var (top, right, bottom, left) = (border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+        if (border is { TopStyle: BorderStyle.Solid, RightStyle: BorderStyle.Solid, BottomStyle: BorderStyle.Solid, LeftStyle: BorderStyle.Solid }
+            && border.TopColor == border.RightColor && border.TopColor == border.BottomColor && border.TopColor == border.LeftColor
+            && top > 0 && right > 0 && bottom > 0 && left > 0)
+        {
+            canvas.FillPath(Ring(outer, outer.Inset(top, right, bottom, left)), FillRule.EvenOdd, new Paint(ToRgba(border.TopColor)));
+            return;
+        }
+
+        float[] widths = [top, right, bottom, left];
         BorderStyle[] styles = [border.TopStyle, border.RightStyle, border.BottomStyle, border.LeftStyle];
         CssColor[] colors = [border.TopColor, border.RightColor, border.BottomColor, border.LeftColor];
         var inner = outer.Inset(widths[0], widths[1], widths[2], widths[3]);
-
-        // One solid colour all round: a single ring.
-        if (styles.All(s => s == BorderStyle.Solid) && colors.Distinct().Count() == 1 && widths.All(w => w > 0))
-        {
-            canvas.FillPath(Ring(outer, inner), FillRule.EvenOdd, new Paint(ToRgba(colors[0])));
-            return;
-        }
 
         // Each side owns the region between its outer edge and the joins from the outer corners through the inner
         // corners (css-backgrounds-3 §5.5). The joins run on into the box until they meet, so a side keeps the part of a
@@ -443,5 +447,6 @@ internal static class DisplayListPlayer
         return moreGap <= 0 || MathF.Abs(fewerGap - gap) < MathF.Abs(moreGap - gap) ? fewerGap : moreGap;
     }
 
-    private static PathData Ring(in RoundedRect outer, in RoundedRect inner) => new PathData().AddRoundedRect(outer).AddRoundedRect(inner);
+    private static PathData Ring(in RoundedRect outer, in RoundedRect inner) =>
+        new PathData((outer.Radii.IsZero ? 5 : 10) + (inner.Radii.IsZero ? 5 : 10)).AddRoundedRect(outer).AddRoundedRect(inner);
 }
