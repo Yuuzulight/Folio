@@ -115,17 +115,114 @@ internal readonly record struct ColumnRule(float X, float Y, float Width, float 
 internal readonly record struct ChildFragment(float X, float Y, Fragment Fragment);
 
 /// <summary>
+/// A fragment's children: a slice of an array, during a layout one of the large buffers of its <see cref="FragmentArena"/>
+/// (#397). Lists and arrays convert to it, and collection expressions build it; LINQ sees it as a read-only list.
+/// </summary>
+[System.Runtime.CompilerServices.CollectionBuilder(typeof(FragmentArena), nameof(FragmentArena.Create))]
+internal readonly struct ChildList : IReadOnlyList<ChildFragment>
+{
+    private readonly ChildFragment[]? _items;
+    private readonly int _start;
+
+    public ChildList(ChildFragment[] items, int start, int count) => (_items, _start, Count) = (items, start, count);
+
+    public int Count { get; }
+
+    public ChildFragment this[int index] => (uint)index < (uint)Count ? _items![_start + index] : throw new ArgumentOutOfRangeException(nameof(index));
+
+    public ReadOnlySpan<ChildFragment> AsSpan() => _items is null ? default : _items.AsSpan(_start, Count);
+
+    /// <summary>The children from <paramref name="start"/> on.</summary>
+    public ChildList Slice(int start) =>
+        (uint)start <= (uint)Count ? new ChildList(_items ?? [], _start + start, Count - start) : throw new ArgumentOutOfRangeException(nameof(start));
+
+    public Enumerator GetEnumerator() => new(_items, _start, _start + Count);
+
+    IEnumerator<ChildFragment> IEnumerable<ChildFragment>.GetEnumerator()
+    {
+        for (var i = 0; i < Count; i++)
+            yield return this[i];
+    }
+
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => ((IEnumerable<ChildFragment>)this).GetEnumerator();
+
+    public static implicit operator ChildList(List<ChildFragment> list) => FragmentArena.Create(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list));
+
+    public static implicit operator ChildList(ChildFragment[] array) => FragmentArena.Store(array);
+
+    public struct Enumerator(ChildFragment[]? items, int start, int end)
+    {
+        private int _index = start - 1;
+
+        public bool MoveNext() => ++_index < end;
+
+        public readonly ChildFragment Current => items![_index];
+    }
+}
+
+/// <summary>
+/// The large buffers a layout keeps its fragments' children in (#397): a few arrays for the whole tree rather than one
+/// per fragment, so collections during and after layout have far fewer objects to copy. <see cref="LayoutEngine"/>
+/// opens one per layout on its thread; children made outside a layout get arrays of their own.
+/// </summary>
+internal sealed class FragmentArena
+{
+    [ThreadStatic]
+    private static FragmentArena? t_current;
+
+    // Large enough to live on the large object heap, where collections do not copy it.
+    private const int ChunkSize = 16_384;
+
+    private ChildFragment[] _chunk = [];
+    private int _used;
+
+    /// <summary>Makes a new arena current on this thread until the returned scope is disposed.</summary>
+    public static Scope Open()
+    {
+        var previous = t_current;
+        t_current = new FragmentArena();
+        return new Scope(previous);
+    }
+
+    public readonly struct Scope(FragmentArena? previous) : IDisposable
+    {
+        public void Dispose() => t_current = previous;
+    }
+
+    /// <summary>Children copied into the current arena, or into an array of their own outside a layout.</summary>
+    public static ChildList Create(ReadOnlySpan<ChildFragment> children) =>
+        children.IsEmpty ? default : t_current is { } arena ? arena.Copy(children) : new ChildList(children.ToArray(), 0, children.Length);
+
+    /// <summary>Like <see cref="Create"/>, but outside a layout the array itself is kept.</summary>
+    public static ChildList Store(ChildFragment[] children) =>
+        children.Length == 0 ? default : t_current is { } arena ? arena.Copy(children) : new ChildList(children, 0, children.Length);
+
+    private ChildList Copy(ReadOnlySpan<ChildFragment> children)
+    {
+        // A long list gets an array of its own rather than leaving most of a buffer unused.
+        if (children.Length > ChunkSize / 8)
+            return new ChildList(children.ToArray(), 0, children.Length);
+        if (_used + children.Length > _chunk.Length)
+            (_chunk, _used) = (new ChildFragment[ChunkSize], 0);
+        children.CopyTo(_chunk.AsSpan(_used));
+        var list = new ChildList(_chunk, _used, children.Length);
+        _used += children.Length;
+        return list;
+    }
+}
+
+/// <summary>
 /// The immutable result of laying out a box: its border-box size and positioned children, plus what the parent's
 /// block layout needs to place it (used horizontal margins and the margins that collapse through its edges).
 /// </summary>
-internal sealed class Fragment(Box? box, float width, float height, IReadOnlyList<ChildFragment> children)
+internal sealed class Fragment(Box? box, float width, float height, ChildList children)
 {
     /// <summary>The box laid out; null for the initial containing block.</summary>
     public Box? Box { get; } = box;
 
     public float Width { get; } = width;
     public float Height { get; } = height;
-    public IReadOnlyList<ChildFragment> Children { get; } = children;
+    public ChildList Children { get; } = children;
 
     public float MarginLeft { get; init; }
     public float MarginRight { get; init; }

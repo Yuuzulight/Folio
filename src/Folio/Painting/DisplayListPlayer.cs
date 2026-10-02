@@ -7,13 +7,22 @@ namespace Folio.Painting;
 /// <summary>Replays a display list onto a canvas.</summary>
 internal static class DisplayListPlayer
 {
-    public static void Replay(DisplayList list, ICanvas canvas)
+    /// <param name="visible">The part of the page the canvas shows, in the list's coordinates (CSS pixels), when known:
+    /// items wholly outside it are not drawn. A tall page replayed into a viewport draws only what is in view.</param>
+    public static void Replay(DisplayList list, ICanvas canvas, RectF? visible = null)
     {
         var open = new Stack<(DisplayItemKind Kind, bool Bounded)>();
-        var bounds = LayerBounds(list);
+        // Layer bounds walk the whole list: only worth it when there are layers.
+        var bounds = list.Items.Exists(i => i.Kind == DisplayItemKind.PushLayer) ? LayerBounds(list) : null;
+        // Items are culled only in the page's own coordinates: not under a transform or inside a layer, whose filters
+        // may draw beyond what is in it.
+        var moved = 0;
         for (var index = 0; index < list.Items.Count; index++)
         {
             var item = list.Items[index];
+            if (visible is { } view && moved == 0 && item.Kind is not (DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform or DisplayItemKind.Pop)
+                && !Intersects(ItemBounds(item), view))
+                continue;
             switch (item.Kind)
             {
                 case DisplayItemKind.Fill:
@@ -56,13 +65,14 @@ internal static class DisplayListPlayer
                     break;
                 case DisplayItemKind.PushLayer:
                     // A clip around everything the layer draws, so the canvas makes it no larger than that.
-                    if (bounds[index] is { } layer)
+                    if (bounds![index] is { } layer)
                     {
                         canvas.Save();
                         canvas.ClipRoundedRect(new RoundedRect(layer, default));
                     }
                     canvas.PushLayer(new LayerOptions(item.Opacity, item.Filters, item.Backdrop, item.Shape, item.Blend));
                     open.Push((item.Kind, bounds[index] is not null));
+                    moved++;
                     break;
                 case DisplayItemKind.PushTransform:
                     canvas.Save();
@@ -71,8 +81,11 @@ internal static class DisplayListPlayer
                     else
                         canvas.Transform(item.Transform);
                     open.Push((item.Kind, false));
+                    moved++;
                     break;
                 case DisplayItemKind.Pop when open.TryPop(out var top):
+                    if (top.Kind is DisplayItemKind.PushLayer or DisplayItemKind.PushTransform)
+                        moved--;
                     if (top.Kind == DisplayItemKind.PushLayer)
                     {
                         canvas.PopLayer();
@@ -274,9 +287,7 @@ internal static class DisplayListPlayer
         {
             DisplayItemKind.BoxShadow when item.Inset => item.Box.Rect,
             DisplayItemKind.BoxShadow => Grow(item.Shape.Rect, 3 * item.Blur),
-            DisplayItemKind.Glyphs when item.Glyphs is { Origins.Length: > 0 } run => Grow(new RectF(
-                run.Origins.Min(o => o.X) - run.Size, run.Origins.Min(o => o.Y) - 1.5f * run.Size,
-                run.Origins.Max(o => o.X) - run.Origins.Min(o => o.X) + 3 * run.Size, run.Origins.Max(o => o.Y) - run.Origins.Min(o => o.Y) + 2 * run.Size), 3 * item.Blur),
+            DisplayItemKind.Glyphs when item.Glyphs is { Origins.Length: > 0 } run => Grow(GlyphBounds(run), 3 * item.Blur),
             DisplayItemKind.Decoration => item.Shape.Rect with { Height = 3 * item.Shape.Rect.Height },
             DisplayItemKind.FillPath or DisplayItemKind.StrokePath when item.Path is { Commands.Count: > 0 } path => PathBounds(path),
             _ => item.Shape.Rect,
@@ -285,6 +296,17 @@ internal static class DisplayListPlayer
             r = Grow(r, stroke.Width / 2 * Math.Max(stroke.MiterLimit, 1.5f));
         return Grow(r, 1); // antialiased edges
     }
+
+    // Around the glyphs' origins: a size to the left, one and a half above, two to the right and a half below.
+    private static RectF GlyphBounds(GlyphRun run)
+    {
+        var (min, max) = (run.Origins[0], run.Origins[0]);
+        foreach (var o in run.Origins)
+            (min, max) = (Vector2.Min(min, o), Vector2.Max(max, o));
+        return new RectF(min.X - run.Size, min.Y - 1.5f * run.Size, max.X - min.X + 3 * run.Size, max.Y - min.Y + 2 * run.Size);
+    }
+
+    private static bool Intersects(RectF a, RectF b) => a.X < b.Right && b.X < a.Right && a.Y < b.Bottom && b.Y < a.Bottom;
 
     private static RectF PathBounds(PathData path)
     {
@@ -323,17 +345,21 @@ internal static class DisplayListPlayer
     // one fitted to each side.
     private static void PaintBorder(ICanvas canvas, RoundedRect outer, BorderGroup border)
     {
-        float[] widths = [border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth];
+        // One solid colour all round: a single ring. Checked before anything is made: most boxes with a border, and
+        // every cell of a table with collapsed borders, take this path.
+        var (top, right, bottom, left) = (border.TopWidth, border.RightWidth, border.BottomWidth, border.LeftWidth);
+        if (border is { TopStyle: BorderStyle.Solid, RightStyle: BorderStyle.Solid, BottomStyle: BorderStyle.Solid, LeftStyle: BorderStyle.Solid }
+            && border.TopColor == border.RightColor && border.TopColor == border.BottomColor && border.TopColor == border.LeftColor
+            && top > 0 && right > 0 && bottom > 0 && left > 0)
+        {
+            canvas.FillPath(Ring(outer, outer.Inset(top, right, bottom, left)), FillRule.EvenOdd, new Paint(ToRgba(border.TopColor)));
+            return;
+        }
+
+        float[] widths = [top, right, bottom, left];
         BorderStyle[] styles = [border.TopStyle, border.RightStyle, border.BottomStyle, border.LeftStyle];
         CssColor[] colors = [border.TopColor, border.RightColor, border.BottomColor, border.LeftColor];
         var inner = outer.Inset(widths[0], widths[1], widths[2], widths[3]);
-
-        // One solid colour all round: a single ring.
-        if (styles.All(s => s == BorderStyle.Solid) && colors.Distinct().Count() == 1 && widths.All(w => w > 0))
-        {
-            canvas.FillPath(Ring(outer, inner), FillRule.EvenOdd, new Paint(ToRgba(colors[0])));
-            return;
-        }
 
         // Each side owns the region between its outer edge and the joins from the outer corners through the inner
         // corners (css-backgrounds-3 §5.5). The joins run on into the box until they meet, so a side keeps the part of a
@@ -421,5 +447,6 @@ internal static class DisplayListPlayer
         return moreGap <= 0 || MathF.Abs(fewerGap - gap) < MathF.Abs(moreGap - gap) ? fewerGap : moreGap;
     }
 
-    private static PathData Ring(in RoundedRect outer, in RoundedRect inner) => new PathData().AddRoundedRect(outer).AddRoundedRect(inner);
+    private static PathData Ring(in RoundedRect outer, in RoundedRect inner) =>
+        new PathData((outer.Radii.IsZero ? 5 : 10) + (inner.Radii.IsZero ? 5 : 10)).AddRoundedRect(outer).AddRoundedRect(inner);
 }

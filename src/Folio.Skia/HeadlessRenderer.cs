@@ -91,7 +91,8 @@ public static class HeadlessRenderer
             // The canvas behind the page: white, or near-black when the host asks for the dark scheme.
             canvas.Clear(document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
             canvas.Scale(request.DeviceScale);
-            DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, request.Text == TextAntialiasing.Subpixel));
+            DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, request.Text == TextAntialiasing.Subpixel),
+                new RectF(0, 0, pixelWidth / request.DeviceScale, pixelHeight / request.DeviceScale));
             canvas.Flush();
         }
         return new RenderResult(bitmap, diagnostics);

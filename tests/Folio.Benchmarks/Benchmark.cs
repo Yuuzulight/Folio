@@ -9,6 +9,9 @@ using Folio.Style;
 
 namespace Folio.Benchmarks;
 
+/// <summary>The layout stage of one document and the garbage collection around it (see <see cref="Benchmark.MeasureLayoutGc"/>).</summary>
+internal sealed record LayoutGc(TimeSpan Layout, TimeSpan Pause, int Gen0, int Gen1, int Gen2, long Allocated, long Retained);
+
 /// <summary>Median time of each pipeline stage, and memory, for one document.</summary>
 /// <param name="StyleAllocated">Managed memory the style stage allocates on its own.</param>
 internal sealed record Measurement(string Name, int Length, TimeSpan[] Stages, long Allocated, long StyleAllocated, long Retained)
@@ -100,6 +103,69 @@ internal static class Benchmark
     }
 
     private static TimeSpan Median(TimeSpan[] values) => values.Order().ElementAt(values.Length / 2);
+
+    /// <summary>
+    /// The layout stage of one document: its time, the collections and pauses during it, what it allocates and what its
+    /// fragment tree keeps alive (medians after two warm-up runs).
+    /// </summary>
+    public static LayoutGc MeasureLayoutGc(string html, int runs)
+    {
+        var results = new List<LayoutGc>();
+        for (var run = 0; run < runs; run++)
+            results.Add(LayoutOnce(html));
+        var kept = results.Skip(2).ToList();
+        T Mid<T>(Func<LayoutGc, T> pick) => kept.Select(pick).Order().ElementAt(kept.Count / 2);
+        return new LayoutGc(Mid(r => r.Layout), Mid(r => r.Pause), Mid(r => r.Gen0), Mid(r => r.Gen1), Mid(r => r.Gen2), Mid(r => r.Allocated), Mid(r => r.Retained));
+    }
+
+    /// <summary>
+    /// A whole render through the public API, as a host does it (parse, style, layout, paint and raster at 1000x800 with
+    /// the system's fonts): its time, collections and pauses (medians after two warm-up renders). Collections that
+    /// layout avoids may only move to the stages after it, so this is the number that counts (#397).
+    /// </summary>
+    public static LayoutGc MeasureRenderGc(string html, int runs)
+    {
+        var options = new FolioOptions { Fonts = new Folio.Typography.FontSettings { Source = new Folio.Skia.SystemFontSource() } };
+        var results = new List<LayoutGc>();
+        for (var run = 0; run < runs; run++)
+            results.Add(RenderOnce(html, options));
+        var kept = results.Skip(2).ToList();
+        T Mid<T>(Func<LayoutGc, T> pick) => kept.Select(pick).Order().ElementAt(kept.Count / 2);
+        return new LayoutGc(Mid(r => r.Layout), Mid(r => r.Pause), Mid(r => r.Gen0), Mid(r => r.Gen1), Mid(r => r.Gen2), Mid(r => r.Allocated), 0);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static LayoutGc RenderOnce(string html, FolioOptions options)
+    {
+        var (pause, allocated, gen0, gen1, gen2) = (GC.GetTotalPauseDuration(), GC.GetTotalAllocatedBytes(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+        var start = Stopwatch.GetTimestamp();
+        using (var document = Document.Parse(html, options))
+        using (Folio.Skia.HeadlessRenderer.Render(document, new Folio.Skia.RenderRequest(1000, 800)))
+        {
+        }
+        return new LayoutGc(Stopwatch.GetElapsedTime(start), GC.GetTotalPauseDuration() - pause, GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1,
+            GC.CollectionCount(2) - gen2, GC.GetTotalAllocatedBytes() - allocated, 0);
+    }
+
+    // In its own method, so nothing of one run is still referenced from the stack when the next one starts.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static LayoutGc LayoutOnce(string html)
+    {
+        var document = TreeBuilder.Parse(html);
+        StyleResolver.Resolve(document, Media);
+        var root = BoxTreeBuilder.Build(document);
+        var before = GC.GetTotalMemory(forceFullCollection: true);
+        var (pause, allocated, gen0, gen1, gen2) = (GC.GetTotalPauseDuration(), GC.GetAllocatedBytesForCurrentThread(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+        var start = Stopwatch.GetTimestamp();
+        var fragment = root is null ? null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);
+        var layout = Stopwatch.GetElapsedTime(start);
+        var result = new LayoutGc(layout, GC.GetTotalPauseDuration() - pause, GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1,
+            GC.CollectionCount(2) - gen2, GC.GetAllocatedBytesForCurrentThread() - allocated, 0);
+        var retained = GC.GetTotalMemory(forceFullCollection: true) - before;
+        GC.KeepAlive(fragment);
+        GC.KeepAlive(document);
+        return result with { Retained = retained };
+    }
 
     /// <summary>A report-style artifact: custom properties, flex and grid, headings, text, lists, code and a table.</summary>
     private static string Report()
