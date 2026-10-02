@@ -41,6 +41,9 @@ internal static class DisplayListBuilder
         return list;
     }
 
+    /// <summary>A box's clip-path as a clip item, with its basic shape resolved against its reference box.</summary>
+    internal static DisplayItem ClipPathItem(PaintBox box, ClipPath clip) => Emitter.ClipPathItem(box, clip);
+
     private static RectF Snapped(PaintBox box, RectF r) =>
         new(box.Snap(r.X), box.Snap(r.Y), box.Snap(r.X + r.Width) - box.Snap(r.X), box.Snap(r.Y + r.Height) - box.Snap(r.Y));
 
@@ -160,23 +163,6 @@ internal static class DisplayListBuilder
 
         public void VisitOutline(PaintBox box) => PaintOutline(box);
 
-        // A box's transform (css-transforms-2 §6) in canvas coordinates: its matrix is relative to the border box's
-        // top-left corner, the reference box being the border box.
-        // Under a parent's perspective, the parent's perspective matrix applies after the box's own transform
-        // (https://www.w3.org/TR/css-transforms-2/#accumulated-3d-transformation-matrix-computation).
-        // ponytail: every box flattens into its parent's plane; preserve-3d and backface-visibility come when pages need them.
-        private static Matrix4x4 Transform(PaintBox box)
-        {
-            var matrix = Matrix4x4.CreateTranslation(-box.X, -box.Y, 0)
-                * box.Box.Style.Transform.Matrix(box.Fragment.Width, box.Fragment.Height)
-                * Matrix4x4.CreateTranslation(box.X, box.Y, 0);
-            return box.Perspective is { } perspective ? matrix * perspective : matrix;
-        }
-
-        // The determinant of the projective 2D transform a 3D matrix flattens to: the x, y and w rows and columns.
-        private static float Determinant2D(Matrix4x4 m) =>
-            m.M11 * (m.M22 * m.M44 - m.M24 * m.M42) - m.M12 * (m.M21 * m.M44 - m.M24 * m.M41) + m.M14 * (m.M21 * m.M42 - m.M22 * m.M41);
-
         private static BlendMode Blend(Style.BlendMode mode) => Enum.Parse<BlendMode>(mode.ToString());
 
         /// <summary>
@@ -184,7 +170,7 @@ internal static class DisplayListBuilder
         /// against its reference box (https://drafts.csswg.org/css-shapes-1/#basic-shape-functions), or the box's own
         /// shape with its corners. Circles, ellipses and insets are rounded rectangles; polygons and paths are paths.
         /// </summary>
-        private static DisplayItem ClipPathItem(PaintBox box, ClipPath clip)
+        internal static DisplayItem ClipPathItem(PaintBox box, ClipPath clip)
         {
             var reference = ReferenceBox(box, clip.Box ?? GeometryBox.BorderBox);
             var r = reference.Rect;

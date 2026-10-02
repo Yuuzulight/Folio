@@ -136,6 +136,7 @@ internal enum PropertyId
     TextOverflow,
     LineClamp,
     Cursor,
+    PointerEvents,
     AccentColor,
     ScrollbarGutter,
     ScrollbarWidth,
@@ -834,6 +835,10 @@ internal static class Properties
             },
             (v, _) => ((KeywordValue)v).Keyword,
             s => s.Ui.Cursor, (b, v) => b.Ui = b.Ui with { Cursor = v }));
+        // https://www.w3.org/TR/css-ui-4/#pointer-events-control: auto | none, for hit testing.
+        // ponytail: SVG's values (visiblePainted, fill, ...) are not parsed; an svg image is hit as one box.
+        Row(PropertyId.PointerEvents, "pointer-events", static () => Keywords(PropertyId.PointerEvents, "pointer-events", true, "auto", KeywordMap<PointerEvents>.InOrder("auto", "none"),
+            s => s.Ui.PointerEvents, (b, v) => b.Ui = b.Ui with { PointerEvents = v }));
         // https://www.w3.org/TR/css-ui-4/#widget-accent: auto | <color>
         Row(PropertyId.AccentColor, "accent-color", static () => new Property<CssColor?>(PropertyId.AccentColor, "accent-color", true, "auto",
             r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),
