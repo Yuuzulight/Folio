@@ -239,6 +239,54 @@ public sealed class Document : IDisposable
     /// <summary>How many times the document has been laid out (for tests of the paint-only path).</summary>
     internal int LayoutCount { get; private set; }
 
+    /// <summary>How many elements the last <see cref="Update"/> styled again (#417).</summary>
+    internal int RestyleCount { get; private set; }
+
+    /// <summary>
+    /// Sets or clears a user-action state (<see cref="NodeFlags.Hover"/>, <see cref="NodeFlags.Active"/>,
+    /// <see cref="NodeFlags.Focus"/>, <see cref="NodeFlags.FocusVisible"/>) on an element and marks the elements whose
+    /// style that can change, from the stylesheets' state invalidation sets (#417). <see cref="Update"/> styles them
+    /// again. With no rule mentioning the state, nothing is marked.
+    /// </summary>
+    internal void SetState(ElementNode element, NodeFlags state, bool on)
+    {
+        var flags = on ? element.Flags | state : element.Flags & ~state;
+        if (flags == element.Flags)
+            return;
+        element.Flags = flags;
+        var sets = StyleResolver.Invalidation(Node);
+        foreach (var (flag, kind) in StateKinds)
+        {
+            if ((state & flag) == 0 || !sets.Uses(kind))
+                continue;
+            if (sets.Everywhere(kind))
+            {
+                Node.StyleMutated = true;
+                return;
+            }
+            sets.Collect(element, kind, Node.StyleRoots);
+        }
+        // Focus moving in or out also changes :focus-within on the element and every ancestor.
+        if ((state & NodeFlags.Focus) != 0 && sets.Uses(PseudoClass.FocusWithin))
+        {
+            if (sets.Everywhere(PseudoClass.FocusWithin))
+            {
+                Node.StyleMutated = true;
+                return;
+            }
+            for (Node? node = element; node is ElementNode e; node = node.Parent)
+                sets.Collect(e, PseudoClass.FocusWithin, Node.StyleRoots);
+        }
+    }
+
+    private static readonly (NodeFlags Flag, PseudoClass Kind)[] StateKinds =
+    [
+        (NodeFlags.Hover, PseudoClass.Hover),
+        (NodeFlags.Active, PseudoClass.Active),
+        (NodeFlags.Focus, PseudoClass.Focus),
+        (NodeFlags.FocusVisible, PseudoClass.FocusVisible),
+    ];
+
     /// <summary>
     /// Styles, lays out and paints the document in a viewport (the pipeline in docs/architecture.md): its display list
     /// and the height of its content, from the canvas origin.
@@ -271,6 +319,8 @@ public sealed class Document : IDisposable
         LayoutCount++;
         _frame = (root, page, deviceScale);
         Node.StructureMutated = false;
+        Node.StyleMutated = false;
+        Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         DisplayList = DisplayListBuilder.Build(page, _images, deviceScale);
@@ -351,23 +401,46 @@ public sealed class Document : IDisposable
             return RebuildBoxes(last);
         }
 
+        // #417: after state changes alone, only the subtrees they marked are styled again.
+        var partial = !Node.StyleMutated;
+        var roots = Node.StyleRoots.ToList();
+        Node.StyleMutated = false;
+        Node.StyleRoots.Clear();
+
         var oldStyles = new Dictionary<ElementNode, (ComputedStyle? Style, ComputedStyle? Before, ComputedStyle? After, ComputedStyle? Marker)>();
-        for (Node? node = Node; node is not null; node = node.NextInTree(Node))
+        void Remember(Node scope)
         {
-            if (node is ElementNode element)
+            for (Node? node = scope; node is not null; node = node.NextInTree(scope))
             {
-                oldStyles[element] = (
-                    element.ComputedStyle(),
-                    element.PseudoStyle(PseudoElement.Before),
-                    element.PseudoStyle(PseudoElement.After),
-                    element.PseudoStyle(PseudoElement.Marker));
+                if (node is ElementNode element && !oldStyles.ContainsKey(element))
+                {
+                    oldStyles[element] = (
+                        element.ComputedStyle(),
+                        element.PseudoStyle(PseudoElement.Before),
+                        element.PseudoStyle(PseudoElement.After),
+                        element.PseudoStyle(PseudoElement.Marker));
+                }
             }
         }
 
-        var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
-        _fonts ??= FontCollection.For(Options.Fonts);
-        var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
-        StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
+        if (partial)
+        {
+            foreach (var root in roots)
+                Remember(root);
+            if (StyleResolver.RestyleSubtrees(Node, roots) is { } restyled)
+                RestyleCount = restyled;
+            else
+                partial = false;
+        }
+        if (!partial)
+        {
+            Remember(Node);
+            var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+            _fonts ??= FontCollection.For(Options.Fonts);
+            var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+            StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
+            RestyleCount = oldStyles.Count;
+        }
 
         var maxDamage = Damage.Paint;
         foreach (var (element, (oldStyle, oldBefore, oldAfter, oldMarker)) in oldStyles)
@@ -386,7 +459,7 @@ public sealed class Document : IDisposable
             if (maxDamage == Damage.Boxes) break;
         }
 
-        for (Node? node = Node; node is not null && maxDamage != Damage.Boxes; node = node.NextInTree(Node))
+        for (Node? node = Node; !partial && node is not null && maxDamage != Damage.Boxes; node = node.NextInTree(Node))
         {
             if (node is ElementNode element && !oldStyles.ContainsKey(element))
                 maxDamage = Damage.Boxes;
