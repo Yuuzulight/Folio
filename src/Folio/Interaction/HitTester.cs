@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Folio.Dom;
 using Folio.Layout;
@@ -6,10 +7,14 @@ using Folio.Style;
 
 namespace Folio.Interaction;
 
+/// <summary>A position in a DOM text node or element (UAX #29 grapheme cluster boundary).</summary>
+internal sealed record TextPosition(Node Node, int Offset);
+
 /// <summary>What is under a point: the element, the box and fragment hit, and the point in the fragment's own coordinates.</summary>
 /// <param name="Node">The box's element; text resolves to the inline box it is in, or else its block's element.</param>
 /// <param name="LocalPoint">The point from the fragment's top-left corner, through any transforms around it.</param>
-internal sealed record HitResult(ElementNode Node, Box Box, Fragment Fragment, Vector2 LocalPoint);
+/// <param name="Position">The nearest text caret position, if within or near text content.</param>
+internal sealed record HitResult(ElementNode Node, Box Box, Fragment Fragment, Vector2 LocalPoint, TextPosition? Position = null);
 
 /// <summary>
 /// Hit testing in reverse paint order (docs/study/15-interaction.md, option B; https://www.w3.org/TR/cssom-view-1/#dom-document-elementfrompoint):
@@ -30,7 +35,12 @@ internal static class HitTester
             return null;
         var visitor = new Visitor(point);
         PaintOrderWalker.Walk(root, visitor, frontToBack: true);
-        return visitor.Result;
+        if (visitor.Result is not { } hit)
+            return null;
+        if (hit.Position is not null)
+            return hit;
+        var snapped = SnapToNearestLineBox(initialContainingBlock, point);
+        return snapped is not null ? hit with { Position = snapped } : hit;
     }
 
     private sealed class Visitor(Vector2 point) : IPaintVisitor
@@ -99,7 +109,11 @@ internal static class HitTester
             {
                 if (owner.Node is ElementNode element)
                 {
-                    Result = new HitResult(element, box.Box, box.Fragment, _point - new Vector2(box.X, box.Y));
+                    var local = _point - new Vector2(box.X, box.Y);
+                    TextPosition? position = null;
+                    if (box.Fragment.Kind == FragmentKind.Text && box.Fragment.Text is { } textRun)
+                        position = TextPositionFromRun(box.Fragment, textRun, local.X, local.Y);
+                    Result = new HitResult(element, box.Box, box.Fragment, local, position);
                     return;
                 }
             }
@@ -113,6 +127,351 @@ internal static class HitTester
                     return false;
             }
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a point within a text run to a DOM Text node and UTF-16 offset at a grapheme cluster boundary.
+    /// </summary>
+    internal static TextPosition? TextPositionFromRun(Fragment fragment, TextRun textRun, float localX, float localY)
+    {
+        var run = textRun.Run;
+        if (textRun.Node is not Text domText || run.Glyphs.Length == 0)
+            return null;
+
+        var fullText = domText.Data;
+        var count = textRun.GlyphEnd - textRun.GlyphStart;
+        if (count <= 0)
+            return new TextPosition(domText, 0);
+
+        var glyphs = run.Glyphs;
+        var advances = run.Advances;
+        var clusters = run.Clusters;
+
+        // Group glyphs by grapheme cluster boundary in the text
+        var groups = new List<(int TextStart, int TextEnd, float Width)>();
+        var curIdx = 0;
+        while (curIdx < count)
+        {
+            var g = textRun.GlyphStart + curIdx;
+            var cStart = clusters[g];
+            var nextClusterLength = StringInfo.GetNextTextElementLength(fullText, Math.Clamp(cStart, 0, fullText.Length - 1));
+            var cEnd = Math.Min(fullText.Length, cStart + nextClusterLength);
+
+            var w = 0f;
+            var advancedAny = false;
+            while (curIdx < count)
+            {
+                var glyphGlobal = textRun.GlyphStart + curIdx;
+                if (clusters[glyphGlobal] >= cEnd && advancedAny)
+                    break;
+                w += advances[glyphGlobal];
+                curIdx++;
+                advancedAny = true;
+            }
+            groups.Add((cStart, cEnd, w));
+        }
+
+        if (groups.Count == 0)
+            return new TextPosition(domText, 0);
+
+        if (textRun.Turned)
+        {
+            // Vertical text: advances run along localY (top to bottom)
+            var yPos = localY;
+            var acc = 0f;
+            for (var i = 0; i < groups.Count; i++)
+            {
+                var grp = groups[i];
+                var nextAcc = acc + grp.Width;
+                if (yPos <= nextAcc || i == groups.Count - 1)
+                {
+                    var mid = acc + grp.Width / 2f;
+                    return new TextPosition(domText, yPos < mid ? grp.TextStart : grp.TextEnd);
+                }
+                acc = nextAcc;
+            }
+            return new TextPosition(domText, groups[^1].TextEnd);
+        }
+
+        if (textRun.RightToLeft)
+        {
+            // RTL: glyphs laid out right-to-left from fragment.Width down to 0
+            var xPos = localX;
+            var curRight = fragment.Width;
+            for (var i = 0; i < groups.Count; i++)
+            {
+                var grp = groups[i];
+                var curLeft = curRight - grp.Width;
+                if (xPos >= curLeft || i == groups.Count - 1)
+                {
+                    var mid = (curLeft + curRight) / 2f;
+                    // In RTL, the right side is the logical start, the left side is the logical end.
+                    return new TextPosition(domText, xPos >= mid ? grp.TextStart : grp.TextEnd);
+                }
+                curRight = curLeft;
+            }
+            return new TextPosition(domText, groups[^1].TextEnd);
+        }
+        else
+        {
+            // LTR: glyphs laid out left-to-right from 0 to fragment.Width
+            var xPos = localX;
+            var acc = 0f;
+            for (var i = 0; i < groups.Count; i++)
+            {
+                var grp = groups[i];
+                var nextAcc = acc + grp.Width;
+                if (xPos <= nextAcc || i == groups.Count - 1)
+                {
+                    var mid = acc + grp.Width / 2f;
+                    return new TextPosition(domText, xPos < mid ? grp.TextStart : grp.TextEnd);
+                }
+                acc = nextAcc;
+            }
+            return new TextPosition(domText, groups[^1].TextEnd);
+        }
+    }
+
+    private static TextPosition? SnapToNearestLineBox(Fragment initialContainingBlock, Vector2 pagePoint)
+    {
+        var lineBoxes = new List<(Fragment Line, float Left, float Top, float Width, float Height, bool Vertical)>();
+        CollectLineBoxes(initialContainingBlock, 0, 0, lineBoxes);
+
+        if (lineBoxes.Count == 0)
+            return null;
+
+        // Find nearest line box by distance to its bounds
+        var bestDist = float.MaxValue;
+        (Fragment Line, float Left, float Top, float Width, float Height, bool Vertical)? bestLine = null;
+
+        foreach (var lb in lineBoxes)
+        {
+            var dx = pagePoint.X < lb.Left ? lb.Left - pagePoint.X : pagePoint.X > lb.Left + lb.Width ? pagePoint.X - (lb.Left + lb.Width) : 0;
+            var dy = pagePoint.Y < lb.Top ? lb.Top - pagePoint.Y : pagePoint.Y > lb.Top + lb.Height ? pagePoint.Y - (lb.Top + lb.Height) : 0;
+            var dist = MathF.Sqrt(dx * dx + dy * dy);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                bestLine = lb;
+            }
+        }
+
+        if (bestLine is not { } targetLine)
+            return null;
+
+        return SnapWithinLineBox(targetLine.Line, targetLine.Left, targetLine.Top, pagePoint, targetLine.Vertical);
+    }
+
+    private static void CollectLineBoxes(Fragment fragment, float parentX, float parentY,
+        List<(Fragment Line, float Left, float Top, float Width, float Height, bool Vertical)> lines)
+    {
+        foreach (var child in fragment.Children)
+        {
+            var x = parentX + child.X;
+            var y = parentY + child.Y;
+            if (child.Fragment.Kind == FragmentKind.Line)
+            {
+                var isVertical = child.Fragment.Children.Any(c => c.Fragment.Text?.Turned == true);
+                lines.Add((child.Fragment, x, y, child.Fragment.Width, child.Fragment.Height, isVertical));
+            }
+            else
+            {
+                CollectLineBoxes(child.Fragment, x, y, lines);
+            }
+        }
+    }
+
+    private static TextPosition? SnapWithinLineBox(Fragment lineFragment, float lineLeft, float lineTop, Vector2 pagePoint, bool isVertical)
+    {
+        var textFragments = new List<(Fragment Frag, TextRun Run, float Left, float Top, float Width, float Height)>();
+        foreach (var child in lineFragment.Children)
+        {
+            if (child.Fragment.Kind == FragmentKind.Text && child.Fragment.Text is { Node: Text } tr)
+            {
+                textFragments.Add((child.Fragment, tr, lineLeft + child.X, lineTop + child.Y, child.Fragment.Width, child.Fragment.Height));
+            }
+        }
+
+        if (textFragments.Count == 0)
+            return null;
+
+        if (isVertical)
+        {
+            // Vertical text: lines run vertically, pick nearest text fragment along Y
+            var pY = pagePoint.Y;
+            // Sort by Top
+            textFragments.Sort((a, b) => a.Top.CompareTo(b.Top));
+            if (pY <= textFragments[0].Top)
+            {
+                var first = textFragments[0];
+                return TextPositionFromRun(first.Frag, first.Run, pagePoint.X - first.Left, 0);
+            }
+            if (pY >= textFragments[^1].Top + textFragments[^1].Height)
+            {
+                var last = textFragments[^1];
+                return TextPositionFromRun(last.Frag, last.Run, pagePoint.X - last.Left, last.Height);
+            }
+            foreach (var tf in textFragments)
+            {
+                if (pY >= tf.Top && pY <= tf.Top + tf.Height)
+                    return TextPositionFromRun(tf.Frag, tf.Run, pagePoint.X - tf.Left, pY - tf.Top);
+            }
+            // Between fragments: pick closer
+            var closest = textFragments.MinBy(tf => Math.Min(Math.Abs(pY - tf.Top), Math.Abs(pY - (tf.Top + tf.Height))));
+            var localY = Math.Clamp(pY - closest.Top, 0, closest.Height);
+            return TextPositionFromRun(closest.Frag, closest.Run, pagePoint.X - closest.Left, localY);
+        }
+        else
+        {
+            // Horizontal text: visual order left to right
+            textFragments.Sort((a, b) => a.Left.CompareTo(b.Left));
+            var pX = pagePoint.X;
+            if (pX <= textFragments[0].Left)
+            {
+                var first = textFragments[0];
+                var localX = first.Run.RightToLeft ? first.Width : 0;
+                return TextPositionFromRun(first.Frag, first.Run, localX, pagePoint.Y - first.Top);
+            }
+            if (pX >= textFragments[^1].Left + textFragments[^1].Width)
+            {
+                var last = textFragments[^1];
+                var localX = last.Run.RightToLeft ? 0 : last.Width;
+                return TextPositionFromRun(last.Frag, last.Run, localX, pagePoint.Y - last.Top);
+            }
+            foreach (var tf in textFragments)
+            {
+                if (pX >= tf.Left && pX <= tf.Left + tf.Width)
+                    return TextPositionFromRun(tf.Frag, tf.Run, pX - tf.Left, pagePoint.Y - tf.Top);
+            }
+            // Between fragments: pick closer
+            var closest = textFragments.MinBy(tf => Math.Min(Math.Abs(pX - tf.Left), Math.Abs(pX - (tf.Left + tf.Width))));
+            var clampX = Math.Clamp(pX - closest.Left, 0, closest.Width);
+            return TextPositionFromRun(closest.Frag, closest.Run, clampX, pagePoint.Y - closest.Top);
+        }
+    }
+
+    /// <summary>
+    /// Computes the 1px-wide caret rectangle in page coordinates for a given text position.
+    /// </summary>
+    public static RectF CaretRect(Fragment initialContainingBlock, TextPosition position)
+    {
+        var runs = new List<(Fragment Frag, TextRun Run, float Left, float Top, float LineHeight)>();
+        CollectTextRuns(initialContainingBlock, 0, 0, null, runs);
+
+        var matching = runs.FindAll(r => r.Run.Node == position.Node);
+        if (matching.Count == 0)
+            return default;
+
+        var fullText = ((Text)position.Node).Data;
+
+        // Locate run covering the position offset
+        var runEntry = matching.Find(r =>
+        {
+            var start = r.Run.Run.Clusters[r.Run.GlyphStart];
+            var end = r.Run.Run.Clusters[r.Run.GlyphEnd - 1] + StringInfo.GetNextTextElementLength(fullText, Math.Clamp(r.Run.Run.Clusters[r.Run.GlyphEnd - 1], 0, fullText.Length - 1));
+            return position.Offset >= start && position.Offset <= end;
+        });
+
+        if (runEntry == default)
+            runEntry = position.Offset <= matching[0].Run.Run.Clusters[matching[0].Run.GlyphStart] ? matching[0] : matching[^1];
+
+        var textRun = runEntry.Run;
+        var frag = runEntry.Frag;
+        var run = textRun.Run;
+        var count = textRun.GlyphEnd - textRun.GlyphStart;
+
+        var groups = new List<(int TextStart, int TextEnd, float Width)>();
+        var curIdx = 0;
+        while (curIdx < count)
+        {
+            var g = textRun.GlyphStart + curIdx;
+            var cStart = run.Clusters[g];
+            var nextLen = StringInfo.GetNextTextElementLength(fullText, Math.Clamp(cStart, 0, fullText.Length - 1));
+            var cEnd = Math.Min(fullText.Length, cStart + nextLen);
+
+            var w = 0f;
+            var advancedAny = false;
+            while (curIdx < count)
+            {
+                var gGlobal = textRun.GlyphStart + curIdx;
+                if (run.Clusters[gGlobal] >= cEnd && advancedAny)
+                    break;
+                w += run.Advances[gGlobal];
+                curIdx++;
+                advancedAny = true;
+            }
+            groups.Add((cStart, cEnd, w));
+        }
+
+        if (textRun.Turned)
+        {
+            var yOffset = 0f;
+            foreach (var grp in groups)
+            {
+                if (position.Offset <= grp.TextStart)
+                    break;
+                if (position.Offset >= grp.TextEnd)
+                {
+                    yOffset += grp.Width;
+                    continue;
+                }
+                break;
+            }
+            var caretY = runEntry.Top + yOffset;
+            var caretX = runEntry.Left;
+            return new RectF(caretX, caretY, frag.Width, 1);
+        }
+        else if (textRun.RightToLeft)
+        {
+            var xOffset = frag.Width;
+            foreach (var grp in groups)
+            {
+                if (position.Offset <= grp.TextStart)
+                    break;
+                xOffset -= grp.Width;
+                if (position.Offset <= grp.TextEnd)
+                    break;
+            }
+            var caretX = runEntry.Left + xOffset;
+            var caretY = runEntry.Top;
+            var h = runEntry.LineHeight > 0 ? runEntry.LineHeight : frag.Height;
+            return new RectF(caretX, caretY, 1, h);
+        }
+        else
+        {
+            var xOffset = 0f;
+            foreach (var grp in groups)
+            {
+                if (position.Offset <= grp.TextStart)
+                    break;
+                xOffset += grp.Width;
+                if (position.Offset <= grp.TextEnd)
+                    break;
+            }
+            var caretX = runEntry.Left + xOffset;
+            var caretY = runEntry.Top;
+            var h = runEntry.LineHeight > 0 ? runEntry.LineHeight : frag.Height;
+            return new RectF(caretX, caretY, 1, h);
+        }
+    }
+
+    private static void CollectTextRuns(Fragment fragment, float parentX, float parentY, float? curLineHeight,
+        List<(Fragment Frag, TextRun Run, float Left, float Top, float LineHeight)> list)
+    {
+        foreach (var child in fragment.Children)
+        {
+            var x = parentX + child.X;
+            var y = parentY + child.Y;
+            if (child.Fragment.Kind == FragmentKind.Text && child.Fragment.Text is { } tr)
+            {
+                list.Add((child.Fragment, tr, x, y, curLineHeight ?? child.Fragment.Height));
+            }
+            else
+            {
+                var lh = child.Fragment.Kind == FragmentKind.Line ? child.Fragment.Height : curLineHeight;
+                CollectTextRuns(child.Fragment, x, y, lh, list);
+            }
         }
     }
 

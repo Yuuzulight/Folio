@@ -150,6 +150,7 @@ internal static class InlineLayout
         public bool AtomicUpright { get; init; } // in a vertical line, not turned with it: its width is its extent across the line
         public bool Visible { get; init; } // content that makes the line box a real one
         public byte Level { get; init; } // bidi embedding level (text and atomic inlines)
+        public Dom.Node? Node { get; init; }
         public string? Replacement { get; init; } // text of an inserted ellipsis, whose run is not the context's text
         public float X { get; set; } // where the line being built puts it
     }
@@ -285,7 +286,7 @@ internal static class InlineLayout
                             if (g == run.Glyphs.Length || kind != BreakKind.None)
                             {
                                 if (g > start)
-                                    AddGlyphs(run, start, g, item.Style, levels.Text[run.Clusters[start]]);
+                                    AddGlyphs(run, start, g, item.Style, levels.Text[run.Clusters[start]], item.Node);
                                 if (kind != BreakKind.None)
                                 {
                                     Break(kind);
@@ -305,7 +306,7 @@ internal static class InlineLayout
                     var box = item.Box!;
                     if (!layOutAtomics)
                     {
-                        Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true, Level = levels.Atomics.GetValueOrDefault(box) });
+                        Add(new Piece(PieceKind.Atomic, box.Style, 0) { Box = box, Visible = true, Level = levels.Atomics.GetValueOrDefault(box), Node = item.Node ?? box.Node });
                         if (wraps)
                             Close();
                         break;
@@ -326,7 +327,7 @@ internal static class InlineLayout
                     Add(new Piece(PieceKind.Atomic, box.Style, ml + (upright ? fragment.Height : fragment.Width) + mr)
                     {
                         Box = box, Atomic = fragment, AtomicMarginLeft = ml, AtomicMarginTop = mt, AtomicMarginBottom = mb, Visible = true,
-                        Level = levels.Atomics.GetValueOrDefault(box), AtomicUpright = upright,
+                        Level = levels.Atomics.GetValueOrDefault(box), AtomicUpright = upright, Node = item.Node ?? box.Node,
                     });
                     if (wraps)
                         Close();
@@ -340,17 +341,17 @@ internal static class InlineLayout
                         Close();
                     break;
                 case InlineItemKind.Float:
-                    Add(new Piece(PieceKind.Float, item.Style, 0) { Box = item.Box });
+                    Add(new Piece(PieceKind.Float, item.Style, 0) { Box = item.Box, Node = item.Node ?? item.Box?.Node });
                     break;
                 case InlineItemKind.OutOfFlow:
-                    Add(new Piece(PieceKind.OutOfFlow, item.Style, 0) { Box = item.Box });
+                    Add(new Piece(PieceKind.OutOfFlow, item.Style, 0) { Box = item.Box, Node = item.Node ?? item.Box?.Node });
                     break;
             }
         }
         Close();
         return units;
 
-        void AddGlyphs(ShapedRun run, int from, int to, ComputedStyle style, byte level)
+        void AddGlyphs(ShapedRun run, int from, int to, ComputedStyle style, byte level, Dom.Node? node)
         {
             var w = 0f;
             for (var g = from; g < to; g++)
@@ -362,7 +363,7 @@ internal static class InlineLayout
                 trailing += run.Advances[g2];
             var visible = g2 >= from;
             visible |= style.Text.WhiteSpaceCollapse is WhiteSpaceCollapse.Preserve or WhiteSpaceCollapse.BreakSpaces && to > from;
-            Add(new Piece(PieceKind.Text, style, w) { Run = run, GlyphStart = from, GlyphEnd = to, Visible = visible, Level = level });
+            Add(new Piece(PieceKind.Text, style, w) { Run = run, GlyphStart = from, GlyphEnd = to, Visible = visible, Level = level, Node = node });
             unit.TrailingSpace = trailing;
         }
     }
@@ -417,8 +418,8 @@ internal static class InlineLayout
             var tail = new Unit { TrailingSpace = unit.TrailingSpace, MandatoryBreakAfter = unit.MandatoryBreakAfter, Hyphen = unit.Hyphen,
                 HyphenGlyph = unit.HyphenGlyph, HyphenWidth = unit.HyphenWidth };
             head.Pieces.AddRange(unit.Pieces.Take(i));
-            head.Pieces.Add(new Piece(PieceKind.Text, piece.Style, headWidth) { Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = true, Level = piece.Level });
-            tail.Pieces.Add(new Piece(PieceKind.Text, piece.Style, tailWidth) { Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = piece.Visible, Level = piece.Level });
+            head.Pieces.Add(new Piece(PieceKind.Text, piece.Style, headWidth) { Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = true, Level = piece.Level, Node = piece.Node });
+            tail.Pieces.Add(new Piece(PieceKind.Text, piece.Style, tailWidth) { Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = piece.Visible, Level = piece.Level, Node = piece.Node });
             tail.Pieces.AddRange(unit.Pieces.Skip(i + 1));
             head.Width = head.Pieces.Sum(p => p.Width);
             tail.Width = tail.Pieces.Sum(p => p.Width);
@@ -470,7 +471,7 @@ internal static class InlineLayout
                 {
                     pieces[i] = new Piece(PieceKind.Text, piece.Style, kept - x)
                     {
-                        Run = piece.Run, GlyphStart = piece.GlyphStart, GlyphEnd = end, Visible = true, Level = piece.Level,
+                        Run = piece.Run, GlyphStart = piece.GlyphStart, GlyphEnd = end, Visible = true, Level = piece.Level, Node = piece.Node,
                     };
                     cut = i + 1;
                 }
@@ -666,7 +667,7 @@ internal static class InlineLayout
                     spaces += run.Advances[g];
                 var white = new Piece(PieceKind.Text, piece.Style, spaces)
                 {
-                    Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = false, Level = (byte)paragraphLevel,
+                    Run = run, GlyphStart = split, GlyphEnd = piece.GlyphEnd, Visible = false, Level = (byte)paragraphLevel, Node = piece.Node,
                 };
                 if (split == piece.GlyphStart)
                 {
@@ -676,7 +677,7 @@ internal static class InlineLayout
                 {
                     pieces[i] = new Piece(PieceKind.Text, piece.Style, piece.Width - spaces)
                     {
-                        Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = piece.Visible, Level = piece.Level,
+                        Run = run, GlyphStart = piece.GlyphStart, GlyphEnd = split, Visible = piece.Visible, Level = piece.Level, Node = piece.Node,
                     };
                     pieces.Insert(i + 1, white);
                 }
@@ -1470,7 +1471,7 @@ internal static class InlineLayout
                     contentFragments.Add(new ChildFragment(child.X, child.Baseline - m.Ascent, new Fragment(block, text.Width, m.Ascent + m.Descent, [])
                     {
                         Kind = FragmentKind.Text,
-                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement, node.Box)
+                        Text = new TextRun(text.Run!, text.GlyphStart, text.GlyphEnd, m.Ascent, text.Level % 2 == 1, child.Style, text.Replacement, node.Box, Node: text.Node)
                         {
                             // The first available font's, whichever font sized the line.
                             Central = child.Style.Text.IsVertical ? Metrics(child.Style, context).Central : 0,
