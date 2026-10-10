@@ -57,8 +57,6 @@ dotnet build Folio.slnx
 dotnet test --solution Folio.slnx
 ```
 
-The render tests include an equivalence check: after random style changes to a page, an incremental update must draw exactly what a fresh render draws.
-
 Image tests that fail or change write their actual, expected and diff images to `tests/render-output/`. Golden images change only through the approve command, after reviewing those images:
 
 ```
