@@ -39,19 +39,24 @@ public sealed class InputRouter
     public void HandlePointerMove(PointerEvent e)
     {
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
-        UpdateHover(target);
+        if (UpdateHover(target))
+            _document.Update();
     }
 
     /// <summary>A pointer button was pressed down.</summary>
     public void HandlePointerDown(PointerEvent e)
     {
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
-        UpdateHover(target);
+        var changed = UpdateHover(target);
         if (e.Button == PointerButton.Primary && target is not null)
         {
             _active = target;
             SetElementAndAncestorsState(_active, NodeFlags.Active, true);
+            changed = true;
         }
+
+        if (changed)
+            _document.Update();
     }
 
     /// <summary>A pointer button was released.</summary>
@@ -59,11 +64,16 @@ public sealed class InputRouter
     {
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
         var activated = _active;
+        var changed = false;
         if (_active is not null)
         {
             SetElementAndAncestorsState(_active, NodeFlags.Active, false);
             _active = null;
+            changed = true;
         }
+
+        if (changed)
+            _document.Update();
 
         if (e.Button == PointerButton.Primary && activated is not null && target is not null)
         {
@@ -78,12 +88,16 @@ public sealed class InputRouter
     /// <summary>The pointer left the document view.</summary>
     public void HandlePointerLeave()
     {
-        UpdateHover(null);
+        var changed = UpdateHover(null);
         if (_active is not null)
         {
             SetElementAndAncestorsState(_active, NodeFlags.Active, false);
             _active = null;
+            changed = true;
         }
+
+        if (changed)
+            _document.Update();
     }
 
     /// <summary>Mouse wheel or touchpad scroll event.</summary>
@@ -102,10 +116,10 @@ public sealed class InputRouter
 
     public void HandleTextInput(TextInputEvent e) { }
 
-    private void UpdateHover(ElementNode? newHovered)
+    private bool UpdateHover(ElementNode? newHovered)
     {
         if (_hovered == newHovered)
-            return;
+            return false;
 
         if (_hovered is not null)
             SetElementAndAncestorsState(_hovered, NodeFlags.Hover, false);
@@ -114,6 +128,8 @@ public sealed class InputRouter
 
         if (_hovered is not null)
             SetElementAndAncestorsState(_hovered, NodeFlags.Hover, true);
+
+        return true;
     }
 
     private void SetElementAndAncestorsState(ElementNode element, NodeFlags flag, bool on)
