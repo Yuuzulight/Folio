@@ -17,7 +17,7 @@ internal enum FragmentKind
 /// <param name="Replacement">The text shown, when it is not the inline formatting context's own (an inserted ellipsis).</param>
 /// <param name="Inline">The inline box the text is directly in, if any.</param>
 internal readonly record struct TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style,
-                               string? Replacement = null, InlineBox? Inline = null, bool Turned = false)
+                               string? Replacement = null, InlineBox? Inline = null, bool Turned = false, Dom.Node? Node = null)
 {
     /// <summary>
     /// In vertical text: how far the alphabetic baseline is from the central one, towards the under side, by the metrics

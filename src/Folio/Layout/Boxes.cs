@@ -182,7 +182,7 @@ internal enum InlineItemKind
 /// <see cref="InlineFormattingContext.Text"/>; box items reference their box.
 /// </summary>
 /// <param name="Continuation">For open/close items of an inline box split by a block: this part is not the box's first/last.</param>
-internal readonly record struct InlineItem(InlineItemKind Kind, int Start, int Length, Box? Box, ComputedStyle Style, bool Continuation = false);
+internal readonly record struct InlineItem(InlineItemKind Kind, int Start, int Length, Box? Box, ComputedStyle Style, bool Continuation = false, Dom.Node? Node = null);
 
 /// <summary>A paragraph's inline content: a flat item list over one text buffer (white space already processed, phase I).</summary>
 internal sealed class InlineFormattingContext

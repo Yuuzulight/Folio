@@ -53,7 +53,7 @@ internal sealed class BoxTreeBuilder
             if (child is ElementNode childElement)
                 builder.Walk(childElement);
             else if (child is Text text)
-                builder.AddText(text.Data, style);
+                builder.AddText(text.Data, style, text);
         }
         builder.Finish(builder.Pop());
         return box;
@@ -131,7 +131,7 @@ internal sealed class BoxTreeBuilder
             if (item.Node is not ElementNode element)
             {
                 if (item.Node is Text text)
-                    AddText(text.Data, text.Parent is ElementNode p ? p.ComputedStyle() : null);
+                    AddText(text.Data, text.Parent is ElementNode p ? p.ComputedStyle() : null, text);
                 continue;
             }
             if (item.Leaving)
@@ -420,7 +420,7 @@ internal sealed class BoxTreeBuilder
 
     // ---------------------------------------------------------------- text, pseudo-elements, markers
 
-    private void AddText(string text, ComputedStyle? style)
+    private void AddText(string text, ComputedStyle? style, Node? node = null)
     {
         if (style is null || text.Length == 0)
             return;
@@ -437,19 +437,19 @@ internal sealed class BoxTreeBuilder
             // it) gets its own box, inline or floated, styled by ::first-letter and inheriting from what the text is in.
             _firstLetter = null;
             if (start > 0)
-                RunOf(Container).AddText(text[..start], style);
+                RunOf(Container).AddText(text[..start], style, node: node);
             var letterStyle = ReferenceEquals(style, pending.Element.ComputedStyle()) ? pending.Style
                 : StyleResolver.RestyleFirstLetter(pending.Element, style) ?? pending.Style;
             var display = letterStyle.Box.Float != FloatSide.None ? Display.Block : Display.Inline;
             var frame = OpenBox(pending.Element, letterStyle, display, PseudoElement.FirstLetter);
             Push(frame);
-            RunOf(Container).AddText(text.Substring(start, length), letterStyle);
+            RunOf(Container).AddText(text.Substring(start, length), letterStyle, node: node);
             Finish(Pop());
             if (start + length < text.Length)
-                RunOf(Container).AddText(text[(start + length)..], style);
+                RunOf(Container).AddText(text[(start + length)..], style, node: node);
             return;
         }
-        RunOf(Container).AddText(text, style);
+        RunOf(Container).AddText(text, style, node: node);
     }
 
     /// <summary>
@@ -959,7 +959,7 @@ internal sealed class BoxTreeBuilder
         /// </summary>
         // ponytail: segment breaks between East Asian characters should vanish instead of becoming a space
         // (CSS Text 3 §4.1.3); that needs the Unicode width tables from the typography stage.
-        public void AddText(string text, ComputedStyle style, bool preserve = false)
+        public void AddText(string text, ComputedStyle style, bool preserve = false, Node? node = null)
         {
             EnsureSegment();
             var mode = preserve ? WhiteSpaceCollapse.Preserve : style.Text.WhiteSpaceCollapse;
@@ -981,7 +981,7 @@ internal sealed class BoxTreeBuilder
                     case WhiteSpaceCollapse.PreserveBreaks:
                         if (c == '\n')
                         {
-                            Flush(start, style);
+                            Flush(start, style, node);
                             AddForcedBreak(style);
                             start = _text.Length;
                             continue;
@@ -1001,7 +1001,7 @@ internal sealed class BoxTreeBuilder
                     default:
                         if (c == '\n')
                         {
-                            Flush(start, style);
+                            Flush(start, style, node);
                             Context.Items.Add(new InlineItem(InlineItemKind.ForcedBreak, _text.Length, 0, null, style));
                             _hasContent = true;
                             start = _text.Length;
@@ -1013,7 +1013,7 @@ internal sealed class BoxTreeBuilder
                 _afterCollapsibleSpace = false;
                 _hasContent = true;
             }
-            Flush(start, style);
+            Flush(start, style, node);
         }
 
         /// <summary>text-transform on one character, after white space processing (https://www.w3.org/TR/css-text-3/#text-transform-property).</summary>
@@ -1031,10 +1031,10 @@ internal sealed class BoxTreeBuilder
             _ => c,
         };
 
-        private void Flush(int start, ComputedStyle style)
+        private void Flush(int start, ComputedStyle style, Node? node = null)
         {
             if (_text.Length > start)
-                Context.Items.Add(new InlineItem(InlineItemKind.Text, start, _text.Length - start, null, style));
+                Context.Items.Add(new InlineItem(InlineItemKind.Text, start, _text.Length - start, null, style, Node: node));
         }
 
         // A collapsible space before a preserved break is removed.
