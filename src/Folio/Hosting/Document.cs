@@ -210,7 +210,7 @@ public sealed class Document : IDisposable
     /// there, by hit testing in reverse paint order. Null outside every box or before painting.
     /// </summary>
     internal ElementNode? ElementAt(float x, float y) =>
-        _page is null ? null : HitTester.Hit(_page, new(x, y), _frame?.Scale ?? 1)?.Node;
+        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1)?.Node : null;
 
     /// <summary>The link under a point: the nearest a or area element with an href, resolved against the base URL.</summary>
     internal Uri? LinkAt(float x, float y)
@@ -315,7 +315,8 @@ public sealed class Document : IDisposable
             (message, feature) => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, feature)));
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
             return (DisplayList = new DisplayList(), 0);
-        var page = _page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
+        var page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
+        _page = page;
         LayoutCount++;
         _frame = (root, page, deviceScale);
         Node.StructureMutated = false;
@@ -529,7 +530,8 @@ public sealed class Document : IDisposable
                 }
             }
 
-            var page = _page = LayoutEngine.LayoutDocument(frameVal.Root, last.Width, last.Height, _fonts, last.Shaper, _images);
+            var page = LayoutEngine.LayoutDocument(frameVal.Root, last.Width, last.Height, _fonts, last.Shaper, _images);
+            _page = page;
             LayoutCount++;
             _frame = (frameVal.Root, page, frameVal.Scale);
             DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale);
@@ -548,7 +550,8 @@ public sealed class Document : IDisposable
                 return Damage.Boxes;
             }
 
-            var page = _page = LayoutEngine.LayoutDocument(root, l.Width, l.Height, _fonts, l.Shaper, _images);
+            var page = LayoutEngine.LayoutDocument(root, l.Width, l.Height, _fonts, l.Shaper, _images);
+            _page = page;
             LayoutCount++;
             _frame = (root, page, l.Scale);
             DisplayList = DisplayListBuilder.Build(page, _images, l.Scale);

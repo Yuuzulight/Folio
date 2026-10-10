@@ -16,7 +16,7 @@ internal enum FragmentKind
 /// </summary>
 /// <param name="Replacement">The text shown, when it is not the inline formatting context's own (an inserted ellipsis).</param>
 /// <param name="Inline">The inline box the text is directly in, if any.</param>
-internal sealed record TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style,
+internal readonly record struct TextRun(ShapedRun Run, int GlyphStart, int GlyphEnd, float Ascent, bool RightToLeft, Style.ComputedStyle Style,
                                string? Replacement = null, InlineBox? Inline = null, bool Turned = false)
 {
     /// <summary>
@@ -176,6 +176,21 @@ internal sealed class FragmentArena
     private ChildFragment[] _chunk = [];
     private int _used;
 
+    // Fragment rows: a few hundred kilobytes a buffer, on the large object heap too.
+    private const int RowChunkSize = 2_048;
+    private FragmentRow[] _rows = [];
+    private int _rowsUsed;
+
+    /// <summary>A new fragment row: in the current arena's buffer, or an array of its own outside a layout.</summary>
+    public static (FragmentRow[] Rows, int Index) AddRow()
+    {
+        if (t_current is not { } arena)
+            return (new FragmentRow[1], 0);
+        if (arena._rowsUsed == arena._rows.Length)
+            (arena._rows, arena._rowsUsed) = (new FragmentRow[RowChunkSize], 0);
+        return (arena._rows, arena._rowsUsed++);
+    }
+
     /// <summary>Makes a new arena current on this thread until the returned scope is disposed.</summary>
     public static Scope Open()
     {
@@ -215,52 +230,69 @@ internal sealed class FragmentArena
 /// The immutable result of laying out a box: its border-box size and positioned children, plus what the parent's
 /// block layout needs to place it (used horizontal margins and the margins that collapse through its edges).
 /// </summary>
-internal sealed class Fragment(Box? box, float width, float height, ChildList children)
+/// <remarks>
+/// A handle to a row in its layout's <see cref="FragmentArena"/> (#397): a layout's fragments are a few large arrays rather
+/// than an object each, so collections during and after layout have far fewer objects to copy. Made outside a layout, a
+/// fragment has a row of its own. Handles compare by the row they point at; <c>default</c> points at none.
+/// </remarks>
+internal readonly struct Fragment : IEquatable<Fragment>
 {
+    private readonly FragmentRow[] _rows;
+    private readonly int _index;
+
+    public Fragment(Box? box, float width, float height, ChildList children)
+    {
+        (_rows, _index) = FragmentArena.AddRow();
+        ref var row = ref _rows[_index];
+        (row.Box, row.Width, row.Height, row.Children) = (box, width, height, children);
+    }
+
+    private ref FragmentRow Row => ref _rows[_index];
+
     /// <summary>The box laid out; null for the initial containing block.</summary>
-    public Box? Box { get; } = box;
+    public Box? Box => Row.Box;
 
-    public float Width { get; } = width;
-    public float Height { get; } = height;
-    public ChildList Children { get; } = children;
+    public float Width => Row.Width;
+    public float Height => Row.Height;
+    public ChildList Children => Row.Children;
 
-    public float MarginLeft { get; init; }
-    public float MarginRight { get; init; }
+    public float MarginLeft { get => Row.MarginLeft; init => Row.MarginLeft = value; }
+    public float MarginRight { get => Row.MarginRight; init => Row.MarginRight = value; }
 
     /// <summary>The box's top margin collapsed with any descendant margins adjoining it.</summary>
-    public MarginStrut TopMargins { get; init; }
+    public MarginStrut TopMargins { get => Row.TopMargins; init => Row.TopMargins = value; }
 
     /// <summary>The box's bottom margin collapsed with any descendant margins adjoining it.</summary>
-    public MarginStrut BottomMargins { get; init; }
+    public MarginStrut BottomMargins { get => Row.BottomMargins; init => Row.BottomMargins = value; }
 
     /// <summary>
     /// Its top and bottom margins adjoin (an empty block): <see cref="TopMargins"/> then holds all of them and they
     /// collapse with the siblings' on both sides.
     /// </summary>
-    public bool CollapsesThrough { get; init; }
+    public bool CollapsesThrough { get => Row.CollapsesThrough; init => Row.CollapsesThrough = value; }
 
     /// <summary>
     /// The floats in the enclosing block formatting context after this box, including any it placed; for a box with
     /// an independent formatting context, the ones it was given.
     /// </summary>
-    public ExclusionSpace? Exclusions { get; init; }
+    public ExclusionSpace? Exclusions { get => Row.Exclusions; init => Row.Exclusions = value; }
 
-    public FragmentKind Kind { get; init; } = FragmentKind.Box;
+    public FragmentKind Kind { get => Row.Kind; init => Row.Kind = value; }
 
     /// <summary>
     /// The border painted instead of the style's: for collapsed table borders, a cell's full resolved border centred on
     /// its edges, and no border for the table, its rows and row groups.
     /// </summary>
-    public Style.BorderGroup? PaintedBorder { get; init; }
+    public Style.BorderGroup? PaintedBorder { get => Row.PaintedBorder; init => Row.PaintedBorder = value; }
 
     /// <summary>No background or border is painted (an empty cell with empty-cells: hide).</summary>
-    public bool SkipsDecorations { get; init; }
+    public bool SkipsDecorations { get => Row.SkipsDecorations; init => Row.SkipsDecorations = value; }
 
     /// <summary>For text fragments: the glyphs.</summary>
-    public TextRun? Text { get; init; }
+    public TextRun? Text { get => Row.Text; init => Row.Text = value; }
 
     /// <summary>For line boxes: the baseline, from the top of the line.</summary>
-    public float Baseline { get; init; }
+    public float Baseline { get => Row.Baseline; init => Row.Baseline = value; }
 
     /// <summary>
     /// For a ruby column (and its baseline in <see cref="Baseline"/>): how far its annotation's em box reaches above its
@@ -268,47 +300,97 @@ internal sealed class Fragment(Box? box, float width, float height, ChildList ch
     /// </summary>
     public float RubyOver
     {
-        get => _rare?.RubyOver ?? float.NegativeInfinity;
-        init { if (value != float.NegativeInfinity || _rare is not null) _rare = (_rare ?? Rare.None) with { RubyOver = value }; }
+        get => Row.Rare?.RubyOver ?? float.NegativeInfinity;
+        init { if (value != float.NegativeInfinity || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { RubyOver = value }; }
     }
 
-    public float RubyOverhang { get => _rare?.RubyOverhang ?? 0; init { if (value != 0 || _rare is not null) _rare = (_rare ?? Rare.None) with { RubyOverhang = value }; } }
+    public float RubyOverhang
+    {
+        get => Row.Rare?.RubyOverhang ?? 0;
+        init { if (value != 0 || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { RubyOverhang = value }; }
+    }
 
     /// <summary>For an outermost svg element: what it draws, in its content box's coordinates; null when nothing shows.</summary>
-    public Svg.SvgContainerNode? Svg { get => _rare?.Svg; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { Svg = value }; } }
+    public Svg.SvgContainerNode? Svg
+    {
+        get => Row.Rare?.Svg;
+        init { if (value is not null || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { Svg = value }; }
+    }
 
     /// <summary>
     /// For a box whose clip-path is a url() reference to an SVG clipPath element: that clip path, in coordinates whose
     /// origin is the border box's top-left corner; null otherwise, and then a reference clips nothing.
     /// </summary>
-    public Svg.SvgClipPath? SvgClip { get => _rare?.SvgClip; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { SvgClip = value }; } }
+    public Svg.SvgClipPath? SvgClip
+    {
+        get => Row.Rare?.SvgClip;
+        init { if (value is not null || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { SvgClip = value }; }
+    }
 
     /// <summary>
     /// For a masked box with layers that reference SVG mask elements: each layer's mask, by layer index (null for the
     /// others), in coordinates whose origin is the border box's top-left corner; null when no layer does.
     /// </summary>
-    public IReadOnlyList<Svg.SvgMask?>? SvgMasks { get => _rare?.SvgMasks; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { SvgMasks = value }; } }
+    public IReadOnlyList<Svg.SvgMask?>? SvgMasks
+    {
+        get => Row.Rare?.SvgMasks;
+        init { if (value is not null || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { SvgMasks = value }; }
+    }
 
     /// <summary>
     /// For a box whose filter list references SVG filter elements: the list with its references resolved, in
     /// coordinates whose origin is the border box's top-left corner; null when it filters nothing.
     /// </summary>
-    public Svg.SvgFilterChain? SvgFilters { get => _rare?.SvgFilters; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { SvgFilters = value }; } }
+    public Svg.SvgFilterChain? SvgFilters
+    {
+        get => Row.Rare?.SvgFilters;
+        init { if (value is not null || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { SvgFilters = value }; }
+    }
 
     /// <summary>For a multi-column container: the column rules, as rectangles from its border-box origin.</summary>
-    public IReadOnlyList<ColumnRule>? ColumnRules { get => _rare?.ColumnRules; init { if (value is not null || _rare is not null) _rare = (_rare ?? Rare.None) with { ColumnRules = value }; } }
+    public IReadOnlyList<ColumnRule>? ColumnRules
+    {
+        get => Row.Rare?.ColumnRules;
+        init { if (value is not null || Row.Rare is not null) Row.Rare = (Row.Rare ?? FragmentRare.None) with { ColumnRules = value }; }
+    }
 
     /// <summary>Positioned descendants whose containing block is further up.</summary>
-    public IReadOnlyList<OutOfFlowBox> OutOfFlow { get; init; } = [];
+    public IReadOnlyList<OutOfFlowBox> OutOfFlow { get => Row.OutOfFlow ?? []; init => Row.OutOfFlow = value; }
 
-    // What only ruby columns, SVG and multi-column containers have, kept apart: a large document has tens of thousands of
-    // fragments, and most would otherwise carry seven empty fields (#196). Made only when one is set to something.
-    private Rare? _rare;
+    public bool Equals(Fragment other) => ReferenceEquals(_rows, other._rows) && _index == other._index;
 
-    private sealed record Rare(float RubyOver = float.NegativeInfinity, float RubyOverhang = 0, Svg.SvgContainerNode? Svg = null,
-                               Svg.SvgClipPath? SvgClip = null, IReadOnlyList<Svg.SvgMask?>? SvgMasks = null,
-                               Svg.SvgFilterChain? SvgFilters = null, IReadOnlyList<ColumnRule>? ColumnRules = null)
-    {
-        public static readonly Rare None = new();
-    }
+    public override bool Equals(object? obj) => obj is Fragment other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_rows), _index);
+
+    public static bool operator ==(Fragment left, Fragment right) => left.Equals(right);
+
+    public static bool operator !=(Fragment left, Fragment right) => !left.Equals(right);
+}
+
+/// <summary>One fragment's fields, in a row of its layout's <see cref="FragmentArena"/>.</summary>
+internal struct FragmentRow
+{
+    public Box? Box;
+    public float Width, Height;
+    public ChildList Children;
+    public float MarginLeft, MarginRight;
+    public MarginStrut TopMargins, BottomMargins;
+    public bool CollapsesThrough, SkipsDecorations;
+    public ExclusionSpace? Exclusions;
+    public FragmentKind Kind;
+    public Style.BorderGroup? PaintedBorder;
+    public TextRun? Text;
+    public float Baseline;
+    public FragmentRare? Rare;
+    public IReadOnlyList<OutOfFlowBox>? OutOfFlow;
+}
+
+// What only ruby columns, SVG and multi-column containers have, kept apart: most fragments would otherwise carry seven
+// empty fields (#196). Made only when one is set to something.
+internal sealed record FragmentRare(float RubyOver = float.NegativeInfinity, float RubyOverhang = 0, Svg.SvgContainerNode? Svg = null,
+                                    Svg.SvgClipPath? SvgClip = null, IReadOnlyList<Svg.SvgMask?>? SvgMasks = null,
+                                    Svg.SvgFilterChain? SvgFilters = null, IReadOnlyList<ColumnRule>? ColumnRules = null)
+{
+    public static readonly FragmentRare None = new();
 }

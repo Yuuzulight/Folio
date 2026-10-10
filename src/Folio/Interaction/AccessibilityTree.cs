@@ -94,7 +94,7 @@ internal static class AccessibilityTree
     /// <param name="page">The laid-out page the bounds come from; null leaves every node without bounds.</param>
     public static AccessibleNode Build(DocumentNode document, Fragment? page, string title)
     {
-        var (boxes, texts) = page is null ? (new Dictionary<Node, RectF>(), new Dictionary<Node, RectF>()) : BoundsOf(page);
+        var (boxes, texts) = page is { } laid ? BoundsOf(laid) : (new Dictionary<Node, RectF>(), new Dictionary<Node, RectF>());
         var root = new AccessibleNode("document", document) { Name = title };
         AddChildren(document, root);
         return root;

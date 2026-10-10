@@ -421,9 +421,9 @@ internal static class BlockLayout
 
     // The space below the content of a box's last line, when nothing (border, padding) closes the box under it: room
     // that ruby annotations on the next box's first line may reach into.
-    private static float TrailingRoom(Fragment? fragment)
+    private static float TrailingRoom(Fragment? last)
     {
-        if (fragment is null || fragment.Box is { } box && (box.Style.Border.BottomWidth > 0 || box.Style.Spacing.PaddingBottom != LengthPercentage.Zero))
+        if (last is not { } fragment || fragment.Box is { } box && (box.Style.Border.BottomWidth > 0 || box.Style.Spacing.PaddingBottom != LengthPercentage.Zero))
             return 0;
         for (var i = fragment.Children.Count - 1; i >= 0; i--)
         {
@@ -468,7 +468,7 @@ internal static class BlockLayout
             return;
         }
         var (runs, ascent) = InlineLayout.MarkerText(marker, context);
-        var image = marker.Image is { } imageBox ? Layout(imageBox, new ConstraintSpace(contentWidth, null), context) : null;
+        var image = marker.Image is { } imageBox ? Layout(imageBox, new ConstraintSpace(contentWidth, null), context) : (Fragment?)null;
         if (runs.Count == 0 && image is null)
             return;
         var markerWidth = runs.Sum(r => r.Width) + (image?.Width ?? 0);
@@ -476,18 +476,18 @@ internal static class BlockLayout
         var rtl = marker.Style.Text.Direction == Style.Direction.Rtl;
         var x = rtl ? lineX + lineWidth : lineX - markerWidth;
         // The image is on the far side of the text from the line: first left to right, last right to left.
-        if (image is not null && !rtl)
+        if (image is { } first && !rtl)
         {
-            children.Add(new ChildFragment(x, lineY + baseline - image.Height, image));
-            x += image.Width;
+            children.Add(new ChildFragment(x, lineY + baseline - first.Height, first));
+            x += first.Width;
         }
         foreach (var run in runs)
         {
-            children.Add(new ChildFragment(x, lineY + baseline - run.Text!.Ascent, run));
+            children.Add(new ChildFragment(x, lineY + baseline - run.Text!.Value.Ascent, run));
             x += run.Width;
         }
-        if (image is not null && rtl)
-            children.Add(new ChildFragment(x, lineY + baseline - image.Height, image));
+        if (image is { } last && rtl)
+            children.Add(new ChildFragment(x, lineY + baseline - last.Height, last));
     }
 
     /// <summary>
@@ -846,7 +846,7 @@ internal static class BlockLayout
         }
 
         // How many pieces each split block holds, to tell a block that moved whole from one cut between columns.
-        var pieceCounts = new Dictionary<Fragment, int>(ReferenceEqualityComparer.Instance);
+        var pieceCounts = new Dictionary<Fragment, int>();
         foreach (var piece in pieces)
         {
             foreach (var block in piece.Path)
@@ -872,7 +872,7 @@ internal static class BlockLayout
                 }
                 var block = piece.Path[depth];
                 var j = i;
-                while (j < indices.Count && pieces[indices[j]].Path.Length > depth && ReferenceEquals(pieces[indices[j]].Path[depth].Fragment, block.Fragment))
+                while (j < indices.Count && pieces[indices[j]].Path.Length > depth && pieces[indices[j]].Path[depth].Fragment == block.Fragment)
                     j++;
                 var inside = indices.GetRange(i, j - i);
                 foreach (var group in inside.GroupBy(k => pieces[k].Column))
@@ -887,8 +887,8 @@ internal static class BlockLayout
                     // A fragment of the block for this column: from its top (or this column's first piece) to its last piece.
                     var placed = Rebuild(depth + 1, members);
                     // The block's own top and bottom edges go with its first and last pieces.
-                    var (first, last) = (pieces.FindIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)),
-                                         pieces.FindLastIndex(p => p.Path.Length > depth && ReferenceEquals(p.Path[depth].Fragment, block.Fragment)));
+                    var (first, last) = (pieces.FindIndex(p => p.Path.Length > depth && p.Path[depth].Fragment == block.Fragment),
+                                         pieces.FindLastIndex(p => p.Path.Length > depth && p.Path[depth].Fragment == block.Fragment));
                     var fragmentTop = members[0] == first ? block.Y + dy : placed.Min(p => p.Y);
                     var fragmentBottom = members[^1] == last ? block.Y + block.Fragment.Height + dy : placed.Max(p => p.Y + p.Fragment.Height);
                     var x = block.X + dx;

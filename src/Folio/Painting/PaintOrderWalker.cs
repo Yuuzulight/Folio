@@ -182,7 +182,7 @@ internal static class PaintOrderWalker
             : new Surroundings(port, limit, perspective, parent.Around.Table, parent.Around.Cells);
         if (table && around.Cells is { } tableCells)
             context.CollapsedCells[parent] = tableCells;
-        var lastOnLine = parent.Fragment.Kind == FragmentKind.Line && parent.Fragment.Children.Count > 0 ? parent.Fragment.Children[^1].Fragment : null;
+        var lastOnLine = parent.Fragment.Kind == FragmentKind.Line && parent.Fragment.Children.Count > 0 ? parent.Fragment.Children[^1].Fragment : (Fragment?)null;
         foreach (var child in children)
         {
             // Snapping stops at a box transformed by anything but a whole-pixel translation: its own geometry and its
