@@ -297,5 +297,122 @@ public class ScrollContainerTests
         // 60.5 + 600 = 660.5
         Assert.Equal(660.5f, scroller.ScrollTop);
     }
+
+    [Fact]
+    public void KeyboardScrollingArrowsPageHomeEndAndSpace()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #outer { width: 400px; height: 400px; overflow: scroll; }
+              #inner { width: 200px; height: 200px; overflow: scroll; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=outer>
+              <div id=inner tabindex=0>
+                <div class=spacer></div>
+              </div>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var inner = doc.GetElementById("inner")!;
+        var outer = doc.GetElementById("outer")!;
+
+        // 1. Focus on inner element
+        inner.Focus();
+        Assert.Equal(inner, doc.Input.FocusedElement);
+
+        // ArrowDown scrolls by 40px
+        doc.Input.HandleKeyDown(new KeyEvent("ArrowDown", "ArrowDown"));
+        Assert.Equal(40, inner.ScrollTop);
+        Assert.Equal(0, outer.ScrollTop);
+
+        // ArrowRight scrolls by 40px
+        doc.Input.HandleKeyDown(new KeyEvent("ArrowRight", "ArrowRight"));
+        Assert.Equal(40, inner.ScrollLeft);
+
+        // ArrowUp scrolls back up by 40px
+        doc.Input.HandleKeyDown(new KeyEvent("ArrowUp", "ArrowUp"));
+        Assert.Equal(0, inner.ScrollTop);
+
+        // ArrowLeft scrolls back by 40px
+        doc.Input.HandleKeyDown(new KeyEvent("ArrowLeft", "ArrowLeft"));
+        Assert.Equal(0, inner.ScrollLeft);
+
+        // PageDown scrolls by pageStep = inner.ClientHeight - 40 = 200 - 40 = 160px
+        doc.Input.HandleKeyDown(new KeyEvent("PageDown", "PageDown"));
+        Assert.Equal(160, inner.ScrollTop);
+
+        // Space scrolls down by pageStep = 160px
+        doc.Input.HandleKeyDown(new KeyEvent(" ", "Space"));
+        Assert.Equal(320, inner.ScrollTop);
+
+        // Shift+Space scrolls back up by pageStep = 160px
+        doc.Input.HandleKeyDown(new KeyEvent(" ", "Space", Modifiers: KeyModifiers.Shift));
+        Assert.Equal(160, inner.ScrollTop);
+
+        // PageUp scrolls back up by pageStep = 160px
+        doc.Input.HandleKeyDown(new KeyEvent("PageUp", "PageUp"));
+        Assert.Equal(0, inner.ScrollTop);
+
+        // End scrolls to bottom (Control+End or End)
+        doc.Input.HandleKeyDown(new KeyEvent("End", "End", Modifiers: KeyModifiers.Control));
+        // max scroll is 1000 - 200 = 800
+        Assert.Equal(800, inner.ScrollTop);
+
+        // Home scrolls to top
+        doc.Input.HandleKeyDown(new KeyEvent("Home", "Home", Modifiers: KeyModifiers.Control));
+        Assert.Equal(0, inner.ScrollTop);
+    }
+
+    [Fact]
+    public void ScrollbarThumbDraggingMovesOffsetProportionally()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #scroller { width: 200px; height: 200px; overflow: scroll; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=scroller>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var scroller = doc.GetElementById("scroller")!;
+
+        // Vertical scrollbar is at the right edge: x between 188 and 200 (thickness 12px)
+        // Scroller is at (0, 0), height = 200.
+        // Initially at top (scrollTop = 0), thumb is at the top of the track: y in [0, thumbHeight].
+        // Thumb height = max(20, 200 * (200 / 1000)) = 40px.
+        // Point (194, 20) is inside the thumb!
+        doc.Input.HandlePointerDown(new PointerEvent(new Vector2(194, 20), Button: PointerButton.Primary));
+
+        // Drag down by 50px: pointer moves from y=20 to y=70
+        doc.Input.HandlePointerMove(new PointerEvent(new Vector2(194, 70)));
+
+        // Available track = 200 - 40 = 160px.
+        // Delta pointer = 50px.
+        // Max scroll = 1000 - 200 = 800px.
+        // Scroll offset = 50 / 160 * 800 = 250px.
+        Assert.Equal(250, scroller.ScrollTop);
+
+        // Release pointer
+        doc.Input.HandlePointerUp(new PointerEvent(new Vector2(194, 70), Button: PointerButton.Primary));
+
+        // Moving further after release does not change scroll offset
+        doc.Input.HandlePointerMove(new PointerEvent(new Vector2(194, 100)));
+        Assert.Equal(250, scroller.ScrollTop);
+    }
 }
+
 

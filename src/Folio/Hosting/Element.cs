@@ -123,5 +123,8 @@ public sealed class Element
     /// <summary>The computed overscroll-behavior-y value ("auto", "contain", or "none").</summary>
     public string OverscrollBehaviorY => _document.FindFragment(Node)?.Box?.Style.Box.OverscrollBehaviorY.ToString().ToLowerInvariant() ?? "auto";
 
+    /// <summary>Gives focus to this element.</summary>
+    public void Focus() => _document.Input.Focus(this);
+
     public override string ToString() => $"<{LocalName}>";
 }
