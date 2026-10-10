@@ -487,9 +487,11 @@ public sealed class Document : IDisposable
                     };
                     if (newStyle is not null)
                     {
-                        var containsFixed = box.ContainsFixed;
+                        var (containsFixed, previous) = (box.ContainsFixed, box.Style);
                         box.Style = newStyle;
-                        if (box.ContainsFixed != containsFixed)
+                        // Collapsed table borders are resolved against the neighbouring cells in layout and kept in the fragments.
+                        var collapsedBorder = box is TablePartBox && newStyle.Text.BorderCollapse == BorderCollapse.Collapse && !previous.Equals(newStyle);
+                        if (box.ContainsFixed != containsFixed || collapsedBorder)
                         {
                             needsLayout = true;
                             break;
@@ -511,30 +513,10 @@ public sealed class Document : IDisposable
 
         if (maxDamage == Damage.Layout)
         {
-            var frameVal = _frame!.Value;
-            var boxes = AllBoxes(frameVal.Root);
-            foreach (var box in boxes)
-            {
-                box.LayoutCache = null;
-                if (box.Node is ElementNode el)
-                {
-                    var newStyle = box.PseudoElement switch
-                    {
-                        PseudoElement.Before => el.PseudoStyle(PseudoElement.Before),
-                        PseudoElement.After => el.PseudoStyle(PseudoElement.After),
-                        PseudoElement.Marker => el.PseudoStyle(PseudoElement.Marker),
-                        _ => el.ComputedStyle(),
-                    };
-                    if (newStyle is not null)
-                        box.Style = newStyle;
-                }
-            }
-
-            var page = LayoutEngine.LayoutDocument(frameVal.Root, last.Width, last.Height, _fonts, last.Shaper, _images);
-            _page = page;
-            LayoutCount++;
-            _frame = (frameVal.Root, page, frameVal.Scale);
-            DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale);
+            // Text and anonymous boxes carry styles inherited from their parents when the box tree is built, and the
+            // boxes would keep the old ones: the tree is built again, as for Boxes damage (docs/study/14-invalidation.md,
+            // scoped rebuilds come with #418).
+            RebuildBoxes(last);
             return Damage.Layout;
         }
 
