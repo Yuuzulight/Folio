@@ -209,12 +209,52 @@ public sealed class Document : IDisposable
     }
     private Fragment? _page;
 
+    internal HitResult? HitAt(float x, float y) =>
+        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1) : null;
+
     /// <summary>
     /// The element under a point of the last painted layout (page coordinates in CSS pixels): the one painted on top
     /// there, by hit testing in reverse paint order. Null outside every box or before painting.
     /// </summary>
-    internal ElementNode? ElementAt(float x, float y) =>
-        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1)?.Node : null;
+    internal ElementNode? ElementAt(float x, float y) => HitAt(x, y)?.Node;
+
+    /// <summary>
+    /// Computes the CSS cursor keyword active at the given point (page coordinates in CSS pixels).
+    /// Defaults to "default", resolves "auto" over selectable text to "text", and respects "user-select: none".
+    /// </summary>
+    public string CursorAt(float x, float y)
+    {
+        var hit = HitAt(x, y);
+        if (hit is null)
+            return "default";
+
+        var style = hit.Style ?? hit.Node.ComputedStyle();
+        var cursor = style?.Ui.Cursor ?? "auto";
+        if (cursor != "auto")
+            return cursor;
+
+        // "auto" resolution: text under the point resolves to "text", unless user-select is "none".
+        if (hit.Fragment.Kind == FragmentKind.Text)
+        {
+            var userSelect = style?.Ui.UserSelect ?? UserSelect.Auto;
+            return userSelect == UserSelect.None ? "default" : "text";
+        }
+
+        return "default";
+    }
+
+    /// <summary>
+    /// Returns the tooltip text from the nearest ancestor element with a non-empty title attribute under the point.
+    /// </summary>
+    public string? TitleAt(float x, float y)
+    {
+        for (Node? node = ElementAt(x, y); node is not null; node = node.Parent)
+        {
+            if (node is ElementNode el && el.GetAttribute("title") is { Length: > 0 } title)
+                return title;
+        }
+        return null;
+    }
 
     /// <summary>The link under a point: the nearest a or area element with an href, resolved against the base URL.</summary>
     internal Uri? LinkAt(float x, float y)

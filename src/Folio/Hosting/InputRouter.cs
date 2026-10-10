@@ -19,6 +19,9 @@ public sealed class InputRouter
         _document = document ?? throw new ArgumentNullException(nameof(document));
     }
 
+    private string _currentCursor = "default";
+    private string? _currentTooltip = null;
+
     /// <summary>The element currently hovered under the pointer, or null.</summary>
     public Element? HoveredElement => _hovered is not null ? _document.Wrap(_hovered) : null;
 
@@ -28,6 +31,12 @@ public sealed class InputRouter
     /// <summary>The element currently focused, or null.</summary>
     public Element? FocusedElement => _focused is not null ? _document.Wrap(_focused) : null;
 
+    /// <summary>The current CSS cursor keyword active under the pointer.</summary>
+    public string CurrentCursor => _currentCursor;
+
+    /// <summary>The current tooltip text active under the pointer, if any.</summary>
+    public string? CurrentTooltip => _currentTooltip;
+
     internal ElementNode? HoveredNode => _hovered;
     internal ElementNode? ActiveNode => _active;
     internal ElementNode? FocusedNode => _focused;
@@ -35,12 +44,20 @@ public sealed class InputRouter
     /// <summary>A link was activated by mouse click or keyboard.</summary>
     public event EventHandler<LinkActivatedEventArgs>? LinkActivated;
 
+    /// <summary>The active CSS cursor changed under the pointer.</summary>
+    public event EventHandler<CursorChangedEventArgs>? CursorChanged;
+
+    /// <summary>The active tooltip text changed under the pointer.</summary>
+    public event EventHandler<TooltipChangedEventArgs>? TooltipChanged;
+
     /// <summary>A pointer moved over the document.</summary>
     public void HandlePointerMove(PointerEvent e)
     {
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
         if (UpdateHover(target))
             _document.Update();
+
+        UpdateCursorAndTooltip(e.Position.X, e.Position.Y);
     }
 
     /// <summary>A pointer button was pressed down.</summary>
@@ -98,6 +115,8 @@ public sealed class InputRouter
 
         if (changed)
             _document.Update();
+
+        UpdateCursorAndTooltip(null, null);
     }
 
     /// <summary>Mouse wheel or touchpad scroll event.</summary>
@@ -168,6 +187,24 @@ public sealed class InputRouter
         {
             var args = new LinkActivatedEventArgs(resolved, modifiers);
             LinkActivated?.Invoke(this, args);
+        }
+    }
+
+    private void UpdateCursorAndTooltip(float? x, float? y)
+    {
+        var newCursor = x.HasValue && y.HasValue ? _document.CursorAt(x.Value, y.Value) : "default";
+        var newTooltip = x.HasValue && y.HasValue ? _document.TitleAt(x.Value, y.Value) : null;
+
+        if (_currentCursor != newCursor)
+        {
+            _currentCursor = newCursor;
+            CursorChanged?.Invoke(this, new CursorChangedEventArgs(newCursor));
+        }
+
+        if (_currentTooltip != newTooltip)
+        {
+            _currentTooltip = newTooltip;
+            TooltipChanged?.Invoke(this, new TooltipChangedEventArgs(newTooltip));
         }
     }
 }

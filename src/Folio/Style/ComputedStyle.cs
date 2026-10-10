@@ -129,11 +129,13 @@ internal sealed record OutlineGroup(float WidthPx, OutlineStyle Style, CssColor 
     public float Width => Style == OutlineStyle.None ? 0 : WidthPx;
 }
 
+internal enum UserSelect { Auto, None, Text, All }
+
 /// <summary>
 /// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color,
-/// scrollbar-color (null is auto) and pointer-events.
+/// scrollbar-color (null is auto), pointer-events and user-select.
 /// </summary>
-internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor, PointerEvents PointerEvents = PointerEvents.Auto)
+internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor, PointerEvents PointerEvents = PointerEvents.Auto, UserSelect UserSelect = UserSelect.Auto)
 {
     public static UiGroup Initial { get; } = new("auto", null, "auto");
 }
