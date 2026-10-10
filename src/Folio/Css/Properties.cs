@@ -254,6 +254,8 @@ internal enum PropertyId
     MinBlockSize,
     MaxInlineSize,
     MaxBlockSize,
+    OverscrollBehaviorX,
+    OverscrollBehaviorY,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -462,6 +464,8 @@ internal static class Properties
         Row(PropertyId.Visibility, "visibility", static () => Keywords(PropertyId.Visibility, "visibility", true, "visible", KeywordMap<Visibility>.InOrder("visible", "hidden", "collapse"), s => s.Inherited.Visibility, (b, v) => b.Inherited = b.Inherited with { Visibility = v }));
         Row(PropertyId.OverflowX, "overflow-x", static () => Keywords(PropertyId.OverflowX, "overflow-x", false, "visible", OverflowKeywords, s => s.Box.OverflowX, (b, v) => b.Box = b.Box with { OverflowX = v }));
         Row(PropertyId.OverflowY, "overflow-y", static () => Keywords(PropertyId.OverflowY, "overflow-y", false, "visible", OverflowKeywords, s => s.Box.OverflowY, (b, v) => b.Box = b.Box with { OverflowY = v }));
+        Row(PropertyId.OverscrollBehaviorX, "overscroll-behavior-x", static () => Keywords(PropertyId.OverscrollBehaviorX, "overscroll-behavior-x", false, "auto", OverscrollKeywords, s => s.Box.OverscrollBehaviorX, (b, v) => b.Box = b.Box with { OverscrollBehaviorX = v }));
+        Row(PropertyId.OverscrollBehaviorY, "overscroll-behavior-y", static () => Keywords(PropertyId.OverscrollBehaviorY, "overscroll-behavior-y", false, "auto", OverscrollKeywords, s => s.Box.OverscrollBehaviorY, (b, v) => b.Box = b.Box with { OverscrollBehaviorY = v }));
         Row(PropertyId.ZIndex, "z-index", static () => new Property<int?>(PropertyId.ZIndex, "z-index", false, "auto",
             r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.Integer() is { } i ? new NumberValue(i) : null,
             (v, _) => v is NumberValue n ? (int)n.Number : null,
@@ -1114,6 +1118,7 @@ internal static class Properties
         "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-lighter");
 
     private static readonly KeywordMap<Overflow> OverflowKeywords = KeywordMap<Overflow>.InOrder("visible", "hidden", "clip", "scroll", "auto");
+    private static readonly KeywordMap<OverscrollBehavior> OverscrollKeywords = KeywordMap<OverscrollBehavior>.InOrder("auto", "contain", "none");
 
     private static readonly KeywordMap<BorderStyle> BorderStyleKeywords =
         KeywordMap<BorderStyle>.InOrder("none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset");
@@ -1519,6 +1524,14 @@ internal static class Properties
                 return null;
             var y = r.AtEnd ? x : Get(PropertyId.OverflowY).Parse(r.OneValue());
             return y is null ? null : [(PropertyId.OverflowX, x), (PropertyId.OverflowY, y)];
+        }),
+        ["overscroll-behavior"] = new([PropertyId.OverscrollBehaviorX, PropertyId.OverscrollBehaviorY], r =>
+        {
+            var x = Get(PropertyId.OverscrollBehaviorX).Parse(r.OneValue());
+            if (x is null)
+                return null;
+            var y = r.AtEnd ? x : Get(PropertyId.OverscrollBehaviorY).Parse(r.OneValue());
+            return y is null ? null : [(PropertyId.OverscrollBehaviorX, x), (PropertyId.OverscrollBehaviorY, y)];
         }),
     };
 

@@ -25,6 +25,7 @@ internal static class PropertyDamage
     [
         PropertyId.Opacity, PropertyId.ZIndex, PropertyId.Isolation, PropertyId.MixBlendMode, PropertyId.BackgroundBlendMode,
         PropertyId.Color, PropertyId.ColorScheme, PropertyId.AccentColor, PropertyId.ScrollbarColor, PropertyId.Cursor, PropertyId.PointerEvents, PropertyId.UserSelect,
+        PropertyId.OverscrollBehaviorX, PropertyId.OverscrollBehaviorY,
         PropertyId.BackgroundColor, PropertyId.BackgroundImage, PropertyId.BackgroundPosition, PropertyId.BackgroundSize, PropertyId.BackgroundRepeat,
         PropertyId.BackgroundAttachment, PropertyId.BackgroundOrigin, PropertyId.BackgroundClip,
         PropertyId.BorderTopColor, PropertyId.BorderRightColor, PropertyId.BorderBottomColor, PropertyId.BorderLeftColor,
