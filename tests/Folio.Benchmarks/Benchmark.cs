@@ -95,9 +95,9 @@ internal static class Benchmark
         (marks[2], allocations[2]) = (Stopwatch.GetTimestamp(), GC.GetAllocatedBytesForCurrentThread());
         var root = BoxTreeBuilder.Build(document);
         marks[3] = Stopwatch.GetTimestamp();
-        var fragment = root is null ? null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);
+        var fragment = root is null ? (Fragment?)null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);
         marks[4] = Stopwatch.GetTimestamp();
-        var displayList = fragment is null ? null : DisplayListBuilder.Build(fragment);
+        var displayList = fragment is { } laid ? DisplayListBuilder.Build(laid) : null;
         marks[5] = Stopwatch.GetTimestamp();
         return (document, displayList);
     }
@@ -157,7 +157,7 @@ internal static class Benchmark
         var before = GC.GetTotalMemory(forceFullCollection: true);
         var (pause, allocated, gen0, gen1, gen2) = (GC.GetTotalPauseDuration(), GC.GetAllocatedBytesForCurrentThread(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
         var start = Stopwatch.GetTimestamp();
-        var fragment = root is null ? null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);
+        var fragment = root is null ? (Fragment?)null : LayoutEngine.LayoutDocument(root, Media.Width, Media.Height);
         var layout = Stopwatch.GetElapsedTime(start);
         var result = new LayoutGc(layout, GC.GetTotalPauseDuration() - pause, GC.CollectionCount(0) - gen0, GC.CollectionCount(1) - gen1,
             GC.CollectionCount(2) - gen2, GC.GetAllocatedBytesForCurrentThread() - allocated, 0);

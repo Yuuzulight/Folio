@@ -34,6 +34,15 @@ internal sealed class DocumentNode : ContainerNode
     /// <summary>What the style module needs to style elements again later (typed there, so the DOM layer does not reference it).</summary>
     internal object? StyleState { get; set; }
 
+    /// <summary>Set when child elements are inserted or removed, meaning the box tree must be rebuilt.</summary>
+    internal bool StructureMutated { get; set; }
+
+    /// <summary>Set when an attribute or text changes, meaning the whole document is styled again (#416).</summary>
+    internal bool StyleMutated { get; set; }
+
+    /// <summary>The elements a state change marked (#417): each is styled again with its subtree.</summary>
+    internal HashSet<ElementNode> StyleRoots { get; } = [];
+
     public override string? TextContent => null;
 
     /// <summary>Interns in the shared table, or in this document once the shared table is full.</summary>

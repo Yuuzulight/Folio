@@ -40,6 +40,8 @@ internal enum BoxSizing { ContentBox, BorderBox }
 
 internal enum Visibility { Visible, Hidden, Collapse }
 
+internal enum PointerEvents { Auto, None }
+
 internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
 internal enum Isolation { Auto, Isolate }
@@ -49,6 +51,9 @@ internal enum VerticalAlignKind { Baseline, Sub, Super, TextTop, TextBottom, Mid
 /// <summary>A computed <c>vertical-align</c>: a keyword, or a raise by a length or a percentage of the line height.</summary>
 internal readonly record struct VerticalAlign(VerticalAlignKind Kind, LengthPercentage Length = default)
 {
+    public bool Equals(VerticalAlign o) => Kind == o.Kind && Length.Equals(o.Length);
+    public override int GetHashCode() => StyleEquality.Hash((int)Kind, Length.GetHashCode());
+
     public override string ToString() => Kind == VerticalAlignKind.Length ? Length.ToString()
         : string.Concat(Kind.ToString().Select((c, i) => char.IsUpper(c) ? (i > 0 ? "-" : "") + char.ToLowerInvariant(c) : c.ToString()));
 }
@@ -125,10 +130,10 @@ internal sealed record OutlineGroup(float WidthPx, OutlineStyle Style, CssColor 
 }
 
 /// <summary>
-/// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color and
-/// scrollbar-color (null is auto).
+/// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color,
+/// scrollbar-color (null is auto) and pointer-events.
 /// </summary>
-internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor)
+internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor, PointerEvents PointerEvents = PointerEvents.Auto)
 {
     public static UiGroup Initial { get; } = new("auto", null, "auto");
 }
@@ -186,6 +191,9 @@ internal sealed record AppliedDecoration(TextDecorationLine Line, TextDecoration
 /// </summary>
 internal readonly record struct LengthPercentage(float Px, float Percent = 0, CalcNode? Calc = null)
 {
+    public bool Equals(LengthPercentage o) => Px.Equals(o.Px) && Percent.Equals(o.Percent) && Equals(Calc, o.Calc);
+    public override int GetHashCode() => StyleEquality.Hash(Px.GetHashCode(), Percent.GetHashCode());
+
     public static LengthPercentage Zero => default;
 
     public bool HasPercent => Percent != 0 || Calc is not null;
@@ -217,6 +225,9 @@ internal enum SizeKind { Length, Auto, None, MinContent, MaxContent, FitContent,
 /// <summary>A size or offset: a length-percentage, or one of the keywords the property allows.</summary>
 internal readonly record struct SizeValue(SizeKind Kind, LengthPercentage Length = default)
 {
+    public bool Equals(SizeValue o) => Kind == o.Kind && Length.Equals(o.Length);
+    public override int GetHashCode() => StyleEquality.Hash((int)Kind, Length.GetHashCode());
+
     public static SizeValue Auto => new(SizeKind.Auto);
     public static SizeValue None => new(SizeKind.None);
 
@@ -236,6 +247,9 @@ internal readonly record struct SizeValue(SizeKind Kind, LengthPercentage Length
 /// <summary><c>line-height</c>: <c>normal</c>, a number (inherited as a number), or a length in px.</summary>
 internal readonly record struct LineHeight(bool IsNormal, float Number, float? Px)
 {
+    public bool Equals(LineHeight o) => IsNormal == o.IsNormal && Number.Equals(o.Number) && StyleEquality.Same(Px, o.Px);
+    public override int GetHashCode() => Number.GetHashCode();
+
     public static LineHeight Normal => new(true, 0, null);
 
     public override string ToString() => IsNormal ? "normal"
@@ -252,33 +266,74 @@ internal readonly record struct LineHeight(bool IsNormal, float Number, float? P
 /// neither shaper applies OpenType features yet.
 /// </remarks>
 internal sealed record FontGroup(IReadOnlyList<string> Family, float Size, int Weight, FontStyle Style, LineHeight LineHeight,
-                                 float Stretch, string VariantCaps, string VariantNumeric = "normal", string FeatureSettings = "normal");
+                                 float Stretch, string VariantCaps, string VariantNumeric = "normal", string FeatureSettings = "normal")
+{
+    public bool Equals(FontGroup? o) => o is not null && Equals(Family, o.Family) && Size.Equals(o.Size) && Weight == o.Weight && Style == o.Style
+        && LineHeight.Equals(o.LineHeight) && Stretch.Equals(o.Stretch) && VariantCaps == o.VariantCaps && VariantNumeric == o.VariantNumeric
+        && FeatureSettings == o.FeatureSettings;
+
+    public override int GetHashCode() => StyleEquality.Hash(Family.GetHashCode(), Size.GetHashCode(), Weight, (int)Style, LineHeight.GetHashCode());
+}
 
 /// <summary>Inherited: other inherited properties, and the decorations propagated to the element's text.</summary>
 internal sealed record InheritedGroup(CssColor Color, Visibility Visibility, ColorSchemeValue ColorScheme, AppliedDecoration? Decorations = null,
-                                      ImageRendering ImageRendering = ImageRendering.Auto);
+                                      ImageRendering ImageRendering = ImageRendering.Auto)
+{
+    public bool Equals(InheritedGroup? o) => o is not null && Color.Equals(o.Color) && Visibility == o.Visibility && ColorScheme.Equals(o.ColorScheme)
+        && Equals(Decorations, o.Decorations) && ImageRendering == o.ImageRendering;
+
+    public override int GetHashCode() => StyleEquality.Hash(Color.GetHashCode(), (int)Visibility, ColorScheme.GetHashCode());
+}
 
 internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
     VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto,
-    TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto");
+    TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto")
+{
+    public bool Equals(BoxGroup? o) => o is not null && Display == o.Display && Position == o.Position && Float == o.Float && Clear == o.Clear
+        && BoxSizing == o.BoxSizing && OverflowX == o.OverflowX && OverflowY == o.OverflowY && ZIndex == o.ZIndex && Opacity.Equals(o.Opacity)
+        && Isolation == o.Isolation && VerticalAlign.Equals(o.VerticalAlign) && UnicodeBidi == o.UnicodeBidi && TableLayout == o.TableLayout
+        && TextOverflow == o.TextOverflow && LineClamp == o.LineClamp && ScrollbarGutter == o.ScrollbarGutter && ScrollbarWidth == o.ScrollbarWidth;
+
+    public override int GetHashCode() => StyleEquality.Hash((int)Display, (int)Position, (int)Float, (int)OverflowX, (int)OverflowY,
+        ZIndex.GetValueOrDefault(), Opacity.GetHashCode(), VerticalAlign.GetHashCode());
+}
 
 /// <summary>A computed corner radius: horizontal and vertical (https://www.w3.org/TR/css-backgrounds-3/#border-radius).</summary>
 internal readonly record struct CornerRadius(LengthPercentage X, LengthPercentage Y)
 {
+    public bool Equals(CornerRadius o) => X.Equals(o.X) && Y.Equals(o.Y);
+    public override int GetHashCode() => StyleEquality.Hash(X.GetHashCode(), Y.GetHashCode());
+
     public override string ToString() => X == Y ? X.ToString() : $"{X} {Y}";
 }
 
 /// <param name="AspectRatio">The preferred aspect ratio (width / height) from aspect-ratio; null for auto.</param>
 internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue MinWidth, SizeValue MinHeight, SizeValue MaxWidth, SizeValue MaxHeight,
-                                 float? AspectRatio = null);
+                                 float? AspectRatio = null)
+{
+    public bool Equals(SizeGroup? o) => o is not null && Width.Equals(o.Width) && Height.Equals(o.Height) && MinWidth.Equals(o.MinWidth)
+        && MinHeight.Equals(o.MinHeight) && MaxWidth.Equals(o.MaxWidth) && MaxHeight.Equals(o.MaxHeight) && StyleEquality.Same(AspectRatio, o.AspectRatio);
+
+    public override int GetHashCode() => StyleEquality.Hash(Width.GetHashCode(), Height.GetHashCode(), MinWidth.GetHashCode(),
+        MinHeight.GetHashCode(), MaxWidth.GetHashCode(), MaxHeight.GetHashCode());
+}
 
 /// <summary>Margins, paddings and insets, each top/right/bottom/left.</summary>
 internal sealed record SpacingGroup(
     SizeValue MarginTop, SizeValue MarginRight, SizeValue MarginBottom, SizeValue MarginLeft,
     LengthPercentage PaddingTop, LengthPercentage PaddingRight, LengthPercentage PaddingBottom, LengthPercentage PaddingLeft,
-    SizeValue Top, SizeValue Right, SizeValue Bottom, SizeValue Left);
+    SizeValue Top, SizeValue Right, SizeValue Bottom, SizeValue Left)
+{
+    public bool Equals(SpacingGroup? o) => o is not null
+        && MarginTop.Equals(o.MarginTop) && MarginRight.Equals(o.MarginRight) && MarginBottom.Equals(o.MarginBottom) && MarginLeft.Equals(o.MarginLeft)
+        && PaddingTop.Equals(o.PaddingTop) && PaddingRight.Equals(o.PaddingRight) && PaddingBottom.Equals(o.PaddingBottom) && PaddingLeft.Equals(o.PaddingLeft)
+        && Top.Equals(o.Top) && Right.Equals(o.Right) && Bottom.Equals(o.Bottom) && Left.Equals(o.Left);
+
+    public override int GetHashCode() => StyleEquality.Hash(MarginTop.GetHashCode(), MarginRight.GetHashCode(), MarginBottom.GetHashCode(),
+        MarginLeft.GetHashCode(), PaddingTop.GetHashCode(), PaddingRight.GetHashCode(), PaddingBottom.GetHashCode(), PaddingLeft.GetHashCode());
+}
 
 /// <summary>
 /// Border widths are stored as specified (in px) and read through the computed accessors, which apply
@@ -292,6 +347,16 @@ internal sealed record BorderGroup(
     CornerRadius TopLeftRadius = default, CornerRadius TopRightRadius = default,
     CornerRadius BottomRightRadius = default, CornerRadius BottomLeftRadius = default)
 {
+    public bool Equals(BorderGroup? o) => o is not null
+        && TopWidthPx.Equals(o.TopWidthPx) && RightWidthPx.Equals(o.RightWidthPx) && BottomWidthPx.Equals(o.BottomWidthPx) && LeftWidthPx.Equals(o.LeftWidthPx)
+        && TopStyle == o.TopStyle && RightStyle == o.RightStyle && BottomStyle == o.BottomStyle && LeftStyle == o.LeftStyle
+        && TopColor.Equals(o.TopColor) && RightColor.Equals(o.RightColor) && BottomColor.Equals(o.BottomColor) && LeftColor.Equals(o.LeftColor)
+        && TopLeftRadius.Equals(o.TopLeftRadius) && TopRightRadius.Equals(o.TopRightRadius)
+        && BottomRightRadius.Equals(o.BottomRightRadius) && BottomLeftRadius.Equals(o.BottomLeftRadius);
+
+    public override int GetHashCode() => StyleEquality.Hash(TopWidthPx.GetHashCode(), RightWidthPx.GetHashCode(), BottomWidthPx.GetHashCode(),
+        LeftWidthPx.GetHashCode(), (int)TopStyle, (int)BottomStyle, TopColor.GetHashCode(), TopLeftRadius.GetHashCode());
+
     public float TopWidth => Visible(TopStyle) ? TopWidthPx : 0;
     public float RightWidth => Visible(RightStyle) ? RightWidthPx : 0;
     public float BottomWidth => Visible(BottomStyle) ? BottomWidthPx : 0;
@@ -350,6 +415,13 @@ internal sealed record FlexGroup(
     FlexDirection Direction, FlexWrap Wrap, ContentAlign JustifyContent, ItemAlign AlignItems, ItemAlign AlignSelf,
     ContentAlign AlignContent, float Grow, float Shrink, SizeValue Basis, int Order, LengthPercentage RowGap, LengthPercentage ColumnGap)
 {
+    public bool Equals(FlexGroup? o) => o is not null && Direction == o.Direction && Wrap == o.Wrap && JustifyContent == o.JustifyContent
+        && AlignItems == o.AlignItems && AlignSelf == o.AlignSelf && AlignContent == o.AlignContent && Grow.Equals(o.Grow) && Shrink.Equals(o.Shrink)
+        && Basis.Equals(o.Basis) && Order == o.Order && RowGap.Equals(o.RowGap) && ColumnGap.Equals(o.ColumnGap);
+
+    public override int GetHashCode() => StyleEquality.Hash((int)Direction, (int)Wrap, (int)JustifyContent, (int)AlignItems, (int)AlignSelf,
+        Grow.GetHashCode(), Shrink.GetHashCode(), Basis.GetHashCode(), Order);
+
     public static FlexGroup Initial { get; } = new(FlexDirection.Row, FlexWrap.Nowrap, ContentAlign.Normal, ItemAlign.Normal, ItemAlign.Auto,
         ContentAlign.Normal, 0, 1, SizeValue.Auto, 0, default, default);
 }
@@ -395,6 +467,23 @@ internal sealed record MulticolGroup(int? Count, float? Width)
 }
 
 /// <summary>An element's computed style: references to shared groups.</summary>
+// Hand-written equality for the style groups and the value structs they hold (#203). A record's generated equality goes
+// through EqualityComparer<T>.Default for every field, which in a fresh process builds and compiles a comparer per enum and
+// struct type the first time style sharing compares two groups. Comparing the fields directly compiles none of that.
+// Each GetHashCode hashes the fields that usually differ; equal groups still hash equal.
+internal static class StyleEquality
+{
+    // Fixed arguments rather than params: a params span builds an inline array type per count, each compiled on first use.
+    public static int Hash(int a, int b, int c = 0, int d = 0, int e = 0, int f = 0, int g = 0, int h = 0, int i = 0)
+    {
+        const int m = -1521134295;
+        return ((((((((a * m + b) * m + c) * m + d) * m + e) * m + f) * m + g) * m + h) * m) + i;
+    }
+
+    // float.Equals, like the record comparer: NaN equals NaN.
+    public static bool Same(float? a, float? b) => a.HasValue == b.HasValue && a.GetValueOrDefault().Equals(b.GetValueOrDefault());
+}
+
 internal sealed class ComputedStyle
 {
     public required FontGroup Font { get; init; }

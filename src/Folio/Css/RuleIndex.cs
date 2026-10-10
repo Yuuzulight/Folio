@@ -24,10 +24,15 @@ internal sealed class RuleIndex<T>
     /// <summary>Whether any rule targets this pseudo-element (so styles for it are worth computing).</summary>
     public bool HasRulesFor(PseudoElement pseudoElement) => _pseudoElements.Contains(pseudoElement);
 
+    /// <summary>The selectors that mention a user-action state pseudo-class, for the state invalidation sets (#417).</summary>
+    public List<ComplexSelector> StateSelectors { get; } = [];
+
     public void Add(ComplexSelector selector, T data)
     {
         var entry = new Entry(selector, data, _count++, AncestorHashes(selector));
         _pseudoElements.Add(selector.PseudoElement);
+        if (Folio.Style.StateInvalidation.Mentions(selector))
+            StateSelectors.Add(selector);
         var rightmost = selector.Rightmost.Simples;
         if (rightmost.OfType<IdSelector>().FirstOrDefault() is { } id)
             Bucket(_byId, id.Atom).Add(entry);

@@ -90,28 +90,51 @@ public class HarfBuzzShaperTests
     [Fact]
     public void LayoutSendsOnlyComplexRunsToTheShaper()
     {
-        static List<ShapedRun> Runs(string html, ITextShaper? shaper)
-        {
-            var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
-            StyleResolver.Resolve(document, new MediaContext(200, 100));
-            var fonts = Fonts.Value;
-            fonts.GenericFamilies["serif"] = ["Folio Box"];
-            var root = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 200, 100, fonts, shaper);
-            var runs = new List<ShapedRun>();
-            void Walk(Fragment f)
-            {
-                if (f.Text is { } t)
-                    runs.Add(t.Run);
-                foreach (var c in f.Children)
-                    Walk(c.Fragment);
-            }
-            Walk(root);
-            return runs;
-        }
-
         var shaper = new HarfBuzzShaper();
         Assert.All(Runs("<p>plain text</p>", shaper), r => Assert.Null(r.Offsets));
         Assert.All(Runs("<p>e\u0301</p>", shaper), r => Assert.NotNull(r.Offsets)); // a combining mark
         Assert.All(Runs("<p>e\u0301</p>", null), r => Assert.Null(r.Offsets));
+    }
+
+    [Fact]
+    public void RunsWithTheFontsDefaultLigaturesGoToTheShaperUnlessLettersAreSpaced()
+    {
+        // Source Sans 3 has an ft ligature (liga), which only the shaper forms; letter-spacing turns ligatures off.
+        var shaper = new HarfBuzzShaper();
+        var ligated = Assert.Single(Runs("<p style=\"font-family: 'Source Sans 3'\">aft</p>", shaper));
+        Assert.NotNull(ligated.Offsets);
+        Assert.Equal(2, ligated.Glyphs.Length);
+        var spaced = Assert.Single(Runs("<p style=\"font-family: 'Source Sans 3'; letter-spacing: 1px\">aft</p>", shaper));
+        Assert.Null(spaced.Offsets);
+        Assert.Equal(3, spaced.Glyphs.Length);
+    }
+
+    [Fact]
+    public void PunctuationAfterCjkTextIsNotShapedWithTheLatinTextAfterIt()
+    {
+        // The closing quote takes the script of the CJK text before it, so it is not kerned against the A after it.
+        var runs = Runs("<p style=\"font-family: 'Source Sans 3', 'Noto Sans JP'\">行”A</p>", new HarfBuzzShaper());
+        Assert.Equal(3, runs.Count);
+        var quote = runs[1];
+        Assert.Equal(quote.Face!.Advance(quote.Glyphs[0]) * quote.Size / quote.Face.UnitsPerEm, quote.Advances[0], 3);
+    }
+
+    private static List<ShapedRun> Runs(string html, ITextShaper? shaper)
+    {
+        var document = TreeBuilder.Parse("<!DOCTYPE html>" + html);
+        StyleResolver.Resolve(document, new MediaContext(200, 100));
+        var fonts = Fonts.Value;
+        fonts.GenericFamilies["serif"] = ["Folio Box"];
+        var root = LayoutEngine.LayoutDocument(BoxTreeBuilder.Build(document)!, 200, 100, fonts, shaper);
+        var runs = new List<ShapedRun>();
+        void Walk(Fragment f)
+        {
+            if (f.Text is { } t)
+                runs.Add(t.Run);
+            foreach (var c in f.Children)
+                Walk(c.Fragment);
+        }
+        Walk(root);
+        return runs;
     }
 }

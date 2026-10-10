@@ -100,120 +100,25 @@ internal static class StyleResolver
         var keyframes = new Dictionary<string, List<Keyframe>>(StringComparer.Ordinal);
         foreach (var (name, blocks) in origins.SelectMany(o => o.Keyframes))
             keyframes[name] = blocks;
-        var animations = new List<AnimatedElement>();
-        var filter = new AncestorFilter();
-        var context = new MatchContext { Filter = filter };
-        var rootFontSize = Style.ComputedStyle.Initial.Font.Size;
-        var groups = new Dictionary<object, object>();
-        var shared = new SharingCache();
-        var (matched, pseudoMatched) = (new List<RuleIndex<CascadeRule>.Entry>(), new List<RuleIndex<CascadeRule>.Entry>());
-        var (hasBefore, hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
-        var hasFirstLetter = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.FirstLetter));
-
-        // Iterative pre-order walk: (element, parent style); a null element marks leaving an element.
-        var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent)>();
+        var restyler = new Restyler(origins, media, measure, registered, sources.BaseUrl, keyframes, animationTime);
+        document.StyleState = restyler;
         if (document.DocumentElement is { } root)
-            stack.Push((root, null, Style.ComputedStyle.Initial));
-        while (stack.TryPop(out var item))
-        {
-            if (item.ElementNode is null)
-            {
-                filter.Pop(item.Leaving!);
-                continue;
-            }
-            var element = item.ElementNode;
-
-            List<CascadeDeclaration>? inline = null;
-            if (element.GetAttribute("style") is { } styleAttribute)
-            {
-                var (source, block) = CssParser.ParseBlockContents(styleAttribute);
-                inline = CascadeData.Parse(source, block.Declarations, sources.BaseUrl);
-            }
-            matched.Clear();
-            Cascade.Match(element, origins, context, PseudoElement.None, matched);
-            var hints = PresentationalHints.For(element);
-            // Only the matched rules and the parent's style decide the style of an element without its own declarations.
-            var sharable = inline is null && hints is null;
-            if (!sharable || shared.Find(item.Parent, rootFontSize, matched) is not { } style)
-            {
-                var (values, custom) = Cascade.Compute(matched, inline, int.MaxValue, hints, parent: item.Parent);
-                style = StyleBuilder.Compute(values, Context(item.Parent, custom), groups);
-                // Animations at the document time: each keyframe's declarations join the cascade's animation origin and
-                // the values are interpolated between them.
-                if (!ReferenceEquals(style.Animation, AnimationGroup.Initial) && keyframes.Count > 0)
-                {
-                    var (parent, rules, elementInline, elementHints) = (item.Parent, matched.ToList(), inline, hints);
-                    var animated = new AnimatedElement(element, style, parent, keyframes, declarations =>
-                    {
-                        var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent);
-                        return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), groups);
-                    }, registered);
-                    animations.Add(animated);
-                    style = animated.Sample(animationTime, groups);
-                    // Each animated element keeps its own style, so a frame can change it alone.
-                    sharable = false;
-                }
-                if (sharable)
-                    shared.Add(item.Parent, rootFontSize, matched, style);
-            }
-            var styles = new ElementStyles(style);
-            element.StyleData = styles;
-            if (style.Box.Display != Display.None)
-            {
-                ComputedStyle? Pseudo(PseudoElement pe, bool always = false)
-                {
-                    if (!always && !(pe switch { PseudoElement.Before => hasBefore, PseudoElement.After => hasAfter, _ => hasFirstLetter }))
-                        return null;
-                    // With no rules for it, ::before or ::after would have content: normal and generate no box.
-                    pseudoMatched.Clear();
-                    Cascade.Match(element, origins, context, pe, pseudoMatched);
-                    if (!always && pseudoMatched.Count == 0)
-                        return null;
-                    var (pseudoValues, pseudoCustom) = Cascade.Compute(pseudoMatched, null, 0, null, parent: style);
-                    if (pe == PseudoElement.FirstLetter)
-                        pseudoValues = FirstLetterProperties(pseudoValues);
-                    var pseudoStyle = StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), groups);
-                    if (ReferenceEquals(pseudoStyle.Animation, AnimationGroup.Initial) || keyframes.Count == 0)
-                        return pseudoStyle;
-                    // Generated content animates like an element, its keyframes computed in its own context.
-                    var (originating, rules) = (style, pseudoMatched.ToList());
-                    var animated = new AnimatedElement(element, pseudoStyle, originating, keyframes, declarations =>
-                    {
-                        var (keyed, keyedCustom) = Cascade.Compute(rules, null, 0, null, declarations, originating);
-                        return StyleBuilder.Compute(keyed, Context(originating, keyedCustom), groups);
-                    }) { PseudoElement = pe };
-                    animations.Add(animated);
-                    return animated.Sample(animationTime, groups);
-                }
-                styles.Before = Pseudo(PseudoElement.Before);
-                styles.After = Pseudo(PseudoElement.After);
-                styles.FirstLetter = Pseudo(PseudoElement.FirstLetter);
-                if (style.Box.Display == Display.ListItem)
-                    styles.Marker = Pseudo(PseudoElement.Marker, always: true);
-            }
-            if (element.Parent is DocumentNode)
-                rootFontSize = style.Font.Size;
-
-            filter.Push(element);
-            stack.Push((null, element, style));
-            for (var child = element.LastChild; child is not null; child = child.PreviousSibling)
-            {
-                if (child is ElementNode e)
-                    stack.Push((e, null, style));
-            }
-        }
-        document.StyleState = new Restyler(origins, media, measure, registered, sources.BaseUrl, rootFontSize, groups) { Animations = animations };
+            restyler.Walk(root, Folio.Style.ComputedStyle.Initial);
         return [.. origins.Skip(1).SelectMany(o => o.FontFaces)];
-
-        ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
-            new(parent, rootFontSize, media.Width, media.Height)
-            {
-                PrefersDark = media.DarkColorScheme,
-                Measure = measure,
-                Custom = CustomProperties.Compute(parent.Custom, custom, registered),
-                Registered = registered,
-            };
     }
+
+    /// <summary>
+    /// Restyles each of <paramref name="roots"/> and its subtree with the rules and settings of the document's last
+    /// style resolution, after a state change (#417). Returns how many elements were restyled, or null when the
+    /// document needs a full <see cref="Resolve"/> instead: it hasn't been styled, or it has animations.
+    /// </summary>
+    // ponytail: animated documents restyle in full, since a subtree walk would add its animations a second time.
+    public static int? RestyleSubtrees(DocumentNode document, IEnumerable<ElementNode> roots) =>
+        document.StyleState is Restyler { Animations.Count: 0 } restyler ? restyler.RestyleSubtrees(roots) : null;
+
+    /// <summary>Where the document's state pseudo-classes appear, from its last style resolution.</summary>
+    public static StateInvalidation Invalidation(DocumentNode document) =>
+        (document.StyleState as Restyler)?.Invalidation ?? StateInvalidation.Empty;
 
     /// <summary>
     /// An element's style computed again under another parent style, with the rules and settings of the document's last
@@ -235,13 +140,169 @@ internal static class StyleResolver
     /// <summary>The elements with animations in the document's last style resolution, in tree order.</summary>
     public static IReadOnlyList<AnimatedElement> Animated(DocumentNode document) => (document.StyleState as Restyler)?.Animations ?? [];
 
-    private sealed class Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure,
-                                  Dictionary<string, RegisteredProperty> registered, string? baseUrl, float rootFontSize, Dictionary<object, object> groups)
+    /// <summary>
+    /// The document's rules and settings from its last style resolution, and the walk that computes styles in tree
+    /// order with the ancestor filter kept current: over the whole document, or over the subtrees a state change
+    /// marked.
+    /// </summary>
+    private sealed class Restyler
     {
-        public List<AnimatedElement> Animations { get; init; } = [];
-
+        private readonly List<CascadeData> _origins;
+        private readonly MediaContext _media;
+        private readonly FontMeasure? _measure;
+        private readonly Dictionary<string, RegisteredProperty> _registered;
+        private readonly string? _baseUrl;
+        private readonly Dictionary<string, List<Keyframe>> _keyframes;
+        private readonly double? _animationTime;
+        private readonly Dictionary<object, object> _groups = [];
+        private readonly AncestorFilter _filter = new();
+        private readonly MatchContext _walkContext;
         private readonly MatchContext _context = new();
         private readonly List<RuleIndex<CascadeRule>.Entry> _matched = [];
+        private readonly List<RuleIndex<CascadeRule>.Entry> _pseudoMatched = [];
+        private readonly bool _hasBefore, _hasAfter, _hasFirstLetter;
+        private float _rootFontSize = Folio.Style.ComputedStyle.Initial.Font.Size;
+
+        public Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure, Dictionary<string, RegisteredProperty> registered,
+                        string? baseUrl, Dictionary<string, List<Keyframe>> keyframes, double? animationTime)
+        {
+            (_origins, _media, _measure, _registered, _baseUrl, _keyframes, _animationTime) = (origins, media, measure, registered, baseUrl, keyframes, animationTime);
+            _walkContext = new MatchContext { Filter = _filter };
+            (_hasBefore, _hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
+            _hasFirstLetter = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.FirstLetter));
+            Invalidation = StateInvalidation.Build(origins.SelectMany(o => o.Rules.StateSelectors));
+        }
+
+        public List<AnimatedElement> Animations { get; } = [];
+
+        public StateInvalidation Invalidation { get; }
+
+        public int RestyleSubtrees(IEnumerable<ElementNode> roots)
+        {
+            var count = 0;
+            // A root inside another root's subtree is restyled with it.
+            var set = roots.ToHashSet();
+            foreach (var root in set)
+            {
+                var covered = false;
+                for (var ancestor = root.Parent; ancestor is not null && !covered; ancestor = ancestor.Parent)
+                    covered = ancestor is ElementNode e && set.Contains(e);
+                if (covered || root.Parent is null)
+                    continue;
+                var ancestors = new List<ElementNode>();
+                for (var ancestor = root.Parent; ancestor is ElementNode e; ancestor = ancestor.Parent)
+                    ancestors.Add(e);
+                ancestors.Reverse();
+                foreach (var ancestor in ancestors)
+                    _filter.Push(ancestor);
+                var parent = root.Parent is ElementNode p ? p.ComputedStyle() ?? Folio.Style.ComputedStyle.Initial : Folio.Style.ComputedStyle.Initial;
+                count += Walk(root, parent);
+                for (var i = ancestors.Count - 1; i >= 0; i--)
+                    _filter.Pop(ancestors[i]);
+            }
+            return count;
+        }
+
+        /// <summary>Computes the styles of <paramref name="start"/> and its descendants; returns how many elements.</summary>
+        public int Walk(ElementNode start, ComputedStyle startParent)
+        {
+            var count = 0;
+            var shared = new SharingCache();
+            // Iterative pre-order walk: (element, parent style); a null element marks leaving an element.
+            var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent)>();
+            stack.Push((start, null, startParent));
+            while (stack.TryPop(out var item))
+            {
+                if (item.ElementNode is null)
+                {
+                    _filter.Pop(item.Leaving!);
+                    continue;
+                }
+                var element = item.ElementNode;
+                count++;
+
+                List<CascadeDeclaration>? inline = null;
+                if (element.GetAttribute("style") is { } styleAttribute)
+                {
+                    var (source, block) = CssParser.ParseBlockContents(styleAttribute);
+                    inline = CascadeData.Parse(source, block.Declarations, _baseUrl);
+                }
+                _matched.Clear();
+                Cascade.Match(element, _origins, _walkContext, PseudoElement.None, _matched);
+                var hints = PresentationalHints.For(element);
+                // Only the matched rules and the parent's style decide the style of an element without its own declarations.
+                var sharable = inline is null && hints is null;
+                if (!sharable || shared.Find(item.Parent, _rootFontSize, _matched) is not { } style)
+                {
+                    var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, hints, parent: item.Parent);
+                    style = StyleBuilder.Compute(values, Context(item.Parent, custom), _groups);
+                    // Animations at the document time: each keyframe's declarations join the cascade's animation origin and
+                    // the values are interpolated between them.
+                    if (!ReferenceEquals(style.Animation, AnimationGroup.Initial) && _keyframes.Count > 0)
+                    {
+                        var (parent, rules, elementInline, elementHints) = (item.Parent, _matched.ToList(), inline, hints);
+                        var animated = new AnimatedElement(element, style, parent, _keyframes, declarations =>
+                        {
+                            var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent);
+                            return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), _groups);
+                        }, _registered);
+                        Animations.Add(animated);
+                        style = animated.Sample(_animationTime, _groups);
+                        // Each animated element keeps its own style, so a frame can change it alone.
+                        sharable = false;
+                    }
+                    if (sharable)
+                        shared.Add(item.Parent, _rootFontSize, _matched, style);
+                }
+                var styles = new ElementStyles(style);
+                element.StyleData = styles;
+                if (style.Box.Display != Display.None)
+                {
+                    styles.Before = Pseudo(element, style, PseudoElement.Before);
+                    styles.After = Pseudo(element, style, PseudoElement.After);
+                    styles.FirstLetter = Pseudo(element, style, PseudoElement.FirstLetter);
+                    if (style.Box.Display == Display.ListItem)
+                        styles.Marker = Pseudo(element, style, PseudoElement.Marker, always: true);
+                }
+                if (element.Parent is DocumentNode)
+                    _rootFontSize = style.Font.Size;
+
+                _filter.Push(element);
+                stack.Push((null, element, style));
+                for (var child = element.LastChild; child is not null; child = child.PreviousSibling)
+                {
+                    if (child is ElementNode e)
+                        stack.Push((e, null, style));
+                }
+            }
+            return count;
+        }
+
+        private ComputedStyle? Pseudo(ElementNode element, ComputedStyle style, PseudoElement pe, bool always = false)
+        {
+            if (!always && !(pe switch { PseudoElement.Before => _hasBefore, PseudoElement.After => _hasAfter, _ => _hasFirstLetter }))
+                return null;
+            // With no rules for it, ::before or ::after would have content: normal and generate no box.
+            _pseudoMatched.Clear();
+            Cascade.Match(element, _origins, _walkContext, pe, _pseudoMatched);
+            if (!always && _pseudoMatched.Count == 0)
+                return null;
+            var (pseudoValues, pseudoCustom) = Cascade.Compute(_pseudoMatched, null, 0, null, parent: style);
+            if (pe == PseudoElement.FirstLetter)
+                pseudoValues = FirstLetterProperties(pseudoValues);
+            var pseudoStyle = StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), _groups);
+            if (ReferenceEquals(pseudoStyle.Animation, AnimationGroup.Initial) || _keyframes.Count == 0)
+                return pseudoStyle;
+            // Generated content animates like an element, its keyframes computed in its own context.
+            var (originating, rules) = (style, _pseudoMatched.ToList());
+            var animated = new AnimatedElement(element, pseudoStyle, originating, _keyframes, declarations =>
+            {
+                var (keyed, keyedCustom) = Cascade.Compute(rules, null, 0, null, declarations, originating);
+                return StyleBuilder.Compute(keyed, Context(originating, keyedCustom), _groups);
+            }) { PseudoElement = pe };
+            Animations.Add(animated);
+            return animated.Sample(_animationTime, _groups);
+        }
 
         public ComputedStyle Style(ElementNode element, ComputedStyle parent)
         {
@@ -249,29 +310,29 @@ internal static class StyleResolver
             if (element.GetAttribute("style") is { } styleAttribute)
             {
                 var (source, block) = CssParser.ParseBlockContents(styleAttribute);
-                inline = CascadeData.Parse(source, block.Declarations, baseUrl);
+                inline = CascadeData.Parse(source, block.Declarations, _baseUrl);
             }
             _matched.Clear();
-            Cascade.Match(element, origins, _context, PseudoElement.None, _matched);
+            Cascade.Match(element, _origins, _context, PseudoElement.None, _matched);
             var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element), parent: parent);
-            return StyleBuilder.Compute(values, Context(parent, custom), groups);
+            return StyleBuilder.Compute(values, Context(parent, custom), _groups);
         }
 
         public ComputedStyle FirstLetter(ElementNode element, ComputedStyle parent)
         {
             _matched.Clear();
-            Cascade.Match(element, origins, _context, PseudoElement.FirstLetter, _matched);
+            Cascade.Match(element, _origins, _context, PseudoElement.FirstLetter, _matched);
             var (values, custom) = Cascade.Compute(_matched, null, 0, null, parent: parent);
-            return StyleBuilder.Compute(FirstLetterProperties(values), Context(parent, custom), groups);
+            return StyleBuilder.Compute(FirstLetterProperties(values), Context(parent, custom), _groups);
         }
 
         private ComputeContext Context(ComputedStyle parent, Dictionary<string, CustomProperties.Declared> custom) =>
-            new(parent, rootFontSize, media.Width, media.Height)
+            new(parent, _rootFontSize, _media.Width, _media.Height)
             {
-                PrefersDark = media.DarkColorScheme,
-                Measure = measure,
-                Custom = CustomProperties.Compute(parent.Custom, custom, registered),
-                Registered = registered,
+                PrefersDark = _media.DarkColorScheme,
+                Measure = _measure,
+                Custom = CustomProperties.Compute(parent.Custom, custom, _registered),
+                Registered = _registered,
             };
     }
 

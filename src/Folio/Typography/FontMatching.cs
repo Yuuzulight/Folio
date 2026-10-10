@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Folio.Typography;
@@ -74,6 +76,10 @@ internal sealed class FontCollection(IFontSource? source = null)
     // The face found for a one-character cluster, by the style's family list (shared between equal font groups), style,
     // weight, stretch and character: text asks for the same few characters in the same fonts over and over.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(IReadOnlyList<string> Families, FaceStyle Style, int Weight, float Stretch, char Char), FontFace?> _clusterFaces = new();
+
+    // The best face of each installed family for a style, weight and stretch (see MatchFamily); cleared when faces are added.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Family, FaceStyle Style, int Weight, float Stretch), FontFace?> _styleMatches = new();
+
     private readonly Dictionary<string, List<WebFace>> _webFamilies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A collection for a document's font settings.</summary>
@@ -100,6 +106,7 @@ internal sealed class FontCollection(IFontSource? source = null)
     public void Add(FontFace face)
     {
         _clusterFaces.Clear();
+        _styleMatches.Clear();
         if (!_families.TryGetValue(face.Family, out var faces))
             _families[face.Family] = faces = [];
         faces.Add(face);
@@ -166,12 +173,25 @@ internal sealed class FontCollection(IFontSource? source = null)
         }
         foreach (var name in Resolve(family))
         {
-            Open(name);
-            if (_families.TryGetValue(name, out var faces)
-                && FontMatcher.Match(faces, f => new FaceTraits(f.Weight, f.Style, f.Stretch), stretch, style, weight) is { } face)
+            if (MatchFamily(name, style, weight, stretch) is { } face)
                 return face;
         }
         return null;
+    }
+
+    // The best installed face of one family, remembered: matching runs for every line's strut and every text run, and
+    // a family with many faces (the system's) made its LINQ the largest allocation of a large render (#397).
+    private FontFace? MatchFamily(string name, FaceStyle style, int weight, float stretch)
+    {
+        var key = (name, style, weight, stretch);
+        if (_styleMatches.TryGetValue(key, out var found))
+            return found;
+        Open(name);
+        found = _families.TryGetValue(name, out var faces)
+            ? FontMatcher.Match(faces, f => new FaceTraits(f.Weight, f.Style, f.Stretch), stretch, style, weight)
+            : null;
+        _styleMatches[key] = found;
+        return found;
     }
 
     /// <summary>
@@ -243,16 +263,32 @@ internal sealed class FontCollection(IFontSource? source = null)
         return null;
     }
 
-    // Loads a family from the source the first time it is asked for; faces that fail to parse are skipped.
+    // The parsed faces of each family, per source instance, shared by every document using that instance: a document
+    // used to re-read and re-parse the system's font files (12.9 MB for a large table) on every render (#442). Lazy
+    // asks the source once per family even when documents on several threads open it at the same time; a family whose
+    // source call failed is dropped so the next document asks again. Entries live as long as the source instance does.
+    private static readonly ConditionalWeakTable<IFontSource, ConcurrentDictionary<string, Lazy<FontFace[]>>> SourceFaces = new();
+
+    // Loads a family the first time this collection asks for it; faces that fail to parse are skipped.
     private void Open(string family)
     {
         if (source is null || !_opened.Add(family))
             return;
-        foreach (var handle in source.OpenFamily(family))
+        var families = SourceFaces.GetValue(source, _ => new(StringComparer.OrdinalIgnoreCase));
+        var faces = families.GetOrAdd(family, name => new(() =>
+            [.. source.OpenFamily(name).Select(h => h as FontFace ?? FontFace.Parse(h.Data, h.FaceIndex)).OfType<FontFace>()]));
+        FontFace[] parsed;
+        try
         {
-            if ((handle as FontFace ?? FontFace.Parse(handle.Data, handle.FaceIndex)) is { } face)
-                Add(face);
+            parsed = faces.Value;
         }
+        catch
+        {
+            families.TryRemove(KeyValuePair.Create(family, faces));
+            throw;
+        }
+        foreach (var face in parsed)
+            Add(face);
     }
 
     // The script of a cluster: its first character that is not Common or Inherited, else Common.
@@ -333,7 +369,8 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
 
 /// <summary>
 /// Folio's shaper for simple scripts (docs/study/11-text.md, shaping option B): one glyph per character from the
-/// cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. GSUB ligatures come later.
+/// cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. Text with a GSUB ligature goes to the
+/// complex shaper (CanShape).
 /// </summary>
 internal static class SimpleShaper
 {
@@ -341,9 +378,11 @@ internal static class SimpleShaper
     /// Whether the text can be shaped here: every character mapped by the face, only simple scripts, and no
     /// combining marks. Everything else goes to the complex shaper.
     /// </summary>
+    /// <param name="ligatures">Whether the face's default ligatures apply: then text with one goes to the complex shaper.</param>
     // ponytail: scripts are recognised by code point ranges until the Unicode Script tables are generated (study 11).
-    public static bool CanShape(ReadOnlySpan<char> text, FontFace face)
+    public static bool CanShape(ReadOnlySpan<char> text, FontFace face, bool ligatures = false)
     {
+        var count = 0;
         foreach (var rune in text.EnumerateRunes())
         {
             if (!IsSimpleScript(rune.Value) || Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark
@@ -351,6 +390,15 @@ internal static class SimpleShaper
                 return false;
             if (!face.Covers(rune.Value))
                 return false;
+            count++;
+        }
+        if (ligatures && count > 1)
+        {
+            foreach (var rune in text.EnumerateRunes())
+            {
+                if (face.StartsLigature(face.GlyphFor(rune.Value)))
+                    return false;
+            }
         }
         return true;
     }

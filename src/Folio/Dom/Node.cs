@@ -64,6 +64,11 @@ internal abstract class Node
     /// </summary>
     internal void OnMutated(MutationKind kind)
     {
+        if (kind == MutationKind.ChildList)
+            OwnerDocument.StructureMutated = true;
+        else
+            OwnerDocument.StyleMutated = true;
+
         Node? target = kind == MutationKind.CharacterData ? Parent : this;
         if (target is null)
             return;

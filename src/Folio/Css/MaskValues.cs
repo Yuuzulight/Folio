@@ -9,26 +9,26 @@ namespace Folio.Css;
 // ponytail: mask-border waits for its own work.
 internal static class MaskProperties
 {
-    public static IEnumerable<Property> Rows =>
+    public static Properties.LazyRow[] Rows =>
     [
-        new Property<IReadOnlyList<ImageValue>>(PropertyId.MaskImage, "mask-image", false, "none", BackgroundParsing.ImageList,
+        new(PropertyId.MaskImage, "mask-image", static () => new Property<IReadOnlyList<ImageValue>>(PropertyId.MaskImage, "mask-image", false, "none", BackgroundParsing.ImageList,
             (v, ctx) => ((LayerListValue<ImageValue>)v).Items
                 .Select(i => i is GradientImage g ? g with { Computed = GradientParsing.Compute(g.Specified, ctx) } : i).ToList(),
-            s => s.Mask.Images, (b, v) => b.Mask = b.Mask with { Images = v }),
-        Properties.Layers<MaskMode, MaskMode>(PropertyId.MaskMode, "mask-mode", "match-source", Mode, (x, _) => x,
-            s => s.Mask.Modes, (b, v) => b.Mask = b.Mask with { Modes = v }),
-        Properties.Layers<RepeatStyle, RepeatStyle>(PropertyId.MaskRepeat, "mask-repeat", "repeat", BackgroundParsing.Repeat, (x, _) => x,
-            s => s.Mask.Repeats, (b, v) => b.Mask = b.Mask with { Repeats = v }),
-        Properties.Layers<PositionSpecified, BackgroundPosition>(PropertyId.MaskPosition, "mask-position", "0% 0%", BackgroundParsing.Position,
-            Properties.ComputePosition, s => s.Mask.Positions, (b, v) => b.Mask = b.Mask with { Positions = v }),
-        Properties.Layers<SizeSpecified, BackgroundSize>(PropertyId.MaskSize, "mask-size", "auto", BackgroundParsing.Size, Properties.ComputeSize,
-            s => s.Mask.Sizes, (b, v) => b.Mask = b.Mask with { Sizes = v }),
-        Properties.Layers<GeometryBox, GeometryBox>(PropertyId.MaskOrigin, "mask-origin", "border-box", Box, (x, _) => x,
-            s => s.Mask.Origins, (b, v) => b.Mask = b.Mask with { Origins = v }),
-        Properties.Layers<MaskClip, MaskClip>(PropertyId.MaskClip, "mask-clip", "border-box", Clip, (x, _) => x,
-            s => s.Mask.Clips, (b, v) => b.Mask = b.Mask with { Clips = v }),
-        Properties.Layers<MaskComposite, MaskComposite>(PropertyId.MaskComposite, "mask-composite", "add", Composite, (x, _) => x,
-            s => s.Mask.Composites, (b, v) => b.Mask = b.Mask with { Composites = v }),
+            s => s.Mask.Images, (b, v) => b.Mask = b.Mask with { Images = v })),
+        new(PropertyId.MaskMode, "mask-mode", static () => Properties.Layers<MaskMode, MaskMode>(PropertyId.MaskMode, "mask-mode", "match-source", Mode, (x, _) => x,
+            s => s.Mask.Modes, (b, v) => b.Mask = b.Mask with { Modes = v })),
+        new(PropertyId.MaskRepeat, "mask-repeat", static () => Properties.Layers<RepeatStyle, RepeatStyle>(PropertyId.MaskRepeat, "mask-repeat", "repeat", BackgroundParsing.Repeat, (x, _) => x,
+            s => s.Mask.Repeats, (b, v) => b.Mask = b.Mask with { Repeats = v })),
+        new(PropertyId.MaskPosition, "mask-position", static () => Properties.Layers<PositionSpecified, BackgroundPosition>(PropertyId.MaskPosition, "mask-position", "0% 0%", BackgroundParsing.Position,
+            Properties.ComputePosition, s => s.Mask.Positions, (b, v) => b.Mask = b.Mask with { Positions = v })),
+        new(PropertyId.MaskSize, "mask-size", static () => Properties.Layers<SizeSpecified, BackgroundSize>(PropertyId.MaskSize, "mask-size", "auto", BackgroundParsing.Size, Properties.ComputeSize,
+            s => s.Mask.Sizes, (b, v) => b.Mask = b.Mask with { Sizes = v })),
+        new(PropertyId.MaskOrigin, "mask-origin", static () => Properties.Layers<GeometryBox, GeometryBox>(PropertyId.MaskOrigin, "mask-origin", "border-box", Box, (x, _) => x,
+            s => s.Mask.Origins, (b, v) => b.Mask = b.Mask with { Origins = v })),
+        new(PropertyId.MaskClip, "mask-clip", static () => Properties.Layers<MaskClip, MaskClip>(PropertyId.MaskClip, "mask-clip", "border-box", Clip, (x, _) => x,
+            s => s.Mask.Clips, (b, v) => b.Mask = b.Mask with { Clips = v })),
+        new(PropertyId.MaskComposite, "mask-composite", static () => Properties.Layers<MaskComposite, MaskComposite>(PropertyId.MaskComposite, "mask-composite", "add", Composite, (x, _) => x,
+            s => s.Mask.Composites, (b, v) => b.Mask = b.Mask with { Composites = v })),
     ];
 
     private static readonly PropertyId[] Longhands =

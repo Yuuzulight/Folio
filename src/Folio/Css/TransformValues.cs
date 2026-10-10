@@ -21,26 +21,26 @@ internal sealed record TransformOriginValue(CssValue X, CssValue Y, CssValue Z) 
 /// </summary>
 internal static class TransformProperties
 {
-    public static IEnumerable<Property> Rows =>
+    public static Properties.LazyRow[] Rows =>
     [
-        List(PropertyId.Transform, "transform", ParseTransform, s => s.Transform.Transform, (b, v) => b.Transform = b.Transform with { Transform = v }),
-        List(PropertyId.Translate, "translate", ParseTranslate, s => s.Transform.Translate, (b, v) => b.Transform = b.Transform with { Translate = v }),
-        List(PropertyId.Rotate, "rotate", ParseRotate, s => s.Transform.Rotate, (b, v) => b.Transform = b.Transform with { Rotate = v }),
-        List(PropertyId.Scale, "scale", ParseScale, s => s.Transform.Scale, (b, v) => b.Transform = b.Transform with { Scale = v }),
-        new Property<TransformOrigin>(PropertyId.TransformOrigin, "transform-origin", false, "50% 50%",
+        new(PropertyId.Transform, "transform", static () => List(PropertyId.Transform, "transform", ParseTransform, s => s.Transform.Transform, (b, v) => b.Transform = b.Transform with { Transform = v })),
+        new(PropertyId.Translate, "translate", static () => List(PropertyId.Translate, "translate", ParseTranslate, s => s.Transform.Translate, (b, v) => b.Transform = b.Transform with { Translate = v })),
+        new(PropertyId.Rotate, "rotate", static () => List(PropertyId.Rotate, "rotate", ParseRotate, s => s.Transform.Rotate, (b, v) => b.Transform = b.Transform with { Rotate = v })),
+        new(PropertyId.Scale, "scale", static () => List(PropertyId.Scale, "scale", ParseScale, s => s.Transform.Scale, (b, v) => b.Transform = b.Transform with { Scale = v })),
+        new(PropertyId.TransformOrigin, "transform-origin", static () => new Property<TransformOrigin>(PropertyId.TransformOrigin, "transform-origin", false, "50% 50%",
             ParseOrigin,
             (v, ctx) => v is TransformOriginValue o
                 ? new TransformOrigin(ctx.LengthPercentage(o.X), ctx.LengthPercentage(o.Y), ctx.LengthPercentage(o.Z).Px)
                 : TransformOrigin.Center,
-            s => s.Transform.Origin, (b, v) => b.Transform = b.Transform with { Origin = v }),
-        new Property<float?>(PropertyId.Perspective, "perspective", false, "none",
+            s => s.Transform.Origin, (b, v) => b.Transform = b.Transform with { Origin = v })),
+        new(PropertyId.Perspective, "perspective", static () => new Property<float?>(PropertyId.Perspective, "perspective", false, "none",
             r => r.Keyword("none") is not null ? new KeywordValue("none") : r.LengthPercentage(allowPercent: false, nonNegative: true),
             (v, ctx) => v is KeywordValue ? null : ctx.LengthPercentage(v).Px,
-            s => s.Transform.Perspective, (b, v) => b.Transform = b.Transform with { Perspective = v }),
-        new Property<TransformOrigin>(PropertyId.PerspectiveOrigin, "perspective-origin", false, "50% 50%",
+            s => s.Transform.Perspective, (b, v) => b.Transform = b.Transform with { Perspective = v })),
+        new(PropertyId.PerspectiveOrigin, "perspective-origin", static () => new Property<TransformOrigin>(PropertyId.PerspectiveOrigin, "perspective-origin", false, "50% 50%",
             r => ParseOrigin(r) is TransformOriginValue { Z: LengthValue { Length.Value: 0 } } origin ? origin : null,
             (v, ctx) => v is TransformOriginValue o ? new TransformOrigin(ctx.LengthPercentage(o.X), ctx.LengthPercentage(o.Y), 0) : TransformOrigin.Center,
-            s => s.Transform.PerspectiveOrigin, (b, v) => b.Transform = b.Transform with { PerspectiveOrigin = v }),
+            s => s.Transform.PerspectiveOrigin, (b, v) => b.Transform = b.Transform with { PerspectiveOrigin = v })),
     ];
 
     private static Property<TransformList> List(PropertyId id, string name, Func<ValueReader, CssValue?> parse,

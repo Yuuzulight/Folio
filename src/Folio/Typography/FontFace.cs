@@ -259,6 +259,9 @@ internal sealed class FontFace : IFontHandle
     /// <summary>A glyph after the single substitutions of the space-separated feature tags (such as "tnum").</summary>
     public ushort Substitute(ushort glyph, string features) => _gsub?.Substitute(glyph, features) ?? glyph;
 
+    /// <summary>Whether a glyph starts one of the font's default ligatures (liga, clig, rlig).</summary>
+    public bool StartsLigature(ushort glyph) => _gsub?.StartsLigature(glyph) == true;
+
     /// <summary>
     /// Kerning between two glyphs in font units: from the GPOS kern feature when the font has one, else from the kern table.
     /// </summary>

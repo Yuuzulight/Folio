@@ -1,6 +1,7 @@
 using Folio.Css;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Interaction;
 using Folio.Layout;
 using Folio.Painting;
 using Folio.Resources;
@@ -54,6 +55,13 @@ public sealed class Document : IDisposable
             static string Collapse(string? text) => string.Join(' ', (text ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
         }
     }
+
+    /// <summary>
+    /// The accessibility tree of the last painted layout (roles, names, values, states and bounds), or null before the
+    /// first paint, since it reads computed styles and fragments.
+    /// </summary>
+    internal Interaction.AccessibleNode? AccessibilityTree() =>
+        _page is { } page ? Interaction.AccessibilityTree.Build(Node, page, Title) : null;
 
     public static Document Parse(string html, FolioOptions? options = null)
     {
@@ -161,6 +169,14 @@ public sealed class Document : IDisposable
     /// <exception cref="ArgumentException">The selector list is not valid.</exception>
     public IReadOnlyList<Element> QuerySelectorAll(string selectors) => Query(Node, selectors).ToList();
 
+    /// <summary>Creates a new element in the HTML namespace.</summary>
+    public Element CreateElement(string localName)
+    {
+        ArgumentNullException.ThrowIfNull(localName);
+        var node = Node.CreateElement(Namespaces.Html, localName.ToLowerInvariant());
+        return Wrap(node);
+    }
+
     internal Element Wrap(ElementNode node)
     {
         if (!_elements.TryGetValue(node, out var element))
@@ -190,32 +206,11 @@ public sealed class Document : IDisposable
     private Fragment? _page;
 
     /// <summary>
-    /// The element under a point of the last painted layout (page coordinates in CSS pixels): the deepest box whose
-    /// border box holds it, later boxes (painted on top) first. Null outside every box or before painting.
+    /// The element under a point of the last painted layout (page coordinates in CSS pixels): the one painted on top
+    /// there, by hit testing in reverse paint order. Null outside every box or before painting.
     /// </summary>
-    // ponytail: hit testing follows fragment order, not the stacking tree, and ignores clipping (study 15 comes in M3).
-    internal ElementNode? ElementAt(float x, float y)
-    {
-        return _page is { } page ? Find(page, 0, 0) : null;
-
-        ElementNode? Find(Fragment fragment, float left, float top)
-        {
-            for (var i = fragment.Children.Count - 1; i >= 0; i--)
-            {
-                var (child, cx, cy) = (fragment.Children[i].Fragment, left + fragment.Children[i].X, top + fragment.Children[i].Y);
-                if (child.Kind == FragmentKind.Line)
-                {
-                    if (Find(child, cx, cy) is { } inLine)
-                        return inLine;
-                    continue;
-                }
-                if (child.Kind == FragmentKind.Text || x < cx || y < cy || x >= cx + child.Width || y >= cy + child.Height)
-                    continue;
-                return Find(child, cx, cy) ?? (child.Box?.Node as ElementNode);
-            }
-            return null;
-        }
-    }
+    internal ElementNode? ElementAt(float x, float y) =>
+        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1)?.Node : null;
 
     /// <summary>The link under a point: the nearest a or area element with an href, resolved against the base URL.</summary>
     internal Uri? LinkAt(float x, float y)
@@ -236,9 +231,61 @@ public sealed class Document : IDisposable
     // The last full paint's box tree and layout, which a paint-only animation frame paints again.
     private (Box Root, Fragment Page, float Scale)? _frame;
     private Dictionary<(ElementNode, PseudoElement), List<Box>>? _animatedBoxes;
+    private (float Width, float Height, float Scale, ITextShaper? Shaper, double? AnimationTime)? _lastPaint;
+
+    /// <summary>The last built display list, or null before painting.</summary>
+    internal DisplayList? DisplayList { get; private set; }
 
     /// <summary>How many times the document has been laid out (for tests of the paint-only path).</summary>
     internal int LayoutCount { get; private set; }
+
+    /// <summary>How many elements the last <see cref="Update"/> styled again (#417).</summary>
+    internal int RestyleCount { get; private set; }
+
+    /// <summary>
+    /// Sets or clears a user-action state (<see cref="NodeFlags.Hover"/>, <see cref="NodeFlags.Active"/>,
+    /// <see cref="NodeFlags.Focus"/>, <see cref="NodeFlags.FocusVisible"/>) on an element and marks the elements whose
+    /// style that can change, from the stylesheets' state invalidation sets (#417). <see cref="Update"/> styles them
+    /// again. With no rule mentioning the state, nothing is marked.
+    /// </summary>
+    internal void SetState(ElementNode element, NodeFlags state, bool on)
+    {
+        var flags = on ? element.Flags | state : element.Flags & ~state;
+        if (flags == element.Flags)
+            return;
+        element.Flags = flags;
+        var sets = StyleResolver.Invalidation(Node);
+        foreach (var (flag, kind) in StateKinds)
+        {
+            if ((state & flag) == 0 || !sets.Uses(kind))
+                continue;
+            if (sets.Everywhere(kind))
+            {
+                Node.StyleMutated = true;
+                return;
+            }
+            sets.Collect(element, kind, Node.StyleRoots);
+        }
+        // Focus moving in or out also changes :focus-within on the element and every ancestor.
+        if ((state & NodeFlags.Focus) != 0 && sets.Uses(PseudoClass.FocusWithin))
+        {
+            if (sets.Everywhere(PseudoClass.FocusWithin))
+            {
+                Node.StyleMutated = true;
+                return;
+            }
+            for (Node? node = element; node is ElementNode e; node = node.Parent)
+                sets.Collect(e, PseudoClass.FocusWithin, Node.StyleRoots);
+        }
+    }
+
+    private static readonly (NodeFlags Flag, PseudoClass Kind)[] StateKinds =
+    [
+        (NodeFlags.Hover, PseudoClass.Hover),
+        (NodeFlags.Active, PseudoClass.Active),
+        (NodeFlags.Focus, PseudoClass.Focus),
+        (NodeFlags.FocusVisible, PseudoClass.FocusVisible),
+    ];
 
     /// <summary>
     /// Styles, lays out and paints the document in a viewport (the pipeline in docs/architecture.md): its display list
@@ -249,6 +296,7 @@ public sealed class Document : IDisposable
                                                    double? animationTime = null)
     {
         (_frame, _animatedBoxes) = (null, null);
+        _lastPaint = (viewportWidth, viewportHeight, deviceScale, shaper, animationTime);
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
         var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
@@ -266,14 +314,18 @@ public sealed class Document : IDisposable
         _images ??= new Imaging.ImageLoader(sources.Loader, StyleResolver.BaseUrl(Node, Options.BaseUri?.AbsoluteUri),
             (message, feature) => _diagnostics.Add(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, message, null, feature)));
         if (BoxTreeBuilder.Build(Node, _images, deviceScale) is not { } root)
-            return (new DisplayList(), 0);
+            return (DisplayList = new DisplayList(), 0);
         var page = LayoutEngine.LayoutDocument(root, viewportWidth, viewportHeight, _fonts, shaper, _images);
         _page = page;
         LayoutCount++;
         _frame = (root, page, deviceScale);
+        Node.StructureMutated = false;
+        Node.StyleMutated = false;
+        Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
-        return (DisplayListBuilder.Build(page, _images, deviceScale), height);
+        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale);
+        return (DisplayList, height);
     }
 
     /// <summary>Whether an animation still changes after <paramref name="time"/> (seconds on the document timeline).</summary>
@@ -318,7 +370,7 @@ public sealed class Document : IDisposable
                 }
             }
         }
-        return DisplayListBuilder.Build(frame.Page, _images, frame.Scale);
+        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale);
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
@@ -328,6 +380,228 @@ public sealed class Document : IDisposable
             {
                 if (box.Node is ElementNode element && elements.Contains((element, box.PseudoElement)))
                     (boxes.TryGetValue((element, box.PseudoElement), out var list) ? list : boxes[(element, box.PseudoElement)] = []).Add(box);
+                foreach (var child in box.Children)
+                    stack.Push(child);
+            }
+            return boxes;
+        }
+    }
+
+    /// <summary>
+    /// Restyles the document after DOM or attribute mutations, applying the minimum required damage level
+    /// (<see cref="Damage.Paint"/>, <see cref="Damage.Layout"/>, or <see cref="Damage.Boxes"/>) and updating the display list.
+    /// </summary>
+    internal Damage Update()
+    {
+        if (_lastPaint is not { } last || _images is null)
+            throw new InvalidOperationException("The document has not been painted yet.");
+
+        if (Node.StructureMutated)
+        {
+            Node.StructureMutated = false;
+            return RebuildBoxes(last);
+        }
+
+        // #417: after state changes alone, only the subtrees they marked are styled again.
+        var partial = !Node.StyleMutated;
+        var roots = Node.StyleRoots.ToList();
+        Node.StyleMutated = false;
+        Node.StyleRoots.Clear();
+
+        var oldStyles = new Dictionary<ElementNode, (ComputedStyle? Style, ComputedStyle? Before, ComputedStyle? After, ComputedStyle? Marker)>();
+        void Remember(Node scope)
+        {
+            for (Node? node = scope; node is not null; node = node.NextInTree(scope))
+            {
+                if (node is ElementNode element && !oldStyles.ContainsKey(element))
+                {
+                    oldStyles[element] = (
+                        element.ComputedStyle(),
+                        element.PseudoStyle(PseudoElement.Before),
+                        element.PseudoStyle(PseudoElement.After),
+                        element.PseudoStyle(PseudoElement.Marker));
+                }
+            }
+        }
+
+        if (partial)
+        {
+            foreach (var root in roots)
+                Remember(root);
+            if (StyleResolver.RestyleSubtrees(Node, roots) is { } restyled)
+                RestyleCount = restyled;
+            else
+                partial = false;
+        }
+        if (!partial)
+        {
+            Remember(Node);
+            var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+            _fonts ??= FontCollection.For(Options.Fonts);
+            var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+            StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
+            RestyleCount = oldStyles.Count;
+        }
+
+        var maxDamage = Damage.Paint;
+        foreach (var (element, (oldStyle, oldBefore, oldAfter, oldMarker)) in oldStyles)
+        {
+            var newStyle = element.ComputedStyle();
+            CompareStyles(oldStyle, newStyle, ref maxDamage);
+            if (maxDamage == Damage.Boxes) break;
+
+            ComparePseudo(oldBefore, element.PseudoStyle(PseudoElement.Before), ref maxDamage);
+            if (maxDamage == Damage.Boxes) break;
+
+            ComparePseudo(oldAfter, element.PseudoStyle(PseudoElement.After), ref maxDamage);
+            if (maxDamage == Damage.Boxes) break;
+
+            ComparePseudo(oldMarker, element.PseudoStyle(PseudoElement.Marker), ref maxDamage);
+            if (maxDamage == Damage.Boxes) break;
+        }
+
+        for (Node? node = Node; !partial && node is not null && maxDamage != Damage.Boxes; node = node.NextInTree(Node))
+        {
+            if (node is ElementNode element && !oldStyles.ContainsKey(element))
+                maxDamage = Damage.Boxes;
+        }
+
+        if (_frame is not { } frame)
+            maxDamage = Damage.Boxes;
+
+        if (maxDamage == Damage.Paint)
+        {
+            var frameVal = _frame!.Value;
+            var boxes = AllBoxes(frameVal.Root);
+            var needsLayout = false;
+            foreach (var box in boxes)
+            {
+                if (box.Node is ElementNode el)
+                {
+                    var newStyle = box.PseudoElement switch
+                    {
+                        PseudoElement.Before => el.PseudoStyle(PseudoElement.Before),
+                        PseudoElement.After => el.PseudoStyle(PseudoElement.After),
+                        PseudoElement.Marker => el.PseudoStyle(PseudoElement.Marker),
+                        _ => el.ComputedStyle(),
+                    };
+                    if (newStyle is not null)
+                    {
+                        var containsFixed = box.ContainsFixed;
+                        box.Style = newStyle;
+                        if (box.ContainsFixed != containsFixed)
+                        {
+                            needsLayout = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (needsLayout)
+            {
+                maxDamage = Damage.Layout;
+            }
+            else
+            {
+                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale);
+                return Damage.Paint;
+            }
+        }
+
+        if (maxDamage == Damage.Layout)
+        {
+            var frameVal = _frame!.Value;
+            var boxes = AllBoxes(frameVal.Root);
+            foreach (var box in boxes)
+            {
+                box.LayoutCache = null;
+                if (box.Node is ElementNode el)
+                {
+                    var newStyle = box.PseudoElement switch
+                    {
+                        PseudoElement.Before => el.PseudoStyle(PseudoElement.Before),
+                        PseudoElement.After => el.PseudoStyle(PseudoElement.After),
+                        PseudoElement.Marker => el.PseudoStyle(PseudoElement.Marker),
+                        _ => el.ComputedStyle(),
+                    };
+                    if (newStyle is not null)
+                        box.Style = newStyle;
+                }
+            }
+
+            var page = LayoutEngine.LayoutDocument(frameVal.Root, last.Width, last.Height, _fonts, last.Shaper, _images);
+            _page = page;
+            LayoutCount++;
+            _frame = (frameVal.Root, page, frameVal.Scale);
+            DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale);
+            return Damage.Layout;
+        }
+
+        return RebuildBoxes(last);
+
+        Damage RebuildBoxes((float Width, float Height, float Scale, ITextShaper? Shaper, double? AnimationTime) l)
+        {
+            if (BoxTreeBuilder.Build(Node, _images, l.Scale) is not { } root)
+            {
+                _page = null;
+                _frame = null;
+                DisplayList = new DisplayList();
+                return Damage.Boxes;
+            }
+
+            var page = LayoutEngine.LayoutDocument(root, l.Width, l.Height, _fonts, l.Shaper, _images);
+            _page = page;
+            LayoutCount++;
+            _frame = (root, page, l.Scale);
+            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale);
+            return Damage.Boxes;
+        }
+
+        static void ComparePseudo(ComputedStyle? oldPseudo, ComputedStyle? newPseudo, ref Damage max)
+        {
+            if ((oldPseudo is null) != (newPseudo is null))
+            {
+                max = Damage.Boxes;
+                return;
+            }
+            if (oldPseudo is not null && newPseudo is not null)
+                CompareStyles(oldPseudo, newPseudo, ref max);
+        }
+
+        static void CompareStyles(ComputedStyle? oldStyle, ComputedStyle? newStyle, ref Damage max)
+        {
+            if (oldStyle is null || newStyle is null)
+            {
+                max = Damage.Boxes;
+                return;
+            }
+            if (ReferenceEquals(oldStyle, newStyle) || oldStyle.Equals(newStyle))
+                return;
+
+            foreach (var id in Enum.GetValues<PropertyId>())
+            {
+                var damage = PropertyDamage.Of(id) ?? Damage.Boxes;
+                if (damage <= max)
+                    continue;
+
+                var prop = Properties.Get(id);
+                if (prop.Describe(oldStyle) != prop.Describe(newStyle))
+                {
+                    max = damage;
+                    if (max == Damage.Boxes)
+                        return;
+                }
+            }
+        }
+
+        static List<Box> AllBoxes(Box root)
+        {
+            var boxes = new List<Box>();
+            var stack = new Stack<Box>([root]);
+            while (stack.TryPop(out var box))
+            {
+                boxes.Add(box);
                 foreach (var child in box.Children)
                     stack.Push(child);
             }

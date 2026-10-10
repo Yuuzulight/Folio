@@ -17,10 +17,10 @@ internal sealed record FilterListValue(IReadOnlyList<FilterFunctionValue> Functi
 /// </summary>
 internal static class FilterProperties
 {
-    public static IEnumerable<Property> Rows =>
+    public static Properties.LazyRow[] Rows =>
     [
-        Row(PropertyId.Filter, "filter", s => s.Effects.Filter, (b, v) => b.Effects = b.Effects with { Filter = v }),
-        Row(PropertyId.BackdropFilter, "backdrop-filter", s => s.Effects.BackdropFilter, (b, v) => b.Effects = b.Effects with { BackdropFilter = v }),
+        new(PropertyId.Filter, "filter", static () => Row(PropertyId.Filter, "filter", s => s.Effects.Filter, (b, v) => b.Effects = b.Effects with { Filter = v })),
+        new(PropertyId.BackdropFilter, "backdrop-filter", static () => Row(PropertyId.BackdropFilter, "backdrop-filter", s => s.Effects.BackdropFilter, (b, v) => b.Effects = b.Effects with { BackdropFilter = v })),
     ];
 
     private static Property<FilterList> Row(PropertyId id, string name, Func<ComputedStyle, FilterList> get, Action<StyleBuilder, FilterList> set) =>

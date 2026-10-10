@@ -6,10 +6,18 @@ namespace Folio.Typography;
 /// </summary>
 /// <remarks>
 /// Folio parses and validates every face it is given; a source only finds data. Families are opened on first use.
+/// <para>
+/// Folio keeps the parsed faces per source instance, shared by every document that uses the instance:
+/// <see cref="OpenFamily"/> is called at most once per family (compared ignoring case) for the life of the instance, not
+/// once per document, and may be called from any thread. A call that throws is not remembered. A source whose fonts
+/// change (fonts installed or removed) shows the change only through a new instance. <see cref="MatchCharacter"/> is
+/// still asked once per document.
+/// </para>
 /// </remarks>
 public interface IFontSource
 {
     /// <summary>The faces of a family (any case), as font data and face index; empty when the source has no such family.</summary>
+    /// <remarks>Called at most once per family for the life of this instance; the result is shared by every document using it.</remarks>
     IReadOnlyList<IFontHandle> OpenFamily(string family);
 
     /// <summary>A family with a glyph for the code point, preferring one close to the given traits; null when none has one.</summary>
@@ -52,6 +60,11 @@ public sealed record FontSettings
     /// <summary>No fonts: text is measured with fallback metrics and not drawn.</summary>
     public static FontSettings Default { get; } = new();
 
+    /// <summary>Where installed fonts come from; null for none.</summary>
+    /// <remarks>
+    /// Parsed faces are kept per source instance and shared across documents (see <see cref="IFontSource"/>), so reuse one
+    /// instance across documents, and make a new one when the fonts it offers change.
+    /// </remarks>
     public IFontSource? Source { get; init; }
 
     /// <summary>Generic family → families to try in order (study 11 defaults, for Windows).</summary>
