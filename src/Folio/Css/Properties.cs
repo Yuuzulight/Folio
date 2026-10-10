@@ -137,6 +137,7 @@ internal enum PropertyId
     LineClamp,
     Cursor,
     PointerEvents,
+    UserSelect,
     AccentColor,
     ScrollbarGutter,
     ScrollbarWidth,
@@ -852,6 +853,9 @@ internal static class Properties
         // ponytail: SVG's values (visiblePainted, fill, ...) are not parsed; an svg image is hit as one box.
         Row(PropertyId.PointerEvents, "pointer-events", static () => Keywords(PropertyId.PointerEvents, "pointer-events", true, "auto", KeywordMap<PointerEvents>.InOrder("auto", "none"),
             s => s.Ui.PointerEvents, (b, v) => b.Ui = b.Ui with { PointerEvents = v }));
+        // https://www.w3.org/TR/css-ui-4/#content-selection: auto | none | text | all
+        Row(PropertyId.UserSelect, "user-select", static () => Keywords(PropertyId.UserSelect, "user-select", true, "auto", KeywordMap<UserSelect>.InOrder("auto", "none", "text", "all"),
+            s => s.Ui.UserSelect, (b, v) => b.Ui = b.Ui with { UserSelect = v }));
         // https://www.w3.org/TR/css-ui-4/#widget-accent: auto | <color>
         Row(PropertyId.AccentColor, "accent-color", static () => new Property<CssColor?>(PropertyId.AccentColor, "accent-color", true, "auto",
             r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),

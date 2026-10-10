@@ -47,6 +47,7 @@ public class FolioView : Control
     // Animation frames: the document timeline runs while the control is shown and stops while it is hidden.
     private readonly System.Windows.Forms.Timer _frames = new();
     private readonly Stopwatch _timeline = new();
+    private readonly ToolTip _toolTip = new();
 
     public FolioView()
     {
@@ -98,6 +99,8 @@ public class FolioView : Control
         _document?.Dispose();
         _document = Document.Parse(html, options);
         _document.Input.LinkActivated += OnDocumentLinkActivated;
+        _document.Input.CursorChanged += OnDocumentCursorChanged;
+        _document.Input.TooltipChanged += OnDocumentTooltipChanged;
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();
@@ -256,14 +259,9 @@ public class FolioView : Control
     {
         base.OnMouseMove(e);
         if (_document is { } doc)
-        {
             doc.Input.HandlePointerMove(ToPointerEvent(e, PointerButton.None));
-            Cursor = LinkAt(e.Location) is null ? Cursors.Default : Cursors.Hand;
-        }
         else
-        {
             Cursor = Cursors.Default;
-        }
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -294,6 +292,33 @@ public class FolioView : Control
         if (!args.Handled && e.Uri.Scheme is "http" or "https" or "mailto")
             Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
     }
+
+    private void OnDocumentCursorChanged(object? sender, CursorChangedEventArgs e)
+    {
+        Cursor = MapCursor(e.Cursor);
+    }
+
+    private void OnDocumentTooltipChanged(object? sender, TooltipChangedEventArgs e)
+    {
+        _toolTip.SetToolTip(this, e.Tooltip);
+    }
+
+    private static Cursor MapCursor(string cursor) => cursor switch
+    {
+        "pointer" => Cursors.Hand,
+        "text" or "vertical-text" => Cursors.IBeam,
+        "crosshair" => Cursors.Cross,
+        "help" => Cursors.Help,
+        "wait" => Cursors.WaitCursor,
+        "progress" => Cursors.AppStarting,
+        "not-allowed" or "no-drop" => Cursors.No,
+        "move" or "all-scroll" => Cursors.SizeAll,
+        "col-resize" or "ew-resize" or "w-resize" or "e-resize" => Cursors.SizeWE,
+        "row-resize" or "ns-resize" or "n-resize" or "s-resize" => Cursors.SizeNS,
+        "nesw-resize" or "ne-resize" or "sw-resize" => Cursors.SizeNESW,
+        "nwse-resize" or "nw-resize" or "se-resize" => Cursors.SizeNWSE,
+        _ => Cursors.Default,
+    };
 
     private PointerEvent ToPointerEvent(MouseEventArgs e, PointerButton button)
     {
@@ -326,6 +351,7 @@ public class FolioView : Control
         if (disposing)
         {
             _frames.Dispose();
+            _toolTip.Dispose();
             _document?.Dispose();
         }
         base.Dispose(disposing);

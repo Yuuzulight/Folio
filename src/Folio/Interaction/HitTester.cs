@@ -14,7 +14,8 @@ internal sealed record TextPosition(Node Node, int Offset);
 /// <param name="Node">The box's element; text resolves to the inline box it is in, or else its block's element.</param>
 /// <param name="LocalPoint">The point from the fragment's top-left corner, through any transforms around it.</param>
 /// <param name="Position">The nearest text caret position, if within or near text content.</param>
-internal sealed record HitResult(ElementNode Node, Box Box, Fragment Fragment, Vector2 LocalPoint, TextPosition? Position = null);
+/// <param name="Style">The computed style of the hit fragment or box.</param>
+internal sealed record HitResult(ElementNode Node, Box Box, Fragment Fragment, Vector2 LocalPoint, TextPosition? Position = null, ComputedStyle? Style = null);
 
 /// <summary>
 /// Hit testing in reverse paint order (docs/study/15-interaction.md, option B; https://www.w3.org/TR/cssom-view-1/#dom-document-elementfrompoint):
@@ -113,7 +114,7 @@ internal static class HitTester
                     TextPosition? position = null;
                     if (box.Fragment.Kind == FragmentKind.Text && box.Fragment.Text is { } textRun)
                         position = TextPositionFromRun(box.Fragment, textRun, local.X, local.Y);
-                    Result = new HitResult(element, box.Box, box.Fragment, local, position);
+                    Result = new HitResult(element, box.Box, box.Fragment, local, position, style);
                     return;
                 }
             }

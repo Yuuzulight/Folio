@@ -64,3 +64,13 @@ public sealed class LinkActivatedEventArgs(Uri uri, KeyModifiers modifiers = Key
     public KeyModifiers Modifiers { get; } = modifiers;
     public bool Handled { get; set; }
 }
+
+public sealed class CursorChangedEventArgs(string cursor) : EventArgs
+{
+    public string Cursor { get; } = cursor;
+}
+
+public sealed class TooltipChangedEventArgs(string? tooltip) : EventArgs
+{
+    public string? Tooltip { get; } = tooltip;
+}
