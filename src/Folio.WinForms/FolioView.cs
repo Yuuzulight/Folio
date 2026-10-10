@@ -9,9 +9,10 @@ using SkiaSharp;
 namespace Folio.WinForms;
 
 /// <summary>A link the reader activated; set <see cref="Handled"/> to stop the default action (opening the system browser).</summary>
-public sealed class LinkActivatedEventArgs(Uri uri) : EventArgs
+public sealed class LinkActivatedEventArgs(Uri uri, KeyModifiers modifiers = KeyModifiers.None) : EventArgs
 {
     public Uri Uri { get; } = uri;
+    public KeyModifiers Modifiers { get; } = modifiers;
     public bool Handled { get; set; }
 }
 
@@ -96,6 +97,7 @@ public class FolioView : Control
         };
         _document?.Dispose();
         _document = Document.Parse(html, options);
+        _document.Input.LinkActivated += OnDocumentLinkActivated;
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();
@@ -253,19 +255,69 @@ public class FolioView : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        Cursor = LinkAt(e.Location) is null ? Cursors.Default : Cursors.Hand;
+        if (_document is { } doc)
+        {
+            doc.Input.HandlePointerMove(ToPointerEvent(e, PointerButton.None));
+            Cursor = LinkAt(e.Location) is null ? Cursors.Default : Cursors.Hand;
+        }
+        else
+        {
+            Cursor = Cursors.Default;
+        }
     }
 
-    protected override void OnMouseClick(MouseEventArgs e)
+    protected override void OnMouseDown(MouseEventArgs e)
     {
-        base.OnMouseClick(e);
-        if (e.Button != MouseButtons.Left || LinkAt(e.Location) is not { } uri)
-            return;
-        var args = new LinkActivatedEventArgs(uri);
-        LinkActivated?.Invoke(this, args);
-        if (!args.Handled && uri.Scheme is "http" or "https" or "mailto")
-            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        base.OnMouseDown(e);
+        if (_document is { } doc)
+            doc.Input.HandlePointerDown(ToPointerEvent(e, ToButton(e.Button)));
     }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (_document is { } doc)
+            doc.Input.HandlePointerUp(ToPointerEvent(e, ToButton(e.Button)));
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _document?.Input.HandlePointerLeave();
+    }
+
+    private void OnDocumentLinkActivated(object? sender, Folio.LinkActivatedEventArgs e)
+    {
+        var args = new LinkActivatedEventArgs(e.Uri, e.Modifiers);
+        LinkActivated?.Invoke(this, args);
+        e.Handled = args.Handled;
+        if (!args.Handled && e.Uri.Scheme is "http" or "https" or "mailto")
+            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+    }
+
+    private PointerEvent ToPointerEvent(MouseEventArgs e, PointerButton button)
+    {
+        var pos = new System.Numerics.Vector2(e.Location.X / PixelScale, e.Location.Y / PixelScale + ScrollTop);
+        var buttons = PointerButtons.None;
+        if ((e.Button & MouseButtons.Left) != 0) buttons |= PointerButtons.Primary;
+        if ((e.Button & MouseButtons.Right) != 0) buttons |= PointerButtons.Secondary;
+        if ((e.Button & MouseButtons.Middle) != 0) buttons |= PointerButtons.Middle;
+
+        var modifiers = KeyModifiers.None;
+        if ((ModifierKeys & Keys.Alt) != 0) modifiers |= KeyModifiers.Alt;
+        if ((ModifierKeys & Keys.Control) != 0) modifiers |= KeyModifiers.Control;
+        if ((ModifierKeys & Keys.Shift) != 0) modifiers |= KeyModifiers.Shift;
+
+        return new PointerEvent(pos, button, buttons, e.Clicks, modifiers);
+    }
+
+    private static PointerButton ToButton(MouseButtons btn) => btn switch
+    {
+        MouseButtons.Left => PointerButton.Primary,
+        MouseButtons.Right => PointerButton.Secondary,
+        MouseButtons.Middle => PointerButton.Middle,
+        _ => PointerButton.None,
+    };
 
     private Uri? LinkAt(Point point) => _document?.LinkAt(point.X / PixelScale, point.Y / PixelScale + ScrollTop);
 

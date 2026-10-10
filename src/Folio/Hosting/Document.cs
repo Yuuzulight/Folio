@@ -143,6 +143,10 @@ public sealed class Document : IDisposable
     private Imaging.ImageLoader? _images;
     private bool _webFontsLoaded;
     private readonly Dictionary<ElementNode, Element> _elements = [];
+    private InputRouter? _inputRouter;
+
+    /// <summary>The input router for handling pointer, keyboard, and focus events on this document.</summary>
+    public InputRouter Input => _inputRouter ??= new InputRouter(this);
 
     /// <summary>The root element, or null for an empty document.</summary>
     public Element? DocumentElement => Node.DocumentElement is { } root ? Wrap(root) : null;
