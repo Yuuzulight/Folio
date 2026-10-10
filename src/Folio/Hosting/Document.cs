@@ -229,6 +229,42 @@ public sealed class Document : IDisposable
         return null;
     }
 
+    /// <summary>Computes the border-box bounds of an element on the canvas in CSS pixels.</summary>
+    internal RectF? GetElementBounds(ElementNode element)
+    {
+        if (element == Node.DocumentElement)
+            return _page is { } icb ? new RectF(0, 0, icb.Width, icb.Height) : null;
+
+        if (_page is not { } page)
+            return null;
+
+        RectF? found = null;
+        WalkFragment(page, 0, 0);
+        return found;
+
+        bool WalkFragment(Fragment frag, float currentX, float currentY)
+        {
+            if (frag.Box?.Node == element && frag.Kind == FragmentKind.Box)
+            {
+                found = new RectF(currentX, currentY, frag.Width, frag.Height);
+                return true;
+            }
+
+            var isScroller = frag.Box?.Node is ElementNode node && IsScrollContainer(node);
+            var scrollOffset = isScroller && frag.Box?.Node is ElementNode scrollerEl
+                && _scrollOffsets.TryGetValue(scrollerEl, out var offset) ? offset : Vector2.Zero;
+
+            foreach (var child in frag.Children)
+            {
+                var cx = currentX + child.X - (isScroller ? scrollOffset.X : 0);
+                var cy = currentY + child.Y - (isScroller ? scrollOffset.Y : 0);
+                if (WalkFragment(child.Fragment, cx, cy))
+                    return true;
+            }
+            return false;
+        }
+    }
+
     private (float ClientWidth, float ClientHeight, float ScrollWidth, float ScrollHeight) GetScrollMetrics(ElementNode element)
     {
         if (element == Node.DocumentElement && _page is { } icb)
@@ -262,6 +298,9 @@ public sealed class Document : IDisposable
 
         return (clientWidth, clientHeight, maxRight, maxBottom);
     }
+
+    internal (float ClientWidth, float ClientHeight, float ScrollWidth, float ScrollHeight) GetScrollMetricsForNode(ElementNode element) =>
+        GetScrollMetrics(element);
 
     internal bool IsScrollContainer(ElementNode element)
     {
