@@ -30,9 +30,10 @@ internal static class HitTester
 {
     /// <param name="point">Page coordinates in CSS pixels.</param>
     /// <param name="deviceScale">The scale the page was painted at, whose device pixels box edges snapped to.</param>
-    public static HitResult? Hit(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1)
+    /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
+    public static HitResult? Hit(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
     {
-        if (PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale) is not { } root)
+        if (PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { } root)
             return null;
         var visitor = new Visitor(point);
         PaintOrderWalker.Walk(root, visitor, frontToBack: true);

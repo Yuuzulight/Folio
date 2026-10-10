@@ -1,3 +1,4 @@
+using System.Numerics;
 using Folio.Css;
 using Folio.Dom;
 using Folio.Html;
@@ -207,10 +208,113 @@ public sealed class Document : IDisposable
             }
         }
     }
+
+    private readonly Dictionary<ElementNode, Vector2> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
     private Fragment? _page;
 
+    /// <summary>Finds the fragment laid out for an element node in the last layout, if any.</summary>
+    internal Fragment? FindFragment(ElementNode element)
+    {
+        if (_page is not { } page)
+            return null;
+        var stack = new Stack<Fragment>();
+        stack.Push(page);
+        while (stack.TryPop(out var frag))
+        {
+            if (frag.Box?.Node == element && frag.Kind == FragmentKind.Box)
+                return frag;
+            foreach (var child in frag.Children)
+                stack.Push(child.Fragment);
+        }
+        return null;
+    }
+
+    private (float ClientWidth, float ClientHeight, float ScrollWidth, float ScrollHeight) GetScrollMetrics(ElementNode element)
+    {
+        if (element == Node.DocumentElement && _page is { } icb)
+        {
+            var cw = icb.Width;
+            var ch = icb.Height;
+            var sw = Math.Max(cw, icb.Children.Select(c => c.X + c.Fragment.Width).DefaultIfEmpty(0).Max());
+            var sh = Math.Max(ch, icb.Children.Select(c => c.Y + c.Fragment.Height).DefaultIfEmpty(0).Max());
+            return (cw, ch, sw, sh);
+        }
+
+        if (FindFragment(element) is not { } frag)
+            return (0, 0, 0, 0);
+
+        var border = frag.Box?.Style.Border;
+        var clientWidth = Math.Max(0, frag.Width - (border?.LeftWidth ?? 0) - (border?.RightWidth ?? 0));
+        var clientHeight = Math.Max(0, frag.Height - (border?.TopWidth ?? 0) - (border?.BottomWidth ?? 0));
+
+        // Content extents: maximum reached by child fragments (measured from padding box origin)
+        var maxRight = clientWidth;
+        var maxBottom = clientHeight;
+        var bl = border?.LeftWidth ?? 0;
+        var bt = border?.TopWidth ?? 0;
+        foreach (var child in frag.Children)
+        {
+            var r = child.X - bl + child.Fragment.Width;
+            var b = child.Y - bt + child.Fragment.Height;
+            if (r > maxRight) maxRight = r;
+            if (b > maxBottom) maxBottom = b;
+        }
+
+        return (clientWidth, clientHeight, maxRight, maxBottom);
+    }
+
+    internal float GetScrollLeft(ElementNode element) =>
+        _scrollOffsets.TryGetValue(element, out var v) ? v.X : 0;
+
+    internal float GetScrollTop(ElementNode element) =>
+        _scrollOffsets.TryGetValue(element, out var v) ? v.Y : 0;
+
+    internal float GetClientWidth(ElementNode element) => GetScrollMetrics(element).ClientWidth;
+    internal float GetClientHeight(ElementNode element) => GetScrollMetrics(element).ClientHeight;
+    internal float GetScrollWidth(ElementNode element) => GetScrollMetrics(element).ScrollWidth;
+    internal float GetScrollHeight(ElementNode element) => GetScrollMetrics(element).ScrollHeight;
+
+    /// <summary>Scrolls an element to the given position, clamped to its scroll range.</summary>
+    public void ScrollTo(Element element, float x, float y)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        var (cw, ch, sw, sh) = GetScrollMetrics(element.Node);
+        var maxX = Math.Max(0, sw - cw);
+        var maxY = Math.Max(0, sh - ch);
+        var clamped = new Vector2(Math.Clamp(x, 0, maxX), Math.Clamp(y, 0, maxY));
+        _scrollOffsets[element.Node] = clamped;
+
+        if (_frame is { } frame && _images is not null)
+            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+    }
+
+    /// <summary>Scrolls the root document / viewport to the given coordinates.</summary>
+    public void ScrollTo(float x, float y)
+    {
+        if (DocumentElement is { } root)
+            ScrollTo(root, x, y);
+    }
+
+    /// <summary>The horizontal scroll offset of the root document.</summary>
+    public float ScrollLeft => DocumentElement is { } root ? root.ScrollLeft : 0;
+
+    /// <summary>The vertical scroll offset of the root document.</summary>
+    public float ScrollTop => DocumentElement is { } root ? root.ScrollTop : 0;
+
+    /// <summary>The scroll width of the root document.</summary>
+    public float ScrollWidth => DocumentElement is { } root ? root.ScrollWidth : (_page?.Width ?? 0);
+
+    /// <summary>The scroll height of the root document.</summary>
+    public float ScrollHeight => DocumentElement is { } root ? root.ScrollHeight : (_page?.Height ?? 0);
+
+    /// <summary>The client width of the root document.</summary>
+    public float ClientWidth => _page?.Width ?? 0;
+
+    /// <summary>The client height of the root document.</summary>
+    public float ClientHeight => _page?.Height ?? 0;
+
     internal HitResult? HitAt(float x, float y) =>
-        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1) : null;
+        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1, _scrollOffsets) : null;
 
     /// <summary>
     /// The element under a point of the last painted layout (page coordinates in CSS pixels): the one painted on top
@@ -368,7 +472,7 @@ public sealed class Document : IDisposable
         Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
-        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale);
+        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets);
         return (DisplayList, height);
     }
 
@@ -414,7 +518,7 @@ public sealed class Document : IDisposable
                 }
             }
         }
-        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale);
+        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
@@ -548,7 +652,7 @@ public sealed class Document : IDisposable
             }
             else
             {
-                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale);
+                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets);
                 return Damage.Paint;
             }
         }
@@ -578,7 +682,7 @@ public sealed class Document : IDisposable
             _page = page;
             LayoutCount++;
             _frame = (frameVal.Root, page, frameVal.Scale);
-            DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale);
+            DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale, _scrollOffsets);
             return Damage.Layout;
         }
 
@@ -598,7 +702,7 @@ public sealed class Document : IDisposable
             _page = page;
             LayoutCount++;
             _frame = (root, page, l.Scale);
-            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale);
+            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale, _scrollOffsets);
             return Damage.Boxes;
         }
 
