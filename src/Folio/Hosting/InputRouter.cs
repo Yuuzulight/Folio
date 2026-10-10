@@ -122,7 +122,77 @@ public sealed class InputRouter
     /// <summary>Mouse wheel or touchpad scroll event.</summary>
     public void HandleWheel(WheelEvent e)
     {
-        // Handled by scroll containers in #421/#422.
+        // 1. Convert delta according to DeltaMode
+        var delta = e.Delta;
+        switch (e.DeltaMode)
+        {
+            case WheelDeltaMode.Line:
+                // Standard default line height is ~16-20px (CSSOM / UI Events standard recommendation is 16px or line height)
+                delta *= 16f;
+                break;
+            case WheelDeltaMode.Page:
+                delta = new Vector2(delta.X * _document.ClientWidth, delta.Y * _document.ClientHeight);
+                break;
+        }
+
+        // 2. Shift+wheel scrolls horizontally
+        if ((e.Modifiers & KeyModifiers.Shift) != 0)
+        {
+            // If delta was vertical, move it to horizontal
+            if (delta.X == 0 && delta.Y != 0)
+                delta = new Vector2(delta.Y, 0);
+        }
+
+        if (delta == Vector2.Zero)
+            return;
+
+        // 3. Find hit element under pointer position
+        var hitTarget = _document.ElementAt(e.Position.X, e.Position.Y);
+        // Fall back to document root element if hitting empty canvas or nothing
+        hitTarget ??= _document.Node.DocumentElement;
+
+        // 4. Route delta from innermost container outward, chaining remaining delta
+        RouteWheelDelta(hitTarget, delta);
+    }
+
+    private void RouteWheelDelta(ElementNode? start, Vector2 initialDelta)
+    {
+        var remainingX = initialDelta.X;
+        var remainingY = initialDelta.Y;
+
+        for (Node? curr = start; curr is not null; curr = curr.Parent)
+        {
+            if (curr is not ElementNode el)
+                continue;
+
+            if (!_document.IsScrollContainer(el))
+                continue;
+
+            // Scroll container encountered.
+            // Check overscroll-behavior
+            var style = _document.FindFragment(el)?.Box?.Style;
+            var obx = style?.Box.OverscrollBehaviorX ?? Style.OverscrollBehavior.Auto;
+            var oby = style?.Box.OverscrollBehaviorY ?? Style.OverscrollBehavior.Auto;
+
+            // Attempt to consume remaining delta
+            var toConsume = new Vector2(remainingX, remainingY);
+            if (toConsume != Vector2.Zero)
+            {
+                var consumed = _document.ScrollBy(el, toConsume);
+                remainingX -= consumed.X;
+                remainingY -= consumed.Y;
+            }
+
+            // Check if overscroll-behavior prevents chaining on each axis
+            if (obx is Style.OverscrollBehavior.Contain or Style.OverscrollBehavior.None)
+                remainingX = 0;
+
+            if (oby is Style.OverscrollBehavior.Contain or Style.OverscrollBehavior.None)
+                remainingY = 0;
+
+            if (remainingX == 0 && remainingY == 0)
+                break;
+        }
     }
 
     /// <summary>Key press.</summary>

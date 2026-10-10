@@ -154,4 +154,148 @@ public class ScrollContainerTests
         doc.ScrollTo(0, 300);
         Assert.Equal(300, doc.ScrollTop);
     }
+
+    [Fact]
+    public void WheelRoutingNestedContainersChainAtEdge()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; overflow: scroll; }
+              #outer { width: 300px; height: 300px; overflow: scroll; }
+              #inner { width: 200px; height: 200px; overflow: scroll; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=outer>
+              <div id=inner>
+                <div class=spacer></div>
+              </div>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var inner = doc.GetElementById("inner")!;
+        var outer = doc.GetElementById("outer")!;
+
+        // Pointer is at (50, 50), directly inside #inner
+        // 1. Wheel scroll within #inner bounds: #inner consumes it
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 100)));
+        Assert.Equal(100, inner.ScrollTop);
+        Assert.Equal(0, outer.ScrollTop);
+
+        // Max scroll for inner is 1000 - 200 = 800.
+        // Scroll by 800 more: inner reaches 800 (max), remaining 100 chains to outer!
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 800)));
+        Assert.Equal(800, inner.ScrollTop);
+        Assert.Equal(100, outer.ScrollTop);
+
+        // When inner is already at max, further scroll chains completely to outer
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 50)));
+        Assert.Equal(800, inner.ScrollTop);
+        Assert.Equal(150, outer.ScrollTop);
+    }
+
+    [Fact]
+    public void OverscrollBehaviorContainStopsChaining()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #outer { width: 300px; height: 300px; overflow: scroll; }
+              #inner { width: 200px; height: 200px; overflow: scroll; overscroll-behavior: contain; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=outer>
+              <div id=inner>
+                <div class=spacer></div>
+              </div>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var inner = doc.GetElementById("inner")!;
+        var outer = doc.GetElementById("outer")!;
+
+        Assert.Equal("contain", inner.OverscrollBehaviorX);
+        Assert.Equal("contain", inner.OverscrollBehaviorY);
+
+        // Scroll inner past its max (max is 800). Delta is 1000.
+        // Inner should clamp to 800, and outer should NOT receive the remaining 200!
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 1000)));
+        Assert.Equal(800, inner.ScrollTop);
+        Assert.Equal(0, outer.ScrollTop);
+
+        // Scrolling further at boundary still does not chain
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 100)));
+        Assert.Equal(800, inner.ScrollTop);
+        Assert.Equal(0, outer.ScrollTop);
+    }
+
+    [Fact]
+    public void ShiftWheelScrollsHorizontally()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #scroller { width: 200px; height: 200px; overflow: scroll; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=scroller>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var scroller = doc.GetElementById("scroller")!;
+
+        // Vertical delta with Shift modifier should scroll horizontally
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 120), Modifiers: KeyModifiers.Shift));
+        Assert.Equal(120, scroller.ScrollLeft);
+        Assert.Equal(0, scroller.ScrollTop);
+    }
+
+    [Fact]
+    public void DeltaModesConvertLineAndPage()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #scroller { width: 200px; height: 200px; overflow: scroll; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=scroller>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var scroller = doc.GetElementById("scroller")!;
+
+        // 1. Line mode: 3 lines = 3 * 16 = 48px
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 3), DeltaMode: WheelDeltaMode.Line));
+        Assert.Equal(48, scroller.ScrollTop);
+
+        // 2. High-precision fractional pixel delta
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 12.5f), DeltaMode: WheelDeltaMode.Pixel));
+        Assert.Equal(60.5f, scroller.ScrollTop);
+
+        // 3. Page mode: viewport client height is 600
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 1), DeltaMode: WheelDeltaMode.Page));
+        // 60.5 + 600 = 660.5
+        Assert.Equal(660.5f, scroller.ScrollTop);
+    }
 }
+

@@ -263,6 +263,45 @@ public sealed class Document : IDisposable
         return (clientWidth, clientHeight, maxRight, maxBottom);
     }
 
+    internal bool IsScrollContainer(ElementNode element)
+    {
+        if (element == Node.DocumentElement)
+            return true;
+        if (FindFragment(element)?.Box is { } box)
+        {
+            var (ox, oy) = (box.Style.Box.OverflowX, box.Style.Box.OverflowY);
+            return ox is Overflow.Scroll or Overflow.Auto or Overflow.Hidden
+                || oy is Overflow.Scroll or Overflow.Auto or Overflow.Hidden;
+        }
+        return false;
+    }
+
+    internal Vector2 ScrollBy(ElementNode element, Vector2 delta)
+    {
+        var (cw, ch, sw, sh) = GetScrollMetrics(element);
+        var maxX = Math.Max(0, sw - cw);
+        var maxY = Math.Max(0, sh - ch);
+
+        var current = _scrollOffsets.TryGetValue(element, out var v) ? v : Vector2.Zero;
+        var targetX = current.X + delta.X;
+        var targetY = current.Y + delta.Y;
+
+        var clampedX = Math.Clamp(targetX, 0, maxX);
+        var clampedY = Math.Clamp(targetY, 0, maxY);
+
+        var consumedX = clampedX - current.X;
+        var consumedY = clampedY - current.Y;
+
+        if (clampedX != current.X || clampedY != current.Y)
+        {
+            _scrollOffsets[element] = new Vector2(clampedX, clampedY);
+            if (_frame is { } frame && _images is not null)
+                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+        }
+
+        return new Vector2(consumedX, consumedY);
+    }
+
     internal float GetScrollLeft(ElementNode element) =>
         _scrollOffsets.TryGetValue(element, out var v) ? v.X : 0;
 

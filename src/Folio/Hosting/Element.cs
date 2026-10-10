@@ -117,5 +117,11 @@ public sealed class Element
     /// <summary>Scrolls this element to the given position in CSS pixels.</summary>
     public void ScrollTo(float x, float y) => _document.ScrollTo(this, x, y);
 
+    /// <summary>The computed overscroll-behavior-x value ("auto", "contain", or "none").</summary>
+    public string OverscrollBehaviorX => _document.FindFragment(Node)?.Box?.Style.Box.OverscrollBehaviorX.ToString().ToLowerInvariant() ?? "auto";
+
+    /// <summary>The computed overscroll-behavior-y value ("auto", "contain", or "none").</summary>
+    public string OverscrollBehaviorY => _document.FindFragment(Node)?.Box?.Style.Box.OverscrollBehaviorY.ToString().ToLowerInvariant() ?? "auto";
+
     public override string ToString() => $"<{LocalName}>";
 }

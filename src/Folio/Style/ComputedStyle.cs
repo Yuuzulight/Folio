@@ -44,6 +44,8 @@ internal enum PointerEvents { Auto, None }
 
 internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
+internal enum OverscrollBehavior { Auto, Contain, None }
+
 internal enum Isolation { Auto, Isolate }
 
 internal enum VerticalAlignKind { Baseline, Sub, Super, TextTop, TextBottom, Middle, Top, Bottom, Length }
@@ -291,12 +293,14 @@ internal sealed record BoxGroup(
     Display Display, Position Position, FloatSide Float, Clear Clear, BoxSizing BoxSizing,
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
     VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto,
-    TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto")
+    TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto",
+    OverscrollBehavior OverscrollBehaviorX = OverscrollBehavior.Auto, OverscrollBehavior OverscrollBehaviorY = OverscrollBehavior.Auto)
 {
     public bool Equals(BoxGroup? o) => o is not null && Display == o.Display && Position == o.Position && Float == o.Float && Clear == o.Clear
         && BoxSizing == o.BoxSizing && OverflowX == o.OverflowX && OverflowY == o.OverflowY && ZIndex == o.ZIndex && Opacity.Equals(o.Opacity)
         && Isolation == o.Isolation && VerticalAlign.Equals(o.VerticalAlign) && UnicodeBidi == o.UnicodeBidi && TableLayout == o.TableLayout
-        && TextOverflow == o.TextOverflow && LineClamp == o.LineClamp && ScrollbarGutter == o.ScrollbarGutter && ScrollbarWidth == o.ScrollbarWidth;
+        && TextOverflow == o.TextOverflow && LineClamp == o.LineClamp && ScrollbarGutter == o.ScrollbarGutter && ScrollbarWidth == o.ScrollbarWidth
+        && OverscrollBehaviorX == o.OverscrollBehaviorX && OverscrollBehaviorY == o.OverscrollBehaviorY;
 
     public override int GetHashCode() => StyleEquality.Hash((int)Display, (int)Position, (int)Float, (int)OverflowX, (int)OverflowY,
         ZIndex.GetValueOrDefault(), Opacity.GetHashCode(), VerticalAlign.GetHashCode());

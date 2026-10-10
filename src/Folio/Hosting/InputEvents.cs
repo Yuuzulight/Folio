@@ -41,10 +41,18 @@ public readonly record struct PointerEvent(
     int ClickCount = 0,
     KeyModifiers Modifiers = KeyModifiers.None);
 
+public enum WheelDeltaMode
+{
+    Pixel = 0,
+    Line = 1,
+    Page = 2,
+}
+
 public readonly record struct WheelEvent(
     Vector2 Position,
     Vector2 Delta,
-    KeyModifiers Modifiers = KeyModifiers.None);
+    KeyModifiers Modifiers = KeyModifiers.None,
+    WheelDeltaMode DeltaMode = WheelDeltaMode.Pixel);
 
 public readonly record struct KeyEvent(
     string Key,
