@@ -18,10 +18,11 @@ internal static class DisplayListBuilder
 {
     /// <param name="images">Loads url() images for backgrounds; without one, they are not painted.</param>
     /// <param name="deviceScale">Device pixels per CSS pixel, which box edges and text baselines snap to.</param>
-    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1)
+    /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
+    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
     {
         var list = new DisplayList();
-        if (StackingTree(initialContainingBlock, deviceScale) is not { Owner: { } rootBox } rootContext)
+        if (StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { Owner: { } rootBox } rootContext)
             return list;
 
         // The root's background, or else the body's, paints the whole canvas (css-backgrounds-3 §2.11.2).

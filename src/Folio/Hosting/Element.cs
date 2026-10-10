@@ -88,5 +88,34 @@ public sealed class Element
         return child;
     }
 
+    /// <summary>The horizontal scroll offset of this element in CSS pixels.</summary>
+    public float ScrollLeft
+    {
+        get => _document.GetScrollLeft(Node);
+        set => _document.ScrollTo(this, value, ScrollTop);
+    }
+
+    /// <summary>The vertical scroll offset of this element in CSS pixels.</summary>
+    public float ScrollTop
+    {
+        get => _document.GetScrollTop(Node);
+        set => _document.ScrollTo(this, ScrollLeft, value);
+    }
+
+    /// <summary>The inner scroll width of this element in CSS pixels.</summary>
+    public float ScrollWidth => _document.GetScrollWidth(Node);
+
+    /// <summary>The inner scroll height of this element in CSS pixels.</summary>
+    public float ScrollHeight => _document.GetScrollHeight(Node);
+
+    /// <summary>The inner client width of this element in CSS pixels (padding box width, excluding borders and scrollbars).</summary>
+    public float ClientWidth => _document.GetClientWidth(Node);
+
+    /// <summary>The inner client height of this element in CSS pixels (padding box height, excluding borders and scrollbars).</summary>
+    public float ClientHeight => _document.GetClientHeight(Node);
+
+    /// <summary>Scrolls this element to the given position in CSS pixels.</summary>
+    public void ScrollTo(float x, float y) => _document.ScrollTo(this, x, y);
+
     public override string ToString() => $"<{LocalName}>";
 }

@@ -101,7 +101,8 @@ internal static class PaintOrderWalker
 {
     /// <summary>The root element's stacking context with all it holds, or null when the document has no root box.</summary>
     /// <param name="deviceScale">Device pixels per CSS pixel, which box edges and text baselines snap to.</param>
-    internal static Context? StackingTree(Fragment initialContainingBlock, float deviceScale = 1)
+    /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
+    internal static Context? StackingTree(Fragment initialContainingBlock, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
     {
         if (initialContainingBlock.Children is not [var rootPlaced, ..])
             return null;
@@ -117,9 +118,9 @@ internal static class PaintOrderWalker
         // A replaced root element (the svg root of an SVG document) paints its content like any replaced box.
         if (root.Svg is not null || root.Box is ReplacedBox { Image: not null })
             rootContext.Text.Add(rootBox);
-        Collect(rootContext, rootContext, rootBox, root.Children, order);
+        Collect(rootContext, rootContext, rootBox, root.Children, order, scrollOffsets);
         Collect(rootContext, rootContext, new PaintBox(initialContainingBlock, 0, 0, null, Scale: deviceScale) { Around = atViewport },
-            initialContainingBlock.Children.Slice(1), order);
+            initialContainingBlock.Children.Slice(1), order, scrollOffsets);
         // The root group blends with the canvas background, which is painted outside it.
         rootContext.Isolated = false;
         return rootContext;
@@ -136,21 +137,28 @@ internal static class PaintOrderWalker
     }
 
     /// <summary>
-    /// How far a sticky box moves at the scroll position Folio draws (the start): up to keep its bottom inset from the
-    /// scrollport's bottom, then down to keep its top inset from the top, never leaving the box it sits in
-    /// (https://www.w3.org/TR/css-position-3/#stickypos-insets).
+    /// How far a sticky box moves at the scroll position Folio draws: up to keep its bottom inset from the
+    /// scrollport's bottom, down to keep its top inset from the top, and horizontally for left/right insets,
+    /// never leaving the box it sits in (https://www.w3.org/TR/css-position-3/#stickypos-insets).
     /// </summary>
-    // ponytail: vertical insets only; left and right stickiness waits for horizontal scrolling.
-    private static float StickyOffset(Box box, PaintBox placed)
+    private static Vector2 StickyOffset(Box box, PaintBox placed)
     {
         var (spacing, port, limit) = (box.Style.Spacing, placed.Scrollport, placed.StickyLimit);
         var (top, bottom) = (placed.Y, placed.Y + placed.Fragment.Height);
+        var (left, right) = (placed.X, placed.X + placed.Fragment.Width);
         var dy = 0f;
         if (spacing.Bottom is { Kind: SizeKind.Length } b && bottom > port.Y + port.Height - b.Length.Resolve(port.Height))
             dy = Math.Max(port.Y + port.Height - b.Length.Resolve(port.Height) - bottom, Math.Min(0, limit.Y - top));
         if (spacing.Top is { Kind: SizeKind.Length } t && top + dy < port.Y + t.Length.Resolve(port.Height))
             dy = Math.Min(port.Y + t.Length.Resolve(port.Height) - top, Math.Max(dy, limit.Y + limit.Height - bottom));
-        return dy;
+
+        var dx = 0f;
+        if (spacing.Right is { Kind: SizeKind.Length } r && right > port.X + port.Width - r.Length.Resolve(port.Width))
+            dx = Math.Max(port.X + port.Width - r.Length.Resolve(port.Width) - right, Math.Min(0, limit.X - left));
+        if (spacing.Left is { Kind: SizeKind.Length } l && left + dx < port.X + l.Length.Resolve(port.Width))
+            dx = Math.Min(port.X + l.Length.Resolve(port.Width) - left, Math.Max(dx, limit.X + limit.Width - right));
+
+        return new Vector2(dx, dy);
     }
 
     private static bool IsWholeTranslation(Matrix3x2 m, float scale) =>
@@ -160,13 +168,16 @@ internal static class PaintOrderWalker
     // A single-line select is built as a block container holding its chosen option's text.
     internal static bool IsDropDown(Box box) => box is BlockContainerBox { Node: Dom.ElementNode { LocalName: "select" } };
 
-    private static void Collect(Context context, Context real, PaintBox parent, ChildList children, Dictionary<Box, int> order)
+    private static void Collect(Context context, Context real, PaintBox parent, ChildList children, Dictionary<Box, int> order, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets)
     {
         // Content that nests deeper than the stack allows is left out rather than overflowing it, as layout does.
         if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
             return;
         var childClip = OverflowClip(parent) is { } shape ? new ClipNode(parent.Clip, shape) : parent.Clip;
-        var port = parent.Fragment.Box is { } scroller && IsScrollContainer(scroller) ? PaddingBox(parent) : parent.Scrollport;
+        var isScroller = parent.Fragment.Box is { } scrollerBox && IsScrollContainer(scrollerBox);
+        var port = isScroller ? PaddingBox(parent) : parent.Scrollport;
+        var scrollOffset = isScroller && parent.Fragment.Box?.Node is ElementNode scrollerEl && scrollOffsets is not null
+            && scrollOffsets.TryGetValue(scrollerEl, out var offset) ? offset : Vector2.Zero;
         // A cell's containing block is the table, so rows and row groups pass their limit through.
         var limit = parent.Fragment.Box is TablePartBox { Part: not (TablePart.Table or TablePart.Cell or TablePart.Caption) } ? parent.StickyLimit
             : parent.Fragment.Box is BlockContainerBox or FlexContainerBox or GridContainerBox ? parent.Rect : parent.StickyLimit;
@@ -189,16 +200,19 @@ internal static class PaintOrderWalker
             // subtree are drawn through the transform (docs/study/12-painting.md).
             var scale = child.Fragment.Box is { IsTransformed: true } transformed
                 && !IsWholeTranslation(transformed.Style.Transform.Matrix2D(child.Fragment.Width, child.Fragment.Height), parent.Scale) ? 0 : parent.Scale;
-            var placed = new PaintBox(child.Fragment, parent.X + child.X, parent.Y + child.Y, childClip, child.Fragment == lastOnLine, scale) { Around = around };
+            var placed = new PaintBox(child.Fragment, parent.X + child.X - scrollOffset.X, parent.Y + child.Y - scrollOffset.Y, childClip, child.Fragment == lastOnLine, scale) { Around = around };
             if (around.Cells is { } cells && child.Fragment is { PaintedBorder: not null, Box: TablePartBox { Part: TablePart.Cell } })
                 cells.Add(placed);
             // A cell's content fragment shares the cell's box; the cell has already been moved.
             if (child.Fragment.Box is { Style.Box.Position: Position.Sticky } sticky && sticky != parent.Fragment.Box)
-                placed = placed with { Y = placed.Y + StickyOffset(sticky, placed) };
+            {
+                var stickyOffset = StickyOffset(sticky, placed);
+                placed = placed with { X = placed.X + stickyOffset.X, Y = placed.Y + stickyOffset.Y };
+            }
             // Line boxes only hold inline content; text is painted with text painting.
             if (child.Fragment.Kind == FragmentKind.Line)
             {
-                Collect(context, real, placed, child.Fragment.Children, order);
+                Collect(context, real, placed, child.Fragment.Children, order, scrollOffsets);
                 continue;
             }
             // A marker drawn as a shape paints with the text, like the marker text it stands for.
@@ -225,7 +239,7 @@ internal static class PaintOrderWalker
             if (box is TablePartBox { Part: TablePart.Table })
             {
                 context.Blocks.Add(placed);
-                Collect(context, real, placed, placed.Fragment.Children, order);
+                Collect(context, real, placed, placed.Fragment.Children, order, scrollOffsets);
             }
             else if (CreatesStackingContext(box))
             {
@@ -238,27 +252,27 @@ internal static class PaintOrderWalker
                 if (outlined && ownOutline)
                     c.Outlines.Add(placed);
                 AddContent(c);
-                Collect(c, c, placed, placed.Fragment.Children, order);
+                Collect(c, c, placed, placed.Fragment.Children, order, scrollOffsets);
             }
             else if (style.Position != Position.Static)
             {
                 var c = new Context(placed, real: false, 0, index);
                 real.ZeroOrAuto.Add(c);
                 AddContent(c);
-                Collect(c, real, placed, placed.Fragment.Children, order);
+                Collect(c, real, placed, placed.Fragment.Children, order, scrollOffsets);
             }
             else if (box.IsFloat)
             {
                 var c = new Context(placed, real: false, 0, index);
                 context.Floats.Add(c);
                 AddContent(c);
-                Collect(c, real, placed, placed.Fragment.Children, order);
+                Collect(c, real, placed, placed.Fragment.Children, order, scrollOffsets);
             }
             else
             {
                 context.Blocks.Add(placed);
                 AddContent(context);
-                Collect(context, real, placed, placed.Fragment.Children, order);
+                Collect(context, real, placed, placed.Fragment.Children, order, scrollOffsets);
             }
 
             void AddContent(Context target)
