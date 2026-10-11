@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <Description>Script engine abstraction, script values, limits, host object templates and evaluation results.</Description>
+  </PropertyGroup>
+
+</Project>
