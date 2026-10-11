@@ -84,4 +84,52 @@ public class ConformanceTests
 
         Assert.Equal("from row 50, within x 170-170, y 50-59; scattered", Conformance.Diagnose(reference, actual, diff));
     }
+
+    [Fact]
+    public void InteractionScriptExecutesCommandsAndAssertions()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; }
+              button { width: 100px; height: 30px; }
+              input { width: 120px; height: 24px; }
+              details[open] .content { color: red; }
+            </style>
+            <details id=det><summary id=sum>Toggle</summary><div class=content id=cnt>Open text</div></details>
+            <input id=txt type=text value=''>
+            """;
+        using var doc = Document.Parse(html);
+        string[] script =
+        [
+            "exists #det",
+            "exists #sum",
+            "text #sum Toggle",
+            "click #sum",
+            "exists #cnt",
+            "text #cnt Open text",
+            "type #txt hello",
+            "hover #sum",
+            "wait 10",
+        ];
+
+        var err = Conformance.RunScript(doc, script, 800, 600);
+        Assert.Null(err);
+        Assert.Equal("hello", doc.QuerySelector("#txt")!.Value);
+    }
+
+    [Fact]
+    public void InteractionScriptFailsOnMissingElementOrAssertionMismatch()
+    {
+        const string html = "<!DOCTYPE html><div id=box>hello</div>";
+        using var doc = Document.Parse(html);
+
+        var errNotFound = Conformance.RunScript(doc, ["click #nonexistent"], 800, 600);
+        Assert.NotNull(errNotFound);
+        Assert.Contains("element not found", errNotFound);
+
+        var errMismatch = Conformance.RunScript(doc, ["text #box world"], 800, 600);
+        Assert.NotNull(errMismatch);
+        Assert.Contains("text mismatch", errMismatch);
+    }
 }

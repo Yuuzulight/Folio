@@ -28,6 +28,7 @@ public enum ConformanceOutcome
     Crash,
     Hang,
     LimitHit,
+    ScriptFailed,
 }
 
 public sealed record ConformanceResult(ConformanceArtifact Artifact, ConformanceOutcome Outcome, string? Detail)
@@ -112,8 +113,14 @@ public static class Conformance
         var render = Task.Run(() =>
         {
             using var document = Document.Parse(html, Options);
+            if (manifest.Interaction is { Length: > 0 } script)
+            {
+                var scriptResult = RunScript(document, script, manifest.Viewport, reference?.Height);
+                if (scriptResult is not null)
+                    return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
+            }
             using var result = HeadlessRenderer.Render(document, request);
-            return (Image: new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray()), result.Diagnostics);
+            return (Image: (PixelBuffer?)new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray()), result.Diagnostics, ScriptFailure: (string?)null);
         });
         try
         {
@@ -126,27 +133,137 @@ public static class Conformance
             return new(artifact, ConformanceOutcome.Crash, $"{inner.GetType().Name}: {inner.Message.Split('\n')[0]}");
         }
 
-        var (actual, diagnostics) = render.Result;
-        var outputBase = OutputBase(artifact);
+        var (actual, diagnostics, scriptFailure) = render.Result;
+        if (scriptFailure is not null)
+            return new(artifact, ConformanceOutcome.ScriptFailed, scriptFailure);
+
+        var outputBase = OutputBase(artifact!);
         RenderOutput.Clear(outputBase);
         if (diagnostics.FirstOrDefault(d => d.Code == DiagnosticCode.LimitExceeded) is { } limit)
         {
-            RenderOutput.Write(outputBase, actual);
+            RenderOutput.Write(outputBase, actual!);
             return new(artifact, ConformanceOutcome.LimitHit, limit.Message);
         }
         if (reference is null)
             return new(artifact, ConformanceOutcome.NoReference, null);
 
         var tolerance = manifest.Tolerance is { } t ? Tolerance.Conformance with { ChannelThreshold = t.ChannelThreshold, MaxDifferingRatio = t.MaxDifferingRatio } : Tolerance.Conformance;
-        var primary = ImageComparer.Compare(reference, actual, tolerance);
+        var primary = ImageComparer.Compare(reference, actual!, tolerance);
         if (primary.Passed)
             return new(artifact, ConformanceOutcome.Pass, null);
 
-        RenderOutput.Write(outputBase, actual, reference, primary.Diff);
-        if (secondary is not null && ImageComparer.Compare(secondary, actual, tolerance).Passed)
+        RenderOutput.Write(outputBase, actual!, reference, primary.Diff);
+        if (secondary is not null && ImageComparer.Compare(secondary, actual!, tolerance).Passed)
             return new(artifact, ConformanceOutcome.PassSecondary, "matches only the secondary reference; review");
         return new(artifact, ConformanceOutcome.Mismatch, string.Create(CultureInfo.InvariantCulture,
-            $"{primary.DifferingRatio * 100:F1}% of pixels differ ({actual.Width}x{actual.Height} vs {reference.Width}x{reference.Height}); {Diagnose(reference, actual, primary.Diff)}"));
+            $"{primary.DifferingRatio * 100:F1}% of pixels differ ({actual!.Width}x{actual.Height} vs {reference.Width}x{reference.Height}); {Diagnose(reference, actual, primary.Diff)}"));
+    }
+
+    /// <summary>
+    /// Executes a sequence of interaction script commands on a document (docs/study/19-testing.md):
+    /// <c>click &lt;selector&gt;</c>, <c>hover &lt;selector&gt;</c>, <c>type &lt;selector&gt; &lt;text&gt;</c>,
+    /// <c>key &lt;key&gt;</c>, <c>wheel &lt;selector&gt; &lt;dx&gt; &lt;dy&gt;</c>, <c>wait &lt;ms&gt;</c>,
+    /// and assertions <c>text &lt;selector&gt; &lt;expected&gt;</c>, <c>exists &lt;selector&gt;</c>.
+    /// Returns null on success, or an error description string on failure.
+    /// </summary>
+    public static string? RunScript(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight)
+    {
+        document.Paint(viewportWidth, viewportHeight ?? 600);
+
+        for (var i = 0; i < script.Count; i++)
+        {
+            var line = script[i].Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+
+            var parts = line.Split(' ', 2, StringSplitOptions.TrimEntries);
+            var cmd = parts[0].ToLowerInvariant();
+            var arg = parts.Length > 1 ? parts[1] : "";
+
+            switch (cmd)
+            {
+                case "click":
+                {
+                    var el = document.QuerySelector(arg);
+                    if (el is null)
+                        return $"step {i + 1} ({line}): element not found '{arg}'";
+                    el.Click();
+                    break;
+                }
+                case "hover":
+                {
+                    var el = document.QuerySelector(arg);
+                    if (el is null)
+                        return $"step {i + 1} ({line}): element not found '{arg}'";
+                    var bounds = document.GetElementBounds(el.Node);
+                    if (bounds is { } b)
+                        document.Input.HandlePointerMove(new PointerEvent(new System.Numerics.Vector2(b.X + b.Width / 2, b.Y + b.Height / 2)));
+                    document.Update();
+                    break;
+                }
+                case "type":
+                {
+                    var typeParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
+                    if (typeParts.Length < 2)
+                        return $"step {i + 1} ({line}): expected selector and text";
+                    var el = document.QuerySelector(typeParts[0]);
+                    if (el is null)
+                        return $"step {i + 1} ({line}): element not found '{typeParts[0]}'";
+                    el.Focus();
+                    document.Input.HandleTextInput(new TextInputEvent(typeParts[1]));
+                    break;
+                }
+                case "key":
+                {
+                    document.Input.HandleKeyDown(new KeyEvent(arg, arg, KeyModifiers.None));
+                    document.Input.HandleKeyUp(new KeyEvent(arg, arg, KeyModifiers.None));
+                    break;
+                }
+                case "wheel":
+                {
+                    var wheelParts = arg.Split(' ', 3, StringSplitOptions.TrimEntries);
+                    if (wheelParts.Length < 3 || !float.TryParse(wheelParts[1], CultureInfo.InvariantCulture, out var dx) || !float.TryParse(wheelParts[2], CultureInfo.InvariantCulture, out var dy))
+                        return $"step {i + 1} ({line}): expected selector, dx, and dy";
+                    var el = document.QuerySelector(wheelParts[0]);
+                    if (el is null)
+                        return $"step {i + 1} ({line}): element not found '{wheelParts[0]}'";
+                    var bounds = document.GetElementBounds(el.Node);
+                    var pos = bounds is { } b ? new System.Numerics.Vector2(b.X + b.Width / 2, b.Y + b.Height / 2) : System.Numerics.Vector2.Zero;
+                    document.Input.HandleWheel(new WheelEvent(pos, new System.Numerics.Vector2(dx, dy)));
+                    break;
+                }
+                case "wait":
+                {
+                    document.Update();
+                    break;
+                }
+                case "exists":
+                {
+                    var el = document.QuerySelector(arg);
+                    if (el is null)
+                        return $"step {i + 1} ({line}): assertion failed, element does not exist '{arg}'";
+                    break;
+                }
+                case "text":
+                {
+                    var textParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
+                    if (textParts.Length < 2)
+                        return $"step {i + 1} ({line}): expected selector and text";
+                    var el = document.QuerySelector(textParts[0]);
+                    if (el is null)
+                        return $"step {i + 1} ({line}): element not found '{textParts[0]}'";
+                    var actualText = el.TextContent.Trim();
+                    var expectedText = textParts[1].Trim();
+                    if (!string.Equals(actualText, expectedText, StringComparison.Ordinal))
+                        return $"step {i + 1} ({line}): text mismatch. Expected '{expectedText}', got '{actualText}'";
+                    break;
+                }
+                default:
+                    return $"step {i + 1} ({line}): unknown command '{cmd}'";
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -245,7 +362,7 @@ public static class Conformance
 
     private static PixelBuffer? LoadIfExists(string path) => File.Exists(path) ? PixelBuffer.LoadPng(path) : null;
 
-    public sealed record Manifest(string? Prompt = null, string[]? Features = null, int Viewport = 800, ToleranceOverride? Tolerance = null);
+    public sealed record Manifest(string? Prompt = null, string[]? Features = null, int Viewport = 800, ToleranceOverride? Tolerance = null, string[]? Interaction = null);
 
     public sealed record ToleranceOverride(int ChannelThreshold, double MaxDifferingRatio, string? Reason);
 }
