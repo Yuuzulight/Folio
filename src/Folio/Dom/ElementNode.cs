@@ -30,6 +30,21 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>The display text of a text control as presented on screen (masked for password, etc.).</summary>
     internal string? DisplayValue { get; set; }
 
+    /// <summary>The current checked state of a checkbox or radio button (separate from the 'checked' content attribute).</summary>
+    public bool? Checked { get; set; }
+
+    /// <summary>The indeterminate state of a checkbox.</summary>
+    public bool Indeterminate { get; set; }
+
+    /// <summary>The current selected state of an option element (separate from the 'selected' content attribute).</summary>
+    public bool? Selected { get; set; }
+
+    /// <summary>Whether this checkbox, radio, or option is currently checked/selected.</summary>
+    public bool IsChecked => Checked ?? (GetAttribute("checked") is not null);
+
+    /// <summary>Whether this option is currently selected.</summary>
+    public bool IsSelected => Selected ?? (GetAttribute("selected") is not null);
+
     /// <summary>Whether this form control is disabled (directly or by an ancestor fieldset).</summary>
     internal bool IsDisabled => IsDisabledControl(this);
 
@@ -100,6 +115,24 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
         OnMutated(MutationKind.Attributes);
     }
 
+    /// <summary>Removes an attribute from the element.</summary>
+    public bool RemoveAttribute(string name)
+    {
+        var atom = OwnerDocument.Find(name);
+        if (atom.IsNone)
+            return false;
+        var index = Array.FindIndex(_attributes, a => a.Name == atom);
+        if (index < 0)
+            return false;
+        var newAttrs = new Attribute[_attributes.Length - 1];
+        Array.Copy(_attributes, 0, newAttrs, 0, index);
+        Array.Copy(_attributes, index + 1, newAttrs, index, _attributes.Length - index - 1);
+        _attributes = newAttrs;
+        Reflect(name, "");
+        OnMutated(MutationKind.Attributes);
+        return true;
+    }
+
     /// <summary>Sets all attributes of a new element at once (the parser; names are already unique).</summary>
     internal void SetParsedAttributes(Attribute[] attributes)
     {
@@ -119,7 +152,7 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
                 Id = value.Length == 0 ? Atom.None : OwnerDocument.Intern(value);
                 break;
             case "class":
-                Classes = value.Split(AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries)
+                Classes = value.Length == 0 ? [] : value.Split(AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries)
                     .Distinct(StringComparer.Ordinal)
                     .Select(OwnerDocument.Intern)
                     .ToArray();

@@ -13,6 +13,7 @@ internal enum NodeFlags : byte
     Focus = 1 << 4,
     FocusVisible = 1 << 5,
     Target = 1 << 6,
+    Checked = 1 << 7,
 }
 
 internal enum MutationKind
@@ -96,6 +97,16 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
         {
             for (var child = FirstChild; child is not null; child = child.NextSibling)
                 yield return child;
+        }
+    }
+
+    /// <summary>Every descendant node in tree order.</summary>
+    public IEnumerable<Node> Descendants
+    {
+        get
+        {
+            for (var node = FirstChild; node is not null; node = node.NextInTree(this))
+                yield return node;
         }
     }
 

@@ -48,6 +48,7 @@ internal enum PseudoClass
     FocusVisible,
     FocusWithin,
     Checked,
+    Indeterminate,
     Disabled,
     Enabled,
     Defined,

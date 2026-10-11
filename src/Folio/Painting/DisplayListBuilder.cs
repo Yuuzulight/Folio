@@ -521,7 +521,9 @@ internal static class DisplayListBuilder
             }
             if (box.Fragment.Kind == FragmentKind.Box)
             {
-                if (IsDropDown(box.Box))
+                if (box.Box is ReplacedBox { Kind: ReplacedKind.FormControl } formControlBox)
+                    PaintFormControl(box, formControlBox);
+                else if (IsDropDown(box.Box))
                     PaintDropDownArrow(box);
                 else if (box.Fragment.Svg is { } svg)
                     PaintSvg(box, svg);
@@ -1412,6 +1414,90 @@ internal static class DisplayListBuilder
         /// padding box and halfway down (study 15: static appearance).
         /// </summary>
         // ponytail: one chevron size for every font size; scale it when a page shows controls at other sizes.
+        private void PaintFormControl(PaintBox box, ReplacedBox formBox)
+        {
+            if (formBox.Node is not Dom.ElementNode element)
+                return;
+            var style = formBox.Style;
+            if (style.Inherited.Visibility != Visibility.Visible)
+                return;
+
+            SetClip(box.Clip);
+            var rect = box.Rect;
+            var accentColor = style.Ui.AccentColor ?? new CssColor(0x00 / 255f, 0x5a / 255f, 0x9e / 255f, 1f); // Default modern OS blue accent
+            var whiteColor = new CssColor(1f, 1f, 1f, 1f);
+            var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+
+            if (type == "checkbox")
+            {
+                var r2 = new CornerRadii(new Vector2(2, 2), new Vector2(2, 2), new Vector2(2, 2), new Vector2(2, 2));
+                if (element.Indeterminate)
+                {
+                    // Filled accent-color box + white dash
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, r2), accentColor));
+                    var dashY = rect.Y + rect.Height / 2;
+                    var dash = new PathData().MoveTo(rect.X + 3f, dashY).LineTo(rect.Right - 3f, dashY);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: whiteColor, Path: dash, Stroke: new Stroke(1.75f)));
+                }
+                else if (element.IsChecked)
+                {
+                    // Filled accent-color box + white checkmark
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, r2), accentColor));
+                    var check = new PathData()
+                        .MoveTo(rect.X + 2.5f, rect.Y + 6.5f)
+                        .LineTo(rect.X + 5.2f, rect.Y + 9.5f)
+                        .LineTo(rect.X + 10.5f, rect.Y + 3.5f);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: whiteColor, Path: check, Stroke: new Stroke(1.75f)));
+                }
+            }
+            else if (type == "radio")
+            {
+                if (element.IsChecked)
+                {
+                    // Inner filled circle
+                    var innerRadius = Math.Min(rect.Width, rect.Height) * 0.28f;
+                    var cx = rect.X + rect.Width / 2;
+                    var cy = rect.Y + rect.Height / 2;
+                    var innerRect = new RectF(cx - innerRadius, cy - innerRadius, innerRadius * 2, innerRadius * 2);
+                    var corner = new Vector2(innerRadius, innerRadius);
+                    var round = new CornerRadii(corner, corner, corner, corner);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(innerRect, round), accentColor));
+                }
+            }
+            else if (type == "range")
+            {
+                // Parse min, max, value
+                var min = double.TryParse(element.GetAttribute("min"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedMin) ? parsedMin : 0.0;
+                var max = double.TryParse(element.GetAttribute("max"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedMax) ? parsedMax : 100.0;
+                if (max < min)
+                    max = min;
+
+                var defaultVal = (min + max) / 2.0;
+                var rawVal = element.Value ?? element.GetAttribute("value");
+                var val = double.TryParse(rawVal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedVal) ? parsedVal : defaultVal;
+                val = Math.Clamp(val, min, max);
+
+                var frac = max > min ? (float)((val - min) / (max - min)) : 0f;
+
+                // Track
+                var trackH = 4f;
+                var trackY = rect.Y + (rect.Height - trackH) / 2f;
+                var thumbRadius = 7f;
+                var trackX = rect.X + thumbRadius;
+                var trackW = Math.Max(0, rect.Width - thumbRadius * 2);
+
+                var rTrack = new CornerRadii(new Vector2(2, 2), new Vector2(2, 2), new Vector2(2, 2), new Vector2(2, 2));
+                var trackRect = new RectF(trackX, trackY, trackW, trackH);
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(trackRect, rTrack), new CssColor(0xcc / 255f, 0xcc / 255f, 0xcc / 255f, 1f)));
+
+                // Thumb
+                var thumbCenter = trackX + trackW * frac;
+                var thumbRect = new RectF(thumbCenter - thumbRadius, rect.Y + (rect.Height - thumbRadius * 2) / 2f, thumbRadius * 2, thumbRadius * 2);
+                var rThumb = new CornerRadii(new Vector2(thumbRadius, thumbRadius), new Vector2(thumbRadius, thumbRadius), new Vector2(thumbRadius, thumbRadius), new Vector2(thumbRadius, thumbRadius));
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(thumbRect, rThumb), accentColor));
+            }
+        }
+
         private void PaintDropDownArrow(PaintBox box)
         {
             var style = box.Box.Style;

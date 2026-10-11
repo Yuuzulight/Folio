@@ -248,6 +248,260 @@ public sealed class Document : IDisposable
         RepaintDisplayList();
     }
 
+    internal void ToggleCheckbox(ElementNode element)
+    {
+        if (ElementNode.IsDisabledControl(element))
+            return;
+        if (element.Indeterminate)
+            element.Indeterminate = false;
+        var next = !element.IsChecked;
+        element.Checked = next;
+        SetState(element, NodeFlags.Checked, next);
+        Update();
+    }
+
+    internal void CheckRadio(ElementNode element)
+    {
+        if (ElementNode.IsDisabledControl(element) || element.IsChecked)
+            return;
+
+        // Radios are grouped by name within parent form (or entire document if no form)
+        var group = GetRadioGroup(element);
+        foreach (var radio in group)
+        {
+            if (radio != element && radio.IsChecked)
+            {
+                radio.Checked = false;
+                SetState(radio, NodeFlags.Checked, false);
+            }
+        }
+
+        element.Checked = true;
+        SetState(element, NodeFlags.Checked, true);
+        Update();
+    }
+
+    internal void SelectAdjacentRadio(ElementNode current, int offset)
+    {
+        if (ElementNode.IsDisabledControl(current))
+            return;
+        var group = GetRadioGroup(current).Where(r => !ElementNode.IsDisabledControl(r)).ToList();
+        if (group.Count <= 1)
+            return;
+        var idx = group.IndexOf(current);
+        if (idx < 0)
+            idx = 0;
+        var nextIdx = (idx + offset + group.Count) % group.Count;
+        var nextRadio = group[nextIdx];
+        CheckRadio(nextRadio);
+        Input.Focus(Wrap(nextRadio));
+    }
+
+    private List<ElementNode> GetRadioGroup(ElementNode radio)
+    {
+        var name = radio.GetAttribute("name") ?? "";
+        var form = FindParentForm(radio);
+        var root = (ContainerNode?)form ?? Node;
+        return root.Descendants
+            .OfType<ElementNode>()
+            .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "input"
+                && string.Equals(e.GetAttribute("type"), "radio", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(e.GetAttribute("name") ?? "", name, StringComparison.OrdinalIgnoreCase)
+                && FindParentForm(e) == form)
+            .ToList();
+    }
+
+    internal void SelectAdjacentOption(ElementNode select, int offset)
+    {
+        if (ElementNode.IsDisabledControl(select))
+            return;
+        var options = select.Descendants.OfType<ElementNode>()
+            .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option" && !ElementNode.IsDisabledControl(e))
+            .ToList();
+        if (options.Count == 0)
+            return;
+        var curIdx = options.FindLastIndex(o => o.IsSelected);
+        if (curIdx < 0)
+            curIdx = 0;
+        var nextIdx = Math.Clamp(curIdx + offset, 0, options.Count - 1);
+        if (nextIdx != curIdx)
+        {
+            foreach (var opt in options)
+                opt.Selected = false;
+            options[nextIdx].Selected = true;
+            Update();
+        }
+    }
+
+    internal void StepRange(ElementNode range, int stepDirection)
+    {
+        if (ElementNode.IsDisabledControl(range))
+            return;
+        var (min, max, step, val) = GetRangeMetrics(range);
+        var nextVal = Math.Clamp(val + stepDirection * step, min, max);
+        range.Value = nextVal.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Update();
+    }
+
+    internal void SetRangeExtreme(ElementNode range, bool maxExtreme)
+    {
+        if (ElementNode.IsDisabledControl(range))
+            return;
+        var (min, max, _, _) = GetRangeMetrics(range);
+        range.Value = (maxExtreme ? max : min).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Update();
+    }
+
+    internal void SetRangeFraction(ElementNode range, float fraction)
+    {
+        if (ElementNode.IsDisabledControl(range))
+            return;
+        var (min, max, step, _) = GetRangeMetrics(range);
+        fraction = Math.Clamp(fraction, 0f, 1f);
+        var rawVal = min + (max - min) * fraction;
+        var steps = Math.Round((rawVal - min) / step);
+        var snapped = Math.Clamp(min + steps * step, min, max);
+        range.Value = snapped.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Update();
+    }
+
+    private static (double Min, double Max, double Step, double Val) GetRangeMetrics(ElementNode element)
+    {
+        var min = double.TryParse(element.GetAttribute("min"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pMin) ? pMin : 0.0;
+        var max = double.TryParse(element.GetAttribute("max"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pMax) ? pMax : 100.0;
+        if (max < min)
+            max = min;
+        var step = double.TryParse(element.GetAttribute("step"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pStep) && pStep > 0 ? pStep : 1.0;
+        var defaultVal = (min + max) / 2.0;
+        var rawVal = element.Value ?? element.GetAttribute("value");
+        var val = double.TryParse(rawVal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pVal) ? pVal : defaultVal;
+        return (min, max, step, Math.Clamp(val, min, max));
+    }
+
+    internal static ElementNode? FindParentForm(ElementNode? element)
+    {
+        for (var cur = element?.Parent as ElementNode; cur is not null; cur = cur.Parent as ElementNode)
+        {
+            if (cur.Name.Namespace == Namespaces.Html && cur.LocalName == "form")
+                return cur;
+        }
+        return null;
+    }
+
+    internal void SubmitForm(ElementNode form, ElementNode? submitter = null)
+    {
+        if (form.Name.Namespace != Namespaces.Html || form.LocalName != "form")
+            return;
+
+        var action = form.GetAttribute("action") ?? "";
+        var method = (form.GetAttribute("method") ?? "GET").ToUpperInvariant();
+        var data = new List<KeyValuePair<string, string>>();
+
+        var controls = form.Descendants.OfType<ElementNode>().Where(e => e.Name.Namespace == Namespaces.Html).ToList();
+        foreach (var control in controls)
+        {
+            if (ElementNode.IsDisabledControl(control))
+                continue;
+            var name = control.GetAttribute("name");
+            if (string.IsNullOrEmpty(name))
+                continue;
+
+            var tag = control.LocalName;
+            if (tag == "input")
+            {
+                var type = (control.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type is "submit" or "button" or "reset" or "image")
+                {
+                    if (control == submitter)
+                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
+                }
+                else if (type is "checkbox" or "radio")
+                {
+                    if (control.IsChecked)
+                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? "on"));
+                }
+                else if (type != "file")
+                {
+                    data.Add(new(name, GetControlValue(control)));
+                }
+            }
+            else if (tag == "textarea")
+            {
+                data.Add(new(name, GetControlValue(control)));
+            }
+            else if (tag == "select")
+            {
+                var options = control.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option" && !ElementNode.IsDisabledControl(e))
+                    .ToList();
+                var selected = options.Where(o => o.IsSelected).ToList();
+                if (selected.Count == 0 && options.Count > 0 && control.GetAttribute("multiple") is null)
+                    selected.Add(options[0]);
+                foreach (var opt in selected)
+                    data.Add(new(name, opt.Value ?? opt.GetAttribute("value") ?? opt.TextContent ?? ""));
+            }
+            else if (tag == "button")
+            {
+                if (control == submitter)
+                    data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
+            }
+        }
+
+        Input.OnFormSubmitted(new FormSubmittedEventArgs(Wrap(form), action, method, data, submitter is not null ? Wrap(submitter) : null));
+    }
+
+    internal void ResetForm(ElementNode form)
+    {
+        if (form.Name.Namespace != Namespaces.Html || form.LocalName != "form")
+            return;
+
+        var controls = form.Descendants.OfType<ElementNode>().Where(e => e.Name.Namespace == Namespaces.Html).ToList();
+        foreach (var control in controls)
+        {
+            var tag = control.LocalName;
+            if (tag == "input")
+            {
+                var type = (control.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type is "checkbox" or "radio")
+                {
+                    var initChecked = control.GetAttribute("checked") is not null;
+                    control.Checked = initChecked;
+                    control.Indeterminate = false;
+                    SetState(control, NodeFlags.Checked, initChecked);
+                }
+                else
+                {
+                    var initVal = control.GetAttribute("value") ?? "";
+                    SetControlValue(control, initVal);
+                }
+            }
+            else if (tag == "textarea")
+            {
+                SetControlValue(control, control.TextContent ?? "");
+            }
+            else if (tag == "select")
+            {
+                var options = control.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option")
+                    .ToList();
+                foreach (var opt in options)
+                    opt.Selected = opt.GetAttribute("selected") is not null;
+            }
+        }
+        Update();
+    }
+
+    internal void ToggleDetails(ElementNode details)
+    {
+        if (details.Name.Namespace != Namespaces.Html || details.LocalName != "details")
+            return;
+        if (details.GetAttribute("open") is not null)
+            details.RemoveAttribute("open");
+        else
+            details.SetAttribute("open", "");
+        Update();
+    }
+
     private CaretInfo? GetActiveCaretInfo(double time)
     {
         if (_inputRouter?.FocusedNode is not { } focused)
@@ -830,6 +1084,7 @@ public sealed class Document : IDisposable
         (NodeFlags.Focus, PseudoClass.Focus),
         (NodeFlags.FocusVisible, PseudoClass.FocusVisible),
         (NodeFlags.Target, PseudoClass.Target),
+        (NodeFlags.Checked, PseudoClass.Checked),
     ];
 
     /// <summary>

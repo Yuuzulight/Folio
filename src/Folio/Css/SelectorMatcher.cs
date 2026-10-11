@@ -331,11 +331,15 @@ internal static class SelectorMatcher
             case PseudoClass.Checked:
                 return IsHtml(element) && element.LocalName switch
                 {
-                    "input" => element.GetAttribute("checked") is not null
+                    "input" => element.IsChecked
                                && element.GetAttribute("type")?.ToLowerInvariant() is "checkbox" or "radio",
-                    "option" => element.GetAttribute("selected") is not null,
+                    "option" => element.IsSelected,
                     _ => false,
                 };
+            case PseudoClass.Indeterminate:
+                return IsHtml(element) && element.LocalName == "input"
+                       && element.GetAttribute("type")?.ToLowerInvariant() == "checkbox"
+                       && element.Indeterminate;
             case PseudoClass.Disabled:
                 return IsDisabled(element);
             case PseudoClass.Enabled:

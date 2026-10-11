@@ -697,12 +697,26 @@ internal sealed class BoxTreeBuilder
         {
             case "input":
                 var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
-                if (type is not ("text" or "email" or "search" or "url" or "tel" or "password" or "number"))
-                    return null;
-                var value = element.Value ?? element.GetAttribute("value") ?? "";
-                if (value.Length == 0)
-                    return element.GetAttribute("placeholder") ?? "";
-                return type == "password" ? new string('•', value.Length) : value;
+                if (type is ("text" or "email" or "search" or "url" or "tel" or "password" or "number"))
+                {
+                    var value = element.Value ?? element.GetAttribute("value") ?? "";
+                    if (value.Length == 0)
+                        return element.GetAttribute("placeholder") ?? "";
+                    return type == "password" ? new string('•', value.Length) : value;
+                }
+                if (type is "button" or "submit" or "reset")
+                {
+                    var value = element.Value ?? element.GetAttribute("value");
+                    if (value is not null)
+                        return value;
+                    return type switch
+                    {
+                        "submit" => "Submit",
+                        "reset" => "Reset",
+                        _ => "",
+                    };
+                }
+                return null;
             case "textarea":
                 var taValue = element.Value ?? element.TextContent ?? "";
                 if (taValue.Length == 0)
@@ -710,7 +724,7 @@ internal sealed class BoxTreeBuilder
                 return taValue;
             case "select" when element.GetAttribute("multiple") is null && (!int.TryParse(element.GetAttribute("size"), out var size) || size <= 1):
                 var options = Descendants(element).Where(e => e.LocalName == "option").ToList();
-                var chosen = options.LastOrDefault(o => o.GetAttribute("selected") is not null) ?? options.FirstOrDefault();
+                var chosen = options.LastOrDefault(o => o.IsSelected) ?? options.FirstOrDefault();
                 return chosen is null ? "" : string.Join(" ", (chosen.GetAttribute("label") ?? chosen.TextContent ?? "").Split(ElementNode.AsciiWhitespace, StringSplitOptions.RemoveEmptyEntries));
             default:
                 return null;

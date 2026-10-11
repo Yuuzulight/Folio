@@ -93,3 +93,22 @@ public sealed class PasteEventArgs : EventArgs
     public string? Text { get; set; }
     public bool Handled { get; set; }
 }
+
+public sealed class ButtonClickedEventArgs(Element button) : EventArgs
+{
+    public Element Button { get; } = button;
+}
+
+public sealed class FormSubmittedEventArgs(
+    Element form,
+    string action,
+    string method,
+    IReadOnlyList<KeyValuePair<string, string>> data,
+    Element? submitter = null) : EventArgs
+{
+    public Element Form { get; } = form;
+    public string Action { get; } = action;
+    public string Method { get; } = method;
+    public IReadOnlyList<KeyValuePair<string, string>> Data { get; } = data;
+    public Element? Submitter { get; } = submitter;
+}

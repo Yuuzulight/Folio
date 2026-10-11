@@ -365,7 +365,7 @@ internal static class AccessibilityTree
             if (node is ElementNode { LocalName: "option" } option)
                 options.Add(option);
         }
-        var selected = options.Where(o => Has(o, "selected")).ToList();
+        var selected = options.Where(o => o.IsSelected).ToList();
         return selected.Count > 0 || Has(select, "multiple") ? selected : options.Take(1);
     }
 
@@ -376,9 +376,9 @@ internal static class AccessibilityTree
         if (role is "checkbox" or "radio" or "switch")
         {
             var checkedValue = Attr(element, "aria-checked");
-            if (input ? Has(element, "checked") : checkedValue == "true")
+            if (input ? element.IsChecked : checkedValue == "true")
                 states |= AccessibleStates.Checked;
-            else if (checkedValue == "mixed")
+            else if (element.Indeterminate || checkedValue == "mixed")
                 states |= AccessibleStates.Mixed;
         }
         if (role == "option" && (element.LocalName == "option" ? SelectOf(element) is { } select && SelectedOptions(select).Contains(element)

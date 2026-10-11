@@ -281,6 +281,7 @@ internal static partial class SelectorParser
             "focus-visible" => PseudoClass.FocusVisible,
             "focus-within" => PseudoClass.FocusWithin,
             "checked" => PseudoClass.Checked,
+            "indeterminate" => PseudoClass.Indeterminate,
             "disabled" => PseudoClass.Disabled,
             "enabled" => PseudoClass.Enabled,
             "defined" => PseudoClass.Defined,

@@ -180,5 +180,105 @@ public sealed class Element
             _document.Input.Focus(null);
     }
 
+    /// <summary>The current checked state of a checkbox or radio button.</summary>
+    public bool Checked
+    {
+        get => Node.IsChecked;
+        set
+        {
+            if (Node.Name.Namespace == Namespaces.Html && Node.LocalName == "input")
+            {
+                var type = (Node.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type == "checkbox")
+                {
+                    Node.Checked = value;
+                    Node.Indeterminate = false;
+                    _document.SetState(Node, NodeFlags.Checked, value);
+                    _document.Update();
+                }
+                else if (type == "radio")
+                {
+                    if (value)
+                        _document.CheckRadio(Node);
+                    else
+                    {
+                        Node.Checked = false;
+                        _document.SetState(Node, NodeFlags.Checked, false);
+                        _document.Update();
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>The indeterminate state of a checkbox.</summary>
+    public bool Indeterminate
+    {
+        get => Node.Indeterminate;
+        set
+        {
+            Node.Indeterminate = value;
+            _document.Update();
+        }
+    }
+
+    /// <summary>The selected state of an option element.</summary>
+    public bool Selected
+    {
+        get => Node.IsSelected;
+        set
+        {
+            Node.Selected = value;
+            _document.Update();
+        }
+    }
+
+    /// <summary>The index of the first selected option of a select element, or -1.</summary>
+    public int SelectedIndex
+    {
+        get
+        {
+            if (Node.Name.Namespace == Namespaces.Html && Node.LocalName == "select")
+            {
+                var options = Node.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option")
+                    .ToList();
+                return options.FindIndex(o => o.IsSelected);
+            }
+            return -1;
+        }
+        set
+        {
+            if (Node.Name.Namespace == Namespaces.Html && Node.LocalName == "select")
+            {
+                var options = Node.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option")
+                    .ToList();
+                for (var i = 0; i < options.Count; i++)
+                    options[i].Selected = i == value;
+                _document.Update();
+            }
+        }
+    }
+
+    /// <summary>The list of selected options of a select element.</summary>
+    public IReadOnlyList<Element> SelectedOptions
+    {
+        get
+        {
+            if (Node.Name.Namespace == Namespaces.Html && Node.LocalName == "select")
+            {
+                return Node.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option" && e.IsSelected)
+                    .Select(_document.Wrap)
+                    .ToList();
+            }
+            return [];
+        }
+    }
+
+    /// <summary>Simulates a mouse click on this element.</summary>
+    public void Click() => _document.Input.Click(Node);
+
     public override string ToString() => $"<{LocalName}>";
 }

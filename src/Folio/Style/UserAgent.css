@@ -12,11 +12,16 @@ area, base, basefont, datalist, head, link, meta, noembed, noframes, param, rp, 
 embed[hidden] { display: inline; height: 0; width: 0; }
 input[type=hidden i] { display: none !important; }
 /* Form controls in their static appearance (study 15): a small font, a thin rounded border, white field. */
-input, textarea, select, button { font-size: 13.3333px; }
+input, textarea, select, button { font-size: 13.3333px; display: inline-block; }
 input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]), textarea, select { padding: 1px 2px; border: 1px solid #767676; border-radius: 2px; background-color: white; color: black; }
 input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]), select { white-space: pre; overflow: hidden; }
 input:is(:not([type]), [type=text i], [type=email i], [type=search i], [type=url i], [type=tel i], [type=password i], [type=number i]) { width: 20ch; }
 textarea { white-space: pre-wrap; overflow: auto; width: 20ch; height: 2.6em; }
+button, input:is([type=button i], [type=submit i], [type=reset i]) { padding: 1px 6px; border: 1px solid #767676; border-radius: 2px; background-color: #efefef; color: black; text-align: center; box-sizing: border-box; }
+button:active, input:is([type=button i], [type=submit i], [type=reset i]):active { background-color: #e5e5e5; border-color: #4f4f4f; }
+input[type=checkbox i], input[type=radio i] { width: 13px; height: 13px; margin: 3px 3px 3px 4px; padding: 0; box-sizing: border-box; vertical-align: middle; border: 1px solid #767676; border-radius: 2px; background-color: white; }
+input[type=radio i] { border-radius: 50%; }
+input[type=range i] { width: 129px; height: 20px; margin: 2px; vertical-align: middle; box-sizing: border-box; }
 
 /* 15.3.2 The page */
 html, body { display: block; }

@@ -125,6 +125,12 @@ public class FolioView : Control
     /// <summary>A link was clicked. Unless handled, http, https and mailto links open in the system browser.</summary>
     public event EventHandler<LinkActivatedEventArgs>? LinkActivated;
 
+    /// <summary>A button was clicked or activated.</summary>
+    public event EventHandler<ButtonClickedEventArgs>? ButtonClicked;
+
+    /// <summary>A form was submitted.</summary>
+    public event EventHandler<FormSubmittedEventArgs>? FormSubmitted;
+
     public void LoadHtml(string html, Uri? baseUri = null)
     {
         ArgumentNullException.ThrowIfNull(html);
@@ -142,6 +148,8 @@ public class FolioView : Control
         _document.Input.CopyRequested += OnDocumentCopyRequested;
         _document.Input.CutRequested += OnDocumentCutRequested;
         _document.Input.PasteRequested += OnDocumentPasteRequested;
+        _document.Input.ButtonClicked += (_, e) => ButtonClicked?.Invoke(this, e);
+        _document.Input.FormSubmitted += (_, e) => FormSubmitted?.Invoke(this, e);
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();

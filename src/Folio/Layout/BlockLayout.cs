@@ -679,6 +679,16 @@ internal static class BlockLayout
             (nw, nh, ratio) = (natural.Width, natural.Height, natural.Width > 0 && natural.Height > 0 ? natural.Width / natural.Height : null);
         else if (box.SvgNatural is { } svg)
             (nw, nh, ratio) = svg;
+        else if (box.Kind == ReplacedKind.FormControl && box.Node is Dom.ElementNode el)
+        {
+            var type = (el.GetAttribute("type") ?? "text").ToLowerInvariant();
+            if (type is "checkbox" or "radio")
+                (nw, nh, ratio) = (13f, 13f, 1f);
+            else if (type == "range")
+                (nw, nh, ratio) = (129f, 20f, 129f / 20f);
+            else
+                (nw, nh, ratio) = (13f, 13f, 1f);
+        }
         else
             return null;
         var naturalWidth = nw ?? (nh is { } h0 && ratio is { } r0 ? h0 * r0 : ratio is not null && fillWidth is { } fill ? fill : 300);

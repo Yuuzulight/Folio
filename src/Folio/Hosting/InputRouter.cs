@@ -141,6 +141,14 @@ public sealed class InputRouter
     /// <summary>The document selection changed.</summary>
     internal event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
 
+    /// <summary>A button form control was clicked or activated.</summary>
+    public event EventHandler<ButtonClickedEventArgs>? ButtonClicked;
+
+    /// <summary>A form was submitted.</summary>
+    public event EventHandler<FormSubmittedEventArgs>? FormSubmitted;
+
+    internal void OnFormSubmitted(FormSubmittedEventArgs args) => FormSubmitted?.Invoke(this, args);
+
     private sealed record ScrollbarDragState(
         ElementNode Scroller,
         bool Vertical,
@@ -152,7 +160,13 @@ public sealed class InputRouter
         float ThumbLength,
         float MaxScroll);
 
+    private sealed record RangeDragState(
+        ElementNode Range,
+        float TrackStart,
+        float TrackLength);
+
     private ScrollbarDragState? _scrollbarDrag;
+    private RangeDragState? _rangeDrag;
 
     /// <summary>A pointer moved over the document.</summary>
     public void HandlePointerMove(PointerEvent e)
@@ -171,6 +185,16 @@ public sealed class InputRouter
                     _document.ScrollTo(drag.Scroller == _document.Node.DocumentElement ? _document.DocumentElement! : _document.Wrap(drag.Scroller), _document.GetScrollLeft(drag.Scroller), targetOffset);
                 else
                     _document.ScrollTo(drag.Scroller == _document.Node.DocumentElement ? _document.DocumentElement! : _document.Wrap(drag.Scroller), targetOffset, _document.GetScrollTop(drag.Scroller));
+            }
+            return;
+        }
+
+        if (_rangeDrag is { } rDrag)
+        {
+            if (rDrag.TrackLength > 0)
+            {
+                var frac = (e.Position.X - rDrag.TrackStart) / rDrag.TrackLength;
+                _document.SetRangeFraction(rDrag.Range, frac);
             }
             return;
         }
@@ -244,6 +268,22 @@ public sealed class InputRouter
                 _active = target;
                 SetElementAndAncestorsState(_active, NodeFlags.Active, true);
                 changed = true;
+
+                // Check for input type=range drag
+                if (target.Name.Namespace == Namespaces.Html && target.LocalName == "input"
+                    && string.Equals(target.GetAttribute("type"), "range", StringComparison.OrdinalIgnoreCase)
+                    && !IsDisabled(target))
+                {
+                    if (_document.GetElementBounds(target) is { } bounds)
+                    {
+                        var thumbRadius = 7f;
+                        var trackStart = bounds.X + thumbRadius;
+                        var trackLength = Math.Max(0, bounds.Width - thumbRadius * 2);
+                        _rangeDrag = new RangeDragState(target, trackStart, trackLength);
+                        var frac = trackLength > 0 ? (e.Position.X - trackStart) / trackLength : 0f;
+                        _document.SetRangeFraction(target, frac);
+                    }
+                }
             }
 
             HandleSelectionPointerDown(e, hit);
@@ -259,6 +299,12 @@ public sealed class InputRouter
         if (_scrollbarDrag is not null)
         {
             _scrollbarDrag = null;
+            return;
+        }
+
+        if (_rangeDrag is not null)
+        {
+            _rangeDrag = null;
             return;
         }
 
@@ -283,6 +329,10 @@ public sealed class InputRouter
             if (FindLink(activated) is { } startLink && FindLink(target) is { } endLink && startLink == endLink)
             {
                 ActivateLink(startLink, e.Modifiers);
+            }
+            else if (FindTargetControl(activated) is { } startControl && FindTargetControl(target) is { } endControl && startControl == endControl)
+            {
+                ActivateElement(startControl, e.Modifiers);
             }
         }
     }
@@ -435,6 +485,109 @@ public sealed class InputRouter
             {
                 ActivateLink(focusedLink, e.Modifiers);
                 return;
+            }
+            if (_focused.Name.Namespace == Namespaces.Html)
+            {
+                if (_focused.LocalName is "button" or "summary")
+                {
+                    ActivateElement(_focused, e.Modifiers);
+                    return;
+                }
+                if (_focused.LocalName == "input")
+                {
+                    var type = (_focused.GetAttribute("type") ?? "text").ToLowerInvariant();
+                    if (type is "submit" or "reset" or "button")
+                    {
+                        ActivateElement(_focused, e.Modifiers);
+                        return;
+                    }
+                    if (type is not ("checkbox" or "radio" or "range"))
+                    {
+                        // Single-line text input implicit submission
+                        if (Document.FindParentForm(_focused) is { } parentForm)
+                        {
+                            _document.SubmitForm(parentForm);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (e.Key is " " or "Space" && _focused is not null && _focused.Name.Namespace == Namespaces.Html)
+        {
+            if (_focused.LocalName is "button" or "summary")
+            {
+                ActivateElement(_focused, e.Modifiers);
+                return;
+            }
+            if (_focused.LocalName == "input")
+            {
+                var type = (_focused.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type is "checkbox" or "radio" or "button" or "submit" or "reset")
+                {
+                    ActivateElement(_focused, e.Modifiers);
+                    return;
+                }
+            }
+        }
+
+        // Form control arrow/home/end navigation
+        if (_focused is not null && _focused.Name.Namespace == Namespaces.Html)
+        {
+            var tag = _focused.LocalName;
+            if (tag == "input")
+            {
+                var type = (_focused.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type == "radio")
+                {
+                    if (e.Key is "ArrowDown" or "ArrowRight")
+                    {
+                        _document.SelectAdjacentRadio(_focused, 1);
+                        return;
+                    }
+                    if (e.Key is "ArrowUp" or "ArrowLeft")
+                    {
+                        _document.SelectAdjacentRadio(_focused, -1);
+                        return;
+                    }
+                }
+                else if (type == "range")
+                {
+                    if (e.Key is "ArrowRight" or "ArrowUp")
+                    {
+                        _document.StepRange(_focused, 1);
+                        return;
+                    }
+                    if (e.Key is "ArrowLeft" or "ArrowDown")
+                    {
+                        _document.StepRange(_focused, -1);
+                        return;
+                    }
+                    if (e.Key is "Home")
+                    {
+                        _document.SetRangeExtreme(_focused, maxExtreme: false);
+                        return;
+                    }
+                    if (e.Key is "End")
+                    {
+                        _document.SetRangeExtreme(_focused, maxExtreme: true);
+                        return;
+                    }
+                }
+            }
+            else if (tag == "select")
+            {
+                if (e.Key is "ArrowDown")
+                {
+                    _document.SelectAdjacentOption(_focused, 1);
+                    return;
+                }
+                if (e.Key is "ArrowUp")
+                {
+                    _document.SelectAdjacentOption(_focused, -1);
+                    return;
+                }
             }
         }
 
@@ -616,6 +769,143 @@ public sealed class InputRouter
         {
             if (curr is ElementNode el && _document.IsScrollContainer(el))
                 return el;
+        }
+        return null;
+    }
+
+    /// <summary>Simulates clicking an element programmatically or via user action.</summary>
+    public void Click(Element element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        ActivateElement(element.Node, KeyModifiers.None);
+    }
+
+    internal void Click(ElementNode element)
+    {
+        ActivateElement(element, KeyModifiers.None);
+    }
+
+    private void ActivateElement(ElementNode element, KeyModifiers modifiers)
+    {
+        if (IsDisabled(element))
+            return;
+
+        // If clicking a summary inside details, toggle details
+        if (FindSummary(element) is { } summary && summary.Parent is ElementNode { LocalName: "details" } details)
+        {
+            _document.ToggleDetails(details);
+            return;
+        }
+
+        // If clicking a label, forward click to associated control
+        if (element.Name.Namespace == Namespaces.Html && element.LocalName == "label")
+        {
+            if (FindLabelTarget(element) is { } labelTarget && labelTarget != element)
+                ActivateElement(labelTarget, modifiers);
+            return;
+        }
+
+        // If clicking within a label (e.g. text/span), forward click to label's target
+        if (FindEnclosingLabel(element) is { } parentLabel)
+        {
+            if (FindLabelTarget(parentLabel) is { } labelTarget && labelTarget != element)
+            {
+                ActivateElement(labelTarget, modifiers);
+                return;
+            }
+        }
+
+        if (element.Name.Namespace != Namespaces.Html)
+            return;
+
+        if (element.LocalName == "button")
+        {
+            var btnType = (element.GetAttribute("type") ?? "submit").ToLowerInvariant();
+            ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
+            if (btnType == "submit")
+            {
+                if (Document.FindParentForm(element) is { } form)
+                    _document.SubmitForm(form, element);
+            }
+            else if (btnType == "reset")
+            {
+                if (Document.FindParentForm(element) is { } form)
+                    _document.ResetForm(form);
+            }
+            return;
+        }
+
+        if (element.LocalName == "input")
+        {
+            var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            if (type == "checkbox")
+            {
+                _document.ToggleCheckbox(element);
+            }
+            else if (type == "radio")
+            {
+                _document.CheckRadio(element);
+            }
+            else if (type == "submit")
+            {
+                ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
+                if (Document.FindParentForm(element) is { } form)
+                    _document.SubmitForm(form, element);
+            }
+            else if (type == "reset")
+            {
+                ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
+                if (Document.FindParentForm(element) is { } form)
+                    _document.ResetForm(form);
+            }
+            else if (type == "button")
+            {
+                ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
+            }
+        }
+    }
+
+    private ElementNode? FindSummary(ElementNode element)
+    {
+        for (Node? curr = element; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el && el.Name.Namespace == Namespaces.Html && el.LocalName == "summary")
+                return el;
+        }
+        return null;
+    }
+
+    private ElementNode? FindLabelTarget(ElementNode label)
+    {
+        // 1. label for="id"
+        if (label.GetAttribute("for") is { } forId && forId.Length > 0)
+        {
+            return _document.GetElementById(forId)?.Node;
+        }
+        // 2. First contained form control
+        return label.Descendants.OfType<ElementNode>()
+            .FirstOrDefault(d => d != label && d.Name.Namespace == Namespaces.Html && d.LocalName is "input" or "button" or "select" or "textarea");
+    }
+
+    private static ElementNode? FindEnclosingLabel(ElementNode element)
+    {
+        for (Node? curr = element.Parent; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el && el.Name.Namespace == Namespaces.Html && el.LocalName == "label")
+                return el;
+        }
+        return null;
+    }
+
+    private static ElementNode? FindTargetControl(ElementNode element)
+    {
+        for (Node? curr = element; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el && el.Name.Namespace == Namespaces.Html)
+            {
+                if (el.LocalName is "button" or "input" or "select" or "summary" or "label")
+                    return el;
+            }
         }
         return null;
     }
