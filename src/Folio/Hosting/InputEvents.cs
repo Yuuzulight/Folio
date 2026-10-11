@@ -82,3 +82,8 @@ public sealed class TooltipChangedEventArgs(string? tooltip) : EventArgs
 {
     public string? Tooltip { get; } = tooltip;
 }
+
+internal sealed class SelectionChangedEventArgs(Folio.Interaction.Selection? selection) : EventArgs
+{
+    public Folio.Interaction.Selection? Selection { get; } = selection;
+}
