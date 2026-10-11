@@ -2,6 +2,7 @@ using System.Numerics;
 using Folio;
 using Folio.Dom;
 using Folio.Painting;
+using Folio.Style;
 
 namespace Folio.Tests.Interaction;
 
@@ -412,6 +413,205 @@ public class ScrollContainerTests
         // Moving further after release does not change scroll offset
         doc.Input.HandlePointerMove(new PointerEvent(new Vector2(194, 100)));
         Assert.Equal(250, scroller.ScrollTop);
+    }
+
+    [Fact]
+    public void SmoothScrollingAdvancesAlongVirtualClockAndReachesTarget()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #scroller { width: 200px; height: 200px; overflow: scroll; scroll-behavior: smooth; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=scroller>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600, animationTime: 0.0);
+
+        var scroller = doc.GetElementById("scroller")!;
+        Assert.Equal("smooth", scroller.ScrollBehavior);
+
+        // Initiate scroll to 300px down at t=0
+        doc.ScrollTo(scroller, 0, 300);
+
+        // Immediately after calling ScrollTo, offset is still 0 because smooth scroll animation was queued
+        Assert.Equal(0, scroller.ScrollTop);
+        Assert.True(doc.AnimationsRunning(0.0));
+        Assert.True(doc.AnimationsRunning(0.15));
+
+        // Halfway through animation (t = 0.15s of 0.3s duration)
+        var frameMid = doc.PaintFrame(0.15);
+        Assert.NotNull(frameMid);
+        // At mid-point (t=0.5 normalized), ease progress is around ~0.8
+        Assert.InRange(scroller.ScrollTop, 100, 290);
+
+        // At or past completion (t = 0.3s)
+        var frameEnd = doc.PaintFrame(0.3);
+        Assert.NotNull(frameEnd);
+        Assert.Equal(300, scroller.ScrollTop);
+        Assert.False(doc.AnimationsRunning(0.35));
+    }
+
+    [Fact]
+    public void SmoothScrollingIsInterruptedByManualUserScroll()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #scroller { width: 200px; height: 200px; overflow: scroll; scroll-behavior: smooth; }
+              .spacer { width: 1000px; height: 1000px; }
+            </style>
+            <div id=scroller>
+              <div class=spacer></div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600, animationTime: 0.0);
+
+        var scroller = doc.GetElementById("scroller")!;
+        doc.ScrollTo(scroller, 0, 400);
+
+        doc.PaintFrame(0.1);
+        var offsetMid = scroller.ScrollTop;
+        Assert.InRange(offsetMid, 10, 350);
+
+        // User intervenes by scrolling via wheel / ScrollBy
+        doc.Input.HandleWheel(new WheelEvent(new Vector2(50, 50), new Vector2(0, 20)));
+
+        // Animation should be cancelled; offset reflects manual adjustment
+        Assert.False(doc.AnimationsRunning(0.2));
+
+        // Further timeline advancement does not continue the cancelled smooth scroll
+        doc.PaintFrame(0.3);
+        Assert.Equal(offsetMid + 20, scroller.ScrollTop);
+    }
+
+    [Fact]
+    public void ScrollIntoViewBringsNestedTargetIntoViewRespectingMarginsAndPadding()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #outer { width: 300px; height: 300px; overflow: scroll; scroll-padding: 20px; }
+              .outer-spacer { height: 250px; }
+              #inner { width: 200px; height: 200px; overflow: scroll; scroll-padding: 10px; }
+              .inner-spacer { height: 300px; }
+              #target { width: 50px; height: 50px; background: blue; scroll-margin: 15px; }
+            </style>
+            <div id=outer>
+              <div class=outer-spacer></div>
+              <div id=inner>
+                <div class=inner-spacer></div>
+                <div id=target></div>
+              </div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var outer = doc.GetElementById("outer")!;
+        var inner = doc.GetElementById("inner")!;
+        var target = doc.GetElementById("target")!;
+
+        Assert.Equal(0, outer.ScrollTop);
+        Assert.Equal(0, inner.ScrollTop);
+
+        target.ScrollIntoView("auto");
+
+        // Both inner and outer containers should have scrolled to make the target visible
+        Assert.True(inner.ScrollTop > 0, "Inner container should scroll to target");
+        Assert.True(outer.ScrollTop > 0, "Outer container should scroll to inner target");
+    }
+
+    [Fact]
+    public void FragmentNavigationUpdatesTargetPseudoClassAndRestylesTarget()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #scroller { width: 300px; height: 300px; overflow: scroll; }
+              .spacer { height: 500px; }
+              #target-item { height: 40px; background: red; }
+              #target-item:target { background: green; }
+            </style>
+            <div id=scroller>
+              <div class=spacer></div>
+              <div id="target-item">Hello</div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var scroller = doc.GetElementById("scroller")!;
+        var targetItem = doc.GetElementById("target-item")!;
+
+        Assert.Null(doc.TargetElement);
+        Assert.Equal(0, scroller.ScrollTop);
+
+        // Navigate to fragment
+        var found = doc.NavigateToFragment("#target-item");
+        Assert.True(found);
+        Assert.Equal(targetItem, doc.TargetElement);
+
+        // Target should be scrolled into view
+        Assert.True(scroller.ScrollTop > 0);
+
+        // Computed style for target should now match :target (green is rgb(0, 128, 0))
+        var style = targetItem.Node.ComputedStyle();
+        Assert.NotNull(style);
+        Assert.Equal(new Folio.Css.CssColor(0, 128 / 255f, 0, 1), style.Background.Color.Resolve(style.Inherited.Color));
+
+        // Navigating away clears :target
+        doc.NavigateToFragment("");
+        Assert.Null(doc.TargetElement);
+        var styleAfter = targetItem.Node.ComputedStyle();
+        Assert.Equal(new Folio.Css.CssColor(1, 0, 0, 1), styleAfter!.Background.Color.Resolve(styleAfter.Inherited.Color));
+    }
+
+    [Fact]
+    public void LinkClickWithFragmentNavigatesAndTargetsElement()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <style>
+              body { margin: 0; width: 800px; height: 600px; }
+              #container { width: 400px; height: 300px; overflow: scroll; }
+              a { display: block; width: 100px; height: 30px; }
+              .spacer { height: 600px; }
+              #sec2 { height: 50px; background: yellow; }
+              #sec2:target { background: purple; }
+            </style>
+            <div id="container">
+              <a id="link" href="#sec2">Go to Sec 2</a>
+              <div class="spacer"></div>
+              <div id="sec2">Section 2</div>
+            </div>
+            """;
+
+        using var doc = Document.Parse(html);
+        doc.Paint(800, 600);
+
+        var container = doc.GetElementById("container")!;
+        var sec2 = doc.GetElementById("sec2")!;
+        Assert.Equal(0, container.ScrollTop);
+
+        // Click link at (10, 10)
+        doc.Input.HandlePointerDown(new PointerEvent(new Vector2(10, 10), Button: PointerButton.Primary));
+        doc.Input.HandlePointerUp(new PointerEvent(new Vector2(10, 10), Button: PointerButton.Primary));
+
+        Assert.Equal(sec2, doc.TargetElement);
+        Assert.True(container.ScrollTop > 0);
     }
 }
 

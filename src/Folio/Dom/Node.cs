@@ -7,11 +7,12 @@ internal enum NodeFlags : byte
     NeedsStyle = 1 << 0,
     DescendantNeedsStyle = 1 << 1,
 
-    // User-action states for :hover, :active, :focus and :focus-visible; set by interaction (M3).
+    // User-action states for :hover, :active, :focus, :focus-visible and :target; set by interaction (M3).
     Hover = 1 << 2,
     Active = 1 << 3,
     Focus = 1 << 4,
     FocusVisible = 1 << 5,
+    Target = 1 << 6,
 }
 
 internal enum MutationKind

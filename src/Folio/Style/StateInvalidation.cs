@@ -23,7 +23,7 @@ internal sealed class StateInvalidation
     /// <summary>One place a state appears. Null tags, ids and classes: any subject.</summary>
     private sealed record Site(Reach Reach, Atom[] Tags, Atom[] Ids, Atom[] Classes);
 
-    private static readonly PseudoClass[] States = [PseudoClass.Hover, PseudoClass.Active, PseudoClass.Focus, PseudoClass.FocusVisible, PseudoClass.FocusWithin];
+    private static readonly PseudoClass[] States = [PseudoClass.Hover, PseudoClass.Active, PseudoClass.Focus, PseudoClass.FocusVisible, PseudoClass.FocusWithin, PseudoClass.Target];
     private static readonly Site AnyBelow = new(Reach.Self | Reach.Descendants | Reach.Siblings, [], [], []);
 
     private readonly Dictionary<PseudoClass, List<Site>> _sites = [];

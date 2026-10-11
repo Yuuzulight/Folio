@@ -342,8 +342,10 @@ internal static class SelectorMatcher
                 return IsFormControl(element) && !IsDisabled(element);
             case PseudoClass.Defined:
                 return true;
+            case PseudoClass.Target:
+                return (element.Flags & NodeFlags.Target) != 0;
             default:
-                return false; // :visited never matches; :target matches nothing until fragment navigation exists
+                return false; // :visited never matches
         }
     }
 

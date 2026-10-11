@@ -315,8 +315,16 @@ public sealed class Document : IDisposable
         return false;
     }
 
+    private readonly record struct SmoothScrollAnimation(ElementNode Node, Vector2 Start, Vector2 Target, double StartTime, double Duration);
+    private readonly Dictionary<ElementNode, SmoothScrollAnimation> _smoothScrolls = new(ReferenceEqualityComparer.Instance);
+
+    private void CancelSmoothScroll(ElementNode node) => _smoothScrolls.Remove(node);
+
+    internal void CancelSmoothScrollAnimations() => _smoothScrolls.Clear();
+
     internal Vector2 ScrollBy(ElementNode element, Vector2 delta)
     {
+        CancelSmoothScroll(element);
         var (cw, ch, sw, sh) = GetScrollMetrics(element);
         var maxX = Math.Max(0, sw - cw);
         var maxY = Math.Max(0, sh - ch);
@@ -353,24 +361,203 @@ public sealed class Document : IDisposable
     internal float GetScrollHeight(ElementNode element) => GetScrollMetrics(element).ScrollHeight;
 
     /// <summary>Scrolls an element to the given position, clamped to its scroll range.</summary>
-    public void ScrollTo(Element element, float x, float y)
+    public void ScrollTo(Element element, float x, float y, string? behavior = null)
     {
         ArgumentNullException.ThrowIfNull(element);
+        CancelSmoothScroll(element.Node);
         var (cw, ch, sw, sh) = GetScrollMetrics(element.Node);
         var maxX = Math.Max(0, sw - cw);
         var maxY = Math.Max(0, sh - ch);
         var clamped = new Vector2(Math.Clamp(x, 0, maxX), Math.Clamp(y, 0, maxY));
-        _scrollOffsets[element.Node] = clamped;
 
-        if (_frame is { } frame && _images is not null)
-            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+        var current = _scrollOffsets.TryGetValue(element.Node, out var v) ? v : Vector2.Zero;
+        var computedBehavior = FindFragment(element.Node)?.Box?.Style.Box.ScrollBehavior ?? ScrollBehavior.Auto;
+        var isSmooth = string.Equals(behavior, "smooth", StringComparison.OrdinalIgnoreCase)
+            || (behavior is null && computedBehavior == ScrollBehavior.Smooth);
+
+        if (isSmooth && clamped != current)
+        {
+            var startTime = _lastPaint?.AnimationTime ?? 0;
+            _smoothScrolls[element.Node] = new SmoothScrollAnimation(element.Node, current, clamped, startTime, 0.3);
+        }
+        else
+        {
+            _scrollOffsets[element.Node] = clamped;
+            if (_frame is { } frame && _images is not null)
+                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+        }
     }
 
     /// <summary>Scrolls the root document / viewport to the given coordinates.</summary>
-    public void ScrollTo(float x, float y)
+    public void ScrollTo(float x, float y, string? behavior = null)
     {
         if (DocumentElement is { } root)
-            ScrollTo(root, x, y);
+            ScrollTo(root, x, y, behavior);
+    }
+
+    /// <summary>Scrolls an element into view across all ancestor scroll containers.</summary>
+    public void ScrollIntoView(Element element, string? behavior = null)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        ScrollIntoView(element.Node, behavior);
+    }
+
+    internal void ScrollIntoView(ElementNode targetNode, string? behavior = null)
+    {
+        // CSSOM View §7: walk from target upward through ancestor scroll containers
+        for (Node? curr = targetNode.Parent; curr is not null; curr = curr.Parent)
+        {
+            if (curr is not ElementNode scroller || !IsScrollContainer(scroller))
+                continue;
+
+            var targetRect = GetRelativeBorderBox(targetNode, scroller);
+            if (targetRect is null)
+                continue;
+
+            // scroll-margin expands target bounds
+            var targetMargin = GetScrollMargin(targetNode);
+            var mTop = targetMargin.Top.Resolve(targetRect.Value.Height);
+            var mRight = targetMargin.Right.Resolve(targetRect.Value.Width);
+            var mBottom = targetMargin.Bottom.Resolve(targetRect.Value.Height);
+            var mLeft = targetMargin.Left.Resolve(targetRect.Value.Width);
+            var expandedTarget = new RectF(
+                targetRect.Value.X - mLeft,
+                targetRect.Value.Y - mTop,
+                targetRect.Value.Width + mLeft + mRight,
+                targetRect.Value.Height + mTop + mBottom);
+
+            // scroll-padding insets scroller's scrollport (padding box)
+            var (cw, ch, sw, sh) = GetScrollMetrics(scroller);
+            var scrollerPadding = GetScrollPadding(scroller);
+            var pTop = scrollerPadding.Top.Resolve(ch);
+            var pRight = scrollerPadding.Right.Resolve(cw);
+            var pBottom = scrollerPadding.Bottom.Resolve(ch);
+            var pLeft = scrollerPadding.Left.Resolve(cw);
+
+            var scrollport = new RectF(pLeft, pTop, Math.Max(0, cw - pLeft - pRight), Math.Max(0, ch - pTop - pBottom));
+
+            var currentScroll = _scrollOffsets.TryGetValue(scroller, out var cur) ? cur : Vector2.Zero;
+            var targetScrollX = currentScroll.X;
+            var targetScrollY = currentScroll.Y;
+
+            // Vertical alignment
+            if (expandedTarget.Y < scrollport.Y)
+                targetScrollY = currentScroll.Y + (expandedTarget.Y - scrollport.Y);
+            else if (expandedTarget.Bottom > scrollport.Bottom)
+                targetScrollY = currentScroll.Y + (expandedTarget.Bottom - scrollport.Bottom);
+
+            // Horizontal alignment
+            if (expandedTarget.X < scrollport.X)
+                targetScrollX = currentScroll.X + (expandedTarget.X - scrollport.X);
+            else if (expandedTarget.Right > scrollport.Right)
+                targetScrollX = currentScroll.X + (expandedTarget.Right - scrollport.Right);
+
+            var maxX = Math.Max(0, sw - cw);
+            var maxY = Math.Max(0, sh - ch);
+            targetScrollX = Math.Clamp(targetScrollX, 0, maxX);
+            targetScrollY = Math.Clamp(targetScrollY, 0, maxY);
+
+            var scrollerBehavior = behavior;
+            if (scrollerBehavior is null && FindFragment(scroller)?.Box?.Style.Box.ScrollBehavior == ScrollBehavior.Smooth)
+                scrollerBehavior = "smooth";
+
+            ScrollTo(Wrap(scroller), targetScrollX, targetScrollY, scrollerBehavior);
+        }
+    }
+
+    private (LengthPercentage Top, LengthPercentage Right, LengthPercentage Bottom, LengthPercentage Left) GetScrollMargin(ElementNode node)
+    {
+        var style = FindFragment(node)?.Box?.Style;
+        return (style?.Spacing.ScrollMarginTop ?? default,
+                style?.Spacing.ScrollMarginRight ?? default,
+                style?.Spacing.ScrollMarginBottom ?? default,
+                style?.Spacing.ScrollMarginLeft ?? default);
+    }
+
+    private (LengthPercentage Top, LengthPercentage Right, LengthPercentage Bottom, LengthPercentage Left) GetScrollPadding(ElementNode node)
+    {
+        var style = FindFragment(node)?.Box?.Style;
+        return (style?.Spacing.ScrollPaddingTop ?? default,
+                style?.Spacing.ScrollPaddingRight ?? default,
+                style?.Spacing.ScrollPaddingBottom ?? default,
+                style?.Spacing.ScrollPaddingLeft ?? default);
+    }
+
+    private RectF? GetRelativeBorderBox(ElementNode target, ElementNode scroller)
+    {
+        if (scroller == Node.DocumentElement)
+            return GetElementBounds(target);
+
+        if (FindFragment(scroller) is not { } scrollerFrag || FindFragment(target) is not { } targetFrag)
+            return null;
+
+        var border = scrollerFrag.Box?.Style.Border;
+        var bLeft = border?.LeftWidth ?? 0;
+        var bTop = border?.TopWidth ?? 0;
+
+        RectF? found = null;
+        Walk(scrollerFrag, -bLeft, -bTop);
+        return found;
+
+        bool Walk(Fragment frag, float currentX, float currentY)
+        {
+            if (frag.Box?.Node == target && frag.Kind == FragmentKind.Box)
+            {
+                found = new RectF(currentX, currentY, frag.Width, frag.Height);
+                return true;
+            }
+
+            var isInnerScroller = frag != scrollerFrag && frag.Box?.Node is ElementNode node && IsScrollContainer(node);
+            var scrollOffset = isInnerScroller && frag.Box?.Node is ElementNode scrollerEl
+                && _scrollOffsets.TryGetValue(scrollerEl, out var offset) ? offset : Vector2.Zero;
+
+            foreach (var child in frag.Children)
+            {
+                var cx = currentX + child.X - (isInnerScroller ? scrollOffset.X : 0);
+                var cy = currentY + child.Y - (isInnerScroller ? scrollOffset.Y : 0);
+                if (Walk(child.Fragment, cx, cy))
+                    return true;
+            }
+            return false;
+        }
+    }
+
+    private ElementNode? _targetElement;
+
+    /// <summary>The currently targeted element matching the URL fragment (:target), or null.</summary>
+    public Element? TargetElement => _targetElement is not null ? Wrap(_targetElement) : null;
+
+    /// <summary>Navigates to the given URL fragment identifier (e.g. "#section" or "section").</summary>
+    public bool NavigateToFragment(string fragment)
+    {
+        ArgumentNullException.ThrowIfNull(fragment);
+        if (fragment.StartsWith('#'))
+            fragment = fragment[1..];
+
+        var oldTarget = _targetElement;
+        var newTarget = string.IsNullOrEmpty(fragment) ? null : GetElementById(fragment)?.Node;
+
+        if (oldTarget == newTarget)
+        {
+            if (newTarget is not null)
+                ScrollIntoView(newTarget);
+            return newTarget is not null;
+        }
+
+        if (oldTarget is not null)
+            SetState(oldTarget, NodeFlags.Target, false);
+
+        _targetElement = newTarget;
+
+        if (newTarget is not null)
+            SetState(newTarget, NodeFlags.Target, true);
+
+        Update();
+
+        if (newTarget is not null)
+            ScrollIntoView(newTarget);
+
+        return newTarget is not null;
     }
 
     /// <summary>The horizontal scroll offset of the root document.</summary>
@@ -511,6 +698,7 @@ public sealed class Document : IDisposable
         (NodeFlags.Active, PseudoClass.Active),
         (NodeFlags.Focus, PseudoClass.Focus),
         (NodeFlags.FocusVisible, PseudoClass.FocusVisible),
+        (NodeFlags.Target, PseudoClass.Target),
     ];
 
     /// <summary>
@@ -547,15 +735,47 @@ public sealed class Document : IDisposable
         _frame = (root, page, deviceScale);
         Node.StructureMutated = false;
         Node.StyleMutated = false;
-        Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
+        if (animationTime.HasValue)
+            AdvanceSmoothScrolls(animationTime.Value);
         DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets);
         return (DisplayList, height);
     }
 
+    private void AdvanceSmoothScrolls(double time)
+    {
+        if (_smoothScrolls.Count == 0)
+            return;
+
+        var completed = new List<ElementNode>();
+        foreach (var (node, anim) in _smoothScrolls)
+        {
+            var t = anim.Duration > 0 ? (time - anim.StartTime) / anim.Duration : 1.0;
+            if (t >= 1.0)
+            {
+                _scrollOffsets[node] = anim.Target;
+                completed.Add(node);
+            }
+            else if (t <= 0.0)
+            {
+                _scrollOffsets[node] = anim.Start;
+            }
+            else
+            {
+                var progress = (float)Easing.Ease.Apply(t);
+                _scrollOffsets[node] = Vector2.Lerp(anim.Start, anim.Target, progress);
+            }
+        }
+
+        foreach (var node in completed)
+            _smoothScrolls.Remove(node);
+    }
+
     /// <summary>Whether an animation still changes after <paramref name="time"/> (seconds on the document timeline).</summary>
-    internal bool AnimationsRunning(double time) => StyleResolver.Animated(Node).Any(a => a.IsRunning(time));
+    internal bool AnimationsRunning(double time) =>
+        _smoothScrolls.Values.Any(s => time < s.StartTime + s.Duration)
+        || StyleResolver.Animated(Node).Any(a => a.IsRunning(time));
 
     /// <summary>
     /// The display list at another animation time when every animation is paint-only (docs/study/14-invalidation.md):
@@ -596,6 +816,7 @@ public sealed class Document : IDisposable
                 }
             }
         }
+        AdvanceSmoothScrolls(time);
         return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)

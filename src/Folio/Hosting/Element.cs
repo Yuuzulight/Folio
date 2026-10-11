@@ -123,6 +123,12 @@ public sealed class Element
     /// <summary>The computed overscroll-behavior-y value ("auto", "contain", or "none").</summary>
     public string OverscrollBehaviorY => _document.FindFragment(Node)?.Box?.Style.Box.OverscrollBehaviorY.ToString().ToLowerInvariant() ?? "auto";
 
+    /// <summary>The computed scroll-behavior value ("auto" or "smooth").</summary>
+    public string ScrollBehavior => _document.FindFragment(Node)?.Box?.Style.Box.ScrollBehavior.ToString().ToLowerInvariant() ?? "auto";
+
+    /// <summary>Scrolls this element into view across all ancestor scroll containers.</summary>
+    public void ScrollIntoView(string? behavior = null) => _document.ScrollIntoView(this, behavior);
+
     /// <summary>Gives focus to this element.</summary>
     public void Focus() => _document.Input.Focus(this);
 

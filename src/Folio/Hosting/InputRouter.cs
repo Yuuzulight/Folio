@@ -394,14 +394,39 @@ public sealed class InputRouter
         if (link.GetAttribute("href") is not { } href)
             return;
         href = href.Trim();
+
+        // 1. Check if href is an in-document fragment reference
+        string? fragment = null;
+        if (href.StartsWith('#'))
+        {
+            fragment = href;
+        }
+
         Uri? resolved = Uri.TryCreate(href, UriKind.Absolute, out var abs) ? abs
             : _document.Options.BaseUri is { } baseUri && Uri.TryCreate(baseUri, href, out var rel) ? rel
             : null;
 
+        if (fragment is null && resolved is not null && _document.Options.BaseUri is { } docBase)
+        {
+            // If resolved URI matches base URI ignoring fragment, it's a same-document navigation
+            if (Uri.Compare(resolved, docBase, UriComponents.HttpRequestUrl, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0
+                && !string.IsNullOrEmpty(resolved.Fragment))
+            {
+                fragment = resolved.Fragment;
+            }
+        }
+
+        var handled = false;
         if (resolved is not null)
         {
             var args = new LinkActivatedEventArgs(resolved, modifiers);
             LinkActivated?.Invoke(this, args);
+            handled = args.Handled;
+        }
+
+        if (!handled && fragment is not null)
+        {
+            _document.NavigateToFragment(fragment);
         }
     }
 

@@ -256,6 +256,15 @@ internal enum PropertyId
     MaxBlockSize,
     OverscrollBehaviorX,
     OverscrollBehaviorY,
+    ScrollBehavior,
+    ScrollMarginTop,
+    ScrollMarginRight,
+    ScrollMarginBottom,
+    ScrollMarginLeft,
+    ScrollPaddingTop,
+    ScrollPaddingRight,
+    ScrollPaddingBottom,
+    ScrollPaddingLeft,
 }
 
 /// <summary>One longhand: its grammar, initial value, inheritance and how its computed value is stored.</summary>
@@ -466,6 +475,15 @@ internal static class Properties
         Row(PropertyId.OverflowY, "overflow-y", static () => Keywords(PropertyId.OverflowY, "overflow-y", false, "visible", OverflowKeywords, s => s.Box.OverflowY, (b, v) => b.Box = b.Box with { OverflowY = v }));
         Row(PropertyId.OverscrollBehaviorX, "overscroll-behavior-x", static () => Keywords(PropertyId.OverscrollBehaviorX, "overscroll-behavior-x", false, "auto", OverscrollKeywords, s => s.Box.OverscrollBehaviorX, (b, v) => b.Box = b.Box with { OverscrollBehaviorX = v }));
         Row(PropertyId.OverscrollBehaviorY, "overscroll-behavior-y", static () => Keywords(PropertyId.OverscrollBehaviorY, "overscroll-behavior-y", false, "auto", OverscrollKeywords, s => s.Box.OverscrollBehaviorY, (b, v) => b.Box = b.Box with { OverscrollBehaviorY = v }));
+        Row(PropertyId.ScrollBehavior, "scroll-behavior", static () => Keywords(PropertyId.ScrollBehavior, "scroll-behavior", false, "auto", ScrollBehaviorKeywords, s => s.Box.ScrollBehavior, (b, v) => b.Box = b.Box with { ScrollBehavior = v }));
+        Row(PropertyId.ScrollMarginTop, "scroll-margin-top", static () => Padding(PropertyId.ScrollMarginTop, "scroll-margin-top", s => s.Spacing.ScrollMarginTop, (b, v) => b.Spacing = b.Spacing with { ScrollMarginTop = v }));
+        Row(PropertyId.ScrollMarginRight, "scroll-margin-right", static () => Padding(PropertyId.ScrollMarginRight, "scroll-margin-right", s => s.Spacing.ScrollMarginRight, (b, v) => b.Spacing = b.Spacing with { ScrollMarginRight = v }));
+        Row(PropertyId.ScrollMarginBottom, "scroll-margin-bottom", static () => Padding(PropertyId.ScrollMarginBottom, "scroll-margin-bottom", s => s.Spacing.ScrollMarginBottom, (b, v) => b.Spacing = b.Spacing with { ScrollMarginBottom = v }));
+        Row(PropertyId.ScrollMarginLeft, "scroll-margin-left", static () => Padding(PropertyId.ScrollMarginLeft, "scroll-margin-left", s => s.Spacing.ScrollMarginLeft, (b, v) => b.Spacing = b.Spacing with { ScrollMarginLeft = v }));
+        Row(PropertyId.ScrollPaddingTop, "scroll-padding-top", static () => Padding(PropertyId.ScrollPaddingTop, "scroll-padding-top", s => s.Spacing.ScrollPaddingTop, (b, v) => b.Spacing = b.Spacing with { ScrollPaddingTop = v }));
+        Row(PropertyId.ScrollPaddingRight, "scroll-padding-right", static () => Padding(PropertyId.ScrollPaddingRight, "scroll-padding-right", s => s.Spacing.ScrollPaddingRight, (b, v) => b.Spacing = b.Spacing with { ScrollPaddingRight = v }));
+        Row(PropertyId.ScrollPaddingBottom, "scroll-padding-bottom", static () => Padding(PropertyId.ScrollPaddingBottom, "scroll-padding-bottom", s => s.Spacing.ScrollPaddingBottom, (b, v) => b.Spacing = b.Spacing with { ScrollPaddingBottom = v }));
+        Row(PropertyId.ScrollPaddingLeft, "scroll-padding-left", static () => Padding(PropertyId.ScrollPaddingLeft, "scroll-padding-left", s => s.Spacing.ScrollPaddingLeft, (b, v) => b.Spacing = b.Spacing with { ScrollPaddingLeft = v }));
         Row(PropertyId.ZIndex, "z-index", static () => new Property<int?>(PropertyId.ZIndex, "z-index", false, "auto",
             r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.Integer() is { } i ? new NumberValue(i) : null,
             (v, _) => v is NumberValue n ? (int)n.Number : null,
@@ -1119,6 +1137,7 @@ internal static class Properties
 
     private static readonly KeywordMap<Overflow> OverflowKeywords = KeywordMap<Overflow>.InOrder("visible", "hidden", "clip", "scroll", "auto");
     private static readonly KeywordMap<OverscrollBehavior> OverscrollKeywords = KeywordMap<OverscrollBehavior>.InOrder("auto", "contain", "none");
+    private static readonly KeywordMap<ScrollBehavior> ScrollBehaviorKeywords = KeywordMap<ScrollBehavior>.InOrder("auto", "smooth");
 
     private static readonly KeywordMap<BorderStyle> BorderStyleKeywords =
         KeywordMap<BorderStyle>.InOrder("none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset");
@@ -1533,6 +1552,8 @@ internal static class Properties
             var y = r.AtEnd ? x : Get(PropertyId.OverscrollBehaviorY).Parse(r.OneValue());
             return y is null ? null : [(PropertyId.OverscrollBehaviorX, x), (PropertyId.OverscrollBehaviorY, y)];
         }),
+        ["scroll-margin"] = Sides([PropertyId.ScrollMarginTop, PropertyId.ScrollMarginRight, PropertyId.ScrollMarginBottom, PropertyId.ScrollMarginLeft]),
+        ["scroll-padding"] = Sides([PropertyId.ScrollPaddingTop, PropertyId.ScrollPaddingRight, PropertyId.ScrollPaddingBottom, PropertyId.ScrollPaddingLeft]),
     };
 
     // Values separated by "/": each part parsed by the property grammar.

@@ -46,6 +46,8 @@ internal enum Overflow { Visible, Hidden, Clip, Scroll, Auto }
 
 internal enum OverscrollBehavior { Auto, Contain, None }
 
+internal enum ScrollBehavior { Auto, Smooth }
+
 internal enum Isolation { Auto, Isolate }
 
 internal enum VerticalAlignKind { Baseline, Sub, Super, TextTop, TextBottom, Middle, Top, Bottom, Length }
@@ -294,13 +296,14 @@ internal sealed record BoxGroup(
     Overflow OverflowX, Overflow OverflowY, int? ZIndex, float Opacity, Isolation Isolation = Isolation.Auto,
     VerticalAlign VerticalAlign = default, UnicodeBidi UnicodeBidi = UnicodeBidi.Normal, TableLayoutMode TableLayout = TableLayoutMode.Auto,
     TextOverflow TextOverflow = TextOverflow.Clip, int? LineClamp = null, string ScrollbarGutter = "auto", string ScrollbarWidth = "auto",
-    OverscrollBehavior OverscrollBehaviorX = OverscrollBehavior.Auto, OverscrollBehavior OverscrollBehaviorY = OverscrollBehavior.Auto)
+    OverscrollBehavior OverscrollBehaviorX = OverscrollBehavior.Auto, OverscrollBehavior OverscrollBehaviorY = OverscrollBehavior.Auto,
+    ScrollBehavior ScrollBehavior = ScrollBehavior.Auto)
 {
     public bool Equals(BoxGroup? o) => o is not null && Display == o.Display && Position == o.Position && Float == o.Float && Clear == o.Clear
         && BoxSizing == o.BoxSizing && OverflowX == o.OverflowX && OverflowY == o.OverflowY && ZIndex == o.ZIndex && Opacity.Equals(o.Opacity)
         && Isolation == o.Isolation && VerticalAlign.Equals(o.VerticalAlign) && UnicodeBidi == o.UnicodeBidi && TableLayout == o.TableLayout
         && TextOverflow == o.TextOverflow && LineClamp == o.LineClamp && ScrollbarGutter == o.ScrollbarGutter && ScrollbarWidth == o.ScrollbarWidth
-        && OverscrollBehaviorX == o.OverscrollBehaviorX && OverscrollBehaviorY == o.OverscrollBehaviorY;
+        && OverscrollBehaviorX == o.OverscrollBehaviorX && OverscrollBehaviorY == o.OverscrollBehaviorY && ScrollBehavior == o.ScrollBehavior;
 
     public override int GetHashCode() => StyleEquality.Hash((int)Display, (int)Position, (int)Float, (int)OverflowX, (int)OverflowY,
         ZIndex.GetValueOrDefault(), Opacity.GetHashCode(), VerticalAlign.GetHashCode());
@@ -330,12 +333,16 @@ internal sealed record SizeGroup(SizeValue Width, SizeValue Height, SizeValue Mi
 internal sealed record SpacingGroup(
     SizeValue MarginTop, SizeValue MarginRight, SizeValue MarginBottom, SizeValue MarginLeft,
     LengthPercentage PaddingTop, LengthPercentage PaddingRight, LengthPercentage PaddingBottom, LengthPercentage PaddingLeft,
-    SizeValue Top, SizeValue Right, SizeValue Bottom, SizeValue Left)
+    SizeValue Top, SizeValue Right, SizeValue Bottom, SizeValue Left,
+    LengthPercentage ScrollMarginTop = default, LengthPercentage ScrollMarginRight = default, LengthPercentage ScrollMarginBottom = default, LengthPercentage ScrollMarginLeft = default,
+    LengthPercentage ScrollPaddingTop = default, LengthPercentage ScrollPaddingRight = default, LengthPercentage ScrollPaddingBottom = default, LengthPercentage ScrollPaddingLeft = default)
 {
     public bool Equals(SpacingGroup? o) => o is not null
         && MarginTop.Equals(o.MarginTop) && MarginRight.Equals(o.MarginRight) && MarginBottom.Equals(o.MarginBottom) && MarginLeft.Equals(o.MarginLeft)
         && PaddingTop.Equals(o.PaddingTop) && PaddingRight.Equals(o.PaddingRight) && PaddingBottom.Equals(o.PaddingBottom) && PaddingLeft.Equals(o.PaddingLeft)
-        && Top.Equals(o.Top) && Right.Equals(o.Right) && Bottom.Equals(o.Bottom) && Left.Equals(o.Left);
+        && Top.Equals(o.Top) && Right.Equals(o.Right) && Bottom.Equals(o.Bottom) && Left.Equals(o.Left)
+        && ScrollMarginTop.Equals(o.ScrollMarginTop) && ScrollMarginRight.Equals(o.ScrollMarginRight) && ScrollMarginBottom.Equals(o.ScrollMarginBottom) && ScrollMarginLeft.Equals(o.ScrollMarginLeft)
+        && ScrollPaddingTop.Equals(o.ScrollPaddingTop) && ScrollPaddingRight.Equals(o.ScrollPaddingRight) && ScrollPaddingBottom.Equals(o.ScrollPaddingBottom) && ScrollPaddingLeft.Equals(o.ScrollPaddingLeft);
 
     public override int GetHashCode() => StyleEquality.Hash(MarginTop.GetHashCode(), MarginRight.GetHashCode(), MarginBottom.GetHashCode(),
         MarginLeft.GetHashCode(), PaddingTop.GetHashCode(), PaddingRight.GetHashCode(), PaddingBottom.GetHashCode(), PaddingLeft.GetHashCode());
