@@ -55,6 +55,20 @@ public static class Program
                 warnings.Add($"Paint-only animation frames of the {name} are over the target or not paint-only: median {Ms(frames.Median)} ms");
         }
 
+        table.AppendLine().AppendLine($"Hover restyle and repaint, {iterations * 10} steps: update + raster at 800x600; target {Ms(FrameBenchmark.HoverTarget)} ms.")
+            .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
+        var hover = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, iterations * 10);
+        table.AppendLine($"| card hover restyle | {Ms(hover.Median)} | {Ms(hover.P95)} |");
+        if (hover.Median > FrameBenchmark.HoverTarget)
+            warnings.Add($"Hover restyle of the dashboard is over the target: median {Ms(hover.Median)} ms (target {Ms(FrameBenchmark.HoverTarget)} ms)");
+
+        table.AppendLine().AppendLine($"Scroll frame, {iterations * 10} steps: replay display list + raster at 800x600; target {Ms(FrameBenchmark.ScrollTarget)} ms.")
+            .AppendLine().AppendLine("| Interaction | Median ms | p95 ms |").AppendLine("|---|--:|--:|");
+        var scroll = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, iterations * 10);
+        table.AppendLine($"| viewport scroll frame | {Ms(scroll.Median)} | {Ms(scroll.P95)} |");
+        if (scroll.Median > FrameBenchmark.ScrollTarget)
+            warnings.Add($"Viewport scroll frame is over the target: median {Ms(scroll.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)");
+
         Console.WriteLine(table);
         foreach (var warning in warnings)
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.

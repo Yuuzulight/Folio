@@ -34,4 +34,20 @@ public class BenchmarkTests
         Assert.True(paintOnly);
         Assert.True(median > TimeSpan.Zero);
     }
+
+    [Fact]
+    public void HoverRestyleMeasuresUnderTarget()
+    {
+        var (median, p95) = FrameBenchmark.MeasureHover(FrameBenchmark.HoverHtml, steps: 3);
+        Assert.True(median > TimeSpan.Zero);
+        Assert.True(p95 >= median);
+    }
+
+    [Fact]
+    public void ScrollFrameMeasuresUnderTarget()
+    {
+        var (median, p95) = FrameBenchmark.MeasureScroll(FrameBenchmark.ScrollHtml, steps: 3);
+        Assert.True(median > TimeSpan.Zero);
+        Assert.True(p95 >= median);
+    }
 }

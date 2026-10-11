@@ -18,6 +18,8 @@ namespace Folio.Benchmarks;
 internal static class FrameBenchmark
 {
     public static readonly TimeSpan Target = TimeSpan.FromMilliseconds(8);
+    public static readonly TimeSpan HoverTarget = TimeSpan.FromMilliseconds(4);
+    public static readonly TimeSpan ScrollTarget = TimeSpan.FromMilliseconds(8);
 
     private static readonly FolioOptions Options = new()
     {
@@ -31,6 +33,10 @@ internal static class FrameBenchmark
     public static string Typical => Html(8, 4);
 
     public static string Busy => Html(24, 6);
+
+    public static string HoverHtml => Typical;
+
+    public static string ScrollHtml => Typical;
 
     private static string Html(int cardCount, int barCount)
     {
@@ -49,9 +55,11 @@ internal static class FrameBenchmark
             .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
             .card { position: relative; background: #fff; border-radius: 12px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08);
                     animation: float 3s ease-in-out infinite alternate; }
+            .card:hover { background: #e8ecf8; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
             .value { font-size: 22px; font-weight: 700; margin: 4px 0; }
             .bars { display: flex; align-items: flex-end; gap: 4px; height: 80px; }
             .bars i { flex: 1; background: #5b5bd6; border-radius: 3px 3px 0 0; transform-origin: bottom; animation: pulse 1.2s linear infinite alternate; }
+            .bars i:hover { background: #3b3bc0; }
             .badge { position: absolute; top: 10px; right: 10px; padding: 1px 6px; border-radius: 9px; color: #fff; font-size: 11px;
                      animation: glow 2s infinite; }
             @keyframes float { from { transform: translateY(0) rotate(0deg); opacity: .85 } to { transform: translateY(-6px) rotate(.5deg); opacity: 1 } }
@@ -85,5 +93,61 @@ internal static class FrameBenchmark
         }
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))], paintOnly);
+    }
+
+    /// <summary>
+    /// Hover restyle + repaint frame time (docs/study/18-memory-and-performance.md, M3 target 4 ms):
+    /// moving pointer between cards toggles :hover state, runs Update() and rasters the display list.
+    /// </summary>
+    public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps)
+    {
+        using var document = Document.Parse(html, Options);
+        document.Paint(800, 600, 1, new HarfBuzzShaper(), 0);
+        using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        var times = new List<TimeSpan>();
+        for (var i = -10; i < steps; i++)
+        {
+            var start = Stopwatch.GetTimestamp();
+            var pos = (i % 2 == 0) ? new System.Numerics.Vector2(100, 100) : new System.Numerics.Vector2(300, 100);
+            document.Input.HandlePointerMove(new Folio.PointerEvent(pos));
+            document.Update();
+            canvas.Clear(SKColors.White);
+            if (document.DisplayList is { } list)
+                DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+            canvas.Flush();
+            if (i >= 0)
+                times.Add(Stopwatch.GetElapsedTime(start));
+        }
+        times.Sort();
+        return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
+    }
+
+    /// <summary>
+    /// Scroll frame time (docs/study/18-memory-and-performance.md, M3 target 8 ms):
+    /// viewport scroll replays the display list with offset into viewport and rasters.
+    /// </summary>
+    public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps)
+    {
+        using var document = Document.Parse(html, Options);
+        var (list, contentHeight) = document.Paint(800, 600, 1, new HarfBuzzShaper(), 0);
+        using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        var times = new List<TimeSpan>();
+        for (var i = -10; i < steps; i++)
+        {
+            var start = Stopwatch.GetTimestamp();
+            var scrollTop = Math.Clamp(i * 10f, 0, Math.Max(0, contentHeight - 600));
+            canvas.Clear(SKColors.White);
+            canvas.Save();
+            canvas.Translate(0, -scrollTop);
+            DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false), new Folio.Painting.RectF(0, scrollTop, 800, 600));
+            canvas.Restore();
+            canvas.Flush();
+            if (i >= 0)
+                times.Add(Stopwatch.GetElapsedTime(start));
+        }
+        times.Sort();
+        return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
     }
 }
