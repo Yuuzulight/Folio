@@ -42,9 +42,18 @@ internal sealed class JintHostObject : ObjectInstance
                     $"get {propName}",
                     (thisObj, args) =>
                     {
-                        var target = (thisObj as JintHostObject)?.Target ?? Target;
-                        var result = getter(target, JintScriptEngine.ToScriptValue(thisObj));
-                        return JintScriptEngine.ToJsValue(Engine, result);
+                        var target = (thisObj as JintHostObject)?.Target;
+                        if (target is null)
+                            throw new JavaScriptException(Engine.Intrinsics.TypeError, "Illegal invocation");
+                        try
+                        {
+                            var result = getter(target, JintScriptEngine.ToScriptValue(thisObj));
+                            return JintScriptEngine.ToJsValue(Engine, result);
+                        }
+                        catch (WebIdlException wie)
+                        {
+                            throw new JavaScriptException(Engine.Intrinsics.TypeError, wie.Message);
+                        }
                     },
                     0,
                     PropertyFlag.Configurable);
@@ -57,10 +66,19 @@ internal sealed class JintHostObject : ObjectInstance
                         $"set {propName}",
                         (thisObj, args) =>
                         {
-                            var target = (thisObj as JintHostObject)?.Target ?? Target;
+                            var target = (thisObj as JintHostObject)?.Target;
+                            if (target is null)
+                                throw new JavaScriptException(Engine.Intrinsics.TypeError, "Illegal invocation");
                             var argVal = args.Length > 0 ? JintScriptEngine.ToScriptValue(args[0]) : ScriptValue.Undefined;
-                            setter(target, JintScriptEngine.ToScriptValue(thisObj), argVal);
-                            return JsValue.Undefined;
+                            try
+                            {
+                                setter(target, JintScriptEngine.ToScriptValue(thisObj), argVal);
+                                return JsValue.Undefined;
+                            }
+                            catch (WebIdlException wie)
+                            {
+                                throw new JavaScriptException(Engine.Intrinsics.TypeError, wie.Message);
+                            }
                         },
                         1,
                         PropertyFlag.Configurable);
@@ -80,13 +98,23 @@ internal sealed class JintHostObject : ObjectInstance
                     methodName,
                     (thisObj, args) =>
                     {
-                        var target = (thisObj as JintHostObject)?.Target ?? Target;
+                        var target = (thisObj as JintHostObject)?.Target;
+                        if (target is null)
+                            throw new JavaScriptException(Engine.Intrinsics.TypeError, "Illegal invocation");
+
                         var convertedArgs = new ScriptValue[args.Length];
                         for (var i = 0; i < args.Length; i++)
                             convertedArgs[i] = JintScriptEngine.ToScriptValue(args[i]);
 
-                        var result = callback(target, JintScriptEngine.ToScriptValue(thisObj), convertedArgs);
-                        return JintScriptEngine.ToJsValue(Engine, result);
+                        try
+                        {
+                            var result = callback(target, JintScriptEngine.ToScriptValue(thisObj), convertedArgs);
+                            return JintScriptEngine.ToJsValue(Engine, result);
+                        }
+                        catch (WebIdlException wie)
+                        {
+                            throw new JavaScriptException(Engine.Intrinsics.TypeError, wie.Message);
+                        }
                     },
                     0,
                     PropertyFlag.Configurable);

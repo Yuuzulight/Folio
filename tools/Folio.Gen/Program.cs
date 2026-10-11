@@ -17,13 +17,30 @@ return args switch
     ["colors", ..] => await Colors(args.Length > 1 ? args[1] : null),
     ["boxfont"] => await WriteBoxFont(),
     ["unicode", ..] => await Unicode.Generate(FindRoot(), args.Length > 1 ? args[1] : null),
+    ["idl", ..] => await GenerateIdl(args.Length > 1 ? args[1] : null, args.Length > 2 ? args[2] : null),
     _ => Usage(),
 };
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont | unicode [ucd-folder]");
+    Console.Error.WriteLine("usage: Folio.Gen entities [entities.json] | colors [css-color-4.html] | boxfont | unicode [ucd-folder] | idl [input.idl] [output.g.cs]");
     return 2;
+}
+
+static async Task<int> GenerateIdl(string? inputPath, string? outputPath)
+{
+    if (inputPath is null)
+    {
+        Console.Error.WriteLine("Input IDL file required.");
+        return 1;
+    }
+    var idlText = await File.ReadAllTextAsync(inputPath);
+    var doc = Folio.Gen.IdlParser.Parse(idlText);
+    var generated = Folio.Gen.IdlCodeGenerator.Generate(doc);
+    outputPath ??= Path.ChangeExtension(inputPath, ".g.cs");
+    await File.WriteAllTextAsync(outputPath, generated.ReplaceLineEndings("\n"));
+    Console.WriteLine($"Generated {outputPath} from {inputPath}");
+    return 0;
 }
 
 static async Task<string> Read(string? path, string url) =>
