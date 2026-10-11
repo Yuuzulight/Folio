@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Folio/Folio.csproj" />
+    <Project Path="src/Folio.Scripting/Folio.Scripting.csproj" />
+    <Project Path="src/Folio.Scripting.Jint/Folio.Scripting.Jint.csproj" />
     <Project Path="src/Folio.Skia/Folio.Skia.csproj" />
     <Project Path="src/Folio.WinForms/Folio.WinForms.csproj" />
   </Folder>
@@ -10,6 +12,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Folio.Tests/Folio.Tests.csproj" />
+    <Project Path="tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj" />
     <Project Path="tests/Folio.RenderTests/Folio.RenderTests.csproj" />
     <Project Path="tests/Folio.Fuzz/Folio.Fuzz.csproj" />
     <Project Path="tests/Folio.Benchmarks/Folio.Benchmarks.csproj" />

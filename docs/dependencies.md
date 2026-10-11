@@ -128,7 +128,7 @@ public interface IScriptEngine : IDisposable
 }
 ```
 
-Both engines run only inside the sandboxed content process ([study](study/17-scripting.md)). M4 ships `Folio.Scripting.Jint`; M5 adds `Folio.Scripting.Jit` on a native JIT-compiling engine (chosen at the start of M5) as a second implementation of the same interface, so the switch is a backend swap and does not change the security model.
+Both engines run only inside the sandboxed content process ([study](study/17-scripting.md)). M4 ships `Folio.Scripting.Jint` (pinned to Jint `4.1.0`, BSD 2-Clause licence); M5 adds `Folio.Scripting.Jit` on a native JIT-compiling engine (chosen at the start of M5) as a second implementation of the same interface, so the switch is a backend swap and does not change the security model.
 
 ### Image codecs not built in-house
 

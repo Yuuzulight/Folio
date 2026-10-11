@@ -14,6 +14,8 @@ public class LayeringTests
         "System.Windows.Forms",
         "Folio.Skia",
         "Folio.WinForms",
+        "Folio.Scripting",
+        "Jint",
     ];
 
     [Fact]
