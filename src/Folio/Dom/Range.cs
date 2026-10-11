@@ -1,7 +1,4 @@
-using Folio.Dom;
-using Folio.Interaction;
-
-namespace Folio.Interaction;
+namespace Folio.Dom;
 
 /// <summary>
 /// A DOM Range (https://dom.spec.whatwg.org/#ranges) boundary point: a node and a child/character offset.
@@ -15,10 +12,6 @@ internal readonly record struct RangePoint(Node Node, int Offset) : IComparable<
 
         // Position in document tree order
         var pos = CompareDocumentPosition(Node, other.Node);
-        if ((pos & DocumentPosition.Preceding) != 0)
-            return 1;
-        if ((pos & DocumentPosition.Following) != 0)
-            return -1;
         if ((pos & DocumentPosition.Contains) != 0)
         {
             // Node contains other.Node: other is a descendant.
@@ -32,6 +25,10 @@ internal readonly record struct RangePoint(Node Node, int Offset) : IComparable<
             var childIndex = FindChildIndexContaining(other.Node, Node);
             return childIndex < other.Offset ? -1 : 1;
         }
+        if ((pos & DocumentPosition.Preceding) != 0)
+            return 1;
+        if ((pos & DocumentPosition.Following) != 0)
+            return -1;
         return 0;
     }
 

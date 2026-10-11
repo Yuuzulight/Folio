@@ -343,7 +343,7 @@ public sealed class Document : IDisposable
         {
             _scrollOffsets[element] = new Vector2(clampedX, clampedY);
             if (_frame is { } frame && _images is not null)
-                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
         }
 
         return new Vector2(consumedX, consumedY);
@@ -384,7 +384,7 @@ public sealed class Document : IDisposable
         {
             _scrollOffsets[element.Node] = clamped;
             if (_frame is { } frame && _images is not null)
-                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
         }
     }
 
@@ -739,8 +739,15 @@ public sealed class Document : IDisposable
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         if (animationTime.HasValue)
             AdvanceSmoothScrolls(animationTime.Value);
-        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets);
+        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets, _inputRouter?.Selection);
         return (DisplayList, height);
+    }
+
+    /// <summary>Rebuilds the display list from the current layout frame when paint state (such as selection) changes.</summary>
+    internal void RepaintDisplayList()
+    {
+        if (_frame is { } frame && _images is not null)
+            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
     }
 
     private void AdvanceSmoothScrolls(double time)
@@ -817,7 +824,7 @@ public sealed class Document : IDisposable
             }
         }
         AdvanceSmoothScrolls(time);
-        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets);
+        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
@@ -951,7 +958,7 @@ public sealed class Document : IDisposable
             }
             else
             {
-                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets);
+                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets, _inputRouter?.Selection);
                 return Damage.Paint;
             }
         }
@@ -981,7 +988,7 @@ public sealed class Document : IDisposable
             _page = page;
             LayoutCount++;
             _frame = (frameVal.Root, page, frameVal.Scale);
-            DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale, _scrollOffsets);
+            DisplayList = DisplayListBuilder.Build(page, _images, frameVal.Scale, _scrollOffsets, _inputRouter?.Selection);
             return Damage.Layout;
         }
 
@@ -1001,7 +1008,7 @@ public sealed class Document : IDisposable
             _page = page;
             LayoutCount++;
             _frame = (root, page, l.Scale);
-            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale, _scrollOffsets);
+            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale, _scrollOffsets, _inputRouter?.Selection);
             return Damage.Boxes;
         }
 

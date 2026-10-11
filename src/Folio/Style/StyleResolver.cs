@@ -11,6 +11,7 @@ internal sealed class ElementStyles(ComputedStyle style)
     public ComputedStyle? After { get; set; }
     public ComputedStyle? Marker { get; set; }
     public ComputedStyle? FirstLetter { get; set; }
+    public ComputedStyle? Selection { get; set; }
 }
 
 internal static class ElementStyleExtensions
@@ -26,6 +27,7 @@ internal static class ElementStyleExtensions
             PseudoElement.After => styles.After,
             PseudoElement.Marker => styles.Marker,
             PseudoElement.FirstLetter => styles.FirstLetter,
+            PseudoElement.Selection => styles.Selection,
             _ => styles.Style,
         }
         : null;
@@ -160,7 +162,7 @@ internal static class StyleResolver
         private readonly MatchContext _context = new();
         private readonly List<RuleIndex<CascadeRule>.Entry> _matched = [];
         private readonly List<RuleIndex<CascadeRule>.Entry> _pseudoMatched = [];
-        private readonly bool _hasBefore, _hasAfter, _hasFirstLetter;
+        private readonly bool _hasBefore, _hasAfter, _hasFirstLetter, _hasSelection;
         private float _rootFontSize = Folio.Style.ComputedStyle.Initial.Font.Size;
 
         public Restyler(List<CascadeData> origins, MediaContext media, FontMeasure? measure, Dictionary<string, RegisteredProperty> registered,
@@ -170,6 +172,7 @@ internal static class StyleResolver
             _walkContext = new MatchContext { Filter = _filter };
             (_hasBefore, _hasAfter) = (origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Before)), origins.Any(o => o.Rules.HasRulesFor(PseudoElement.After)));
             _hasFirstLetter = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.FirstLetter));
+            _hasSelection = origins.Any(o => o.Rules.HasRulesFor(PseudoElement.Selection));
             Invalidation = StateInvalidation.Build(origins.SelectMany(o => o.Rules.StateSelectors));
         }
 
@@ -261,6 +264,7 @@ internal static class StyleResolver
                     styles.Before = Pseudo(element, style, PseudoElement.Before);
                     styles.After = Pseudo(element, style, PseudoElement.After);
                     styles.FirstLetter = Pseudo(element, style, PseudoElement.FirstLetter);
+                    styles.Selection = Pseudo(element, style, PseudoElement.Selection);
                     if (style.Box.Display == Display.ListItem)
                         styles.Marker = Pseudo(element, style, PseudoElement.Marker, always: true);
                 }
@@ -280,7 +284,7 @@ internal static class StyleResolver
 
         private ComputedStyle? Pseudo(ElementNode element, ComputedStyle style, PseudoElement pe, bool always = false)
         {
-            if (!always && !(pe switch { PseudoElement.Before => _hasBefore, PseudoElement.After => _hasAfter, _ => _hasFirstLetter }))
+            if (!always && !(pe switch { PseudoElement.Before => _hasBefore, PseudoElement.After => _hasAfter, PseudoElement.Selection => _hasSelection, _ => _hasFirstLetter }))
                 return null;
             // With no rules for it, ::before or ::after would have content: normal and generate no box.
             _pseudoMatched.Clear();
@@ -290,6 +294,8 @@ internal static class StyleResolver
             var (pseudoValues, pseudoCustom) = Cascade.Compute(_pseudoMatched, null, 0, null, parent: style);
             if (pe == PseudoElement.FirstLetter)
                 pseudoValues = FirstLetterProperties(pseudoValues);
+            else if (pe == PseudoElement.Selection)
+                pseudoValues = SelectionProperties(pseudoValues);
             var pseudoStyle = StyleBuilder.Compute(pseudoValues, Context(style, pseudoCustom), _groups);
             if (ReferenceEquals(pseudoStyle.Animation, AnimationGroup.Initial) || _keyframes.Count == 0)
                 return pseudoStyle;
@@ -440,6 +446,24 @@ internal static class StyleResolver
         {
             var name = Properties.Get(id).Name;
             if (!FirstLetterPrefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal)))
+                values.Remove(id);
+        }
+        return values;
+    }
+
+    // The properties ::selection takes (https://www.w3.org/TR/css-pseudo-4/#highlight-styling): color,
+    // background-color, text-decoration, text-shadow. The rest are ignored.
+    private static readonly string[] SelectionPrefixes =
+    [
+        "color", "background", "text-decoration", "text-shadow",
+    ];
+
+    private static Dictionary<PropertyId, CssValue> SelectionProperties(Dictionary<PropertyId, CssValue> values)
+    {
+        foreach (var id in values.Keys.ToList())
+        {
+            var name = Properties.Get(id).Name;
+            if (!SelectionPrefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal)))
                 values.Remove(id);
         }
         return values;
