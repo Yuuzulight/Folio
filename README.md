@@ -4,7 +4,7 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** static rendering (milestone 1) is complete and in use in Mana. Static parity (milestone 2) has 5 open issues left. Interaction (milestone 3) is in progress: 6 issues closed, 24 open.
+**Status:** static rendering (milestone 1), static parity (milestone 2), and interaction (milestone 3) are complete and in use in Mana. Scripting foundations (milestone 4) is up next.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
@@ -27,8 +27,8 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 |---|---|---|
 | 0. Study and architecture: how each part of an engine works, written up as Folio's own design in `docs/study`. | Done | 0 |
 | 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana | 0 |
-| 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Nearly done | 5 |
-| 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | In progress | 24 |
+| 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
+| 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Not started | 40 |
 | 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Not started | 36 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | Not started | 45 |
