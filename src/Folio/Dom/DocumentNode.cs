@@ -45,6 +45,8 @@ internal sealed class DocumentNode : ContainerNode
 
     public override string? TextContent => null;
 
+    public override Node Clone(bool deep = false) => throw new NotSupportedException("Cannot clone a Document.");
+
     /// <summary>Interns in the shared table, or in this document once the shared table is full.</summary>
     public Atom Intern(string text)
     {
@@ -133,7 +135,19 @@ internal sealed class DocumentNode : ContainerNode
 }
 
 /// <summary>https://dom.spec.whatwg.org/#interface-documentfragment</summary>
-internal sealed class DocumentFragment(DocumentNode ownerDocument) : ContainerNode(ownerDocument);
+internal sealed class DocumentFragment(DocumentNode ownerDocument) : ContainerNode(ownerDocument)
+{
+    public override Node Clone(bool deep = false)
+    {
+        var copy = new DocumentFragment(OwnerDocument);
+        if (deep)
+        {
+            for (var child = FirstChild; child is not null; child = child.NextSibling)
+                copy.AppendChild(child.Clone(deep: true));
+        }
+        return copy;
+    }
+}
 
 /// <summary>https://dom.spec.whatwg.org/#interface-documenttype</summary>
 internal sealed class DocumentType(DocumentNode ownerDocument, string name, string publicId, string systemId) : Node(ownerDocument)
@@ -141,6 +155,8 @@ internal sealed class DocumentType(DocumentNode ownerDocument, string name, stri
     public string Name { get; } = name;
     public string PublicId { get; } = publicId;
     public string SystemId { get; } = systemId;
+
+    public override Node Clone(bool deep = false) => new DocumentType(OwnerDocument, Name, PublicId, SystemId);
 }
 
 /// <summary>https://dom.spec.whatwg.org/#interface-characterdata</summary>
@@ -159,6 +175,12 @@ internal abstract class CharacterData(DocumentNode ownerDocument, string data) :
     public override string? TextContent => Data;
 }
 
-internal sealed class Text(DocumentNode ownerDocument, string data) : CharacterData(ownerDocument, data);
+internal sealed class Text(DocumentNode ownerDocument, string data) : CharacterData(ownerDocument, data)
+{
+    public override Node Clone(bool deep = false) => new Text(OwnerDocument, Data);
+}
 
-internal sealed class Comment(DocumentNode ownerDocument, string data) : CharacterData(ownerDocument, data);
+internal sealed class Comment(DocumentNode ownerDocument, string data) : CharacterData(ownerDocument, data)
+{
+    public override Node Clone(bool deep = false) => new Comment(OwnerDocument, Data);
+}

@@ -16,6 +16,16 @@ public delegate ScriptValue HostPropertyGetter(object target, ScriptValue thisVa
 public delegate void HostPropertySetter(object target, ScriptValue thisValue, ScriptValue value);
 
 /// <summary>
+/// Delegate representing an indexed getter for numeric properties (e.g. NodeList[0]).
+/// </summary>
+public delegate ScriptValue HostIndexedPropertyGetter(object target, ScriptValue thisValue, int index);
+
+/// <summary>
+/// Delegate representing a named getter for dynamic string properties (e.g. HTMLCollection["btn"]).
+/// </summary>
+public delegate ScriptValue HostNamedPropertyGetter(object target, ScriptValue thisValue, string name);
+
+/// <summary>
 /// Describes the members and behavior of a host-exposed class/interface in the script engine.
 /// Used by generated WebIDL bindings to wrap DOM objects cleanly without exposing CLR internals.
 /// </summary>
@@ -32,6 +42,12 @@ public interface IHostObjectTemplate
 
     /// <summary>Lookup a property getter and optional setter by name on this template.</summary>
     bool TryGetProperty(string name, out HostPropertyGetter getter, out HostPropertySetter? setter);
+
+    /// <summary>Optional indexed property getter.</summary>
+    HostIndexedPropertyGetter? IndexedGetter { get; }
+
+    /// <summary>Optional named property getter.</summary>
+    HostNamedPropertyGetter? NamedGetter { get; }
 
     /// <summary>Enumerates all property names defined by this template.</summary>
     IEnumerable<string> PropertyNames { get; }
@@ -56,6 +72,20 @@ public class HostObjectTemplate : IHostObjectTemplate
 
     public string Name { get; }
     public IHostObjectTemplate? PrototypeTemplate { get; }
+    public HostIndexedPropertyGetter? IndexedGetter { get; private set; }
+    public HostNamedPropertyGetter? NamedGetter { get; private set; }
+
+    public HostObjectTemplate DefineIndexedProperty(HostIndexedPropertyGetter getter)
+    {
+        IndexedGetter = getter;
+        return this;
+    }
+
+    public HostObjectTemplate DefineNamedProperty(HostNamedPropertyGetter getter)
+    {
+        NamedGetter = getter;
+        return this;
+    }
 
     public IEnumerable<string> PropertyNames => _properties.Keys;
     public IEnumerable<string> MethodNames => _methods.Keys;

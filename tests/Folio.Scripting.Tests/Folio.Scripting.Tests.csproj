@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />
     <ProjectReference Include="..\..\src\Folio.Scripting.Jint\Folio.Scripting.Jint.csproj" />
     <ProjectReference Include="..\..\tools\Folio.Gen\Folio.Gen.csproj" />

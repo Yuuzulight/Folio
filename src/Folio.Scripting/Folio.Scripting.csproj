@@ -6,4 +6,13 @@
     <Description>Script engine abstraction, script values, limits, host object templates and evaluation results.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Folio\Folio.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Folio.Scripting.Tests" />
+    <InternalsVisibleTo Include="Folio.Scripting.Jint" />
+  </ItemGroup>
+
 </Project>

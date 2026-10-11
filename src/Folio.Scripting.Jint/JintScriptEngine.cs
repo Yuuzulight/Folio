@@ -117,6 +117,17 @@ public sealed class JintScriptEngine : IScriptEngine
         return ScriptValue.FromObject(hostObj);
     }
 
+    public bool TryGetHostTarget(ScriptValue value, out object? target)
+    {
+        if (value.Raw is JintHostObject jho)
+        {
+            target = jho.Target;
+            return true;
+        }
+        target = null;
+        return false;
+    }
+
     public void SetGlobalProperty(string name, ScriptValue value)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

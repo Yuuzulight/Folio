@@ -160,6 +160,28 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
         }
     }
 
+    public override Node Clone(bool deep = false)
+    {
+        var copy = OwnerDocument.CreateElement(Name.Namespace, LocalName);
+        if (_attributes.Length > 0)
+        {
+            var attrs = new Attribute[_attributes.Length];
+            Array.Copy(_attributes, attrs, _attributes.Length);
+            copy.SetParsedAttributes(attrs);
+        }
+        if (deep)
+        {
+            for (var child = FirstChild; child is not null; child = child.NextSibling)
+                copy.AppendChild(child.Clone(deep: true));
+            if (this is TemplateElement template && copy is TemplateElement copyTemplate)
+            {
+                for (var child = template.Content.FirstChild; child is not null; child = child.NextSibling)
+                    copyTemplate.Content.AppendChild(child.Clone(deep: true));
+            }
+        }
+        return copy;
+    }
+
     // https://infra.spec.whatwg.org/#ascii-whitespace
     internal static readonly char[] AsciiWhitespace = ['\t', '\n', '\f', '\r', ' '];
 }

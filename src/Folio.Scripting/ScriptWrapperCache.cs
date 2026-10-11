@@ -11,6 +11,10 @@ public sealed class ScriptWrapperCache
 {
     // ConditionalWeakTable ensures that when target object is collected, its wrapper entry is freed.
     private readonly ConditionalWeakTable<object, ScriptValueBox> _table = new();
+    private long _createdWrapperCount;
+
+    /// <summary>Total number of wrappers instantiated by this cache.</summary>
+    public long CreatedWrapperCount => Interlocked.Read(ref _createdWrapperCount);
 
     public ScriptValue GetOrCreate(IScriptEngine engine, IHostObjectTemplate template, object target)
     {
@@ -24,6 +28,7 @@ public sealed class ScriptWrapperCache
                 return boxed.Value;
 
             var created = engine.CreateHostObject(template, target);
+            Interlocked.Increment(ref _createdWrapperCount);
             _table.Add(target, new ScriptValueBox(created));
             return created;
         }

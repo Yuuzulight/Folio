@@ -35,6 +35,9 @@ public interface IScriptEngine : IDisposable
     /// <summary>Wraps a host object with an <see cref="IHostObjectTemplate"/> without exposing CLR internals.</summary>
     ScriptValue CreateHostObject(IHostObjectTemplate template, object target);
 
+    /// <summary>Extracts the underlying host target from a wrapped host object, if present.</summary>
+    bool TryGetHostTarget(ScriptValue value, out object? target);
+
     /// <summary>Sets a global property on the engine's global object.</summary>
     void SetGlobalProperty(string name, ScriptValue value);
 

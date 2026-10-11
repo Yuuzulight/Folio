@@ -60,6 +60,9 @@ internal abstract class Node
         return false;
     }
 
+    /// <summary>https://dom.spec.whatwg.org/#concept-node-clone</summary>
+    public abstract Node Clone(bool deep = false);
+
     /// <summary>
     /// The single hook every mutation calls (docs/study/02-dom.md): marks the affected element for restyle and its
     /// ancestors as having a dirty descendant.
@@ -165,6 +168,24 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
 
         Unlink(child);
         OnMutated(MutationKind.ChildList);
+        return child;
+    }
+
+    /// <summary>https://dom.spec.whatwg.org/#concept-node-replace</summary>
+    public T ReplaceChild<T>(Node node, T child) where T : Node
+    {
+        if (child.Parent != this)
+            throw new ArgumentException("The node is not a child of this node.", nameof(child));
+
+        if (ReferenceEquals(node, child))
+            return child;
+
+        var next = child.NextSibling;
+        if (ReferenceEquals(next, node))
+            next = node.NextSibling;
+
+        RemoveChild(child);
+        InsertBefore(node, next);
         return child;
     }
 
