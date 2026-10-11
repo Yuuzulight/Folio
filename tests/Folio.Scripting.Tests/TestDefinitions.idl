@@ -1,0 +1,30 @@
+enum AlignMode {
+    "start",
+    "center",
+    "end"
+};
+
+dictionary PointOptions {
+    required double x;
+    double y = 0.0;
+    DOMString label = "default";
+};
+
+interface TestNode {
+    const unsigned short ELEMENT_NODE = 1;
+    readonly attribute DOMString nodeName;
+    attribute DOMString? textContent;
+};
+
+interface TestElement : TestNode {
+    attribute boolean active;
+    attribute double score;
+    attribute [EnforceRange] long priority;
+    attribute [Clamp] octet level;
+    attribute USVString unicodeText;
+
+    DOMString greet(DOMString name, optional DOMString title = "Mx.");
+    long compute(long x);
+    long compute(long x, long y);
+    void reset();
+};
