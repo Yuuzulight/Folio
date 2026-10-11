@@ -1,6 +1,9 @@
 using System.Numerics;
 using Folio.Dom;
+using Folio.Interaction;
 using Folio.Painting;
+using Folio.Style;
+using Folio.Typography;
 
 namespace Folio;
 
@@ -14,6 +17,9 @@ public sealed class InputRouter
     private ElementNode? _hovered;
     private ElementNode? _active;
     private ElementNode? _focused = null;
+    private Selection? _selection;
+    private bool _isSelecting;
+    private RangePoint? _selectionPivot;
 
     internal InputRouter(Document document)
     {
@@ -22,6 +28,9 @@ public sealed class InputRouter
 
     private string _currentCursor = "default";
     private string? _currentTooltip = null;
+
+    /// <summary>The current document selection, or null.</summary>
+    internal Selection? Selection => _selection;
 
     /// <summary>The element currently hovered under the pointer, or null.</summary>
     public Element? HoveredElement => _hovered is not null ? _document.Wrap(_hovered) : null;
@@ -81,6 +90,9 @@ public sealed class InputRouter
     /// <summary>The active tooltip text changed under the pointer.</summary>
     public event EventHandler<TooltipChangedEventArgs>? TooltipChanged;
 
+    /// <summary>The document selection changed.</summary>
+    internal event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
+
     private sealed record ScrollbarDragState(
         ElementNode Scroller,
         bool Vertical,
@@ -120,6 +132,16 @@ public sealed class InputRouter
             _document.Update();
 
         UpdateCursorAndTooltip(e.Position.X, e.Position.Y);
+
+        if (_isSelecting && _selectionPivot is { } pivot)
+        {
+            var hit = _document.HitAt(e.Position.X, e.Position.Y);
+            if (hit?.Position is { } pos && IsSelectable(pos.Node))
+            {
+                var newFocus = new RangePoint(pos.Node, pos.Offset);
+                SetSelection(new Selection(pivot, newFocus));
+            }
+        }
     }
 
     /// <summary>A pointer button was pressed down.</summary>
@@ -149,7 +171,8 @@ public sealed class InputRouter
             }
         }
 
-        var target = _document.ElementAt(e.Position.X, e.Position.Y);
+        var hit = _document.HitAt(e.Position.X, e.Position.Y);
+        var target = hit?.Node ?? _document.ElementAt(e.Position.X, e.Position.Y);
         var changed = UpdateHover(target);
         if (e.Button == PointerButton.Primary)
         {
@@ -162,6 +185,8 @@ public sealed class InputRouter
                 SetElementAndAncestorsState(_active, NodeFlags.Active, true);
                 changed = true;
             }
+
+            HandleSelectionPointerDown(e, hit);
         }
 
         if (changed)
@@ -176,6 +201,8 @@ public sealed class InputRouter
             _scrollbarDrag = null;
             return;
         }
+
+        _isSelecting = false;
 
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
         var activated = _active;
@@ -314,6 +341,12 @@ public sealed class InputRouter
         // Page step: page height minus an overlap of ~40px so user keeps context, or at least 1px
         var pageStepY = Math.Max(1, ch - 40f);
         var pageStepX = Math.Max(1, cw - 40f);
+
+        if (e.Key is "a" or "A" && (e.Modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0)
+        {
+            SelectAll();
+            return;
+        }
 
         if (e.Key is "Tab")
         {
@@ -674,6 +707,266 @@ public sealed class InputRouter
             }
         }
         return null;
+    }
+
+    private void HandleSelectionPointerDown(PointerEvent e, HitResult? hit)
+    {
+        if (hit?.Position is not { } pos)
+        {
+            if ((e.Modifiers & KeyModifiers.Shift) == 0 && e.ClickCount <= 1)
+            {
+                ClearSelection();
+            }
+            return;
+        }
+
+        if (!IsSelectable(pos.Node))
+            return;
+
+        var targetPoint = new RangePoint(pos.Node, pos.Offset);
+
+        // Check user-select: all on hit node
+        if (GetUserSelect(pos.Node) == UserSelect.All)
+        {
+            var atomicRange = GetAtomicUnitRange(pos.Node);
+            _selectionPivot = atomicRange.Anchor;
+            SetSelection(atomicRange);
+            _isSelecting = true;
+            return;
+        }
+
+        // Shift+click extends current selection
+        if ((e.Modifiers & KeyModifiers.Shift) != 0 && _selection is not null)
+        {
+            var anchor = _selectionPivot ?? _selection.Anchor;
+            SetSelection(new Selection(anchor, targetPoint));
+            _isSelecting = true;
+            return;
+        }
+
+        // Multi-click handling
+        if (e.ClickCount == 2)
+        {
+            var wordRange = ExpandToWord(pos);
+            _selectionPivot = wordRange.Anchor;
+            SetSelection(wordRange);
+            _isSelecting = true;
+            return;
+        }
+
+        if (e.ClickCount >= 3)
+        {
+            var paraRange = ExpandToParagraph(pos);
+            _selectionPivot = paraRange.Anchor;
+            SetSelection(paraRange);
+            _isSelecting = true;
+            return;
+        }
+
+        // Single click: start drag
+        _selectionPivot = targetPoint;
+        SetSelection(new Selection(targetPoint, targetPoint));
+        _isSelecting = true;
+    }
+
+    /// <summary>Sets the selection to the specified range.</summary>
+    internal void Select(RangePoint anchor, RangePoint focus)
+    {
+        _selectionPivot = anchor;
+        SetSelection(new Selection(anchor, focus));
+    }
+
+    /// <summary>Clears the current selection.</summary>
+    internal void ClearSelection()
+    {
+        _selectionPivot = null;
+        SetSelection(null);
+    }
+
+    /// <summary>Selects all selectable content across the document.</summary>
+    internal void SelectAll()
+    {
+        var first = FindFirstSelectablePoint();
+        var last = FindLastSelectablePoint();
+        if (first is not null && last is not null)
+        {
+            _selectionPivot = first.Value;
+            SetSelection(new Selection(first.Value, last.Value));
+        }
+    }
+
+    private void SetSelection(Selection? selection)
+    {
+        if (SelectionEquals(_selection, selection))
+            return;
+
+        _selection = selection;
+        SelectionChanged?.Invoke(this, new SelectionChangedEventArgs(_selection));
+    }
+
+    private static bool SelectionEquals(Selection? a, Selection? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return a.Anchor.Node == b.Anchor.Node && a.Anchor.Offset == b.Anchor.Offset &&
+               a.Focus.Node == b.Focus.Node && a.Focus.Offset == b.Focus.Offset;
+    }
+
+    private static bool IsSelectable(Node node)
+    {
+        for (Node? curr = node; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el)
+            {
+                var style = el.ComputedStyle();
+                if (style is null || style.Box.Display == Display.None)
+                    return false;
+                if (style.Ui.UserSelect == UserSelect.None)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    private static UserSelect GetUserSelect(Node node)
+    {
+        for (Node? curr = node; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el)
+            {
+                var style = el.ComputedStyle();
+                if (style is not null)
+                    return style.Ui.UserSelect;
+            }
+        }
+        return UserSelect.Auto;
+    }
+
+    private static Selection GetAtomicUnitRange(Node node)
+    {
+        ElementNode? container = null;
+        for (Node? curr = node; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el && el.ComputedStyle()?.Ui.UserSelect == UserSelect.All)
+            {
+                container = el;
+                break;
+            }
+        }
+
+        if (container is not null)
+        {
+            Text? first = null;
+            Text? last = null;
+            for (Node? n = container; n is not null; n = n.NextInTree(container))
+            {
+                if (n is Text t && t.Data.Length > 0 && IsSelectable(t))
+                {
+                    first ??= t;
+                    last = t;
+                }
+            }
+            if (first is not null && last is not null)
+                return new Selection(new RangePoint(first, 0), new RangePoint(last, last.Data.Length));
+        }
+
+        if (node is Text text)
+            return new Selection(new RangePoint(text, 0), new RangePoint(text, text.Data.Length));
+
+        return new Selection(new RangePoint(node, 0), new RangePoint(node, 0));
+    }
+
+    private static Selection ExpandToWord(TextPosition pos)
+    {
+        if (pos.Node is not Text text)
+            return new Selection(new RangePoint(pos.Node, pos.Offset), new RangePoint(pos.Node, pos.Offset));
+
+        var data = text.Data;
+        if (data.Length == 0)
+            return new Selection(new RangePoint(text, 0), new RangePoint(text, 0));
+
+        var boundaries = WordBoundaries.Find(data);
+        var offset = Math.Clamp(pos.Offset, 0, data.Length);
+
+        // Find boundary interval [start, end] enclosing offset
+        var start = 0;
+        var end = data.Length;
+        for (var i = 0; i < boundaries.Count - 1; i++)
+        {
+            var bStart = boundaries[i];
+            var bEnd = boundaries[i + 1];
+            if (offset >= bStart && offset <= bEnd)
+            {
+                start = bStart;
+                end = bEnd;
+                break;
+            }
+        }
+
+        return new Selection(new RangePoint(text, start), new RangePoint(text, end));
+    }
+
+    private static Selection ExpandToParagraph(TextPosition pos)
+    {
+        // Containing block element or nearest enclosing block-level element
+        ElementNode? block = null;
+        for (Node? curr = pos.Node.Parent; curr is not null; curr = curr.Parent)
+        {
+            if (curr is ElementNode el && IsBlockFormattingContextOrBlock(el))
+            {
+                block = el;
+                break;
+            }
+        }
+
+        if (block is not null)
+        {
+            Text? first = null;
+            Text? last = null;
+            for (Node? n = block; n is not null; n = n.NextInTree(block))
+            {
+                if (n is Text t && t.Data.Length > 0 && IsSelectable(t))
+                {
+                    first ??= t;
+                    last = t;
+                }
+            }
+            if (first is not null && last is not null)
+                return new Selection(new RangePoint(first, 0), new RangePoint(last, last.Data.Length));
+        }
+
+        if (pos.Node is Text text)
+            return new Selection(new RangePoint(text, 0), new RangePoint(text, text.Data.Length));
+
+        return new Selection(new RangePoint(pos.Node, 0), new RangePoint(pos.Node, 0));
+    }
+
+    private static bool IsBlockFormattingContextOrBlock(ElementNode element)
+    {
+        var display = element.ComputedStyle()?.Box.Display ?? Display.Inline;
+        return display is Display.Block or Display.FlowRoot or Display.ListItem
+            or Display.Flex or Display.Grid or Display.Table or Display.TableCell;
+    }
+
+    private RangePoint? FindFirstSelectablePoint()
+    {
+        for (Node? curr = _document.Node; curr is not null; curr = curr.NextInTree(_document.Node))
+        {
+            if (curr is Text t && t.Data.Length > 0 && IsSelectable(t))
+                return new RangePoint(t, 0);
+        }
+        return null;
+    }
+
+    private RangePoint? FindLastSelectablePoint()
+    {
+        Text? last = null;
+        for (Node? curr = _document.Node; curr is not null; curr = curr.NextInTree(_document.Node))
+        {
+            if (curr is Text t && t.Data.Length > 0 && IsSelectable(t))
+                last = t;
+        }
+        return last is not null ? new RangePoint(last, last.Data.Length) : null;
     }
 }
 
