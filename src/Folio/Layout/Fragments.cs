@@ -289,7 +289,7 @@ internal readonly struct Fragment : IEquatable<Fragment>
     public bool SkipsDecorations { get => Row.SkipsDecorations; init => Row.SkipsDecorations = value; }
 
     /// <summary>For text fragments: the glyphs.</summary>
-    public TextRun? Text { get => Row.Text; init => Row.Text = value; }
+    public TextRun? Text { get => Row.Text; set => Row.Text = value; }
 
     /// <summary>For line boxes: the baseline, from the top of the line.</summary>
     public float Baseline { get => Row.Baseline; init => Row.Baseline = value; }

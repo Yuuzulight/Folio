@@ -768,7 +768,7 @@ internal sealed class BoxTreeBuilder
     };
 
     /// <summary>An anonymous box's style: inherited from its parent box, initial otherwise, with the given display.</summary>
-    private static ComputedStyle AnonymousStyle(ComputedStyle parent, Display display)
+    internal static ComputedStyle AnonymousStyle(ComputedStyle parent, Display display)
     {
         var keyword = display switch
         {
@@ -785,7 +785,7 @@ internal sealed class BoxTreeBuilder
     internal const float SelectArrowWidth = 16;
 
     // The inner box of a drop-down select: 1px above and below the text, 4px before it, and the arrow after it.
-    private static ComputedStyle SelectInnerStyle(ComputedStyle select)
+    internal static ComputedStyle SelectInnerStyle(ComputedStyle select)
     {
         static LengthValue Px(float px) => new(new Length(px, LengthUnit.Px));
         var (start, end) = (Px(4), Px(1 + SelectArrowWidth));

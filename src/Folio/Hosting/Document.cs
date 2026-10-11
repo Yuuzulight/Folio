@@ -1318,29 +1318,38 @@ public sealed class Document : IDisposable
             var needsLayout = false;
             foreach (var box in boxes)
             {
-                if (box.Node is ElementNode el)
-                {
-                    var newStyle = box.PseudoElement switch
+                var newStyle = box.Node is ElementNode el
+                    ? box.PseudoElement switch
                     {
                         PseudoElement.Before => el.PseudoStyle(PseudoElement.Before),
                         PseudoElement.After => el.PseudoStyle(PseudoElement.After),
                         PseudoElement.Marker => el.PseudoStyle(PseudoElement.Marker),
                         _ => el.ComputedStyle(),
-                    };
-                    if (newStyle is not null)
+                    }
+                    : box is MarkerBox && box.Parent?.Node is ElementNode pEl
+                        ? (pEl.PseudoStyle(PseudoElement.Marker) ?? pEl.ComputedStyle())
+                        : box.Parent is { } parent && parent.Node is ElementNode { LocalName: "select" }
+                            ? BoxTreeBuilder.SelectInnerStyle(parent.Style)
+                            : box.Parent is { } p
+                                ? BoxTreeBuilder.AnonymousStyle(p.Style, box.Style.Box.Display)
+                                : null;
+
+                if (newStyle is not null)
+                {
+                    var (containsFixed, previous) = (box.ContainsFixed, box.Style);
+                    box.Style = newStyle;
+                    // Collapsed table borders are resolved against the neighbouring cells in layout and kept in the fragments.
+                    var collapsedBorder = box is TablePartBox && newStyle.Text.BorderCollapse == BorderCollapse.Collapse && !previous.Equals(newStyle);
+                    if (box.ContainsFixed != containsFixed || collapsedBorder)
                     {
-                        var (containsFixed, previous) = (box.ContainsFixed, box.Style);
-                        box.Style = newStyle;
-                        // Collapsed table borders are resolved against the neighbouring cells in layout and kept in the fragments.
-                        var collapsedBorder = box is TablePartBox && newStyle.Text.BorderCollapse == BorderCollapse.Collapse && !previous.Equals(newStyle);
-                        if (box.ContainsFixed != containsFixed || collapsedBorder)
-                        {
-                            needsLayout = true;
-                            break;
-                        }
+                        needsLayout = true;
+                        break;
                     }
                 }
             }
+
+            if (!needsLayout)
+                UpdateFragmentTextStyles(frameVal.Page);
 
             if (needsLayout)
             {
@@ -1426,10 +1435,27 @@ public sealed class Document : IDisposable
             while (stack.TryPop(out var box))
             {
                 boxes.Add(box);
+                if (box is BlockContainerBox { Marker: { } marker })
+                    stack.Push(marker);
                 foreach (var child in box.Children)
                     stack.Push(child);
             }
             return boxes;
+        }
+
+        static void UpdateFragmentTextStyles(Fragment fragment)
+        {
+            var stack = new Stack<Fragment>([fragment]);
+            while (stack.TryPop(out var f))
+            {
+                if (f.Text is { } text && text.Inline is { } inline)
+                    f.Text = text with { Style = inline.Style };
+                else if (f.Text is { } t && f.Box is { } b)
+                    f.Text = t with { Style = b.Style };
+
+                foreach (var child in f.Children)
+                    stack.Push(child.Fragment);
+            }
         }
     }
 
