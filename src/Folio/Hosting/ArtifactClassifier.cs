@@ -407,7 +407,8 @@ public static class ArtifactClassifier
         private static bool OnlyInteractionStates(string selectors) => selectors.Split(',').All(selector =>
         {
             var lower = selector.ToLowerInvariant();
-            return lower.Contains(":hover") || lower.Contains(":focus") || lower.Contains(":active") || lower.Contains("::selection");
+            return lower.Contains(":hover") || lower.Contains(":focus") || lower.Contains(":active") || lower.Contains("::selection")
+                || lower.Contains(":focus-visible") || lower.Contains(":focus-within") || lower.Contains(":checked") || lower.Contains(":indeterminate");
         });
 
         private static bool IsVendorSpecific(string selectors) =>

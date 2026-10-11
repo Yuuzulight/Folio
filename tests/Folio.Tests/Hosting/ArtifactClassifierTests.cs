@@ -45,6 +45,20 @@ public class ArtifactClassifierTests
     }
 
     [Theory]
+    [InlineData("<form><input type=checkbox><input type=radio><input type=range><select><option>A</option></select><textarea></textarea><button>Send</button></form>")]
+    [InlineData("<details open><summary>Details</summary><p>More info</p></details>")]
+    [InlineData("<style>input:focus-visible { outline: 2px solid blue; } input:checked { accent-color: red; }</style><input type=checkbox>")]
+    [InlineData("<div style=\"overflow: auto; width: 100px; height: 100px\"><div style=\"width: 200px; height: 200px\">Scroll</div></div>")]
+    public void InteractiveStaticElementsAreStatic(string html)
+    {
+        var (kind, reasons) = ArtifactClassifier.Classify(html);
+        Assert.Empty(reasons);
+        Assert.Equal(ArtifactKind.Static, kind);
+    }
+
+
+
+    [Theory]
     [InlineData("<link rel=stylesheet href=\"https://cdn.example.com/a.css\">", "loads a stylesheet these options do not allow")]
     [InlineData("<img src=\"photo.png\">", "loads an image these options do not allow")]
     [InlineData("<img srcset=\"data:image/png;base64,AA== 1x, big.png 2x\">", "loads an image these options do not allow")]
