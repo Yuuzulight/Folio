@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Folio.Css;
 using Folio.Dom;
@@ -19,7 +20,9 @@ internal static class DisplayListBuilder
     /// <param name="images">Loads url() images for backgrounds; without one, they are not painted.</param>
     /// <param name="deviceScale">Device pixels per CSS pixel, which box edges and text baselines snap to.</param>
     /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
-    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
+    /// <param name="selection">The active document selection, if any, to paint highlights for.</param>
+    public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1,
+                                    IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Selection? selection = null)
     {
         var list = new DisplayList();
         if (StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { Owner: { } rootBox } rootContext)
@@ -33,7 +36,7 @@ internal static class DisplayListBuilder
         if (canvasColor.A > 0)
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(canvas, default), canvasColor));
 
-        var emitter = new Emitter(list, canvasBox, images);
+        var emitter = new Emitter(list, canvasBox, images, selection);
         // Its images are placed as for the root element and painted over the whole canvas.
         if (canvasBox is not null)
             emitter.PaintBackgroundImages(canvasBox.Style, rootBox, BorderBox(rootBox), new RoundedRect(canvas, default));
@@ -58,7 +61,7 @@ internal static class DisplayListBuilder
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
     }
 
-    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images) : IPaintVisitor
+    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images, Selection? selection = null) : IPaintVisitor
     {
         private readonly List<ClipNode> _open = [];
         private int _floor; // clips below this index belong to an enclosing opacity layer and stay open
@@ -526,6 +529,21 @@ internal static class DisplayListBuilder
             var (glyphs, origins) = (glyphRun.Glyphs, glyphRun.Origins);
             var baseline = box.Snap(box.Y + run.Ascent);
             SetClip(box.Clip);
+
+            // Selection highlights: compute intersecting selection character range and bidi-aware highlight rectangles
+            var selectionRange = GetSelectionTextRange(box.Fragment);
+            var (selColor, selBgColor) = selectionRange is not null ? GetSelectionColors(run) : default;
+            List<RectF>? selRects = null;
+            if (selectionRange is { } sRange && sRange.Start < sRange.End)
+            {
+                selRects = ComputeTextSelectionRectangles(box, run, sRange.Start, sRange.End);
+                if (selBgColor.A > 0)
+                {
+                    foreach (var rect in selRects)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), selBgColor));
+                }
+            }
+
             // Text shadows go under the text and its decorations, the last written lowest (css-text-decor-3 §4).
             if (style.Text.TextShadows is { } shadows)
             {
@@ -544,9 +562,181 @@ internal static class DisplayListBuilder
                 : DecorationLines(box, run, face, baseline, style.Text.SkipInk == SkipInk.None ? null : glyphRun);
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => d.Under).Select(d => d.Item));
-            list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: glyphRun));
+
+            if (selRects is not null && selColor != style.Inherited.Color && selRects.Count > 0)
+            {
+                // Unselected glyphs
+                list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: glyphRun));
+                // Selected glyphs in selection text color, clipped to selection rect(s)
+                foreach (var selRect in selRects)
+                {
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, new RoundedRect(selRect, default)));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: selColor, Glyphs: glyphRun));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                }
+            }
+            else
+            {
+                list.Items.Add(new DisplayItem(DisplayItemKind.Glyphs, Color: style.Inherited.Color, Glyphs: glyphRun));
+            }
+
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => !d.Under).Select(d => d.Item));
+        }
+
+        private (int Start, int End)? GetSelectionTextRange(Fragment fragment)
+        {
+            if (selection is null || selection.IsCollapsed || fragment.Text is not { Node: Text textNode })
+                return null;
+
+            var selRange = selection.Range;
+            var (startPt, endPt) = (selRange.Start, selRange.End);
+
+            var startCmp = new RangePoint(textNode, 0).CompareTo(endPt);
+            var endCmp = new RangePoint(textNode, textNode.Data.Length).CompareTo(startPt);
+            if (startCmp >= 0 || endCmp <= 0)
+                return null;
+
+            var selStart = startPt.Node == textNode ? startPt.Offset : 0;
+            var selEnd = endPt.Node == textNode ? endPt.Offset : textNode.Data.Length;
+            return selStart < selEnd ? (selStart, selEnd) : null;
+        }
+
+        private static (CssColor Color, CssColor BgColor) GetSelectionColors(Layout.TextRun run)
+        {
+            var defaultBg = new CssColor(51 / 255f, 144 / 255f, 255 / 255f, 0.4f);
+            var defaultColor = new CssColor(1, 1, 1, 1);
+
+            ElementNode? element = null;
+            for (Node? curr = run.Node; curr is not null; curr = curr.Parent)
+            {
+                if (curr is ElementNode el)
+                {
+                    element = el;
+                    break;
+                }
+            }
+
+            if (element?.PseudoStyle(PseudoElement.Selection) is { } selStyle)
+            {
+                var bg = selStyle.Background.Color.A > 0 ? selStyle.Background.Color : defaultBg;
+                var fg = selStyle.Inherited.Color != CssColor.Black || selStyle.Inherited.Color != run.Style.Inherited.Color
+                    ? selStyle.Inherited.Color : defaultColor;
+                return (fg, bg);
+            }
+
+            return (defaultColor, defaultBg);
+        }
+
+        private static List<RectF> ComputeTextSelectionRectangles(PaintBox box, Layout.TextRun textRun, int selStart, int selEnd)
+        {
+            var rects = new List<RectF>();
+            var run = textRun.Run;
+            if (textRun.Node is not Text domText || run.Glyphs.Length == 0)
+                return rects;
+
+            var fullText = domText.Data;
+            var count = textRun.GlyphEnd - textRun.GlyphStart;
+            if (count <= 0)
+                return rects;
+
+            var advances = run.Advances;
+            var clusters = run.Clusters;
+            var groups = new List<(int TextStart, int TextEnd, float Width)>();
+            var curIdx = 0;
+            while (curIdx < count)
+            {
+                var g = textRun.GlyphStart + curIdx;
+                var cStart = clusters[g];
+                var nextClusterLength = StringInfo.GetNextTextElementLength(fullText, Math.Clamp(cStart, 0, fullText.Length - 1));
+                var cEnd = Math.Min(fullText.Length, cStart + nextClusterLength);
+
+                var w = 0f;
+                var advancedAny = false;
+                while (curIdx < count)
+                {
+                    var glyphGlobal = textRun.GlyphStart + curIdx;
+                    if (clusters[glyphGlobal] >= cEnd && advancedAny)
+                        break;
+                    w += advances[glyphGlobal];
+                    curIdx++;
+                    advancedAny = true;
+                }
+                groups.Add((cStart, cEnd, w));
+            }
+
+            if (groups.Count == 0)
+                return rects;
+
+            var lineHeight = box.Fragment.Height;
+            var rectY = box.Y;
+
+            if (textRun.RightToLeft)
+            {
+                var curRight = box.X + box.Fragment.Width;
+                for (var i = 0; i < groups.Count; i++)
+                {
+                    var grp = groups[i];
+                    var curLeft = curRight - grp.Width;
+                    if (grp.TextStart < selEnd && grp.TextEnd > selStart)
+                    {
+                        rects.Add(new RectF(curLeft, rectY, grp.Width, lineHeight));
+                    }
+                    curRight = curLeft;
+                }
+            }
+            else
+            {
+                var acc = box.X;
+                for (var i = 0; i < groups.Count; i++)
+                {
+                    var grp = groups[i];
+                    if (grp.TextStart < selEnd && grp.TextEnd > selStart)
+                    {
+                        rects.Add(new RectF(acc, rectY, grp.Width, lineHeight));
+                    }
+                    acc += grp.Width;
+                }
+            }
+
+            // Merge contiguous horizontal rectangles on the same line
+            if (rects.Count > 1)
+            {
+                var merged = new List<RectF>();
+                var current = rects[0];
+                for (var i = 1; i < rects.Count; i++)
+                {
+                    var r = rects[i];
+                    if (MathF.Abs(current.Y - r.Y) < 0.1f && MathF.Abs(current.Height - r.Height) < 0.1f
+                        && (MathF.Abs(current.Right - r.X) < 0.1f || MathF.Abs(r.Right - current.X) < 0.1f))
+                    {
+                        var minX = Math.Min(current.X, r.X);
+                        var maxX = Math.Max(current.Right, r.Right);
+                        current = new RectF(minX, current.Y, maxX - minX, current.Height);
+                    }
+                    else
+                    {
+                        merged.Add(current);
+                        current = r;
+                    }
+                }
+                merged.Add(current);
+                return merged;
+            }
+
+            return rects;
+        }
+
+        private bool IsBoxSelected(PaintBox box)
+        {
+            if (selection is null || selection.IsCollapsed || box.Box.Node is not ElementNode el)
+                return false;
+
+            var selRange = selection.Range;
+            var (startPt, endPt) = (selRange.Start, selRange.End);
+            var startCmp = new RangePoint(el, 0).CompareTo(endPt);
+            var endCmp = new RangePoint(el, 1).CompareTo(startPt);
+            return startCmp < 0 && endCmp > 0;
         }
 
         /// <summary>
@@ -1100,6 +1290,12 @@ internal static class DisplayListBuilder
             list.Items.Add(new DisplayItem(DisplayItemKind.Image, new RoundedRect(destination, default), Image: image, Sampling: sampling));
             if (overflows)
                 list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+
+            if (IsBoxSelected(box))
+            {
+                var tint = new CssColor(51 / 255f, 144 / 255f, 255 / 255f, 0.25f);
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(box.Rect, default), tint));
+            }
         }
 
         // An outermost svg element's drawing, its user space starting at the content box's top-left corner.
@@ -1112,6 +1308,12 @@ internal static class DisplayListBuilder
             // on the same pixels as in the reference.
             SvgPainter.Paint(svg, new Vector2(box.Snap(box.X + border.LeftWidth + spacing.PaddingLeft.Resolve(w)),
                 box.Snap(box.Y + border.TopWidth + spacing.PaddingTop.Resolve(w))), list.Items);
+
+            if (IsBoxSelected(box))
+            {
+                var tint = new CssColor(51 / 255f, 144 / 255f, 255 / 255f, 0.25f);
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(box.Rect, default), tint));
+            }
         }
 
         // background-clip of the bottom layer decides where the colour is painted (css-backgrounds-3 §3.10).

@@ -801,6 +801,7 @@ public sealed class InputRouter
             return;
 
         _selection = selection;
+        _document.RepaintDisplayList();
         SelectionChanged?.Invoke(this, new SelectionChangedEventArgs(_selection));
     }
 
