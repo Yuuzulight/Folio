@@ -90,6 +90,7 @@ public sealed class InputRouter
         }
 
         _document.Update();
+        FocusChanged?.Invoke(this, new FocusChangedEventArgs(_focused is not null ? _document.Wrap(_focused) : null));
     }
 
     /// <summary>The current CSS cursor keyword active under the pointer.</summary>
@@ -139,7 +140,11 @@ public sealed class InputRouter
     public event EventHandler<PasteEventArgs>? PasteRequested;
 
     /// <summary>The document selection changed.</summary>
-    internal event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
+    public event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
+
+    /// <summary>The focused element changed.</summary>
+    public event EventHandler<FocusChangedEventArgs>? FocusChanged;
+
 
     /// <summary>A button form control was clicked or activated.</summary>
     public event EventHandler<ButtonClickedEventArgs>? ButtonClicked;

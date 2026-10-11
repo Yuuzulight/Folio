@@ -83,10 +83,21 @@ public sealed class TooltipChangedEventArgs(string? tooltip) : EventArgs
     public string? Tooltip { get; } = tooltip;
 }
 
-internal sealed class SelectionChangedEventArgs(Folio.Dom.Selection? selection) : EventArgs
+public sealed class SelectionChangedEventArgs : EventArgs
 {
-    public Folio.Dom.Selection? Selection { get; } = selection;
+    internal Folio.Dom.Selection? Selection { get; }
+
+    internal SelectionChangedEventArgs(Folio.Dom.Selection? selection)
+    {
+        Selection = selection;
+    }
 }
+
+public sealed class FocusChangedEventArgs(Element? focusedElement) : EventArgs
+{
+    public Element? FocusedElement { get; } = focusedElement;
+}
+
 
 public sealed class PasteEventArgs : EventArgs
 {

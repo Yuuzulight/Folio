@@ -48,6 +48,7 @@ public class FolioView : Control
     private readonly System.Windows.Forms.Timer _frames = new();
     private readonly Stopwatch _timeline = new();
     private readonly ToolTip _toolTip = new();
+    private FolioViewAccessibleObject? _accessibleObject;
 
     public FolioView()
     {
@@ -56,6 +57,16 @@ public class FolioView : Control
         Controls.Add(_scrollBar);
         _frames.Tick += (_, _) => NextFrame();
     }
+
+    internal float ScrollTop => _scrollBar.Visible ? _scrollBar.Value / PixelScale : 0;
+
+    protected override AccessibleObject CreateAccessibilityInstance()
+    {
+        _accessibleObject = new FolioViewAccessibleObject(this);
+        _accessibleObject.SyncTree(_document?.AccessibilityTree());
+        return _accessibleObject;
+    }
+
 
     /// <summary>The options new documents are parsed with.</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -150,11 +161,29 @@ public class FolioView : Control
         _document.Input.PasteRequested += OnDocumentPasteRequested;
         _document.Input.ButtonClicked += (_, e) => ButtonClicked?.Invoke(this, e);
         _document.Input.FormSubmitted += (_, e) => FormSubmitted?.Invoke(this, e);
+        _document.Input.FocusChanged += OnDocumentFocusChanged;
+        _document.Input.SelectionChanged += OnDocumentSelectionChanged;
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();
         DiagnosticsChanged?.Invoke(this, new DiagnosticsEventArgs(_document.Diagnostics));
         Invalidate();
+    }
+
+    private void OnDocumentFocusChanged(object? sender, FocusChangedEventArgs e)
+    {
+        if (_accessibleObject is not null && e.FocusedElement is not null)
+        {
+            var accObj = _accessibleObject.FindObjectForNode(e.FocusedElement.Node);
+            if (accObj is not null)
+                AccessibilityNotifyClients(AccessibleEvents.Focus, _accessibleObject.GetChildIndex((FolioNodeAccessibleObject)accObj));
+        }
+    }
+
+    private void OnDocumentSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_accessibleObject is not null)
+            AccessibilityNotifyClients(AccessibleEvents.Selection, -1);
     }
 
     // Device pixels per CSS pixel.
@@ -254,7 +283,6 @@ public class FolioView : Control
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SystemParametersInfo(uint action, uint param, ref int value, uint winIni);
 
-    private float ScrollTop => _scrollBar.Visible ? _scrollBar.Value / PixelScale : 0;
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -266,6 +294,7 @@ public class FolioView : Control
             if (IsShown)
                 _timeline.Start();
             EnsureLayout();
+            _accessibleObject?.SyncTree(_document.AccessibilityTree());
             var width = Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
             var height = Math.Max(1, ClientSize.Height);
             using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));

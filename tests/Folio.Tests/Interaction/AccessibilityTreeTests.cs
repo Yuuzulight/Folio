@@ -70,6 +70,18 @@ public class AccessibilityTreeTests
         Assert.Equal(new RectF(5, 75, 50, 10), tree.Children[1].Bounds);
     }
 
+    [Fact]
+    public void TreeSetsParentReferences()
+    {
+        var tree = Tree("<div><h1>Title</h1><p>Text <a href=#>Link</a></p></div>");
+
+        Assert.Null(tree.Parent);
+        Assert.All(tree.Children, child => Assert.Same(tree, child.Parent));
+        var p = tree.Children.First(c => c.Role == "paragraph");
+        Assert.All(p.Children, child => Assert.Same(p, child.Parent));
+    }
+
+
     private static AccessibleNode Tree(string html)
     {
         using var document = Document.Parse(html);

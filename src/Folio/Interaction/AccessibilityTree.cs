@@ -9,7 +9,7 @@ using Folio.Style;
 namespace Folio.Interaction;
 
 [Flags]
-internal enum AccessibleStates
+public enum AccessibleStates
 {
     None = 0,
     Checked = 1 << 0,
@@ -26,19 +26,30 @@ internal enum AccessibleStates
 /// One node of the accessibility tree: a WAI-ARIA 1.2 role (https://www.w3.org/TR/wai-aria-1.2/#role_definitions), or
 /// "text" for a text leaf, with its accessible name, value, states and heading level.
 /// </summary>
-internal sealed class AccessibleNode(string role, Node node)
+public sealed class AccessibleNode
 {
-    public string Role { get; } = role;
-    public Node Node { get; } = node;
+    public string Role { get; }
+    internal Node Node { get; }
+
+    internal AccessibleNode(string role, Node node)
+    {
+        Role = role;
+        Node = node;
+    }
+
     public string Name { get; init; } = "";
     public string? Value { get; init; }
     public int Level { get; init; }
     public AccessibleStates States { get; init; }
 
+    /// <summary>The parent node in the accessibility tree, or null for the root.</summary>
+    public AccessibleNode? Parent { get; internal set; }
+
     /// <summary>The border boxes of the node's fragments joined, in page coordinates (CSS pixels); null when it has none.</summary>
     public RectF? Bounds { get; set; }
 
     public List<AccessibleNode> Children { get; } = [];
+
 
     /// <summary>The tree as indented lines: role, quoted name, then level, value and states when present.</summary>
     public string Dump()
@@ -104,7 +115,10 @@ internal static class AccessibilityTree
             foreach (var child in parent.Children)
             {
                 if (child is Text text && parent is ElementNode owner && Visible(owner) && Collapse(text.Data) is { Length: > 0 } data)
-                    into.Children.Add(new AccessibleNode("text", text) { Name = data, Bounds = texts.TryGetValue(owner, out var r) ? r : null });
+                {
+                    var textNode = new AccessibleNode("text", text) { Name = data, Bounds = texts.TryGetValue(owner, out var r) ? r : null, Parent = into };
+                    into.Children.Add(textNode);
+                }
                 else if (child is ElementNode element && !Excluded(element))
                     AddElement(element, into);
             }
@@ -116,7 +130,10 @@ internal static class AccessibilityTree
             {
                 // ponytail: SVG and MathML are exposed as one image when named, their content is not walked.
                 if (element.LocalName == "svg" && Visible(element) && NameOf(element, "image") is { Length: > 0 } svgName)
-                    into.Children.Add(new AccessibleNode("image", element) { Name = svgName, Bounds = boxes.TryGetValue(element, out var r) ? r : null });
+                {
+                    var svgNode = new AccessibleNode("image", element) { Name = svgName, Bounds = boxes.TryGetValue(element, out var r) ? r : null, Parent = into };
+                    into.Children.Add(svgNode);
+                }
                 return;
             }
             if ((Visible(element) ? RoleOf(element) : null) is not { } role)
@@ -130,6 +147,7 @@ internal static class AccessibilityTree
                 Value = ValueOf(element, role),
                 Level = role == "heading" ? LevelOf(element) : 0,
                 States = StatesOf(element, role),
+                Parent = into,
             };
             into.Children.Add(node);
             if (!LeafRoles.Contains(role))
