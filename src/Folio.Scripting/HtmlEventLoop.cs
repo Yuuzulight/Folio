@@ -1,0 +1,341 @@
+using System.Collections.Concurrent;
+
+namespace Folio.Scripting;
+
+/// <summary>
+/// Folio's HTML event loop implementation (study 17, HTML §8.1.7).
+/// Manages task sources and queues, microtasks, checkpoints, and "update the rendering" steps.
+/// </summary>
+public sealed class HtmlEventLoop : IDisposable
+{
+    private readonly IScriptEngine? _engine;
+    private readonly IEventLoopClock _clock;
+    private readonly Dictionary<TaskSource, Queue<EventLoopTask>> _taskQueues = new();
+    private readonly Queue<Action> _microtasks = new();
+    private readonly List<ScheduledTimer> _timers = new();
+    private int _nextTimerId = 1;
+    private long _nextTaskSeq = 1;
+    private bool _inMicrotaskCheckpoint;
+    private bool _disposed;
+
+    public HtmlEventLoop(IScriptEngine? engine = null, IEventLoopClock? clock = null, IRenderingStepsHooks? renderingHooks = null)
+    {
+        _engine = engine;
+        _clock = clock ?? new RealEventLoopClock();
+        RenderingHooks = renderingHooks ?? new RenderingStepsHooks();
+
+        foreach (TaskSource source in Enum.GetValues<TaskSource>())
+        {
+            _taskQueues[source] = new Queue<EventLoopTask>();
+        }
+    }
+
+    public IEventLoopClock Clock => _clock;
+    public IRenderingStepsHooks RenderingHooks { get; set; }
+
+    /// <summary>Enqueues a task to the appropriate task queue.</summary>
+    public void QueueTask(TaskSource source, Action action, string? description = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_taskQueues)
+        {
+            var task = new EventLoopTask(source, action, _nextTaskSeq++, description);
+            _taskQueues[source].Enqueue(task);
+        }
+    }
+
+    /// <summary>Enqueues a microtask to the microtask queue (HTML §8.1.7.2).</summary>
+    public void QueueMicrotask(Action microtask)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_microtasks)
+        {
+            _microtasks.Enqueue(microtask);
+        }
+    }
+
+    /// <summary>
+    /// Executes all queued microtasks, including promise reactions from the script engine,
+    /// until the microtask queue is empty.
+    /// </summary>
+    public void PerformMicrotaskCheckpoint()
+    {
+        if (_inMicrotaskCheckpoint || _disposed)
+            return;
+
+        _inMicrotaskCheckpoint = true;
+        try
+        {
+            while (true)
+            {
+                Action? microtask = null;
+                lock (_microtasks)
+                {
+                    if (_microtasks.Count > 0)
+                        microtask = _microtasks.Dequeue();
+                }
+
+                if (microtask is not null)
+                {
+                    try
+                    {
+                        microtask();
+                    }
+                    catch (Exception ex)
+                    {
+                        // In browser spec, uncaught microtask errors report an error event/diagnostic
+                        OnTaskException(ex);
+                    }
+                    continue;
+                }
+
+                // Also allow the engine to process any queued promise jobs
+                if (_engine is not null)
+                {
+                    try
+                    {
+                        _engine.PerformMicrotaskCheckpoint();
+                    }
+                    catch (Exception ex)
+                    {
+                        OnTaskException(ex);
+                    }
+                }
+
+                // Check if any new microtasks were queued as a result
+                lock (_microtasks)
+                {
+                    if (_microtasks.Count == 0)
+                        break;
+                }
+            }
+        }
+        finally
+        {
+            _inMicrotaskCheckpoint = false;
+        }
+    }
+
+    /// <summary>
+    /// Executes one turn of the event loop (HTML §8.1.7.3):
+    /// 1. Select the oldest runnable task from task queues and execute it.
+    /// 2. Perform a microtask checkpoint.
+    /// Returns true if a task was executed, false if queues were empty.
+    /// </summary>
+    public bool RunOneTurn()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CheckTimers();
+
+        EventLoopTask? selectedTask = null;
+        Queue<EventLoopTask>? selectedQueue = null;
+        lock (_taskQueues)
+        {
+            // HTML §8.1.7.3: Select a runnable task (oldest task across runnable queues)
+            foreach (var queue in _taskQueues.Values)
+            {
+                if (queue.Count > 0)
+                {
+                    var candidate = queue.Peek();
+                    if (selectedTask is null || candidate.SequenceNumber < selectedTask.SequenceNumber)
+                    {
+                        selectedTask = candidate;
+                        selectedQueue = queue;
+                    }
+                }
+            }
+
+            if (selectedQueue is not null)
+            {
+                selectedQueue.Dequeue();
+            }
+        }
+
+        if (selectedTask is not null)
+        {
+            try
+            {
+                selectedTask.Action();
+            }
+            catch (Exception ex)
+            {
+                OnTaskException(ex);
+            }
+
+            PerformMicrotaskCheckpoint();
+            return true;
+        }
+
+        // Even if no macro task ran, perform microtask checkpoint if any exist
+        PerformMicrotaskCheckpoint();
+        return false;
+    }
+
+    /// <summary>
+    /// Runs the "Update the rendering" steps (HTML §8.1.7.3, steps 11–12) driven by an external frame tick.
+    /// 1. Resize steps.
+    /// 2. Scroll steps.
+    /// 3. Media query changes.
+    /// 4. Animation frame callbacks.
+    /// 5. Resize observers.
+    /// 6. Intersection observers.
+    /// 7. Update style and layout.
+    /// 8. Paint.
+    /// </summary>
+    public void UpdateTheRendering()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var timestamp = _clock.NowMs;
+
+        RenderingHooks.RunResizeSteps();
+        RenderingHooks.RunScrollSteps();
+        RenderingHooks.RunMediaQueryChanges();
+        RenderingHooks.RunAnimationFrameCallbacks(timestamp);
+        RenderingHooks.RunResizeObservers();
+        RenderingHooks.RunIntersectionObservers();
+        RenderingHooks.RunUpdateStyleAndLayout();
+        RenderingHooks.RunPaint();
+
+        PerformMicrotaskCheckpoint();
+    }
+
+    /// <summary>
+    /// Checks all scheduled timers against current clock and moves expired timers to the timer task queue.
+    /// </summary>
+    internal void CheckTimers()
+    {
+        var now = _clock.NowMs;
+        List<ScheduledTimer> ready = new();
+
+        lock (_timers)
+        {
+            for (var i = _timers.Count - 1; i >= 0; i--)
+            {
+                var timer = _timers[i];
+                if (timer.DueTimeMs <= now)
+                {
+                    ready.Add(timer);
+                    if (timer.IsInterval)
+                    {
+                        var nextDue = now + Math.Max(timer.NestingLevel >= 5 ? 4.0 : 0.0, timer.IntervalMs);
+                        _timers[i] = timer with
+                        {
+                            DueTimeMs = nextDue,
+                            NestingLevel = timer.NestingLevel + 1
+                        };
+                    }
+                    else
+                    {
+                        _timers.RemoveAt(i);
+                    }
+                }
+            }
+        }
+
+        // Sort ready timers by due time and id for stable ordering
+        ready.Sort((a, b) => a.DueTimeMs != b.DueTimeMs ? a.DueTimeMs.CompareTo(b.DueTimeMs) : a.Id.CompareTo(b.Id));
+
+        foreach (var timer in ready)
+        {
+            QueueTask(TaskSource.Timer, timer.Action, $"Timer {timer.Id}");
+        }
+    }
+
+    public int AddTimer(Action action, double delayMs, bool isInterval = false, int nestingLevel = 0)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        // HTML clamping: 4 ms clamp after five nesting levels
+        var clampedDelay = nestingLevel >= 5 ? Math.Max(4.0, delayMs) : Math.Max(0.0, delayMs);
+        var dueTime = _clock.NowMs + clampedDelay;
+
+        lock (_timers)
+        {
+            var id = _nextTimerId++;
+            _timers.Add(new ScheduledTimer(id, action, dueTime, delayMs, isInterval, nestingLevel));
+            return id;
+        }
+    }
+
+    public bool ClearTimer(int id)
+    {
+        lock (_timers)
+        {
+            var idx = _timers.FindIndex(t => t.Id == id);
+            if (idx >= 0)
+            {
+                _timers.RemoveAt(idx);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if there are no pending tasks, microtasks, or timers due in the loop.
+    /// </summary>
+    public bool IsIdle()
+    {
+        lock (_taskQueues)
+        {
+            if (_taskQueues.Values.Any(q => q.Count > 0))
+                return false;
+        }
+        lock (_microtasks)
+        {
+            if (_microtasks.Count > 0)
+                return false;
+        }
+        lock (_timers)
+        {
+            if (_timers.Count > 0)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Runs all pending tasks and microtasks until no tasks remain runnable at current clock time,
+    /// or until maxTurns is reached.
+    /// </summary>
+    public int SpinUntilIdle(int maxTurns = 1000)
+    {
+        var turns = 0;
+        while (turns < maxTurns)
+        {
+            if (!RunOneTurn())
+                break;
+            turns++;
+        }
+        return turns;
+    }
+
+    public event Action<Exception>? UncaughtException;
+
+    private void OnTaskException(Exception ex)
+    {
+        UncaughtException?.Invoke(ex);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        lock (_timers) { _timers.Clear(); }
+        lock (_microtasks) { _microtasks.Clear(); }
+        lock (_taskQueues)
+        {
+            foreach (var q in _taskQueues.Values)
+                q.Clear();
+        }
+    }
+
+    private sealed record ScheduledTimer(
+        int Id,
+        Action Action,
+        double DueTimeMs,
+        double IntervalMs,
+        bool IsInterval,
+        int NestingLevel
+    );
+}
