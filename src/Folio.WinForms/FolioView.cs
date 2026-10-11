@@ -80,6 +80,44 @@ public class FolioView : Control
         }
     }
 
+    /// <summary>The plain text of the active selection, or empty.</summary>
+    [Browsable(false)]
+    public string SelectedText => _document?.SelectedText ?? "";
+
+    /// <summary>The HTML fragment of the active selection, or empty.</summary>
+    [Browsable(false)]
+    public string SelectedHtml => _document?.SelectedHtml ?? "";
+
+    /// <summary>Selects all selectable content in the document.</summary>
+    public void SelectAll() => _document?.SelectAll();
+
+    /// <summary>Clears the current selection.</summary>
+    public void ClearSelection() => _document?.ClearSelection();
+
+    /// <summary>Copies the active selection to the system clipboard as both plain text and HTML.</summary>
+    public void CopySelection()
+    {
+        var text = SelectedText;
+        var html = SelectedHtml;
+        if (string.IsNullOrEmpty(text) && string.IsNullOrEmpty(html))
+            return;
+
+        var data = new DataObject();
+        if (!string.IsNullOrEmpty(text))
+            data.SetData(DataFormats.UnicodeText, true, text);
+        if (!string.IsNullOrEmpty(html))
+            data.SetData(DataFormats.Html, true, BuildWindowsClipboardHtml(html));
+
+        try
+        {
+            Clipboard.SetDataObject(data, true);
+        }
+        catch (ExternalException)
+        {
+            // Clipboard may be locked by another application
+        }
+    }
+
     public event EventHandler? Rendered;
     public event EventHandler<DiagnosticsEventArgs>? DiagnosticsChanged;
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
@@ -101,6 +139,7 @@ public class FolioView : Control
         _document.Input.LinkActivated += OnDocumentLinkActivated;
         _document.Input.CursorChanged += OnDocumentCursorChanged;
         _document.Input.TooltipChanged += OnDocumentTooltipChanged;
+        _document.Input.CopyRequested += OnDocumentCopyRequested;
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();
@@ -343,6 +382,72 @@ public class FolioView : Control
         MouseButtons.Middle => PointerButton.Middle,
         _ => PointerButton.None,
     };
+
+    private void OnDocumentCopyRequested(object? sender, EventArgs e)
+    {
+        CopySelection();
+    }
+
+    internal static string BuildWindowsClipboardHtml(string fragment) =>
+        Folio.Interaction.RangeSerializer.ToWindowsClipboardHtml(fragment);
+
+    protected override bool IsInputKey(Keys keyData)
+    {
+        switch (keyData & Keys.KeyCode)
+        {
+            case Keys.Left:
+            case Keys.Right:
+            case Keys.Up:
+            case Keys.Down:
+            case Keys.Tab:
+            case Keys.PageUp:
+            case Keys.PageDown:
+            case Keys.Home:
+            case Keys.End:
+                return true;
+            default:
+                return base.IsInputKey(keyData);
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (_document is { } doc)
+        {
+            var modifiers = KeyModifiers.None;
+            if (e.Alt) modifiers |= KeyModifiers.Alt;
+            if (e.Control) modifiers |= KeyModifiers.Control;
+            if (e.Shift) modifiers |= KeyModifiers.Shift;
+
+            var key = e.KeyCode switch
+            {
+                Keys.A => "a",
+                Keys.C => "c",
+                Keys.Down => "ArrowDown",
+                Keys.Up => "ArrowUp",
+                Keys.Right => "ArrowRight",
+                Keys.Left => "ArrowLeft",
+                Keys.PageDown => "PageDown",
+                Keys.PageUp => "PageUp",
+                Keys.Home => "Home",
+                Keys.End => "End",
+                Keys.Space => " ",
+                Keys.Tab => "Tab",
+                Keys.Enter => "Enter",
+                _ => e.KeyCode.ToString(),
+            };
+
+            var code = e.KeyCode switch
+            {
+                Keys.A => "KeyA",
+                Keys.C => "KeyC",
+                _ => e.KeyCode.ToString(),
+            };
+
+            doc.Input.HandleKeyDown(new KeyEvent(key, code, modifiers));
+        }
+    }
 
     private Uri? LinkAt(Point point) => _document?.LinkAt(point.X / PixelScale, point.Y / PixelScale + ScrollTop);
 

@@ -149,6 +149,18 @@ public sealed class Document : IDisposable
     /// <summary>The input router for handling pointer, keyboard, and focus events on this document.</summary>
     public InputRouter Input => _inputRouter ??= new InputRouter(this);
 
+    /// <summary>The plain text of the active selection, or empty.</summary>
+    public string SelectedText => _inputRouter?.SelectedText ?? "";
+
+    /// <summary>The HTML fragment of the active selection, or empty.</summary>
+    public string SelectedHtml => _inputRouter?.SelectedHtml ?? "";
+
+    /// <summary>Selects all selectable content across the document.</summary>
+    public void SelectAll() => Input.SelectAll();
+
+    /// <summary>Clears the current selection.</summary>
+    public void ClearSelection() => Input.ClearSelection();
+
     /// <summary>The root element, or null for an empty document.</summary>
     public Element? DocumentElement => Node.DocumentElement is { } root ? Wrap(root) : null;
 

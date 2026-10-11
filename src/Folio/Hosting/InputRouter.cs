@@ -32,6 +32,12 @@ public sealed class InputRouter
     /// <summary>The current document selection, or null.</summary>
     internal Selection? Selection => _selection;
 
+    /// <summary>The plain text of the active selection, or empty.</summary>
+    public string SelectedText => _selection is not null ? RangeSerializer.ToPlainText(_selection.Range) : "";
+
+    /// <summary>The HTML fragment of the active selection, or empty.</summary>
+    public string SelectedHtml => _selection is not null ? RangeSerializer.ToHtml(_selection.Range) : "";
+
     /// <summary>The element currently hovered under the pointer, or null.</summary>
     public Element? HoveredElement => _hovered is not null ? _document.Wrap(_hovered) : null;
 
@@ -89,6 +95,9 @@ public sealed class InputRouter
 
     /// <summary>The active tooltip text changed under the pointer.</summary>
     public event EventHandler<TooltipChangedEventArgs>? TooltipChanged;
+
+    /// <summary>A copy command was requested (e.g. Ctrl+C / Cmd+C).</summary>
+    public event EventHandler? CopyRequested;
 
     /// <summary>The document selection changed.</summary>
     internal event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
@@ -346,6 +355,15 @@ public sealed class InputRouter
         {
             SelectAll();
             return;
+        }
+
+        if (e.Key is "c" or "C" && (e.Modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0)
+        {
+            if (_selection is not null && !_selection.IsCollapsed)
+            {
+                CopyRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
         }
 
         if (e.Key is "Tab")
@@ -777,14 +795,14 @@ public sealed class InputRouter
     }
 
     /// <summary>Clears the current selection.</summary>
-    internal void ClearSelection()
+    public void ClearSelection()
     {
         _selectionPivot = null;
         SetSelection(null);
     }
 
     /// <summary>Selects all selectable content across the document.</summary>
-    internal void SelectAll()
+    public void SelectAll()
     {
         var first = FindFirstSelectablePoint();
         var last = FindLastSelectablePoint();
