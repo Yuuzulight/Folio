@@ -11,6 +11,9 @@ public interface IEventLoopClock
 
     /// <summary>Origin timestamp in UTC.</summary>
     DateTimeOffset TimeOrigin { get; }
+
+    /// <summary>Current absolute time in UTC.</summary>
+    DateTimeOffset NowUtc => TimeOrigin.AddMilliseconds(NowMs);
 }
 
 /// <summary>
@@ -30,6 +33,8 @@ public sealed class RealEventLoopClock : IEventLoopClock
     public DateTimeOffset TimeOrigin => _timeOrigin;
 
     public double NowMs => System.Diagnostics.Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds;
+
+    public DateTimeOffset NowUtc => _timeOrigin.AddMilliseconds(NowMs);
 }
 
 /// <summary>
@@ -49,6 +54,8 @@ public sealed class VirtualEventLoopClock : IEventLoopClock
     public DateTimeOffset TimeOrigin { get; }
 
     public double NowMs => _nowMs;
+
+    public DateTimeOffset NowUtc => TimeOrigin.AddMilliseconds(_nowMs);
 
     public void Advance(double deltaMs)
     {

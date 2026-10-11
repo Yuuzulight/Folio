@@ -13,8 +13,11 @@ public sealed class HtmlEventLoop : IDisposable
     private readonly Dictionary<TaskSource, Queue<EventLoopTask>> _taskQueues = new();
     private readonly Queue<Action> _microtasks = new();
     private readonly List<ScheduledTimer> _timers = new();
+    private readonly List<AnimationFrameCallbackEntry> _animationCallbacks = new();
     private int _nextTimerId = 1;
+    private int _nextRafId = 1;
     private long _nextTaskSeq = 1;
+    private int _currentTimerNesting;
     private bool _inMicrotaskCheckpoint;
     private bool _disposed;
 
@@ -31,6 +34,7 @@ public sealed class HtmlEventLoop : IDisposable
     }
 
     public IEventLoopClock Clock => _clock;
+    public IScriptEngine? Engine => _engine;
     public IRenderingStepsHooks RenderingHooks { get; set; }
 
     /// <summary>Enqueues a task to the appropriate task queue.</summary>
@@ -190,6 +194,29 @@ public sealed class HtmlEventLoop : IDisposable
         RenderingHooks.RunResizeSteps();
         RenderingHooks.RunScrollSteps();
         RenderingHooks.RunMediaQueryChanges();
+
+        // HTML §8.1.7.3 step 11: Run the animation frame callbacks
+        List<AnimationFrameCallbackEntry> callbacksToRun;
+        lock (_animationCallbacks)
+        {
+            callbacksToRun = new List<AnimationFrameCallbackEntry>(_animationCallbacks);
+            _animationCallbacks.Clear();
+        }
+
+        foreach (var entry in callbacksToRun)
+        {
+            if (entry.Cancelled)
+                continue;
+            try
+            {
+                entry.Callback(timestamp);
+            }
+            catch (Exception ex)
+            {
+                OnTaskException(ex);
+            }
+        }
+
         RenderingHooks.RunAnimationFrameCallbacks(timestamp);
         RenderingHooks.RunResizeObservers();
         RenderingHooks.RunIntersectionObservers();
@@ -212,17 +239,20 @@ public sealed class HtmlEventLoop : IDisposable
             for (var i = _timers.Count - 1; i >= 0; i--)
             {
                 var timer = _timers[i];
+                if (timer.Cancelled)
+                {
+                    _timers.RemoveAt(i);
+                    continue;
+                }
+
                 if (timer.DueTimeMs <= now)
                 {
                     ready.Add(timer);
                     if (timer.IsInterval)
                     {
                         var nextDue = now + Math.Max(timer.NestingLevel >= 5 ? 4.0 : 0.0, timer.IntervalMs);
-                        _timers[i] = timer with
-                        {
-                            DueTimeMs = nextDue,
-                            NestingLevel = timer.NestingLevel + 1
-                        };
+                        timer.DueTimeMs = nextDue;
+                        timer.NestingLevel += 1;
                     }
                     else
                     {
@@ -237,21 +267,37 @@ public sealed class HtmlEventLoop : IDisposable
 
         foreach (var timer in ready)
         {
-            QueueTask(TaskSource.Timer, timer.Action, $"Timer {timer.Id}");
+            QueueTask(TaskSource.Timer, () =>
+            {
+                if (!timer.Cancelled)
+                {
+                    var prevNesting = _currentTimerNesting;
+                    _currentTimerNesting = timer.NestingLevel + 1;
+                    try
+                    {
+                        timer.Action();
+                    }
+                    finally
+                    {
+                        _currentTimerNesting = prevNesting;
+                    }
+                }
+            }, $"Timer {timer.Id}");
         }
     }
 
-    public int AddTimer(Action action, double delayMs, bool isInterval = false, int nestingLevel = 0)
+    public int AddTimer(Action action, double delayMs, bool isInterval = false, int? nestingLevel = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var effectiveNesting = nestingLevel ?? _currentTimerNesting;
         // HTML clamping: 4 ms clamp after five nesting levels
-        var clampedDelay = nestingLevel >= 5 ? Math.Max(4.0, delayMs) : Math.Max(0.0, delayMs);
+        var clampedDelay = effectiveNesting >= 5 ? Math.Max(4.0, delayMs) : Math.Max(0.0, delayMs);
         var dueTime = _clock.NowMs + clampedDelay;
 
         lock (_timers)
         {
             var id = _nextTimerId++;
-            _timers.Add(new ScheduledTimer(id, action, dueTime, delayMs, isInterval, nestingLevel));
+            _timers.Add(new ScheduledTimer(id, action, dueTime, delayMs, isInterval, effectiveNesting));
             return id;
         }
     }
@@ -263,6 +309,8 @@ public sealed class HtmlEventLoop : IDisposable
             var idx = _timers.FindIndex(t => t.Id == id);
             if (idx >= 0)
             {
+                var timer = _timers[idx];
+                timer.Cancelled = true;
                 _timers.RemoveAt(idx);
                 return true;
             }
@@ -271,7 +319,38 @@ public sealed class HtmlEventLoop : IDisposable
     }
 
     /// <summary>
-    /// Returns true if there are no pending tasks, microtasks, or timers due in the loop.
+    /// Schedules an animation frame callback to run during the next "update the rendering" steps (HTML §8.1.7.3).
+    /// </summary>
+    public int RequestAnimationFrame(Action<double> callback)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_animationCallbacks)
+        {
+            var id = _nextRafId++;
+            _animationCallbacks.Add(new AnimationFrameCallbackEntry(id, callback));
+            return id;
+        }
+    }
+
+    /// <summary>
+    /// Cancels a previously scheduled animation frame callback.
+    /// </summary>
+    public bool CancelAnimationFrame(int id)
+    {
+        lock (_animationCallbacks)
+        {
+            var entry = _animationCallbacks.Find(c => c.Id == id);
+            if (entry is not null)
+            {
+                entry.Cancelled = true;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if there are no pending tasks, microtasks, timers, or animation frame callbacks in the loop.
     /// </summary>
     public bool IsIdle()
     {
@@ -288,6 +367,11 @@ public sealed class HtmlEventLoop : IDisposable
         lock (_timers)
         {
             if (_timers.Count > 0)
+                return false;
+        }
+        lock (_animationCallbacks)
+        {
+            if (_animationCallbacks.Any(c => !c.Cancelled))
                 return false;
         }
         return true;
@@ -311,6 +395,8 @@ public sealed class HtmlEventLoop : IDisposable
 
     public event Action<Exception>? UncaughtException;
 
+    internal void ReportException(Exception ex) => OnTaskException(ex);
+
     private void OnTaskException(Exception ex)
     {
         UncaughtException?.Invoke(ex);
@@ -323,6 +409,7 @@ public sealed class HtmlEventLoop : IDisposable
         _disposed = true;
         lock (_timers) { _timers.Clear(); }
         lock (_microtasks) { _microtasks.Clear(); }
+        lock (_animationCallbacks) { _animationCallbacks.Clear(); }
         lock (_taskQueues)
         {
             foreach (var q in _taskQueues.Values)
@@ -330,12 +417,37 @@ public sealed class HtmlEventLoop : IDisposable
         }
     }
 
-    private sealed record ScheduledTimer(
-        int Id,
-        Action Action,
-        double DueTimeMs,
-        double IntervalMs,
-        bool IsInterval,
-        int NestingLevel
-    );
+    private sealed class ScheduledTimer
+    {
+        public ScheduledTimer(int id, Action action, double dueTimeMs, double intervalMs, bool isInterval, int nestingLevel)
+        {
+            Id = id;
+            Action = action;
+            DueTimeMs = dueTimeMs;
+            IntervalMs = intervalMs;
+            IsInterval = isInterval;
+            NestingLevel = nestingLevel;
+        }
+
+        public int Id { get; }
+        public Action Action { get; }
+        public double DueTimeMs { get; set; }
+        public double IntervalMs { get; }
+        public bool IsInterval { get; }
+        public int NestingLevel { get; set; }
+        public bool Cancelled { get; set; }
+    }
+
+    private sealed class AnimationFrameCallbackEntry
+    {
+        public AnimationFrameCallbackEntry(int id, Action<double> callback)
+        {
+            Id = id;
+            Callback = callback;
+        }
+
+        public int Id { get; }
+        public Action<double> Callback { get; }
+        public bool Cancelled { get; set; }
+    }
 }
