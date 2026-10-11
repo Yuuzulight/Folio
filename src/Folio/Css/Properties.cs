@@ -139,6 +139,7 @@ internal enum PropertyId
     PointerEvents,
     UserSelect,
     AccentColor,
+    CaretColor,
     ScrollbarGutter,
     ScrollbarWidth,
     ScrollbarColor,
@@ -883,6 +884,11 @@ internal static class Properties
             r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),
             (v, ctx) => v is KeywordValue ? null : ctx.Color(v, ctx.CurrentColor).Resolve(ctx.CurrentColor),
             s => s.Ui.AccentColor, (b, v) => b.Ui = b.Ui with { AccentColor = v }));
+        // https://www.w3.org/TR/css-ui-4/#caret-color: auto | <color>
+        Row(PropertyId.CaretColor, "caret-color", static () => new Property<CssColor?>(PropertyId.CaretColor, "caret-color", true, "auto",
+            r => r.Keyword("auto") is not null ? new KeywordValue("auto") : r.ColorSpecified(),
+            (v, ctx) => v is KeywordValue ? null : ctx.Color(v, ctx.CurrentColor).Resolve(ctx.CurrentColor),
+            s => s.Ui.CaretColor, (b, v) => b.Ui = b.Ui with { CaretColor = v }));
         // https://www.w3.org/TR/css-overflow-3/#scrollbar-gutter-property and css-scrollbars-1: recorded until
         // scroll containers have scrollbars (M3).
         Row(PropertyId.ScrollbarGutter, "scrollbar-gutter", static () => new Property<string>(PropertyId.ScrollbarGutter, "scrollbar-gutter", false, "auto",

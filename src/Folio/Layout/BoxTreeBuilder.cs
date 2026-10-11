@@ -210,7 +210,7 @@ internal sealed class BoxTreeBuilder
                 Place(box, inlineLevel: false);
                 Push(new Frame(FrameKind.Block, box, box.Style));
             }
-            AddText(controlText, style);
+            AddText(controlText, style, node: element);
             if (inner)
                 Finish(Pop());
             Finish(Pop());
@@ -699,12 +699,15 @@ internal sealed class BoxTreeBuilder
                 var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
                 if (type is not ("text" or "email" or "search" or "url" or "tel" or "password" or "number"))
                     return null;
-                var value = element.GetAttribute("value") ?? "";
+                var value = element.Value ?? element.GetAttribute("value") ?? "";
                 if (value.Length == 0)
                     return element.GetAttribute("placeholder") ?? "";
                 return type == "password" ? new string('•', value.Length) : value;
             case "textarea":
-                return element.TextContent ?? "";
+                var taValue = element.Value ?? element.TextContent ?? "";
+                if (taValue.Length == 0)
+                    return element.GetAttribute("placeholder") ?? "";
+                return taValue;
             case "select" when element.GetAttribute("multiple") is null && (!int.TryParse(element.GetAttribute("size"), out var size) || size <= 1):
                 var options = Descendants(element).Where(e => e.LocalName == "option").ToList();
                 var chosen = options.LastOrDefault(o => o.GetAttribute("selected") is not null) ?? options.FirstOrDefault();

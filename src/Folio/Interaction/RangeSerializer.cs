@@ -30,6 +30,16 @@ internal static class RangeSerializer
             return sb.ToString();
         }
 
+        if (range.Start.Node == range.End.Node && range.Start.Node is ElementNode elNode)
+        {
+            var val = elNode.Value ?? elNode.GetAttribute("value") ?? (elNode.LocalName == "textarea" ? elNode.TextContent : null) ?? "";
+            var s = Math.Clamp(range.Start.Offset, 0, val.Length);
+            var e = Math.Clamp(range.End.Offset, 0, val.Length);
+            if (s >= e)
+                return "";
+            return val.Substring(s, e - s);
+        }
+
         var commonAncestor = GetCommonAncestor(range.Start.Node, range.End.Node);
         if (commonAncestor is not ContainerNode container)
             return "";
@@ -80,6 +90,16 @@ internal static class RangeSerializer
                 AppendClosingTag(sb, enclosing[i]);
 
             return sb.ToString();
+        }
+
+        if (range.Start.Node == range.End.Node && range.Start.Node is ElementNode elNode)
+        {
+            var val = elNode.Value ?? elNode.GetAttribute("value") ?? (elNode.LocalName == "textarea" ? elNode.TextContent : null) ?? "";
+            var s = Math.Clamp(range.Start.Offset, 0, val.Length);
+            var e = Math.Clamp(range.End.Offset, 0, val.Length);
+            if (s >= e)
+                return "";
+            return EscapeHtml(val.Substring(s, e - s));
         }
 
         var commonAncestor = GetCommonAncestor(range.Start.Node, range.End.Node);

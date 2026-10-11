@@ -52,6 +52,9 @@ public sealed class InputRouter
 
     internal void Focus(ElementNode? targetNode, bool visible)
     {
+        if (targetNode is not null && IsDisabled(targetNode))
+            targetNode = null;
+
         if (_focused == targetNode)
         {
             if (targetNode is not null && visible && (targetNode.Flags & NodeFlags.FocusVisible) == 0)
@@ -72,6 +75,18 @@ public sealed class InputRouter
             var flags = visible ? (NodeFlags.Focus | NodeFlags.FocusVisible) : NodeFlags.Focus;
             SetElementAndAncestorsState(_focused, flags, true);
             _document.ScrollIntoView(_focused);
+
+            if (IsTextControl(_focused))
+            {
+                var state = _document.GetOrCreateTextControlState(_focused);
+                if (state is not null)
+                {
+                    _focused.Value = state.Value;
+                    _focused.DisplayValue = state.DisplayText;
+                    _selection = new Selection(new RangePoint(_focused, state.SelectionStart), new RangePoint(_focused, state.SelectionEnd));
+                    EnsureCaretVisible(_focused, state);
+                }
+            }
         }
 
         _document.Update();
@@ -87,6 +102,24 @@ public sealed class InputRouter
     internal ElementNode? ActiveNode => _active;
     internal ElementNode? FocusedNode => _focused;
 
+    internal bool HasFocusedTextControl => _focused is not null && IsTextControl(_focused);
+
+    internal TextControlState? FocusedControlState => _focused is not null ? _document.GetOrCreateTextControlState(_focused) : null;
+
+    internal static bool IsTextControl(ElementNode element)
+    {
+        if (element.Name.Namespace != Namespaces.Html)
+            return false;
+        if (element.LocalName == "textarea")
+            return true;
+        if (element.LocalName == "input")
+        {
+            var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            return type is "text" or "email" or "search" or "url" or "tel" or "password" or "number";
+        }
+        return false;
+    }
+
     /// <summary>A link was activated by mouse click or keyboard.</summary>
     public event EventHandler<LinkActivatedEventArgs>? LinkActivated;
 
@@ -98,6 +131,12 @@ public sealed class InputRouter
 
     /// <summary>A copy command was requested (e.g. Ctrl+C / Cmd+C).</summary>
     public event EventHandler? CopyRequested;
+
+    /// <summary>A cut command was requested (e.g. Ctrl+X / Cmd+X).</summary>
+    public event EventHandler? CutRequested;
+
+    /// <summary>A paste command was requested (e.g. Ctrl+V / Cmd+V).</summary>
+    public event EventHandler<PasteEventArgs>? PasteRequested;
 
     /// <summary>The document selection changed.</summary>
     internal event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
@@ -147,6 +186,18 @@ public sealed class InputRouter
             var hit = _document.HitAt(e.Position.X, e.Position.Y);
             if (hit?.Position is { } pos && IsSelectable(pos.Node))
             {
+                if (_focused is not null && IsTextControl(_focused) && (pos.Node == _focused || pos.Node.Parent == _focused))
+                {
+                    var state = FocusedControlState;
+                    if (state is not null)
+                    {
+                        var anchor = pivot.Node == _focused ? pivot.Offset : state.CaretIndex;
+                        state.SetSelectionRange(anchor, pos.Offset, backwards: pos.Offset < anchor);
+                        SetSelection(new Selection(new RangePoint(_focused, state.SelectionStart), new RangePoint(_focused, state.SelectionEnd)));
+                        EnsureCaretVisible(_focused, state);
+                        return;
+                    }
+                }
                 var newFocus = new RangePoint(pos.Node, pos.Offset);
                 SetSelection(new Selection(pivot, newFocus));
             }
@@ -333,6 +384,12 @@ public sealed class InputRouter
     /// <summary>Key press.</summary>
     public void HandleKeyDown(KeyEvent e)
     {
+        if (_focused is not null && IsTextControl(_focused))
+        {
+            if (HandleControlKeyDown(e, _focused))
+                return;
+        }
+
         // Keyboard scrolling:
         // Target is the nearest scroll container of the focused element,
         // else the hovered element's nearest scroll container,
@@ -565,7 +622,311 @@ public sealed class InputRouter
 
     public void HandleKeyUp(KeyEvent e) { }
 
-    public void HandleTextInput(TextInputEvent e) { }
+    /// <summary>Text input event (e.g. typed character, IME committed string).</summary>
+    public void HandleTextInput(TextInputEvent e)
+    {
+        if (string.IsNullOrEmpty(e.Text) || _focused is null || !IsTextControl(_focused))
+            return;
+
+        var state = FocusedControlState;
+        if (state is null || state.IsReadOnly || state.IsDisabled)
+            return;
+
+        if (state.Insert(e.Text))
+        {
+            _focused.Value = state.Value;
+            _focused.DisplayValue = state.DisplayText;
+            SetSelection(new Selection(new RangePoint(_focused, state.SelectionStart), new RangePoint(_focused, state.SelectionEnd)));
+            EnsureCaretVisible(_focused, state);
+            _document.Update();
+        }
+    }
+
+    /// <summary>Pastes text into the currently focused text control, or replaces active selection.</summary>
+    public bool Paste(string text)
+    {
+        if (string.IsNullOrEmpty(text) || _focused is null || !IsTextControl(_focused))
+            return false;
+
+        var state = FocusedControlState;
+        if (state is null || state.IsReadOnly || state.IsDisabled)
+            return false;
+
+        if (state.Insert(text))
+        {
+            _focused.Value = state.Value;
+            _focused.DisplayValue = state.DisplayText;
+            SetSelection(new Selection(new RangePoint(_focused, state.SelectionStart), new RangePoint(_focused, state.SelectionEnd)));
+            EnsureCaretVisible(_focused, state);
+            _document.Update();
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool HandleControlKeyDown(KeyEvent e, ElementNode focused)
+    {
+        var state = FocusedControlState;
+        if (state is null)
+            return false;
+
+        var ctrl = (e.Modifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+        var shift = (e.Modifiers & KeyModifiers.Shift) != 0;
+
+        // Select All inside control
+        if (ctrl && e.Key is "a" or "A")
+        {
+            state.SelectAll();
+            SetSelection(new Selection(new RangePoint(focused, 0), new RangePoint(focused, state.Value.Length)));
+            EnsureCaretVisible(focused, state);
+            return true;
+        }
+
+        // Copy inside control
+        if (ctrl && e.Key is "c" or "C")
+        {
+            if (state.HasSelection)
+            {
+                CopyRequested?.Invoke(this, EventArgs.Empty);
+                return true;
+            }
+            return false;
+        }
+
+        // Cut inside control
+        if (ctrl && e.Key is "x" or "X")
+        {
+            if (state.HasSelection && !state.IsReadOnly && !state.IsDisabled)
+            {
+                CopyRequested?.Invoke(this, EventArgs.Empty);
+                CutRequested?.Invoke(this, EventArgs.Empty);
+                state.DeleteBackward();
+                focused.Value = state.Value;
+                focused.DisplayValue = state.DisplayText;
+                SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                EnsureCaretVisible(focused, state);
+                _document.Update();
+                return true;
+            }
+            return false;
+        }
+
+        // Paste inside control
+        if (ctrl && e.Key is "v" or "V")
+        {
+            if (!state.IsReadOnly && !state.IsDisabled)
+            {
+                var args = new PasteEventArgs();
+                PasteRequested?.Invoke(this, args);
+                if (!string.IsNullOrEmpty(args.Text))
+                {
+                    Paste(args.Text);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Undo / Redo
+        if (ctrl && (e.Key is "z" or "Z"))
+        {
+            if (shift)
+            {
+                if (state.Redo())
+                {
+                    focused.Value = state.Value;
+                    focused.DisplayValue = state.DisplayText;
+                    SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                    EnsureCaretVisible(focused, state);
+                    _document.Update();
+                    return true;
+                }
+            }
+            else
+            {
+                if (state.Undo())
+                {
+                    focused.Value = state.Value;
+                    focused.DisplayValue = state.DisplayText;
+                    SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                    EnsureCaretVisible(focused, state);
+                    _document.Update();
+                    return true;
+                }
+            }
+            return true;
+        }
+
+        if (ctrl && (e.Key is "y" or "Y"))
+        {
+            if (state.Redo())
+            {
+                focused.Value = state.Value;
+                focused.DisplayValue = state.DisplayText;
+                SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                EnsureCaretVisible(focused, state);
+                _document.Update();
+                return true;
+            }
+            return true;
+        }
+
+        // Backspace
+        if (e.Key is "Backspace")
+        {
+            if (state.DeleteBackward(byWord: ctrl))
+            {
+                focused.Value = state.Value;
+                focused.DisplayValue = state.DisplayText;
+                SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                EnsureCaretVisible(focused, state);
+                _document.Update();
+            }
+            return true;
+        }
+
+        // Delete
+        if (e.Key is "Delete")
+        {
+            if (state.DeleteForward(byWord: ctrl))
+            {
+                focused.Value = state.Value;
+                focused.DisplayValue = state.DisplayText;
+                SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                EnsureCaretVisible(focused, state);
+                _document.Update();
+            }
+            return true;
+        }
+
+        // Enter in textarea
+        if (e.Key is "Enter")
+        {
+            if (state.IsTextArea)
+            {
+                if (state.Insert("\n"))
+                {
+                    focused.Value = state.Value;
+                    focused.DisplayValue = state.DisplayText;
+                    SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                    EnsureCaretVisible(focused, state);
+                    _document.Update();
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // Arrows & Navigation
+        if (e.Key is "ArrowLeft")
+        {
+            state.MoveLeft(extendSelection: shift, byWord: ctrl);
+            SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+            EnsureCaretVisible(focused, state);
+            return true;
+        }
+
+        if (e.Key is "ArrowRight")
+        {
+            state.MoveRight(extendSelection: shift, byWord: ctrl);
+            SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+            EnsureCaretVisible(focused, state);
+            return true;
+        }
+
+        if (e.Key is "ArrowUp")
+        {
+            state.MoveUp(extendSelection: shift);
+            if (focused.Value != state.Value)
+            {
+                focused.Value = state.Value;
+                focused.DisplayValue = state.DisplayText;
+                _document.Update();
+            }
+            else
+            {
+                SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                EnsureCaretVisible(focused, state);
+            }
+            return true;
+        }
+
+        if (e.Key is "ArrowDown")
+        {
+            state.MoveDown(extendSelection: shift);
+            if (focused.Value != state.Value)
+            {
+                focused.Value = state.Value;
+                focused.DisplayValue = state.DisplayText;
+                _document.Update();
+            }
+            else
+            {
+                SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+                EnsureCaretVisible(focused, state);
+            }
+            return true;
+        }
+
+        if (e.Key is "Home")
+        {
+            state.MoveHome(extendSelection: shift, toDocumentStart: ctrl);
+            SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+            EnsureCaretVisible(focused, state);
+            return true;
+        }
+
+        if (e.Key is "End")
+        {
+            state.MoveEnd(extendSelection: shift, toDocumentEnd: ctrl);
+            SetSelection(new Selection(new RangePoint(focused, state.SelectionStart), new RangePoint(focused, state.SelectionEnd)));
+            EnsureCaretVisible(focused, state);
+            return true;
+        }
+
+        return false;
+    }
+
+    internal void EnsureCaretVisible(ElementNode element, TextControlState state)
+    {
+        if (_document.Page is not { } page)
+            return;
+
+        var caretRect = HitTester.CaretRect(page, new TextPosition(element, state.CaretIndex));
+        if (caretRect == default)
+            return;
+
+        if (_document.GetElementBounds(element) is not { } bounds)
+            return;
+
+        if (state.IsTextArea)
+        {
+            var style = _document.FindFragment(element)?.Box?.Style;
+            var padTop = style?.Spacing.PaddingTop.Resolve(bounds.Height) ?? 0;
+            var padBottom = style?.Spacing.PaddingBottom.Resolve(bounds.Height) ?? 0;
+            var visibleTop = bounds.Y + padTop;
+            var visibleBottom = bounds.Bottom - padBottom;
+
+            if (caretRect.Bottom > visibleBottom)
+                _document.ScrollBy(element, new Vector2(0, caretRect.Bottom - visibleBottom));
+            else if (caretRect.Y < visibleTop)
+                _document.ScrollBy(element, new Vector2(0, caretRect.Y - visibleTop));
+        }
+        else
+        {
+            var style = _document.FindFragment(element)?.Box?.Style;
+            var padLeft = style?.Spacing.PaddingLeft.Resolve(bounds.Width) ?? 0;
+            var padRight = style?.Spacing.PaddingRight.Resolve(bounds.Width) ?? 0;
+            var visibleLeft = bounds.X + padLeft;
+            var visibleRight = bounds.Right - padRight;
+
+            if (caretRect.Right > visibleRight)
+                _document.ScrollBy(element, new Vector2(caretRect.Right - visibleRight, 0));
+            else if (caretRect.X < visibleLeft)
+                _document.ScrollBy(element, new Vector2(caretRect.X - visibleLeft, 0));
+        }
+    }
 
     private bool UpdateHover(ElementNode? newHovered)
     {
@@ -741,6 +1102,39 @@ public sealed class InputRouter
         if (!IsSelectable(pos.Node))
             return;
 
+        if (_focused is not null && IsTextControl(_focused) && (pos.Node == _focused || pos.Node.Parent == _focused))
+        {
+            var state = FocusedControlState;
+            if (state is not null)
+            {
+                var offset = Math.Clamp(pos.Offset, 0, state.Value.Length);
+                if (e.ClickCount == 2)
+                {
+                    var wordRange = ExpandToWord(new TextPosition(_focused, offset));
+                    state.SetSelectionRange(wordRange.Range.Start.Offset, wordRange.Range.End.Offset);
+                }
+                else if (e.ClickCount >= 3)
+                {
+                    state.SelectAll();
+                }
+                else if ((e.Modifiers & KeyModifiers.Shift) != 0)
+                {
+                    var anchor = _selectionPivot?.Node == _focused ? _selectionPivot.Value.Offset : state.SelectionStart;
+                    state.SetSelectionRange(anchor, offset, backwards: offset < anchor);
+                }
+                else
+                {
+                    state.SetSelectionRange(offset, offset);
+                    _selectionPivot = new RangePoint(_focused, offset);
+                }
+
+                SetSelection(new Selection(new RangePoint(_focused, state.SelectionStart), new RangePoint(_focused, state.SelectionEnd)));
+                _isSelecting = true;
+                EnsureCaretVisible(_focused, state);
+                return;
+            }
+        }
+
         var targetPoint = new RangePoint(pos.Node, pos.Offset);
 
         // Check user-select: all on hit node
@@ -897,12 +1291,16 @@ public sealed class InputRouter
 
     private static Selection ExpandToWord(TextPosition pos)
     {
-        if (pos.Node is not Text text)
+        string data;
+        if (pos.Node is Text text)
+            data = text.Data;
+        else if (pos.Node is ElementNode el)
+            data = el.DisplayValue ?? el.Value ?? el.GetAttribute("value") ?? "";
+        else
             return new Selection(new RangePoint(pos.Node, pos.Offset), new RangePoint(pos.Node, pos.Offset));
 
-        var data = text.Data;
         if (data.Length == 0)
-            return new Selection(new RangePoint(text, 0), new RangePoint(text, 0));
+            return new Selection(new RangePoint(pos.Node, 0), new RangePoint(pos.Node, 0));
 
         var boundaries = WordBoundaries.Find(data);
         var offset = Math.Clamp(pos.Offset, 0, data.Length);
@@ -922,11 +1320,17 @@ public sealed class InputRouter
             }
         }
 
-        return new Selection(new RangePoint(text, start), new RangePoint(text, end));
+        return new Selection(new RangePoint(pos.Node, start), new RangePoint(pos.Node, end));
     }
 
     private static Selection ExpandToParagraph(TextPosition pos)
     {
+        if (pos.Node is ElementNode elNode && IsTextControl(elNode))
+        {
+            var len = (elNode.DisplayValue ?? elNode.Value ?? "").Length;
+            return new Selection(new RangePoint(elNode, 0), new RangePoint(elNode, len));
+        }
+
         // Containing block element or nearest enclosing block-level element
         ElementNode? block = null;
         for (Node? curr = pos.Node.Parent; curr is not null; curr = curr.Parent)

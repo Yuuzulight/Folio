@@ -87,3 +87,9 @@ internal sealed class SelectionChangedEventArgs(Folio.Dom.Selection? selection) 
 {
     public Folio.Dom.Selection? Selection { get; } = selection;
 }
+
+public sealed class PasteEventArgs : EventArgs
+{
+    public string? Text { get; set; }
+    public bool Handled { get; set; }
+}

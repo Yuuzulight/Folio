@@ -24,7 +24,7 @@ internal static class PropertyDamage
     private static readonly HashSet<PropertyId> Paint =
     [
         PropertyId.Opacity, PropertyId.ZIndex, PropertyId.Isolation, PropertyId.MixBlendMode, PropertyId.BackgroundBlendMode,
-        PropertyId.Color, PropertyId.ColorScheme, PropertyId.AccentColor, PropertyId.ScrollbarColor, PropertyId.Cursor, PropertyId.PointerEvents, PropertyId.UserSelect,
+        PropertyId.Color, PropertyId.ColorScheme, PropertyId.AccentColor, PropertyId.CaretColor, PropertyId.ScrollbarColor, PropertyId.Cursor, PropertyId.PointerEvents, PropertyId.UserSelect,
         PropertyId.OverscrollBehaviorX, PropertyId.OverscrollBehaviorY,
         PropertyId.ScrollBehavior,
         PropertyId.ScrollMarginTop, PropertyId.ScrollMarginRight, PropertyId.ScrollMarginBottom, PropertyId.ScrollMarginLeft,

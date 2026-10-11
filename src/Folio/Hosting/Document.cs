@@ -144,7 +144,125 @@ public sealed class Document : IDisposable
     private Imaging.ImageLoader? _images;
     private bool _webFontsLoaded;
     private readonly Dictionary<ElementNode, Element> _elements = [];
+    private readonly Dictionary<ElementNode, TextControlState> _textControlStates = new(ReferenceEqualityComparer.Instance);
     private InputRouter? _inputRouter;
+
+    internal TextControlState? GetExistingTextControlState(ElementNode element) =>
+        _textControlStates.GetValueOrDefault(element);
+
+    internal TextControlState? GetOrCreateTextControlState(ElementNode element)
+    {
+        if (element.Name.Namespace != Namespaces.Html)
+            return null;
+
+        if (element.LocalName == "textarea")
+        {
+            if (!_textControlStates.TryGetValue(element, out var state))
+                _textControlStates[element] = state = new TextControlState(element);
+            return state;
+        }
+
+        if (element.LocalName == "input")
+        {
+            var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            if (type is "text" or "email" or "search" or "url" or "tel" or "password" or "number")
+            {
+                if (!_textControlStates.TryGetValue(element, out var state))
+                    _textControlStates[element] = state = new TextControlState(element);
+                return state;
+            }
+        }
+
+        return null;
+    }
+
+    internal string GetControlValue(ElementNode element)
+    {
+        if (_textControlStates.TryGetValue(element, out var state))
+            return state.Value;
+        return element.Value ?? element.GetAttribute("value") ?? (element.LocalName == "textarea" ? element.TextContent : null) ?? "";
+    }
+
+    internal void SetControlValue(ElementNode element, string value)
+    {
+        var state = GetOrCreateTextControlState(element);
+        if (state is not null)
+        {
+            state.Value = value;
+            element.Value = state.Value;
+            element.DisplayValue = state.DisplayText;
+            Update();
+        }
+        else
+        {
+            element.Value = value;
+            Update();
+        }
+    }
+
+    internal int GetControlSelectionStart(ElementNode element) =>
+        _textControlStates.TryGetValue(element, out var state) ? state.SelectionStart : 0;
+
+    internal void SetControlSelectionStart(ElementNode element, int value)
+    {
+        if (GetOrCreateTextControlState(element) is { } state)
+        {
+            state.SelectionStart = value;
+            UpdateControlSelection(element, state);
+        }
+    }
+
+    internal int GetControlSelectionEnd(ElementNode element) =>
+        _textControlStates.TryGetValue(element, out var state) ? state.SelectionEnd : 0;
+
+    internal void SetControlSelectionEnd(ElementNode element, int value)
+    {
+        if (GetOrCreateTextControlState(element) is { } state)
+        {
+            state.SelectionEnd = value;
+            UpdateControlSelection(element, state);
+        }
+    }
+
+    internal void SetControlSelectionRange(ElementNode element, int start, int end, string? direction = null)
+    {
+        if (GetOrCreateTextControlState(element) is { } state)
+        {
+            state.SetSelectionRange(start, end, backwards: direction == "backward");
+            UpdateControlSelection(element, state);
+        }
+    }
+
+    internal void SelectControl(ElementNode element)
+    {
+        if (GetOrCreateTextControlState(element) is { } state)
+        {
+            state.SelectAll();
+            UpdateControlSelection(element, state);
+        }
+    }
+
+    internal void UpdateControlSelection(ElementNode element, TextControlState state)
+    {
+        Input.Select(new RangePoint(element, state.SelectionStart), new RangePoint(element, state.SelectionEnd));
+        RepaintDisplayList();
+    }
+
+    private CaretInfo? GetActiveCaretInfo(double time)
+    {
+        if (_inputRouter?.FocusedNode is not { } focused)
+            return null;
+
+        if (!InputRouter.IsTextControl(focused))
+            return null;
+
+        var state = GetExistingTextControlState(focused);
+        if (state is null || state.HasSelection)
+            return null;
+
+        var visible = (int)Math.Floor(time * 2.0) % 2 == 0;
+        return new CaretInfo(focused, state.CaretIndex, visible);
+    }
 
     /// <summary>The input router for handling pointer, keyboard, and focus events on this document.</summary>
     public InputRouter Input => _inputRouter ??= new InputRouter(this);
@@ -223,6 +341,7 @@ public sealed class Document : IDisposable
 
     private readonly Dictionary<ElementNode, Vector2> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
     private Fragment? _page;
+    internal Fragment? Page => _page;
 
     /// <summary>Finds the fragment laid out for an element node in the last layout, if any.</summary>
     internal Fragment? FindFragment(ElementNode element)
@@ -751,7 +870,7 @@ public sealed class Document : IDisposable
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         if (animationTime.HasValue)
             AdvanceSmoothScrolls(animationTime.Value);
-        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets, _inputRouter?.Selection);
+        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(animationTime ?? 0));
         return (DisplayList, height);
     }
 
@@ -759,7 +878,7 @@ public sealed class Document : IDisposable
     internal void RepaintDisplayList()
     {
         if (_frame is { } frame && _images is not null)
-            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
+            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(0));
     }
 
     private void AdvanceSmoothScrolls(double time)
@@ -794,7 +913,8 @@ public sealed class Document : IDisposable
     /// <summary>Whether an animation still changes after <paramref name="time"/> (seconds on the document timeline).</summary>
     internal bool AnimationsRunning(double time) =>
         _smoothScrolls.Values.Any(s => time < s.StartTime + s.Duration)
-        || StyleResolver.Animated(Node).Any(a => a.IsRunning(time));
+        || StyleResolver.Animated(Node).Any(a => a.IsRunning(time))
+        || (_inputRouter?.HasFocusedTextControl == true);
 
     /// <summary>
     /// The display list at another animation time when every animation is paint-only (docs/study/14-invalidation.md):
@@ -836,7 +956,7 @@ public sealed class Document : IDisposable
             }
         }
         AdvanceSmoothScrolls(time);
-        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
+        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(time));
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
@@ -1077,6 +1197,7 @@ public sealed class Document : IDisposable
 
     public void Dispose()
     {
+        _textControlStates.Clear();
         // Nothing is held yet; decoded images, fonts and the content process will be released here.
     }
 

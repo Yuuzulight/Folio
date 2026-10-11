@@ -21,8 +21,10 @@ internal static class DisplayListBuilder
     /// <param name="deviceScale">Device pixels per CSS pixel, which box edges and text baselines snap to.</param>
     /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
     /// <param name="selection">The active document selection, if any, to paint highlights for.</param>
+    /// <param name="caret">The active text control caret, if any, to paint.</param>
     public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1,
-                                    IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Selection? selection = null)
+                                    IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Selection? selection = null,
+                                    CaretInfo? caret = null)
     {
         var list = new DisplayList();
         if (StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { Owner: { } rootBox } rootContext)
@@ -36,7 +38,7 @@ internal static class DisplayListBuilder
         if (canvasColor.A > 0)
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(canvas, default), canvasColor));
 
-        var emitter = new Emitter(list, canvasBox, images, selection);
+        var emitter = new Emitter(list, canvasBox, images, selection, caret);
         // Its images are placed as for the root element and painted over the whole canvas.
         if (canvasBox is not null)
             emitter.PaintBackgroundImages(canvasBox.Style, rootBox, BorderBox(rootBox), new RoundedRect(canvas, default));
@@ -61,7 +63,7 @@ internal static class DisplayListBuilder
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
     }
 
-    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images, Selection? selection = null) : IPaintVisitor
+    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images, Selection? selection = null, CaretInfo? caret = null) : IPaintVisitor
     {
         private readonly List<ClipNode> _open = [];
         private int _floor; // clips below this index belong to an enclosing opacity layer and stay open
@@ -391,6 +393,16 @@ internal static class DisplayListBuilder
             // A collapsed border is the table's to paint (PaintCollapsedBorders).
             if (box.Fragment.PaintedBorder is null || box.Box is not TablePartBox { Part: TablePart.Cell })
                 PaintBorder(box, border, shape);
+
+            if (text.Count == 0 && caret is { } c && c.Visible && box.Box.Node is ElementNode el && el == c.Element)
+            {
+                SetClip(box.Clip);
+                var pad = PaintOrderWalker.PaddingBox(box);
+                var caretH = style.Font.Size * 1.2f;
+                var caretRect = new RectF(box.Snap(pad.X), box.Snap(pad.Y), 1.5f, caretH);
+                var caretColor = style.Ui.CaretColor ?? style.Inherited.Color;
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(caretRect, default), caretColor));
+            }
         }
 
         private void PaintBorder(PaintBox box, BorderGroup border, RoundedRect shape)
@@ -582,23 +594,35 @@ internal static class DisplayListBuilder
 
             if (decorations is not null)
                 list.Items.AddRange(decorations.Where(d => !d.Under).Select(d => d.Item));
+
+            if (caret is { } c && c.Visible && box.Fragment.Kind == FragmentKind.Text && box.Fragment.Text is { Node: ElementNode el } runEl && el == c.Element)
+            {
+                var caretX = ComputeCaretX(runEl, c.Offset);
+                var caretH = box.Fragment.Height > 0 ? box.Fragment.Height : style.Font.Size * 1.2f;
+                var caretRect = new RectF(box.Snap(box.X + caretX), box.Snap(box.Y), 1.5f, caretH);
+                var caretColor = style.Ui.CaretColor ?? style.Inherited.Color;
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(caretRect, default), caretColor));
+            }
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)
         {
-            if (selection is null || selection.IsCollapsed || fragment.Text is not { Node: Text textNode })
+            if (selection is null || selection.IsCollapsed || fragment.Text is not { Node: { } textNode })
                 return null;
 
             var selRange = selection.Range;
             var (startPt, endPt) = (selRange.Start, selRange.End);
 
+            var textLen = textNode is Text t ? t.Data.Length
+                : (textNode as ElementNode)?.DisplayValue?.Length ?? (textNode as ElementNode)?.Value?.Length ?? 0;
+
             var startCmp = new RangePoint(textNode, 0).CompareTo(endPt);
-            var endCmp = new RangePoint(textNode, textNode.Data.Length).CompareTo(startPt);
+            var endCmp = new RangePoint(textNode, textLen).CompareTo(startPt);
             if (startCmp >= 0 || endCmp <= 0)
                 return null;
 
             var selStart = startPt.Node == textNode ? startPt.Offset : 0;
-            var selEnd = endPt.Node == textNode ? endPt.Offset : textNode.Data.Length;
+            var selEnd = endPt.Node == textNode ? endPt.Offset : textLen;
             return selStart < selEnd ? (selStart, selEnd) : null;
         }
 
@@ -628,14 +652,61 @@ internal static class DisplayListBuilder
             return (defaultColor, defaultBg);
         }
 
+        private static float ComputeCaretX(Layout.TextRun textRun, int caretOffset)
+        {
+            var run = textRun.Run;
+            if (run.Glyphs.Length == 0)
+                return 0f;
+
+            var fullText = textRun.Node is Text domText ? domText.Data
+                : (textRun.Node as ElementNode)?.DisplayValue ?? (textRun.Node as ElementNode)?.Value ?? "";
+            var count = textRun.GlyphEnd - textRun.GlyphStart;
+            if (string.IsNullOrEmpty(fullText) || count <= 0)
+                return 0f;
+
+            var advances = run.Advances;
+            var clusters = run.Clusters;
+            var curIdx = 0;
+            var xOffset = 0f;
+
+            while (curIdx < count)
+            {
+                var g = textRun.GlyphStart + curIdx;
+                var cStart = clusters[g];
+                var nextLen = StringInfo.GetNextTextElementLength(fullText, Math.Clamp(cStart, 0, fullText.Length - 1));
+                var cEnd = Math.Min(fullText.Length, cStart + nextLen);
+
+                var w = 0f;
+                var advancedAny = false;
+                while (curIdx < count)
+                {
+                    var gGlobal = textRun.GlyphStart + curIdx;
+                    if (clusters[gGlobal] >= cEnd && advancedAny)
+                        break;
+                    w += advances[gGlobal];
+                    curIdx++;
+                    advancedAny = true;
+                }
+
+                if (caretOffset <= cStart)
+                    break;
+                xOffset += w;
+                if (caretOffset <= cEnd)
+                    break;
+            }
+
+            return xOffset;
+        }
+
         private static List<RectF> ComputeTextSelectionRectangles(PaintBox box, Layout.TextRun textRun, int selStart, int selEnd)
         {
             var rects = new List<RectF>();
             var run = textRun.Run;
-            if (textRun.Node is not Text domText || run.Glyphs.Length == 0)
+            if (textRun.Node is null || run.Glyphs.Length == 0)
                 return rects;
 
-            var fullText = domText.Data;
+            var fullText = textRun.Node is Text domText ? domText.Data
+                : (textRun.Node as ElementNode)?.DisplayValue ?? (textRun.Node as ElementNode)?.Value ?? "";
             var count = textRun.GlyphEnd - textRun.GlyphStart;
             if (count <= 0)
                 return rects;

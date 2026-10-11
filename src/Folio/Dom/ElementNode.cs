@@ -24,6 +24,47 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>The computed style, owned by the style module (typed there, so the DOM layer does not reference it).</summary>
     internal object? StyleData { get; set; }
 
+    /// <summary>The current form control value (separate from the 'value' content attribute).</summary>
+    public string? Value { get; set; }
+
+    /// <summary>The display text of a text control as presented on screen (masked for password, etc.).</summary>
+    internal string? DisplayValue { get; set; }
+
+    /// <summary>Whether this form control is disabled (directly or by an ancestor fieldset).</summary>
+    internal bool IsDisabled => IsDisabledControl(this);
+
+    internal static bool IsDisabledControl(ElementNode element)
+    {
+        if (element.Name.Namespace != Namespaces.Html)
+            return false;
+
+        var isControl = element.LocalName is "button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset";
+        if (!isControl)
+            return false;
+
+        if (element.GetAttribute("disabled") is not null)
+            return true;
+
+        if (element.LocalName == "option" && element.Parent is ElementNode { LocalName: "optgroup" } group && group.GetAttribute("disabled") is not null)
+            return true;
+
+        if (element.LocalName is "optgroup" or "option")
+            return false;
+
+        Node child = element;
+        for (var ancestor = element.Parent as ElementNode; ancestor is not null; child = ancestor, ancestor = ancestor.Parent as ElementNode)
+        {
+            if (ancestor.Name.Namespace == Namespaces.Html && ancestor.LocalName == "fieldset" && ancestor.GetAttribute("disabled") is not null)
+            {
+                var firstLegend = ancestor.Children.OfType<ElementNode>().FirstOrDefault(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "legend");
+                if (child != firstLegend)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The <c>class</c> attribute split on ASCII whitespace, parsed when set.</summary>
     public Atom[] Classes { get; private set; } = [];
 

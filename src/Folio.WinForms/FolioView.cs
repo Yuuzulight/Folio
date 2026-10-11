@@ -140,6 +140,8 @@ public class FolioView : Control
         _document.Input.CursorChanged += OnDocumentCursorChanged;
         _document.Input.TooltipChanged += OnDocumentTooltipChanged;
         _document.Input.CopyRequested += OnDocumentCopyRequested;
+        _document.Input.CutRequested += OnDocumentCutRequested;
+        _document.Input.PasteRequested += OnDocumentPasteRequested;
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();
@@ -298,7 +300,11 @@ public class FolioView : Control
     {
         base.OnMouseMove(e);
         if (_document is { } doc)
+        {
             doc.Input.HandlePointerMove(ToPointerEvent(e, PointerButton.None));
+            if ((e.Button & MouseButtons.Left) != 0)
+                Invalidate();
+        }
         else
             Cursor = Cursors.Default;
     }
@@ -307,14 +313,20 @@ public class FolioView : Control
     {
         base.OnMouseDown(e);
         if (_document is { } doc)
+        {
             doc.Input.HandlePointerDown(ToPointerEvent(e, ToButton(e.Button)));
+            Invalidate();
+        }
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
         if (_document is { } doc)
+        {
             doc.Input.HandlePointerUp(ToPointerEvent(e, ToButton(e.Button)));
+            Invalidate();
+        }
     }
 
     protected override void OnMouseLeave(EventArgs e)
@@ -388,6 +400,27 @@ public class FolioView : Control
         CopySelection();
     }
 
+    private void OnDocumentCutRequested(object? sender, EventArgs e)
+    {
+        CopySelection();
+    }
+
+    private void OnDocumentPasteRequested(object? sender, PasteEventArgs e)
+    {
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                e.Text = Clipboard.GetText();
+                e.Handled = true;
+            }
+        }
+        catch (ExternalException)
+        {
+            // Clipboard may be locked by another application
+        }
+    }
+
     internal static string BuildWindowsClipboardHtml(string fragment) =>
         Folio.Interaction.RangeSerializer.ToWindowsClipboardHtml(fragment);
 
@@ -404,6 +437,9 @@ public class FolioView : Control
             case Keys.PageDown:
             case Keys.Home:
             case Keys.End:
+            case Keys.Back:
+            case Keys.Delete:
+            case Keys.Enter:
                 return true;
             default:
                 return base.IsInputKey(keyData);
@@ -424,6 +460,12 @@ public class FolioView : Control
             {
                 Keys.A => "a",
                 Keys.C => "c",
+                Keys.X => "x",
+                Keys.V => "v",
+                Keys.Z => "z",
+                Keys.Y => "y",
+                Keys.Back => "Backspace",
+                Keys.Delete => "Delete",
                 Keys.Down => "ArrowDown",
                 Keys.Up => "ArrowUp",
                 Keys.Right => "ArrowRight",
@@ -442,10 +484,28 @@ public class FolioView : Control
             {
                 Keys.A => "KeyA",
                 Keys.C => "KeyC",
+                Keys.X => "KeyX",
+                Keys.V => "KeyV",
+                Keys.Z => "KeyZ",
+                Keys.Y => "KeyY",
+                Keys.Back => "Backspace",
+                Keys.Delete => "Delete",
                 _ => e.KeyCode.ToString(),
             };
 
             doc.Input.HandleKeyDown(new KeyEvent(key, code, modifiers));
+            Invalidate();
+        }
+    }
+
+    protected override void OnKeyPress(KeyPressEventArgs e)
+    {
+        base.OnKeyPress(e);
+        if (_document is { } doc && !char.IsControl(e.KeyChar))
+        {
+            doc.Input.HandleTextInput(new TextInputEvent(e.KeyChar.ToString()));
+            e.Handled = true;
+            Invalidate();
         }
     }
 

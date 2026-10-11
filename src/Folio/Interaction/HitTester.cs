@@ -115,6 +115,8 @@ internal static class HitTester
                     TextPosition? position = null;
                     if (box.Fragment.Kind == FragmentKind.Text && box.Fragment.Text is { } textRun)
                         position = TextPositionFromRun(box.Fragment, textRun, local.X, local.Y);
+                    else if (element.LocalName is "input" or "textarea")
+                        position = new TextPosition(element, 0);
                     Result = new HitResult(element, box.Box, box.Fragment, local, position, style);
                     return;
                 }
@@ -138,13 +140,15 @@ internal static class HitTester
     internal static TextPosition? TextPositionFromRun(Fragment fragment, TextRun textRun, float localX, float localY)
     {
         var run = textRun.Run;
-        if (textRun.Node is not Text domText || run.Glyphs.Length == 0)
+        var node = textRun.Node;
+        if (node is null || run.Glyphs.Length == 0)
             return null;
 
-        var fullText = domText.Data;
+        var fullText = node is Text domText ? domText.Data
+            : (node as ElementNode)?.DisplayValue ?? (node as ElementNode)?.Value ?? (node as ElementNode)?.GetAttribute("value") ?? "";
         var count = textRun.GlyphEnd - textRun.GlyphStart;
-        if (count <= 0)
-            return new TextPosition(domText, 0);
+        if (string.IsNullOrEmpty(fullText) || count <= 0)
+            return new TextPosition(node, 0);
 
         var glyphs = run.Glyphs;
         var advances = run.Advances;
@@ -175,7 +179,7 @@ internal static class HitTester
         }
 
         if (groups.Count == 0)
-            return new TextPosition(domText, 0);
+            return new TextPosition(node, 0);
 
         if (textRun.Turned)
         {
@@ -189,11 +193,11 @@ internal static class HitTester
                 if (yPos <= nextAcc || i == groups.Count - 1)
                 {
                     var mid = acc + grp.Width / 2f;
-                    return new TextPosition(domText, yPos < mid ? grp.TextStart : grp.TextEnd);
+                    return new TextPosition(node, yPos < mid ? grp.TextStart : grp.TextEnd);
                 }
                 acc = nextAcc;
             }
-            return new TextPosition(domText, groups[^1].TextEnd);
+            return new TextPosition(node, groups[^1].TextEnd);
         }
 
         if (textRun.RightToLeft)
@@ -209,11 +213,11 @@ internal static class HitTester
                 {
                     var mid = (curLeft + curRight) / 2f;
                     // In RTL, the right side is the logical start, the left side is the logical end.
-                    return new TextPosition(domText, xPos >= mid ? grp.TextStart : grp.TextEnd);
+                    return new TextPosition(node, xPos >= mid ? grp.TextStart : grp.TextEnd);
                 }
                 curRight = curLeft;
             }
-            return new TextPosition(domText, groups[^1].TextEnd);
+            return new TextPosition(node, groups[^1].TextEnd);
         }
         else
         {
@@ -227,11 +231,11 @@ internal static class HitTester
                 if (xPos <= nextAcc || i == groups.Count - 1)
                 {
                     var mid = acc + grp.Width / 2f;
-                    return new TextPosition(domText, xPos < mid ? grp.TextStart : grp.TextEnd);
+                    return new TextPosition(node, xPos < mid ? grp.TextStart : grp.TextEnd);
                 }
                 acc = nextAcc;
             }
-            return new TextPosition(domText, groups[^1].TextEnd);
+            return new TextPosition(node, groups[^1].TextEnd);
         }
     }
 
@@ -289,7 +293,7 @@ internal static class HitTester
         var textFragments = new List<(Fragment Frag, TextRun Run, float Left, float Top, float Width, float Height)>();
         foreach (var child in lineFragment.Children)
         {
-            if (child.Fragment.Kind == FragmentKind.Text && child.Fragment.Text is { Node: Text } tr)
+            if (child.Fragment.Kind == FragmentKind.Text && child.Fragment.Text is { Node: { } node } tr)
             {
                 textFragments.Add((child.Fragment, tr, lineLeft + child.X, lineTop + child.Y, child.Fragment.Width, child.Fragment.Height));
             }
@@ -365,13 +369,20 @@ internal static class HitTester
         if (matching.Count == 0)
             return default;
 
-        var fullText = ((Text)position.Node).Data;
+        var fullText = position.Node is Text domText ? domText.Data
+            : (position.Node as ElementNode)?.DisplayValue ?? (position.Node as ElementNode)?.Value ?? (position.Node as ElementNode)?.GetAttribute("value") ?? "";
+
+        if (string.IsNullOrEmpty(fullText))
+        {
+            var first = matching[0];
+            return new RectF(first.Left, first.Top, 1.5f, first.LineHeight > 0 ? first.LineHeight : 16f);
+        }
 
         // Locate run covering the position offset
         var runEntry = matching.Find(r =>
         {
             var start = r.Run.Run.Clusters[r.Run.GlyphStart];
-            var end = r.Run.Run.Clusters[r.Run.GlyphEnd - 1] + StringInfo.GetNextTextElementLength(fullText, Math.Clamp(r.Run.Run.Clusters[r.Run.GlyphEnd - 1], 0, fullText.Length - 1));
+            var end = r.Run.Run.Clusters[r.Run.GlyphEnd - 1] + StringInfo.GetNextTextElementLength(fullText, Math.Clamp(r.Run.Run.Clusters[r.Run.GlyphEnd - 1], 0, Math.Max(0, fullText.Length - 1)));
             return position.Offset >= start && position.Offset <= end;
         });
 
@@ -389,7 +400,7 @@ internal static class HitTester
         {
             var g = textRun.GlyphStart + curIdx;
             var cStart = run.Clusters[g];
-            var nextLen = StringInfo.GetNextTextElementLength(fullText, Math.Clamp(cStart, 0, fullText.Length - 1));
+            var nextLen = StringInfo.GetNextTextElementLength(fullText, Math.Clamp(cStart, 0, Math.Max(0, fullText.Length - 1)));
             var cEnd = Math.Min(fullText.Length, cStart + nextLen);
 
             var w = 0f;

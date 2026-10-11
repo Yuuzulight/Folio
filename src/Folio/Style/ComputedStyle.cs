@@ -139,7 +139,7 @@ internal enum UserSelect { Auto, None, Text, All }
 /// Inherited user interface properties Folio records for interaction (M3) and form controls: cursor, accent-color,
 /// scrollbar-color (null is auto), pointer-events and user-select.
 /// </summary>
-internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor, PointerEvents PointerEvents = PointerEvents.Auto, UserSelect UserSelect = UserSelect.Auto)
+internal sealed record UiGroup(string Cursor, CssColor? AccentColor, string ScrollbarColor, PointerEvents PointerEvents = PointerEvents.Auto, UserSelect UserSelect = UserSelect.Auto, CssColor? CaretColor = null)
 {
     public static UiGroup Initial { get; } = new("auto", null, "auto");
 }

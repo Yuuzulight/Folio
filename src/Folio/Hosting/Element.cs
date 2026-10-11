@@ -88,6 +88,47 @@ public sealed class Element
         return child;
     }
 
+    /// <summary>The current value of the form control (separate from the 'value' content attribute).</summary>
+    public string Value
+    {
+        get => _document.GetControlValue(Node);
+        set => _document.SetControlValue(Node, value);
+    }
+
+    /// <summary>The displayed text of the form control (masked with bullets for password inputs).</summary>
+    public string DisplayValue
+    {
+        get
+        {
+            if (Node.DisplayValue is not null)
+                return Node.DisplayValue;
+            if (Node.Name.Namespace == Namespaces.Html && Node.LocalName == "input" && (Node.GetAttribute("type") ?? "text").Equals("password", StringComparison.OrdinalIgnoreCase))
+                return new string('•', Value.Length);
+            return Value;
+        }
+    }
+
+    /// <summary>The start of the active selection within the control (0 to Value.Length).</summary>
+    public int SelectionStart
+    {
+        get => _document.GetControlSelectionStart(Node);
+        set => _document.SetControlSelectionStart(Node, value);
+    }
+
+    /// <summary>The end of the active selection within the control (0 to Value.Length).</summary>
+    public int SelectionEnd
+    {
+        get => _document.GetControlSelectionEnd(Node);
+        set => _document.SetControlSelectionEnd(Node, value);
+    }
+
+    /// <summary>Sets the selection range within the control.</summary>
+    public void SetSelectionRange(int start, int end, string? direction = null) =>
+        _document.SetControlSelectionRange(Node, start, end, direction);
+
+    /// <summary>Selects all text within the control.</summary>
+    public void Select() => _document.SelectControl(Node);
+
     /// <summary>The horizontal scroll offset of this element in CSS pixels.</summary>
     public float ScrollLeft
     {
