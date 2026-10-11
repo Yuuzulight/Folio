@@ -33,11 +33,19 @@ public sealed class InputRouter
     public Element? FocusedElement => _focused is not null ? _document.Wrap(_focused) : null;
 
     /// <summary>Sets the focused element, updating :focus state.</summary>
-    public void Focus(Element? element)
+    public void Focus(Element? element) => Focus(element?.Node, visible: true);
+
+    internal void Focus(ElementNode? targetNode, bool visible)
     {
-        var targetNode = element?.Node;
         if (_focused == targetNode)
+        {
+            if (targetNode is not null && visible && (targetNode.Flags & NodeFlags.FocusVisible) == 0)
+            {
+                SetElementAndAncestorsState(targetNode, NodeFlags.FocusVisible, true);
+                _document.Update();
+            }
             return;
+        }
 
         if (_focused is not null)
             SetElementAndAncestorsState(_focused, NodeFlags.Focus | NodeFlags.FocusVisible, false);
@@ -45,7 +53,11 @@ public sealed class InputRouter
         _focused = targetNode;
 
         if (_focused is not null)
-            SetElementAndAncestorsState(_focused, NodeFlags.Focus | NodeFlags.FocusVisible, true);
+        {
+            var flags = visible ? (NodeFlags.Focus | NodeFlags.FocusVisible) : NodeFlags.Focus;
+            SetElementAndAncestorsState(_focused, flags, true);
+            _document.ScrollIntoView(_focused);
+        }
 
         _document.Update();
     }
@@ -139,11 +151,17 @@ public sealed class InputRouter
 
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
         var changed = UpdateHover(target);
-        if (e.Button == PointerButton.Primary && target is not null)
+        if (e.Button == PointerButton.Primary)
         {
-            _active = target;
-            SetElementAndAncestorsState(_active, NodeFlags.Active, true);
-            changed = true;
+            var focusTarget = FindFocusable(target);
+            Focus(focusTarget, visible: false);
+
+            if (target is not null)
+            {
+                _active = target;
+                SetElementAndAncestorsState(_active, NodeFlags.Active, true);
+                changed = true;
+            }
         }
 
         if (changed)
@@ -297,6 +315,21 @@ public sealed class InputRouter
         var pageStepY = Math.Max(1, ch - 40f);
         var pageStepX = Math.Max(1, cw - 40f);
 
+        if (e.Key is "Tab")
+        {
+            NavigateFocus((e.Modifiers & KeyModifiers.Shift) != 0);
+            return;
+        }
+
+        if (e.Key is "Enter" && _focused is not null)
+        {
+            if (FindLink(_focused) is { } focusedLink)
+            {
+                ActivateLink(focusedLink, e.Modifiers);
+                return;
+            }
+        }
+
         switch (e.Key)
         {
             case "ArrowDown":
@@ -334,6 +367,139 @@ public sealed class InputRouter
                 _document.ScrollBy(targetElement, new Vector2(0, spaceDelta));
                 break;
         }
+    }
+
+    private void NavigateFocus(bool reverse)
+    {
+        var elements = GetSequentialFocusableElements();
+        if (elements.Count == 0)
+            return;
+
+        int currentIndex = _focused is not null ? elements.IndexOf(_focused) : -1;
+        int nextIndex;
+        if (currentIndex < 0)
+        {
+            nextIndex = reverse ? elements.Count - 1 : 0;
+        }
+        else
+        {
+            nextIndex = reverse ? currentIndex - 1 : currentIndex + 1;
+            if (nextIndex < 0)
+                nextIndex = elements.Count - 1;
+            else if (nextIndex >= elements.Count)
+                nextIndex = 0;
+        }
+
+        Focus(elements[nextIndex], visible: true);
+    }
+
+    internal List<ElementNode> GetSequentialFocusableElements()
+    {
+        var positive = new List<(ElementNode Node, int Order, int TabIndex)>();
+        var zero = new List<ElementNode>();
+        var order = 0;
+
+        for (Node? curr = _document.Node; curr is not null; curr = curr.NextInTree(_document.Node))
+        {
+            if (curr is not ElementNode el)
+                continue;
+
+            order++;
+            var ti = GetTabIndex(el);
+            if (ti is null || ti.Value < 0)
+                continue;
+
+            if (ti.Value > 0)
+                positive.Add((el, order, ti.Value));
+            else
+                zero.Add(el);
+        }
+
+        positive.Sort((a, b) =>
+        {
+            var cmp = a.TabIndex.CompareTo(b.TabIndex);
+            return cmp != 0 ? cmp : a.Order.CompareTo(b.Order);
+        });
+
+        var result = new List<ElementNode>(positive.Count + zero.Count);
+        foreach (var (n, _, _) in positive)
+            result.Add(n);
+        result.AddRange(zero);
+        return result;
+    }
+
+    internal static ElementNode? FindFocusable(ElementNode? element)
+    {
+        for (Node? node = element; node is not null; node = node.Parent)
+        {
+            if (node is ElementNode el && GetTabIndex(el) is not null)
+                return el;
+        }
+        return null;
+    }
+
+    internal static int? GetTabIndex(ElementNode element)
+    {
+        if (IsDisabled(element))
+            return null;
+
+        var tabIndexAttr = element.GetAttribute("tabindex");
+        if (tabIndexAttr is not null)
+        {
+            if (int.TryParse(tabIndexAttr.Trim(), out var parsed))
+                return parsed;
+        }
+
+        // Default focusable HTML elements
+        if (element.Name.Namespace == Namespaces.Html)
+        {
+            var tag = element.LocalName;
+            if (tag is "a" or "area" && element.GetAttribute("href") is not null)
+                return 0;
+
+            if (tag is "button" or "select" or "textarea")
+                return 0;
+
+            if (tag is "input")
+            {
+                var type = element.GetAttribute("type")?.ToLowerInvariant();
+                if (type is not "hidden")
+                    return 0;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsDisabled(ElementNode element)
+    {
+        if (element.Name.Namespace != Namespaces.Html)
+            return false;
+
+        var isControl = element.LocalName is "button" or "input" or "select" or "textarea" or "optgroup" or "option" or "fieldset";
+        if (!isControl)
+            return false;
+
+        if (element.GetAttribute("disabled") is not null)
+            return true;
+
+        if (element.LocalName == "option" && element.Parent is ElementNode { LocalName: "optgroup" } group && group.GetAttribute("disabled") is not null)
+            return true;
+
+        if (element.LocalName is "optgroup" or "option")
+            return false;
+
+        Node child = element;
+        for (var ancestor = element.Parent as ElementNode; ancestor is not null; child = ancestor, ancestor = ancestor.Parent as ElementNode)
+        {
+            if (ancestor.Name.Namespace == Namespaces.Html && ancestor.LocalName == "fieldset" && ancestor.GetAttribute("disabled") is not null)
+            {
+                var firstLegend = ancestor.Children.OfType<ElementNode>().FirstOrDefault(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "legend");
+                if (child != firstLegend)
+                    return true;
+            }
+        }
+        return false;
     }
 
     private ElementNode? FindTargetScroller(ElementNode? start)

@@ -132,5 +132,12 @@ public sealed class Element
     /// <summary>Gives focus to this element.</summary>
     public void Focus() => _document.Input.Focus(this);
 
+    /// <summary>Removes focus from this element if currently focused.</summary>
+    public void Blur()
+    {
+        if (_document.Input.FocusedElement == this)
+            _document.Input.Focus(null);
+    }
+
     public override string ToString() => $"<{LocalName}>";
 }

@@ -57,6 +57,7 @@ ruby > rt { font-size: 50%; }
 :link { color: #0000EE; }
 :visited { color: #551A8B; }
 :link, :visited { text-decoration: underline; cursor: pointer; }
+:focus-visible { outline: auto 5px -webkit-focus-ring-color; }
 mark { background-color: yellow; color: black; }
 abbr[title], acronym[title] { text-decoration: dotted underline; }
 ins, u { text-decoration: underline; }
