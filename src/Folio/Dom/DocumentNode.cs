@@ -36,6 +36,12 @@ internal sealed class DocumentNode : ContainerNode
 
     internal void NotifyNodeInserted(Node node) => NodeInserted?.Invoke(node);
 
+    /// <summary>Invoked when an event handler content attribute (on*) is set or removed; the value is null when removed.</summary>
+    internal event Action<ElementNode, string, string?>? HandlerAttributeChanged;
+
+    internal void NotifyHandlerAttributeChanged(ElementNode element, string name, string? value) =>
+        HandlerAttributeChanged?.Invoke(element, name, value);
+
     /// <summary>
     /// Whether this is an SVG document used as an image, which loads nothing from outside
     /// (https://www.w3.org/TR/SVG2/conform.html#secure-static-mode).

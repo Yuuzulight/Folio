@@ -21,7 +21,7 @@ internal static class DomBindings
         InstallConstructors(engine);
 
         // 2b. Events: EventTarget joins the Node prototype chain, so it follows the constructors
-        DomEvents.Install(engine, eventLoop);
+        var handlers = DomEvents.Install(engine, eventLoop);
 
         // 3. Bind document to global scope
         var docWrapper = context.Wrap(document);
@@ -31,6 +31,11 @@ internal static class DomBindings
                 globalThis.window = globalThis;
             }
         ");
+
+        // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
+        handlers.Scan(document, context);
+        document.HandlerAttributeChanged += (element, name, value) => handlers.Changed(context.Wrap(element), name, value);
+        document.NodeInserted += node => handlers.Scan(node, context);
 
         return context.WrapperCache;
     }

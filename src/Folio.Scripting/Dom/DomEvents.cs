@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 /// </remarks>
 internal static class DomEvents
 {
-    internal static void Install(IScriptEngine engine, HtmlEventLoop? eventLoop)
+    internal static EventHandlerAttributes Install(IScriptEngine engine, HtmlEventLoop? eventLoop)
     {
         ArgumentNullException.ThrowIfNull(engine);
 
@@ -27,10 +27,14 @@ internal static class DomEvents
 
         engine.SetGlobalProperty("__folio_events_host", engine.CreateHostObject(bridge, new object()));
         engine.Evaluate(Source, "folio:events");
+        var sync = engine.Evaluate("globalThis.__folio_events_api.sync");
+        var ensure = engine.Evaluate("globalThis.__folio_events_api.ensure");
+        engine.Evaluate("delete globalThis.__folio_events_api");
+        return new EventHandlerAttributes(engine, sync, ensure);
     }
 
     private const string Source = """
-        (function(host) {
+        globalThis.__folio_events_api = (function(host) {
             'use strict';
             const global = globalThis;
             const NodeCtor = global.Node;
@@ -237,7 +241,8 @@ internal static class DomEvents
                     try {
                         const callback = listener.callback;
                         if (typeof callback === 'function') {
-                            callback.call(target, event);
+                            const result = callback.call(target, event);
+                            if (listener.handler !== undefined) processHandlerResult(listener.handler, event, result);
                         } else {
                             const handler = callback.handleEvent;
                             if (typeof handler !== 'function')
@@ -511,6 +516,212 @@ internal static class DomEvents
                 }
             }
 
+            // ------------------------------------------------------------------ event handlers
+            // https://html.spec.whatwg.org/multipage/webappapis.html#event-handlers
+
+            const GLOBAL_HANDLER_NAMES = [
+                'abort', 'animationcancel', 'animationend', 'animationiteration', 'animationstart', 'auxclick',
+                'beforeinput', 'beforematch', 'beforetoggle', 'blur', 'cancel', 'canplay', 'canplaythrough', 'change',
+                'click', 'close', 'contextlost', 'contextmenu', 'contextrestored', 'copy', 'cuechange', 'cut',
+                'dblclick', 'drag', 'dragend', 'dragenter', 'dragleave', 'dragover', 'dragstart', 'drop',
+                'durationchange', 'emptied', 'ended', 'error', 'focus', 'formdata', 'gotpointercapture', 'input',
+                'invalid', 'keydown', 'keypress', 'keyup', 'load', 'loadeddata', 'loadedmetadata', 'loadstart',
+                'lostpointercapture', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove', 'mouseout', 'mouseover',
+                'mouseup', 'paste', 'pause', 'play', 'playing', 'pointercancel', 'pointerdown', 'pointerenter',
+                'pointerleave', 'pointermove', 'pointerout', 'pointerover', 'pointerup', 'progress', 'ratechange',
+                'reset', 'resize', 'scroll', 'scrollend', 'securitypolicyviolation', 'seeked', 'seeking', 'select',
+                'slotchange', 'stalled', 'submit', 'suspend', 'timeupdate', 'toggle', 'touchcancel', 'touchend',
+                'touchmove', 'touchstart', 'transitioncancel', 'transitionend', 'transitionrun', 'transitionstart',
+                'volumechange', 'waiting', 'wheel'
+            ];
+            const WINDOW_HANDLER_NAMES = [
+                'afterprint', 'beforeprint', 'beforeunload', 'hashchange', 'languagechange', 'message', 'messageerror',
+                'offline', 'online', 'pagehide', 'pageshow', 'popstate', 'rejectionhandled', 'storage',
+                'unhandledrejection', 'unload'
+            ];
+            const DOCUMENT_HANDLER_NAMES = ['readystatechange', 'visibilitychange'];
+            const GLOBAL_HANDLER_SET = new Set(GLOBAL_HANDLER_NAMES);
+            const WINDOW_HANDLER_SET = new Set(WINDOW_HANDLER_NAMES);
+            // The handlers a body or frameset element forwards to the window.
+            const WINDOW_REFLECTING_SET = new Set(['blur', 'error', 'focus', 'load', 'resize', 'scroll'].concat(WINDOW_HANDLER_NAMES));
+            const HTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+            const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+            const handlerRecords = new WeakMap();
+
+            function isBodyLike(target) {
+                return isNode(target) && target.nodeType === 1 && target.namespaceURI === HTML_NAMESPACE
+                    && (target.localName === 'body' || target.localName === 'frameset');
+            }
+
+            function handlerTarget(self, name) {
+                const target = resolveTarget(self);
+                return isBodyLike(target) && WINDOW_REFLECTING_SET.has(name) ? global : target;
+            }
+
+            function handlerRecord(target, name) {
+                let records = handlerRecords.get(target);
+                if (records === undefined) {
+                    records = new Map();
+                    handlerRecords.set(target, records);
+                }
+                let record = records.get(name);
+                if (record === undefined) {
+                    record = { name: name, target: target, kind: 'none', raw: null, fn: null, scopeElement: null, listener: null, dispatcher: null };
+                    record.dispatcher = function(event) { return runHandler(record, this, event); };
+                    records.set(name, record);
+                }
+                return record;
+            }
+
+            // Registers the handler's one listener, at the end of the list, unless it is already there.
+            function activateHandler(record) {
+                if (record.listener !== null) return;
+                const target = record.target;
+                const listener = {
+                    type: record.name, callback: record.dispatcher, capture: false,
+                    passive: isPassiveByDefault(target, record.name), once: false, removed: false, handler: record
+                };
+                let list = targetListeners.get(target);
+                if (list === undefined) {
+                    list = [];
+                    targetListeners.set(target, list);
+                }
+                list.push(listener);
+                record.listener = listener;
+            }
+
+            function deactivateHandler(record) {
+                if (record.listener === null) return;
+                removeListener(record.target, record.listener);
+                record.listener = null;
+            }
+
+            function clearHandler(record) {
+                record.kind = 'none';
+                record.raw = null;
+                record.fn = null;
+                record.scopeElement = null;
+                deactivateHandler(record);
+            }
+
+            // Compiles an event handler content attribute with the scope chain of the spec: the document, the form owner and the element.
+            function compileHandler(record) {
+                const body = record.raw;
+                const element = record.scopeElement;
+                const isWindowError = record.name === 'error' && record.target === global;
+                const parameters = isWindowError ? 'event, source, lineno, colno, error' : 'event';
+                record.kind = 'none';
+                record.raw = null;
+                record.scopeElement = null;
+                try {
+                    // Parses the body on its own, so it cannot break out of the function it is wrapped in below.
+                    new Function(parameters, body);
+                    const factory = new Function('__folio_document', '__folio_form', '__folio_element',
+                        'with (__folio_document || {}) { with (__folio_form || {}) { with (__folio_element || {}) { return function(' + parameters + ') {\n' + body + '\n}; } } }');
+                    let form = null;
+                    try { form = (element && element.form) || null; } catch (_) { }
+                    const owner = element ? element.ownerDocument : null;
+                    record.fn = factory(owner, form, element);
+                    record.kind = 'function';
+                } catch (error) {
+                    record.fn = null;
+                    reportError(error);
+                }
+                return record.fn;
+            }
+
+            function runHandler(record, self, event) {
+                let fn = record.kind === 'function' ? record.fn : null;
+                if (record.kind === 'raw') fn = compileHandler(record);
+                if (fn === null) return undefined;
+                if (record.name === 'error' && record.target === global && event instanceof ErrorEvent)
+                    return fn.call(self, event.message, event.filename, event.lineno, event.colno, event.error);
+                return fn.call(self, event);
+            }
+
+            // https://html.spec.whatwg.org/multipage/webappapis.html#the-event-handler-processing-algorithm
+            function processHandlerResult(record, event, result) {
+                if (record.name === 'error' && record.target === global && event instanceof ErrorEvent) {
+                    if (result === true) event.preventDefault();
+                } else if (record.name !== 'beforeunload' && result === false) {
+                    event.preventDefault();
+                }
+            }
+
+            function getHandler(self, name) {
+                const records = handlerRecords.get(handlerTarget(self, name));
+                const record = records === undefined ? undefined : records.get(name);
+                if (record === undefined) return null;
+                if (record.kind === 'raw') compileHandler(record);
+                return record.kind === 'function' ? record.fn : null;
+            }
+
+            function setHandler(self, name, value) {
+                const record = handlerRecord(handlerTarget(self, name), name);
+                if (typeof value !== 'function') {
+                    clearHandler(record);
+                    return;
+                }
+                record.kind = 'function';
+                record.fn = value;
+                record.raw = null;
+                record.scopeElement = null;
+                activateHandler(record);
+            }
+
+            function defineHandlerAccessors(proto, names) {
+                if (proto === undefined || proto === null) return;
+                for (const name of names) {
+                    Object.defineProperty(proto, 'on' + name, {
+                        get: function() { return getHandler(this, name); },
+                        set: function(value) { setHandler(this, name, value); },
+                        enumerable: true, configurable: true
+                    });
+                }
+            }
+
+            function handlerForAttribute(element, attribute) {
+                if (!isNode(element) || element.nodeType !== 1) return null;
+                const namespace = element.namespaceURI;
+                if (namespace !== HTML_NAMESPACE && namespace !== SVG_NAMESPACE) return null;
+                if (attribute.length < 3) return null;
+                const lower = attribute.toLowerCase();
+                if (lower.charCodeAt(0) !== 111 || lower.charCodeAt(1) !== 110) return null;
+                const name = lower.slice(2);
+                const body = isBodyLike(element);
+                if (!GLOBAL_HANDLER_SET.has(name) && !(body && WINDOW_HANDLER_SET.has(name))) return null;
+                return handlerRecord(body && WINDOW_REFLECTING_SET.has(name) ? global : element, name);
+            }
+
+            // The content attribute changed: its handler is replaced in its original listener position, or removed.
+            function syncHandlerAttribute(element, attribute, value) {
+                const record = handlerForAttribute(element, attribute);
+                if (record === null) return;
+                if (value === null || value === undefined) {
+                    clearHandler(record);
+                    return;
+                }
+                record.kind = 'raw';
+                record.raw = String(value);
+                record.fn = null;
+                record.scopeElement = element;
+                activateHandler(record);
+            }
+
+            // An element met the document (parsed, or inserted): its attributes become handlers unless they already are.
+            function ensureHandlerAttribute(element, attribute, value) {
+                const record = handlerForAttribute(element, attribute);
+                if (record === null || record.listener !== null || record.kind !== 'none') return;
+                syncHandlerAttribute(element, attribute, value);
+            }
+
+            defineHandlerAccessors(global.HTMLElement && global.HTMLElement.prototype, GLOBAL_HANDLER_NAMES);
+            defineHandlerAccessors(global.SVGElement && global.SVGElement.prototype, GLOBAL_HANDLER_NAMES);
+            defineHandlerAccessors(global.Document && global.Document.prototype, GLOBAL_HANDLER_NAMES.concat(DOCUMENT_HANDLER_NAMES));
+            defineHandlerAccessors(global.HTMLBodyElement && global.HTMLBodyElement.prototype, WINDOW_HANDLER_NAMES);
+            defineHandlerAccessors(global, GLOBAL_HANDLER_NAMES.concat(WINDOW_HANDLER_NAMES));
+
             // The window: a plain EventTarget whose methods are installed directly on the global object.
             for (const method of ['addEventListener', 'removeEventListener', 'dispatchEvent']) {
                 const impl = EventTarget.prototype[method];
@@ -526,6 +737,8 @@ internal static class DomEvents
             defineGlobal('EventTarget', EventTarget);
             defineGlobal('AbortSignal', AbortSignal);
             defineGlobal('AbortController', AbortController);
+
+            return { sync: syncHandlerAttribute, ensure: ensureHandlerAttribute };
         })(globalThis.__folio_events_host);
         delete globalThis.__folio_events_host;
         """;

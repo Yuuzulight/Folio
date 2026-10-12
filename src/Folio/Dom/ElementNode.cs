@@ -116,7 +116,12 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
 
         Reflect(name, value);
         OnMutated(MutationKind.Attributes);
+        if (IsHandlerAttributeName(name))
+            OwnerDocument.NotifyHandlerAttributeChanged(this, name, value);
     }
+
+    private static bool IsHandlerAttributeName(string name) =>
+        name.Length > 2 && name[0] is 'o' or 'O' && name[1] is 'n' or 'N';
 
     /// <summary>Removes an attribute from the element.</summary>
     public bool RemoveAttribute(string name)
@@ -133,6 +138,8 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
         _attributes = newAttrs;
         Reflect(name, "");
         OnMutated(MutationKind.Attributes);
+        if (IsHandlerAttributeName(name))
+            OwnerDocument.NotifyHandlerAttributeChanged(this, name, null);
         return true;
     }
 
