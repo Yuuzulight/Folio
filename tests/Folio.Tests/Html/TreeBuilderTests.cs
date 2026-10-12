@@ -65,6 +65,28 @@ public class TreeBuilderTests
     }
 
     [Fact]
+    public void NoscriptParsesAsRawTextWhenScriptingEnabledAndAsMarkupWhenDisabled()
+    {
+        var html = "<div><noscript><p>inside</p></noscript></div>";
+
+        // When scripting is disabled: <noscript> children are parsed into elements (<p>)
+        var docDisabled = TreeBuilder.Parse(html, new ParserLimits(ScriptingEnabled: false));
+        var divDisabled = docDisabled.Descendants.OfType<ElementNode>().First(e => e.LocalName == "div");
+        var noscriptDisabled = divDisabled.Descendants.OfType<ElementNode>().First(e => e.LocalName == "noscript");
+        Assert.NotNull(noscriptDisabled);
+        Assert.NotNull(noscriptDisabled.Descendants.OfType<ElementNode>().FirstOrDefault(e => e.LocalName == "p"));
+        Assert.Equal("inside", noscriptDisabled.Descendants.OfType<ElementNode>().First(e => e.LocalName == "p").TextContent);
+
+        // When scripting is enabled: <noscript> content is raw text
+        var docEnabled = TreeBuilder.Parse(html, new ParserLimits(ScriptingEnabled: true));
+        var divEnabled = docEnabled.Descendants.OfType<ElementNode>().First(e => e.LocalName == "div");
+        var noscriptEnabled = divEnabled.Descendants.OfType<ElementNode>().First(e => e.LocalName == "noscript");
+        Assert.NotNull(noscriptEnabled);
+        Assert.Null(noscriptEnabled.Descendants.OfType<ElementNode>().FirstOrDefault(e => e.LocalName == "p"));
+        Assert.Equal("<p>inside</p>", noscriptEnabled.TextContent);
+    }
+
+    [Fact]
     public void ReportsTreeConstructionErrors()
     {
         var errors = new List<string>();

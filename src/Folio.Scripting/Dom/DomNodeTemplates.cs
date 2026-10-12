@@ -40,6 +40,7 @@ internal sealed class DomNodeTemplates
         HtmlSelectElementTemplate = CreateHtmlSelectElementTemplate(HtmlElementTemplate);
         HtmlTextAreaElementTemplate = CreateHtmlTextAreaElementTemplate(HtmlElementTemplate);
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
+        HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -66,6 +67,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlSelectElementTemplate { get; }
     public HostObjectTemplate HtmlTextAreaElementTemplate { get; }
     public HostObjectTemplate HtmlTemplateElementTemplate { get; }
+    public HostObjectTemplate HtmlScriptElementTemplate { get; }
 
     private HostObjectTemplate CreateNodeTemplate()
     {
@@ -983,6 +985,18 @@ internal sealed class DomNodeTemplates
                     }
                 }
             });
+
+        t.DefineProperty("readyState", (target, _) =>
+        {
+            var doc = (DocumentNode)target;
+            return ScriptValue.FromString(doc.ReadyState);
+        });
+
+        t.DefineProperty("currentScript", (target, _) =>
+        {
+            var doc = (DocumentNode)target;
+            return doc.CurrentScript is not null ? _context.Wrap(doc.CurrentScript) : ScriptValue.Null;
+        });
 
         // ParentNode
         t.DefineProperty("children", (target, _) => _context.WrapHtmlCollection((DocumentNode)target));
@@ -1918,6 +1932,55 @@ internal sealed class DomNodeTemplates
             var template = (TemplateElement)target;
             return _context.Wrap(template.Content);
         });
+
+        return t;
+    }
+
+    private static HostObjectTemplate CreateHtmlScriptElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLScriptElement", htmlElementProto);
+
+        t.DefineProperty("src",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("type",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("type") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("type", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("defer",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("defer") is not null),
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                if (WebIdlConversions.ToBoolean(val))
+                    el.SetAttribute("defer", "");
+                else
+                    el.RemoveAttribute("defer");
+            });
+
+        t.DefineProperty("async",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("async") is not null),
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                if (WebIdlConversions.ToBoolean(val))
+                    el.SetAttribute("async", "");
+                else
+                    el.RemoveAttribute("async");
+            });
+
+        t.DefineProperty("text",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).TextContent ?? ""),
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                var text = WebIdlConversions.ToDOMString(val);
+                while (el.FirstChild is { } c)
+                    el.RemoveChild(c);
+                if (text.Length > 0)
+                    el.AppendChild(el.OwnerDocument.CreateText(text));
+            });
 
         return t;
     }

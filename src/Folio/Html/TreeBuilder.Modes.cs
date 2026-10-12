@@ -238,9 +238,15 @@ internal sealed partial class TreeBuilder
         }
         else if (IsStart(t, "noscript"))
         {
-            // The scripting flag is off (docs/study/01-html-parsing.md).
-            InsertHtmlElement(t);
-            _mode = Mode.InHeadNoscript;
+            if (_limits.ScriptingEnabled)
+            {
+                GenericText(t, TokenizerState.RawText);
+            }
+            else
+            {
+                InsertHtmlElement(t);
+                _mode = Mode.InHeadNoscript;
+            }
         }
         else if (IsStart(t, "script"))
         {
@@ -590,6 +596,18 @@ internal sealed partial class TreeBuilder
 
             case "noembed":
                 GenericText(t, TokenizerState.RawText);
+                return;
+
+            case "noscript":
+                if (_limits.ScriptingEnabled)
+                {
+                    GenericText(t, TokenizerState.RawText);
+                }
+                else
+                {
+                    ReconstructActiveFormattingElements();
+                    InsertHtmlElement(t);
+                }
                 return;
 
             case "select":

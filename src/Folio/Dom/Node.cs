@@ -60,6 +60,20 @@ internal abstract class Node
         return false;
     }
 
+    /// <summary>https://dom.spec.whatwg.org/#connected: true when this node's root is its owner document.</summary>
+    public bool IsConnected
+    {
+        get
+        {
+            for (Node? n = this; n is not null; n = n.Parent)
+            {
+                if (n == OwnerDocument)
+                    return true;
+            }
+            return false;
+        }
+    }
+
     /// <summary>https://dom.spec.whatwg.org/#concept-node-clone</summary>
     public abstract Node Clone(bool deep = false);
 
@@ -139,12 +153,19 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
 
         if (node is DocumentFragment fragment)
         {
+            var movedList = new List<Node>();
             while (fragment.FirstChild is { } moved)
             {
                 fragment.Unlink(moved);
                 Link(moved, child);
+                movedList.Add(moved);
             }
             fragment.OnMutated(MutationKind.ChildList);
+            if (IsConnected)
+            {
+                foreach (var m in movedList)
+                    OwnerDocument.NotifyNodeInserted(m);
+            }
         }
         else
         {
@@ -154,6 +175,8 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
                 oldParent.OnMutated(MutationKind.ChildList);
             }
             Link(node, child);
+            if (IsConnected)
+                OwnerDocument.NotifyNodeInserted(node);
         }
 
         OnMutated(MutationKind.ChildList);

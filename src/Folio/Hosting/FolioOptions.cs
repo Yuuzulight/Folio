@@ -55,4 +55,20 @@ public sealed class FolioOptions
 
     /// <summary>Whether parse errors are recorded in <see cref="Document.Diagnostics"/>; limit hits always are.</summary>
     public bool CollectDiagnostics { get; init; } = true;
+
+    /// <summary>
+    /// Whether scripts run in the document (docs/architecture.md, study 17). Disabled by default.
+    /// In M4, <see cref="ScriptingPolicy.ContentProcess"/> enables scripting.
+    /// </summary>
+    public ScriptingPolicy Scripting { get; init; } = ScriptingPolicy.Disabled;
+}
+
+/// <summary>The scripting policy for documents (docs/architecture.md, study 17).</summary>
+public enum ScriptingPolicy
+{
+    /// <summary>Scripting is disabled (the default). Scripts do not execute and noscript parses as markup.</summary>
+    Disabled,
+
+    /// <summary>Scripting is enabled. The parser scripting flag is set and scripts execute.</summary>
+    ContentProcess,
 }
