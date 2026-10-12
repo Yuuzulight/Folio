@@ -7,7 +7,7 @@ namespace Folio.Scripting.Dom;
 /// </summary>
 internal static class DomBindings
 {
-    internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null)
+    internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
@@ -19,6 +19,9 @@ internal static class DomBindings
 
         // 2. Install Prototype Hierarchy & Constructors
         InstallConstructors(engine);
+
+        // 2b. Events: EventTarget joins the Node prototype chain, so it follows the constructors
+        DomEvents.Install(engine, eventLoop);
 
         // 3. Bind document to global scope
         var docWrapper = context.Wrap(document);
