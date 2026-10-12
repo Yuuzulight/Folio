@@ -358,11 +358,14 @@ internal sealed class ScriptRunner : IDisposable
         // Dispatch 'error' event on window
         try
         {
-            var escapedMsg = message.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "");
+            var messageLiteral = System.Text.Json.JsonSerializer.Serialize(message);
+            var filename = System.Text.Json.JsonSerializer.Serialize(url ?? "");
+            var line = loc?.Line ?? 0;
+            var column = loc?.Column ?? 0;
             _engine.Evaluate($$"""
                 (function() {
                     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-                        window.dispatchEvent(new ErrorEvent('error', { message: '{{escapedMsg}}', cancelable: true }));
+                        window.dispatchEvent(new ErrorEvent('error', { message: {{messageLiteral}}, filename: {{filename}}, lineno: {{line}}, colno: {{column}}, cancelable: true }));
                     }
                 })();
             """, "folio:script-error");
