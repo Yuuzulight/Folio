@@ -39,6 +39,7 @@ internal sealed class DomNodeTemplates
         HtmlOptionElementTemplate = CreateHtmlOptionElementTemplate(HtmlElementTemplate);
         HtmlSelectElementTemplate = CreateHtmlSelectElementTemplate(HtmlElementTemplate);
         HtmlTextAreaElementTemplate = CreateHtmlTextAreaElementTemplate(HtmlElementTemplate);
+        HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -64,6 +65,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlOptionElementTemplate { get; }
     public HostObjectTemplate HtmlSelectElementTemplate { get; }
     public HostObjectTemplate HtmlTextAreaElementTemplate { get; }
+    public HostObjectTemplate HtmlTemplateElementTemplate { get; }
 
     private HostObjectTemplate CreateNodeTemplate()
     {
@@ -595,6 +597,25 @@ internal sealed class DomNodeTemplates
                 throw WebIdlException.TypeError("closest requires 1 argument.");
             var el = DomSelectors.Closest((ElementNode)target, args[0]);
             return _context.Wrap(el);
+        });
+
+        // HTML fragment serialization & parsing (Element traversal & insertion)
+        t.DefineProperty("innerHTML",
+            (target, _) => ScriptValue.FromString(DomHtml.SerializeInnerHtml((ElementNode)target)),
+            (target, _, val) => DomHtml.SetInnerHtml((ElementNode)target, WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("outerHTML",
+            (target, _) => ScriptValue.FromString(DomHtml.SerializeOuterHtml((ElementNode)target)),
+            (target, _, val) => DomHtml.SetOuterHtml((ElementNode)target, WebIdlConversions.ToDOMString(val)));
+
+        t.DefineMethod("insertAdjacentHTML", (target, _, args) =>
+        {
+            if (args.Length < 2)
+                throw WebIdlException.TypeError("Failed to execute 'insertAdjacentHTML' on 'Element': 2 arguments required.");
+            var position = WebIdlConversions.ToDOMString(args[0]);
+            var text = WebIdlConversions.ToDOMString(args[1]);
+            DomHtml.InsertAdjacentHtml((ElementNode)target, position, text);
+            return ScriptValue.Undefined;
         });
 
         return t;
@@ -1884,6 +1905,19 @@ internal sealed class DomNodeTemplates
                 var num = WebIdlConversions.ToUint32(val);
                 ((ElementNode)target).SetAttribute("cols", num.ToString());
             });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlTemplateElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLTemplateElement", htmlElementProto);
+
+        t.DefineProperty("content", (target, _) =>
+        {
+            var template = (TemplateElement)target;
+            return _context.Wrap(template.Content);
+        });
 
         return t;
     }

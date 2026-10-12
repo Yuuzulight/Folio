@@ -58,9 +58,9 @@ internal sealed partial class TreeBuilder : ITokenSink
     private bool _depthReported;
     private bool _reprocessEndOfFile;
 
-    private TreeBuilder(string html, ParserLimits limits, Action<string, int>? parseError)
+    private TreeBuilder(DocumentNode document, string html, ParserLimits limits, Action<string, int>? parseError)
     {
-        _document = new DocumentNode();
+        _document = document;
         _limits = limits;
         _parseError = parseError;
         _tokenizer = new Tokenizer(html, this) { ParseError = parseError };
@@ -70,9 +70,96 @@ internal sealed partial class TreeBuilder : ITokenSink
     /// and "nesting-depth-limit" / "node-count-limit" when a limit stops work; with the input offset.</param>
     public static DocumentNode Parse(string html, ParserLimits? limits = null, Action<string, int>? parseError = null)
     {
-        var builder = new TreeBuilder(html, limits ?? ParserLimits.Default, parseError);
+        var doc = new DocumentNode();
+        var builder = new TreeBuilder(doc, html, limits ?? ParserLimits.Default, parseError);
         builder._tokenizer.Run();
         return builder._document;
+    }
+
+    /// <summary>
+    /// Parses an HTML fragment in the context of an element (WHATWG HTML §13.4).
+    /// </summary>
+    public static IReadOnlyList<Node> ParseFragment(
+        string html,
+        ElementNode? context = null,
+        DocumentNode? ownerDocument = null,
+        ParserLimits? limits = null,
+        Action<string, int>? parseError = null)
+    {
+        var doc = ownerDocument ?? context?.OwnerDocument ?? new DocumentNode();
+        var builder = new TreeBuilder(doc, html, limits ?? ParserLimits.Default, parseError);
+
+        var rootHtml = doc.CreateElement(Namespaces.Html, "html");
+        builder._open.Add(rootHtml);
+
+        if (context is not null && context.Name.Namespace == Namespaces.Html)
+        {
+            switch (context.LocalName)
+            {
+                case "title" or "textarea":
+                    builder._mode = Mode.Text;
+                    builder._tokenizer.State = TokenizerState.RcData;
+                    break;
+                case "style" or "xmp" or "iframe" or "noembed" or "noframes":
+                    builder._mode = Mode.Text;
+                    builder._tokenizer.State = TokenizerState.RawText;
+                    break;
+                case "script":
+                    builder._mode = Mode.Text;
+                    builder._tokenizer.State = TokenizerState.ScriptData;
+                    break;
+                case "plaintext":
+                    builder._mode = Mode.Text;
+                    builder._tokenizer.State = TokenizerState.PlainText;
+                    break;
+                case "template":
+                    builder._mode = Mode.InTemplate;
+                    builder._templateModes.Add(Mode.InTemplate);
+                    break;
+                case "select":
+                    builder._mode = Mode.InBody;
+                    break;
+                case "td" or "th":
+                    builder._mode = Mode.InCell;
+                    break;
+                case "tr":
+                    builder._mode = Mode.InRow;
+                    break;
+                case "tbody" or "thead" or "tfoot":
+                    builder._mode = Mode.InTableBody;
+                    break;
+                case "caption":
+                    builder._mode = Mode.InCaption;
+                    break;
+                case "colgroup":
+                    builder._mode = Mode.InColumnGroup;
+                    break;
+                case "table":
+                    builder._mode = Mode.InTable;
+                    break;
+                case "head":
+                    builder._mode = Mode.InHead;
+                    break;
+                case "body":
+                default:
+                    builder._mode = Mode.InBody;
+                    break;
+            }
+        }
+        else
+        {
+            builder._mode = Mode.InBody;
+        }
+
+        builder._tokenizer.Run();
+
+        var result = new List<Node>();
+        while (rootHtml.FirstChild is { } child)
+        {
+            rootHtml.RemoveChild(child);
+            result.Add(child);
+        }
+        return result;
     }
 
     private void Error() => _parseError?.Invoke("unexpected-token", _tokenizer.Position);

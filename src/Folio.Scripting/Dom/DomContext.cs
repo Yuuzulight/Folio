@@ -111,6 +111,7 @@ internal sealed class DomContext
             "option" => Templates.HtmlOptionElementTemplate,
             "select" => Templates.HtmlSelectElementTemplate,
             "textarea" => Templates.HtmlTextAreaElementTemplate,
+            "template" => Templates.HtmlTemplateElementTemplate,
             _ => GetStandardHtmlElementTemplate(local),
         };
     }
