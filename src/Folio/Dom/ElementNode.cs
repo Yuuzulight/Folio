@@ -48,6 +48,9 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>Whether this form control is disabled (directly or by an ancestor fieldset).</summary>
     internal bool IsDisabled => IsDisabledControl(this);
 
+    /// <summary>Tracks whether a script element has already executed or started execution (HTML §4.12.1.1 "already started").</summary>
+    internal bool ScriptAlreadyStarted { get; set; }
+
     internal static bool IsDisabledControl(ElementNode element)
     {
         if (element.Name.Namespace != Namespaces.Html)

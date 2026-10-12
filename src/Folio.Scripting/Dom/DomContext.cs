@@ -112,6 +112,7 @@ internal sealed class DomContext
             "select" => Templates.HtmlSelectElementTemplate,
             "textarea" => Templates.HtmlTextAreaElementTemplate,
             "template" => Templates.HtmlTemplateElementTemplate,
+            "script" => Templates.HtmlScriptElementTemplate,
             _ => GetStandardHtmlElementTemplate(local),
         };
     }
@@ -128,6 +129,7 @@ internal sealed class DomContext
             "html" => "HTMLHtmlElement",
             "title" => "HTMLTitleElement",
             "template" => "HTMLTemplateElement",
+            "script" => "HTMLScriptElement",
             _ => "HTMLElement",
         };
 

@@ -13,6 +13,9 @@ public enum DiagnosticCode
 
     /// <summary>A resource was refused by the loader, failed to load or could not be decoded; the document renders without it.</summary>
     ResourceNotLoaded,
+
+    /// <summary>An uncaught error was thrown during script execution.</summary>
+    ScriptError,
 }
 
 public enum Severity

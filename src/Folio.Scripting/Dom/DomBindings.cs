@@ -174,6 +174,7 @@ internal static class DomBindings
                     'HTMLSelectElement',
                     'HTMLTextAreaElement',
                     'HTMLTemplateElement',
+                    'HTMLScriptElement',
                     'HTMLUnknownElement'
                 ];
                 for (const tag of htmlTags) {

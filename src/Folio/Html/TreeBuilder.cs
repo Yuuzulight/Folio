@@ -4,7 +4,7 @@ using Folio.Dom;
 namespace Folio.Html;
 
 /// <summary>Parser limits (docs/study/16-resources-and-security.md). Exceeding one is reported, never thrown.</summary>
-internal sealed record ParserLimits(int MaxDepth = 512, int MaxNodes = 200_000)
+internal sealed record ParserLimits(int MaxDepth = 512, int MaxNodes = 200_000, bool ScriptingEnabled = false)
 {
     public static ParserLimits Default { get; } = new();
 }
@@ -101,6 +101,10 @@ internal sealed partial class TreeBuilder : ITokenSink
                     builder._tokenizer.State = TokenizerState.RcData;
                     break;
                 case "style" or "xmp" or "iframe" or "noembed" or "noframes":
+                    builder._mode = Mode.Text;
+                    builder._tokenizer.State = TokenizerState.RawText;
+                    break;
+                case "noscript" when builder._limits.ScriptingEnabled:
                     builder._mode = Mode.Text;
                     builder._tokenizer.State = TokenizerState.RawText;
                     break;

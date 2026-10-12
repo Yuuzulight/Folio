@@ -110,7 +110,7 @@ public sealed class Document : IDisposable
         }
 
         var lines = new LineMap(html);
-        var limits = new ParserLimits(options.Limits.MaxNestingDepth, options.Limits.MaxNodes);
+        var limits = new ParserLimits(options.Limits.MaxNestingDepth, options.Limits.MaxNodes, ScriptingEnabled: options.Scripting != ScriptingPolicy.Disabled);
         // A standalone SVG file goes through the XML parser; everything else is HTML.
         var svg = Xml.XmlParser.IsSvgDocument(html);
         var node = svg ? Xml.XmlParser.Parse(html, limits, Report) : TreeBuilder.Parse(html, limits, Report);

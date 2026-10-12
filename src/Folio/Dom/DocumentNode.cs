@@ -25,6 +25,17 @@ internal sealed class DocumentNode : ContainerNode
 
     public DocumentMode Mode { get; set; }
 
+    /// <summary>The document's readiness state (HTML §7.4: "loading", "interactive", "complete").</summary>
+    public string ReadyState { get; set; } = "loading";
+
+    /// <summary>The currently executing classic script element, or null.</summary>
+    public ElementNode? CurrentScript { get; set; }
+
+    /// <summary>Invoked whenever a node is inserted into the document tree (for dynamic script running, etc.).</summary>
+    internal event Action<Node>? NodeInserted;
+
+    internal void NotifyNodeInserted(Node node) => NodeInserted?.Invoke(node);
+
     /// <summary>
     /// Whether this is an SVG document used as an image, which loads nothing from outside
     /// (https://www.w3.org/TR/SVG2/conform.html#secure-static-mode).
