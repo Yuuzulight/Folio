@@ -154,12 +154,43 @@ internal sealed class DomContext
             _ => Templates.NodeTemplate,
         };
     }
+
+    public ScriptValue WrapStaticNodeList(IReadOnlyList<Node> nodes)
+    {
+        ArgumentNullException.ThrowIfNull(nodes);
+        return WrapperCache.GetOrCreate(Engine, Templates.NodeListTemplate, new LiveNodeList(nodes));
+    }
 }
 
-/// <summary>Represents a live NodeList backed by a ContainerNode.</summary>
-internal sealed class LiveNodeList(ContainerNode container)
+/// <summary>Represents a NodeList backed by either a ContainerNode (live) or static IReadOnlyList&lt;Node&gt;.</summary>
+internal sealed class LiveNodeList
 {
-    public ContainerNode Container { get; } = container;
+    public ContainerNode? Container { get; }
+    public IReadOnlyList<Node>? StaticNodes { get; }
+
+    public LiveNodeList(ContainerNode container) => Container = container;
+    public LiveNodeList(IReadOnlyList<Node> staticNodes) => StaticNodes = staticNodes;
+
+    public int Count => StaticNodes?.Count ?? Container?.Children.Count() ?? 0;
+
+    public Node? GetItem(int index)
+    {
+        if (index < 0)
+            return null;
+
+        if (StaticNodes is not null)
+            return index < StaticNodes.Count ? StaticNodes[index] : null;
+
+        return Container?.Children.ElementAtOrDefault(index);
+    }
+
+    public List<Node> ToList()
+    {
+        if (StaticNodes is not null)
+            return StaticNodes.ToList();
+
+        return Container?.Children.ToList() ?? [];
+    }
 }
 
 /// <summary>Represents a live HTMLCollection backed by a ContainerNode.</summary>

@@ -565,6 +565,38 @@ internal sealed class DomNodeTemplates
             return ScriptValue.Undefined;
         });
 
+        // Selectors and queries (ParentNode + Element)
+        t.DefineMethod("querySelector", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("querySelector requires 1 argument.");
+            var el = DomSelectors.QuerySelector((ElementNode)target, args[0]);
+            return _context.Wrap(el);
+        });
+
+        t.DefineMethod("querySelectorAll", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("querySelectorAll requires 1 argument.");
+            var list = DomSelectors.QuerySelectorAll((ElementNode)target, args[0]);
+            return _context.WrapStaticNodeList(list);
+        });
+
+        t.DefineMethod("matches", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("matches requires 1 argument.");
+            return ScriptValue.FromBoolean(DomSelectors.Matches((ElementNode)target, args[0]));
+        });
+
+        t.DefineMethod("closest", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("closest requires 1 argument.");
+            var el = DomSelectors.Closest((ElementNode)target, args[0]);
+            return _context.Wrap(el);
+        });
+
         return t;
     }
 
@@ -853,6 +885,23 @@ internal sealed class DomNodeTemplates
             return ScriptValue.Undefined;
         });
 
+        // ParentNode query methods
+        t.DefineMethod("querySelector", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("querySelector requires 1 argument.");
+            var el = DomSelectors.QuerySelector((DocumentFragment)target, args[0]);
+            return _context.Wrap(el);
+        });
+
+        t.DefineMethod("querySelectorAll", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("querySelectorAll requires 1 argument.");
+            var list = DomSelectors.QuerySelectorAll((DocumentFragment)target, args[0]);
+            return _context.WrapStaticNodeList(list);
+        });
+
         return t;
     }
 
@@ -1005,6 +1054,23 @@ internal sealed class DomNodeTemplates
             return ScriptValue.Undefined;
         });
 
+        // ParentNode query methods
+        t.DefineMethod("querySelector", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("querySelector requires 1 argument.");
+            var el = DomSelectors.QuerySelector((DocumentNode)target, args[0]);
+            return _context.Wrap(el);
+        });
+
+        t.DefineMethod("querySelectorAll", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("querySelectorAll requires 1 argument.");
+            var list = DomSelectors.QuerySelectorAll((DocumentNode)target, args[0]);
+            return _context.WrapStaticNodeList(list);
+        });
+
         return t;
     }
 
@@ -1015,7 +1081,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("length", (target, _) =>
         {
             var list = (LiveNodeList)target;
-            return ScriptValue.FromNumber(list.Container.Children.Count());
+            return ScriptValue.FromNumber(list.Count);
         });
 
         t.DefineMethod("item", (target, _, args) =>
@@ -1025,10 +1091,7 @@ internal sealed class DomNodeTemplates
 
             var list = (LiveNodeList)target;
             var idx = WebIdlConversions.ToInt32(args[0]);
-            if (idx < 0)
-                return ScriptValue.Null;
-
-            var child = list.Container.Children.ElementAtOrDefault(idx);
+            var child = list.GetItem(idx);
             return _context.Wrap(child);
         });
 
@@ -1040,7 +1103,7 @@ internal sealed class DomNodeTemplates
             var callback = args[0];
             var thisArg = args.Length > 1 ? args[1] : ScriptValue.Undefined;
             var list = (LiveNodeList)target;
-            var snapshot = list.Container.Children.ToList();
+            var snapshot = list.ToList();
 
             for (var i = 0; i < snapshot.Count; i++)
             {
@@ -1052,11 +1115,8 @@ internal sealed class DomNodeTemplates
 
         t.DefineIndexedProperty((target, _, index) =>
         {
-            if (index < 0)
-                return ScriptValue.Undefined;
-
             var list = (LiveNodeList)target;
-            var child = list.Container.Children.ElementAtOrDefault(index);
+            var child = list.GetItem(index);
             return child is not null ? _context.Wrap(child) : ScriptValue.Undefined;
         });
 
