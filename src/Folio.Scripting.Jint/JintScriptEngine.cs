@@ -128,6 +128,18 @@ public sealed class JintScriptEngine : IScriptEngine
         return false;
     }
 
+    public ScriptValue CreateArray(ReadOnlySpan<ScriptValue> elements)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var engine = _engine!;
+        var jsArray = engine.Intrinsics.Array.Construct(elements.Length);
+        for (var i = 0; i < elements.Length; i++)
+        {
+            jsArray.Set(i, ToJsValue(engine, elements[i]));
+        }
+        return ToScriptValue(jsArray);
+    }
+
     public void SetGlobalProperty(string name, ScriptValue value)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

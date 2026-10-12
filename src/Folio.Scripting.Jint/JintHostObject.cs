@@ -80,10 +80,81 @@ internal sealed class JintHostObject : ObjectInstance
             var str = property.AsString();
             var val = Template.NamedGetter(Target, JintScriptEngine.ToScriptValue(this), str);
             if (!val.IsUndefined)
-                return new PropertyDescriptor(JintScriptEngine.ToJsValue(Engine, val), writable: false, enumerable: true, configurable: true);
+                return new PropertyDescriptor(JintScriptEngine.ToJsValue(Engine, val), writable: Template.NamedSetter is not null, enumerable: true, configurable: true);
         }
 
         return PropertyDescriptor.Undefined;
+    }
+
+    public override bool Set(JsValue property, JsValue value, JsValue receiver)
+    {
+        if (Template.NamedSetter is not null && property.IsString())
+        {
+            var str = property.AsString();
+            try
+            {
+                Template.NamedSetter(Target, JintScriptEngine.ToScriptValue(this), str, JintScriptEngine.ToScriptValue(value));
+                return true;
+            }
+            catch (WebIdlException wie)
+            {
+                throw CreateJavaScriptException(Engine, wie);
+            }
+        }
+
+        return base.Set(property, value, receiver);
+    }
+
+    public override bool Delete(JsValue property)
+    {
+        if (Template.NamedDeleter is not null && property.IsString())
+        {
+            var str = property.AsString();
+            try
+            {
+                return Template.NamedDeleter(Target, JintScriptEngine.ToScriptValue(this), str);
+            }
+            catch (WebIdlException wie)
+            {
+                throw CreateJavaScriptException(Engine, wie);
+            }
+        }
+
+        return base.Delete(property);
+    }
+
+    public override IEnumerable<KeyValuePair<JsValue, PropertyDescriptor>> GetOwnProperties()
+    {
+        foreach (var prop in base.GetOwnProperties())
+            yield return prop;
+
+        if (Template.DynamicPropertyEnumerator is not null)
+        {
+            foreach (var name in Template.DynamicPropertyEnumerator(Target, JintScriptEngine.ToScriptValue(this)))
+            {
+                var val = Template.NamedGetter is not null
+                    ? Template.NamedGetter(Target, JintScriptEngine.ToScriptValue(this), name)
+                    : ScriptValue.Undefined;
+                yield return new KeyValuePair<JsValue, PropertyDescriptor>(
+                    new JsString(name),
+                    new PropertyDescriptor(JintScriptEngine.ToJsValue(Engine, val), writable: Template.NamedSetter is not null, enumerable: true, configurable: true));
+            }
+        }
+    }
+
+    public override List<JsValue> GetOwnPropertyKeys(Types types)
+    {
+        var keys = base.GetOwnPropertyKeys(types);
+        if (Template.DynamicPropertyEnumerator is not null && (types & Types.String) != 0)
+        {
+            foreach (var name in Template.DynamicPropertyEnumerator(Target, JintScriptEngine.ToScriptValue(this)))
+            {
+                var jsStr = new JsString(name);
+                if (!keys.Contains(jsStr))
+                    keys.Add(jsStr);
+            }
+        }
+        return keys;
     }
 
     private void InstallTemplate(IHostObjectTemplate template)
