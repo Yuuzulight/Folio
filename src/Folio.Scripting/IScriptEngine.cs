@@ -38,6 +38,9 @@ public interface IScriptEngine : IDisposable
     /// <summary>Extracts the underlying host target from a wrapped host object, if present.</summary>
     bool TryGetHostTarget(ScriptValue value, out object? target);
 
+    /// <summary>Creates a JavaScript array containing the specified elements.</summary>
+    ScriptValue CreateArray(ReadOnlySpan<ScriptValue> elements);
+
     /// <summary>Sets a global property on the engine's global object.</summary>
     void SetGlobalProperty(string name, ScriptValue value);
 

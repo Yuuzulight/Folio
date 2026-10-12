@@ -64,15 +64,64 @@ internal sealed class DomContext
         return WrapperCache.GetOrCreate(Engine, Templates.HtmlCollectionTemplate, new LiveHtmlCollection(container));
     }
 
+    public ScriptValue WrapClassList(ElementNode element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return WrapperCache.GetOrCreate(Engine, Templates.DomTokenListTemplate, new LiveDomTokenList(element));
+    }
+
+    public ScriptValue WrapDataset(ElementNode element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return WrapperCache.GetOrCreate(Engine, Templates.DomStringMapTemplate, new LiveDomStringMap(element));
+    }
+
+    public ScriptValue WrapAttributes(ElementNode element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return WrapperCache.GetOrCreate(Engine, Templates.NamedNodeMapTemplate, new LiveNamedNodeMap(element));
+    }
+
+    private readonly Dictionary<(ElementNode, string), LiveAttr> _attrCache = new();
+
+    public ScriptValue WrapAttr(ElementNode element, string name)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        ArgumentNullException.ThrowIfNull(name);
+
+        var key = (element, name);
+        if (!_attrCache.TryGetValue(key, out var liveAttr) || liveAttr.Element is null)
+        {
+            liveAttr = new LiveAttr(element, name);
+            _attrCache[key] = liveAttr;
+        }
+
+        return WrapperCache.GetOrCreate(Engine, Templates.AttrTemplate, liveAttr);
+    }
+
     public IHostObjectTemplate GetHtmlElementTemplate(string tagName)
     {
         var local = tagName.ToLowerInvariant();
+        return local switch
+        {
+            "input" => Templates.HtmlInputElementTemplate,
+            "button" => Templates.HtmlButtonElementTemplate,
+            "a" => Templates.HtmlAnchorElementTemplate,
+            "img" => Templates.HtmlImageElementTemplate,
+            "option" => Templates.HtmlOptionElementTemplate,
+            "select" => Templates.HtmlSelectElementTemplate,
+            "textarea" => Templates.HtmlTextAreaElementTemplate,
+            _ => GetStandardHtmlElementTemplate(local),
+        };
+    }
+
+    private IHostObjectTemplate GetStandardHtmlElementTemplate(string local)
+    {
         var interfaceName = local switch
         {
             "div" => "HTMLDivElement",
             "span" => "HTMLSpanElement",
             "p" => "HTMLParagraphElement",
-            "a" => "HTMLAnchorElement",
             "body" => "HTMLBodyElement",
             "head" => "HTMLHeadElement",
             "html" => "HTMLHtmlElement",

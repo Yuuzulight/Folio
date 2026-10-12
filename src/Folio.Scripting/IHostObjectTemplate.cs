@@ -26,6 +26,21 @@ public delegate ScriptValue HostIndexedPropertyGetter(object target, ScriptValue
 public delegate ScriptValue HostNamedPropertyGetter(object target, ScriptValue thisValue, string name);
 
 /// <summary>
+/// Delegate representing a named setter for dynamic string properties (e.g. dataset.foo = "bar").
+/// </summary>
+public delegate void HostNamedPropertySetter(object target, ScriptValue thisValue, string name, ScriptValue value);
+
+/// <summary>
+/// Delegate representing a named deleter for dynamic string properties (e.g. delete dataset.foo).
+/// </summary>
+public delegate bool HostNamedPropertyDeleter(object target, ScriptValue thisValue, string name);
+
+/// <summary>
+/// Delegate enumerating dynamic string properties (e.g. Object.keys(dataset)).
+/// </summary>
+public delegate IEnumerable<string> HostDynamicPropertyEnumerator(object target, ScriptValue thisValue);
+
+/// <summary>
 /// Describes the members and behavior of a host-exposed class/interface in the script engine.
 /// Used by generated WebIDL bindings to wrap DOM objects cleanly without exposing CLR internals.
 /// </summary>
@@ -48,6 +63,15 @@ public interface IHostObjectTemplate
 
     /// <summary>Optional named property getter.</summary>
     HostNamedPropertyGetter? NamedGetter { get; }
+
+    /// <summary>Optional named property setter.</summary>
+    HostNamedPropertySetter? NamedSetter { get; }
+
+    /// <summary>Optional named property deleter.</summary>
+    HostNamedPropertyDeleter? NamedDeleter { get; }
+
+    /// <summary>Optional dynamic property enumerator.</summary>
+    HostDynamicPropertyEnumerator? DynamicPropertyEnumerator { get; }
 
     /// <summary>Enumerates all property names defined by this template.</summary>
     IEnumerable<string> PropertyNames { get; }
@@ -74,6 +98,9 @@ public class HostObjectTemplate : IHostObjectTemplate
     public IHostObjectTemplate? PrototypeTemplate { get; }
     public HostIndexedPropertyGetter? IndexedGetter { get; private set; }
     public HostNamedPropertyGetter? NamedGetter { get; private set; }
+    public HostNamedPropertySetter? NamedSetter { get; private set; }
+    public HostNamedPropertyDeleter? NamedDeleter { get; private set; }
+    public HostDynamicPropertyEnumerator? DynamicPropertyEnumerator { get; private set; }
 
     public HostObjectTemplate DefineIndexedProperty(HostIndexedPropertyGetter getter)
     {
@@ -81,9 +108,16 @@ public class HostObjectTemplate : IHostObjectTemplate
         return this;
     }
 
-    public HostObjectTemplate DefineNamedProperty(HostNamedPropertyGetter getter)
+    public HostObjectTemplate DefineNamedProperty(
+        HostNamedPropertyGetter? getter = null,
+        HostNamedPropertySetter? setter = null,
+        HostNamedPropertyDeleter? deleter = null,
+        HostDynamicPropertyEnumerator? enumerator = null)
     {
         NamedGetter = getter;
+        NamedSetter = setter;
+        NamedDeleter = deleter;
+        DynamicPropertyEnumerator = enumerator;
         return this;
     }
 

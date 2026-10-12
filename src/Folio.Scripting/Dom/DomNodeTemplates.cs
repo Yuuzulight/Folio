@@ -26,6 +26,19 @@ internal sealed class DomNodeTemplates
         DocumentTemplate = CreateDocumentTemplate(NodeTemplate);
         NodeListTemplate = CreateNodeListTemplate();
         HtmlCollectionTemplate = CreateHtmlCollectionTemplate();
+
+        DomTokenListTemplate = CreateDomTokenListTemplate();
+        DomStringMapTemplate = CreateDomStringMapTemplate();
+        NamedNodeMapTemplate = CreateNamedNodeMapTemplate();
+        AttrTemplate = CreateAttrTemplate(NodeTemplate);
+
+        HtmlInputElementTemplate = CreateHtmlInputElementTemplate(HtmlElementTemplate);
+        HtmlButtonElementTemplate = CreateHtmlButtonElementTemplate(HtmlElementTemplate);
+        HtmlAnchorElementTemplate = CreateHtmlAnchorElementTemplate(HtmlElementTemplate);
+        HtmlImageElementTemplate = CreateHtmlImageElementTemplate(HtmlElementTemplate);
+        HtmlOptionElementTemplate = CreateHtmlOptionElementTemplate(HtmlElementTemplate);
+        HtmlSelectElementTemplate = CreateHtmlSelectElementTemplate(HtmlElementTemplate);
+        HtmlTextAreaElementTemplate = CreateHtmlTextAreaElementTemplate(HtmlElementTemplate);
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -40,6 +53,17 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate DocumentTemplate { get; }
     public HostObjectTemplate NodeListTemplate { get; }
     public HostObjectTemplate HtmlCollectionTemplate { get; }
+    public HostObjectTemplate DomTokenListTemplate { get; }
+    public HostObjectTemplate DomStringMapTemplate { get; }
+    public HostObjectTemplate NamedNodeMapTemplate { get; }
+    public HostObjectTemplate AttrTemplate { get; }
+    public HostObjectTemplate HtmlInputElementTemplate { get; }
+    public HostObjectTemplate HtmlButtonElementTemplate { get; }
+    public HostObjectTemplate HtmlAnchorElementTemplate { get; }
+    public HostObjectTemplate HtmlImageElementTemplate { get; }
+    public HostObjectTemplate HtmlOptionElementTemplate { get; }
+    public HostObjectTemplate HtmlSelectElementTemplate { get; }
+    public HostObjectTemplate HtmlTextAreaElementTemplate { get; }
 
     private HostObjectTemplate CreateNodeTemplate()
     {
@@ -317,6 +341,10 @@ internal sealed class DomNodeTemplates
             (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("class") ?? ""),
             (target, _, val) => ((ElementNode)target).SetAttribute("class", WebIdlConversions.ToDOMString(val)));
 
+        t.DefineProperty("classList", (target, _) => _context.WrapClassList((ElementNode)target));
+
+        t.DefineProperty("attributes", (target, _) => _context.WrapAttributes((ElementNode)target));
+
         // ParentNode members
         t.DefineProperty("children", (target, _) => _context.WrapHtmlCollection((ElementNode)target));
         t.DefineProperty("firstElementChild", (target, _) =>
@@ -385,6 +413,114 @@ internal sealed class DomNodeTemplates
             return ScriptValue.Undefined;
         });
 
+        t.DefineMethod("toggleAttribute", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'toggleAttribute' on 'Element': 1 argument required.");
+
+            var el = (ElementNode)target;
+            var name = WebIdlConversions.ToDOMString(args[0]);
+            var has = el.GetAttribute(name) is not null;
+
+            bool shouldHave;
+            if (args.Length > 1)
+            {
+                shouldHave = WebIdlConversions.ToBoolean(args[1]);
+            }
+            else
+            {
+                shouldHave = !has;
+            }
+
+            if (shouldHave)
+            {
+                if (!has)
+                    el.SetAttribute(name, "");
+                return ScriptValue.FromBoolean(true);
+            }
+            else
+            {
+                if (has)
+                    el.RemoveAttribute(name);
+                return ScriptValue.FromBoolean(false);
+            }
+        });
+
+        t.DefineMethod("getAttributeNames", (target, _, _) =>
+        {
+            var el = (ElementNode)target;
+            var attrs = el.Attributes;
+            var names = new ScriptValue[attrs.Length];
+            for (var i = 0; i < attrs.Length; i++)
+            {
+                names[i] = ScriptValue.FromString(el.OwnerDocument.TextOf(attrs[i].Name));
+            }
+            return _context.Engine.CreateArray(names);
+        });
+
+        t.DefineMethod("hasAttributes", (target, _, _) =>
+        {
+            var el = (ElementNode)target;
+            return ScriptValue.FromBoolean(el.Attributes.Length > 0);
+        });
+
+        t.DefineMethod("getAttributeNode", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'getAttributeNode' on 'Element': 1 argument required.");
+
+            var el = (ElementNode)target;
+            var name = WebIdlConversions.ToDOMString(args[0]);
+            if (el.GetAttribute(name) is null)
+                return ScriptValue.Null;
+
+            return _context.WrapAttr(el, name);
+        });
+
+        t.DefineMethod("setAttributeNode", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'setAttributeNode' on 'Element': 1 argument required.");
+
+            if (!_context.Engine.TryGetHostTarget(args[0], out var hostTarget) || hostTarget is not LiveAttr attr)
+                throw WebIdlException.TypeError("parameter 1 is not of type 'Attr'.");
+
+            var el = (ElementNode)target;
+            if (attr.Element is not null && !ReferenceEquals(attr.Element, el))
+                throw WebIdlException.DomException(DomExceptionNames.InUseAttributeError, "The attribute is already in use by another element.");
+
+            LiveAttr? oldAttr = null;
+            if (el.GetAttribute(attr.Name) is not null)
+            {
+                var wrappedOld = _context.WrapAttr(el, attr.Name);
+                if (_context.Engine.TryGetHostTarget(wrappedOld, out var oldTarget) && oldTarget is LiveAttr la)
+                    oldAttr = la;
+            }
+
+            el.SetAttribute(attr.Name, attr.Value);
+            attr.Element = el;
+
+            return oldAttr is not null ? _context.WrapAttr(oldAttr.Element!, oldAttr.Name) : ScriptValue.Null;
+        });
+
+        t.DefineMethod("removeAttributeNode", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'removeAttributeNode' on 'Element': 1 argument required.");
+
+            if (!_context.Engine.TryGetHostTarget(args[0], out var hostTarget) || hostTarget is not LiveAttr attr)
+                throw WebIdlException.TypeError("parameter 1 is not of type 'Attr'.");
+
+            var el = (ElementNode)target;
+            if (!ReferenceEquals(attr.Element, el) || el.GetAttribute(attr.Name) is null)
+                throw WebIdlException.DomException(DomExceptionNames.NotFoundError, "The attribute could not be found.");
+
+            var val = el.GetAttribute(attr.Name) ?? attr.Value;
+            el.RemoveAttribute(attr.Name);
+            attr.Detach(val);
+            return args[0];
+        });
+
         // ParentNode mutation methods
         t.DefineMethod("append", (target, _, args) =>
         {
@@ -432,9 +568,11 @@ internal sealed class DomNodeTemplates
         return t;
     }
 
-    private static HostObjectTemplate CreateHtmlElementTemplate(IHostObjectTemplate elementProto)
+    private HostObjectTemplate CreateHtmlElementTemplate(IHostObjectTemplate elementProto)
     {
         var t = new HostObjectTemplate("HTMLElement", elementProto);
+
+        t.DefineProperty("dataset", (target, _) => _context.WrapDataset((ElementNode)target));
 
         t.DefineProperty("title",
             (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("title") ?? ""),
@@ -456,6 +594,21 @@ internal sealed class DomNodeTemplates
                     ((ElementNode)target).SetAttribute("hidden", "");
                 else
                     ((ElementNode)target).RemoveAttribute("hidden");
+            });
+
+        t.DefineProperty("tabIndex",
+            (target, _) =>
+            {
+                var el = (ElementNode)target;
+                var val = el.GetAttribute("tabindex");
+                if (val is not null && int.TryParse(val, out var parsed))
+                    return ScriptValue.FromNumber(parsed);
+                return ScriptValue.FromNumber(-1);
+            },
+            (target, _, val) =>
+            {
+                var num = WebIdlConversions.ToInt32(val);
+                ((ElementNode)target).SetAttribute("tabindex", num.ToString());
             });
 
         return t;
@@ -1085,4 +1238,594 @@ internal sealed class DomNodeTemplates
             child = next;
         }
     }
+
+    private HostObjectTemplate CreateDomTokenListTemplate()
+    {
+        var t = new HostObjectTemplate("DOMTokenList");
+
+        t.DefineProperty("length", (target, _) =>
+        {
+            var list = (LiveDomTokenList)target;
+            return ScriptValue.FromNumber(list.Length);
+        });
+
+        t.DefineProperty("value",
+            (target, _) => ScriptValue.FromString(((LiveDomTokenList)target).Value),
+            (target, _, val) => ((LiveDomTokenList)target).Value = WebIdlConversions.ToDOMString(val));
+
+        t.DefineMethod("item", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                return ScriptValue.Null;
+
+            var list = (LiveDomTokenList)target;
+            var idx = WebIdlConversions.ToInt32(args[0]);
+            var item = list.Item(idx);
+            return item is not null ? ScriptValue.FromString(item) : ScriptValue.Null;
+        });
+
+        t.DefineMethod("contains", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                return ScriptValue.FromBoolean(false);
+
+            var list = (LiveDomTokenList)target;
+            var token = WebIdlConversions.ToDOMString(args[0]);
+            return ScriptValue.FromBoolean(list.Contains(token));
+        });
+
+        t.DefineMethod("add", (target, _, args) =>
+        {
+            var list = (LiveDomTokenList)target;
+            var tokens = new string[args.Length];
+            for (var i = 0; i < args.Length; i++)
+                tokens[i] = WebIdlConversions.ToDOMString(args[i]);
+
+            list.Add(tokens);
+            return ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("remove", (target, _, args) =>
+        {
+            var list = (LiveDomTokenList)target;
+            var tokens = new string[args.Length];
+            for (var i = 0; i < args.Length; i++)
+                tokens[i] = WebIdlConversions.ToDOMString(args[i]);
+
+            list.Remove(tokens);
+            return ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("toggle", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'toggle' on 'DOMTokenList': 1 argument required.");
+
+            var list = (LiveDomTokenList)target;
+            var token = WebIdlConversions.ToDOMString(args[0]);
+            bool? force = args.Length > 1 ? WebIdlConversions.ToBoolean(args[1]) : null;
+
+            return ScriptValue.FromBoolean(list.Toggle(token, force));
+        });
+
+        t.DefineMethod("replace", (target, _, args) =>
+        {
+            if (args.Length < 2)
+                throw WebIdlException.TypeError("Failed to execute 'replace' on 'DOMTokenList': 2 arguments required.");
+
+            var list = (LiveDomTokenList)target;
+            var oldToken = WebIdlConversions.ToDOMString(args[0]);
+            var newToken = WebIdlConversions.ToDOMString(args[1]);
+
+            return ScriptValue.FromBoolean(list.Replace(oldToken, newToken));
+        });
+
+        t.DefineMethod("supports", (_, _, _) =>
+            throw WebIdlException.TypeError("DOMTokenList has no supported tokens."));
+
+        t.DefineIndexedProperty((target, _, index) =>
+        {
+            var list = (LiveDomTokenList)target;
+            var item = list.Item(index);
+            return item is not null ? ScriptValue.FromString(item) : ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("forEach", (target, thisVal, args) =>
+        {
+            if (args.Length == 0 || !args[0].IsFunction)
+                throw WebIdlException.TypeError("callback must be a function.");
+
+            var callback = args[0];
+            var thisArg = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+            var list = (LiveDomTokenList)target;
+            var tokens = list.GetTokens();
+
+            for (var i = 0; i < tokens.Count; i++)
+            {
+                _context.Engine.Call(callback, thisArg, [ScriptValue.FromString(tokens[i]), ScriptValue.FromNumber(i), thisVal]);
+            }
+            return ScriptValue.Undefined;
+        });
+
+        return t;
+    }
+
+    private static HostObjectTemplate CreateDomStringMapTemplate()
+    {
+        var t = new HostObjectTemplate("DOMStringMap");
+
+        t.DefineNamedProperty(
+            getter: (target, _, name) =>
+            {
+                var map = (LiveDomStringMap)target;
+                var val = map.Get(name);
+                return val is not null ? ScriptValue.FromString(val) : ScriptValue.Undefined;
+            },
+            setter: (target, _, name, value) =>
+            {
+                var map = (LiveDomStringMap)target;
+                var strVal = WebIdlConversions.ToDOMString(value);
+                map.Set(name, strVal);
+            },
+            deleter: (target, _, name) =>
+            {
+                var map = (LiveDomStringMap)target;
+                return map.Delete(name);
+            },
+            enumerator: (target, _) =>
+            {
+                var map = (LiveDomStringMap)target;
+                return map.EnumerateProperties();
+            });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateNamedNodeMapTemplate()
+    {
+        var t = new HostObjectTemplate("NamedNodeMap");
+
+        t.DefineProperty("length", (target, _) =>
+        {
+            var map = (LiveNamedNodeMap)target;
+            return ScriptValue.FromNumber(map.Length);
+        });
+
+        t.DefineMethod("item", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                return ScriptValue.Null;
+
+            var map = (LiveNamedNodeMap)target;
+            var idx = WebIdlConversions.ToInt32(args[0]);
+            var name = map.GetAttributeName(idx);
+            return name is not null ? _context.WrapAttr(map.Element, name) : ScriptValue.Null;
+        });
+
+        t.DefineMethod("getNamedItem", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                return ScriptValue.Null;
+
+            var map = (LiveNamedNodeMap)target;
+            var name = WebIdlConversions.ToDOMString(args[0]);
+            if (map.Element.GetAttribute(name) is null)
+                return ScriptValue.Null;
+
+            return _context.WrapAttr(map.Element, name);
+        });
+
+        t.DefineMethod("setNamedItem", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'setNamedItem' on 'NamedNodeMap': 1 argument required.");
+
+            if (!_context.Engine.TryGetHostTarget(args[0], out var hostTarget) || hostTarget is not LiveAttr attr)
+                throw WebIdlException.TypeError("parameter 1 is not of type 'Attr'.");
+
+            var map = (LiveNamedNodeMap)target;
+            if (attr.Element is not null && !ReferenceEquals(attr.Element, map.Element))
+                throw WebIdlException.DomException(DomExceptionNames.InUseAttributeError, "The attribute is already in use by another element.");
+
+            var oldAttr = map.Element.GetAttribute(attr.Name) is not null ? _context.WrapAttr(map.Element, attr.Name) : ScriptValue.Null;
+            map.Element.SetAttribute(attr.Name, attr.Value);
+            attr.Element = map.Element;
+
+            return oldAttr;
+        });
+
+        t.DefineMethod("removeNamedItem", (target, _, args) =>
+        {
+            if (args.Length == 0)
+                throw WebIdlException.TypeError("Failed to execute 'removeNamedItem' on 'NamedNodeMap': 1 argument required.");
+
+            var map = (LiveNamedNodeMap)target;
+            var name = WebIdlConversions.ToDOMString(args[0]);
+            if (map.Element.GetAttribute(name) is null)
+                throw WebIdlException.DomException(DomExceptionNames.NotFoundError, "The attribute could not be found.");
+
+            var attrNode = _context.WrapAttr(map.Element, name);
+            var val = map.Element.GetAttribute(name) ?? "";
+            map.Element.RemoveAttribute(name);
+            if (_context.Engine.TryGetHostTarget(attrNode, out var hostTarget) && hostTarget is LiveAttr attr)
+                attr.Detach(val);
+
+            return attrNode;
+        });
+
+        t.DefineIndexedProperty((target, _, index) =>
+        {
+            var map = (LiveNamedNodeMap)target;
+            var name = map.GetAttributeName(index);
+            return name is not null ? _context.WrapAttr(map.Element, name) : ScriptValue.Undefined;
+        });
+
+        t.DefineNamedProperty(
+            getter: (target, _, name) =>
+            {
+                var map = (LiveNamedNodeMap)target;
+                if (map.Element.GetAttribute(name) is null)
+                    return ScriptValue.Undefined;
+
+                return _context.WrapAttr(map.Element, name);
+            },
+            enumerator: (target, _) =>
+            {
+                var map = (LiveNamedNodeMap)target;
+                return map.EnumerateNames();
+            });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateAttrTemplate(IHostObjectTemplate nodeProto)
+    {
+        var t = new HostObjectTemplate("Attr", nodeProto);
+
+        t.DefineProperty("name", (target, _) => ScriptValue.FromString(((LiveAttr)target).Name));
+        t.DefineProperty("localName", (target, _) => ScriptValue.FromString(((LiveAttr)target).LocalName));
+        t.DefineProperty("specified", (_, _) => ScriptValue.FromBoolean(true));
+
+        t.DefineProperty("value",
+            (target, _) => ScriptValue.FromString(((LiveAttr)target).Value),
+            (target, _, val) => ((LiveAttr)target).Value = WebIdlConversions.ToDOMString(val));
+
+        t.DefineProperty("ownerElement", (target, _) =>
+        {
+            var el = ((LiveAttr)target).Element;
+            return el is not null ? _context.Wrap(el) : ScriptValue.Null;
+        });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlInputElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLInputElement", htmlElementProto);
+
+        t.DefineProperty("value",
+            (target, _) =>
+            {
+                var el = (ElementNode)target;
+                return ScriptValue.FromString(el.Value ?? el.GetAttribute("value") ?? "");
+            },
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                el.Value = WebIdlConversions.ToDOMString(val);
+            });
+
+        t.DefineProperty("checked",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).IsChecked),
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                el.Checked = WebIdlConversions.ToBoolean(val);
+            });
+
+        t.DefineProperty("disabled",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("disabled", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("disabled");
+            });
+
+        t.DefineProperty("type",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("type") ?? "text"),
+            (target, _, val) => ((ElementNode)target).SetAttribute("type", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("name",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("name") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("name", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("placeholder",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("placeholder") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("placeholder", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("readOnly",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("readonly") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("readonly", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("readonly");
+            });
+
+        t.DefineProperty("required",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("required") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("required", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("required");
+            });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlButtonElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLButtonElement", htmlElementProto);
+
+        t.DefineProperty("disabled",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("disabled", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("disabled");
+            });
+
+        t.DefineProperty("type",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("type") ?? "submit"),
+            (target, _, val) => ((ElementNode)target).SetAttribute("type", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("name",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("name") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("name", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("value",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("value") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("value", WebIdlConversions.ToDOMString(val)));
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlAnchorElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLAnchorElement", htmlElementProto);
+
+        t.DefineProperty("href",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("href") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("href", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("target",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("target") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("target", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("rel",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("rel") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("rel", WebIdlConversions.ToDOMString(val)));
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlImageElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLImageElement", htmlElementProto);
+
+        t.DefineProperty("src",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("alt",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("alt") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("alt", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("width",
+            (target, _) =>
+            {
+                var val = ((ElementNode)target).GetAttribute("width");
+                return ScriptValue.FromNumber(val is not null && int.TryParse(val, out var w) ? w : 0);
+            },
+            (target, _, val) =>
+            {
+                var num = WebIdlConversions.ToUint32(val);
+                ((ElementNode)target).SetAttribute("width", num.ToString());
+            });
+
+        t.DefineProperty("height",
+            (target, _) =>
+            {
+                var val = ((ElementNode)target).GetAttribute("height");
+                return ScriptValue.FromNumber(val is not null && int.TryParse(val, out var h) ? h : 0);
+            },
+            (target, _, val) =>
+            {
+                var num = WebIdlConversions.ToUint32(val);
+                ((ElementNode)target).SetAttribute("height", num.ToString());
+            });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlOptionElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLOptionElement", htmlElementProto);
+
+        t.DefineProperty("value",
+            (target, _) =>
+            {
+                var el = (ElementNode)target;
+                return ScriptValue.FromString(el.GetAttribute("value") ?? el.TextContent);
+            },
+            (target, _, val) => ((ElementNode)target).SetAttribute("value", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("selected",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).IsSelected),
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                el.Selected = WebIdlConversions.ToBoolean(val);
+            });
+
+        t.DefineProperty("disabled",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("disabled", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("disabled");
+            });
+
+        t.DefineProperty("text",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).TextContent),
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                var text = WebIdlConversions.ToDOMString(val);
+                while (el.FirstChild is { } c)
+                    el.RemoveChild(c);
+                if (text.Length > 0)
+                    el.AppendChild(el.OwnerDocument.CreateText(text));
+            });
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlSelectElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLSelectElement", htmlElementProto);
+
+        t.DefineProperty("value",
+            (target, _) =>
+            {
+                var select = (ElementNode)target;
+                var options = select.Descendants.OfType<ElementNode>().Where(e => e.LocalName == "option").ToList();
+                var selected = options.FirstOrDefault(o => o.IsSelected) ?? options.FirstOrDefault();
+                if (selected is null)
+                    return ScriptValue.FromString("");
+
+                return ScriptValue.FromString(selected.GetAttribute("value") ?? selected.TextContent);
+            },
+            (target, _, val) =>
+            {
+                var select = (ElementNode)target;
+                var strVal = WebIdlConversions.ToDOMString(val);
+                var options = select.Descendants.OfType<ElementNode>().Where(e => e.LocalName == "option").ToList();
+                foreach (var opt in options)
+                {
+                    var optVal = opt.GetAttribute("value") ?? opt.TextContent;
+                    opt.Selected = optVal == strVal;
+                }
+            });
+
+        t.DefineProperty("selectedIndex",
+            (target, _) =>
+            {
+                var select = (ElementNode)target;
+                var options = select.Descendants.OfType<ElementNode>().Where(e => e.LocalName == "option").ToList();
+                for (var i = 0; i < options.Count; i++)
+                {
+                    if (options[i].IsSelected)
+                        return ScriptValue.FromNumber(i);
+                }
+                return ScriptValue.FromNumber(options.Count > 0 ? 0 : -1);
+            },
+            (target, _, val) =>
+            {
+                var select = (ElementNode)target;
+                var idx = WebIdlConversions.ToInt32(val);
+                var options = select.Descendants.OfType<ElementNode>().Where(e => e.LocalName == "option").ToList();
+                for (var i = 0; i < options.Count; i++)
+                {
+                    options[i].Selected = i == idx;
+                }
+            });
+
+        t.DefineProperty("disabled",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("disabled", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("disabled");
+            });
+
+        t.DefineProperty("name",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("name") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("name", WebIdlConversions.ToDOMString(val)));
+
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlTextAreaElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLTextAreaElement", htmlElementProto);
+
+        t.DefineProperty("value",
+            (target, _) =>
+            {
+                var el = (ElementNode)target;
+                return ScriptValue.FromString(el.Value ?? el.TextContent);
+            },
+            (target, _, val) =>
+            {
+                var el = (ElementNode)target;
+                el.Value = WebIdlConversions.ToDOMString(val);
+            });
+
+        t.DefineProperty("disabled",
+            (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is not null),
+            (target, _, val) =>
+            {
+                if (WebIdlConversions.ToBoolean(val))
+                    ((ElementNode)target).SetAttribute("disabled", "");
+                else
+                    ((ElementNode)target).RemoveAttribute("disabled");
+            });
+
+        t.DefineProperty("name",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("name") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("name", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("placeholder",
+            (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("placeholder") ?? ""),
+            (target, _, val) => ((ElementNode)target).SetAttribute("placeholder", WebIdlConversions.ToDOMString(val)));
+
+        t.DefineProperty("rows",
+            (target, _) =>
+            {
+                var val = ((ElementNode)target).GetAttribute("rows");
+                return ScriptValue.FromNumber(val is not null && uint.TryParse(val, out var r) ? r : 2);
+            },
+            (target, _, val) =>
+            {
+                var num = WebIdlConversions.ToUint32(val);
+                ((ElementNode)target).SetAttribute("rows", num.ToString());
+            });
+
+        t.DefineProperty("cols",
+            (target, _) =>
+            {
+                var val = ((ElementNode)target).GetAttribute("cols");
+                return ScriptValue.FromNumber(val is not null && uint.TryParse(val, out var c) ? c : 20);
+            },
+            (target, _, val) =>
+            {
+                var num = WebIdlConversions.ToUint32(val);
+                ((ElementNode)target).SetAttribute("cols", num.ToString());
+            });
+
+        return t;
+    }
 }
+

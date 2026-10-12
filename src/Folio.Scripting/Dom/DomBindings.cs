@@ -152,6 +152,8 @@ internal static class DomBindings
                 const SVGElement = defClass('SVGElement', Element);
                 const HTMLElement = defClass('HTMLElement', Element);
 
+                const Attr = defClass('Attr', Node);
+
                 // Specific HTML element classes
                 const htmlTags = [
                     'HTMLHtmlElement',
@@ -162,6 +164,12 @@ internal static class DomBindings
                     'HTMLSpanElement',
                     'HTMLParagraphElement',
                     'HTMLAnchorElement',
+                    'HTMLInputElement',
+                    'HTMLButtonElement',
+                    'HTMLImageElement',
+                    'HTMLOptionElement',
+                    'HTMLSelectElement',
+                    'HTMLTextAreaElement',
                     'HTMLTemplateElement',
                     'HTMLUnknownElement'
                 ];
@@ -179,6 +187,18 @@ internal static class DomBindings
                 const HTMLCollection = defClass('HTMLCollection');
                 HTMLCollection.prototype[Symbol.iterator] = Array.prototype.values;
                 HTMLCollection.prototype.values = Array.prototype.values;
+
+                const DOMTokenList = defClass('DOMTokenList');
+                DOMTokenList.prototype[Symbol.iterator] = Array.prototype.values;
+                DOMTokenList.prototype.values = Array.prototype.values;
+                DOMTokenList.prototype.keys = Array.prototype.keys;
+                DOMTokenList.prototype.entries = Array.prototype.entries;
+
+                const DOMStringMap = defClass('DOMStringMap');
+
+                const NamedNodeMap = defClass('NamedNodeMap');
+                NamedNodeMap.prototype[Symbol.iterator] = Array.prototype.values;
+                NamedNodeMap.prototype.values = Array.prototype.values;
             })();
         ");
     }
