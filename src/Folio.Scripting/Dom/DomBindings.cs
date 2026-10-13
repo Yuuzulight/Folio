@@ -21,7 +21,7 @@ internal static class DomBindings
         InstallConstructors(engine);
 
         // 2b. Events: EventTarget joins the Node prototype chain, so it follows the constructors
-        var handlers = DomEvents.Install(engine, eventLoop);
+        var (handlers, dispatchHostEvent) = DomEvents.Install(engine, eventLoop);
 
         // 3. Bind document to global scope
         var docWrapper = context.Wrap(document);
@@ -36,6 +36,55 @@ internal static class DomBindings
         handlers.Scan(document, context);
         document.HandlerAttributeChanged += (element, name, value) => handlers.Changed(context.Wrap(element), name, value);
         document.NodeInserted += node => handlers.Scan(node, context);
+
+        // 5. Trusted event dispatcher bridge (#458)
+        document.EventDispatcher = (targetNode, eventType, args) =>
+        {
+            var targetWrapper = targetNode == document ? docWrapper : context.Wrap(targetNode);
+            var jsArgs = new ScriptValue[]
+            {
+                ScriptValue.FromBoolean(args.Bubbles),            // 0
+                ScriptValue.FromBoolean(args.Cancelable),         // 1
+                ScriptValue.FromBoolean(args.Composed),           // 2
+                ScriptValue.FromNumber(args.Detail),              // 3
+                ScriptValue.FromNumber(args.ScreenX),             // 4
+                ScriptValue.FromNumber(args.ScreenY),             // 5
+                ScriptValue.FromNumber(args.ClientX),             // 6
+                ScriptValue.FromNumber(args.ClientY),             // 7
+                ScriptValue.FromBoolean(args.CtrlKey),            // 8
+                ScriptValue.FromBoolean(args.ShiftKey),           // 9
+                ScriptValue.FromBoolean(args.AltKey),             // 10
+                ScriptValue.FromBoolean(args.MetaKey),            // 11
+                ScriptValue.FromNumber(args.Button),              // 12
+                ScriptValue.FromNumber(args.Buttons),             // 13
+                args.RelatedTarget is not null ? (args.RelatedTarget == document ? docWrapper : context.Wrap(args.RelatedTarget)) : ScriptValue.Null, // 14
+                ScriptValue.FromNumber(args.PointerId),           // 15
+                ScriptValue.FromNumber(args.Width),               // 16
+                ScriptValue.FromNumber(args.Height),              // 17
+                ScriptValue.FromNumber(args.Pressure),            // 18
+                ScriptValue.FromNumber(args.TangentialPressure),  // 19
+                ScriptValue.FromNumber(args.TiltX),               // 20
+                ScriptValue.FromNumber(args.TiltY),               // 21
+                ScriptValue.FromNumber(args.Twist),               // 22
+                ScriptValue.FromString(args.PointerType),         // 23
+                ScriptValue.FromBoolean(args.IsPrimary),          // 24
+                ScriptValue.FromNumber(args.DeltaX),              // 25
+                ScriptValue.FromNumber(args.DeltaY),              // 26
+                ScriptValue.FromNumber(args.DeltaZ),              // 27
+                ScriptValue.FromNumber(args.DeltaMode),           // 28
+                ScriptValue.FromString(args.Key),                 // 29
+                ScriptValue.FromString(args.Code),                // 30
+                ScriptValue.FromNumber(args.Location),            // 31
+                ScriptValue.FromBoolean(args.Repeat),             // 32
+                ScriptValue.FromBoolean(args.IsComposing),        // 33
+                args.Data is not null ? ScriptValue.FromString(args.Data) : ScriptValue.Null, // 34
+                ScriptValue.FromString(args.InputType)            // 35
+            };
+
+            var argsArray = engine.CreateArray(jsArgs);
+            var result = engine.Call(dispatchHostEvent, ScriptValue.Undefined, [targetWrapper, ScriptValue.FromString(eventType), argsArray]);
+            return result.IsBoolean ? result.AsBoolean() : true;
+        };
 
         return context.WrapperCache;
     }

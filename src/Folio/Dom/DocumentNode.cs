@@ -42,6 +42,9 @@ internal sealed class DocumentNode : ContainerNode
     internal void NotifyHandlerAttributeChanged(ElementNode element, string name, string? value) =>
         HandlerAttributeChanged?.Invoke(element, name, value);
 
+    /// <summary>Dispatches trusted input events to script listeners; null when scripting is disabled or not installed.</summary>
+    internal DocumentEventDispatchDelegate? EventDispatcher { get; set; }
+
     /// <summary>
     /// Whether this is an SVG document used as an image, which loads nothing from outside
     /// (https://www.w3.org/TR/SVG2/conform.html#secure-static-mode).
