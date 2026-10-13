@@ -39,7 +39,17 @@ public readonly record struct PointerEvent(
     PointerButton Button = PointerButton.None,
     PointerButtons Buttons = PointerButtons.None,
     int ClickCount = 0,
-    KeyModifiers Modifiers = KeyModifiers.None);
+    KeyModifiers Modifiers = KeyModifiers.None,
+    int PointerId = 1,
+    float Width = 1f,
+    float Height = 1f,
+    float Pressure = 0f,
+    float TangentialPressure = 0f,
+    int TiltX = 0,
+    int TiltY = 0,
+    int Twist = 0,
+    string PointerType = "mouse",
+    bool IsPrimary = true);
 
 public enum WheelDeltaMode
 {
@@ -56,12 +66,16 @@ public readonly record struct WheelEvent(
 
 public readonly record struct KeyEvent(
     string Key,
-    string Code,
-    KeyModifiers Modifiers = KeyModifiers.None);
+    string Code = "",
+    KeyModifiers Modifiers = KeyModifiers.None,
+    uint Location = 0,
+    bool Repeat = false,
+    bool IsComposing = false);
 
 public readonly record struct TextInputEvent(
     string Text,
-    KeyModifiers Modifiers = KeyModifiers.None);
+    KeyModifiers Modifiers = KeyModifiers.None,
+    string InputType = "insertText");
 
 public readonly record struct CompositionEvent(
     string Data);

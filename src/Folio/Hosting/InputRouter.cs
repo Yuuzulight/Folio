@@ -47,6 +47,16 @@ public sealed class InputRouter
     /// <summary>The element currently focused, or null.</summary>
     public Element? FocusedElement => _focused is not null ? _document.Wrap(_focused) : null;
 
+    private bool Dispatch(Node? target, string type, EventDispatchArgs args)
+    {
+        if (_document.Options.Scripting == ScriptingPolicy.Disabled || target is null)
+            return true;
+        var dispatcher = _document.Node.EventDispatcher;
+        if (dispatcher is null)
+            return true;
+        return dispatcher(target, type, args);
+    }
+
     /// <summary>Sets the focused element, updating :focus state.</summary>
     public void Focus(Element? element) => Focus(element?.Node, visible: true);
 
@@ -65,8 +75,10 @@ public sealed class InputRouter
             return;
         }
 
-        if (_focused is not null)
-            SetElementAndAncestorsState(_focused, NodeFlags.Focus | NodeFlags.FocusVisible, false);
+        var oldFocused = _focused;
+
+        if (oldFocused is not null)
+            SetElementAndAncestorsState(oldFocused, NodeFlags.Focus | NodeFlags.FocusVisible, false);
 
         _focused = targetNode;
 
@@ -91,6 +103,52 @@ public sealed class InputRouter
 
         _document.Update();
         FocusChanged?.Invoke(this, new FocusChangedEventArgs(_focused is not null ? _document.Wrap(_focused) : null));
+
+        // Focus events sequence:
+        // 1. focusout (bubbles, composed) on oldFocused
+        // 2. focusin (bubbles, composed) on targetNode
+        // 3. blur (no bubbles, composed) on oldFocused
+        // 4. focus (no bubbles, composed) on targetNode
+        if (oldFocused is not null)
+        {
+            Dispatch(oldFocused, "focusout", new EventDispatchArgs
+            {
+                Bubbles = true,
+                Cancelable = false,
+                Composed = true,
+                RelatedTarget = targetNode
+            });
+        }
+        if (targetNode is not null)
+        {
+            Dispatch(targetNode, "focusin", new EventDispatchArgs
+            {
+                Bubbles = true,
+                Cancelable = false,
+                Composed = true,
+                RelatedTarget = oldFocused
+            });
+        }
+        if (oldFocused is not null)
+        {
+            Dispatch(oldFocused, "blur", new EventDispatchArgs
+            {
+                Bubbles = false,
+                Cancelable = false,
+                Composed = true,
+                RelatedTarget = targetNode
+            });
+        }
+        if (targetNode is not null)
+        {
+            Dispatch(targetNode, "focus", new EventDispatchArgs
+            {
+                Bubbles = false,
+                Cancelable = false,
+                Composed = true,
+                RelatedTarget = oldFocused
+            });
+        }
     }
 
     /// <summary>The current CSS cursor keyword active under the pointer.</summary>
@@ -173,6 +231,49 @@ public sealed class InputRouter
     private ScrollbarDragState? _scrollbarDrag;
     private RangeDragState? _rangeDrag;
 
+    private static short ToButtonCode(PointerButton button) => button switch
+    {
+        PointerButton.Primary => 0,
+        PointerButton.Middle => 1,
+        PointerButton.Secondary => 2,
+        PointerButton.Back => 3,
+        PointerButton.Forward => 4,
+        _ => 0
+    };
+
+    private static ushort ToButtonsMask(PointerButtons buttons) => (ushort)buttons;
+
+    private static EventDispatchArgs CreatePointerArgs(PointerEvent e, Node? relatedTarget = null, bool bubbles = true, bool cancelable = true) => new()
+    {
+        ScreenX = e.Position.X,
+        ScreenY = e.Position.Y,
+        ClientX = e.Position.X,
+        ClientY = e.Position.Y,
+        PageX = e.Position.X,
+        PageY = e.Position.Y,
+        CtrlKey = (e.Modifiers & KeyModifiers.Control) != 0,
+        ShiftKey = (e.Modifiers & KeyModifiers.Shift) != 0,
+        AltKey = (e.Modifiers & KeyModifiers.Alt) != 0,
+        MetaKey = (e.Modifiers & KeyModifiers.Meta) != 0,
+        Button = ToButtonCode(e.Button),
+        Buttons = ToButtonsMask(e.Buttons),
+        RelatedTarget = relatedTarget,
+        PointerId = e.PointerId,
+        Width = e.Width,
+        Height = e.Height,
+        Pressure = e.Pressure,
+        TangentialPressure = e.TangentialPressure,
+        TiltX = e.TiltX,
+        TiltY = e.TiltY,
+        Twist = e.Twist,
+        PointerType = e.PointerType,
+        IsPrimary = e.IsPrimary,
+        Bubbles = bubbles,
+        Cancelable = cancelable,
+        Composed = true,
+        Detail = e.ClickCount
+    };
+
     /// <summary>A pointer moved over the document.</summary>
     public void HandlePointerMove(PointerEvent e)
     {
@@ -205,8 +306,11 @@ public sealed class InputRouter
         }
 
         var target = _document.ElementAt(e.Position.X, e.Position.Y);
-        if (UpdateHover(target))
-            _document.Update();
+        UpdateHover(target, e);
+
+        // Dispatch pointermove then mousemove
+        Dispatch(target ?? (Node)_document.Node, "pointermove", CreatePointerArgs(e, bubbles: true, cancelable: true));
+        Dispatch(target ?? (Node)_document.Node, "mousemove", CreatePointerArgs(e, bubbles: true, cancelable: true));
 
         UpdateCursorAndTooltip(e.Position.X, e.Position.Y);
 
@@ -262,11 +366,20 @@ public sealed class InputRouter
 
         var hit = _document.HitAt(e.Position.X, e.Position.Y);
         var target = hit?.Node ?? _document.ElementAt(e.Position.X, e.Position.Y);
-        var changed = UpdateHover(target);
+        UpdateHover(target, e);
+
+        // Dispatch pointerdown then mousedown
+        Dispatch(target ?? (Node)_document.Node, "pointerdown", CreatePointerArgs(e, bubbles: true, cancelable: true));
+        var allowFocus = Dispatch(target ?? (Node)_document.Node, "mousedown", CreatePointerArgs(e, bubbles: true, cancelable: true));
+
+        var changed = false;
         if (e.Button == PointerButton.Primary)
         {
-            var focusTarget = FindFocusable(target);
-            Focus(focusTarget, visible: false);
+            if (allowFocus)
+            {
+                var focusTarget = FindFocusable(target);
+                Focus(focusTarget, visible: false);
+            }
 
             if (target is not null)
             {
@@ -328,17 +441,41 @@ public sealed class InputRouter
         if (changed)
             _document.Update();
 
-        if (e.Button == PointerButton.Primary && activated is not null && target is not null)
+        // Dispatch pointerup then mouseup
+        Dispatch(target ?? (Node)_document.Node, "pointerup", CreatePointerArgs(e, bubbles: true, cancelable: true));
+        Dispatch(target ?? (Node)_document.Node, "mouseup", CreatePointerArgs(e, bubbles: true, cancelable: true));
+
+        var eventTarget = target ?? (Node)_document.Node;
+        if (e.Button == PointerButton.Primary)
         {
-            // If mouse down and up both happen within the same link element (or child), activate it.
-            if (FindLink(activated) is { } startLink && FindLink(target) is { } endLink && startLink == endLink)
+            if (activated is not null && target is not null)
             {
-                ActivateLink(startLink, e.Modifiers);
+                var proceed = Dispatch(eventTarget, "click", CreatePointerArgs(e, bubbles: true, cancelable: true));
+                if (proceed)
+                {
+                    // If mouse down and up both happen within the same link element (or child), activate it.
+                    if (FindLink(activated) is { } startLink && FindLink(target) is { } endLink && startLink == endLink)
+                    {
+                        ActivateLink(startLink, e.Modifiers);
+                    }
+                    else if (FindTargetControl(activated) is { } startControl && FindTargetControl(target) is { } endControl && startControl == endControl)
+                    {
+                        ActivateElement(startControl, e.Modifiers);
+                    }
+                }
             }
-            else if (FindTargetControl(activated) is { } startControl && FindTargetControl(target) is { } endControl && startControl == endControl)
+            if (e.ClickCount == 2)
             {
-                ActivateElement(startControl, e.Modifiers);
+                Dispatch(eventTarget, "dblclick", CreatePointerArgs(e, bubbles: true, cancelable: true));
             }
+        }
+        else if (e.Button == PointerButton.Secondary)
+        {
+            Dispatch(eventTarget, "contextmenu", CreatePointerArgs(e, bubbles: true, cancelable: true));
+        }
+        else
+        {
+            Dispatch(eventTarget, "auxclick", CreatePointerArgs(e, bubbles: true, cancelable: true));
         }
     }
 
@@ -346,7 +483,8 @@ public sealed class InputRouter
     public void HandlePointerLeave()
     {
         _scrollbarDrag = null;
-        var changed = UpdateHover(null);
+        UpdateHover(null, null);
+        var changed = false;
         if (_active is not null)
         {
             SetElementAndAncestorsState(_active, NodeFlags.Active, false);
@@ -363,6 +501,34 @@ public sealed class InputRouter
     /// <summary>Mouse wheel or touchpad scroll event.</summary>
     public void HandleWheel(WheelEvent e)
     {
+        var hitTarget = _document.ElementAt(e.Position.X, e.Position.Y);
+        hitTarget ??= _document.Node.DocumentElement;
+
+        var wheelArgs = new EventDispatchArgs
+        {
+            ScreenX = e.Position.X,
+            ScreenY = e.Position.Y,
+            ClientX = e.Position.X,
+            ClientY = e.Position.Y,
+            PageX = e.Position.X,
+            PageY = e.Position.Y,
+            CtrlKey = (e.Modifiers & KeyModifiers.Control) != 0,
+            ShiftKey = (e.Modifiers & KeyModifiers.Shift) != 0,
+            AltKey = (e.Modifiers & KeyModifiers.Alt) != 0,
+            MetaKey = (e.Modifiers & KeyModifiers.Meta) != 0,
+            DeltaX = e.Delta.X,
+            DeltaY = e.Delta.Y,
+            DeltaZ = 0,
+            DeltaMode = (uint)e.DeltaMode,
+            Bubbles = true,
+            Cancelable = true,
+            Composed = true
+        };
+
+        var proceed = Dispatch(hitTarget ?? (Node)_document.Node, "wheel", wheelArgs);
+        if (!proceed)
+            return;
+
         // 1. Convert delta according to DeltaMode
         var delta = e.Delta;
         switch (e.DeltaMode)
@@ -387,12 +553,7 @@ public sealed class InputRouter
         if (delta == Vector2.Zero)
             return;
 
-        // 3. Find hit element under pointer position
-        var hitTarget = _document.ElementAt(e.Position.X, e.Position.Y);
-        // Fall back to document root element if hitting empty canvas or nothing
-        hitTarget ??= _document.Node.DocumentElement;
-
-        // 4. Route delta from innermost container outward, chaining remaining delta
+        // 3. Route delta from innermost container outward, chaining remaining delta
         RouteWheelDelta(hitTarget, delta);
     }
 
@@ -436,9 +597,30 @@ public sealed class InputRouter
         }
     }
 
+    private static EventDispatchArgs CreateKeyArgs(KeyEvent e, bool bubbles = true, bool cancelable = true) => new()
+    {
+        Key = e.Key,
+        Code = e.Code,
+        Location = e.Location,
+        Repeat = e.Repeat,
+        IsComposing = e.IsComposing,
+        CtrlKey = (e.Modifiers & KeyModifiers.Control) != 0,
+        ShiftKey = (e.Modifiers & KeyModifiers.Shift) != 0,
+        AltKey = (e.Modifiers & KeyModifiers.Alt) != 0,
+        MetaKey = (e.Modifiers & KeyModifiers.Meta) != 0,
+        Bubbles = bubbles,
+        Cancelable = cancelable,
+        Composed = true
+    };
+
     /// <summary>Key press.</summary>
     public void HandleKeyDown(KeyEvent e)
     {
+        var keyTarget = _focused ?? (Node)_document.Node;
+        var proceed = Dispatch(keyTarget, "keydown", CreateKeyArgs(e, bubbles: true, cancelable: true));
+        if (!proceed)
+            return;
+
         if (_focused is not null && IsTextControl(_focused))
         {
             if (HandleControlKeyDown(e, _focused))
@@ -782,12 +964,21 @@ public sealed class InputRouter
     public void Click(Element element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        ActivateElement(element.Node, KeyModifiers.None);
+        Click(element.Node);
     }
 
     internal void Click(ElementNode element)
     {
-        ActivateElement(element, KeyModifiers.None);
+        var clickArgs = new EventDispatchArgs
+        {
+            Bubbles = true,
+            Cancelable = true,
+            Composed = true,
+            Detail = 1
+        };
+        var proceed = Dispatch(element, "click", clickArgs);
+        if (proceed)
+            ActivateElement(element, KeyModifiers.None);
     }
 
     private void ActivateElement(ElementNode element, KeyModifiers modifiers)
@@ -915,7 +1106,11 @@ public sealed class InputRouter
         return null;
     }
 
-    public void HandleKeyUp(KeyEvent e) { }
+    public void HandleKeyUp(KeyEvent e)
+    {
+        var keyTarget = _focused ?? (Node)_document.Node;
+        Dispatch(keyTarget, "keyup", CreateKeyArgs(e, bubbles: true, cancelable: true));
+    }
 
     /// <summary>Text input event (e.g. typed character, IME committed string).</summary>
     public void HandleTextInput(TextInputEvent e)
@@ -927,6 +1122,19 @@ public sealed class InputRouter
         if (state is null || state.IsReadOnly || state.IsDisabled)
             return;
 
+        var beforeInputArgs = new EventDispatchArgs
+        {
+            Data = e.Text,
+            InputType = e.InputType,
+            Bubbles = true,
+            Cancelable = true,
+            Composed = true
+        };
+
+        var proceed = Dispatch(_focused, "beforeinput", beforeInputArgs);
+        if (!proceed)
+            return;
+
         if (state.Insert(e.Text))
         {
             _focused.Value = state.Value;
@@ -934,6 +1142,16 @@ public sealed class InputRouter
             SetSelection(new Selection(new RangePoint(_focused, state.SelectionStart), new RangePoint(_focused, state.SelectionEnd)));
             EnsureCaretVisible(_focused, state);
             _document.Update();
+
+            var inputArgs = new EventDispatchArgs
+            {
+                Data = e.Text,
+                InputType = e.InputType,
+                Bubbles = true,
+                Cancelable = false,
+                Composed = true
+            };
+            Dispatch(_focused, "input", inputArgs);
         }
     }
 
@@ -1223,18 +1441,98 @@ public sealed class InputRouter
         }
     }
 
-    private bool UpdateHover(ElementNode? newHovered)
+    private bool UpdateHover(ElementNode? newHovered, PointerEvent? pointerEvent)
     {
         if (_hovered == newHovered)
             return false;
 
-        if (_hovered is not null)
-            SetElementAndAncestorsState(_hovered, NodeFlags.Hover, false);
+        var oldHovered = _hovered;
+
+        // Compute common ancestor
+        Node? commonAncestor = null;
+        if (oldHovered is not null && newHovered is not null)
+        {
+            var ancestors = new HashSet<Node>();
+            for (Node? curr = oldHovered; curr is not null; curr = curr.Parent)
+                ancestors.Add(curr);
+            for (Node? curr = newHovered; curr is not null; curr = curr.Parent)
+            {
+                if (ancestors.Contains(curr))
+                {
+                    commonAncestor = curr;
+                    break;
+                }
+            }
+        }
+
+        // Build exit path: oldHovered up to (excluding) commonAncestor
+        var exitPath = new List<ElementNode>();
+        if (oldHovered is not null)
+        {
+            for (Node? curr = oldHovered; curr is not null && curr != commonAncestor; curr = curr.Parent)
+            {
+                if (curr is ElementNode el)
+                    exitPath.Add(el);
+            }
+        }
+
+        // Build entry path: from just below commonAncestor down to newHovered
+        var entryPath = new List<ElementNode>();
+        if (newHovered is not null)
+        {
+            for (Node? curr = newHovered; curr is not null && curr != commonAncestor; curr = curr.Parent)
+            {
+                if (curr is ElementNode el)
+                    entryPath.Add(el);
+            }
+            entryPath.Reverse();
+        }
+
+        if (oldHovered is not null)
+            SetElementAndAncestorsState(oldHovered, NodeFlags.Hover, false);
 
         _hovered = newHovered;
 
         if (_hovered is not null)
             SetElementAndAncestorsState(_hovered, NodeFlags.Hover, true);
+
+        _document.Update();
+
+        // Dispatch boundary events if we have a pointer event or synthesized pointer context
+        if (pointerEvent is { } pe)
+        {
+            // 1. pointerout (bubbles: true) on oldHovered
+            if (oldHovered is not null)
+                Dispatch(oldHovered, "pointerout", CreatePointerArgs(pe, relatedTarget: newHovered, bubbles: true, cancelable: true));
+
+            // 2. pointerleave (bubbles: false) on exitPath elements
+            foreach (var el in exitPath)
+                Dispatch(el, "pointerleave", CreatePointerArgs(pe, relatedTarget: newHovered, bubbles: false, cancelable: false));
+
+            // 3. pointerover (bubbles: true) on newHovered
+            if (newHovered is not null)
+                Dispatch(newHovered, "pointerover", CreatePointerArgs(pe, relatedTarget: oldHovered, bubbles: true, cancelable: true));
+
+            // 4. pointerenter (bubbles: false) on entryPath elements
+            foreach (var el in entryPath)
+                Dispatch(el, "pointerenter", CreatePointerArgs(pe, relatedTarget: oldHovered, bubbles: false, cancelable: false));
+
+            // 5. mouseout (bubbles: true) on oldHovered
+            if (oldHovered is not null)
+                Dispatch(oldHovered, "mouseout", CreatePointerArgs(pe, relatedTarget: newHovered, bubbles: true, cancelable: true));
+
+            // 6. mouseleave (bubbles: false) on exitPath elements
+            foreach (var el in exitPath)
+                Dispatch(el, "mouseleave", CreatePointerArgs(pe, relatedTarget: newHovered, bubbles: false, cancelable: false));
+
+            // 7. mouseover (bubbles: true) on newHovered
+            if (newHovered is not null)
+                Dispatch(newHovered, "mouseover", CreatePointerArgs(pe, relatedTarget: oldHovered, bubbles: true, cancelable: true));
+
+            // 8. mouseenter (bubbles: false) on entryPath elements
+            foreach (var el in entryPath)
+                Dispatch(el, "mouseenter", CreatePointerArgs(pe, relatedTarget: oldHovered, bubbles: false, cancelable: false));
+        }
 
         return true;
     }

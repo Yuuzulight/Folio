@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 /// </remarks>
 internal static class DomEvents
 {
-    internal static EventHandlerAttributes Install(IScriptEngine engine, HtmlEventLoop? eventLoop)
+    internal static (EventHandlerAttributes Handlers, ScriptValue DispatchHostEvent) Install(IScriptEngine engine, HtmlEventLoop? eventLoop)
     {
         ArgumentNullException.ThrowIfNull(engine);
 
@@ -29,8 +29,9 @@ internal static class DomEvents
         engine.Evaluate(Source, "folio:events");
         var sync = engine.Evaluate("globalThis.__folio_events_api.sync");
         var ensure = engine.Evaluate("globalThis.__folio_events_api.ensure");
+        var dispatchHostEvent = engine.Evaluate("globalThis.__folio_events_api.dispatchHostEvent");
         engine.Evaluate("delete globalThis.__folio_events_api");
-        return new EventHandlerAttributes(engine, sync, ensure);
+        return (new EventHandlerAttributes(engine, sync, ensure), dispatchHostEvent);
     }
 
     private const string Source = """
@@ -186,6 +187,244 @@ internal static class DomEvents
                 get error() { return stateOf(this).error; }
             }
             tag(ErrorEvent, 'ErrorEvent');
+
+            // ------------------------------------------------------------------ UIEvent & derived
+
+            class UIEvent extends Event {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'UIEvent', 'UIEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'UIEvent');
+                    const s = eventState.get(this);
+                    s.view = dict.view === undefined ? null : dict.view;
+                    s.detail = dict.detail === undefined ? 0 : dict.detail | 0;
+                }
+                get view() { return stateOf(this).view; }
+                get detail() { return stateOf(this).detail; }
+                initUIEvent(type, bubbles, cancelable, view, detail) {
+                    requireArgs(1, arguments.length, 'initUIEvent', 'UIEvent');
+                    const s = stateOf(this);
+                    if (s.dispatching) return;
+                    this.initEvent(type, bubbles, cancelable);
+                    s.view = view === undefined ? null : view;
+                    s.detail = detail === undefined ? 0 : detail | 0;
+                }
+            }
+            tag(UIEvent, 'UIEvent');
+
+            class MouseEvent extends UIEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'MouseEvent', 'MouseEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'MouseEvent');
+                    const s = eventState.get(this);
+                    s.screenX = Number(dict.screenX) || 0;
+                    s.screenY = Number(dict.screenY) || 0;
+                    s.clientX = Number(dict.clientX) || 0;
+                    s.clientY = Number(dict.clientY) || 0;
+                    s.ctrlKey = !!dict.ctrlKey;
+                    s.shiftKey = !!dict.shiftKey;
+                    s.altKey = !!dict.altKey;
+                    s.metaKey = !!dict.metaKey;
+                    s.button = dict.button === undefined ? 0 : dict.button | 0;
+                    s.buttons = dict.buttons === undefined ? 0 : dict.buttons >>> 0;
+                    s.relatedTarget = dict.relatedTarget === undefined ? null : dict.relatedTarget;
+                }
+                get screenX() { return stateOf(this).screenX; }
+                get screenY() { return stateOf(this).screenY; }
+                get clientX() { return stateOf(this).clientX; }
+                get clientY() { return stateOf(this).clientY; }
+                get x() { return this.clientX; }
+                get y() { return this.clientY; }
+                get pageX() { return this.clientX; }
+                get pageY() { return this.clientY; }
+                get ctrlKey() { return stateOf(this).ctrlKey; }
+                get shiftKey() { return stateOf(this).shiftKey; }
+                get altKey() { return stateOf(this).altKey; }
+                get metaKey() { return stateOf(this).metaKey; }
+                get button() { return stateOf(this).button; }
+                get buttons() { return stateOf(this).buttons; }
+                get relatedTarget() { return stateOf(this).relatedTarget; }
+                getModifierState(key) {
+                    const s = stateOf(this);
+                    switch (String(key)) {
+                        case 'Control': return s.ctrlKey;
+                        case 'Shift': return s.shiftKey;
+                        case 'Alt': return s.altKey;
+                        case 'Meta': return s.metaKey;
+                        default: return false;
+                    }
+                }
+                initMouseEvent(type, bubbles, cancelable, view, detail, screenX, screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey, button, relatedTarget) {
+                    requireArgs(1, arguments.length, 'initMouseEvent', 'MouseEvent');
+                    const s = stateOf(this);
+                    if (s.dispatching) return;
+                    this.initUIEvent(type, bubbles, cancelable, view, detail);
+                    s.screenX = Number(screenX) || 0;
+                    s.screenY = Number(screenY) || 0;
+                    s.clientX = Number(clientX) || 0;
+                    s.clientY = Number(clientY) || 0;
+                    s.ctrlKey = !!ctrlKey;
+                    s.altKey = !!altKey;
+                    s.shiftKey = !!shiftKey;
+                    s.metaKey = !!metaKey;
+                    s.button = button === undefined ? 0 : button | 0;
+                    s.buttons = 0;
+                    s.relatedTarget = relatedTarget === undefined ? null : relatedTarget;
+                }
+            }
+            tag(MouseEvent, 'MouseEvent');
+
+            class PointerEvent extends MouseEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'PointerEvent', 'PointerEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'PointerEvent');
+                    const s = eventState.get(this);
+                    s.pointerId = dict.pointerId === undefined ? 0 : dict.pointerId | 0;
+                    s.width = dict.width === undefined ? 1 : Number(dict.width) || 0;
+                    s.height = dict.height === undefined ? 1 : Number(dict.height) || 0;
+                    s.pressure = dict.pressure === undefined ? 0 : Number(dict.pressure) || 0;
+                    s.tangentialPressure = dict.tangentialPressure === undefined ? 0 : Number(dict.tangentialPressure) || 0;
+                    s.tiltX = dict.tiltX === undefined ? 0 : dict.tiltX | 0;
+                    s.tiltY = dict.tiltY === undefined ? 0 : dict.tiltY | 0;
+                    s.twist = dict.twist === undefined ? 0 : dict.twist | 0;
+                    s.pointerType = dict.pointerType === undefined ? '' : String(dict.pointerType);
+                    s.isPrimary = dict.isPrimary === undefined ? false : !!dict.isPrimary;
+                }
+                get pointerId() { return stateOf(this).pointerId; }
+                get width() { return stateOf(this).width; }
+                get height() { return stateOf(this).height; }
+                get pressure() { return stateOf(this).pressure; }
+                get tangentialPressure() { return stateOf(this).tangentialPressure; }
+                get tiltX() { return stateOf(this).tiltX; }
+                get tiltY() { return stateOf(this).tiltY; }
+                get twist() { return stateOf(this).twist; }
+                get pointerType() { return stateOf(this).pointerType; }
+                get isPrimary() { return stateOf(this).isPrimary; }
+            }
+            tag(PointerEvent, 'PointerEvent');
+
+            class WheelEvent extends MouseEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'WheelEvent', 'WheelEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'WheelEvent');
+                    const s = eventState.get(this);
+                    s.deltaX = Number(dict.deltaX) || 0;
+                    s.deltaY = Number(dict.deltaY) || 0;
+                    s.deltaZ = Number(dict.deltaZ) || 0;
+                    s.deltaMode = dict.deltaMode === undefined ? 0 : dict.deltaMode >>> 0;
+                }
+                get deltaX() { return stateOf(this).deltaX; }
+                get deltaY() { return stateOf(this).deltaY; }
+                get deltaZ() { return stateOf(this).deltaZ; }
+                get deltaMode() { return stateOf(this).deltaMode; }
+            }
+            WheelEvent.DOM_DELTA_PIXEL = 0;
+            WheelEvent.DOM_DELTA_LINE = 1;
+            WheelEvent.DOM_DELTA_PAGE = 2;
+            Object.defineProperties(WheelEvent.prototype, {
+                DOM_DELTA_PIXEL: { value: 0, enumerable: true },
+                DOM_DELTA_LINE: { value: 1, enumerable: true },
+                DOM_DELTA_PAGE: { value: 2, enumerable: true }
+            });
+            tag(WheelEvent, 'WheelEvent');
+
+            class KeyboardEvent extends UIEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'KeyboardEvent', 'KeyboardEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'KeyboardEvent');
+                    const s = eventState.get(this);
+                    s.key = dict.key === undefined ? '' : String(dict.key);
+                    s.code = dict.code === undefined ? '' : String(dict.code);
+                    s.location = dict.location === undefined ? 0 : dict.location >>> 0;
+                    s.ctrlKey = !!dict.ctrlKey;
+                    s.shiftKey = !!dict.shiftKey;
+                    s.altKey = !!dict.altKey;
+                    s.metaKey = !!dict.metaKey;
+                    s.repeat = !!dict.repeat;
+                    s.isComposing = !!dict.isComposing;
+                }
+                get key() { return stateOf(this).key; }
+                get code() { return stateOf(this).code; }
+                get location() { return stateOf(this).location; }
+                get ctrlKey() { return stateOf(this).ctrlKey; }
+                get shiftKey() { return stateOf(this).shiftKey; }
+                get altKey() { return stateOf(this).altKey; }
+                get metaKey() { return stateOf(this).metaKey; }
+                get repeat() { return stateOf(this).repeat; }
+                get isComposing() { return stateOf(this).isComposing; }
+                getModifierState(key) {
+                    const s = stateOf(this);
+                    switch (String(key)) {
+                        case 'Control': return s.ctrlKey;
+                        case 'Shift': return s.shiftKey;
+                        case 'Alt': return s.altKey;
+                        case 'Meta': return s.metaKey;
+                        default: return false;
+                    }
+                }
+            }
+            KeyboardEvent.DOM_KEY_LOCATION_STANDARD = 0;
+            KeyboardEvent.DOM_KEY_LOCATION_LEFT = 1;
+            KeyboardEvent.DOM_KEY_LOCATION_RIGHT = 2;
+            KeyboardEvent.DOM_KEY_LOCATION_NUMPAD = 3;
+            Object.defineProperties(KeyboardEvent.prototype, {
+                DOM_KEY_LOCATION_STANDARD: { value: 0, enumerable: true },
+                DOM_KEY_LOCATION_LEFT: { value: 1, enumerable: true },
+                DOM_KEY_LOCATION_RIGHT: { value: 2, enumerable: true },
+                DOM_KEY_LOCATION_NUMPAD: { value: 3, enumerable: true }
+            });
+            tag(KeyboardEvent, 'KeyboardEvent');
+
+            class InputEvent extends UIEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'InputEvent', 'InputEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'InputEvent');
+                    const s = eventState.get(this);
+                    s.data = dict.data === undefined ? null : (dict.data === null ? null : String(dict.data));
+                    s.isComposing = !!dict.isComposing;
+                    s.inputType = dict.inputType === undefined ? '' : String(dict.inputType);
+                }
+                get data() { return stateOf(this).data; }
+                get isComposing() { return stateOf(this).isComposing; }
+                get inputType() { return stateOf(this).inputType; }
+            }
+            tag(InputEvent, 'InputEvent');
+
+            class FocusEvent extends UIEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'FocusEvent', 'FocusEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'FocusEvent');
+                    const s = eventState.get(this);
+                    s.relatedTarget = dict.relatedTarget === undefined ? null : dict.relatedTarget;
+                }
+                get relatedTarget() { return stateOf(this).relatedTarget; }
+            }
+            tag(FocusEvent, 'FocusEvent');
+
+            class CompositionEvent extends UIEvent {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'CompositionEvent', 'CompositionEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'CompositionEvent');
+                    const s = eventState.get(this);
+                    s.data = dict.data === undefined ? '' : String(dict.data);
+                }
+                get data() { return stateOf(this).data; }
+                initCompositionEvent(type, bubbles, cancelable, view, data) {
+                    requireArgs(1, arguments.length, 'initCompositionEvent', 'CompositionEvent');
+                    const s = stateOf(this);
+                    if (s.dispatching) return;
+                    this.initUIEvent(type, bubbles, cancelable, view, 0);
+                    s.data = data === undefined ? '' : String(data);
+                }
+            }
+            tag(CompositionEvent, 'CompositionEvent');
 
             // ------------------------------------------------------------------ dispatch
 
@@ -731,14 +970,253 @@ internal static class DomEvents
                 });
             }
 
+            // Pointer capture
+            const pointerCaptures = new Map();
+
+            function isElement(target) {
+                return isNode(target) && target.nodeType === 1;
+            }
+
+            function setPointerCapture(element, pointerId) {
+                if (!isElement(element)) throw new TypeError('Illegal invocation');
+                pointerId = pointerId | 0;
+                pointerCaptures.set(pointerId, element);
+                try {
+                    const ev = new PointerEvent('gotpointercapture', { pointerId: pointerId, bubbles: false, cancelable: false });
+                    const s = eventState.get(ev);
+                    if (s) s.trusted = true;
+                    dispatch(element, ev);
+                } catch (_) {}
+            }
+
+            function releasePointerCapture(element, pointerId) {
+                if (!isElement(element)) throw new TypeError('Illegal invocation');
+                pointerId = pointerId | 0;
+                if (pointerCaptures.get(pointerId) === element) {
+                    pointerCaptures.delete(pointerId);
+                    try {
+                        const ev = new PointerEvent('lostpointercapture', { pointerId: pointerId, bubbles: false, cancelable: false });
+                        const s = eventState.get(ev);
+                        if (s) s.trusted = true;
+                        dispatch(element, ev);
+                    } catch (_) {}
+                }
+            }
+
+            function hasPointerCapture(element, pointerId) {
+                if (!isElement(element)) throw new TypeError('Illegal invocation');
+                pointerId = pointerId | 0;
+                return pointerCaptures.get(pointerId) === element;
+            }
+
+            if (global.Element && global.Element.prototype) {
+                Object.defineProperties(global.Element.prototype, {
+                    setPointerCapture: {
+                        value: function(pointerId) {
+                            requireArgs(1, arguments.length, 'setPointerCapture', 'Element');
+                            return setPointerCapture(this, pointerId);
+                        },
+                        writable: true, configurable: true, enumerable: true
+                    },
+                    releasePointerCapture: {
+                        value: function(pointerId) {
+                            requireArgs(1, arguments.length, 'releasePointerCapture', 'Element');
+                            return releasePointerCapture(this, pointerId);
+                        },
+                        writable: true, configurable: true, enumerable: true
+                    },
+                    hasPointerCapture: {
+                        value: function(pointerId) {
+                            requireArgs(1, arguments.length, 'hasPointerCapture', 'Element');
+                            return hasPointerCapture(this, pointerId);
+                        },
+                        writable: true, configurable: true, enumerable: true
+                    }
+                });
+            }
+
+            function createHostEvent(type, a) {
+                // a is array or object
+                const dict = Array.isArray(a) ? {
+                    bubbles: !!a[0],
+                    cancelable: !!a[1],
+                    composed: !!a[2],
+                    detail: a[3] | 0,
+                    screenX: Number(a[4]) || 0,
+                    screenY: Number(a[5]) || 0,
+                    clientX: Number(a[6]) || 0,
+                    clientY: Number(a[7]) || 0,
+                    ctrlKey: !!a[8],
+                    shiftKey: !!a[9],
+                    altKey: !!a[10],
+                    metaKey: !!a[11],
+                    button: a[12] | 0,
+                    buttons: a[13] >>> 0,
+                    relatedTarget: a[14] || null,
+                    pointerId: a[15] === undefined ? 0 : a[15] | 0,
+                    width: a[16] === undefined ? 1 : Number(a[16]) || 0,
+                    height: a[17] === undefined ? 1 : Number(a[17]) || 0,
+                    pressure: Number(a[18]) || 0,
+                    tangentialPressure: Number(a[19]) || 0,
+                    tiltX: a[20] | 0,
+                    tiltY: a[21] | 0,
+                    twist: a[22] | 0,
+                    pointerType: a[23] === undefined ? 'mouse' : String(a[23]),
+                    isPrimary: a[24] === undefined ? true : !!a[24],
+                    deltaX: Number(a[25]) || 0,
+                    deltaY: Number(a[26]) || 0,
+                    deltaZ: Number(a[27]) || 0,
+                    deltaMode: a[28] >>> 0,
+                    key: a[29] === undefined ? '' : String(a[29]),
+                    code: a[30] === undefined ? '' : String(a[30]),
+                    location: a[31] >>> 0,
+                    repeat: !!a[32],
+                    isComposing: !!a[33],
+                    data: a[34] === undefined || a[34] === null ? null : String(a[34]),
+                    inputType: a[35] === undefined ? '' : String(a[35])
+                } : {
+                    bubbles: !!a.bubbles,
+                    cancelable: !!a.cancelable,
+                    composed: !!a.composed,
+                    detail: a.detail | 0,
+                    screenX: a.screenX,
+                    screenY: a.screenY,
+                    clientX: a.clientX,
+                    clientY: a.clientY,
+                    ctrlKey: !!a.ctrlKey,
+                    shiftKey: !!a.shiftKey,
+                    altKey: !!a.altKey,
+                    metaKey: !!a.metaKey,
+                    button: a.button | 0,
+                    buttons: a.buttons >>> 0,
+                    relatedTarget: a.relatedTarget,
+                    pointerId: a.pointerId | 0,
+                    width: a.width,
+                    height: a.height,
+                    pressure: a.pressure,
+                    tangentialPressure: a.tangentialPressure,
+                    tiltX: a.tiltX | 0,
+                    tiltY: a.tiltY | 0,
+                    twist: a.twist | 0,
+                    pointerType: a.pointerType,
+                    isPrimary: !!a.isPrimary,
+                    deltaX: a.deltaX,
+                    deltaY: a.deltaY,
+                    deltaZ: a.deltaZ,
+                    deltaMode: a.deltaMode >>> 0,
+                    key: a.key,
+                    code: a.code,
+                    location: a.location >>> 0,
+                    repeat: !!a.repeat,
+                    isComposing: !!a.isComposing,
+                    data: a.data,
+                    inputType: a.inputType
+                };
+
+                switch (type) {
+                    case 'pointerdown':
+                    case 'pointerup':
+                    case 'pointermove':
+                    case 'pointerover':
+                    case 'pointerout':
+                    case 'pointerenter':
+                    case 'pointerleave':
+                    case 'pointercancel':
+                    case 'gotpointercapture':
+                    case 'lostpointercapture':
+                        return new PointerEvent(type, dict);
+
+                    case 'mousedown':
+                    case 'mouseup':
+                    case 'mousemove':
+                    case 'mouseover':
+                    case 'mouseout':
+                    case 'mouseenter':
+                    case 'mouseleave':
+                    case 'click':
+                    case 'dblclick':
+                    case 'auxclick':
+                    case 'contextmenu':
+                        return new MouseEvent(type, dict);
+
+                    case 'wheel':
+                        return new WheelEvent(type, dict);
+
+                    case 'keydown':
+                    case 'keyup':
+                    case 'keypress':
+                        return new KeyboardEvent(type, dict);
+
+                    case 'input':
+                    case 'beforeinput':
+                        return new InputEvent(type, dict);
+
+                    case 'focus':
+                    case 'blur':
+                    case 'focusin':
+                    case 'focusout':
+                        return new FocusEvent(type, dict);
+
+                    case 'compositionstart':
+                    case 'compositionupdate':
+                    case 'compositionend':
+                        return new CompositionEvent(type, dict);
+
+                    default:
+                        return new UIEvent(type, dict);
+                }
+            }
+
+            function dispatchHostEvent(target, type, args) {
+                target = resolveTarget(target);
+                const pointerId = Array.isArray(args) ? (args[15] === undefined ? undefined : (args[15] | 0)) : (args ? args.pointerId : undefined);
+                // Handle pointer capture routing
+                if (pointerId !== undefined && type.startsWith('pointer') && type !== 'gotpointercapture' && type !== 'lostpointercapture') {
+                    const captured = pointerCaptures.get(pointerId | 0);
+                    if (captured && isElement(captured)) {
+                        target = captured;
+                    }
+                }
+
+                const ev = createHostEvent(type, args || {});
+                const s = eventState.get(ev);
+                if (s) {
+                    s.trusted = true;
+                }
+                const notPrevented = dispatch(target, ev);
+
+                // Auto release pointer capture on pointerup / pointercancel
+                if (pointerId !== undefined && (type === 'pointerup' || type === 'pointercancel')) {
+                    const pid = pointerId | 0;
+                    const captured = pointerCaptures.get(pid);
+                    if (captured) {
+                        releasePointerCapture(captured, pid);
+                    }
+                }
+
+                return notPrevented;
+            }
+
             defineGlobal('Event', Event);
             defineGlobal('CustomEvent', CustomEvent);
             defineGlobal('ErrorEvent', ErrorEvent);
+            defineGlobal('UIEvent', UIEvent);
+            defineGlobal('MouseEvent', MouseEvent);
+            defineGlobal('PointerEvent', PointerEvent);
+            defineGlobal('WheelEvent', WheelEvent);
+            defineGlobal('KeyboardEvent', KeyboardEvent);
+            defineGlobal('InputEvent', InputEvent);
+            defineGlobal('FocusEvent', FocusEvent);
+            defineGlobal('CompositionEvent', CompositionEvent);
             defineGlobal('EventTarget', EventTarget);
             defineGlobal('AbortSignal', AbortSignal);
             defineGlobal('AbortController', AbortController);
 
-            return { sync: syncHandlerAttribute, ensure: ensureHandlerAttribute };
+            return {
+                sync: syncHandlerAttribute,
+                ensure: ensureHandlerAttribute,
+                dispatchHostEvent: dispatchHostEvent
+            };
         })(globalThis.__folio_events_host);
         delete globalThis.__folio_events_host;
         """;
