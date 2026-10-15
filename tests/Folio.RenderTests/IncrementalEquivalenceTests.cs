@@ -21,6 +21,16 @@ public class IncrementalEquivalenceTests
 
     private const int StepsPerPage = 6;
 
+    // string.GetHashCode() is different in every process, which made each run try other changes and made the failures
+    // look random; a fixed FNV-1a hash of the page's name makes the same run every time. FOLIO_EQUIVALENCE_SEED tries other changes.
+    private static int StableSeed(string page)
+    {
+        var hash = 2166136261u;
+        foreach (var c in page)
+            hash = (hash ^ c) * 16777619u;
+        return (int)(hash & 0x7fffffff) ^ (int.TryParse(Environment.GetEnvironmentVariable("FOLIO_EQUIVALENCE_SEED"), out var seed) ? seed : 1234);
+    }
+
     public static TheoryData<string> Pages =>
         Directory.Exists(Conformance.PublicRoot) ? new(Directory.GetFiles(Conformance.PublicRoot, "index.html", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(Conformance.PublicRoot, Path.GetDirectoryName(f)!).Replace('\\', '/')).Order()) : new("(none)");
@@ -94,7 +104,7 @@ public class IncrementalEquivalenceTests
         using (var again = Document.Parse(html))
             Assert.True(Same(again.Paint(800, 600).Item1.Items, document.DisplayList!.Items), $"{page}: two fresh renders of the same page differ (the comparison, not Update, is at fault).");
         var count = Elements(document).Count;
-        var random = new Random(page.GetHashCode() & 0x7fffffff ^ 1234);
+        var random = new Random(StableSeed(page));
         var applied = new List<(int Index, string Change)>();
 
         for (var step = 0; step < StepsPerPage && count > 0; step++)
