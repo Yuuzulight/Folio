@@ -39,13 +39,12 @@ internal sealed class CanvasElementState : ICanvasSurface
 
 internal sealed class MediaElementState
 {
-    public MediaElementState(ElementNode element, bool enabled, int maxMediaBytes)
+    public MediaElementState(ElementNode element, bool enabled)
     {
         Element = element;
         Enabled = enabled;
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : 0;
         SourceBytes = long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0;
-        if (SourceBytes > maxMediaBytes) Error = "Media resource exceeds the host budget.";
     }
 
     public ElementNode Element { get; }
@@ -63,6 +62,7 @@ internal sealed class MediaElementState
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }
     public long SourceBytes { get; }
+    public void RejectForBudget() => Error = "Media resource exceeds the host budget.";
 
     public void Play()
     {

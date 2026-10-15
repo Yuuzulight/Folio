@@ -14,6 +14,7 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, CanvasElementState> _canvases = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ElementNode, MediaElementState> _media = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
+    private long _mediaBytesAllocated;
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
@@ -95,7 +96,17 @@ internal sealed class DomContext
     }
 
     public CanvasElementState GetCanvas(ElementNode element) => _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element));
-    public MediaElementState GetMedia(ElementNode element) => _media.TryGetValue(element, out var state) ? state : (_media[element] = new MediaElementState(element, Capabilities.Media, MaxMediaBytes));
+    public MediaElementState GetMedia(ElementNode element)
+    {
+        if (_media.TryGetValue(element, out var existing)) return existing;
+        var state = new MediaElementState(element, Capabilities.Media);
+        if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)
+            state.RejectForBudget();
+        else
+            _mediaBytesAllocated += state.SourceBytes;
+        _media[element] = state;
+        return state;
+    }
     public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, element, Capabilities.Iframes));
 
     public ScriptValue Wrap(Node? node)

@@ -145,6 +145,14 @@ public sealed class DomStyleDeclarationTests
             Limits = ResourceLimits.Default with { MaxMediaBytes = 128 }
         }));
         Assert.True(limited.Evaluate("const v = document.getElementById('v'); v.readyState === 0 && v.error !== null; v.play(); v.paused").AsBoolean());
+
+        using var aggregate = new JintScriptEngine();
+        DomBindings.Install(aggregate, Document.Parse("<video id='a' data-size='80'></video><video id='b' data-size='80'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true },
+            Limits = ResourceLimits.Default with { MaxMediaBytes = 128 }
+        }));
+        Assert.True(aggregate.Evaluate("const a = document.getElementById('a'); const b = document.getElementById('b'); a.error === null && b.error !== null").AsBoolean());
     }
 
     [Fact]
