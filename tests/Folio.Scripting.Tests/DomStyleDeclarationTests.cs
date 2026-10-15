@@ -32,6 +32,12 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.skipWaiting(); self.clients.claim(); onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript"));
     }
 
+    private sealed class ServiceWorkerLifecycleLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.oninstall = function(e) { e.waitUntil(Promise.resolve()); }; self.onactivate = function(e) { e.waitUntil(Promise.resolve()); };"), "application/javascript"));
+    }
+
     private sealed class WavResourceLoader : IResourceLoader
     {
         private readonly byte[] _wav = CreateWav();
@@ -381,6 +387,15 @@ public sealed class DomStyleDeclarationTests
         Assert.True(scripted.Evaluate("let scriptedResult = 0; navigator.serviceWorker.register('sw.js').then(r => { r.active.onmessage = e => scriptedResult = e.data; r.active.postMessage(40); }); true").AsBoolean());
         scripted.PerformMicrotaskCheckpoint();
         Assert.Equal(42, scripted.Evaluate("scriptedResult").AsNumber());
+
+        using var lifecycle = new JintScriptEngine();
+        DomBindings.Install(lifecycle, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ServiceWorkerLifecycleLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(lifecycle.Evaluate("navigator.serviceWorker.register('lifecycle.js').then(r => r.active.state === 'activated')").IsObject);
     }
 
     [Fact]
