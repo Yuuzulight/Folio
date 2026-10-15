@@ -18,6 +18,16 @@ internal sealed class CssStyleSheetState(ElementNode source)
         _sourceText = text;
     }
 
+    public void SyncToSource()
+    {
+        var text = string.Join("\n", Rules);
+        while (Source.FirstChild is { } child)
+            Source.RemoveChild(child);
+        if (text.Length > 0)
+            Source.AppendChild(Source.OwnerDocument.CreateText(text));
+        _sourceText = text;
+    }
+
     private static List<string> Parse(string text) => text.Split('}', StringSplitOptions.RemoveEmptyEntries)
         .Select(rule => rule.Trim() + "}").Where(rule => rule.Contains('{')).ToList();
 }

@@ -190,13 +190,19 @@ internal sealed class DomNodeTemplates
             {
                 var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
                 var index = args.Length > 1 ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, ((CssStyleSheetState)target).Rules.Count) : ((CssStyleSheetState)target).Rules.Count;
-                ((CssStyleSheetState)target).Rules.Insert(index, text);
+                var sheet = (CssStyleSheetState)target;
+                sheet.Rules.Insert(index, text);
+                sheet.SyncToSource();
                 return ScriptValue.FromNumber(index);
             })
             .DefineMethod("deleteRule", (target, _, args) =>
             {
                 if (args.Length > 0 && WebIdlConversions.ToInt32(args[0]) is var index && index >= 0 && index < ((CssStyleSheetState)target).Rules.Count)
-                    ((CssStyleSheetState)target).Rules.RemoveAt(index);
+                {
+                    var sheet = (CssStyleSheetState)target;
+                    sheet.Rules.RemoveAt(index);
+                    sheet.SyncToSource();
+                }
                 return ScriptValue.Undefined;
             });
     }
