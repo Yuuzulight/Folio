@@ -168,6 +168,8 @@ internal sealed class WebGlContextState
     {
         if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
     }
+    public void DeleteShader(uint handle) => Shaders.Remove(handle);
+    public void DeleteProgram(uint handle) => Programs.Remove(handle);
     public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));
     public void Clear(uint mask)
     {
