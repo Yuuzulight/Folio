@@ -212,6 +212,10 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { ServiceWorkers = true }
         }));
         Assert.True(allowed.Evaluate("navigator.serviceWorker.register('/sw.js').then(r => r.scriptURL === '/sw.js')").IsObject);
+        allowed.Evaluate("let registrationCount = 0; let registration; navigator.serviceWorker.register('/sw.js').then(r => { registration = r; return navigator.serviceWorker.getRegistrations(); }).then(rs => registrationCount = rs.length);");
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal(1, allowed.Evaluate("registrationCount").AsNumber());
+        Assert.True(allowed.Evaluate("registration.unregister()").IsObject);
     }
 
     [Fact]

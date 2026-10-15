@@ -84,15 +84,21 @@ public static class DomBindings
             }
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
             globalThis.navigator = globalThis.navigator || {};
+            var __folio_service_worker_registrations = [];
             globalThis.navigator.serviceWorker = {
                 controller: null,
                 ready: Promise.resolve({ scope: '/', active: null }),
                 register: function(scriptURL, options) {
                     if (!__folio_service_workers_enabled) return Promise.reject(new DOMException('Service workers are disabled by the host.', 'SecurityError'));
-                    return Promise.resolve({ scope: (options && options.scope) || '/', scriptURL: String(scriptURL), active: null, installing: null, waiting: null });
+                    var url = String(scriptURL); var scope = (options && options.scope) || '/';
+                    var existing = __folio_service_worker_registrations.find(function(r) { return r.scriptURL === url && r.scope === scope; });
+                    if (existing) return Promise.resolve(existing);
+                    var registration = { scope: scope, scriptURL: url, active: null, installing: null, waiting: null,
+                        unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); return Promise.resolve(true); } };
+                    __folio_service_worker_registrations.push(registration); return Promise.resolve(registration);
                 },
-                getRegistration: function() { return Promise.resolve(undefined); },
-                getRegistrations: function() { return Promise.resolve([]); }
+                getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
+                getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             };
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
