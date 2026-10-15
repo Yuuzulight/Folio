@@ -14,6 +14,7 @@ internal sealed class CanvasElementState : ICanvasSurface
 
     public ElementNode Element { get; }
     public List<CanvasCommand> Commands { get; } = [];
+    public int[] Pixels { get; } = new int[300 * 150 * 4];
     IReadOnlyList<CanvasSurfaceCommand> ICanvasSurface.Commands => Commands.Select(command =>
         new CanvasSurfaceCommand(command.Name, command.X, command.Y, command.Width, command.Height, command.FillStyle, command.StrokeStyle)).ToArray();
     public string FillStyle { get; set; } = "#000000";

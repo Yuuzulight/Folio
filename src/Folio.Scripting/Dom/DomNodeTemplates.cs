@@ -110,11 +110,14 @@ internal sealed class DomNodeTemplates
                 return _context.Engine.CreateHostObject(TextMetricsTemplate, new CanvasTextMetricsState(text.Length * 7));
             })
             .DefineMethod("drawImage", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("drawImage", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
-            .DefineMethod("getImageData", (_, _, args) =>
+            .DefineMethod("getImageData", (target, _, args) =>
             {
                 var width = args.Length > 2 ? Math.Max(0, WebIdlConversions.ToInt32(args[2])) : 0;
                 var height = args.Length > 3 ? Math.Max(0, WebIdlConversions.ToInt32(args[3])) : 0;
-                return _context.Engine.CreateHostObject(ImageDataTemplate, new CanvasImageDataState(width, height));
+                var image = new CanvasImageDataState(width, height);
+                var state = (CanvasElementState)target;
+                Array.Copy(state.Pixels, image.Data, Math.Min(state.Pixels.Length, image.Data.Length));
+                return _context.Engine.CreateHostObject(ImageDataTemplate, image);
             })
             .DefineMethod("createImageData", (_, _, args) =>
             {
@@ -122,7 +125,15 @@ internal sealed class DomNodeTemplates
                 var height = args.Length > 1 ? Math.Max(0, WebIdlConversions.ToInt32(args[1])) : 0;
                 return _context.Engine.CreateHostObject(ImageDataTemplate, new CanvasImageDataState(width, height));
             })
-            .DefineMethod("putImageData", (_, _, _) => ScriptValue.Undefined)
+            .DefineMethod("putImageData", (target, _, args) =>
+            {
+                if (args.Length > 0 && _context.Engine.TryGetHostTarget(args[0], out var imageTarget) && imageTarget is CanvasImageDataState image)
+                {
+                    var state = (CanvasElementState)target;
+                    Array.Copy(image.Data, state.Pixels, Math.Min(image.Data.Length, state.Pixels.Length));
+                }
+                return ScriptValue.Undefined;
+            })
             .DefineMethod("createLinearGradient", (_, _, args) =>
             {
                 var values = args.ToArray();
