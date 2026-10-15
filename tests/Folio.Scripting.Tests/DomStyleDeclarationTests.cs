@@ -242,7 +242,7 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); pc.createOffer().then(x => x.type === 'offer')").IsObject);
         Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 0)").IsObject);
-        Assert.True(allowed.Evaluate("const stream = new MediaStream([new MediaStreamTrack('audio')]); stream.getAudioTracks().length === 1; stream.getTracks()[0].stop(); stream.getTracks()[0].readyState === 'ended'").AsBoolean());
+        Assert.True(allowed.Evaluate("const track = new MediaStreamTrack('audio'); const stream = new MediaStream([track]); track.enabled = false; stream.getAudioTracks().length === 1 && stream.active; const clone = track.clone(); track.stop(); clone.readyState === 'live' && track.readyState === 'ended' && stream.id.length > 0").AsBoolean());
         Assert.True(allowed.Evaluate("pc.iceGatheringState === 'new' && pc.getConfiguration() !== null; pc.setLocalDescription({ type: 'offer' }); pc.iceGatheringState === 'complete'; pc.restartIce(); pc.iceGatheringState === 'new'").AsBoolean());
         Assert.True(allowed.Evaluate("const sender = pc.addTrack({ kind: 'audio' }); pc.getSenders().length === 1 && sender.track.kind === 'audio'").AsBoolean());
         Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; dc.onmessage = e => received = e.data; dc.send(7); received === 7").AsBoolean());

@@ -109,8 +109,9 @@ public static class DomBindings
                     return Promise.resolve(new MediaStream([]));
                 }
             };
-            globalThis.MediaStreamTrack = function(kind) { this.kind = String(kind || ''); this.readyState = 'live'; this.stop = function() { this.readyState = 'ended'; }; };
-            globalThis.MediaStream = function(tracks) { this._tracks = tracks ? tracks.slice() : []; };
+            globalThis.MediaStreamTrack = function(kind) { this.id = 'track-' + Math.random().toString(16).slice(2); this.kind = String(kind || ''); this.enabled = true; this.muted = false; this.readyState = 'live'; this.stop = function() { this.readyState = 'ended'; }; this.clone = function() { return new MediaStreamTrack(this.kind); }; };
+            globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks ? tracks.slice() : []; };
+            Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
             MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
             MediaStream.prototype.getAudioTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'audio'; }); };
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
