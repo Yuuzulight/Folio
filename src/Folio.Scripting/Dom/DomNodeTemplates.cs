@@ -57,7 +57,9 @@ internal sealed class DomNodeTemplates
         MessageEventTemplate = new HostObjectTemplate("MessageEvent")
             .DefineProperty("data", (target, _) => ((MessageEventState)target).Data)
             .DefineProperty("origin", (target, _) => ScriptValue.FromString(((MessageEventState)target).Origin))
-            .DefineProperty("source", (target, _) => ((MessageEventState)target).Source);
+            .DefineProperty("source", (target, _) => ((MessageEventState)target).Source)
+            .DefineProperty("type", (target, _) => ScriptValue.FromString(((MessageEventState)target).Type))
+            .DefineProperty("target", (target, _) => ((MessageEventState)target).Target);
 
         HtmlInputElementTemplate = CreateHtmlInputElementTemplate(HtmlElementTemplate);
         HtmlButtonElementTemplate = CreateHtmlButtonElementTemplate(HtmlElementTemplate);

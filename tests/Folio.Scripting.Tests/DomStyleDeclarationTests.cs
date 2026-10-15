@@ -184,7 +184,7 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
-        Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === w; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example' && sourceMatches").AsBoolean());
+        Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; let eventType = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === w && e.target === w; eventType = e.type; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example' && sourceMatches && eventType === 'message'").AsBoolean());
         Assert.Equal("https://worker.example/worker.js", allowed.Evaluate("w.scriptURL").AsString());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("w.terminate(); w.postMessage(7)"));
 
