@@ -581,6 +581,10 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("MAX_DRAW_BUFFERS", (_, _) => ScriptValue.FromNumber(0x8824));
         t.DefineProperty("DRAW_BUFFER0", (_, _) => ScriptValue.FromNumber(0x8825));
         t.DefineProperty("BACK", (_, _) => ScriptValue.FromNumber(0x0405));
+        t.DefineProperty("SYNC_GPU_COMMANDS_COMPLETE", (_, _) => ScriptValue.FromNumber(0x9117));
+        t.DefineProperty("ALREADY_SIGNALED", (_, _) => ScriptValue.FromNumber(0x911A));
+        t.DefineProperty("CONDITION_SATISFIED", (_, _) => ScriptValue.FromNumber(0x911C));
+        t.DefineProperty("TIMEOUT_EXPIRED", (_, _) => ScriptValue.FromNumber(0x911B));
         t.DefineProperty("FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE", (_, _) => ScriptValue.FromNumber(0x8CD0));
         t.DefineProperty("FRAMEBUFFER_ATTACHMENT_OBJECT_NAME", (_, _) => ScriptValue.FromNumber(0x8CD1));
         t.DefineProperty("TEXTURE", (_, _) => ScriptValue.FromNumber(0x1702));
@@ -715,6 +719,10 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("clearStencil", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearStencil = WebIdlConversions.ToInt32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("drawElements", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
+        t.DefineMethod("fenceSync", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || WebIdlConversions.ToUint32(args[0]) != 0x9117) { state.SetError(0x0500); return ScriptValue.Null; } var handle = state.CreateHandle(); state.Syncs.Add(handle); return ScriptValue.FromNumber(handle); });
+        t.DefineMethod("clientWaitSync", (target, _, args) => { var state = (WebGlContextState)target; return args.Length > 0 && state.Syncs.Contains(WebIdlConversions.ToUint32(args[0])) ? ScriptValue.FromNumber(0x911C) : ScriptValue.FromNumber(0x911D); });
+        t.DefineMethod("deleteSync", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Syncs.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("isSync", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Syncs.Contains(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("createTexture", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Textures[handle] = (0, 0, []); state.TextureParameters[handle] = []; return ScriptValue.FromNumber(handle); });
         t.DefineMethod("activeTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ActiveTextureUnit = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
