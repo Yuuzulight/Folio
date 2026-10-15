@@ -149,10 +149,13 @@ public static class DomBindings
             RTCPeerConnection.prototype.setConfiguration = function(configuration) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = configuration || {}; };
             RTCPeerConnection.prototype.getStats = function() { return Promise.resolve(new Map()); };
             RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); if (this.oniceconnectionstatechange) this.oniceconnectionstatechange({}); };
-            RTCPeerConnection.prototype.createDataChannel = function(label) {
-                var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', onmessage: null, _onopen: null, onclose: null, onerror: null,
-                    send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); channel.bufferedAmount = 0; if (channel.onmessage) channel.onmessage({ type: 'message', target: channel, data: data }); },
-                    close: function() { if (channel.readyState !== 'closed') { channel.readyState = 'closed'; if (channel.onclose) channel.onclose({ type: 'close', target: channel }); } } };
+            RTCPeerConnection.prototype.createDataChannel = function(label, options) {
+                options = options || {}; var listeners = {}; var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', ordered: options.ordered !== false, maxPacketLifeTime: options.maxPacketLifeTime === undefined ? null : Number(options.maxPacketLifeTime), maxRetransmits: options.maxRetransmits === undefined ? null : Number(options.maxRetransmits), onmessage: null, _onopen: null, onclose: null, onerror: null,
+                    addEventListener: function(type, handler) { if (typeof handler === 'function') (listeners[type] || (listeners[type] = [])).push(handler); },
+                    removeEventListener: function(type, handler) { var list = listeners[type] || []; listeners[type] = list.filter(function(item) { return item !== handler; }); },
+                    _dispatch: function(event) { (listeners[event.type] || []).slice().forEach(function(handler) { handler.call(channel, event); }); },
+                    send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); channel.bufferedAmount = 0; var event = { type: 'message', target: channel, data: data }; if (channel.onmessage) channel.onmessage(event); channel._dispatch(event); },
+                    close: function() { if (channel.readyState !== 'closed') { channel.readyState = 'closed'; var event = { type: 'close', target: channel }; if (channel.onclose) channel.onclose(event); channel._dispatch(event); } } };
                 Object.defineProperty(channel, 'onopen', { get: function() { return channel._onopen; }, set: function(handler) { channel._onopen = handler; if (typeof handler === 'function') handler({ type: 'open', target: channel }); } });
                 this._dataChannels.push(channel); return channel;
             };
