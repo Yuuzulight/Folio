@@ -110,13 +110,13 @@ public static class DomBindings
                 }
             };
             globalThis.MediaStreamTrack = function(kind) { this.id = 'track-' + Math.random().toString(16).slice(2); this.kind = String(kind || ''); this.enabled = true; this.muted = false; this.readyState = 'live'; this.stop = function() { this.readyState = 'ended'; }; this.clone = function() { return new MediaStreamTrack(this.kind); }; };
-            globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks ? tracks.slice() : []; };
+            globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks ? tracks.slice() : []; this.onaddtrack = null; this.onremovetrack = null; };
             Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
             MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
             MediaStream.prototype.getAudioTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'audio'; }); };
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
-            MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) this._tracks.push(track); };
-            MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) this._tracks.splice(i, 1); };
+            MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); if (this.onaddtrack) this.onaddtrack({ track: track }); } };
+            MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); if (this.onremovetrack) this.onremovetrack({ track: track }); } };
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
                 this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable';
