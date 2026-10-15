@@ -104,6 +104,24 @@ public class AllowlistTests
     }
 
     [Fact]
+    public async Task ChecksScriptMimeAndElementIntegrity()
+    {
+        var bytes = "console.log('ok');"u8.ToArray();
+        var integrity = "sha384-" + Convert.ToBase64String(SHA384.HashData(bytes));
+        var (loader, server) = Loader(new AllowlistOptions
+        {
+            Origins = [new AllowedOrigin("https://cdn.example", ResourceKind.Script)],
+            AllowUnversioned = true,
+        });
+        server.Routes["https://cdn.example/app.js"] = () => Ok(bytes, "text/javascript");
+        server.Routes["https://cdn.example/app.js?bad"] = () => Ok(bytes, "text/html");
+
+        Assert.True((await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script, integrity), CancellationToken.None))!.Succeeded);
+        Assert.False((await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script, "sha256-AAAA"), CancellationToken.None))!.Succeeded);
+        Assert.Contains("MIME type", (await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js?bad", ResourceKind.Script), CancellationToken.None))!.Error ?? "");
+    }
+
+    [Fact]
     public void RefusesUnversionedUrlsUnlessAllowed()
     {
         var (loader, server) = Loader();

@@ -88,13 +88,13 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
             return ResourceResponse.Refused("The URL carries no version, so what it serves could change.");
 
         var cached = versioned ? CachePath(request.Url) : null;
-        if (cached is not null && ReadCache(cached) is { } bytes && Matches(bytes, pinned))
+        if (cached is not null && ReadCache(cached) is { } bytes && Matches(bytes, pinned) && MatchesMetadata(bytes, request.Integrity))
             return ResourceResponse.Loaded(bytes, ContentTypeOf(request.Kind));
 
         var response = await Fetch(url, request.Kind, cancellationToken).ConfigureAwait(false);
         if (response.Data is not { } data)
             return response;
-        if (!Matches(data, pinned))
+        if (!Matches(data, pinned) || !MatchesMetadata(data, request.Integrity))
             return ResourceResponse.Refused("The response does not match its pinned hash.");
         if (cached is not null)
             WriteCache(cached, data);
@@ -165,6 +165,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
                              || type.StartsWith("font/", StringComparison.Ordinal) || type.StartsWith("application/font-", StringComparison.Ordinal)
                              || type.StartsWith("application/x-font-", StringComparison.Ordinal),
         ResourceKind.Image or ResourceKind.SvgImage => type is not null && type.StartsWith("image/", StringComparison.Ordinal),
+        ResourceKind.Script => type is null or "text/javascript" or "application/javascript" or "application/ecmascript" or "text/ecmascript",
         _ => false,
     };
 
@@ -195,6 +196,21 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
             _ => [],
         };
         return digest.Length > 0 && CryptographicOperations.FixedTimeEquals(digest, TryBase64(pinned[(dash + 1)..]));
+    }
+
+    private static bool MatchesMetadata(byte[] data, string? metadata)
+    {
+        if (string.IsNullOrWhiteSpace(metadata))
+            return true;
+        var strongest = metadata.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(token => token.Trim())
+            .Select(token => (Token: token, Dash: token.IndexOf('-')))
+            .Where(item => item.Dash > 0)
+            .Select(item => (item.Token, Algorithm: item.Token[..item.Dash], Digest: item.Token[(item.Dash + 1)..]))
+            .Where(item => item.Algorithm is "sha256" or "sha384" or "sha512")
+            .OrderByDescending(item => item.Algorithm == "sha512" ? 3 : item.Algorithm == "sha384" ? 2 : 1)
+            .FirstOrDefault();
+        return strongest.Token is not null && Matches(data, strongest.Token);
     }
 
     private static byte[] TryBase64(string text)

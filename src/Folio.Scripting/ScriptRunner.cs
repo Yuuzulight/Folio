@@ -278,7 +278,7 @@ internal sealed class ScriptRunner : IDisposable
             }
 
             scriptUrl = resolved;
-            var request = new ResourceRequest(resolved, ResourceKind.Script);
+            var request = new ResourceRequest(resolved, ResourceKind.Script, script.GetAttribute("integrity"));
 
             var response = LoadResource(request);
             if (!response.Succeeded || response.Data is null)

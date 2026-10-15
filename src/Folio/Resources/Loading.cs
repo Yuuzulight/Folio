@@ -13,7 +13,7 @@ public enum ResourceKind
 }
 
 /// <summary>A load a document asks for: an absolute URL and what it is for.</summary>
-public sealed record ResourceRequest(string Url, ResourceKind Kind);
+public sealed record ResourceRequest(string Url, ResourceKind Kind, string? Integrity = null);
 
 /// <summary>A loaded resource (its bytes and MIME type, if known), or why it was not loaded.</summary>
 public sealed record ResourceResponse(byte[]? Data, string? ContentType, string? Error)
