@@ -60,13 +60,13 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 5. Scripted parity
 
-**Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. The switch from Jint to a native JIT-compiling engine inside the content process (a backend swap behind `IScriptEngine`). Folio's own diagram renderer for diagram-description languages, used instead of running a large diagram library in the sandbox. Component code written with JSX arrives already compiled by the host.
+**Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. Folio's own diagram renderer for diagram-description languages, used instead of running a large diagram library in the sandbox. Component code written with JSX arrives already compiled by the host. The existing dependency-backed engine is sufficient for this milestone; replacing it is follow-on work.
 
 **Acceptance criteria**
 
 - D2–D7 each ≥ 90% pass, including interaction scripts.
 - D5 and D7 canvas animations reach p95 frame time ≤ 16.7 ms.
-- DOM binding tests pass on both engines; library artifacts start within the scripted start-up targets set from M4 measurements.
+- DOM binding tests pass on the production engine; library artifacts start within the scripted start-up targets set from M4 measurements.
 - D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
 

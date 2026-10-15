@@ -93,8 +93,7 @@ src/
                                               cursors, tooltips, popups
   Folio.Scripting/           net10.0          (M4) Event loop, generated DOM/CSSOM bindings, canvas 2D API,
                                               IPC protocol. Interface: IScriptEngine
-  Folio.Scripting.Jint/      net10.0          temporary compatibility backend
-  Folio.Scripting.Jit/       net10.0          (M5) IScriptEngine on a native JIT-compiling engine
+  Folio.Scripting.Jint/      net10.0          (M4–M5) dependency-backed IScriptEngine
   Folio.Diagrams/            net10.0          (M5) Diagram-description languages → SVG in the DOM
   Folio.ContentHost/         net10.0-windows  (M4) Sandboxed content process executable
 tools/

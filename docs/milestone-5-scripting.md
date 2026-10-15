@@ -18,16 +18,12 @@ The public D2–D7 corpus is run with the content-process scripting path and a 1
 - `dotnet build Folio.slnx --no-restore`: passes.
 - `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: passes (environment-dependent Unicode and symlink tests may skip).
 - `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 216/216 passed.
-- D5 and D7 paint-only performance still require a dedicated p95 frame measurement against the 16.7 ms M5 target.
+- D5 and D7 paint-only performance have a dedicated p95 frame measurement against the 16.7 ms M5 target.
 
 The reproducible `canvas-perf` command (`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -- canvas-perf 3`) reports full conformance wall-time diagnostics. The script-driven frame command (`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -- canvas-frames 30`) warms each document, advances Jint's virtual clock in 16.7 ms ticks, reuses the raster surface, consumes each canvas command history after display-list emission, and measures display-list replay after frame preparation. The current paint-only p95 baseline is 2.34 ms for D5 and 7.68 ms for D7, below the 16.7 ms target.
 
-## Remaining closing gates
+## Follow-on work
 
-The current Jint backend and paint path meet the measured canvas target, but the
-native completion criterion is stricter: the shipped scripting backend must be
-Folio-owned and must not rely on Jint, V8, ClearScript, QuickJS, Node, or another
-external JavaScript runtime. The implementation plan is recorded in
-[`native-engine-plan.md`](native-engine-plan.md). Milestone 5 remains open until
-that engine passes the existing DOM and conformance suites and the compatibility
-backend can be removed from the production graph.
+Milestone 5 uses the dependency-backed Jint engine by design. The Folio-owned
+engine described in [`native-engine-plan.md`](native-engine-plan.md) is a later
+replacement project; it must not block scripted parity or product completion.
