@@ -173,6 +173,22 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void ServiceWorkerRegistrationIsCapabilityGated()
+    {
+        using var denied = new JintScriptEngine();
+        DomBindings.Install(denied, Document.Parse("<html></html>"));
+        Assert.True(denied.Evaluate("typeof navigator.serviceWorker.register === 'function'").AsBoolean());
+        Assert.True(denied.Evaluate("navigator.serviceWorker.controller === null").AsBoolean());
+
+        using var allowed = new JintScriptEngine();
+        DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(allowed.Evaluate("navigator.serviceWorker.register('/sw.js').then(r => r.scriptURL === '/sw.js')").IsObject);
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");

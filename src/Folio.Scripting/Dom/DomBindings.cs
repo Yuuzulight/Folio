@@ -69,12 +69,24 @@ public static class DomBindings
             });
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
+        engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
+            globalThis.navigator = globalThis.navigator || {};
+            globalThis.navigator.serviceWorker = {
+                controller: null,
+                ready: Promise.resolve({ scope: '/', active: null }),
+                register: function(scriptURL, options) {
+                    if (!__folio_service_workers_enabled) return Promise.reject(new DOMException('Service workers are disabled by the host.', 'SecurityError'));
+                    return Promise.resolve({ scope: (options && options.scope) || '/', scriptURL: String(scriptURL), active: null, installing: null, waiting: null });
+                },
+                getRegistration: function() { return Promise.resolve(undefined); },
+                getRegistrations: function() { return Promise.resolve([]); }
+            };
             globalThis.WebAssembly = {
                 validate: function(bytes) {
                     if (!__folio_wasm_enabled || !bytes || bytes.length < 8) return false;
