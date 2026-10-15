@@ -133,7 +133,7 @@ public sealed class DomStyleDeclarationTests
         });
         DomBindings.Install(allowed, allowedDocument);
         Assert.True(allowed.Evaluate("const v = document.getElementById('v'); v.paused && v.duration === 12 && v.readyState === 4").AsBoolean());
-        Assert.True(allowed.Evaluate("v.currentTime = 4; v.volume = 2; v.muted = true; v.play(); !v.paused && v.currentTime === 4 && v.volume === 1 && v.muted").AsBoolean());
+        Assert.True(allowed.Evaluate("v.currentTime = 4; v.volume = 2; v.muted = true; v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 1 && v.muted").AsBoolean());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("v.load(); v.currentTime === 0 && v.paused").AsBoolean());
