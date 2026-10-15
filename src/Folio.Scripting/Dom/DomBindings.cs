@@ -147,6 +147,12 @@ public static class DomBindings
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
                     this.module = module; this.exports = {};
+                },
+                Table: function(options) {
+                    if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    options = options || {}; this._maximum = options.maximum === undefined ? 100000 : Number(options.maximum); this._entries = [];
+                    var initial = Number(options.initial) || 0; if (initial < 0 || initial > this._maximum || initial > 100000) throw new RangeError('WebAssembly table limit exceeded.');
+                    for (var i = 0; i < initial; i++) this._entries.push(null);
                 }
             };
             WebAssembly.Memory.prototype.grow = function(delta) {
@@ -154,6 +160,14 @@ public static class DomBindings
                 if (delta < 0 || next > this._maximum || next > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
                 this._pages = next; this.buffer = new ArrayBuffer(next * 65536); return previous;
             };
+            Object.defineProperty(WebAssembly.Table.prototype, 'length', { get: function() { return this._entries.length; } });
+            WebAssembly.Table.prototype.grow = function(delta, value) {
+                delta = Number(delta) || 0; var previous = this._entries.length; var next = previous + delta;
+                if (delta < 0 || next > this._maximum || next > 100000) throw new RangeError('WebAssembly table limit exceeded.');
+                for (var i = previous; i < next; i++) this._entries.push(value === undefined ? null : value); return previous;
+            };
+            WebAssembly.Table.prototype.get = function(index) { index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); return this._entries[index]; };
+            WebAssembly.Table.prototype.set = function(index, value) { index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); this._entries[index] = value; };
             WebAssembly.Module.exports = function(module) {
                 if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.exports requires a Module.');
                 return [];
