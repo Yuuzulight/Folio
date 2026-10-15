@@ -66,7 +66,7 @@ internal sealed class IframeState
         else
         {
             if (ResourceLoader is null || !Uri.TryCreate(source, UriKind.Absolute, out var uri)) return;
-            var response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult();
+            var response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document), CancellationToken.None).GetAwaiter().GetResult();
             if (response?.Data is not { } data) return;
             html = System.Text.Encoding.UTF8.GetString(data);
         }

@@ -23,7 +23,9 @@ public sealed class DomStyleDeclarationTests
     private sealed class IframeResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("<html><body><p id='remote'>loaded</p></body></html>"), "text/html"));
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Document
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("<html><body><p id='remote'>loaded</p></body></html>"), "text/html")
+                : ResourceResponse.Refused("wrong resource kind"));
     }
 
     private sealed class ServiceWorkerResourceLoader : IResourceLoader
