@@ -171,6 +171,7 @@ internal sealed class WebGlContextState
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
     public Dictionary<uint, Dictionary<uint, int>> TextureParameters { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
+    public Dictionary<uint, uint> FramebufferColorAttachments { get; } = [];
     public HashSet<uint> VertexArrays { get; } = [];
     public uint? BoundTexture { get; set; }
     public uint ActiveTextureUnit { get; set; } = 0x84C0;
@@ -229,6 +230,12 @@ internal sealed class WebGlContextState
         if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
         TextureParameters.Remove(handle);
         if (BoundTexture == handle) BoundTexture = null;
+    }
+    public void DeleteFramebuffer(uint handle)
+    {
+        Framebuffers.Remove(handle);
+        FramebufferColorAttachments.Remove(handle);
+        if (BoundFramebuffer == handle) BoundFramebuffer = null;
     }
     public bool ReplaceTexture(uint handle, int width, int height, int bytes)
     {
