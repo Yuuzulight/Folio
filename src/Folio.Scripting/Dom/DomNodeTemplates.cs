@@ -160,6 +160,9 @@ internal sealed class DomNodeTemplates
             .DefineMethod("fill", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, state.FillStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; })
             .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; });
         WebGlRenderingContextTemplate = CreateWebGlRenderingContextTemplate();
+        WebGlLoseContextTemplate = new HostObjectTemplate("WEBGLLoseContext")
+            .DefineMethod("loseContext", (target, _, _) => { ((WebGlContextState)target).Lose(); return ScriptValue.Undefined; })
+            .DefineMethod("restoreContext", (target, _, _) => { ((WebGlContextState)target).Restore(); return ScriptValue.Undefined; });
         Path2DTemplate = new HostObjectTemplate("Path2D")
             .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
             .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
@@ -247,6 +250,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlRenderingContextTemplate { get; }
+    public HostObjectTemplate WebGlLoseContextTemplate { get; }
     public HostObjectTemplate CanvasGradientTemplate { get; }
     public HostObjectTemplate TextMetricsTemplate { get; }
     public HostObjectTemplate ImageDataTemplate { get; }
@@ -416,6 +420,11 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("clearColor", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).SetClearColor((float)WebIdlConversions.ToDouble(args[0]), (float)WebIdlConversions.ToDouble(args[1]), (float)WebIdlConversions.ToDouble(args[2]), (float)WebIdlConversions.ToDouble(args[3])); return ScriptValue.Undefined; });
         t.DefineMethod("clear", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Clear(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("getError", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).TakeError()));
+        t.DefineMethod("isContextLost", (target, _, _) => ScriptValue.FromBoolean(((WebGlContextState)target).Lost));
+        t.DefineMethod("getExtension", (target, _, args) =>
+            args.Length > 0 && string.Equals(WebIdlConversions.ToDOMString(args[0]), "WEBGL_lose_context", StringComparison.OrdinalIgnoreCase)
+                ? _context.Engine.CreateHostObject(WebGlLoseContextTemplate, target)
+                : ScriptValue.Null);
         return t;
     }
 

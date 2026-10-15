@@ -53,6 +53,7 @@ internal sealed class WebGlContextState
     public uint? CurrentProgram { get; set; }
     public int DrawCalls { get; private set; }
     public int Error { get; private set; }
+    public bool Lost { get; private set; }
     public int AllocatedBytes { get; private set; }
     public float ClearR { get; private set; }
     public float ClearG { get; private set; }
@@ -63,6 +64,8 @@ internal sealed class WebGlContextState
     public void AddDrawCall() => DrawCalls++;
     public void SetError(int error) { if (Error == 0) Error = error; }
     public int TakeError() { var error = Error; Error = 0; return error; }
+    public void Lose() { Lost = true; SetError(0x9242); }
+    public void Restore() { Lost = false; }
     public bool TryAllocate(int bytes)
     {
         if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes) { SetError(0x0505); return false; }
