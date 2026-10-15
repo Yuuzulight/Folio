@@ -28,9 +28,26 @@ public sealed record ResourceLimits
     public int MaxStyleRules { get; init; } = 100_000;
 }
 
+/// <summary>Capabilities a host explicitly grants to a document.</summary>
+public sealed record FeatureCapabilities
+{
+    public static FeatureCapabilities Default { get; } = new();
+
+    public bool WebGl { get; init; }
+    public bool Media { get; init; }
+    public bool Workers { get; init; }
+    public bool WebAssembly { get; init; }
+    public bool Iframes { get; init; }
+    public bool WebRtc { get; init; }
+    public bool ServiceWorkers { get; init; }
+}
+
 /// <summary>How a host configures a document. Members for resource loading and scripting arrive with those features.</summary>
 public sealed class FolioOptions
 {
+    /// <summary>Stage-6 capabilities granted by the host. All are disabled by default.</summary>
+    public FeatureCapabilities Capabilities { get; init; } = FeatureCapabilities.Default;
+
     /// <summary>Resolves relative URLs; null for documents without a location.</summary>
     public Uri? BaseUri { get; init; }
 

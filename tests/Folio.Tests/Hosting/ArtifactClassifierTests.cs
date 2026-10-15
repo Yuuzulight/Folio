@@ -99,6 +99,40 @@ public class ArtifactClassifierTests
     }
 
     [Theory]
+    [InlineData("<canvas id=c></canvas><script>c.getContext('webgl2')</script>", "WebGL", "WebGL")]
+    [InlineData("<video src='movie.mp4'></video>", "<video>", "media")]
+    [InlineData("<script>new Worker('worker.js')</script>", "workers", "workers")]
+    [InlineData("<script>WebAssembly.instantiate(bytes)</script>", "WebAssembly", "WebAssembly")]
+    [InlineData("<iframe src='child.html'></iframe>", "<iframe>", "iframes")]
+    [InlineData("<script>navigator.mediaDevices.getUserMedia({})</script>", "WebRTC", "WebRTC")]
+    [InlineData("<script>navigator.serviceWorker.register('sw.js')</script>", "service workers", "service workers")]
+    public void StageSixFeaturesRequireAnExplicitHostCapability(string html, string feature, string capability)
+    {
+        var result = ArtifactClassifier.Classify(html);
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
+        Assert.Contains(result.Reasons, reason => reason.Contains(feature, StringComparison.Ordinal)
+            && reason.Contains(capability, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GrantedStageSixCapabilitiesAreNotRejectedByTheClassifier()
+    {
+        var options = new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities
+            {
+                WebGl = true, Media = true, Workers = true, WebAssembly = true,
+                Iframes = true, WebRtc = true, ServiceWorkers = true
+            }
+        };
+
+        var result = ArtifactClassifier.Classify("<video></video><iframe></iframe><script>new Worker('w'); WebAssembly.instantiate(x); new RTCPeerConnection(); navigator.serviceWorker.register('s');</script>", options);
+
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("capability", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("<p>Icon <svg width=16 height=16 viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=2><title>t</title>"
         + "<path d=\"M3 12h18\" /><circle cx=12 cy=12 r=9 /></svg></p>")]
     [InlineData("<svg viewBox=\"0 0 100 50\"><defs><style>.bar { fill: #6366f1 }</style></defs><g><rect class=bar width=10 height=40 />"

@@ -121,6 +121,9 @@ public static class ArtifactClassifier
 
             foreach (var element in document.QuerySelectorAll("*"))
                 Element(element);
+
+            foreach (var script in document.QuerySelectorAll("script"))
+                ScriptSource(script.TextContent);
         }
 
         private void Element(Element element)
@@ -163,7 +166,14 @@ public static class ArtifactClassifier
 
             var tag = element.LocalName;
             if (BoxOnlyElements.Contains(tag))
-                Unsupported.Add($"uses <{tag}>");
+            {
+                if (tag is "video" or "audio")
+                    Require(options.Capabilities.Media, $"uses <{tag}>", "media");
+                else if (tag is "iframe" or "frame" or "frameset")
+                    Require(options.Capabilities.Iframes, $"uses <{tag}>", "iframes");
+                else
+                    Unsupported.Add($"uses <{tag}>");
+            }
 
             switch (tag)
             {
@@ -185,6 +195,31 @@ public static class ArtifactClassifier
                         Image(candidate.Split(' ', 2)[0]);
                     break;
             }
+        }
+
+        private void ScriptSource(string? source)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+                return;
+            var text = source;
+            if (Contains(text, "getContext('webgl") || Contains(text, "getContext(\"webgl"))
+                Require(options.Capabilities.WebGl, "uses WebGL", "WebGL");
+            if (Contains(text, "new Worker(") || Contains(text, "new SharedWorker("))
+                Require(options.Capabilities.Workers, "uses workers", "workers");
+            if (Contains(text, "WebAssembly."))
+                Require(options.Capabilities.WebAssembly, "uses WebAssembly", "WebAssembly");
+            if (Contains(text, "RTCPeerConnection") || Contains(text, "getUserMedia("))
+                Require(options.Capabilities.WebRtc, "uses WebRTC", "WebRTC");
+            if (Contains(text, "navigator.serviceWorker") || Contains(text, "serviceWorker.register("))
+                Require(options.Capabilities.ServiceWorkers, "uses service workers", "service workers");
+        }
+
+        private static bool Contains(string source, string value) => source.Contains(value, StringComparison.OrdinalIgnoreCase);
+
+        private void Require(bool granted, string feature, string capability)
+        {
+            if (!granted)
+                Unsupported.Add($"{feature}; the host has not granted the {capability} capability");
         }
 
         // What SVG stage 1 draws (docs/study/13-svg.md); defs, title, desc and metadata draw nothing themselves, and
