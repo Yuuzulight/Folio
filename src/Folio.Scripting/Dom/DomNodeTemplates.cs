@@ -60,6 +60,8 @@ internal sealed class DomNodeTemplates
             .DefineProperty("source", (target, _) => ((MessageEventState)target).Source)
             .DefineProperty("type", (target, _) => ScriptValue.FromString(((MessageEventState)target).Type))
             .DefineProperty("target", (target, _) => ((MessageEventState)target).Target);
+        MediaEventTemplate = new HostObjectTemplate("Event")
+            .DefineProperty("type", (target, _) => ScriptValue.FromString(((MediaEventState)target).Type));
 
         HtmlInputElementTemplate = CreateHtmlInputElementTemplate(HtmlElementTemplate);
         HtmlButtonElementTemplate = CreateHtmlButtonElementTemplate(HtmlElementTemplate);
@@ -270,6 +272,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate MutationRecordTemplate { get; }
     public HostObjectTemplate MutationObserverTemplate { get; }
     public HostObjectTemplate MessageEventTemplate { get; }
+    public HostObjectTemplate MediaEventTemplate { get; }
     public HostObjectTemplate HtmlInputElementTemplate { get; }
     public HostObjectTemplate HtmlButtonElementTemplate { get; }
     public HostObjectTemplate HtmlAnchorElementTemplate { get; }
@@ -407,7 +410,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
             (target, _, value) => _context.GetMedia((ElementNode)target).SrcObject = value);
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
-            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded); } });
+            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); } });
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
         t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
         t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));

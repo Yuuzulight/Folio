@@ -143,11 +143,11 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Media = true }
         });
         DomBindings.Install(allowed, allowedDocument);
-        Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; v.onloadedmetadata = () => events += 'm'; v.onplay = () => events += 'p'; v.onpause = () => events += 's'; v.onended = () => events += 'e'; v.load(); v.paused && v instanceof HTMLMediaElement && v instanceof HTMLVideoElement && v.duration === 12 && v.readyState === 4 && events === 'm'").AsBoolean());
+        Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; let eventType = ''; v.onloadedmetadata = e => { events += 'm'; eventType = e.type; }; v.onplay = e => { events += 'p'; eventType = e.type; }; v.onpause = e => { events += 's'; eventType = e.type; }; v.onended = e => { events += 'e'; eventType = e.type; }; v.load(); v.paused && v instanceof HTMLMediaElement && v instanceof HTMLVideoElement && v.duration === 12 && v.readyState === 4 && events === 'm' && eventType === 'loadedmetadata'").AsBoolean());
         Assert.True(allowed.Evaluate("v.currentTime = 4; v.volume = 2; v.muted = true; v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 1 && v.muted").AsBoolean());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
-        Assert.True(allowed.Evaluate("events === 'mps'").AsBoolean());
+        Assert.True(allowed.Evaluate("events === 'mps' && eventType === 'pause'").AsBoolean());
         Assert.True(allowed.Evaluate("v.currentTime = 12; events === 'mpse'").AsBoolean());
         Assert.True(allowed.Evaluate("v.load(); v.currentTime === 0 && v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("const captions = v.addTextTrack('captions', 'English', 'en'); captions.kind === 'captions' && captions.label === 'English'; captions.mode = 'showing'; captions.addCue(1, 2, 'Hello'); captions.mode === 'showing' && captions.cues[0].startTime === 1 && captions.cues[0].endTime === 2 && captions.cues[0].text === 'Hello'").AsBoolean());

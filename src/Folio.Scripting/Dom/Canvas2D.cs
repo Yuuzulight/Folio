@@ -39,9 +39,10 @@ internal sealed class CanvasElementState : ICanvasSurface
 
 internal sealed class MediaElementState
 {
-    public MediaElementState(IScriptEngine engine, ElementNode element, bool enabled)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled)
     {
         Engine = engine;
+        EventTemplate = eventTemplate;
         Element = element;
         Enabled = enabled;
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : 0;
@@ -50,6 +51,7 @@ internal sealed class MediaElementState
 
     public ElementNode Element { get; }
     public IScriptEngine Engine { get; }
+    public IHostObjectTemplate EventTemplate { get; }
     public bool Enabled { get; }
     public double CurrentTime { get; set; }
     public double Duration { get; }
@@ -74,9 +76,13 @@ internal sealed class MediaElementState
     public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
-    public void Dispatch(ScriptValue handler)
+    public void Dispatch(ScriptValue handler, string type)
     {
-        if (handler.IsFunction) Engine.Call(handler, ScriptValue.Undefined, ReadOnlySpan<ScriptValue>.Empty);
+        if (handler.IsFunction)
+        {
+            var eventValue = Engine.CreateHostObject(EventTemplate, new MediaEventState(type));
+            Engine.Call(handler, ScriptValue.Undefined, [eventValue]);
+        }
     }
 
     public void Play()
@@ -84,10 +90,10 @@ internal sealed class MediaElementState
         if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return; }
         Paused = false;
         Ended = false;
-        Dispatch(OnPlay);
+        Dispatch(OnPlay, "play");
     }
 
-    public void Pause() { Paused = true; Dispatch(OnPause); }
+    public void Pause() { Paused = true; Dispatch(OnPause, "pause"); }
 
     public void Load()
     {
@@ -95,7 +101,7 @@ internal sealed class MediaElementState
         Paused = true;
         Ended = false;
         Error = null;
-        Dispatch(OnLoadedMetadata);
+        Dispatch(OnLoadedMetadata, "loadedmetadata");
     }
 }
 
