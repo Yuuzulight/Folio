@@ -19,9 +19,24 @@ internal sealed class WorkerState
                 .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) DispatchToParent(args[0]); return ScriptValue.Undefined; });
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
+            var imports = new HostObjectTemplate("WorkerImports")
+                .DefineMethod("load", (_, _, args) =>
+                {
+                    foreach (var argument in args)
+                    {
+                        var reference = argument.AsString() ?? string.Empty;
+                        var resolved = ResolveScriptUrl(ScriptUrl, reference);
+                        if (!TryReadScript(resolved, resourceLoader, out var imported))
+                            throw new InvalidOperationException($"Worker script could not load '{reference}'.");
+                        WorkerEngine.Evaluate(imported, resolved);
+                    }
+                    return ScriptValue.Undefined;
+                });
+            WorkerEngine.SetGlobalProperty("__folio_worker_imports", WorkerEngine.CreateHostObject(imports, this));
+            WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(null, arguments); };", ScriptUrl);
             WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
-            if (TryReadScript(scriptUrl, resourceLoader, out var source))
+            if (TryReadScriptWithImports(scriptUrl, resourceLoader, out var source))
             {
                 try { WorkerEngine.Evaluate(source, scriptUrl); }
                 catch (Exception error) { _scriptError = error; }
@@ -111,5 +126,37 @@ internal sealed class WorkerState
         if (response?.Data is not { } data) return false;
         source = System.Text.Encoding.UTF8.GetString(data);
         return true;
+    }
+
+    private static bool TryReadScriptWithImports(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null)
+    {
+        source = string.Empty;
+        seen ??= new HashSet<string>(StringComparer.Ordinal);
+        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source)) return false;
+        const string marker = "importScripts";
+        for (var search = 0; ;)
+        {
+            var start = source.IndexOf(marker, search, StringComparison.Ordinal);
+            if (start < 0) break;
+            var open = source.IndexOf('(', start + marker.Length);
+            var quote = open >= 0 ? source.IndexOfAny(['\'', '\"'], open + 1) : -1;
+            var closeQuote = quote >= 0 ? source.IndexOf(source[quote], quote + 1) : -1;
+            var close = closeQuote >= 0 ? source.IndexOf(')', closeQuote + 1) : -1;
+            if (open < 0 || quote < 0 || closeQuote < 0 || close < 0) { search = start + marker.Length; continue; }
+            var reference = source[(quote + 1)..closeQuote];
+            var resolved = ResolveScriptUrl(url, reference);
+            if (!TryReadScriptWithImports(resolved, resourceLoader, out var imported, seen)) return false;
+            source = source.Remove(start, close - start + 1).Insert(start, imported);
+            search = start + imported.Length;
+        }
+        return true;
+    }
+
+    private static string ResolveScriptUrl(string baseUrl, string reference)
+    {
+        if (reference.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return reference;
+        return Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri) && Uri.TryCreate(baseUri, reference, out var resolved)
+            ? resolved.AbsoluteUri
+            : reference;
     }
 }

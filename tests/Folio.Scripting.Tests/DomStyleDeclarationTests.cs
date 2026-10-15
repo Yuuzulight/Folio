@@ -20,6 +20,19 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("unsupported"));
     }
 
+    private sealed class ImportingWorkerResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            var source = request.Url.EndsWith("helper.js", StringComparison.Ordinal)
+                ? "self.addEventListener('message', function(e) { postMessage(e.data + 3); });"
+                : "importScripts('helper.js');";
+            return Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes(source), "application/javascript")
+                : ResourceResponse.Refused("wrong resource kind"));
+        }
+    }
+
     private sealed class IframeResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -318,6 +331,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(engine.Evaluate("const loaded = new Worker('worker.js'); let result = 0; loaded.onmessage = e => result = e.data; loaded.postMessage(40); result === 42").AsBoolean());
+
+        using var importing = new JintScriptEngine();
+        DomBindings.Install(importing, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/app/"),
+            ResourceLoader = new ImportingWorkerResourceLoader(),
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(importing.Evaluate("const imported = new Worker('worker.js'); let importedResult = 0; imported.onmessage = e => importedResult = e.data; imported.postMessage(40); importedResult === 43").AsBoolean());
     }
 
     [Fact]
