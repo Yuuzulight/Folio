@@ -47,6 +47,19 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.skipWaiting(); self.clients.claim(); onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript"));
     }
 
+    private sealed class ImportingServiceWorkerResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            var source = request.Url.EndsWith("helper.js", StringComparison.Ordinal)
+                ? "self.addEventListener('message', function(e) { postMessage(e.data + 4); });"
+                : "importScripts('helper.js');";
+            return Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes(source), "application/javascript")
+                : ResourceResponse.Refused("wrong resource kind"));
+        }
+    }
+
     private sealed class ServiceWorkerLifecycleLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -444,6 +457,17 @@ public sealed class DomStyleDeclarationTests
         Assert.True(scripted.Evaluate("let scriptedResult = 0; navigator.serviceWorker.register('sw.js').then(r => { r.active.onmessage = e => scriptedResult = e.data; r.active.postMessage(40); }); true").AsBoolean());
         scripted.PerformMicrotaskCheckpoint();
         Assert.Equal(42, scripted.Evaluate("scriptedResult").AsNumber());
+
+        using var importing = new JintScriptEngine();
+        DomBindings.Install(importing, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ImportingServiceWorkerResourceLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(importing.Evaluate("let importedResult = 0; navigator.serviceWorker.register('sw.js').then(r => { r.active.onmessage = e => importedResult = e.data; r.active.postMessage(40); }); true").AsBoolean());
+        importing.PerformMicrotaskCheckpoint();
+        Assert.Equal(44, importing.Evaluate("importedResult").AsNumber());
 
         using var lifecycle = new JintScriptEngine();
         DomBindings.Install(lifecycle, Document.Parse("<html></html>", new FolioOptions
