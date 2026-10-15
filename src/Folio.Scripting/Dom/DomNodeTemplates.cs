@@ -472,9 +472,8 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
         t.DefineMethod("canPlayType", (target, _, args) =>
         {
-            if (!_context.GetMedia((ElementNode)target).Enabled || args.Length == 0) return ScriptValue.FromString("");
-            var type = WebIdlConversions.ToDOMString(args[0]).ToLowerInvariant();
-            return ScriptValue.FromString(type.Contains("audio") || type.Contains("video") ? "maybe" : "");
+            if (args.Length == 0) return ScriptValue.FromString("");
+            return ScriptValue.FromString(_context.GetMedia((ElementNode)target).CanPlayType(WebIdlConversions.ToDOMString(args[0])));
         });
         t.DefineMethod("addTextTrack", (target, _, args) =>
         {

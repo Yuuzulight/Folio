@@ -232,6 +232,8 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("v.preload = 'auto'; v.defaultMuted = true; v.crossOrigin = 'anonymous'; v.fastSeek(6.6); v.setSinkId('default') instanceof Promise && v.preload === 'auto' && v.defaultMuted && v.crossOrigin === 'anonymous' && v.currentTime === 7").AsBoolean());
         Assert.True(allowed.Evaluate("const captured = v.captureStream(); captured instanceof MediaStream && v.videoWidth === 640 && v.videoHeight === 360").AsBoolean());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
+        Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('audio/mpeg; codecs=\"mp3\"')").AsString());
+        Assert.Equal("", allowed.Evaluate("v.canPlayType('application/octet-stream')").AsString());
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("events === 'mps' && eventType === 'pause'").AsBoolean());
         Assert.True(allowed.Evaluate("v.currentTime = 12; events === 'mpse'").AsBoolean());

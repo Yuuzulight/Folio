@@ -130,6 +130,18 @@ internal sealed class MediaElementState
         Dispatch(OnLoadedMetadata, "loadedmetadata");
     }
 
+    public string CanPlayType(string type)
+    {
+        if (!Enabled) return "";
+        var mime = type.Trim().ToLowerInvariant().Split(';', 2)[0];
+        return mime switch
+        {
+            "audio/wav" or "audio/x-wav" or "audio/wave" or "audio/mpeg" or "audio/mp3" or "audio/ogg" or
+            "video/mp4" or "video/webm" or "video/ogg" => "maybe",
+            _ => "",
+        };
+    }
+
     private static byte[]? LoadSourceBytes(string? source, IResourceLoader? resourceLoader, Uri? baseUri)
     {
         if (string.IsNullOrWhiteSpace(source)) return null;
