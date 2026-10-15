@@ -181,6 +181,9 @@ internal sealed class WebGlContextState
     public uint ReadBuffer { get; set; } = 0x0405;
     public HashSet<uint> VertexArrays { get; } = [];
     public HashSet<uint> Syncs { get; } = [];
+    public HashSet<uint> Queries { get; } = [];
+    public Dictionary<uint, bool> QueryResults { get; } = [];
+    public uint? ActiveQuery { get; set; }
     public uint? BoundTexture { get; set; }
     public uint ActiveTextureUnit { get; set; } = 0x84C0;
     public uint? BoundFramebuffer { get; set; }

@@ -106,6 +106,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("gl.getParameter(gl.MAX_TEXTURE_SIZE) === 4096 && gl.getParameter(gl.VERSION).includes('WebGL 2.0') && gl.getSupportedExtensions()[0] === 'WEBGL_lose_context'").AsBoolean());
         Assert.True(allowed.Evaluate("gl.drawBuffers([gl.COLOR_ATTACHMENT0]); gl.readBuffer(gl.BACK); gl.getParameter(gl.MAX_DRAW_BUFFERS) === 4 && gl.getParameter(gl.DRAW_BUFFER0) === gl.COLOR_ATTACHMENT0").AsBoolean());
         Assert.True(allowed.Evaluate("const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.isSync(sync) && gl.clientWaitSync(sync, 0, 0) === gl.CONDITION_SATISFIED; gl.deleteSync(sync); !gl.isSync(sync)").AsBoolean());
+        Assert.True(allowed.Evaluate("const query = gl.createQuery(); gl.beginQuery(gl.ANY_SAMPLES_PASSED, query); gl.endQuery(gl.ANY_SAMPLES_PASSED); gl.isQuery(query) && gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE) && gl.getQueryParameter(query, gl.QUERY_RESULT) === 1; gl.deleteQuery(query); !gl.isQuery(query)").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER, 4, 8); gl.getError()").AsNumber());
         Assert.True(allowed.Evaluate("const readback = new Uint8Array(4); gl.getBufferSubData(gl.ARRAY_BUFFER, 4, readback); gl.getError() === 0 && readback[0] === 0").AsBoolean());

@@ -585,6 +585,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("ALREADY_SIGNALED", (_, _) => ScriptValue.FromNumber(0x911A));
         t.DefineProperty("CONDITION_SATISFIED", (_, _) => ScriptValue.FromNumber(0x911C));
         t.DefineProperty("TIMEOUT_EXPIRED", (_, _) => ScriptValue.FromNumber(0x911B));
+        t.DefineProperty("ANY_SAMPLES_PASSED", (_, _) => ScriptValue.FromNumber(0x8C2F));
+        t.DefineProperty("QUERY_RESULT_AVAILABLE", (_, _) => ScriptValue.FromNumber(0x8867));
+        t.DefineProperty("QUERY_RESULT", (_, _) => ScriptValue.FromNumber(0x8866));
         t.DefineProperty("FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE", (_, _) => ScriptValue.FromNumber(0x8CD0));
         t.DefineProperty("FRAMEBUFFER_ATTACHMENT_OBJECT_NAME", (_, _) => ScriptValue.FromNumber(0x8CD1));
         t.DefineProperty("TEXTURE", (_, _) => ScriptValue.FromNumber(0x1702));
@@ -723,6 +726,13 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("clientWaitSync", (target, _, args) => { var state = (WebGlContextState)target; return args.Length > 0 && state.Syncs.Contains(WebIdlConversions.ToUint32(args[0])) ? ScriptValue.FromNumber(0x911C) : ScriptValue.FromNumber(0x911D); });
         t.DefineMethod("deleteSync", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Syncs.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isSync", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Syncs.Contains(WebIdlConversions.ToUint32(args[0]))));
+        t.DefineMethod("createQuery", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Queries.Add(handle); state.QueryResults[handle] = false; return ScriptValue.FromNumber(handle); });
+        t.DefineMethod("beginQuery", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.Queries.Contains(WebIdlConversions.ToUint32(args[1]))) { state.SetError(0x0502); return ScriptValue.Undefined; } state.ActiveQuery = WebIdlConversions.ToUint32(args[1]); state.QueryResults[state.ActiveQuery.Value] = false; return ScriptValue.Undefined; });
+        t.DefineMethod("endQuery", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length == 0 || state.ActiveQuery is not { } query) { state.SetError(0x0502); return ScriptValue.Undefined; } state.QueryResults[query] = true; state.ActiveQuery = null; return ScriptValue.Undefined; });
+        t.DefineMethod("deleteQuery", (target, _, args) => { if (args.Length > 0) { var state = (WebGlContextState)target; var handle = WebIdlConversions.ToUint32(args[0]); state.Queries.Remove(handle); state.QueryResults.Remove(handle); if (state.ActiveQuery == handle) state.ActiveQuery = null; } return ScriptValue.Undefined; });
+        t.DefineMethod("isQuery", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Queries.Contains(WebIdlConversions.ToUint32(args[0]))));
+        t.DefineMethod("getQuery", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.Queries.Contains(WebIdlConversions.ToUint32(args[0]))) return ScriptValue.Null; return ScriptValue.FromNumber(0); });
+        t.DefineMethod("getQueryParameter", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.QueryResults.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var available)) return ScriptValue.Null; return WebIdlConversions.ToUint32(args[1]) switch { 0x8867 => ScriptValue.FromBoolean(available), 0x8866 => ScriptValue.FromNumber(available ? 1 : 0), _ => ScriptValue.Null }; });
         t.DefineMethod("createTexture", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Textures[handle] = (0, 0, []); state.TextureParameters[handle] = []; return ScriptValue.FromNumber(handle); });
         t.DefineMethod("activeTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ActiveTextureUnit = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
