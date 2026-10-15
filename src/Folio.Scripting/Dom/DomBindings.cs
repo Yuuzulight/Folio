@@ -203,13 +203,13 @@ public static class DomBindings
                 Module: function(bytes) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
                     if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
-                    this.bytes = bytes; this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2); this._functions = __folio_wasm_functions(bytes);
+                    this.bytes = bytes; this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2); this._functions = __folio_wasm_functions(bytes); this._functionImportCount = this._imports.filter(function(entry) { return entry.kind === 0; }).length;
                 },
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
                     module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); });
                     this.module = module; this.exports = {};
-                    module._exports.forEach(function(entry) { if (entry.kind === 0) this.exports[entry.name] = module._functions[entry.index] ? function() { return __folio_wasm_execute(module._functions[entry.index], arguments); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; }, this);
+                    module._exports.forEach(function(entry) { if (entry.kind === 0) { var functionIndex = entry.index - module._functionImportCount; this.exports[entry.name] = functionIndex >= 0 && module._functions[functionIndex] ? function() { return __folio_wasm_execute(module._functions[functionIndex], arguments); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; } }, this);
                 },
                 Table: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
