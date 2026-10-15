@@ -126,7 +126,7 @@ public static class DomBindings
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
                 this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null;
-                this.localDescription = null; this.remoteDescription = null; this._senders = []; this._dataChannels = [];
+                this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = [];
             };
             RTCPeerConnection.prototype.createOffer = function() { return Promise.resolve({ type: 'offer', sdp: '' }); };
             RTCPeerConnection.prototype.createAnswer = function() { return Promise.resolve({ type: 'answer', sdp: '' }); };
@@ -135,6 +135,8 @@ public static class DomBindings
             RTCPeerConnection.prototype.addIceCandidate = function(candidate) { if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); this.iceConnectionState = 'connected'; if (this.oniceconnectionstatechange) this.oniceconnectionstatechange({}); return Promise.resolve(); };
             RTCPeerConnection.prototype.addTrack = function(track) { var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { return sender._parameters; }, setParameters: function(parameters) { sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); return sender; };
             RTCPeerConnection.prototype.getSenders = function() { return this._senders.slice(); };
+            RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; init = init || {}; var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null }, receiver: { track: null }, direction: init.direction || 'sendrecv', currentDirection: null, stopped: false, stop: function() { transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function() {} }; connection._transceivers.push(transceiver); return transceiver; };
+            RTCPeerConnection.prototype.getTransceivers = function() { return this._transceivers.slice(); };
             RTCPeerConnection.prototype.getConfiguration = function() { return this.configuration; };
             RTCPeerConnection.prototype.setConfiguration = function(configuration) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = configuration || {}; };
             RTCPeerConnection.prototype.getStats = function() { return Promise.resolve(new Map()); };
