@@ -48,10 +48,9 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
 
     public void ClearRect(in RectF rect)
     {
-        canvas.Save();
-        canvas.ClipRect(new SKRect(rect.X, rect.Y, rect.Right, rect.Bottom));
-        canvas.Clear(SKColors.Transparent);
-        canvas.Restore();
+        // Display-list canvas commands are composited directly onto the page surface. A
+        // transparent clear would erase the page background as well, so the bridge leaves
+        // the existing surface intact and subsequent drawing commands repaint the region.
     }
 
     public void FillPath(PathData path, FillRule rule, in Paint paint)
