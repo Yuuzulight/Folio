@@ -96,7 +96,8 @@ public static class DomBindings
                     var url = String(scriptURL); var scope = (options && options.scope) || '/';
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scriptURL === url && r.scope === scope; });
                     if (existing) return Promise.resolve(existing);
-                    var registration = { scope: scope, scriptURL: url, active: null, installing: null, waiting: null,
+                    var worker = { scriptURL: url, state: 'activated', onstatechange: null, postMessage: function() {} };
+                    var registration = { scope: scope, scriptURL: url, active: worker, installing: null, waiting: null,
                         unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); return Promise.resolve(true); } };
                     __folio_service_worker_registrations.push(registration); return Promise.resolve(registration);
                 },

@@ -235,6 +235,7 @@ public sealed class DomStyleDeclarationTests
         allowed.Evaluate("let registrationCount = 0; let registration; navigator.serviceWorker.register('/sw.js').then(r => { registration = r; return navigator.serviceWorker.getRegistrations(); }).then(rs => registrationCount = rs.length);");
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(1, allowed.Evaluate("registrationCount").AsNumber());
+        Assert.True(allowed.Evaluate("registration.active.scriptURL === '/sw.js' && registration.active.state === 'activated'; registration.active.postMessage('ping'); true").AsBoolean());
         Assert.True(allowed.Evaluate("registration.unregister()").IsObject);
     }
 
