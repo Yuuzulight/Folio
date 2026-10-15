@@ -136,6 +136,8 @@ internal sealed class WebGlContextState
     public HashSet<uint> Programs { get; } = [];
     public Dictionary<uint, List<uint>> ProgramShaders { get; } = [];
     public HashSet<uint> LinkedPrograms { get; } = [];
+    public HashSet<int> EnabledVertexAttributes { get; } = [];
+    public Dictionary<int, double[]> UniformValues { get; } = [];
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
     public uint? BoundTexture { get; set; }

@@ -524,6 +524,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
         t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
+        t.DefineProperty("FLOAT", (_, _) => ScriptValue.FromNumber(0x1406));
         t.DefineProperty("FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8D40));
         t.DefineProperty("MAX_TEXTURE_SIZE", (_, _) => ScriptValue.FromNumber(0x0D33));
         t.DefineProperty("MAX_VERTEX_ATTRIBS", (_, _) => ScriptValue.FromNumber(0x8869));
@@ -612,6 +613,15 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("getProgramParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 1 && WebIdlConversions.ToUint32(args[1]) == 0x8B82 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("getProgramInfoLog", (target, _, args) => ScriptValue.FromString(args.Length > 0 && !((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? "Program is not linked." : ""));
         t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 1 ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("getAttribLocation", (target, _, args) =>
+            ScriptValue.FromNumber(args.Length > 1 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? 0 : -1));
+        t.DefineMethod("enableVertexAttribArray", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledVertexAttributes.Add(WebIdlConversions.ToInt32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("disableVertexAttribArray", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledVertexAttributes.Remove(WebIdlConversions.ToInt32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("vertexAttribPointer", (_, _, _) => ScriptValue.Undefined);
+        t.DefineMethod("uniform1f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 1));
+        t.DefineMethod("uniform1i", (target, _, args) => StoreUniform((WebGlContextState)target, args, 1));
+        t.DefineMethod("uniform4f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 4));
+        t.DefineMethod("uniformMatrix4fv", (target, _, args) => StoreUniform((WebGlContextState)target, args, 16));
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("createTexture", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Textures[handle] = (0, 0, []); return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
@@ -663,6 +673,16 @@ internal sealed class DomNodeTemplates
                 ? _context.Engine.CreateHostObject(WebGlLoseContextTemplate, target)
                 : ScriptValue.Null);
         return t;
+
+        static ScriptValue StoreUniform(WebGlContextState state, ReadOnlySpan<ScriptValue> args, int count)
+        {
+            if (args.Length < count + 1) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var location = WebIdlConversions.ToInt32(args[0]);
+            var values = new double[count];
+            for (var i = 0; i < count; i++) values[i] = WebIdlConversions.ToDouble(args[i + 1]);
+            state.UniformValues[location] = values;
+            return ScriptValue.Undefined;
+        }
     }
 
     private HostObjectTemplate CreateNodeTemplate()
