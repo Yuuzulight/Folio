@@ -17,6 +17,7 @@ internal sealed class CanvasElementState : ICanvasSurface
     public int[] Pixels { get; } = new int[300 * 150 * 4];
     IReadOnlyList<CanvasSurfaceCommand> ICanvasSurface.Commands => Commands.Select(command =>
         new CanvasSurfaceCommand(command.Name, command.X, command.Y, command.Width, command.Height, command.FillStyle, command.StrokeStyle, command.Text, command.Composite, command.Arguments)).ToArray();
+    void ICanvasSurface.ClearCommands() => Commands.Clear();
     public string FillStyle { get; set; } = "#000000";
     public string StrokeStyle { get; set; } = "#000000";
     public string Font { get; set; } = "10px sans-serif";

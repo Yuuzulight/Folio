@@ -736,6 +736,7 @@ internal static class DisplayListBuilder
             }
         while (transformDepth-- > 0)
             list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+        surface.ClearCommands();
         }
 
         private static CssColor CanvasColor(string value)

@@ -4,6 +4,7 @@ namespace Folio.Dom;
 internal interface ICanvasSurface
 {
     IReadOnlyList<CanvasSurfaceCommand> Commands { get; }
+    void ClearCommands() { }
 }
 
 internal sealed record CanvasSurfaceCommand(string Name, double X, double Y, double Width, double Height, string FillStyle, string? StrokeStyle = null, string Text = "", string Composite = "source-over", IReadOnlyList<double>? Arguments = null);
