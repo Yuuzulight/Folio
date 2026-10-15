@@ -614,14 +614,43 @@ internal static class DisplayListBuilder
         private void PaintCanvas(PaintBox box, ICanvasSurface surface)
         {
             SetClip(box.Clip);
+        var path = new PathData();
             foreach (var command in surface.Commands)
             {
-                if (command.Name is not ("fillRect" or "strokeRect" or "rect"))
-                    continue;
                 var color = CanvasColor(command.FillStyle);
-                var rect = new RectF(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y,
-                    (float)command.Width, (float)command.Height);
-                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color));
+            switch (command.Name)
+            {
+                case "fillRect" or "strokeRect":
+                    var rect = new RectF(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y,
+                        (float)command.Width, (float)command.Height);
+                    if (command.Name == "fillRect")
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color));
+                    else
+                        list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color,
+                            Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
+                    break;
+                case "rect":
+                    path.AddRoundedRect(new RoundedRect(new RectF(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y,
+                        (float)command.Width, (float)command.Height), default));
+                    break;
+                case "moveTo":
+                    path.MoveTo(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y);
+                    break;
+                case "lineTo":
+                    path.LineTo(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y);
+                    break;
+                case "closePath":
+                    path.Close();
+                    break;
+                case "fill" when path.Commands.Count > 0:
+                    list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Path: path));
+                    path = new PathData();
+                    break;
+                case "stroke" when path.Commands.Count > 0:
+                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Path: path, Stroke: new Stroke(1)));
+                    path = new PathData();
+                    break;
+            }
             }
         }
 

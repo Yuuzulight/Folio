@@ -20,6 +20,24 @@ public sealed class CanvasDisplayListTests
         Assert.Equal(8, fill.Shape.Rect.Height);
     }
 
+    [Fact]
+    public void PathCommandsArePaintedIntoTheDisplayList()
+    {
+        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
+        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
+        canvas.CanvasSurface = new TestCanvasSurface([
+            new CanvasSurfaceCommand("beginPath", 0, 0, 0, 0, ""),
+            new CanvasSurfaceCommand("moveTo", 2, 3, 0, 0, ""),
+            new CanvasSurfaceCommand("lineTo", 12, 3, 0, 0, ""),
+            new CanvasSurfaceCommand("lineTo", 12, 11, 0, 0, ""),
+            new CanvasSurfaceCommand("closePath", 0, 0, 0, 0, ""),
+            new CanvasSurfaceCommand("fill", 0, 0, 0, 0, "#00f")
+        ]);
+
+        var (displayList, _) = document.Paint(200, 100);
+        Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.FillPath && item.Color.B > 0.9f);
+    }
+
     private sealed class TestCanvasSurface(IReadOnlyList<CanvasSurfaceCommand> commands) : ICanvasSurface
     {
         public IReadOnlyList<CanvasSurfaceCommand> Commands { get; } = commands;
