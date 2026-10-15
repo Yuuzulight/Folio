@@ -157,6 +157,22 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void WebAssemblySurfaceValidatesModulesOnlyWhenGranted()
+    {
+        using var denied = new JintScriptEngine();
+        DomBindings.Install(denied, Document.Parse("<html></html>"));
+        Assert.False(denied.Evaluate("WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0]))").AsBoolean());
+
+        using var allowed = new JintScriptEngine();
+        DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = true }
+        }));
+        Assert.True(allowed.Evaluate("WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0]))").AsBoolean());
+        Assert.False(allowed.Evaluate("WebAssembly.validate(new Uint8Array([1,2,3]))").AsBoolean());
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");

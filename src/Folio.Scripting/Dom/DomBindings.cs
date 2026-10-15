@@ -68,12 +68,26 @@ public static class DomBindings
                 return engine.CreateHostObject(workerTemplate, new WorkerState(engine, url, true));
             });
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
+        engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
+            globalThis.WebAssembly = {
+                validate: function(bytes) {
+                    if (!__folio_wasm_enabled || !bytes || bytes.length < 8) return false;
+                    return bytes[0] === 0 && bytes[1] === 97 && bytes[2] === 115 && bytes[3] === 109 && bytes[4] === 1 && bytes[5] === 0 && bytes[6] === 0 && bytes[7] === 0;
+                },
+                compile: function(bytes) {
+                    if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
+                    return Promise.resolve({});
+                },
+                instantiate: function(bytes, imports) {
+                    return this.compile(bytes).then(function(module) { return { module: module, instance: { exports: {} } }; });
+                }
+            };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;
             globalThis.devicePixelRatio = 1;
