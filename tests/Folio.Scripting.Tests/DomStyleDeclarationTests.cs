@@ -246,6 +246,7 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(1, allowed.Evaluate("registrationCount").AsNumber());
         Assert.True(allowed.Evaluate("registration.active.scriptURL === '/sw.js' && registration.active.state === 'activated'; registration.active.postMessage('ping'); true").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.serviceWorker.controller === registration.active").AsBoolean());
+        Assert.True(allowed.Evaluate("let controllerChanges = 0; navigator.serviceWorker.oncontrollerchange = e => { if (e.type === 'controllerchange' && e.target === navigator.serviceWorker) controllerChanges++; }; registration.unregister(); controllerChanges === 1 && navigator.serviceWorker.controller === null").AsBoolean());
         Assert.True(allowed.Evaluate("let updateFound = false; registration.onupdatefound = e => updateFound = e.type === 'updatefound' && e.target === registration; registration.update(); updateFound").AsBoolean());
         allowed.Evaluate("let readyScope = ''; navigator.serviceWorker.ready.then(r => readyScope = r.scope);");
         allowed.PerformMicrotaskCheckpoint();

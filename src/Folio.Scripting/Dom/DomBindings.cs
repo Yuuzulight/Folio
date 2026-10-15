@@ -92,6 +92,7 @@ public static class DomBindings
             var __folio_service_worker_registrations = [];
             globalThis.navigator.serviceWorker = {
                 controller: null,
+                oncontrollerchange: null,
                 ready: Promise.resolve({ scope: '/', active: null }),
                 register: function(scriptURL, options) {
                     if (!__folio_service_workers_enabled) return Promise.reject(new DOMException('Service workers are disabled by the host.', 'SecurityError'));
@@ -101,8 +102,8 @@ public static class DomBindings
                     var worker = { scriptURL: url, state: 'activated', onstatechange: null, postMessage: function() {} };
                     var registration = { scope: scope, scriptURL: url, active: worker, installing: null, waiting: null, onupdatefound: null,
                         update: function() { if (registration.onupdatefound) registration.onupdatefound({ type: 'updatefound', target: registration }); return Promise.resolve(registration); },
-                        unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); if (navigator.serviceWorker.controller === worker) navigator.serviceWorker.controller = null; return Promise.resolve(true); } };
-                    __folio_service_worker_registrations.push(registration); navigator.serviceWorker.controller = worker; navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration);
+                        unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); if (navigator.serviceWorker.controller === worker) { navigator.serviceWorker.controller = null; if (navigator.serviceWorker.oncontrollerchange) navigator.serviceWorker.oncontrollerchange({ type: 'controllerchange', target: navigator.serviceWorker }); } return Promise.resolve(true); } };
+                    __folio_service_worker_registrations.push(registration); navigator.serviceWorker.controller = worker; if (navigator.serviceWorker.oncontrollerchange) navigator.serviceWorker.oncontrollerchange({ type: 'controllerchange', target: navigator.serviceWorker }); navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration);
                 },
                 getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
