@@ -56,6 +56,24 @@ public sealed class DomStyleDeclarationTests
         }
     }
 
+    private sealed class MpegResourceLoader : IResourceLoader
+    {
+        private readonly byte[] _mpeg = CreateMpeg();
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Media
+                ? ResourceResponse.Loaded(_mpeg, "audio/mpeg")
+                : ResourceResponse.Refused("wrong resource kind"));
+        private static byte[] CreateMpeg()
+        {
+            var bytes = new byte[834];
+            for (var offset = 0; offset < bytes.Length; offset += 417)
+            {
+                bytes[offset] = 0xFF; bytes[offset + 1] = 0xFB; bytes[offset + 2] = 0x90; bytes[offset + 3] = 0x64;
+            }
+            return bytes;
+        }
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -229,6 +247,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Media = true }
         }));
         Assert.Equal(1, decoded.Evaluate("document.getElementById('a').duration").AsNumber());
+
+        using var mpeg = new JintScriptEngine();
+        DomBindings.Install(mpeg, Document.Parse("<audio id='a' src='/tone.mp3'></audio>", new FolioOptions
+        {
+            BaseUri = new Uri("https://media.example/"),
+            ResourceLoader = new MpegResourceLoader(),
+            Capabilities = new FeatureCapabilities { Media = true }
+        }));
+        Assert.Equal(0.052, mpeg.Evaluate("document.getElementById('a').duration").AsNumber(), 3);
         Assert.True(allowed.Evaluate("const audio = new Audio('/sound.ogg'); audio instanceof HTMLAudioElement && audio.src === '/sound.ogg'").AsBoolean());
         Assert.True(allowed.Evaluate("const stream = new MediaStream([]); v.srcObject = stream; v.srcObject === stream").AsBoolean());
 

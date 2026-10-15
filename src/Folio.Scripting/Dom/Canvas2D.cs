@@ -51,7 +51,7 @@ internal sealed class MediaElementState
         _resourceLoader = resourceLoader;
         _baseUri = baseUri;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
-        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseWavDuration(bytes);
+        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
     }
 
@@ -121,7 +121,7 @@ internal sealed class MediaElementState
         if (bytes is not null)
         {
             SourceBytes = bytes.LongLength;
-            Duration = ParseWavDuration(bytes);
+            Duration = ParseMediaDuration(bytes);
         }
         CurrentTime = 0;
         Paused = true;
@@ -150,6 +150,40 @@ internal sealed class MediaElementState
         if (baseUri is not null && Uri.TryCreate(baseUri, source, out var resolved)) source = resolved.AbsoluteUri;
         if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return null;
         return resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Media), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+    }
+
+    private static double ParseMediaDuration(byte[]? bytes)
+    {
+        var wav = ParseWavDuration(bytes);
+        return wav > 0 ? wav : ParseMpegDuration(bytes);
+    }
+
+    private static double ParseMpegDuration(byte[]? bytes)
+    {
+        if (bytes is null || bytes.Length < 4) return 0;
+        var offset = 0;
+        if (bytes.Length >= 10 && bytes[0] == 'I' && bytes[1] == 'D' && bytes[2] == '3')
+            offset = 10 + ((bytes[6] & 0x7F) << 21) + ((bytes[7] & 0x7F) << 14) + ((bytes[8] & 0x7F) << 7) + (bytes[9] & 0x7F);
+        var samples = 0L;
+        var sampleRate = 0;
+        for (var cursor = offset; cursor + 4 <= bytes.Length;)
+        {
+            if (bytes[cursor] != 0xFF || (bytes[cursor + 1] & 0xE0) != 0xE0) { cursor++; continue; }
+            var version = (bytes[cursor + 1] >> 3) & 3;
+            var layer = (bytes[cursor + 1] >> 1) & 3;
+            var bitrateIndex = (bytes[cursor + 2] >> 4) & 15;
+            var rateIndex = (bytes[cursor + 2] >> 2) & 3;
+            if (version != 3 || layer != 1 || bitrateIndex is 0 or 15 || rateIndex == 3) { cursor++; continue; }
+            var bitrates = new[] { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0 };
+            var rates = new[] { 44100, 48000, 32000, 0 };
+            var bitrate = bitrates[bitrateIndex] * 1000;
+            sampleRate = rates[rateIndex];
+            var frameLength = 144 * bitrate / sampleRate;
+            if (frameLength < 1 || cursor + frameLength > bytes.Length) break;
+            samples += 1152;
+            cursor += frameLength;
+        }
+        return samples > 0 && sampleRate > 0 ? (double)samples / sampleRate : 0;
     }
 
     private static double ParseWavDuration(byte[]? bytes)
