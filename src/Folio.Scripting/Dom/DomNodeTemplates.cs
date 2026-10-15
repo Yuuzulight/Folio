@@ -444,6 +444,8 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).OnPause = value);
         t.DefineProperty("onended", (target, _) => _context.GetMedia((ElementNode)target).OnEnded,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnEnded = value);
+        t.DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1) _context.GetMedia((ElementNode)target).AddEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; });
+        t.DefineMethod("removeEventListener", (target, _, args) => { if (args.Length > 1) _context.GetMedia((ElementNode)target).RemoveEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; });
         t.DefineProperty("buffered", (target, _) => CreateMediaRanges((ElementNode)target, buffered: true));
         t.DefineProperty("seekable", (target, _) => CreateMediaRanges((ElementNode)target, buffered: false));
         t.DefineProperty("played", (target, _) => CreateMediaRanges((ElementNode)target, buffered: null));

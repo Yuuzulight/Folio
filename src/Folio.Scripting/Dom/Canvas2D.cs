@@ -77,13 +77,22 @@ internal sealed class MediaElementState
     public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
+    private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
+    public void AddEventListener(string type, ScriptValue listener)
+    {
+        if (!listener.IsFunction) return;
+        if (!_listeners.TryGetValue(type, out var list)) _listeners[type] = list = [];
+        if (!list.Contains(listener)) list.Add(listener);
+    }
+    public void RemoveEventListener(string type, ScriptValue listener)
+    {
+        if (_listeners.TryGetValue(type, out var list)) list.Remove(listener);
+    }
     public void Dispatch(ScriptValue handler, string type)
     {
-        if (handler.IsFunction)
-        {
-            var eventValue = Engine.CreateHostObject(EventTemplate, new MediaEventState(type));
-            Engine.Call(handler, ScriptValue.Undefined, [eventValue]);
-        }
+        var eventValue = Engine.CreateHostObject(EventTemplate, new MediaEventState(type));
+        if (handler.IsFunction) Engine.Call(handler, ScriptValue.Undefined, [eventValue]);
+        if (_listeners.TryGetValue(type, out var list)) foreach (var listener in list.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [eventValue]);
     }
 
     public void Play()
