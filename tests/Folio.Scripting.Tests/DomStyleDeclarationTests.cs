@@ -44,7 +44,9 @@ public sealed class DomStyleDeclarationTests
     {
         private readonly byte[] _wav = CreateWav();
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(_wav, "audio/wav"));
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Media
+                ? ResourceResponse.Loaded(_wav, "audio/wav")
+                : ResourceResponse.Refused("wrong resource kind"));
         private static byte[] CreateWav()
         {
             var bytes = new byte[44 + 8000];

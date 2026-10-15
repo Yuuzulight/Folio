@@ -10,6 +10,7 @@ public enum ResourceKind
     Font,
     Script,
     Document,
+    Media,
     SvgImage,
 }
 

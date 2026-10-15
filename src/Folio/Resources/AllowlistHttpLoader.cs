@@ -130,7 +130,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
             {
                 using var message = new HttpRequestMessage(HttpMethod.Get, url);
                 message.Headers.UserAgent.Add(new ProductInfoHeaderValue("Folio", "1"));
-                message.Headers.TryAddWithoutValidation("Accept", kind switch { ResourceKind.Stylesheet => "text/css", ResourceKind.Document => "text/html, application/xhtml+xml", ResourceKind.Font => "font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1", _ => "*/*" });
+                message.Headers.TryAddWithoutValidation("Accept", kind switch { ResourceKind.Stylesheet => "text/css", ResourceKind.Document => "text/html, application/xhtml+xml", ResourceKind.Media => "audio/*, video/*", ResourceKind.Font => "font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1", _ => "*/*" });
                 using var response = await _client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 if ((int)response.StatusCode is >= 300 and < 400 && response.Headers.Location is { } location)
                 {
@@ -167,6 +167,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
         ResourceKind.Image or ResourceKind.SvgImage => type is not null && type.StartsWith("image/", StringComparison.Ordinal),
         ResourceKind.Script => type is "text/javascript" or "application/javascript" or "application/ecmascript" or "text/ecmascript",
         ResourceKind.Document => type is "text/html" or "application/xhtml+xml",
+        ResourceKind.Media => type is not null && (type.StartsWith("audio/", StringComparison.Ordinal) || type.StartsWith("video/", StringComparison.Ordinal)),
         _ => false,
     };
 

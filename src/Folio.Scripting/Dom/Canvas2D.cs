@@ -149,7 +149,7 @@ internal sealed class MediaElementState
         if (resourceLoader is null) return null;
         if (baseUri is not null && Uri.TryCreate(baseUri, source, out var resolved)) source = resolved.AbsoluteUri;
         if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return null;
-        return resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+        return resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Media), CancellationToken.None).GetAwaiter().GetResult()?.Data;
     }
 
     private static double ParseWavDuration(byte[]? bytes)
