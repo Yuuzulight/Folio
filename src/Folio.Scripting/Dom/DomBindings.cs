@@ -150,6 +150,25 @@ public static class DomBindings
                 this._dataChannels.push(channel); return channel;
             };
             RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
+            function __folio_wasm_read_u32(bytes, cursor) { var value = 0; var shift = 0; while (cursor.i < bytes.length) { var part = bytes[cursor.i++]; value |= (part & 127) << shift; if ((part & 128) === 0) break; shift += 7; } return value >>> 0; }
+            function __folio_wasm_read_name(bytes, cursor) { var length = __folio_wasm_read_u32(bytes, cursor); var text = ''; for (var i = 0; i < length && cursor.i < bytes.length; i++) text += String.fromCharCode(bytes[cursor.i++]); return text; }
+            function __folio_wasm_skip_limits(bytes, cursor) { var flags = bytes[cursor.i++]; __folio_wasm_read_u32(bytes, cursor); if (flags & 1) __folio_wasm_read_u32(bytes, cursor); }
+            function __folio_wasm_metadata(bytes, wanted) {
+                var result = []; if (!bytes || bytes.length < 8) return result; var cursor = { i: 8 };
+                while (cursor.i < bytes.length) {
+                    var section = bytes[cursor.i++]; var size = __folio_wasm_read_u32(bytes, cursor); var end = Math.min(bytes.length, cursor.i + size);
+                    if (section !== wanted) { cursor.i = end; continue; }
+                    var count = __folio_wasm_read_u32(bytes, cursor);
+                    for (var n = 0; n < count && cursor.i < end; n++) {
+                        var moduleName = ''; if (wanted === 2) moduleName = __folio_wasm_read_name(bytes, cursor);
+                        var name = __folio_wasm_read_name(bytes, cursor); var kind = bytes[cursor.i++]; var index = __folio_wasm_read_u32(bytes, cursor);
+                        result.push(wanted === 2 ? { module: moduleName, name: name, kind: kind, index: index } : { name: name, kind: kind, index: index });
+                        if (wanted === 2) { if (kind === 1) { cursor.i++; __folio_wasm_skip_limits(bytes, cursor); } else if (kind === 2) __folio_wasm_skip_limits(bytes, cursor); else if (kind === 3) { cursor.i += 2; } else if (kind === 4) __folio_wasm_read_u32(bytes, cursor); }
+                    }
+                    cursor.i = end;
+                }
+                return result;
+            }
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 validate: function(bytes) {
@@ -173,7 +192,7 @@ public static class DomBindings
                 Module: function(bytes) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
                     if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
-                    this.bytes = bytes;
+                    this.bytes = bytes; this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2);
                 },
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
@@ -207,11 +226,11 @@ public static class DomBindings
             WebAssembly.Global.prototype.valueOf = function() { return this.value; };
             WebAssembly.Module.exports = function(module) {
                 if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.exports requires a Module.');
-                return [];
+                return module._exports.slice();
             };
             WebAssembly.Module.imports = function(module) {
                 if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.imports requires a Module.');
-                return [];
+                return module._imports.slice();
             };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;
