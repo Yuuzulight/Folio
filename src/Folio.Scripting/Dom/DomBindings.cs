@@ -215,9 +215,9 @@ public static class DomBindings
                 },
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
-                    module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); });
+                    var importedFunctions = []; module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); if (entry.kind === 0) { if (typeof imports[entry.module][entry.name] !== 'function') throw new TypeError('WebAssembly function import is not callable.'); importedFunctions.push(imports[entry.module][entry.name]); } });
                     this.module = module; this.exports = {};
-                    module._exports.forEach(function(entry) { if (entry.kind === 0) { var functionIndex = entry.index - module._functionImportCount; this.exports[entry.name] = functionIndex >= 0 && module._functions[functionIndex] ? function() { return __folio_wasm_execute(module._functions[functionIndex], arguments); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; } }, this);
+                    module._exports.forEach(function(entry) { if (entry.kind === 0) { var functionIndex = entry.index - module._functionImportCount; this.exports[entry.name] = entry.index < module._functionImportCount ? importedFunctions[entry.index] : functionIndex >= 0 && module._functions[functionIndex] ? function() { return __folio_wasm_execute(module._functions[functionIndex], arguments); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; } }, this);
                 },
                 Table: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
