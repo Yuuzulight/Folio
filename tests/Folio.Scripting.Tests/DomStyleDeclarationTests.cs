@@ -317,6 +317,7 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; let messageOrigin = ''; let messageSource = false; let messageTarget = false; f.contentWindow.onmessage = x => { seen = x.data; messageOrigin = x.origin; messageSource = x.source === f.contentWindow; messageTarget = x.target === f.contentWindow; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && messageOrigin === 'https://child.example' && messageSource && messageTarget && f.contentWindow.origin === 'https://child.example'").AsBoolean());
+        Assert.True(allowed.Evaluate("let listenerSeen = 0; const listener = e => listenerSeen = e.data; f.contentWindow.addEventListener('message', listener); f.contentWindow.postMessage(10, 'https://child.example'); f.contentWindow.removeEventListener('message', listener); listenerSeen === 10").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
         Assert.True(allowed.Evaluate("f instanceof HTMLIFrameElement").AsBoolean());
     }

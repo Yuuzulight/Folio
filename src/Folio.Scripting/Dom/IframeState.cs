@@ -21,13 +21,23 @@ internal sealed class IframeState
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue Window { get; set; } = ScriptValue.Null;
+    private readonly List<ScriptValue> _messageListeners = [];
 
     public void PostMessage(ScriptValue data, string targetOrigin)
     {
-        if (!Enabled || Closed || !OnMessage.IsFunction || (targetOrigin != "*" && targetOrigin != Origin)) return;
+        if (!Enabled || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window));
-        Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
+        if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
+        foreach (var listener in _messageListeners.ToArray())
+            if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
     }
+
+    public void AddMessageListener(ScriptValue listener)
+    {
+        if (listener.IsFunction && !_messageListeners.Contains(listener)) _messageListeners.Add(listener);
+    }
+
+    public void RemoveMessageListener(ScriptValue listener) => _messageListeners.Remove(listener);
 
     public void Close() => Closed = true;
 }

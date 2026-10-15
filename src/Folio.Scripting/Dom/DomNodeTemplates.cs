@@ -502,6 +502,8 @@ internal sealed class DomNodeTemplates
             .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((IframeState)target).Closed))
             .DefineProperty("origin", (target, _) => ScriptValue.FromString(((IframeState)target).Origin))
             .DefineProperty("onmessage", (target, _) => ((IframeState)target).OnMessage, (target, _, value) => ((IframeState)target).OnMessage = value)
+            .DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1) ((IframeState)target).AddMessageListener(args[1]); return ScriptValue.Undefined; })
+            .DefineMethod("removeEventListener", (target, _, args) => { if (args.Length > 1) ((IframeState)target).RemoveMessageListener(args[1]); return ScriptValue.Undefined; })
             .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((IframeState)target).PostMessage(args[0], args.Length > 1 ? WebIdlConversions.ToDOMString(args[1]) : "*"); return ScriptValue.Undefined; })
             .DefineMethod("close", (target, _, _) => { ((IframeState)target).Close(); return ScriptValue.Undefined; });
         var t = new HostObjectTemplate("HTMLIFrameElement", htmlElementProto);
