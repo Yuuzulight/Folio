@@ -488,6 +488,10 @@ public static class DomBindings
                 const Element = defClass('Element', Node);
                 const SVGElement = defClass('SVGElement', Element);
                 const HTMLElement = defClass('HTMLElement', Element);
+                const HTMLMediaElement = defClass('HTMLMediaElement', HTMLElement);
+                const HTMLAudioElement = defClass('HTMLAudioElement', HTMLMediaElement);
+                const HTMLVideoElement = defClass('HTMLVideoElement', HTMLMediaElement);
+                const HTMLIFrameElement = defClass('HTMLIFrameElement', HTMLElement);
 
                 const Attr = defClass('Attr', Node);
 

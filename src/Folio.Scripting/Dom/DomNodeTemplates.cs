@@ -70,6 +70,8 @@ internal sealed class DomNodeTemplates
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
         HtmlMediaElementTemplate = CreateHtmlMediaElementTemplate(HtmlElementTemplate);
+        HtmlAudioElementTemplate = CreateHtmlMediaElementTemplate(HtmlMediaElementTemplate, "HTMLAudioElement");
+        HtmlVideoElementTemplate = CreateHtmlMediaElementTemplate(HtmlMediaElementTemplate, "HTMLVideoElement");
         HtmlIFrameElementTemplate = CreateHtmlIFrameElementTemplate(HtmlElementTemplate);
         TextTrackCueTemplate = new HostObjectTemplate("TextTrackCue")
             .DefineProperty("startTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).StartTime))
@@ -277,6 +279,8 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate HtmlMediaElementTemplate { get; }
+    public HostObjectTemplate HtmlAudioElementTemplate { get; }
+    public HostObjectTemplate HtmlVideoElementTemplate { get; }
     public HostObjectTemplate HtmlIFrameElementTemplate { get; }
     public HostObjectTemplate TextTrackTemplate { get; }
     public HostObjectTemplate TextTrackCueTemplate { get; }
@@ -392,9 +396,9 @@ internal sealed class DomNodeTemplates
             uint.TryParse(element.GetAttribute(name), out var value) ? value : fallback;
     }
 
-    private HostObjectTemplate CreateHtmlMediaElementTemplate(IHostObjectTemplate htmlElementProto)
+    private HostObjectTemplate CreateHtmlMediaElementTemplate(IHostObjectTemplate htmlElementProto, string interfaceName = "HTMLMediaElement")
     {
-        var t = new HostObjectTemplate("HTMLMediaElement", htmlElementProto);
+        var t = new HostObjectTemplate(interfaceName, htmlElementProto);
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));

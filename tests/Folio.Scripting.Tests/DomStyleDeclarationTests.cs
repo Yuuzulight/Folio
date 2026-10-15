@@ -133,7 +133,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Media = true }
         });
         DomBindings.Install(allowed, allowedDocument);
-        Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; v.onloadedmetadata = () => events += 'm'; v.onplay = () => events += 'p'; v.onpause = () => events += 's'; v.onended = () => events += 'e'; v.load(); v.paused && v.duration === 12 && v.readyState === 4 && events === 'm'").AsBoolean());
+        Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; v.onloadedmetadata = () => events += 'm'; v.onplay = () => events += 'p'; v.onpause = () => events += 's'; v.onended = () => events += 'e'; v.load(); v.paused && v instanceof HTMLMediaElement && v instanceof HTMLVideoElement && v.duration === 12 && v.readyState === 4 && events === 'm'").AsBoolean());
         Assert.True(allowed.Evaluate("v.currentTime = 4; v.volume = 2; v.muted = true; v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 1 && v.muted").AsBoolean());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
@@ -260,6 +260,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; let messageOrigin = ''; f.contentWindow.onmessage = x => { seen = x.data; messageOrigin = x.origin; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && messageOrigin === 'https://child.example' && f.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
+        Assert.True(allowed.Evaluate("f instanceof HTMLIFrameElement").AsBoolean());
     }
 
     [Fact]
