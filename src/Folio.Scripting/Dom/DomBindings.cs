@@ -106,9 +106,16 @@ public static class DomBindings
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
-                    return Promise.resolve({ getTracks: function() { return []; }, getAudioTracks: function() { return []; }, getVideoTracks: function() { return []; }, stop: function() {} });
+                    return Promise.resolve(new MediaStream([]));
                 }
             };
+            globalThis.MediaStreamTrack = function(kind) { this.kind = String(kind || ''); this.readyState = 'live'; this.stop = function() { this.readyState = 'ended'; }; };
+            globalThis.MediaStream = function(tracks) { this._tracks = tracks ? tracks.slice() : []; };
+            MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
+            MediaStream.prototype.getAudioTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'audio'; }); };
+            MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
+            MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) this._tracks.push(track); };
+            MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) this._tracks.splice(i, 1); };
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
                 this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable';
