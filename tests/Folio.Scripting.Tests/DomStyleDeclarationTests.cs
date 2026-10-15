@@ -101,6 +101,24 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void CanvasSupportsFunctionalColorsAndArcTo()
+    {
+        var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+
+        var result = engine.Evaluate(@"
+            const ctx = document.getElementById('chart').getContext('2d');
+            ctx.fillStyle = 'hsl(120, 100%, 50%)';
+            ctx.beginPath(); ctx.moveTo(1, 1); ctx.arcTo(10, 1, 10, 10, 2); ctx.fill();
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+            ctx.fillRect(2, 3, 4, 5);
+            ctx.fillStyle;");
+
+        Assert.Equal("rgba(255, 0, 0, 0.5)", result.AsString());
+    }
+
+    [Fact]
     public void CanvasContextSupportsStateAndTransformOperations()
     {
         var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");
