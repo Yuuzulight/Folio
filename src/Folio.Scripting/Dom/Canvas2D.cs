@@ -149,6 +149,9 @@ internal sealed class WebGlContextState
     public HashSet<uint> EnabledCapabilities { get; } = [];
     public float ClearDepth { get; set; } = 1;
     public uint DepthFunction { get; set; } = 0x0203;
+    public uint BlendSourceFactor { get; set; } = 1;
+    public uint BlendDestinationFactor { get; set; } = 0;
+    public uint BlendEquation { get; set; } = 0x8006;
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
     public HashSet<uint> VertexArrays { get; } = [];
