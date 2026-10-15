@@ -177,6 +177,14 @@ internal sealed class WebGlContextState
     public uint? CurrentProgram { get; set; }
     public uint? BoundVertexArray { get; set; }
     public int DrawCalls { get; private set; }
+    public int ViewportX { get; set; }
+    public int ViewportY { get; set; }
+    public int ViewportWidth { get; set; } = 300;
+    public int ViewportHeight { get; set; } = 150;
+    public int ScissorX { get; set; }
+    public int ScissorY { get; set; }
+    public int ScissorWidth { get; set; }
+    public int ScissorHeight { get; set; }
     public int Error { get; private set; }
     public bool Lost { get; private set; }
     public int AllocatedBytes { get; private set; }

@@ -556,6 +556,11 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("VENDOR", (_, _) => ScriptValue.FromNumber(0x1F00));
         t.DefineProperty("RENDERER", (_, _) => ScriptValue.FromNumber(0x1F01));
         t.DefineProperty("SHADING_LANGUAGE_VERSION", (_, _) => ScriptValue.FromNumber(0x8B8C));
+        t.DefineProperty("VIEWPORT", (_, _) => ScriptValue.FromNumber(0x0BA2));
+        t.DefineProperty("SCISSOR_BOX", (_, _) => ScriptValue.FromNumber(0x0C10));
+        t.DefineProperty("LOW_FLOAT", (_, _) => ScriptValue.FromNumber(0x8DF0));
+        t.DefineProperty("MEDIUM_FLOAT", (_, _) => ScriptValue.FromNumber(0x8DF1));
+        t.DefineProperty("HIGH_FLOAT", (_, _) => ScriptValue.FromNumber(0x8DF2));
         t.DefineProperty("drawingBufferWidth", (target, _) => ScriptValue.FromNumber(ReadCanvasDimension(((WebGlContextState)target).Canvas, "width", 300)));
         t.DefineProperty("drawingBufferHeight", (target, _) => ScriptValue.FromNumber(ReadCanvasDimension(((WebGlContextState)target).Canvas, "height", 150)));
         t.DefineProperty("oncontextlost", (target, _) => ((WebGlContextState)target).OnContextLost, (target, _, value) => ((WebGlContextState)target).OnContextLost = value);
@@ -572,9 +577,14 @@ internal sealed class DomNodeTemplates
                 0x1F00 => ScriptValue.FromString("Folio"),
                 0x1F01 => ScriptValue.FromString("Folio bounded renderer"),
                 0x8B8C => ScriptValue.FromString("WebGL GLSL ES 3.00"),
+                0x0BA2 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ViewportX}, {((WebGlContextState)target).ViewportY}, {((WebGlContextState)target).ViewportWidth}, {((WebGlContextState)target).ViewportHeight}]"),
+                0x0C10 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ScissorX}, {((WebGlContextState)target).ScissorY}, {((WebGlContextState)target).ScissorWidth}, {((WebGlContextState)target).ScissorHeight}]"),
                 _ => ScriptValue.Null
             };
         });
+        t.DefineMethod("getShaderPrecisionFormat", (_, _, _) => _context.Engine.Evaluate("({ rangeMin: 127, rangeMax: 127, precision: 23 })"));
+        t.DefineMethod("viewport", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.ViewportX = WebIdlConversions.ToInt32(args[0]); state.ViewportY = WebIdlConversions.ToInt32(args[1]); state.ViewportWidth = Math.Max(0, WebIdlConversions.ToInt32(args[2])); state.ViewportHeight = Math.Max(0, WebIdlConversions.ToInt32(args[3])); } return ScriptValue.Undefined; });
+        t.DefineMethod("scissor", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.ScissorX = WebIdlConversions.ToInt32(args[0]); state.ScissorY = WebIdlConversions.ToInt32(args[1]); state.ScissorWidth = Math.Max(0, WebIdlConversions.ToInt32(args[2])); state.ScissorHeight = Math.Max(0, WebIdlConversions.ToInt32(args[3])); } return ScriptValue.Undefined; });
         t.DefineMethod("getSupportedExtensions", (target, _, _) => _context.Engine.CreateArray([ScriptValue.FromString("WEBGL_lose_context")]));
         t.DefineMethod("getContextAttributes", (_, _, _) => _context.Engine.Evaluate("({ alpha: true, depth: true, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })"));
         t.DefineMethod("createBuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Buffers[handle] = []; return ScriptValue.FromNumber(handle); });

@@ -99,6 +99,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const gl = document.getElementById('c').getContext('webgl2'); gl !== null && gl.ARRAY_BUFFER === 34962").AsBoolean());
         Assert.True(allowed.Evaluate("const glAgain = document.getElementById('c').getContext('webgl2'); glAgain.getParameter(glAgain.VERSION) === 'WebGL 2.0 Folio'").AsBoolean());
         Assert.True(allowed.Evaluate("gl.drawingBufferWidth === 300 && gl.drawingBufferHeight === 150 && gl.getContextAttributes().depth === true").AsBoolean());
+        Assert.True(allowed.Evaluate("gl.viewport(1, 2, 120, 80); const vp = gl.getParameter(gl.VIEWPORT); gl.scissor(3, 4, 50, 60); const sc = gl.getParameter(gl.SCISSOR_BOX); const precision = gl.getShaderPrecisionFormat(gl.VERTEX_SHADER, gl.HIGH_FLOAT); vp[0] === 1 && vp[3] === 80 && sc[2] === 50 && precision.precision === 23").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("gl.enable(gl.DEPTH_TEST); gl.clearDepth(0.5); gl.depthFunc(gl.LEQUAL); gl.clear(gl.DEPTH_BUFFER_BIT); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.enable(gl.STENCIL_TEST); gl.stencilFunc(0x0207, 1, 0xff); gl.stencilOp(0x1e00, 0x1e00, 0x1e00); gl.clearStencil(0); gl.getError()").AsNumber());
