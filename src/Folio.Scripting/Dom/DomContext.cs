@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Folio.Dom;
+using Folio.Resources;
 
 namespace Folio.Scripting.Dom;
 
@@ -18,7 +19,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -29,6 +30,8 @@ internal sealed class DomContext
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
+        ResourceLoader = resourceLoader;
+        BaseUri = baseUri;
 
         Templates = new DomNodeTemplates(this);
     }
@@ -42,6 +45,8 @@ internal sealed class DomContext
     public int MaxMediaBytes { get; }
     public int MaxWorkerMessageBytes { get; }
     public int MaxWebAssemblyBytes { get; }
+    public IResourceLoader? ResourceLoader { get; }
+    public Uri? BaseUri { get; }
     public DomNodeTemplates Templates { get; }
     public ElementNode? FocusedElement { get; private set; }
     public void Focus(ElementNode element) => FocusedElement = element;
@@ -111,7 +116,7 @@ internal sealed class DomContext
         _media[element] = state;
         return state;
     }
-    public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes));
+    public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri));
 
     public ScriptValue Wrap(Node? node)
     {

@@ -22,7 +22,7 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes, resourceLoader, baseUri);
 
         // 1. Install DOMException
         InstallDomException(engine);

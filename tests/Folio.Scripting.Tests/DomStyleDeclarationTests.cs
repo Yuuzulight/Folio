@@ -19,6 +19,12 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("unsupported"));
     }
 
+    private sealed class IframeResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("<html><body><p id='remote'>loaded</p></body></html>"), "text/html"));
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -398,6 +404,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(inline.Evaluate("const child = document.getElementById('f').contentDocument; child !== null && child.getElementById('child').textContent === 'ok'").AsBoolean());
+
+        using var remote = new JintScriptEngine();
+        DomBindings.Install(remote, Document.Parse("<iframe id='f' src='/child.html'></iframe>", new FolioOptions
+        {
+            BaseUri = new Uri("https://child.example/"),
+            ResourceLoader = new IframeResourceLoader(),
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(remote.Evaluate("document.getElementById('f').contentDocument.getElementById('remote').textContent === 'loaded'").AsBoolean());
     }
 
     [Fact]
