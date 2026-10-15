@@ -293,7 +293,13 @@ internal sealed class DomNodeTemplates
     private static ScriptValue AddPathCommand(CanvasElementState state, string name, ScriptValue[] args)
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
-        state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), 0, 0, ""));
+        var (x, y) = name switch
+        {
+            "quadraticCurveTo" => (Number(2), Number(3)),
+            "bezierCurveTo" => (Number(4), Number(5)),
+            _ => (Number(0), Number(1)),
+        };
+        state.Commands.Add(new CanvasCommand(name, x, y, 0, 0, ""));
         return ScriptValue.Undefined;
     }
 
