@@ -106,6 +106,8 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("gl.getParameter(gl.MAX_TEXTURE_SIZE) === 4096 && gl.getParameter(gl.VERSION).includes('WebGL 2.0') && gl.getSupportedExtensions()[0] === 'WEBGL_lose_context'").AsBoolean());
         Assert.True(allowed.Evaluate("gl.drawBuffers([gl.COLOR_ATTACHMENT0]); gl.readBuffer(gl.BACK); gl.getParameter(gl.MAX_DRAW_BUFFERS) === 4 && gl.getParameter(gl.DRAW_BUFFER0) === gl.COLOR_ATTACHMENT0").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
+        Assert.Equal(0, allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER, 4, 8); gl.getError()").AsNumber());
+        Assert.Equal(0x0501, allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER, 30, 8); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("const typed = new Float32Array(4); gl.bufferData(gl.ARRAY_BUFFER, typed, gl.STATIC_DRAW); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("const tex = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER) === gl.LINEAR ? gl.getError() : 0x0500").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.generateMipmap(gl.TEXTURE_2D); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());

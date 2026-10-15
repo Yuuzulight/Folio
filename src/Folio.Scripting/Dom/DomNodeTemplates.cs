@@ -639,6 +639,7 @@ internal sealed class DomNodeTemplates
             state.ReplaceBuffer(handle, size);
             return ScriptValue.Undefined;
         });
+        t.DefineMethod("bufferSubData", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundArrayBuffer is not { } handle || args.Length < 3 || !state.Buffers.TryGetValue(handle, out var buffer)) { state.SetError(0x0502); return ScriptValue.Undefined; } var offset = Math.Max(0, WebIdlConversions.ToInt32(args[1])); var size = args[2].IsNumber ? Math.Max(0, WebIdlConversions.ToInt32(args[2])) : _context.Engine.TryGetArrayItems(args[2], out var data) ? data.Count * 4 : 0; if (offset > buffer.Length || size > buffer.Length - offset) state.SetError(0x0501); return ScriptValue.Undefined; });
         t.DefineMethod("deleteBuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteBuffer(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isBuffer", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Buffers.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("createShader", (target, _, args) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Shaders[handle] = (args.Length > 0 ? WebIdlConversions.ToInt32(args[0]) : 0, "", false); return ScriptValue.FromNumber(handle); });
