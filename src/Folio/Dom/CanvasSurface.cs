@@ -6,4 +6,4 @@ internal interface ICanvasSurface
     IReadOnlyList<CanvasSurfaceCommand> Commands { get; }
 }
 
-internal sealed record CanvasSurfaceCommand(string Name, double X, double Y, double Width, double Height, string FillStyle);
+internal sealed record CanvasSurfaceCommand(string Name, double X, double Y, double Width, double Height, string FillStyle, string? StrokeStyle = null);

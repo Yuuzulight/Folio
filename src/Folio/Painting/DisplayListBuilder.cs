@@ -617,7 +617,7 @@ internal static class DisplayListBuilder
         var path = new PathData();
             foreach (var command in surface.Commands)
             {
-                var color = CanvasColor(command.FillStyle);
+            var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
             switch (command.Name)
             {
                 case "fillRect" or "strokeRect":

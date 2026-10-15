@@ -141,7 +141,7 @@ internal sealed class DomNodeTemplates
             .DefineMethod("arc", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "arc", args.ToArray()))
             .DefineMethod("closePath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("closePath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
             .DefineMethod("fill", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, ((CanvasElementState)target).FillStyle)); return ScriptValue.Undefined; })
-            .DefineMethod("stroke", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, ((CanvasElementState)target).FillStyle)); return ScriptValue.Undefined; });
+            .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle)); return ScriptValue.Undefined; });
         Path2DTemplate = new HostObjectTemplate("Path2D")
             .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
             .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
@@ -233,7 +233,8 @@ internal sealed class DomNodeTemplates
     private static ScriptValue AddCanvasCommand(CanvasElementState state, string name, ScriptValue[] args)
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
-        state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle));
+        state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle,
+            name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null));
         return ScriptValue.Undefined;
     }
 
@@ -279,7 +280,7 @@ internal sealed class DomNodeTemplates
     private static ScriptValue AddTextCommand(CanvasElementState state, string name, ScriptValue[] args)
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
-        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), 0, 0, state.FillStyle));
+        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), 0, 0, state.FillStyle, state.StrokeStyle));
         return ScriptValue.Undefined;
     }
 
