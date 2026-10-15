@@ -154,6 +154,14 @@ public static class DomBindings
                 if (delta < 0 || next > this._maximum || next > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
                 this._pages = next; this.buffer = new ArrayBuffer(next * 65536); return previous;
             };
+            WebAssembly.Module.exports = function(module) {
+                if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.exports requires a Module.');
+                return [];
+            };
+            WebAssembly.Module.imports = function(module) {
+                if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.imports requires a Module.');
+                return [];
+            };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;
             globalThis.devicePixelRatio = 1;
