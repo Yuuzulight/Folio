@@ -109,7 +109,10 @@ public static class DomBindings
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
-                    return Promise.resolve(new MediaStream([]));
+                    constraints = constraints || {}; var tracks = [];
+                    if (constraints.audio) tracks.push(new MediaStreamTrack('audio'));
+                    if (constraints.video) tracks.push(new MediaStreamTrack('video'));
+                    return Promise.resolve(new MediaStream(tracks));
                 }
             };
             globalThis.MediaStreamTrack = function(kind) { this.id = 'track-' + Math.random().toString(16).slice(2); this.kind = String(kind || ''); this.enabled = true; this._muted = false; this._constraints = {}; this.readyState = 'live'; this.onended = null; this.onmute = null; this.onunmute = null; Object.defineProperty(this, 'muted', { get: function() { return this._muted; }, set: function(next) { next = !!next; if (next !== this._muted) { this._muted = next; var handler = next ? this.onmute : this.onunmute; if (handler) handler({ type: next ? 'mute' : 'unmute', target: this, track: this }); } } }); this.stop = function() { if (this.readyState !== 'ended') { this.readyState = 'ended'; if (this.onended) this.onended({ type: 'ended', target: this, track: this }); } }; this.clone = function() { return new MediaStreamTrack(this.kind); }; this.applyConstraints = function(constraints) { if (this.readyState === 'ended') return Promise.reject(new DOMException('Track has ended.', 'InvalidStateError')); this._constraints = constraints || {}; return Promise.resolve(); }; this.getConstraints = function() { return this._constraints; }; this.getSettings = function() { return { deviceId: this.id, kind: this.kind }; }; this.getCapabilities = function() { return { deviceId: [], kind: this.kind }; }; };
