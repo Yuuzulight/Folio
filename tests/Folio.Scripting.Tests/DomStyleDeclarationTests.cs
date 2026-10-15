@@ -264,6 +264,7 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(9, allowed.Evaluate("const globalCode = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,2,10,1,3,101,110,118,1,103,3,127,1,3,2,1,0,7,7,1,3,114,117,110,0,0,10,10,1,8,0,65,9,36,0,35,0,11])); const globalValue = new WebAssembly.Global({ value: 'i32', mutable: true }, 2); new WebAssembly.Instance(globalCode, { env: { g: globalValue } }).exports.run()").AsNumber());
         Assert.True(allowed.Evaluate("const bulk = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,5,3,1,0,1,7,14,2,4,102,105,108,108,0,0,3,109,101,109,2,0,10,29,1,27,0,65,0,65,7,65,4,252,11,0,65,4,65,0,65,4,252,10,0,0,65,4,40,0,0,11])); const bulkInstance = new WebAssembly.Instance(bulk, {}); bulkInstance.exports.fill() === 117901063 && new Uint8Array(bulkInstance.exports.mem.buffer)[7] === 7").AsBoolean());
         Assert.Equal(11, allowed.Evaluate("const selectCode = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,11,1,9,0,65,11,65,22,65,1,27,11])); new WebAssembly.Instance(selectCode, {}).exports.run()").AsNumber());
+        Assert.Equal(1, allowed.Evaluate("const branchCode = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,12,1,10,0,65,1,65,1,13,0,65,99,11])); new WebAssembly.Instance(branchCode, {}).exports.run()").AsNumber());
         Assert.True(allowed.Evaluate("const tableImport = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,2,13,1,3,101,110,118,3,116,97,98,1,112,0,1,7,7,1,3,116,97,98,1,0])); const suppliedTable = new WebAssembly.Table({ initial: 1 }); new WebAssembly.Instance(tableImport, { env: { tab: suppliedTable } }).exports.tab === suppliedTable").AsBoolean());
         Assert.True(allowed.Evaluate("const localTable = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,4,4,1,112,0,1,7,7,1,3,116,97,98,1,0])); const localTableInstance = new WebAssembly.Instance(localTable, {}); localTableInstance.exports.tab instanceof WebAssembly.Table && localTableInstance.exports.tab.length === 1").AsBoolean());
         Assert.True(allowed.Evaluate("const globalImport = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,2,10,1,3,101,110,118,1,103,3,127,0,7,6,1,1,103,3,0])); const suppliedGlobal = new WebAssembly.Global({ value: 'i32', mutable: true }, 7); const globalInstance = new WebAssembly.Instance(globalImport, { env: { g: suppliedGlobal } }); globalInstance.exports.g === suppliedGlobal && globalInstance.exports.g.value === 7").AsBoolean());
@@ -805,6 +806,7 @@ public sealed class DomStyleDeclarationTests
         await session.DisposeAsync();
     }
 }
+
 
 
 
