@@ -71,6 +71,21 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void CssStyleSheetsExposeRulesAndMutation()
+    {
+        var document = TreeBuilder.Parse("<html><head><style>.a { color: red; }</style></head><body></body></html>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+
+        Assert.Equal(1, engine.Evaluate("document.styleSheets.length").AsNumber());
+        Assert.Contains(".a", engine.Evaluate("document.styleSheets[0].cssRules[0].cssText").AsString());
+        Assert.Equal(1, engine.Evaluate("document.styleSheets[0].insertRule('.b { color: blue; }')").AsNumber());
+        Assert.Equal(2, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
+        engine.Evaluate("document.styleSheets[0].deleteRule(0)");
+        Assert.Equal(1, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
+    }
+
+    [Fact]
     public void InvalidPropertyValueDoesNotReplaceExistingValue()
     {
         var document = TreeBuilder.Parse("<div id='box' style='width: 10px'></div>");

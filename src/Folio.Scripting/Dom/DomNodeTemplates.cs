@@ -10,6 +10,7 @@ namespace Folio.Scripting.Dom;
 internal sealed class DomNodeTemplates
 {
     private readonly DomContext _context;
+    private readonly Dictionary<ElementNode, CssStyleSheetState> _styleSheets = new();
 
     public DomNodeTemplates(DomContext context)
     {
@@ -77,6 +78,23 @@ internal sealed class DomNodeTemplates
             .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
             .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
             .DefineMethod("closePath", (target, _, _) => { ((CanvasPathState)target).Segments.Add(("closePath", 0, 0)); return ScriptValue.Undefined; });
+        CssRuleTemplate = new HostObjectTemplate("CSSStyleRule")
+            .DefineProperty("cssText", (target, _) => ScriptValue.FromString(((CssRuleState)target).CssText));
+        CssStyleSheetTemplate = new HostObjectTemplate("CSSStyleSheet")
+            .DefineProperty("cssRules", (target, _) => _context.Engine.CreateArray(((CssStyleSheetState)target).Rules.Select(rule => _context.Engine.CreateHostObject(CssRuleTemplate, new CssRuleState(rule))).ToArray()))
+            .DefineMethod("insertRule", (target, _, args) =>
+            {
+                var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                var index = args.Length > 1 ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, ((CssStyleSheetState)target).Rules.Count) : ((CssStyleSheetState)target).Rules.Count;
+                ((CssStyleSheetState)target).Rules.Insert(index, text);
+                return ScriptValue.FromNumber(index);
+            })
+            .DefineMethod("deleteRule", (target, _, args) =>
+            {
+                if (args.Length > 0 && WebIdlConversions.ToInt32(args[0]) is var index && index >= 0 && index < ((CssStyleSheetState)target).Rules.Count)
+                    ((CssStyleSheetState)target).Rules.RemoveAt(index);
+                return ScriptValue.Undefined;
+            });
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -112,6 +130,8 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate Path2DTemplate { get; }
+    public HostObjectTemplate CssRuleTemplate { get; }
+    public HostObjectTemplate CssStyleSheetTemplate { get; }
 
     private static ScriptValue AddCanvasCommand(CanvasElementState state, string name, ScriptValue[] args)
     {
@@ -1265,6 +1285,16 @@ internal sealed class DomNodeTemplates
             return doc.CurrentScript is not null ? _context.Wrap(doc.CurrentScript) : ScriptValue.Null;
         });
 
+        t.DefineProperty("styleSheets", (target, _) =>
+        {
+            var doc = (DocumentNode)target;
+            var sheets = doc.Descendants.OfType<ElementNode>()
+                .Where(element => element.Name.Namespace == Namespaces.Html && element.LocalName == "style")
+                .Select(element => _context.Engine.CreateHostObject(CssStyleSheetTemplate, GetStyleSheet(element)))
+                .ToArray();
+            return _context.Engine.CreateArray(sheets);
+        });
+
         t.DefineProperty("activeElement", (target, _) =>
         {
             var doc = (DocumentNode)target;
@@ -1397,6 +1427,16 @@ internal sealed class DomNodeTemplates
         });
 
         return t;
+    }
+
+    private CssStyleSheetState GetStyleSheet(ElementNode element)
+    {
+        if (!_styleSheets.TryGetValue(element, out var sheet))
+        {
+            sheet = new CssStyleSheetState(element.TextContent ?? "");
+            _styleSheets[element] = sheet;
+        }
+        return sheet;
     }
 
     private HostObjectTemplate CreateNodeListTemplate()
