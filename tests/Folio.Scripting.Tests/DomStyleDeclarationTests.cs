@@ -114,6 +114,8 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(2, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
         engine.Evaluate("document.styleSheets[0].deleteRule(0)");
         Assert.Equal(1, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
+        engine.Evaluate("document.querySelector('style').textContent = '.c { color: green; }'");
+        Assert.Contains(".c", engine.Evaluate("document.styleSheets[0].cssRules[0].cssText").AsString());
     }
 
     [Fact]

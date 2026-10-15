@@ -2,9 +2,21 @@ using Folio.Dom;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed class CssStyleSheetState(string text)
+internal sealed class CssStyleSheetState(ElementNode source)
 {
-    public List<string> Rules { get; } = Parse(text);
+    private string _sourceText = source.TextContent ?? "";
+    public ElementNode Source { get; } = source;
+    public List<string> Rules { get; } = Parse(source.TextContent ?? "");
+
+    public void RefreshFromSource()
+    {
+        var text = Source.TextContent ?? "";
+        if (text == _sourceText)
+            return;
+        Rules.Clear();
+        Rules.AddRange(Parse(text));
+        _sourceText = text;
+    }
 
     private static List<string> Parse(string text) => text.Split('}', StringSplitOptions.RemoveEmptyEntries)
         .Select(rule => rule.Trim() + "}").Where(rule => rule.Contains('{')).ToList();

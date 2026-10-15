@@ -103,7 +103,12 @@ internal sealed class DomNodeTemplates
         CssRuleTemplate = new HostObjectTemplate("CSSStyleRule")
             .DefineProperty("cssText", (target, _) => ScriptValue.FromString(((CssRuleState)target).CssText));
         CssStyleSheetTemplate = new HostObjectTemplate("CSSStyleSheet")
-            .DefineProperty("cssRules", (target, _) => _context.Engine.CreateArray(((CssStyleSheetState)target).Rules.Select(rule => _context.Engine.CreateHostObject(CssRuleTemplate, new CssRuleState(rule))).ToArray()))
+            .DefineProperty("cssRules", (target, _) =>
+            {
+                var sheet = (CssStyleSheetState)target;
+                sheet.RefreshFromSource();
+                return _context.Engine.CreateArray(sheet.Rules.Select(rule => _context.Engine.CreateHostObject(CssRuleTemplate, new CssRuleState(rule))).ToArray());
+            })
             .DefineMethod("insertRule", (target, _, args) =>
             {
                 var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
@@ -1499,7 +1504,7 @@ internal sealed class DomNodeTemplates
     {
         if (!_styleSheets.TryGetValue(element, out var sheet))
         {
-            sheet = new CssStyleSheetState(element.TextContent ?? "");
+            sheet = new CssStyleSheetState(element);
             _styleSheets[element] = sheet;
         }
         return sheet;
