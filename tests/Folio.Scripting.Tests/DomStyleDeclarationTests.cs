@@ -245,11 +245,12 @@ public sealed class DomStyleDeclarationTests
         Assert.True(denied.Evaluate("const f = document.getElementById('f'); f.src === '/child.html' && f.contentDocument === null").AsBoolean());
 
         using var allowed = new JintScriptEngine();
-        DomBindings.Install(allowed, Document.Parse("<iframe id='f'></iframe>", new FolioOptions
+        DomBindings.Install(allowed, Document.Parse("<iframe id='f' src='https://child.example/app'></iframe>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; f.contentWindow.onmessage = x => { seen = x; }; f.contentWindow.postMessage(9, '*'); seen === 9").AsBoolean());
+        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; f.contentWindow.onmessage = x => { seen = x; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
+        Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && f.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
     }
 

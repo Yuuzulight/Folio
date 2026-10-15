@@ -427,8 +427,9 @@ internal sealed class DomNodeTemplates
     {
         var windowTemplate = new HostObjectTemplate("WindowProxy")
             .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((IframeState)target).Closed))
+            .DefineProperty("origin", (target, _) => ScriptValue.FromString(((IframeState)target).Origin))
             .DefineProperty("onmessage", (target, _) => ((IframeState)target).OnMessage, (target, _, value) => ((IframeState)target).OnMessage = value)
-            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((IframeState)target).PostMessage(args[0]); return ScriptValue.Undefined; })
+            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((IframeState)target).PostMessage(args[0], args.Length > 1 ? WebIdlConversions.ToDOMString(args[1]) : "*"); return ScriptValue.Undefined; })
             .DefineMethod("close", (target, _, _) => { ((IframeState)target).Close(); return ScriptValue.Undefined; });
         var t = new HostObjectTemplate("HTMLIFrameElement", htmlElementProto);
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
