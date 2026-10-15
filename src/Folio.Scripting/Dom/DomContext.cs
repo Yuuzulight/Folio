@@ -111,7 +111,7 @@ internal sealed class DomContext
         _media[element] = state;
         return state;
     }
-    public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, element, Capabilities.Iframes));
+    public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes));
 
     public ScriptValue Wrap(Node? node)
     {

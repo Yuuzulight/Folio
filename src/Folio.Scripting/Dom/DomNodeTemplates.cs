@@ -54,6 +54,10 @@ internal sealed class DomNodeTemplates
             })
             .DefineMethod("disconnect", (target, _, _) => { _context.DisconnectMutations((MutationObserverState)target); return ScriptValue.Undefined; })
             .DefineMethod("takeRecords", (target, _, _) => _context.TakeMutationRecords((MutationObserverState)target));
+        MessageEventTemplate = new HostObjectTemplate("MessageEvent")
+            .DefineProperty("data", (target, _) => ((MessageEventState)target).Data)
+            .DefineProperty("origin", (target, _) => ScriptValue.FromString(((MessageEventState)target).Origin))
+            .DefineProperty("source", (target, _) => ((MessageEventState)target).Source);
 
         HtmlInputElementTemplate = CreateHtmlInputElementTemplate(HtmlElementTemplate);
         HtmlButtonElementTemplate = CreateHtmlButtonElementTemplate(HtmlElementTemplate);
@@ -247,6 +251,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate DomRectTemplate { get; }
     public HostObjectTemplate MutationRecordTemplate { get; }
     public HostObjectTemplate MutationObserverTemplate { get; }
+    public HostObjectTemplate MessageEventTemplate { get; }
     public HostObjectTemplate HtmlInputElementTemplate { get; }
     public HostObjectTemplate HtmlButtonElementTemplate { get; }
     public HostObjectTemplate HtmlAnchorElementTemplate { get; }

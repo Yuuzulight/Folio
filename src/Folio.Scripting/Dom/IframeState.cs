@@ -4,15 +4,17 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class IframeState
 {
-    public IframeState(IScriptEngine engine, ElementNode element, bool enabled)
+    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled)
     {
         Engine = engine;
+        MessageEventTemplate = messageEventTemplate;
         Element = element;
         Enabled = enabled;
         Origin = Uri.TryCreate(element.GetAttribute("src"), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
     }
 
     public IScriptEngine Engine { get; }
+    public IHostObjectTemplate MessageEventTemplate { get; }
     public ElementNode Element { get; }
     public bool Enabled { get; }
     public string Origin { get; }
@@ -22,7 +24,8 @@ internal sealed class IframeState
     public void PostMessage(ScriptValue data, string targetOrigin)
     {
         if (!Enabled || Closed || !OnMessage.IsFunction || (targetOrigin != "*" && targetOrigin != Origin)) return;
-        Engine.Call(OnMessage, ScriptValue.Undefined, [data]);
+        var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, ScriptValue.Null));
+        Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
     }
 
     public void Close() => Closed = true;

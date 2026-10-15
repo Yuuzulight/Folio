@@ -169,7 +169,7 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
-        Assert.True(allowed.Evaluate("const w = new Worker('data:text/javascript,'); let seen = 0; w.onmessage = e => { seen = e; }; w.postMessage(42); seen === 42").AsBoolean());
+        Assert.True(allowed.Evaluate("const w = new Worker('data:text/javascript,'); let seen = 0; w.onmessage = e => { seen = e.data; }; w.postMessage(42); seen === 42").AsBoolean());
         Assert.Equal("data:text/javascript,", allowed.Evaluate("w.scriptURL").AsString());
         Assert.True(allowed.Evaluate("w.terminate(); w.postMessage(7); seen === 42").AsBoolean());
 
@@ -250,8 +250,8 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; f.contentWindow.onmessage = x => { seen = x; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && f.contentWindow.origin === 'https://child.example'").AsBoolean());
+        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; let messageOrigin = ''; f.contentWindow.onmessage = x => { seen = x.data; messageOrigin = x.origin; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
+        Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && messageOrigin === 'https://child.example' && f.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
     }
 
