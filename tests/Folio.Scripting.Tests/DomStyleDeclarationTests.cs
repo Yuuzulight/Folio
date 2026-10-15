@@ -119,6 +119,20 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void FetchAllowsDataUrlsAndRejectsNetworkUrls()
+    {
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<html></html>"));
+        Assert.Equal("function", engine.Evaluate("typeof fetch").AsString());
+        engine.Evaluate("globalThis.__fetchBody = ''; fetch('data:text/plain,hello').then(r => r.text()).then(v => globalThis.__fetchBody = v);");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("hello", engine.Evaluate("__fetchBody").AsString());
+        engine.Evaluate("globalThis.__fetchRejected = false; fetch('https://example.test/').catch(e => globalThis.__fetchRejected = e instanceof TypeError);");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.True(engine.Evaluate("__fetchRejected").AsBoolean());
+    }
+
+    [Fact]
     public void InvalidPropertyValueDoesNotReplaceExistingValue()
     {
         var document = TreeBuilder.Parse("<div id='box' style='width: 10px'></div>");

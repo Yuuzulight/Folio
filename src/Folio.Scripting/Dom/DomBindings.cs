@@ -86,6 +86,22 @@ internal static class DomBindings
                 value = String(value);
                 return value.replace(/[^a-zA-Z0-9_-]/g, function(c) { return String.fromCharCode(92) + c; }).replace(/^[0-9]/, function(c) { return String.fromCharCode(92) + '3' + c + ' '; });
             };
+            globalThis.fetch = function(input) {
+                const url = String(input);
+                if (url.slice(0, 5).toLowerCase() !== 'data:')
+                    return Promise.reject(new TypeError('The requested URL is not allowed by Folio.'));
+                const comma = url.indexOf(',');
+                const header = comma < 0 ? '' : url.slice(5, comma);
+                const payload = comma < 0 ? '' : url.slice(comma + 1);
+                const body = header.toLowerCase().indexOf(';base64') >= 0
+                    ? (typeof atob === 'function' ? atob(payload) : payload)
+                    : decodeURIComponent(payload);
+                return Promise.resolve({
+                    ok: true, status: 200, url: url,
+                    text: function() { return Promise.resolve(body); },
+                    json: function() { return Promise.resolve(JSON.parse(body)); }
+                });
+            };
             globalThis.ResizeObserver = function(callback) {
                 if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
                 this._callback = callback;
