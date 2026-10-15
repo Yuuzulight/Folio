@@ -8,7 +8,7 @@ namespace Folio.Scripting;
 /// Drives readyState changes ('loading' -> 'interactive' -> 'complete'), resource fetching via <see cref="IResourceLoader"/>,
 /// script element execution order, dynamic script execution, and firing of readyStateChange, DOMContentLoaded, and load events.
 /// </summary>
-internal sealed class ScriptRunner : IDisposable
+public sealed class ScriptRunner : IDisposable
 {
     private readonly DocumentNode _document;
     private readonly IScriptEngine _engine;
@@ -19,7 +19,10 @@ internal sealed class ScriptRunner : IDisposable
     private readonly HashSet<ElementNode> _pendingScripts = new(ReferenceEqualityComparer.Instance);
     private bool _disposed;
 
-    public ScriptRunner(
+    public ScriptRunner(Document document, IScriptEngine engine, HtmlEventLoop eventLoop, FolioOptions? options = null, List<Diagnostic>? diagnostics = null)
+        : this(document.Node, engine, eventLoop, options, diagnostics) { }
+
+    internal ScriptRunner(
         DocumentNode document,
         IScriptEngine engine,
         HtmlEventLoop eventLoop,

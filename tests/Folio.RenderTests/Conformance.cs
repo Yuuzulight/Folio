@@ -2,6 +2,9 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Folio.Skia;
+using Folio.Scripting;
+using Folio.Scripting.Dom;
+using Folio.Scripting.Jint;
 
 namespace Folio.RenderTests;
 
@@ -68,6 +71,7 @@ public static class Conformance
     {
         Fonts = TestRenderer.Options.Fonts,
         UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
+        Scripting = ScriptingPolicy.ContentProcess,
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -113,6 +117,17 @@ public static class Conformance
         var render = Task.Run(() =>
         {
             using var document = Document.Parse(html, Options);
+            document.Paint(manifest.Viewport, reference?.Height ?? 600);
+            using var engine = new JintScriptEngine();
+            var clock = new VirtualEventLoopClock();
+            using var loop = new HtmlEventLoop(engine, clock);
+            DomBindings.Install(engine, document.Node, eventLoop: loop);
+            ScriptGlobalsInstaller.Install(loop, engine);
+            using var runner = new ScriptRunner(document.Node, engine, loop, Options);
+            runner.Run();
+            loop.UpdateTheRendering();
+            clock.Advance(manifest.AnimationTime ?? 1000);
+            loop.UpdateTheRendering();
             if (manifest.Interaction is { Length: > 0 } script)
             {
                 var scriptResult = RunScript(document, script, manifest.Viewport, reference?.Height);
@@ -365,7 +380,7 @@ public static class Conformance
 
     private static PixelBuffer? LoadIfExists(string path) => File.Exists(path) ? PixelBuffer.LoadPng(path) : null;
 
-    public sealed record Manifest(string? Prompt = null, string[]? Features = null, int Viewport = 800, ToleranceOverride? Tolerance = null, string[]? Interaction = null);
+    public sealed record Manifest(string? Prompt = null, string[]? Features = null, int Viewport = 800, ToleranceOverride? Tolerance = null, string[]? Interaction = null, double? AnimationTime = null);
 
     public sealed record ToleranceOverride(int ChannelThreshold, double MaxDifferingRatio, string? Reason);
 }

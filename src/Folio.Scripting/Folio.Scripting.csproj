@@ -14,6 +14,7 @@
     <InternalsVisibleTo Include="Folio.Scripting.Tests" />
     <InternalsVisibleTo Include="Folio.Scripting.Jint" />
     <InternalsVisibleTo Include="Folio.ContentHost" />
+    <InternalsVisibleTo Include="Folio.RenderTests" />
   </ItemGroup>
 
 </Project>

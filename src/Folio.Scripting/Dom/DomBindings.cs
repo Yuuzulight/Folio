@@ -1,3 +1,4 @@
+using Folio;
 using Folio.Dom;
 
 namespace Folio.Scripting.Dom;
@@ -5,8 +6,10 @@ namespace Folio.Scripting.Dom;
 /// <summary>
 /// Installs DOM constructors, prototype chains, and the global document onto an <see cref="IScriptEngine"/> (study 02, study 17, #451).
 /// </summary>
-internal static class DomBindings
+public static class DomBindings
 {
+    public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
+        Install(engine, document.Node, wrapperCache, eventLoop);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null)
     {
         ArgumentNullException.ThrowIfNull(engine);

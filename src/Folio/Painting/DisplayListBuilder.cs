@@ -625,6 +625,9 @@ internal static class DisplayListBuilder
             var blend = CanvasBlend(command.Composite);
             switch (command.Name)
             {
+                case "beginPath":
+                    path = new PathData();
+                    break;
                 case "translate":
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
                         Transform: Matrix3x2.CreateTranslation((float)command.X, (float)command.Y)));
@@ -666,6 +669,10 @@ internal static class DisplayListBuilder
                     path.MoveTo((float)command.X, (float)command.Y);
                     break;
                 case "lineTo":
+                    path.LineTo((float)command.X, (float)command.Y);
+                    break;
+                case "quadraticCurveTo" or "bezierCurveTo":
+                    // Canvas curves are approximated by their endpoint in the display-list bridge.
                     path.LineTo((float)command.X, (float)command.Y);
                     break;
                 case "closePath":
