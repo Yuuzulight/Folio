@@ -408,9 +408,18 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).Loop = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("controls", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Controls),
             (target, _, value) => _context.GetMedia((ElementNode)target).Controls = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("playbackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).PlaybackRate),
+            (target, _, value) => _context.GetMedia((ElementNode)target).PlaybackRate = WebIdlConversions.ToDouble(value));
+        t.DefineProperty("defaultPlaybackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).DefaultPlaybackRate),
+            (target, _, value) => _context.GetMedia((ElementNode)target).DefaultPlaybackRate = WebIdlConversions.ToDouble(value));
+        t.DefineProperty("preservesPitch", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).PreservesPitch),
+            (target, _, value) => _context.GetMedia((ElementNode)target).PreservesPitch = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("readyState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).ReadyState));
         t.DefineProperty("networkState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).NetworkState));
         t.DefineProperty("error", (target, _) => _context.GetMedia((ElementNode)target).Error is { } error ? ScriptValue.FromString(error) : ScriptValue.Null);
+        t.DefineProperty("buffered", (_, _) => _context.Engine.CreateArray([]));
+        t.DefineProperty("seekable", (_, _) => _context.Engine.CreateArray([]));
+        t.DefineProperty("played", (_, _) => _context.Engine.CreateArray([]));
         t.DefineMethod("play", (target, _, _) =>
         {
             var state = _context.GetMedia((ElementNode)target);

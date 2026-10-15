@@ -139,6 +139,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("v.load(); v.currentTime === 0 && v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("const captions = v.addTextTrack('captions', 'English', 'en'); captions.kind === 'captions' && captions.label === 'English'; captions.mode = 'showing'; captions.addCue(1, 2, 'Hello'); captions.mode === 'showing' && captions.cues[0].startTime === 1 && captions.cues[0].endTime === 2 && captions.cues[0].text === 'Hello'").AsBoolean());
+        Assert.True(allowed.Evaluate("v.playbackRate = 1.5; v.defaultPlaybackRate = 1.25; v.preservesPitch = false; v.playbackRate === 1.5 && v.defaultPlaybackRate === 1.25 && !v.preservesPitch && v.buffered.length === 0").AsBoolean());
 
         using var limited = new JintScriptEngine();
         DomBindings.Install(limited, Document.Parse("<video id='v' data-size='1024'></video>", new FolioOptions

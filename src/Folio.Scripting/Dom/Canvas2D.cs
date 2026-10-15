@@ -58,6 +58,9 @@ internal sealed class MediaElementState
     public bool Autoplay { get; set; }
     public bool Loop { get; set; }
     public bool Controls { get; set; }
+    public double PlaybackRate { get; set; } = 1;
+    public double DefaultPlaybackRate { get; set; } = 1;
+    public bool PreservesPitch { get; set; } = true;
     public int ReadyState => Enabled && Error is null ? 4 : 0;
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }
