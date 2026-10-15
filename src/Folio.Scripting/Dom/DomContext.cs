@@ -103,7 +103,7 @@ internal sealed class DomContext
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
-        var state = new MediaElementState(element, Capabilities.Media);
+        var state = new MediaElementState(Engine, element, Capabilities.Media);
         if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)
             state.RejectForBudget();
         else

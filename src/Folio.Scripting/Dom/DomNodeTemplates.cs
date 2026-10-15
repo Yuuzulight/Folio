@@ -399,7 +399,7 @@ internal sealed class DomNodeTemplates
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
-            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration; });
+            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded); } });
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
         t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
         t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));
@@ -422,6 +422,14 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("readyState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).ReadyState));
         t.DefineProperty("networkState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).NetworkState));
         t.DefineProperty("error", (target, _) => _context.GetMedia((ElementNode)target).Error is { } error ? ScriptValue.FromString(error) : ScriptValue.Null);
+        t.DefineProperty("onloadedmetadata", (target, _) => _context.GetMedia((ElementNode)target).OnLoadedMetadata,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnLoadedMetadata = value);
+        t.DefineProperty("onplay", (target, _) => _context.GetMedia((ElementNode)target).OnPlay,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnPlay = value);
+        t.DefineProperty("onpause", (target, _) => _context.GetMedia((ElementNode)target).OnPause,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnPause = value);
+        t.DefineProperty("onended", (target, _) => _context.GetMedia((ElementNode)target).OnEnded,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnEnded = value);
         t.DefineProperty("buffered", (target, _) => CreateMediaRanges((ElementNode)target, buffered: true));
         t.DefineProperty("seekable", (target, _) => CreateMediaRanges((ElementNode)target, buffered: false));
         t.DefineProperty("played", (target, _) => CreateMediaRanges((ElementNode)target, buffered: null));

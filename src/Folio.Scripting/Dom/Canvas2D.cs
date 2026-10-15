@@ -39,8 +39,9 @@ internal sealed class CanvasElementState : ICanvasSurface
 
 internal sealed class MediaElementState
 {
-    public MediaElementState(ElementNode element, bool enabled)
+    public MediaElementState(IScriptEngine engine, ElementNode element, bool enabled)
     {
+        Engine = engine;
         Element = element;
         Enabled = enabled;
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : 0;
@@ -48,6 +49,7 @@ internal sealed class MediaElementState
     }
 
     public ElementNode Element { get; }
+    public IScriptEngine Engine { get; }
     public bool Enabled { get; }
     public double CurrentTime { get; set; }
     public double Duration { get; }
@@ -67,15 +69,24 @@ internal sealed class MediaElementState
     public long SourceBytes { get; }
     public List<MediaTextTrackState> TextTracks { get; } = [];
     public void RejectForBudget() => Error = "Media resource exceeds the host budget.";
+    public ScriptValue OnLoadedMetadata { get; set; } = ScriptValue.Null;
+    public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
+    public ScriptValue OnPause { get; set; } = ScriptValue.Null;
+    public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
+    public void Dispatch(ScriptValue handler)
+    {
+        if (handler.IsFunction) Engine.Call(handler, ScriptValue.Undefined, ReadOnlySpan<ScriptValue>.Empty);
+    }
 
     public void Play()
     {
         if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return; }
         Paused = false;
         Ended = false;
+        Dispatch(OnPlay);
     }
 
-    public void Pause() => Paused = true;
+    public void Pause() { Paused = true; Dispatch(OnPause); }
 
     public void Load()
     {
@@ -83,6 +94,7 @@ internal sealed class MediaElementState
         Paused = true;
         Ended = false;
         Error = null;
+        Dispatch(OnLoadedMetadata);
     }
 }
 
