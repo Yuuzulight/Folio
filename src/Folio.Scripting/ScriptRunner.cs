@@ -82,6 +82,14 @@ public sealed class ScriptRunner : IDisposable
         // 4. Fire DOMContentLoaded event on document (bubbles to window).
         DispatchDOMContentLoaded();
 
+        // Async scripts do not hold the parser or DOMContentLoaded: each is a networking task that runs once the
+        // document is parsed, in document order here since the host's loader answers at once, and the load event waits for them.
+        foreach (var script in parserScripts.AsyncScripts)
+        {
+            var captured = script;
+            _eventLoop.QueueTask(TaskSource.Networking, () => ExecuteScriptElement(captured), "async script");
+        }
+
         // 5. Run any pending asynchronous or dynamic scripts that were queued in the event loop.
         _eventLoop.SpinUntilIdle();
 
@@ -193,7 +201,8 @@ public sealed class ScriptRunner : IDisposable
     private sealed record ScriptBatches(
         List<ElementNode> NormalScripts,
         List<ElementNode> DeferredScripts,
-        List<ElementNode> ModuleScripts
+        List<ElementNode> ModuleScripts,
+        List<ElementNode> AsyncScripts
     );
 
     private ScriptBatches CollectParserScripts()
@@ -201,6 +210,7 @@ public sealed class ScriptRunner : IDisposable
         var normal = new List<ElementNode>();
         var deferred = new List<ElementNode>();
         var modules = new List<ElementNode>();
+        var asyncScripts = new List<ElementNode>();
 
         for (Node? node = _document.FirstChild; node is not null; node = node.NextInTree(_document))
         {
@@ -221,6 +231,10 @@ public sealed class ScriptRunner : IDisposable
                 {
                     deferred.Add(script);
                 }
+                else if (isAsync && !string.IsNullOrEmpty(script.GetAttribute("src")))
+                {
+                    asyncScripts.Add(script);
+                }
                 else
                 {
                     // Classic script (inline, external, or async without defer)
@@ -229,7 +243,7 @@ public sealed class ScriptRunner : IDisposable
             }
         }
 
-        return new ScriptBatches(normal, deferred, modules);
+        return new ScriptBatches(normal, deferred, modules, asyncScripts);
     }
 
     private static bool IsJavaScriptType(ElementNode script)
@@ -277,11 +291,13 @@ public sealed class ScriptRunner : IDisposable
                     null,
                     "script"
                 ));
+                FireScriptEvent(script, "error");
                 return;
             }
 
             scriptUrl = resolved;
-            var request = new ResourceRequest(resolved, ResourceKind.Script, script.GetAttribute("integrity"));
+            var integrity = script.GetAttribute("integrity");
+            var request = new ResourceRequest(resolved, ResourceKind.Script, integrity);
 
             var response = LoadResource(request);
             if (!response.Succeeded || response.Data is null)
@@ -293,21 +309,50 @@ public sealed class ScriptRunner : IDisposable
                     null,
                     "script"
                 ));
+                FireScriptEvent(script, "error");
                 return;
             }
 
-            scriptSource = System.Text.Encoding.UTF8.GetString(response.Data);
-        }
-        else
-        {
-            scriptSource = script.TextContent ?? "";
+            // The host's loader may check too; the element's integrity is checked here whatever loader answered.
+            if (!SubresourceIntegrity.Matches(response.Data, integrity))
+            {
+                _diagnostics.Add(new Diagnostic(
+                    DiagnosticCode.ResourceNotLoaded,
+                    Severity.Warning,
+                    $"Script '{resolved}' does not match its integrity metadata and was not run.",
+                    null,
+                    "script"
+                ));
+                FireScriptEvent(script, "error");
+                return;
+            }
+
+            if (response.Data.Length > 0)
+                ExecuteSource(System.Text.Encoding.UTF8.GetString(response.Data), scriptUrl, isModule ? null : script);
+            FireScriptEvent(script, "load");
+            return;
         }
 
+        scriptSource = script.TextContent ?? "";
         if (string.IsNullOrEmpty(scriptSource))
             return;
 
-        // Execute script
+        // An inline script runs where it is and fires no load event.
         ExecuteSource(scriptSource, scriptUrl, isModule ? null : script);
+    }
+
+    // https://html.spec.whatwg.org/multipage/scripting.html#execute-the-script-element: an external script fires load at its
+    // element once it has run, or error when it could not be loaded; neither bubbles.
+    private void FireScriptEvent(ElementNode script, string type)
+    {
+        try
+        {
+            _document.EventDispatcher?.Invoke(script, type, new EventDispatchArgs { Bubbles = false, Cancelable = false, Composed = false });
+        }
+        catch (Exception ex)
+        {
+            RecordScriptError(ex, null);
+        }
     }
 
     private ResourceResponse LoadResource(ResourceRequest request)
@@ -407,8 +452,14 @@ public sealed class ScriptRunner : IDisposable
             if (!IsJavaScriptType(element))
                 return;
 
-            // Execute dynamic script
-            ExecuteScriptElement(element);
+            // An inline script runs at once; an external one is fetched and run as a task, after the inserting script
+            // finishes (it is async by default), then fires load or error.
+            if (string.IsNullOrEmpty(element.GetAttribute("src")))
+            {
+                ExecuteScriptElement(element);
+                return;
+            }
+            _eventLoop.QueueTask(TaskSource.Networking, () => ExecuteScriptElement(element), "inserted script");
         }
     }
 
