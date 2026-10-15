@@ -197,6 +197,7 @@ public static class DomBindings
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
                     this.module = module; this.exports = {};
+                    module._exports.forEach(function(entry) { if (entry.kind === 0) this.exports[entry.name] = function() { throw new WebAssembly.CompileError('WebAssembly execution is unavailable in this engine.'); }; }, this);
                 },
                 Table: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
