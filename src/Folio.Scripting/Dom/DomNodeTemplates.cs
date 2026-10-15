@@ -523,6 +523,29 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
         t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
         t.DefineProperty("FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8D40));
+        t.DefineProperty("MAX_TEXTURE_SIZE", (_, _) => ScriptValue.FromNumber(0x0D33));
+        t.DefineProperty("MAX_VERTEX_ATTRIBS", (_, _) => ScriptValue.FromNumber(0x8869));
+        t.DefineProperty("MAX_COMBINED_TEXTURE_IMAGE_UNITS", (_, _) => ScriptValue.FromNumber(0x8B4D));
+        t.DefineProperty("VERSION", (_, _) => ScriptValue.FromNumber(0x1F02));
+        t.DefineProperty("VENDOR", (_, _) => ScriptValue.FromNumber(0x1F00));
+        t.DefineProperty("RENDERER", (_, _) => ScriptValue.FromNumber(0x1F01));
+        t.DefineProperty("SHADING_LANGUAGE_VERSION", (_, _) => ScriptValue.FromNumber(0x8B8C));
+        t.DefineMethod("getParameter", (target, _, args) =>
+        {
+            if (args.Length == 0) return ScriptValue.Null;
+            return WebIdlConversions.ToUint32(args[0]) switch
+            {
+                0x0D33 => ScriptValue.FromNumber(4096),
+                0x8869 => ScriptValue.FromNumber(16),
+                0x8B4D => ScriptValue.FromNumber(16),
+                0x1F02 => ScriptValue.FromString("WebGL 2.0 Folio"),
+                0x1F00 => ScriptValue.FromString("Folio"),
+                0x1F01 => ScriptValue.FromString("Folio bounded renderer"),
+                0x8B8C => ScriptValue.FromString("WebGL GLSL ES 3.00"),
+                _ => ScriptValue.Null
+            };
+        });
+        t.DefineMethod("getSupportedExtensions", (target, _, _) => _context.Engine.CreateArray([ScriptValue.FromString("WEBGL_lose_context")]));
         t.DefineMethod("createBuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Buffers[handle] = []; return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundArrayBuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("bufferData", (target, _, args) =>
