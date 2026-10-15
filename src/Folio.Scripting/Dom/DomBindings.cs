@@ -70,7 +70,10 @@ public static class DomBindings
                 if (!context.Capabilities.Workers)
                     throw WebIdlException.DomException(DomExceptionNames.NotSupportedError, "Workers are disabled by the host.");
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-                return engine.CreateHostObject(workerTemplate, new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes));
+                var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes);
+                var worker = engine.CreateHostObject(workerTemplate, state);
+                state.Source = worker;
+                return worker;
             });
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));

@@ -21,13 +21,14 @@ internal sealed class WorkerState
     public bool Terminated { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnError { get; set; } = ScriptValue.Null;
+    public ScriptValue Source { get; set; } = ScriptValue.Null;
     public void Terminate() => Terminated = true;
     public bool PostMessage(ScriptValue value)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
         if (Enabled && !Terminated && OnMessage.IsFunction)
         {
-            var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, ScriptValue.Null));
+            var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
             Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         }
         return true;
