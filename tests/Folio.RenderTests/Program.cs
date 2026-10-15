@@ -1,5 +1,9 @@
 using Xunit.MicrosoftTestingPlatform;
 using Xunit.Runner.InProc.SystemConsole;
+using Folio.Scripting;
+using Folio.Scripting.Dom;
+using Folio.Scripting.Jint;
+using Folio.Skia;
 
 namespace Folio.RenderTests;
 
@@ -13,6 +17,8 @@ public static class Program
             return ConformanceReport(args[1..]);
         if (args.Length > 0 && args[0] == "canvas-perf")
             return CanvasPerformance(args.Length > 1 && int.TryParse(args[1], out var n) ? Math.Max(3, n) : 10);
+        if (args.Length > 0 && args[0] == "canvas-frames")
+            return CanvasFrames(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 30);
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -39,6 +45,48 @@ public static class Program
             var median = samples[samples.Count / 2];
             var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
             Console.WriteLine($"| {artifact.Id} | {median:F1} | {p95:F1} |");
+        }
+        return 0;
+    }
+
+    private static int CanvasFrames(int frameCount)
+    {
+        Console.WriteLine($"Script-driven canvas frame benchmark ({frameCount} frames, 16.7 ms virtual ticks)");
+        Console.WriteLine("| Artifact | Median ms | p95 ms | Target |");
+        Console.WriteLine("|---|--:|--:|---:|");
+        foreach (var artifact in Conformance.Discover().Where(a => a.Category is "D5" or "D7"))
+        {
+            var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
+            using var document = Document.Parse(html, Conformance.Options);
+            document.Paint(Conformance.ManifestOf(artifact).Viewport, 600);
+            using var engine = new JintScriptEngine();
+            var clock = new VirtualEventLoopClock();
+            using var loop = new HtmlEventLoop(engine, clock);
+            DomBindings.Install(engine, document, eventLoop: loop);
+            ScriptGlobalsInstaller.Install(loop, engine);
+            using var runner = new ScriptRunner(document.Node, engine, loop, Conformance.Options);
+            runner.Run();
+            loop.UpdateTheRendering();
+            for (var warmup = 0; warmup < 3; warmup++)
+            {
+                clock.Advance(16.7);
+                loop.UpdateTheRendering();
+                using var warmupFrame = HeadlessRenderer.Render(document, new RenderRequest(Conformance.ManifestOf(artifact).Viewport, null));
+            }
+            var samples = new List<double>(frameCount);
+            for (var i = 0; i < frameCount; i++)
+            {
+                clock.Advance(16.7);
+                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                loop.UpdateTheRendering();
+                using var result = HeadlessRenderer.Render(document, new RenderRequest(Conformance.ManifestOf(artifact).Viewport, null));
+                _ = result.Width;
+                samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            }
+            samples.Sort();
+            var median = samples[samples.Count / 2];
+            var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
+            Console.WriteLine($"| {artifact.Id} | {median:F2} | {p95:F2} | 16.70 ms |");
         }
         return 0;
     }

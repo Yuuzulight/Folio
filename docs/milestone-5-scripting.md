@@ -20,7 +20,7 @@ The public D2–D7 corpus is run with the content-process scripting path and a 1
 - `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 216/216 passed.
 - D5 and D7 paint-only performance still require a dedicated p95 frame measurement against the 16.7 ms M5 target.
 
-The reproducible `canvas-perf` command (`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -- canvas-perf 3`) currently reports full conformance wall-time p95s of approximately 1.9 s for D5 and 0.6 s for D7. These are document-render timings, not paint-only frame timings, and therefore do not satisfy the M5 performance gate; they expose the need for a frame-level benchmark rather than hiding the gap.
+The reproducible `canvas-perf` command (`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -- canvas-perf 3`) reports full conformance wall-time diagnostics. The script-driven frame command (`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -- canvas-frames 10`) warms each document, advances Jint's virtual clock in 16.7 ms ticks, and measures a render per frame. The current p95 baseline is 26.9 ms for D5 and 30.5 ms for D7, above the 16.7 ms target; the performance gate is therefore still open.
 
 ## Remaining closing gates
 
