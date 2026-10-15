@@ -748,6 +748,8 @@ internal static class DisplayListBuilder
                 if (value.Length == 7)
                     return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
             }
+            if (TryFunctionalColor(value, out var functional))
+                return functional;
             return value.ToLowerInvariant() switch
             {
                 "red" => new CssColor(1, 0, 0, 1),
@@ -756,6 +758,36 @@ internal static class DisplayListBuilder
                 "white" => new CssColor(1, 1, 1, 1),
                 _ => CssColor.Black,
             };
+        }
+
+        private static bool TryFunctionalColor(string value, out CssColor color)
+        {
+            color = CssColor.Black;
+            var open = value.IndexOf('(');
+            if (open <= 0 || !value.EndsWith(')')) return false;
+            var name = value[..open].Trim().ToLowerInvariant();
+            var parts = value[(open + 1)..^1].Split(',', StringSplitOptions.TrimEntries);
+            if (name is "rgb" or "rgba" && parts.Length >= 3
+                && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var r)
+                && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var g)
+                && float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var b))
+            {
+                var a = parts.Length > 3 && float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var alpha) ? alpha : 1;
+                color = new CssColor(Math.Clamp(r / 255, 0, 1), Math.Clamp(g / 255, 0, 1), Math.Clamp(b / 255, 0, 1), Math.Clamp(a, 0, 1));
+                return true;
+            }
+            if (name == "hsl" && parts.Length >= 3
+                && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var h)
+                && float.TryParse(parts[1].TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out var s)
+                && float.TryParse(parts[2].TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out var l))
+            {
+                h = (h % 360 + 360) % 360 / 360; s = Math.Clamp(s / 100, 0, 1); l = Math.Clamp(l / 100, 0, 1);
+                var q = l < .5f ? l * (1 + s) : l + s - l * s; var p = 2 * l - q;
+                static float Hue(float p, float q, float t) { if (t < 0) t += 1; if (t > 1) t -= 1; return t < 1f / 6 ? p + (q - p) * 6 * t : t < .5f ? q : t < 2f / 3 ? p + (q - p) * (2f / 3 - t) * 6 : p; }
+                color = new CssColor(Hue(p, q, h + 1f / 3), Hue(p, q, h), Hue(p, q, h - 1f / 3), 1);
+                return true;
+            }
+            return false;
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)

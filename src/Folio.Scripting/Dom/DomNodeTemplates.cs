@@ -155,6 +155,7 @@ internal sealed class DomNodeTemplates
             .DefineMethod("quadraticCurveTo", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "quadraticCurveTo", args.ToArray()))
             .DefineMethod("bezierCurveTo", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "bezierCurveTo", args.ToArray()))
             .DefineMethod("arc", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "arc", args.ToArray()))
+            .DefineMethod("arcTo", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "arcTo", args.ToArray()))
             .DefineMethod("closePath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("closePath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
             .DefineMethod("fill", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, state.FillStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; })
             .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; });
