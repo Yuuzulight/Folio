@@ -112,6 +112,8 @@ public sealed class DomStyleDeclarationTests
 
         Assert.Equal(1, engine.Evaluate("document.styleSheets.length").AsNumber());
         Assert.Contains(".a", engine.Evaluate("document.styleSheets[0].cssRules[0].cssText").AsString());
+        Assert.Equal(".a", engine.Evaluate("document.styleSheets[0].cssRules[0].selectorText").AsString());
+        Assert.Equal("red", engine.Evaluate("document.styleSheets[0].cssRules[0].style.getPropertyValue('color')").AsString());
         Assert.Equal(1, engine.Evaluate("document.styleSheets[0].insertRule('.b { color: blue; }')").AsNumber());
         Assert.Equal(2, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
         engine.Evaluate("document.styleSheets[0].deleteRule(0)");

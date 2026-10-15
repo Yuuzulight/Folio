@@ -102,6 +102,22 @@ internal sealed class DomNodeTemplates
             .DefineMethod("closePath", (target, _, _) => { ((CanvasPathState)target).Segments.Add(("closePath", 0, 0)); return ScriptValue.Undefined; });
         CssRuleTemplate = new HostObjectTemplate("CSSStyleRule")
             .DefineProperty("cssText", (target, _) => ScriptValue.FromString(((CssRuleState)target).CssText));
+        CssRuleStyleTemplate = new HostObjectTemplate("CSSStyleDeclaration")
+            .DefineProperty("length", (target, _) => ScriptValue.FromNumber(((CssRuleStyleState)target).Properties.Count))
+            .DefineMethod("getPropertyValue", (target, _, args) =>
+            {
+                var name = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                return ScriptValue.FromString(((CssRuleStyleState)target).Properties.GetValueOrDefault(name, ""));
+            })
+            .DefineMethod("setProperty", (target, _, args) =>
+            {
+                if (args.Length > 1)
+                    ((CssRuleStyleState)target).Properties[WebIdlConversions.ToDOMString(args[0])] = WebIdlConversions.ToDOMString(args[1]);
+                return ScriptValue.Undefined;
+            });
+        CssRuleTemplate
+            .DefineProperty("selectorText", (target, _) => ScriptValue.FromString(((CssRuleState)target).SelectorText))
+            .DefineProperty("style", (target, _) => _context.Engine.CreateHostObject(CssRuleStyleTemplate, ((CssRuleState)target).Style));
         CssStyleSheetTemplate = new HostObjectTemplate("CSSStyleSheet")
             .DefineProperty("cssRules", (target, _) =>
             {
@@ -158,6 +174,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate Path2DTemplate { get; }
     public HostObjectTemplate CssRuleTemplate { get; }
+    public HostObjectTemplate CssRuleStyleTemplate { get; }
     public HostObjectTemplate CssStyleSheetTemplate { get; }
 
     private static ScriptValue AddCanvasCommand(CanvasElementState state, string name, ScriptValue[] args)

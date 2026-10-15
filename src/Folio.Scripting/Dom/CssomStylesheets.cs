@@ -22,7 +22,29 @@ internal sealed class CssStyleSheetState(ElementNode source)
         .Select(rule => rule.Trim() + "}").Where(rule => rule.Contains('{')).ToList();
 }
 
-internal sealed class CssRuleState(string cssText)
+internal sealed class CssRuleState
 {
-    public string CssText { get; set; } = cssText;
+    public CssRuleState(string cssText)
+    {
+        CssText = cssText;
+        SelectorText = cssText[..Math.Max(0, cssText.IndexOf('{'))].Trim();
+        Style = new CssRuleStyleState(cssText);
+    }
+
+    public string CssText { get; set; }
+    public string SelectorText { get; }
+    public CssRuleStyleState Style { get; }
+}
+
+internal sealed class CssRuleStyleState(string cssText)
+{
+    public Dictionary<string, string> Properties { get; } = Parse(cssText);
+
+    private static Dictionary<string, string> Parse(string text) =>
+        text.Contains('{')
+            ? text[(text.IndexOf('{') + 1)..].TrimEnd('}', ' ').Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => part.Split(':', 2, StringSplitOptions.TrimEntries))
+                .Where(parts => parts.Length == 2)
+                .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.OrdinalIgnoreCase)
+            : new(StringComparer.OrdinalIgnoreCase);
 }
