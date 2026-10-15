@@ -275,6 +275,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("navigator.serviceWorker.controller === registration.active").AsBoolean());
         Assert.True(allowed.Evaluate("let controllerChanges = 0; let listenerChanges = 0; navigator.serviceWorker.oncontrollerchange = e => { if (e.type === 'controllerchange' && e.target === navigator.serviceWorker) controllerChanges++; }; const listener = e => listenerChanges++; navigator.serviceWorker.addEventListener('controllerchange', listener); registration.unregister(); navigator.serviceWorker.removeEventListener('controllerchange', listener); controllerChanges === 1 && listenerChanges === 1 && navigator.serviceWorker.controller === null").AsBoolean());
         Assert.True(allowed.Evaluate("let updateFound = false; registration.onupdatefound = e => updateFound = e.type === 'updatefound' && e.target === registration; registration.update(); updateFound").AsBoolean());
+        Assert.True(allowed.Evaluate("let updateEvents = 0; const updateListener = e => { if (e.type === 'updatefound' && e.target === registration) updateEvents++; }; registration.addEventListener('updatefound', updateListener); registration.update(); registration.removeEventListener('updatefound', updateListener); updateEvents === 1").AsBoolean());
         allowed.Evaluate("let readyScope = ''; navigator.serviceWorker.ready.then(r => readyScope = r.scope);");
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("/", allowed.Evaluate("readyScope").AsString());
