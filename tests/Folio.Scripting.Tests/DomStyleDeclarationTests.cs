@@ -62,6 +62,20 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void CanvasContextSupportsStateAndTransformOperations()
+    {
+        var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var result = engine.Evaluate(@"
+            const ctx = document.getElementById('chart').getContext('2d');
+            ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.globalAlpha = 0.5;
+            ctx.save(); ctx.fillStyle = 'red'; ctx.translate(10, 20); ctx.restore();
+            `${ctx.lineWidth}|${ctx.lineCap}|${ctx.globalAlpha}|${ctx.fillStyle}`;");
+        Assert.Equal("3|round|0.5|#000000", result.AsString());
+    }
+
+    [Fact]
     public void CssSupportsAndEscapeAreAvailable()
     {
         using var engine = new JintScriptEngine();

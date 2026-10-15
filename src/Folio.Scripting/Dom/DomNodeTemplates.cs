@@ -65,6 +65,18 @@ internal sealed class DomNodeTemplates
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
         CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
             .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => ((CanvasElementState)target).FillStyle = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("lineWidth", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).LineWidth), (target, _, value) => ((CanvasElementState)target).LineWidth = Math.Max(0, WebIdlConversions.ToDouble(value)))
+            .DefineProperty("lineCap", (target, _) => ScriptValue.FromString(((CanvasElementState)target).LineCap), (target, _, value) => ((CanvasElementState)target).LineCap = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("lineJoin", (target, _) => ScriptValue.FromString(((CanvasElementState)target).LineJoin), (target, _, value) => ((CanvasElementState)target).LineJoin = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("globalAlpha", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).GlobalAlpha), (target, _, value) => ((CanvasElementState)target).GlobalAlpha = Math.Clamp(WebIdlConversions.ToDouble(value), 0, 1))
+            .DefineProperty("globalCompositeOperation", (target, _) => ScriptValue.FromString(((CanvasElementState)target).GlobalCompositeOperation), (target, _, value) => ((CanvasElementState)target).GlobalCompositeOperation = WebIdlConversions.ToDOMString(value))
+            .DefineMethod("save", (target, _, _) => SaveCanvasState((CanvasElementState)target))
+            .DefineMethod("restore", (target, _, _) => RestoreCanvasState((CanvasElementState)target))
+            .DefineMethod("setLineDash", (target, _, args) => SetLineDash((CanvasElementState)target, args))
+            .DefineMethod("getLineDash", (target, _, _) => _context.Engine.CreateArray(((CanvasElementState)target).LineDash.Select(ScriptValue.FromNumber).ToArray()))
+            .DefineMethod("translate", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "translate", args.ToArray()))
+            .DefineMethod("scale", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "scale", args.ToArray()))
+            .DefineMethod("rotate", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "rotate", args.ToArray()))
             .DefineMethod("fillRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "fillRect", args.ToArray()))
             .DefineMethod("clearRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "clearRect", args.ToArray()))
             .DefineMethod("strokeRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "strokeRect", args.ToArray()))
@@ -137,6 +149,37 @@ internal sealed class DomNodeTemplates
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
         state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue SaveCanvasState(CanvasElementState state)
+    {
+        state.SavedStyles.Push(new CanvasStyleSnapshot(state.FillStyle, state.LineWidth, state.LineCap, state.LineJoin, state.GlobalAlpha, state.GlobalCompositeOperation, state.LineDash.ToArray()));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue RestoreCanvasState(CanvasElementState state)
+    {
+        if (state.SavedStyles.TryPop(out var snapshot))
+        {
+            state.FillStyle = snapshot.FillStyle;
+            state.LineWidth = snapshot.LineWidth;
+            state.LineCap = snapshot.LineCap;
+            state.LineJoin = snapshot.LineJoin;
+            state.GlobalAlpha = snapshot.GlobalAlpha;
+            state.GlobalCompositeOperation = snapshot.GlobalCompositeOperation;
+            state.LineDash.Clear();
+            state.LineDash.AddRange(snapshot.LineDash);
+        }
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue SetLineDash(CanvasElementState state, ReadOnlySpan<ScriptValue> args)
+    {
+        state.LineDash.Clear();
+        foreach (var value in args)
+            if (value.IsNumber)
+                state.LineDash.Add(Math.Max(0, value.AsNumber()));
         return ScriptValue.Undefined;
     }
 
