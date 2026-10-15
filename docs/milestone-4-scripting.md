@@ -1,0 +1,11 @@
+# Milestone 4 scripting surface
+
+Folio's scripting bridge exposes the DOM, CSSOM, CSSOM View, forms, storage, URL, encoding, observer, and viewport APIs used by the interactive artifact suite. The Jint binding installs live style declarations, computed styles, geometry objects, scrolling state, form controls, `FormData`, `Storage`, `URLSearchParams`, `crypto.getRandomValues`, `TextEncoder`/`TextDecoder`, and the observer constructors.
+
+The content-process protocol is versioned and length-prefixed. Its codec validates frame sizes and protocol versions before deserializing, supports incremental decoding, and provides bounded stream read/write helpers. `ContentProcessSupervisor` centralizes heartbeat, memory, cancellation, and shutdown signals for a host transport. `Folio.ContentHost` is a stdio content-process executable that evaluates load messages through the Jint backend, while `ContentProcessClient` owns its lifecycle and terminates the process on heartbeat, memory, or cancellation failures.
+
+Conformance interaction scripts support click, hover, typing, keyboard, wheel, timed waits, and text/existence assertions. Timed waits advance the document update loop in deterministic frame-sized steps.
+
+The WinForms host attaches a `ContentProcessClient`, forwards scripted HTML loads, and shows a visible "Script stopped" notice when limits or the watchdog terminate execution. Display-list and input payloads are versioned and carried over the same transport; the host's static display list remains the authoritative paint path for the initial frame while scripted updates arrive through the content-process channel.
+
+Milestone 4 is complete. The implementation is covered by the scripting, core, render-conformance, process-host, sandbox, and IPC fuzz checks documented in the repository test commands.

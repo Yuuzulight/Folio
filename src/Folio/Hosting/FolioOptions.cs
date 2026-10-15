@@ -61,6 +61,9 @@ public sealed class FolioOptions
     /// In M4, <see cref="ScriptingPolicy.ContentProcess"/> enables scripting.
     /// </summary>
     public ScriptingPolicy Scripting { get; init; } = ScriptingPolicy.Disabled;
+
+    /// <summary>Optional content-host executable used by a host that enables <see cref="ScriptingPolicy.ContentProcess"/>.</summary>
+    public string? ContentProcessPath { get; init; }
 }
 
 /// <summary>The scripting policy for documents (docs/architecture.md, study 17).</summary>

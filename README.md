@@ -4,7 +4,7 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** static rendering (milestone 1), static parity (milestone 2), and interaction (milestone 3) are complete and in use in Mana. Scripting foundations (milestone 4) is up next.
+**Status:** static rendering (milestone 1), static parity (milestone 2), interaction (milestone 3), and scripting foundations (milestone 4) are complete and in use in Mana.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
@@ -29,7 +29,7 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana | 0 |
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
-| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Not started | 40 |
+| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Done | 0 |
 | 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Not started | 36 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | Not started | 45 |
 | Optional: towards all-Folio: an in-house shaper, rasteriser and image decoders. Never a blocker for the milestones above. | Not started | 19 |
@@ -47,7 +47,7 @@ byte[] png = HeadlessRenderer.RenderPng("<h1>Quarterly report</h1><p>Revenue ros
 File.WriteAllBytes("report.png", png);
 ```
 
-On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it.
+On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it. Scripted documents can use `Folio.ContentHost` through `ContentProcessClient`; configure `FolioOptions.Scripting` as `ContentProcess` and provide `ContentProcessPath`.
 
 ## Building
 Needs the .NET 10 SDK. The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.

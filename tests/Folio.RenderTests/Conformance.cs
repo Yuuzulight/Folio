@@ -234,7 +234,10 @@ public static class Conformance
                 }
                 case "wait":
                 {
-                    document.Update();
+                    if (!int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds) || milliseconds < 0)
+                        return $"step {i + 1} ({line}): expected a non-negative millisecond duration";
+                    for (var elapsed = 0; elapsed < milliseconds; elapsed += 16)
+                        document.Update();
                     break;
                 }
                 case "exists":

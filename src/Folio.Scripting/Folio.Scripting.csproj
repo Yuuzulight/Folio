@@ -13,6 +13,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Folio.Scripting.Tests" />
     <InternalsVisibleTo Include="Folio.Scripting.Jint" />
+    <InternalsVisibleTo Include="Folio.ContentHost" />
   </ItemGroup>
 
 </Project>
