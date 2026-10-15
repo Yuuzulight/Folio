@@ -217,6 +217,7 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; let eventType = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === w && e.target === w; eventType = e.type; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example' && sourceMatches && eventType === 'message'").AsBoolean());
         Assert.True(allowed.Evaluate("const isolated = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data + 1); };')); let isolatedSeen = 0; isolated.onmessage = e => isolatedSeen = e.data; isolated.postMessage(41); isolatedSeen === 42").AsBoolean());
+        Assert.True(allowed.Evaluate("const broken = new Worker('data:text/javascript,' + encodeURIComponent('throw new Error(\\\"boom\\\");')); let workerError = ''; broken.onerror = e => workerError = e.message; broken.postMessage(1); workerError === 'boom'").AsBoolean());
         Assert.True(allowed.Evaluate("let listenerSeen = 0; const listener = e => listenerSeen = e.data; w.addEventListener('message', listener); w.postMessage(43); w.removeEventListener('message', listener); listenerSeen === 43").AsBoolean());
         Assert.Equal("https://worker.example/worker.js", allowed.Evaluate("w.scriptURL").AsString());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("w.terminate(); w.postMessage(7)"));

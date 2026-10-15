@@ -20,7 +20,11 @@ internal sealed class WorkerState
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
-            if (TryReadScript(scriptUrl, resourceLoader, out var source)) WorkerEngine.Evaluate(source, scriptUrl);
+            if (TryReadScript(scriptUrl, resourceLoader, out var source))
+            {
+                try { WorkerEngine.Evaluate(source, scriptUrl); }
+                catch (Exception error) { _scriptError = error; }
+            }
         }
     }
 
@@ -36,6 +40,7 @@ internal sealed class WorkerState
     public ScriptValue OnError { get; set; } = ScriptValue.Null;
     public ScriptValue Source { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
+    private Exception? _scriptError;
     public void AddEventListener(string type, ScriptValue listener)
     {
         if (!listener.IsFunction) return;
@@ -50,6 +55,7 @@ internal sealed class WorkerState
     public bool PostMessage(ScriptValue value)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
+        if (_scriptError is not null && !Terminated) { DispatchError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
             WorkerEngine.SetGlobalProperty("__folio_worker_message_data", value);
@@ -77,6 +83,17 @@ internal sealed class WorkerState
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+    }
+
+    private void DispatchError(Exception error)
+    {
+        Engine.SetGlobalProperty("__folio_worker_error_message", ScriptValue.FromString(error.Message));
+        Engine.SetGlobalProperty("__folio_worker_error_target", Source);
+        var message = Engine.Evaluate("({ type: 'error', message: __folio_worker_error_message, target: __folio_worker_error_target })", ScriptUrl);
+        if (OnError.IsFunction) Engine.Call(OnError, ScriptValue.Undefined, [message]);
+        if (_listeners.TryGetValue("error", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+        Engine.SetGlobalProperty("__folio_worker_error_message", ScriptValue.Undefined);
+        Engine.SetGlobalProperty("__folio_worker_error_target", ScriptValue.Undefined);
     }
 
     private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source)
