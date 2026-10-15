@@ -614,14 +614,32 @@ internal static class DisplayListBuilder
         private void PaintCanvas(PaintBox box, ICanvasSurface surface)
         {
             SetClip(box.Clip);
+        var transformDepth = 0;
+        list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(box.Rect.X, box.Rect.Y)));
+        transformDepth++;
         var path = new PathData();
             foreach (var command in surface.Commands)
             {
             var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
             switch (command.Name)
             {
+                case "translate":
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
+                        Transform: Matrix3x2.CreateTranslation((float)command.X, (float)command.Y)));
+                    transformDepth++;
+                    break;
+                case "scale":
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
+                        Transform: Matrix3x2.CreateScale((float)command.X, (float)command.Y)));
+                    transformDepth++;
+                    break;
+                case "rotate":
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
+                        Transform: Matrix3x2.CreateRotation((float)command.X)));
+                    transformDepth++;
+                    break;
                 case "fillRect" or "strokeRect":
-                    var rect = new RectF(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y,
+                    var rect = new RectF((float)command.X, (float)command.Y,
                         (float)command.Width, (float)command.Height);
                     if (command.Name == "fillRect")
                         list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color));
@@ -630,14 +648,14 @@ internal static class DisplayListBuilder
                             Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
                     break;
                 case "rect":
-                    path.AddRoundedRect(new RoundedRect(new RectF(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y,
+                    path.AddRoundedRect(new RoundedRect(new RectF((float)command.X, (float)command.Y,
                         (float)command.Width, (float)command.Height), default));
                     break;
                 case "moveTo":
-                    path.MoveTo(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y);
+                    path.MoveTo((float)command.X, (float)command.Y);
                     break;
                 case "lineTo":
-                    path.LineTo(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y);
+                    path.LineTo((float)command.X, (float)command.Y);
                     break;
                 case "closePath":
                     path.Close();
@@ -652,6 +670,8 @@ internal static class DisplayListBuilder
                     break;
             }
             }
+        while (transformDepth-- > 0)
+            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
         }
 
         private static CssColor CanvasColor(string value)

@@ -38,6 +38,21 @@ public sealed class CanvasDisplayListTests
         Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.FillPath && item.Color.B > 0.9f);
     }
 
+    [Fact]
+    public void TransformCommandsWrapSubsequentCanvasPaint()
+    {
+        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
+        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
+        canvas.CanvasSurface = new TestCanvasSurface([
+            new CanvasSurfaceCommand("translate", 5, 7, 0, 0, ""),
+            new CanvasSurfaceCommand("fillRect", 1, 2, 3, 4, "#0f0")
+        ]);
+
+        var (displayList, _) = document.Paint(200, 100);
+        var transforms = displayList.Items.Where(item => item.Kind == DisplayItemKind.PushTransform).ToList();
+        Assert.Contains(transforms, item => item.Transform.Translation == new System.Numerics.Vector2(5, 7));
+    }
+
     private sealed class TestCanvasSurface(IReadOnlyList<CanvasSurfaceCommand> commands) : ICanvasSurface
     {
         public IReadOnlyList<CanvasSurfaceCommand> Commands { get; } = commands;
