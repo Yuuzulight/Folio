@@ -67,6 +67,13 @@ internal sealed class DomNodeTemplates
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
         HtmlMediaElementTemplate = CreateHtmlMediaElementTemplate(HtmlElementTemplate);
         HtmlIFrameElementTemplate = CreateHtmlIFrameElementTemplate(HtmlElementTemplate);
+        TextTrackTemplate = new HostObjectTemplate("TextTrack")
+            .DefineProperty("kind", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Kind))
+            .DefineProperty("label", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Label))
+            .DefineProperty("language", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Language))
+            .DefineProperty("mode", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Mode),
+                (target, _, value) => ((MediaTextTrackState)target).Mode = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("cues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).Cues.Select(ScriptValue.FromString).ToArray()));
         CanvasGradientTemplate = new HostObjectTemplate("CanvasGradient")
             .DefineMethod("addColorStop", (target, _, args) =>
             {
@@ -252,6 +259,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate HtmlMediaElementTemplate { get; }
     public HostObjectTemplate HtmlIFrameElementTemplate { get; }
+    public HostObjectTemplate TextTrackTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlLoseContextTemplate { get; }
@@ -402,6 +410,15 @@ internal sealed class DomNodeTemplates
             if (!_context.GetMedia((ElementNode)target).Enabled || args.Length == 0) return ScriptValue.FromString("");
             var type = WebIdlConversions.ToDOMString(args[0]).ToLowerInvariant();
             return ScriptValue.FromString(type.Contains("audio") || type.Contains("video") ? "maybe" : "");
+        });
+        t.DefineMethod("addTextTrack", (target, _, args) =>
+        {
+            var kind = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "metadata";
+            var label = args.Length > 1 ? WebIdlConversions.ToDOMString(args[1]) : "";
+            var language = args.Length > 2 ? WebIdlConversions.ToDOMString(args[2]) : "";
+            var track = new MediaTextTrackState(kind, label, language);
+            _context.GetMedia((ElementNode)target).TextTracks.Add(track);
+            return _context.Engine.CreateHostObject(TextTrackTemplate, track);
         });
         return t;
     }

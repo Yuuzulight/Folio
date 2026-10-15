@@ -62,6 +62,7 @@ internal sealed class MediaElementState
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }
     public long SourceBytes { get; }
+    public List<MediaTextTrackState> TextTracks { get; } = [];
     public void RejectForBudget() => Error = "Media resource exceeds the host budget.";
 
     public void Play()
@@ -80,6 +81,15 @@ internal sealed class MediaElementState
         Ended = false;
         Error = null;
     }
+}
+
+internal sealed class MediaTextTrackState(string kind, string label, string language)
+{
+    public string Kind { get; } = kind;
+    public string Label { get; } = label;
+    public string Language { get; } = language;
+    public string Mode { get; set; } = "disabled";
+    public List<string> Cues { get; } = [];
 }
 
 internal sealed class WebGlContextState
