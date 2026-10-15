@@ -923,10 +923,18 @@ public sealed class DomStyleDeclarationTests
         await session.DisposeAsync();
     }
 
+    // The content host is built in the configuration the tests were built in (CI builds Release, a developer Debug):
+    // .../tests/Folio.Scripting.Tests/bin/<Configuration>/net10.0/ names it.
+    private static string ContentHostPath()
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+    }
+
     [Fact]
     public async Task ContentProcessClientRunsScriptThroughContentHost()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
         await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -954,7 +962,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public async Task ContentProcessStopsAnInfiniteScriptWithDiagnostic()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"");
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>
