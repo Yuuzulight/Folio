@@ -146,10 +146,12 @@ internal sealed class WebGlContextState
     public Dictionary<int, double[]> UniformValues { get; } = [];
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
+    public HashSet<uint> VertexArrays { get; } = [];
     public uint? BoundTexture { get; set; }
     public uint? BoundFramebuffer { get; set; }
     public uint? BoundArrayBuffer { get; set; }
     public uint? CurrentProgram { get; set; }
+    public uint? BoundVertexArray { get; set; }
     public int DrawCalls { get; private set; }
     public int Error { get; private set; }
     public bool Lost { get; private set; }
