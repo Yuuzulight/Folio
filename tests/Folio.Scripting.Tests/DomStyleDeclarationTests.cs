@@ -35,7 +35,7 @@ public sealed class DomStyleDeclarationTests
     private sealed class ServiceWorkerLifecycleLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.oninstall = function(e) { e.waitUntil(Promise.resolve()); }; self.onactivate = function(e) { e.waitUntil(Promise.resolve()); };"), "application/javascript"));
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('install', function(e) { e.waitUntil(Promise.resolve()); }); self.addEventListener('activate', function(e) { e.waitUntil(Promise.resolve()); });"), "application/javascript"));
     }
 
     private sealed class WavResourceLoader : IResourceLoader
