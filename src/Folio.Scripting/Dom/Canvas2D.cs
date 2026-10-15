@@ -36,6 +36,22 @@ internal sealed class CanvasElementState : ICanvasSurface
     public Stack<CanvasStyleSnapshot> SavedStyles { get; } = [];
 }
 
+internal sealed class WebGlContextState
+{
+    private uint _nextHandle = 1;
+    public Dictionary<uint, byte[]> Buffers { get; } = [];
+    public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
+    public HashSet<uint> Programs { get; } = [];
+    public uint? BoundArrayBuffer { get; set; }
+    public uint? CurrentProgram { get; set; }
+    public int DrawCalls { get; private set; }
+    public int Error { get; private set; }
+    public uint CreateHandle() => _nextHandle++;
+    public void AddDrawCall() => DrawCalls++;
+    public void SetError(int error) { if (Error == 0) Error = error; }
+    public int TakeError() { var error = Error; Error = 0; return error; }
+}
+
 internal sealed record CanvasStyleSnapshot(string FillStyle, double LineWidth, string LineCap, string LineJoin, double GlobalAlpha, string GlobalCompositeOperation, double[] LineDash);
 
 internal sealed class CanvasPathState

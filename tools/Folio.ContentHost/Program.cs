@@ -43,7 +43,7 @@ session.MessageReceived += async (message, cancellationToken) =>
         {
             document?.Dispose();
             document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess, Capabilities = capabilities });
-            DomBindings.Install(engine, document.Node);
+            DomBindings.Install(engine, document);
         }
         var result = engine.Evaluate(script, url);
         var frame = document is null ? null : document.Paint(1280, 720).List;

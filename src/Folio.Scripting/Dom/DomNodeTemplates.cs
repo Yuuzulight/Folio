@@ -159,6 +159,7 @@ internal sealed class DomNodeTemplates
             .DefineMethod("closePath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("closePath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
             .DefineMethod("fill", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, state.FillStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; })
             .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; });
+        WebGlRenderingContextTemplate = CreateWebGlRenderingContextTemplate();
         Path2DTemplate = new HostObjectTemplate("Path2D")
             .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
             .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
@@ -245,6 +246,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
+    public HostObjectTemplate WebGlRenderingContextTemplate { get; }
     public HostObjectTemplate CanvasGradientTemplate { get; }
     public HostObjectTemplate TextMetricsTemplate { get; }
     public HostObjectTemplate ImageDataTemplate { get; }
@@ -338,14 +340,54 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("height", (target, _) => ScriptValue.FromNumber(ReadDimension((ElementNode)target, "height", 150)), (target, _, value) => ((ElementNode)target).SetAttribute("height", WebIdlConversions.ToUint32(value).ToString()));
         t.DefineMethod("getContext", (target, _, args) =>
         {
-            if (args.Length == 0 || !string.Equals(WebIdlConversions.ToDOMString(args[0]), "2d", StringComparison.OrdinalIgnoreCase)) return ScriptValue.Null;
-            return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
+            if (args.Length == 0) return ScriptValue.Null;
+            var kind = WebIdlConversions.ToDOMString(args[0]);
+            if (string.Equals(kind, "2d", StringComparison.OrdinalIgnoreCase))
+                return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
+            if (string.Equals(kind, "webgl2", StringComparison.OrdinalIgnoreCase) && _context.Capabilities.WebGl)
+                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, new WebGlContextState());
+            return ScriptValue.Null;
         });
         t.DefineMethod("toDataURL", (_, _, _) => ScriptValue.FromString("data:image/png;base64,"));
         return t;
 
         static uint ReadDimension(ElementNode element, string name, uint fallback) =>
             uint.TryParse(element.GetAttribute(name), out var value) ? value : fallback;
+    }
+
+    private HostObjectTemplate CreateWebGlRenderingContextTemplate()
+    {
+        var t = new HostObjectTemplate("WebGL2RenderingContext");
+        t.DefineProperty("ARRAY_BUFFER", (_, _) => ScriptValue.FromNumber(0x8892));
+        t.DefineProperty("STATIC_DRAW", (_, _) => ScriptValue.FromNumber(0x88E4));
+        t.DefineProperty("VERTEX_SHADER", (_, _) => ScriptValue.FromNumber(0x8B31));
+        t.DefineProperty("FRAGMENT_SHADER", (_, _) => ScriptValue.FromNumber(0x8B30));
+        t.DefineProperty("COMPILE_STATUS", (_, _) => ScriptValue.FromNumber(0x8B81));
+        t.DefineProperty("LINK_STATUS", (_, _) => ScriptValue.FromNumber(0x8B82));
+        t.DefineProperty("TRIANGLES", (_, _) => ScriptValue.FromNumber(0x0004));
+        t.DefineProperty("COLOR_BUFFER_BIT", (_, _) => ScriptValue.FromNumber(0x4000));
+        t.DefineMethod("createBuffer", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
+        t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundArrayBuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("bufferData", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (state.BoundArrayBuffer is not { } handle || args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var size = args[1].IsNumber ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, 16 * 1024 * 1024) : 0;
+            state.Buffers[handle] = new byte[size];
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("createShader", (target, _, args) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
+        t.DefineMethod("shaderSource", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length > 1) state.Shaders[WebIdlConversions.ToUint32(args[0])] = (0, WebIdlConversions.ToDOMString(args[1]), false); return ScriptValue.Undefined; });
+        t.DefineMethod("compileShader", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length > 0 && state.Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader)) state.Shaders[WebIdlConversions.ToUint32(args[0])] = shader with { Compiled = shader.Source.Length <= 1_000_000 }; return ScriptValue.Undefined; });
+        t.DefineMethod("getShaderParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) && shader.Compiled));
+        t.DefineMethod("createProgram", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
+        t.DefineMethod("linkProgram", (target, _, args) => { if (args.Length > 1) ((WebGlContextState)target).Programs.Add(WebIdlConversions.ToUint32(args[1])); return ScriptValue.Undefined; });
+        t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 1 ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
+        t.DefineMethod("clearColor", (_, _, _) => ScriptValue.Undefined);
+        t.DefineMethod("clear", (_, _, _) => ScriptValue.Undefined);
+        t.DefineMethod("getError", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).TakeError()));
+        return t;
     }
 
     private HostObjectTemplate CreateNodeTemplate()

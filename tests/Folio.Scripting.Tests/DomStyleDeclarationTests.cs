@@ -83,6 +83,26 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void WebGlContextIsCapabilityGatedAndTracksBoundedState()
+    {
+        using var denied = new JintScriptEngine();
+        var deniedDocument = Document.Parse("<canvas id='c'></canvas>");
+        DomBindings.Install(denied, deniedDocument);
+        Assert.True(denied.Evaluate("document.getElementById('c').getContext('webgl2') === null").AsBoolean());
+
+        using var allowed = new JintScriptEngine();
+        var allowedDocument = Document.Parse("<canvas id='c'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }
+        });
+        DomBindings.Install(allowed, allowedDocument);
+        Assert.True(allowed.Evaluate("const gl = document.getElementById('c').getContext('webgl2'); gl !== null && gl.ARRAY_BUFFER === 34962").AsBoolean());
+        Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
+        Assert.True(allowed.Evaluate("const s = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(s, 'void main(){}'); gl.compileShader(s); gl.getShaderParameter(s, gl.COMPILE_STATUS)").AsBoolean());
+        Assert.Equal(0, allowed.Evaluate("gl.drawArrays(gl.TRIANGLES, 0, 3); gl.getError()").AsNumber());
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");

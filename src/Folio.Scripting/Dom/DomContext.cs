@@ -14,12 +14,14 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, CanvasElementState> _canvases = new(ReferenceEqualityComparer.Instance);
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
-        Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null)
+        Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
+        FeatureCapabilities? capabilities = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
         WrapperCache = wrapperCache ?? new ScriptWrapperCache();
         Layout = layout;
+        Capabilities = capabilities ?? FeatureCapabilities.Default;
 
         Templates = new DomNodeTemplates(this);
     }
@@ -28,6 +30,7 @@ internal sealed class DomContext
     public DocumentNode Document { get; }
     public ScriptWrapperCache WrapperCache { get; }
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
+    public FeatureCapabilities Capabilities { get; }
     public DomNodeTemplates Templates { get; }
     public ElementNode? FocusedElement { get; private set; }
     public void Focus(ElementNode element) => FocusedElement = element;

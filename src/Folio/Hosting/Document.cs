@@ -30,6 +30,9 @@ public sealed class Document : IDisposable
 
     internal FolioOptions Options { get; }
 
+    /// <summary>Stage-6 capabilities granted by the host for this document.</summary>
+    public FeatureCapabilities Capabilities => Options.Capabilities;
+
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
 
     /// <summary>All allowed loads finished or failed. Nothing is loaded yet, so it is always complete.</summary>
