@@ -19,6 +19,7 @@ internal sealed class WorkerState
                 .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) DispatchToParent(args[0]); return ScriptValue.Undefined; });
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
+            WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
             if (TryReadScript(scriptUrl, resourceLoader, out var source))
             {
@@ -59,12 +60,8 @@ internal sealed class WorkerState
         if (WorkerEngine is not null && !Terminated)
         {
             WorkerEngine.SetGlobalProperty("__folio_worker_message_data", value);
-            var handler = WorkerEngine.GetGlobalProperty("onmessage");
-            if (handler.IsFunction)
-            {
-                var message = WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl);
-                WorkerEngine.Call(handler, ScriptValue.Undefined, [message]);
-            }
+            WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
+            WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
             WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
             return true;
         }
