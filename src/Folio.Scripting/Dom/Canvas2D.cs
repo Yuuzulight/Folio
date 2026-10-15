@@ -48,6 +48,8 @@ internal sealed class MediaElementState
         EventTemplate = eventTemplate;
         Element = element;
         Enabled = enabled;
+        _resourceLoader = resourceLoader;
+        _baseUri = baseUri;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseWavDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
@@ -58,7 +60,7 @@ internal sealed class MediaElementState
     public IHostObjectTemplate EventTemplate { get; }
     public bool Enabled { get; }
     public double CurrentTime { get; set; }
-    public double Duration { get; }
+    public double Duration { get; private set; }
     public bool Paused { get; set; } = true;
     public bool Ended { get; set; }
     public double Volume { get; set; } = 1;
@@ -76,7 +78,7 @@ internal sealed class MediaElementState
     public int ReadyState => Enabled && Error is null ? 4 : 0;
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }
-    public long SourceBytes { get; }
+    public long SourceBytes { get; private set; }
     public List<MediaTextTrackState> TextTracks { get; } = [];
     public void RejectForBudget() => Error = "Media resource exceeds the host budget.";
     public ScriptValue OnLoadedMetadata { get; set; } = ScriptValue.Null;
@@ -84,6 +86,8 @@ internal sealed class MediaElementState
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
+    private readonly IResourceLoader? _resourceLoader;
+    private readonly Uri? _baseUri;
     public void AddEventListener(string type, ScriptValue listener)
     {
         if (!listener.IsFunction) return;
@@ -113,6 +117,12 @@ internal sealed class MediaElementState
 
     public void Load()
     {
+        var bytes = LoadSourceBytes(Element.GetAttribute("src"), _resourceLoader, _baseUri);
+        if (bytes is not null)
+        {
+            SourceBytes = bytes.LongLength;
+            Duration = ParseWavDuration(bytes);
+        }
         CurrentTime = 0;
         Paused = true;
         Ended = false;
