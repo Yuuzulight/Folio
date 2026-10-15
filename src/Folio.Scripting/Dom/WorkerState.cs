@@ -7,6 +7,7 @@ internal sealed class WorkerState
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
         ScriptUrl = scriptUrl;
+        Origin = Uri.TryCreate(scriptUrl, UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
         Enabled = enabled;
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
     }
@@ -14,6 +15,7 @@ internal sealed class WorkerState
     public IScriptEngine Engine { get; }
     public IHostObjectTemplate MessageEventTemplate { get; }
     public string ScriptUrl { get; }
+    public string Origin { get; }
     public bool Enabled { get; }
     public int MaxMessageBytes { get; }
     public bool Terminated { get; private set; }
@@ -25,7 +27,7 @@ internal sealed class WorkerState
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
         if (Enabled && !Terminated && OnMessage.IsFunction)
         {
-            var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, "", ScriptValue.Null));
+            var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, ScriptValue.Null));
             Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         }
         return true;
