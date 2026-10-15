@@ -531,6 +531,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("LINK_STATUS", (_, _) => ScriptValue.FromNumber(0x8B82));
         t.DefineProperty("TRIANGLES", (_, _) => ScriptValue.FromNumber(0x0004));
         t.DefineProperty("COLOR_BUFFER_BIT", (_, _) => ScriptValue.FromNumber(0x4000));
+        t.DefineProperty("DEPTH_BUFFER_BIT", (_, _) => ScriptValue.FromNumber(0x0100));
+        t.DefineProperty("DEPTH_TEST", (_, _) => ScriptValue.FromNumber(0x0B71));
+        t.DefineProperty("LEQUAL", (_, _) => ScriptValue.FromNumber(0x0203));
         t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
         t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
@@ -640,6 +643,10 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("uniform1i", (target, _, args) => StoreUniform((WebGlContextState)target, args, 1));
         t.DefineMethod("uniform4f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 4));
         t.DefineMethod("uniformMatrix4fv", (target, _, args) => StoreUniform((WebGlContextState)target, args, 16));
+        t.DefineMethod("enable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Add(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("disable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("clearDepth", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearDepth = Math.Clamp((float)WebIdlConversions.ToDouble(args[0]), 0, 1); return ScriptValue.Undefined; });
+        t.DefineMethod("depthFunc", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DepthFunction = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("createTexture", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Textures[handle] = (0, 0, []); return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
