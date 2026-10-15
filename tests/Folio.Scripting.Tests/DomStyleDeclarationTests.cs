@@ -5,6 +5,7 @@ using Folio.Scripting.Jint;
 using Folio.Scripting.Ipc;
 using Folio.Resources;
 using System.Text;
+using System.Buffers.Binary;
 using System.Text.Json;
 
 namespace Folio.Scripting.Tests;
@@ -23,6 +24,20 @@ public sealed class DomStyleDeclarationTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("<html><body><p id='remote'>loaded</p></body></html>"), "text/html"));
+    }
+
+    private sealed class WavResourceLoader : IResourceLoader
+    {
+        private readonly byte[] _wav = CreateWav();
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(_wav, "audio/wav"));
+        private static byte[] CreateWav()
+        {
+            var bytes = new byte[44 + 8000];
+            Encoding.ASCII.GetBytes("RIFF").CopyTo(bytes, 0); Encoding.ASCII.GetBytes("WAVE").CopyTo(bytes, 8); Encoding.ASCII.GetBytes("fmt ").CopyTo(bytes, 12); Encoding.ASCII.GetBytes("data").CopyTo(bytes, 36);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4, 4), bytes.Length - 8); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(16, 4), 16); BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(20, 2), 1); BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(22, 2), 1); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(24, 4), 8000); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(28, 4), 8000); BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(32, 2), 1); BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(34, 2), 8); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(40, 4), 8000);
+            return bytes;
+        }
     }
 
     [Fact]
@@ -189,6 +204,15 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("v.load(); v.currentTime === 0 && v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("const captions = v.addTextTrack('captions', 'English', 'en'); captions.kind === 'captions' && captions.label === 'English'; captions.mode = 'showing'; captions.addCue(1, 2, 'Hello'); captions.mode === 'showing' && captions.cues[0].startTime === 1 && captions.cues[0].endTime === 2 && captions.cues[0].text === 'Hello'").AsBoolean());
         Assert.True(allowed.Evaluate("v.playbackRate = 1.5; v.defaultPlaybackRate = 1.25; v.preservesPitch = false; v.playbackRate === 1.5 && v.defaultPlaybackRate === 1.25 && !v.preservesPitch && v.buffered.length === 1 && v.buffered.start(0) === 0 && v.buffered.end(0) === 12").AsBoolean());
+
+        using var decoded = new JintScriptEngine();
+        DomBindings.Install(decoded, Document.Parse("<audio id='a' src='/tone.wav'></audio>", new FolioOptions
+        {
+            BaseUri = new Uri("https://media.example/"),
+            ResourceLoader = new WavResourceLoader(),
+            Capabilities = new FeatureCapabilities { Media = true }
+        }));
+        Assert.Equal(1, decoded.Evaluate("document.getElementById('a').duration").AsNumber());
         Assert.True(allowed.Evaluate("const audio = new Audio('/sound.ogg'); audio instanceof HTMLAudioElement && audio.src === '/sound.ogg'").AsBoolean());
         Assert.True(allowed.Evaluate("const stream = new MediaStream([]); v.srcObject = stream; v.srcObject === stream").AsBoolean());
 

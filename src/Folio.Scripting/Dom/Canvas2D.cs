@@ -1,5 +1,7 @@
 using System.Globalization;
 using Folio.Dom;
+using Folio.Resources;
+using System.Buffers.Binary;
 
 namespace Folio.Scripting.Dom;
 
@@ -40,14 +42,15 @@ internal sealed class CanvasElementState : ICanvasSurface
 
 internal sealed class MediaElementState
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
         Element = element;
         Enabled = enabled;
-        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : 0;
-        SourceBytes = long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0;
+        var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
+        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseWavDuration(bytes);
+        SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
     }
 
     public ElementNode Element { get; }
@@ -115,6 +118,47 @@ internal sealed class MediaElementState
         Ended = false;
         Error = null;
         Dispatch(OnLoadedMetadata, "loadedmetadata");
+    }
+
+    private static byte[]? LoadSourceBytes(string? source, IResourceLoader? resourceLoader, Uri? baseUri)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return null;
+        if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = source.IndexOf(',');
+            if (comma < 0) return null;
+            try
+            {
+                var payload = source[(comma + 1)..];
+                return source[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
+                    ? Convert.FromBase64String(payload)
+                    : System.Text.Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+            }
+            catch (FormatException) { return null; }
+        }
+        if (resourceLoader is null) return null;
+        if (baseUri is not null && Uri.TryCreate(baseUri, source, out var resolved)) source = resolved.AbsoluteUri;
+        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return null;
+        return resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+    }
+
+    private static double ParseWavDuration(byte[]? bytes)
+    {
+        if (bytes is null || bytes.Length < 44 || bytes[0] != 'R' || bytes[1] != 'I' || bytes[2] != 'F' || bytes[3] != 'F' || bytes[8] != 'W' || bytes[9] != 'A' || bytes[10] != 'V' || bytes[11] != 'E') return 0;
+        var sampleRate = 0; var blockAlign = 0; var dataLength = 0;
+        for (var offset = 12; offset + 8 <= bytes.Length;)
+        {
+            var chunkSize = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 4, 4));
+            if (chunkSize < 0 || offset + 8 + chunkSize > bytes.Length) break;
+            if (bytes[offset] == 'f' && bytes[offset + 1] == 'm' && bytes[offset + 2] == 't' && bytes[offset + 3] == ' ' && chunkSize >= 16)
+            {
+                sampleRate = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 12, 4));
+                blockAlign = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(offset + 20, 2));
+            }
+            else if (bytes[offset] == 'd' && bytes[offset + 1] == 'a' && bytes[offset + 2] == 't' && bytes[offset + 3] == 'a') dataLength = chunkSize;
+            offset += 8 + chunkSize + (chunkSize & 1);
+        }
+        return sampleRate > 0 && blockAlign > 0 && dataLength > 0 ? (double)dataLength / (sampleRate * blockAlign) : 0;
     }
 }
 
