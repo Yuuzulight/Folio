@@ -169,9 +169,11 @@ internal sealed class WebGlContextState
     public uint StencilDepthPass { get; set; }
     public int ClearStencil { get; set; }
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
+    public Dictionary<uint, Dictionary<uint, int>> TextureParameters { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
     public HashSet<uint> VertexArrays { get; } = [];
     public uint? BoundTexture { get; set; }
+    public uint ActiveTextureUnit { get; set; } = 0x84C0;
     public uint? BoundFramebuffer { get; set; }
     public uint? BoundArrayBuffer { get; set; }
     public uint? CurrentProgram { get; set; }
@@ -225,6 +227,7 @@ internal sealed class WebGlContextState
     public void DeleteTexture(uint handle)
     {
         if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
+        TextureParameters.Remove(handle);
         if (BoundTexture == handle) BoundTexture = null;
     }
     public bool ReplaceTexture(uint handle, int width, int height, int bytes)
