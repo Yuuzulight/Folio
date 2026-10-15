@@ -79,8 +79,8 @@ internal sealed class DomNodeTemplates
             .DefineProperty("height", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Height))
             .DefineProperty("data", (target, _) => _context.Engine.CreateArray(((CanvasImageDataState)target).Data.Select(value => ScriptValue.FromNumber(value)).ToArray()));
         CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
-            .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => ((CanvasElementState)target).FillStyle = WebIdlConversions.ToDOMString(value))
-            .DefineProperty("strokeStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).StrokeStyle), (target, _, value) => ((CanvasElementState)target).StrokeStyle = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => SetCanvasStyle((CanvasElementState)target, value, stroke: false))
+            .DefineProperty("strokeStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).StrokeStyle), (target, _, value) => SetCanvasStyle((CanvasElementState)target, value, stroke: true))
             .DefineProperty("font", (target, _) => ScriptValue.FromString(((CanvasElementState)target).Font), (target, _, value) => ((CanvasElementState)target).Font = WebIdlConversions.ToDOMString(value))
             .DefineProperty("textAlign", (target, _) => ScriptValue.FromString(((CanvasElementState)target).TextAlign), (target, _, value) => ((CanvasElementState)target).TextAlign = WebIdlConversions.ToDOMString(value))
             .DefineProperty("textBaseline", (target, _) => ScriptValue.FromString(((CanvasElementState)target).TextBaseline), (target, _, value) => ((CanvasElementState)target).TextBaseline = WebIdlConversions.ToDOMString(value))
@@ -247,6 +247,15 @@ internal sealed class DomNodeTemplates
         state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle,
             name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null));
         return ScriptValue.Undefined;
+    }
+
+    private void SetCanvasStyle(CanvasElementState state, ScriptValue value, bool stroke)
+    {
+        var style = _context.Engine.TryGetHostTarget(value, out var target) && target is CanvasGradientState gradient && gradient.Stops.Count > 0
+            ? gradient.Stops[0].Color
+            : WebIdlConversions.ToDOMString(value);
+        if (stroke) state.StrokeStyle = style;
+        else state.FillStyle = style;
     }
 
     private static ScriptValue SaveCanvasState(CanvasElementState state)
