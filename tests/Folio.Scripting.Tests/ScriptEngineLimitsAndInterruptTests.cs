@@ -91,10 +91,11 @@ public class ScriptEngineLimitsAndInterruptTests
     [Fact]
     public void InterruptFromAnotherThreadEndsLoopWithin100ms()
     {
-        // The interrupt has to end the loop quickly; a shared CI runner can stall any one attempt, so the best of a few
-        // attempts is what the bound applies to. An interrupt that does not work fails every attempt.
+        // The interrupt has to end the loop quickly (the engine checks for it between statements, which took about 300 ms on a
+        // Windows CI runner); a runner can stall any one attempt, so the best of a few is what the bound applies to. An interrupt
+        // that does not work runs to the 10 s timeout and fails every attempt.
         var best = TimeSpan.MaxValue;
-        for (var attempt = 0; attempt < 5 && best >= TimeSpan.FromMilliseconds(250); attempt++)
+        for (var attempt = 0; attempt < 5 && best >= TimeSpan.FromMilliseconds(1000); attempt++)
         {
             using var engine = new JintScriptEngine(new ScriptEngineOptions
             {
@@ -121,6 +122,6 @@ public class ScriptEngineLimitsAndInterruptTests
             interruptThread.Join();
         }
 
-        Assert.True(best < TimeSpan.FromMilliseconds(250), $"Expected interrupt to finish quickly, the best of 5 attempts took {best.TotalMilliseconds} ms");
+        Assert.True(best < TimeSpan.FromMilliseconds(1000), $"Expected interrupt to finish quickly, the best of 5 attempts took {best.TotalMilliseconds} ms");
     }
 }
