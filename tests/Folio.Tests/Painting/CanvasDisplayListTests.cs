@@ -53,6 +53,19 @@ public sealed class CanvasDisplayListTests
         Assert.Contains(transforms, item => item.Transform.Translation == new System.Numerics.Vector2(5, 7));
     }
 
+    [Fact]
+    public void LinearCanvasGradientBecomesDisplayListGradient()
+    {
+        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
+        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
+        canvas.CanvasSurface = new TestCanvasSurface([
+            new CanvasSurfaceCommand("fillRect", 0, 0, 10, 10, "gradient:0,0,10,0|0:red|1:blue")
+        ]);
+
+        var (displayList, _) = document.Paint(200, 100);
+        Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.Fill && item.Gradient is { Stops.Count: 2 });
+    }
+
     private sealed class TestCanvasSurface(IReadOnlyList<CanvasSurfaceCommand> commands) : ICanvasSurface
     {
         public IReadOnlyList<CanvasSurfaceCommand> Commands { get; } = commands;
