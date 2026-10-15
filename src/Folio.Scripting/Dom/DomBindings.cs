@@ -196,6 +196,7 @@ public static class DomBindings
                 },
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
+                    module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); });
                     this.module = module; this.exports = {};
                     module._exports.forEach(function(entry) { if (entry.kind === 0) this.exports[entry.name] = function() { throw new WebAssembly.CompileError('WebAssembly execution is unavailable in this engine.'); }; }, this);
                 },
