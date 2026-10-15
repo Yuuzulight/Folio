@@ -14,6 +14,7 @@ public enum ContentMessageKind
     Diagnostic,
     Heartbeat,
     Shutdown,
+    Capabilities,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

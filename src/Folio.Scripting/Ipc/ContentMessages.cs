@@ -9,6 +9,16 @@ public sealed record ContentInputEvent(string Type, double X = 0, double Y = 0, 
 
 public static class ContentMessagePayloads
 {
+    public static bool TryGetCapabilities(this ContentMessage message, out FeatureCapabilities capabilities)
+    {
+        capabilities = FeatureCapabilities.Default;
+        if (message.Kind is not (ContentMessageKind.Load or ContentMessageKind.Capabilities)
+            || !message.Payload.TryGetProperty("capabilities", out var value)) return false;
+        capabilities = JsonSerializer.Deserialize<FeatureCapabilities>(value.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? FeatureCapabilities.Default;
+        return true;
+    }
+
     public static bool TryGetDisplayList(this ContentMessage message, out DisplayListFrame? frame)
     {
         frame = null;

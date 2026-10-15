@@ -382,6 +382,21 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void ContentProtocolCarriesFeatureCapabilities()
+    {
+        using var payload = JsonDocument.Parse("{\"capabilities\":{\"webGl\":true,\"media\":true,\"workers\":false,\"webAssembly\":false,\"iframes\":false,\"webRtc\":false,\"serviceWorkers\":false}}");
+        var message = new ContentMessage(ContentMessageKind.Capabilities, 9, payload.RootElement.Clone());
+
+        Assert.True(message.TryGetCapabilities(out var capabilities));
+        Assert.True(capabilities.WebGl);
+        Assert.True(capabilities.Media);
+        Assert.False(capabilities.Workers);
+        Assert.True(ContentProtocol.TryDecode(ContentProtocol.Encode(message), out var decoded));
+        Assert.True(decoded!.TryGetCapabilities(out var roundTripped));
+        Assert.Equal(capabilities, roundTripped);
+    }
+
+    [Fact]
     public void FormElementApisExposeControlsAndValidation()
     {
         var document = TreeBuilder.Parse("<form id='form'><input name='name' required value='Ada'></form>");

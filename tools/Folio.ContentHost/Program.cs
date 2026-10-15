@@ -10,6 +10,7 @@ using Folio.Skia;
 
 using var engine = new JintScriptEngine();
 Document? document = null;
+var capabilities = FeatureCapabilities.Default;
 var framePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
@@ -21,15 +22,27 @@ session.MessageReceived += async (message, cancellationToken) =>
         return;
     }
 
+    if (message.Kind == ContentMessageKind.Capabilities)
+    {
+        if (message.TryGetCapabilities(out var updated))
+        {
+            capabilities = updated;
+            await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities }, cancellationToken);
+        }
+        return;
+    }
+
     if (message.Kind != ContentMessageKind.Load) return;
     var script = message.Payload.TryGetProperty("script", out var source) ? source.GetString() ?? "" : "";
     var url = message.Payload.TryGetProperty("url", out var location) ? location.GetString() ?? "content" : "content";
     try
     {
+        if (message.TryGetCapabilities(out var loadedCapabilities))
+            capabilities = loadedCapabilities;
         if (message.Payload.TryGetProperty("html", out var htmlElement))
         {
             document?.Dispose();
-            document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+            document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess, Capabilities = capabilities });
             DomBindings.Install(engine, document.Node);
         }
         var result = engine.Evaluate(script, url);
