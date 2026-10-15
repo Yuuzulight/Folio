@@ -66,7 +66,17 @@ internal sealed class DomNodeTemplates
             .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => ((CanvasElementState)target).FillStyle = WebIdlConversions.ToDOMString(value))
             .DefineMethod("fillRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "fillRect", args.ToArray()))
             .DefineMethod("clearRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "clearRect", args.ToArray()))
-            .DefineMethod("strokeRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "strokeRect", args.ToArray()));
+            .DefineMethod("strokeRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "strokeRect", args.ToArray()))
+            .DefineMethod("beginPath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("beginPath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
+            .DefineMethod("moveTo", (target, _, args) => AddPathCommand((CanvasElementState)target, "moveTo", args.ToArray()))
+            .DefineMethod("lineTo", (target, _, args) => AddPathCommand((CanvasElementState)target, "lineTo", args.ToArray()))
+            .DefineMethod("closePath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("closePath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
+            .DefineMethod("fill", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, ((CanvasElementState)target).FillStyle)); return ScriptValue.Undefined; })
+            .DefineMethod("stroke", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, ((CanvasElementState)target).FillStyle)); return ScriptValue.Undefined; });
+        Path2DTemplate = new HostObjectTemplate("Path2D")
+            .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
+            .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
+            .DefineMethod("closePath", (target, _, _) => { ((CanvasPathState)target).Segments.Add(("closePath", 0, 0)); return ScriptValue.Undefined; });
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -101,11 +111,26 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
+    public HostObjectTemplate Path2DTemplate { get; }
 
     private static ScriptValue AddCanvasCommand(CanvasElementState state, string name, ScriptValue[] args)
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
         state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue AddPathCommand(CanvasElementState state, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), 0, 0, ""));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue AddPathSegment(CanvasPathState path, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        path.Segments.Add((name, Number(0), Number(1)));
         return ScriptValue.Undefined;
     }
 

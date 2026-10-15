@@ -56,6 +56,8 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(640, engine.Evaluate("const canvas = document.getElementById('chart'); canvas.width").AsNumber());
         Assert.Equal("#000000", engine.Evaluate("const ctx = canvas.getContext('2d'); ctx.fillStyle").AsString());
         Assert.Equal("#f00", engine.Evaluate("ctx.fillStyle = '#f00'; ctx.fillRect(1, 2, 30, 40); ctx.fillStyle").AsString());
+        Assert.Equal("object", engine.Evaluate("const path = new Path2D(); path.moveTo(0, 0); path.lineTo(10, 10); typeof path").AsString());
+        engine.Evaluate("ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, 10); ctx.closePath(); ctx.stroke();");
         Assert.True(engine.Evaluate("canvas.getContext('webgl') === null").AsBoolean());
     }
 

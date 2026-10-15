@@ -10,3 +10,8 @@ internal sealed class CanvasElementState(ElementNode element)
     public List<CanvasCommand> Commands { get; } = [];
     public string FillStyle { get; set; } = "#000000";
 }
+
+internal sealed class CanvasPathState
+{
+    public List<(string Name, double X, double Y)> Segments { get; } = [];
+}

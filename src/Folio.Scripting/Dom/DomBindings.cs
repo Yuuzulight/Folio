@@ -41,6 +41,9 @@ internal static class DomBindings
                 return engine.CreateHostObject(context.Templates.MutationObserverTemplate, context.CreateMutationObserver(args[0]));
             });
         engine.SetGlobalProperty("__folio_mutation_host", engine.CreateHostObject(mutationHost, context));
+        var canvasHost = new HostObjectTemplate("CanvasHost")
+            .DefineMethod("createPath", (_, _, _) => engine.CreateHostObject(context.Templates.Path2DTemplate, new CanvasPathState()));
+        engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -95,6 +98,7 @@ internal static class DomBindings
             globalThis.MutationObserver = function(callback) {
                 return __folio_mutation_host.create(callback);
             };
+            globalThis.Path2D = function() { return __folio_canvas_host.createPath(); };
             globalThis.FormData = function(form) {
                 this._entries = [];
                 if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');
