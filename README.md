@@ -31,7 +31,7 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Done | 0 |
 | 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Complete | 36 |
-| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | Not started | 45 |
+| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 45 |
 | Optional: towards all-Folio: an in-house shaper, rasteriser and image decoders. Never a blocker for the milestones above. | Not started | 19 |
 
 Until a milestone lands, anything Folio can't handle yet opens in the system browser.

@@ -74,6 +74,8 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 **Scope**: the web features the scripting study left out of milestones 4 and 5, planned in this order: WebGL 2 ([#169](https://github.com/Yuuzulight/Folio/issues/169)), audio and video playback through the operating system's media stack ([#170](https://github.com/Yuuzulight/Folio/issues/170)), dedicated workers ([#171](https://github.com/Yuuzulight/Folio/issues/171)), WebAssembly on the native script engine ([#172](https://github.com/Yuuzulight/Folio/issues/172)), iframes and cross-document messaging ([#173](https://github.com/Yuuzulight/Folio/issues/173)), WebRTC ([#174](https://github.com/Yuuzulight/Folio/issues/174)) and service workers ([#175](https://github.com/Yuuzulight/Folio/issues/175)). Each one is a capability the host grants; devices (camera, microphone) and the network stay off unless the host allows them.
 
+Implementation is in progress on the dependency-backed path. Capability gates, fallback routing, bounded WebGL state, media element state, worker messaging, WebAssembly validation, iframe window messaging, WebRTC negotiation state and service-worker registration are present; native media decoding, isolated worker execution, full WebAssembly execution, child-document loading, transport, and service-worker execution remain to be implemented.
+
 **Acceptance criteria**
 
 - Each feature passes its own conformance category, added to the corpus when the feature starts.
