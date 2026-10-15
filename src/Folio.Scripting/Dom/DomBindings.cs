@@ -103,6 +103,12 @@ public static class DomBindings
                 getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             };
+            globalThis.navigator.mediaDevices = {
+                getUserMedia: function(constraints) {
+                    if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
+                    return Promise.resolve({ getTracks: function() { return []; }, getAudioTracks: function() { return []; }, getVideoTracks: function() { return []; }, stop: function() {} });
+                }
+            };
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
                 this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable';

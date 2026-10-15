@@ -233,6 +233,7 @@ public sealed class DomStyleDeclarationTests
         using var denied = new JintScriptEngine();
         DomBindings.Install(denied, Document.Parse("<html></html>"));
         Assert.ThrowsAny<Exception>(() => denied.Evaluate("new RTCPeerConnection()"));
+        Assert.True(denied.Evaluate("typeof navigator.mediaDevices.getUserMedia === 'function'").AsBoolean());
 
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
@@ -240,6 +241,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { WebRtc = true }
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); pc.createOffer().then(x => x.type === 'offer')").IsObject);
+        Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream.getTracks().length === 0)").IsObject);
         Assert.True(allowed.Evaluate("pc.iceGatheringState === 'new' && pc.getConfiguration() !== null; pc.setLocalDescription({ type: 'offer' }); pc.iceGatheringState === 'complete'; pc.restartIce(); pc.iceGatheringState === 'new'").AsBoolean());
         Assert.True(allowed.Evaluate("const sender = pc.addTrack({ kind: 'audio' }); pc.getSenders().length === 1 && sender.track.kind === 'audio'").AsBoolean());
         Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; dc.onmessage = e => received = e.data; dc.send(7); received === 7").AsBoolean());
