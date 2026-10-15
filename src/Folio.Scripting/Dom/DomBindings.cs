@@ -99,7 +99,7 @@ public static class DomBindings
                     var worker = { scriptURL: url, state: 'activated', onstatechange: null, postMessage: function() {} };
                     var registration = { scope: scope, scriptURL: url, active: worker, installing: null, waiting: null,
                         unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); return Promise.resolve(true); } };
-                    __folio_service_worker_registrations.push(registration); return Promise.resolve(registration);
+                    __folio_service_worker_registrations.push(registration); navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration);
                 },
                 getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
