@@ -140,6 +140,23 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void WorkerIsCapabilityGatedAndDeliversBoundedMessages()
+    {
+        using var denied = new JintScriptEngine();
+        DomBindings.Install(denied, Document.Parse("<html></html>"));
+        Assert.ThrowsAny<Exception>(() => denied.Evaluate("new Worker('data:text/javascript,')"));
+
+        using var allowed = new JintScriptEngine();
+        DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(allowed.Evaluate("const w = new Worker('data:text/javascript,'); let seen = 0; w.onmessage = e => { seen = e; }; w.postMessage(42); seen === 42").AsBoolean());
+        Assert.Equal("data:text/javascript,", allowed.Evaluate("w.scriptURL").AsString());
+        Assert.True(allowed.Evaluate("w.terminate(); w.postMessage(7); seen === 42").AsBoolean());
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");

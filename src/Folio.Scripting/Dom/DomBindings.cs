@@ -53,11 +53,27 @@ public static class DomBindings
         var canvasHost = new HostObjectTemplate("CanvasHost")
             .DefineMethod("createPath", (_, _, _) => engine.CreateHostObject(context.Templates.Path2DTemplate, new CanvasPathState()));
         engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
+        var workerTemplate = new HostObjectTemplate("Worker")
+            .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
+            .DefineProperty("onerror", (target, _) => ((WorkerState)target).OnError, (target, _, value) => ((WorkerState)target).OnError = value)
+            .DefineProperty("scriptURL", (target, _) => ScriptValue.FromString(((WorkerState)target).ScriptUrl))
+            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((WorkerState)target).PostMessage(args[0]); return ScriptValue.Undefined; })
+            .DefineMethod("terminate", (target, _, _) => { ((WorkerState)target).Terminate(); return ScriptValue.Undefined; });
+        var workerHost = new HostObjectTemplate("WorkerHost")
+            .DefineMethod("create", (_, _, args) =>
+            {
+                if (!context.Capabilities.Workers)
+                    throw WebIdlException.DomException(DomExceptionNames.NotSupportedError, "Workers are disabled by the host.");
+                var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                return engine.CreateHostObject(workerTemplate, new WorkerState(engine, url, true));
+            });
+        engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
+            globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;
             globalThis.devicePixelRatio = 1;
