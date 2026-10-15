@@ -151,7 +151,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(denied.Evaluate("const v = document.getElementById('v'); v.paused && v.readyState === 0 && v.canPlayType('video/mp4') === ''").AsBoolean());
 
         using var allowed = new JintScriptEngine();
-        var allowedDocument = Document.Parse("<video id='v' data-duration='12'></video>", new FolioOptions
+        var allowedDocument = Document.Parse("<video id='v' data-duration='12' data-width='640' data-height='360'></video>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Media = true }
         });
@@ -160,6 +160,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let observed = ''; const listener = e => observed = e.type; v.addEventListener('play', listener); v.play(); v.removeEventListener('play', listener); events = 'm'; observed === 'play'").AsBoolean());
         Assert.True(allowed.Evaluate("v.currentTime = 4; v.volume = 2; v.muted = true; v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 1 && v.muted").AsBoolean());
         Assert.True(allowed.Evaluate("v.preload = 'auto'; v.defaultMuted = true; v.crossOrigin = 'anonymous'; v.fastSeek(6.6); v.setSinkId('default') instanceof Promise && v.preload === 'auto' && v.defaultMuted && v.crossOrigin === 'anonymous' && v.currentTime === 7").AsBoolean());
+        Assert.True(allowed.Evaluate("const captured = v.captureStream(); captured instanceof MediaStream && v.videoWidth === 640 && v.videoHeight === 360").AsBoolean());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("events === 'mps' && eventType === 'pause'").AsBoolean());

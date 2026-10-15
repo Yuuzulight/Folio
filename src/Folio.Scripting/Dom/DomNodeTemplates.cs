@@ -415,6 +415,8 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
             (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); } });
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
+        t.DefineProperty("videoWidth", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-width")));
+        t.DefineProperty("videoHeight", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-height")));
         t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
         t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));
         t.DefineProperty("volume", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Volume),
@@ -466,6 +468,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
         t.DefineMethod("fastSeek", (target, _, args) => { if (args.Length > 0) { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, Math.Round(WebIdlConversions.ToDouble(args[0]))); } return ScriptValue.Undefined; });
         t.DefineMethod("setSinkId", (target, _, args) => _context.Engine.Evaluate("Promise.resolve()"));
+        t.DefineMethod("captureStream", (target, _, _) => _context.Engine.Evaluate("new MediaStream([])"));
         t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
         t.DefineMethod("canPlayType", (target, _, args) =>
         {
@@ -483,6 +486,8 @@ internal sealed class DomNodeTemplates
             return _context.Engine.CreateHostObject(TextTrackTemplate, track);
         });
         return t;
+
+        static int ReadMediaDimension(ElementNode element, string attribute) => int.TryParse(element.GetAttribute(attribute), out var value) ? Math.Max(0, value) : 0;
     }
 
     private ScriptValue CreateMediaRanges(ElementNode element, bool? buffered)
