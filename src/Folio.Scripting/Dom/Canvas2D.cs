@@ -133,6 +133,8 @@ internal sealed class WebGlContextState
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
     public HashSet<uint> Programs { get; } = [];
+    public Dictionary<uint, List<uint>> ProgramShaders { get; } = [];
+    public HashSet<uint> LinkedPrograms { get; } = [];
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
     public uint? BoundTexture { get; set; }
@@ -187,7 +189,13 @@ internal sealed class WebGlContextState
         return true;
     }
     public void DeleteShader(uint handle) => Shaders.Remove(handle);
-    public void DeleteProgram(uint handle) => Programs.Remove(handle);
+    public void DeleteProgram(uint handle)
+    {
+        Programs.Remove(handle);
+        ProgramShaders.Remove(handle);
+        LinkedPrograms.Remove(handle);
+        if (CurrentProgram == handle) CurrentProgram = null;
+    }
     public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));
     public void Clear(uint mask)
     {

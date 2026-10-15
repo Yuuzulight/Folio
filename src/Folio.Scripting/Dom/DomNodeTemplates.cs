@@ -540,8 +540,37 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("deleteShader", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteShader(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("getShaderParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) && shader.Compiled));
         t.DefineMethod("createProgram", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
-        t.DefineMethod("linkProgram", (target, _, args) => { if (args.Length > 1) ((WebGlContextState)target).Programs.Add(WebIdlConversions.ToUint32(args[1])); return ScriptValue.Undefined; });
+        t.DefineMethod("attachShader", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length > 1)
+            {
+                var program = WebIdlConversions.ToUint32(args[0]);
+                var shader = WebIdlConversions.ToUint32(args[1]);
+                if (!state.Shaders.ContainsKey(shader)) state.SetError(0x0501);
+                else
+                {
+                    if (!state.ProgramShaders.TryGetValue(program, out var attached))
+                        state.ProgramShaders[program] = attached = [];
+                    if (!attached.Contains(shader)) attached.Add(shader);
+                }
+            }
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("linkProgram", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length > 0)
+            {
+                var program = WebIdlConversions.ToUint32(args[0]);
+                state.Programs.Add(program);
+                var linked = !state.ProgramShaders.TryGetValue(program, out var shaders) || shaders.All(shader => state.Shaders.TryGetValue(shader, out var value) && value.Compiled);
+                if (linked) state.LinkedPrograms.Add(program); else state.LinkedPrograms.Remove(program);
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("deleteProgram", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteProgram(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("getProgramParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 1 && WebIdlConversions.ToUint32(args[1]) == 0x8B82 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 1 ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("createTexture", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
