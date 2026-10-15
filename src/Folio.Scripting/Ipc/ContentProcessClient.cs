@@ -81,6 +81,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (IOException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
     }
 
     private void OnStopped(string reason)
@@ -101,6 +103,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
         _shutdown.Cancel();
         try { await _reader.ConfigureAwait(false); } catch (OperationCanceledException) { }
         try { await _watchdog.ConfigureAwait(false); } catch (OperationCanceledException) { }
+        catch (IOException) { }
+        catch (ObjectDisposedException) { }
         await _session.DisposeAsync().ConfigureAwait(false);
         if (!_process.HasExited) _process.Kill(entireProcessTree: true);
         await _process.WaitForExitAsync().ConfigureAwait(false);
