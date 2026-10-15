@@ -63,6 +63,9 @@ internal sealed class MediaElementState
     public bool Autoplay { get; set; }
     public bool Loop { get; set; }
     public bool Controls { get; set; }
+    public string Preload { get; set; } = "metadata";
+    public bool DefaultMuted { get; set; }
+    public string CrossOrigin { get; set; } = "";
     public double PlaybackRate { get; set; } = 1;
     public double DefaultPlaybackRate { get; set; } = 1;
     public bool PreservesPitch { get; set; } = true;

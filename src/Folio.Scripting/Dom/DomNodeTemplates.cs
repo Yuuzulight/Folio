@@ -427,6 +427,12 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).Loop = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("controls", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Controls),
             (target, _, value) => _context.GetMedia((ElementNode)target).Controls = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("preload", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).Preload),
+            (target, _, value) => _context.GetMedia((ElementNode)target).Preload = WebIdlConversions.ToDOMString(value));
+        t.DefineProperty("defaultMuted", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).DefaultMuted),
+            (target, _, value) => _context.GetMedia((ElementNode)target).DefaultMuted = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("crossOrigin", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).CrossOrigin),
+            (target, _, value) => _context.GetMedia((ElementNode)target).CrossOrigin = WebIdlConversions.ToDOMString(value));
         t.DefineProperty("playbackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).PlaybackRate),
             (target, _, value) => _context.GetMedia((ElementNode)target).PlaybackRate = WebIdlConversions.ToDouble(value));
         t.DefineProperty("defaultPlaybackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).DefaultPlaybackRate),
@@ -458,6 +464,8 @@ internal sealed class DomNodeTemplates
                 : _context.Engine.Evaluate("Promise.reject(new DOMException('Media playback is unavailable.', 'NotSupportedError'))");
         });
         t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
+        t.DefineMethod("fastSeek", (target, _, args) => { if (args.Length > 0) { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, Math.Round(WebIdlConversions.ToDouble(args[0]))); } return ScriptValue.Undefined; });
+        t.DefineMethod("setSinkId", (target, _, args) => _context.Engine.Evaluate("Promise.resolve()"));
         t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
         t.DefineMethod("canPlayType", (target, _, args) =>
         {
