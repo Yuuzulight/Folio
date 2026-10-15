@@ -387,6 +387,8 @@ internal static class DisplayListBuilder
             }
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
+            if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
+                PaintCanvas(box, surface);
             // A border image that can be drawn replaces the border styles (collapsed table borders have none).
             if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border, style.BorderImage, "border-image-source"))
                 return;
@@ -527,6 +529,8 @@ internal static class DisplayListBuilder
                     PaintDropDownArrow(box);
                 else if (box.Fragment.Svg is { } svg)
                     PaintSvg(box, svg);
+                else if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
+                    PaintCanvas(box, surface);
                 else
                     PaintImage(box);
                 return;
@@ -605,6 +609,107 @@ internal static class DisplayListBuilder
                 var caretColor = style.Ui.CaretColor ?? style.Inherited.Color;
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(caretRect, default), caretColor));
             }
+        }
+
+        private void PaintCanvas(PaintBox box, ICanvasSurface surface)
+        {
+            SetClip(box.Clip);
+        var transformDepth = 0;
+        list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(box.Rect.X, box.Rect.Y)));
+        transformDepth++;
+        var path = new PathData();
+            foreach (var command in surface.Commands)
+            {
+            var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
+            var gradient = CanvasGradient(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
+            var blend = CanvasBlend(command.Composite);
+            switch (command.Name)
+            {
+                case "beginPath":
+                    path = new PathData();
+                    break;
+                case "translate":
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
+                        Transform: Matrix3x2.CreateTranslation((float)command.X, (float)command.Y)));
+                    transformDepth++;
+                    break;
+                case "scale":
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
+                        Transform: Matrix3x2.CreateScale((float)command.X, (float)command.Y)));
+                    transformDepth++;
+                    break;
+                case "rotate":
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
+                        Transform: Matrix3x2.CreateRotation((float)command.X)));
+                    transformDepth++;
+                    break;
+                case "fillRect" or "strokeRect":
+                    var rect = new RectF((float)command.X, (float)command.Y,
+                        (float)command.Width, (float)command.Height);
+                    if (command.Name == "fillRect")
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color, Blend: blend, Gradient: gradient));
+                    else
+                        list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color,
+                            Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
+                    break;
+                case "clearRect":
+                    var clearRect = new RectF((float)command.X, (float)command.Y, (float)command.Width, (float)command.Height);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.ClearRect, new RoundedRect(clearRect, default)));
+                    break;
+                case "fillText" or "strokeText":
+                    var textRect = new RectF((float)command.X, (float)command.Y - (float)command.Height,
+                        (float)command.Width, (float)command.Height);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color, Blend: blend, Gradient: gradient));
+                    break;
+                case "rect":
+                    path.AddRoundedRect(new RoundedRect(new RectF((float)command.X, (float)command.Y,
+                        (float)command.Width, (float)command.Height), default));
+                    break;
+                case "moveTo":
+                    path.MoveTo((float)command.X, (float)command.Y);
+                    break;
+                case "lineTo":
+                    path.LineTo((float)command.X, (float)command.Y);
+                    break;
+                case "quadraticCurveTo" or "bezierCurveTo":
+                    // Canvas curves are approximated by their endpoint in the display-list bridge.
+                    path.LineTo((float)command.X, (float)command.Y);
+                    break;
+                case "closePath":
+                    path.Close();
+                    break;
+                case "fill" when path.Commands.Count > 0:
+                    list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Path: path));
+                    path = new PathData();
+                    break;
+                case "stroke" when path.Commands.Count > 0:
+                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Path: path, Stroke: new Stroke(1)));
+                    path = new PathData();
+                    break;
+            }
+            }
+        while (transformDepth-- > 0)
+            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+        }
+
+        private static CssColor CanvasColor(string value)
+        {
+            value = value.Trim();
+            if (value.StartsWith('#') && int.TryParse(value[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex))
+            {
+                if (value.Length == 4)
+                    return new CssColor(((hex >> 8) & 0xF) / 15f, ((hex >> 4) & 0xF) / 15f, (hex & 0xF) / 15f, 1);
+                if (value.Length == 7)
+                    return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
+            }
+            return value.ToLowerInvariant() switch
+            {
+                "red" => new CssColor(1, 0, 0, 1),
+                "green" => new CssColor(0, 0.5f, 0, 1),
+                "blue" => new CssColor(0, 0, 1, 1),
+                "white" => new CssColor(1, 1, 1, 1),
+                _ => CssColor.Black,
+            };
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)
@@ -1596,5 +1701,46 @@ internal static class DisplayListBuilder
         // Called at the end so the list is balanced.
         public void Finish() => PopTo(0);
     }
+
+    private static Gradient? CanvasGradient(string value)
+    {
+        if (!value.StartsWith("gradient:", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var parts = value[9..].Split('|');
+        if (parts.Length < 2)
+            return null;
+        var geometry = parts[0].Split(',');
+        if (geometry.Length != 4 || !float.TryParse(geometry[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x0)
+            || !float.TryParse(geometry[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y0)
+            || !float.TryParse(geometry[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var x1)
+            || !float.TryParse(geometry[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var y1))
+            return null;
+        var stops = parts.Skip(1).Select(stop => stop.Split(':', 2)).Where(stop => stop.Length == 2
+            && float.TryParse(stop[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            .Select(stop => { var color = ParseCanvasColor(stop[1]); return new GradientStop(float.Parse(stop[0], CultureInfo.InvariantCulture), new Rgba(color.R, color.G, color.B, color.A)); })
+            .ToArray();
+        return stops.Length >= 2 ? new Gradient(GradientKind.Linear, stops, Start: new(x0, y0), End: new(x1, y1)) : null;
+    }
+
+    private static CssColor ParseCanvasColor(string value)
+    {
+        value = value.Trim();
+        if (value.StartsWith('#') && int.TryParse(value[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex) && value.Length == 7)
+            return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
+        return value.ToLowerInvariant() switch
+        {
+            "red" => new CssColor(1, 0, 0, 1), "green" => new CssColor(0, .5f, 0, 1), "blue" => new CssColor(0, 0, 1, 1),
+            "white" => new CssColor(1, 1, 1, 1), _ => CssColor.Black,
+        };
+    }
+
+    private static BlendMode CanvasBlend(string value) => value.ToLowerInvariant() switch
+    {
+        "multiply" => BlendMode.Multiply, "screen" => BlendMode.Screen, "overlay" => BlendMode.Overlay,
+        "darken" => BlendMode.Darken, "lighten" => BlendMode.Lighten, "copy" => BlendMode.Normal,
+        "destination-out" => BlendMode.Normal, "destination-in" => BlendMode.DestinationIn,
+        "source-in" => BlendMode.SourceIn, "source-out" => BlendMode.SourceOut, "xor" => BlendMode.Xor,
+        _ => BlendMode.Normal,
+    };
 }
 

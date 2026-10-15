@@ -41,6 +41,9 @@ public interface IScriptEngine : IDisposable
     /// <summary>Creates a JavaScript array containing the specified elements.</summary>
     ScriptValue CreateArray(ReadOnlySpan<ScriptValue> elements);
 
+    /// <summary>Reads a script array for bindings that accept sequence arguments.</summary>
+    bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items) { items = []; return false; }
+
     /// <summary>Sets a global property on the engine's global object.</summary>
     void SetGlobalProperty(string name, ScriptValue value);
 

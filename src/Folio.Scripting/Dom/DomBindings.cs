@@ -1,3 +1,4 @@
+using Folio;
 using Folio.Dom;
 
 namespace Folio.Scripting.Dom;
@@ -5,14 +6,21 @@ namespace Folio.Scripting.Dom;
 /// <summary>
 /// Installs DOM constructors, prototype chains, and the global document onto an <see cref="IScriptEngine"/> (study 02, study 17, #451).
 /// </summary>
-internal static class DomBindings
+public static class DomBindings
 {
-    internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null)
+    public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
+        Install(engine, document.Node, wrapperCache, eventLoop, element =>
+        {
+            var bounds = document.GetElementBounds(element);
+            return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
+        });
+    internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
+        HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache);
+        var context = new DomContext(engine, document, wrapperCache, layout);
 
         // 1. Install DOMException
         InstallDomException(engine);
@@ -34,6 +42,16 @@ internal static class DomBindings
                 return context.WrapComputedStyle(element);
             });
         engine.SetGlobalProperty("__folio_style_host", engine.CreateHostObject(styleHost, context));
+        var mutationHost = new HostObjectTemplate("MutationObserverHost")
+            .DefineMethod("create", (_, _, args) =>
+            {
+                if (args.Length == 0) throw WebIdlException.TypeError("MutationObserver callback must be callable.");
+                return engine.CreateHostObject(context.Templates.MutationObserverTemplate, context.CreateMutationObserver(args[0]));
+            });
+        engine.SetGlobalProperty("__folio_mutation_host", engine.CreateHostObject(mutationHost, context));
+        var canvasHost = new HostObjectTemplate("CanvasHost")
+            .DefineMethod("createPath", (_, _, _) => engine.CreateHostObject(context.Templates.Path2DTemplate, new CanvasPathState()));
+        engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -65,6 +83,33 @@ internal static class DomBindings
                     dispatchEvent: function() { return true; }
                 };
             };
+            globalThis.CSS = globalThis.CSS || {};
+            globalThis.CSS.supports = function(property, value) {
+                if (arguments.length === 1) return /\(|\)/.test(String(property));
+                property = String(property).trim().toLowerCase();
+                value = String(value).trim();
+                return property.length > 0 && value.length > 0 && !/[{};]/.test(value);
+            };
+            globalThis.CSS.escape = function(value) {
+                value = String(value);
+                return value.replace(/[^a-zA-Z0-9_-]/g, function(c) { return String.fromCharCode(92) + c; }).replace(/^[0-9]/, function(c) { return String.fromCharCode(92) + '3' + c + ' '; });
+            };
+            globalThis.fetch = function(input) {
+                const url = String(input);
+                if (url.slice(0, 5).toLowerCase() !== 'data:')
+                    return Promise.reject(new TypeError('The requested URL is not allowed by Folio.'));
+                const comma = url.indexOf(',');
+                const header = comma < 0 ? '' : url.slice(5, comma);
+                const payload = comma < 0 ? '' : url.slice(comma + 1);
+                const body = header.toLowerCase().indexOf(';base64') >= 0
+                    ? (typeof atob === 'function' ? atob(payload) : payload)
+                    : decodeURIComponent(payload);
+                return Promise.resolve({
+                    ok: true, status: 200, url: url,
+                    text: function() { return Promise.resolve(body); },
+                    json: function() { return Promise.resolve(JSON.parse(body)); }
+                });
+            };
             globalThis.ResizeObserver = function(callback) {
                 if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
                 this._callback = callback;
@@ -85,6 +130,10 @@ internal static class DomBindings
             IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
             IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
             IntersectionObserver.prototype.takeRecords = function() { return []; };
+            globalThis.MutationObserver = function(callback) {
+                return __folio_mutation_host.create(callback);
+            };
+            globalThis.Path2D = function() { return __folio_canvas_host.createPath(); };
             globalThis.FormData = function(form) {
                 this._entries = [];
                 if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');

@@ -36,7 +36,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
 | Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
-| JavaScript engine | **Dependency**: Jint through M4; a native JIT-compiling engine from M5 | Behind `IScriptEngine`; the switch is a backend swap |
+| JavaScript engine | **Dependency**: Jint | Behind `IScriptEngine`; a native replacement remains optional |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
 | JSX compilation | **Host** (Mana) | Done before content reaches Folio |
 | Per-artifact script storage | **Host** | Behind `IArtifactStorage`: local, isolated per artifact |
@@ -110,7 +110,7 @@ public interface ITextShaper
 
 `ShaperRouter` asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` (in `Folio.Skia`). A configuration switch forces all text through one shaper for differential testing.
 
-### JavaScript engine — Jint through M4, a native JIT-compiling engine from M5
+### JavaScript engine — Jint
 
 **Why it is hard to build**: a standards-conforming ECMAScript engine (the whole language, its built-in library, regular expressions, garbage-collected object model, and enough speed for library bundles) is a project of its own, unrelated to rendering.
 
@@ -128,7 +128,7 @@ public interface IScriptEngine : IDisposable
 }
 ```
 
-Both engines run only inside the sandboxed content process ([study](study/17-scripting.md)). M4 ships `Folio.Scripting.Jint` (pinned to Jint `4.1.0`, BSD 2-Clause licence); M5 adds `Folio.Scripting.Jit` on a native JIT-compiling engine (chosen at the start of M5) as a second implementation of the same interface, so the switch is a backend swap and does not change the security model.
+The engine runs only inside the sandboxed content process ([study](study/17-scripting.md)). Folio uses `Folio.Scripting.Jint` (pinned to Jint `4.1.0`, BSD 2-Clause licence). A second native engine is optional future work and does not block the milestone; the `IScriptEngine` boundary keeps that replacement possible without changing DOM bindings or the security model.
 
 ### Image codecs not built in-house
 

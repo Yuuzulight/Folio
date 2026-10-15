@@ -140,6 +140,20 @@ public sealed class JintScriptEngine : IScriptEngine
         return ToScriptValue(jsArray);
     }
 
+    public bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items)
+    {
+        if (value.Raw is ArrayInstance array)
+        {
+            var result = new ScriptValue[(int)array.Get("length").AsNumber()];
+            for (var i = 0; i < result.Length; i++)
+                result[i] = ToScriptValue(array.Get(i.ToString()));
+            items = result;
+            return true;
+        }
+        items = [];
+        return false;
+    }
+
     public void SetGlobalProperty(string name, ScriptValue value)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

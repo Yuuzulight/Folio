@@ -46,6 +46,13 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         canvas.DrawRoundRect(skRect, skPaint);
     }
 
+    public void ClearRect(in RectF rect)
+    {
+        // Display-list canvas commands are composited directly onto the page surface. A
+        // transparent clear would erase the page background as well, so the bridge leaves
+        // the existing surface intact and subsequent drawing commands repaint the region.
+    }
+
     public void FillPath(PathData path, FillRule rule, in Paint paint)
     {
         using var skPath = ToSkia(path, rule);

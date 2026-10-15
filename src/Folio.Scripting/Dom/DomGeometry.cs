@@ -13,8 +13,11 @@ internal readonly record struct DomRect(float X, float Y, float Width, float Hei
 
 internal static class DomGeometry
 {
-    public static DomRect Rect(ElementNode element)
+    public static DomRect Rect(ElementNode element, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null)
     {
+        if (layout?.Invoke(element) is { } bounds)
+            return new DomRect(bounds.X, bounds.Y, Math.Max(0, bounds.Width), Math.Max(0, bounds.Height));
+
         var style = element.ComputedStyle();
         var width = style is not null && style.Size.Width.Kind == SizeKind.Length ? style.Size.Width.Length.Px : ParseInlinePixels(element, "width");
         var height = style is not null && style.Size.Height.Kind == SizeKind.Length ? style.Size.Height.Length.Px : ParseInlinePixels(element, "height");

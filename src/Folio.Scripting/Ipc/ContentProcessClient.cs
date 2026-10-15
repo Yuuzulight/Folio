@@ -45,7 +45,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
     public static ContentProcessClient Start(string executablePath, string? arguments = null, ContentProcessLimits? limits = null)
     {
         if (string.IsNullOrWhiteSpace(executablePath)) throw new ArgumentException("An executable path is required.", nameof(executablePath));
-        var startInfo = new ProcessStartInfo(executablePath, arguments ?? "")
+        var (fileName, launchArguments) = Path.GetExtension(executablePath).Equals(".dll", StringComparison.OrdinalIgnoreCase)
+            ? ("dotnet", $"{Quote(executablePath)}{(string.IsNullOrWhiteSpace(arguments) ? "" : $" {arguments}")}")
+            : (executablePath, arguments ?? "");
+        var startInfo = new ProcessStartInfo(fileName, launchArguments)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -62,6 +65,8 @@ public sealed class ContentProcessClient : IAsyncDisposable
         process.Exited += (_, _) => client._supervisor.Stop("content process exited");
         return client;
     }
+
+    private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 
     public ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default) =>
         _session.SendAsync(kind, payload, cancellationToken);
@@ -99,7 +104,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         _supervisor.Stop("content process client disposed");
         _shutdown.Cancel();
-        try { await _reader.ConfigureAwait(false); } catch (OperationCanceledException) { }
+        try { await _reader.ConfigureAwait(false); }
+        catch (OperationCanceledException) { }
+        catch (InvalidDataException) { }
+        catch (IOException) { }
         try { await _watchdog.ConfigureAwait(false); } catch (OperationCanceledException) { }
         await _session.DisposeAsync().ConfigureAwait(false);
         if (!_process.HasExited) _process.Kill(entireProcessTree: true);

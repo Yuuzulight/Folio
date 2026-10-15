@@ -9,6 +9,17 @@ namespace Folio.Scripting.Tests;
 
 public sealed class DomStyleDeclarationTests
 {
+    private static string ContentHostPath()
+    {
+        var relative = Path.Combine("tools", "Folio.ContentHost", "bin", "{0}", "net10.0", "Folio.ContentHost.dll");
+        foreach (var configuration in new[] { "Debug", "Release" })
+        {
+            var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../", string.Format(relative, configuration)));
+            if (File.Exists(path)) return path;
+        }
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../", string.Format(relative, "Debug")));
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -30,6 +41,113 @@ public sealed class DomStyleDeclarationTests
 
         Assert.Equal("red", engine.Evaluate("box.style.removeProperty('color')").AsString());
         Assert.True(engine.Evaluate("box.style.color === undefined").AsBoolean());
+    }
+
+    [Fact]
+    public void MutationObserverReceivesChildListRecords()
+    {
+        var document = TreeBuilder.Parse("<html><body></body></html>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var result = engine.Evaluate(@"
+            let seen = '';
+            const observer = new MutationObserver(records => { seen = records[0].type + ':' + records[0].addedNodes.length; });
+            observer.observe(document.body, { childList: true, subtree: true });
+            document.body.appendChild(document.createElement('div'));
+            seen;");
+        Assert.Equal("childList:1", result.AsString());
+    }
+
+    [Fact]
+    public void MutationObserverReceivesAttributeRecords()
+    {
+        var document = TreeBuilder.Parse("<html><body><div id='target'></div></body></html>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var result = engine.Evaluate(@"
+            let seen = '';
+            const observer = new MutationObserver(records => { seen = records[0].type + ':' + records[0].attributeName; });
+            observer.observe(document.body, { attributes: true, subtree: true });
+            document.getElementById('target').setAttribute('data-state', 'ready');
+            seen;");
+        Assert.Equal("attributes:data-state", result.AsString());
+    }
+
+    [Fact]
+    public void CanvasElementExposesBasicTwoDimensionalContext()
+    {
+        var document = TreeBuilder.Parse("<canvas id='chart' width='640' height='480'></canvas>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        Assert.Equal(640, engine.Evaluate("const canvas = document.getElementById('chart'); canvas.width").AsNumber());
+        Assert.Equal("#000000", engine.Evaluate("const ctx = canvas.getContext('2d'); ctx.fillStyle").AsString());
+        Assert.Equal("#f00", engine.Evaluate("ctx.fillStyle = '#f00'; ctx.fillRect(1, 2, 30, 40); ctx.fillStyle").AsString());
+        Assert.Equal("object", engine.Evaluate("const path = new Path2D(); path.moveTo(0, 0); path.lineTo(10, 10); typeof path").AsString());
+        engine.Evaluate("ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, 10); ctx.closePath(); ctx.stroke();");
+        engine.Evaluate("ctx.beginPath(); ctx.rect(0, 0, 20, 20); ctx.quadraticCurveTo(5, 5, 10, 10); ctx.bezierCurveTo(1, 2, 3, 4, 5, 6); ctx.arc(10, 10, 4, 0, 3.14); ctx.fill();");
+        engine.Evaluate("const p = new Path2D(); p.rect(0, 0, 2, 2); p.arc(1, 1, 1, 0, 6.28);");
+        engine.Evaluate("const gradient = ctx.createLinearGradient(0, 0, 10, 10); gradient.addColorStop(0, 'red'); gradient.addColorStop(1, 'blue'); ctx.fillStyle = gradient; ctx.fillText('hello', 1, 2);");
+        Assert.True(engine.Evaluate("ctx.measureText('hello').width > 0").AsBoolean());
+        Assert.Equal(4, engine.Evaluate("ctx.createImageData(1, 1).data.length").AsNumber());
+        Assert.StartsWith("data:image/png;base64,", engine.Evaluate("canvas.toDataURL()").AsString());
+        Assert.True(engine.Evaluate("canvas.getContext('webgl') === null").AsBoolean());
+    }
+
+    [Fact]
+    public void CanvasContextSupportsStateAndTransformOperations()
+    {
+        var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var result = engine.Evaluate(@"
+            const ctx = document.getElementById('chart').getContext('2d');
+            ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.globalAlpha = 0.5;
+            ctx.setLineDash([2, 4]);
+            ctx.save(); ctx.fillStyle = 'red'; ctx.translate(10, 20); ctx.restore();
+            `${ctx.lineWidth}|${ctx.lineCap}|${ctx.globalAlpha}|${ctx.fillStyle}|${ctx.getLineDash().join(',')}`;");
+        Assert.Equal("3|round|0.5|#000000|2,4", result.AsString());
+    }
+
+    [Fact]
+    public void CssSupportsAndEscapeAreAvailable()
+    {
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<html></html>"));
+        Assert.True(engine.Evaluate("CSS.supports('display', 'grid')").AsBoolean());
+        Assert.Equal("\\31 2abc", engine.Evaluate("CSS.escape('12abc')").AsString());
+    }
+
+    [Fact]
+    public void CssStyleSheetsExposeRulesAndMutation()
+    {
+        var document = TreeBuilder.Parse("<html><head><style>.a { color: red; }</style></head><body></body></html>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+
+        Assert.Equal(1, engine.Evaluate("document.styleSheets.length").AsNumber());
+        Assert.Contains(".a", engine.Evaluate("document.styleSheets[0].cssRules[0].cssText").AsString());
+        Assert.Equal(".a", engine.Evaluate("document.styleSheets[0].cssRules[0].selectorText").AsString());
+        Assert.Equal("red", engine.Evaluate("document.styleSheets[0].cssRules[0].style.getPropertyValue('color')").AsString());
+        Assert.Equal(1, engine.Evaluate("document.styleSheets[0].insertRule('.b { color: blue; }')").AsNumber());
+        Assert.Equal(2, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
+        engine.Evaluate("document.styleSheets[0].deleteRule(0)");
+        Assert.Equal(1, engine.Evaluate("document.styleSheets[0].cssRules.length").AsNumber());
+        engine.Evaluate("document.querySelector('style').textContent = '.c { color: green; }'");
+        Assert.Contains(".c", engine.Evaluate("document.styleSheets[0].cssRules[0].cssText").AsString());
+    }
+
+    [Fact]
+    public void FetchAllowsDataUrlsAndRejectsNetworkUrls()
+    {
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<html></html>"));
+        Assert.Equal("function", engine.Evaluate("typeof fetch").AsString());
+        engine.Evaluate("globalThis.__fetchBody = ''; fetch('data:text/plain,hello').then(r => r.text()).then(v => globalThis.__fetchBody = v);");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("hello", engine.Evaluate("__fetchBody").AsString());
+        engine.Evaluate("globalThis.__fetchRejected = false; fetch('https://example.test/').catch(e => globalThis.__fetchRejected = e instanceof TypeError);");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.True(engine.Evaluate("__fetchRejected").AsBoolean());
     }
 
     [Fact]
@@ -294,7 +412,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public async Task ContentProcessClientRunsScriptThroughContentHost()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
         await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -320,9 +438,46 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public async Task ContentHostPublishesAFrameIntoTheRequestedSharedBuffer()
+    {
+        var host = ContentHostPath();
+        var framePath = Path.Combine(Path.GetTempPath(), $"folio-test-frame-{Guid.NewGuid():N}.bin");
+        try
+        {
+            await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"");
+            var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            client.MessageReceived += (message, _) =>
+            {
+                if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+                return ValueTask.CompletedTask;
+            };
+
+            await client.SendAsync(ContentMessageKind.Load, new
+            {
+                html = "<body><button>Run</button></body>",
+                script = "",
+                framePath,
+                viewportWidth = 320,
+                viewportHeight = 180,
+                url = "test"
+            }, TestContext.Current.CancellationToken);
+
+            var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var shared = frame.Payload.GetProperty("canvasFrame");
+            Assert.Equal(framePath, shared.GetProperty("path").GetString());
+            Assert.True(shared.GetProperty("sequence").GetInt64() > 0);
+            Assert.True(File.Exists(framePath));
+        }
+        finally
+        {
+            try { File.Delete(framePath); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task ContentProcessStopsAnInfiniteScriptWithDiagnostic()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"");
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>

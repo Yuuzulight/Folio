@@ -36,6 +36,9 @@ public interface ICanvas
 
     void FillRoundedRect(in RoundedRect rect, in Paint paint);
 
+    /// <summary>Clears a rectangular region to transparent pixels.</summary>
+    void ClearRect(in RectF rect) { }
+
     void FillPath(PathData path, FillRule rule, in Paint paint);
 
     void StrokePath(PathData path, in Stroke stroke, in Paint paint);

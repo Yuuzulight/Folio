@@ -10,6 +10,7 @@ namespace Folio.Scripting.Dom;
 internal sealed class DomNodeTemplates
 {
     private readonly DomContext _context;
+    private readonly Dictionary<ElementNode, CssStyleSheetState> _styleSheets = new();
 
     public DomNodeTemplates(DomContext context)
     {
@@ -35,6 +36,24 @@ internal sealed class DomNodeTemplates
         ComputedStyleDeclarationTemplate = CreateComputedStyleDeclarationTemplate();
         DomRectTemplate = CreateDomRectTemplate();
         AttrTemplate = CreateAttrTemplate(NodeTemplate);
+        MutationRecordTemplate = new HostObjectTemplate("MutationRecord")
+            .DefineProperty("type", (target, _) => ScriptValue.FromString(((MutationRecordState)target).Type))
+            .DefineProperty("attributeName", (target, _) => ((MutationRecordState)target).AttributeName is { } name ? ScriptValue.FromString(name) : ScriptValue.Null)
+            .DefineProperty("oldValue", (target, _) => ((MutationRecordState)target).OldValue is { } value ? ScriptValue.FromString(value) : ScriptValue.Null)
+            .DefineProperty("target", (target, _) => _context.Wrap(((MutationRecordState)target).Target))
+            .DefineProperty("addedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).AddedNodes.Select(_context.Wrap).ToArray()))
+            .DefineProperty("removedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).RemovedNodes.Select(_context.Wrap).ToArray()))
+            .DefineProperty("previousSibling", (_, _) => ScriptValue.Null)
+            .DefineProperty("nextSibling", (_, _) => ScriptValue.Null);
+        MutationObserverTemplate = new HostObjectTemplate("MutationObserver")
+            .DefineMethod("observe", (target, _, args) =>
+            {
+                if (args.Length == 0) throw WebIdlException.TypeError("observe requires a target.");
+                _context.ObserveMutations((MutationObserverState)target, _context.UnwrapNode(args[0]));
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("disconnect", (target, _, _) => { _context.DisconnectMutations((MutationObserverState)target); return ScriptValue.Undefined; })
+            .DefineMethod("takeRecords", (target, _, _) => _context.TakeMutationRecords((MutationObserverState)target));
 
         HtmlInputElementTemplate = CreateHtmlInputElementTemplate(HtmlElementTemplate);
         HtmlButtonElementTemplate = CreateHtmlButtonElementTemplate(HtmlElementTemplate);
@@ -45,6 +64,147 @@ internal sealed class DomNodeTemplates
         HtmlTextAreaElementTemplate = CreateHtmlTextAreaElementTemplate(HtmlElementTemplate);
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
+        HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
+        CanvasGradientTemplate = new HostObjectTemplate("CanvasGradient")
+            .DefineMethod("addColorStop", (target, _, args) =>
+            {
+                if (args.Length > 1)
+                    ((CanvasGradientState)target).Stops.Add((Math.Clamp(WebIdlConversions.ToDouble(args[0]), 0, 1), WebIdlConversions.ToDOMString(args[1])));
+                return ScriptValue.Undefined;
+            });
+        TextMetricsTemplate = new HostObjectTemplate("TextMetrics")
+            .DefineProperty("width", (target, _) => ScriptValue.FromNumber(((CanvasTextMetricsState)target).Width));
+        ImageDataTemplate = new HostObjectTemplate("ImageData")
+            .DefineProperty("width", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Width))
+            .DefineProperty("height", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Height))
+            .DefineProperty("data", (target, _) => _context.Engine.CreateArray(((CanvasImageDataState)target).Data.Select(value => ScriptValue.FromNumber(value)).ToArray()));
+        CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
+            .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => SetCanvasStyle((CanvasElementState)target, value, stroke: false))
+            .DefineProperty("strokeStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).StrokeStyle), (target, _, value) => SetCanvasStyle((CanvasElementState)target, value, stroke: true))
+            .DefineProperty("font", (target, _) => ScriptValue.FromString(((CanvasElementState)target).Font), (target, _, value) => ((CanvasElementState)target).Font = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("textAlign", (target, _) => ScriptValue.FromString(((CanvasElementState)target).TextAlign), (target, _, value) => ((CanvasElementState)target).TextAlign = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("textBaseline", (target, _) => ScriptValue.FromString(((CanvasElementState)target).TextBaseline), (target, _, value) => ((CanvasElementState)target).TextBaseline = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("shadowColor", (target, _) => ScriptValue.FromString(((CanvasElementState)target).ShadowColor), (target, _, value) => ((CanvasElementState)target).ShadowColor = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("shadowBlur", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).ShadowBlur), (target, _, value) => ((CanvasElementState)target).ShadowBlur = Math.Max(0, WebIdlConversions.ToDouble(value)))
+            .DefineProperty("shadowOffsetX", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).ShadowOffsetX), (target, _, value) => ((CanvasElementState)target).ShadowOffsetX = WebIdlConversions.ToDouble(value))
+            .DefineProperty("shadowOffsetY", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).ShadowOffsetY), (target, _, value) => ((CanvasElementState)target).ShadowOffsetY = WebIdlConversions.ToDouble(value))
+            .DefineProperty("lineWidth", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).LineWidth), (target, _, value) => ((CanvasElementState)target).LineWidth = Math.Max(0, WebIdlConversions.ToDouble(value)))
+            .DefineProperty("lineCap", (target, _) => ScriptValue.FromString(((CanvasElementState)target).LineCap), (target, _, value) => ((CanvasElementState)target).LineCap = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("lineJoin", (target, _) => ScriptValue.FromString(((CanvasElementState)target).LineJoin), (target, _, value) => ((CanvasElementState)target).LineJoin = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("globalAlpha", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).GlobalAlpha), (target, _, value) => ((CanvasElementState)target).GlobalAlpha = Math.Clamp(WebIdlConversions.ToDouble(value), 0, 1))
+            .DefineProperty("globalCompositeOperation", (target, _) => ScriptValue.FromString(((CanvasElementState)target).GlobalCompositeOperation), (target, _, value) => ((CanvasElementState)target).GlobalCompositeOperation = WebIdlConversions.ToDOMString(value))
+            .DefineMethod("save", (target, _, _) => SaveCanvasState((CanvasElementState)target))
+            .DefineMethod("restore", (target, _, _) => RestoreCanvasState((CanvasElementState)target))
+            .DefineMethod("setLineDash", (target, _, args) => SetLineDash((CanvasElementState)target, args))
+            .DefineMethod("getLineDash", (target, _, _) => _context.Engine.CreateArray(((CanvasElementState)target).LineDash.Select(ScriptValue.FromNumber).ToArray()))
+            .DefineMethod("translate", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "translate", args.ToArray()))
+            .DefineMethod("scale", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "scale", args.ToArray()))
+            .DefineMethod("rotate", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "rotate", args.ToArray()))
+            .DefineMethod("setTransform", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "setTransform", args.ToArray()))
+            .DefineMethod("resetTransform", (target, _, _) => AddCanvasCommand((CanvasElementState)target, "resetTransform", []))
+            .DefineMethod("fillText", (target, _, args) => AddTextCommand((CanvasElementState)target, "fillText", args.ToArray()))
+            .DefineMethod("strokeText", (target, _, args) => AddTextCommand((CanvasElementState)target, "strokeText", args.ToArray()))
+            .DefineMethod("measureText", (_, _, args) =>
+            {
+                var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                return _context.Engine.CreateHostObject(TextMetricsTemplate, new CanvasTextMetricsState(text.Length * 7));
+            })
+            .DefineMethod("drawImage", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("drawImage", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
+            .DefineMethod("getImageData", (target, _, args) =>
+            {
+                var width = args.Length > 2 ? Math.Max(0, WebIdlConversions.ToInt32(args[2])) : 0;
+                var height = args.Length > 3 ? Math.Max(0, WebIdlConversions.ToInt32(args[3])) : 0;
+                var image = new CanvasImageDataState(width, height);
+                var state = (CanvasElementState)target;
+                Array.Copy(state.Pixels, image.Data, Math.Min(state.Pixels.Length, image.Data.Length));
+                return _context.Engine.CreateHostObject(ImageDataTemplate, image);
+            })
+            .DefineMethod("createImageData", (_, _, args) =>
+            {
+                var width = args.Length > 0 ? Math.Max(0, WebIdlConversions.ToInt32(args[0])) : 0;
+                var height = args.Length > 1 ? Math.Max(0, WebIdlConversions.ToInt32(args[1])) : 0;
+                return _context.Engine.CreateHostObject(ImageDataTemplate, new CanvasImageDataState(width, height));
+            })
+            .DefineMethod("putImageData", (target, _, args) =>
+            {
+                if (args.Length > 0 && _context.Engine.TryGetHostTarget(args[0], out var imageTarget) && imageTarget is CanvasImageDataState image)
+                {
+                    var state = (CanvasElementState)target;
+                    Array.Copy(image.Data, state.Pixels, Math.Min(image.Data.Length, state.Pixels.Length));
+                }
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("createLinearGradient", (_, _, args) =>
+            {
+                var values = args.ToArray();
+                double Number(int index) => index < values.Length ? WebIdlConversions.ToDouble(values[index]) : 0;
+                return _context.Engine.CreateHostObject(CanvasGradientTemplate, new CanvasGradientState(Number(0), Number(1), Number(2), Number(3)));
+            })
+            .DefineMethod("fillRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "fillRect", args.ToArray()))
+            .DefineMethod("clearRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "clearRect", args.ToArray()))
+            .DefineMethod("strokeRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "strokeRect", args.ToArray()))
+            .DefineMethod("beginPath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("beginPath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
+            .DefineMethod("moveTo", (target, _, args) => AddPathCommand((CanvasElementState)target, "moveTo", args.ToArray()))
+            .DefineMethod("lineTo", (target, _, args) => AddPathCommand((CanvasElementState)target, "lineTo", args.ToArray()))
+            .DefineMethod("rect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "rect", args.ToArray()))
+            .DefineMethod("quadraticCurveTo", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "quadraticCurveTo", args.ToArray()))
+            .DefineMethod("bezierCurveTo", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "bezierCurveTo", args.ToArray()))
+            .DefineMethod("arc", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "arc", args.ToArray()))
+            .DefineMethod("closePath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("closePath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
+            .DefineMethod("fill", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, state.FillStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; })
+            .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; });
+        Path2DTemplate = new HostObjectTemplate("Path2D")
+            .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
+            .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
+            .DefineMethod("rect", (target, _, args) => AddPathSegment((CanvasPathState)target, "rect", args.ToArray()))
+            .DefineMethod("quadraticCurveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "quadraticCurveTo", args.ToArray()))
+            .DefineMethod("bezierCurveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "bezierCurveTo", args.ToArray()))
+            .DefineMethod("arc", (target, _, args) => AddPathSegment((CanvasPathState)target, "arc", args.ToArray()))
+            .DefineMethod("closePath", (target, _, _) => { ((CanvasPathState)target).Segments.Add(("closePath", 0, 0)); return ScriptValue.Undefined; });
+        CssRuleTemplate = new HostObjectTemplate("CSSStyleRule")
+            .DefineProperty("cssText", (target, _) => ScriptValue.FromString(((CssRuleState)target).CssText));
+        CssRuleStyleTemplate = new HostObjectTemplate("CSSStyleDeclaration")
+            .DefineProperty("length", (target, _) => ScriptValue.FromNumber(((CssRuleStyleState)target).Properties.Count))
+            .DefineMethod("getPropertyValue", (target, _, args) =>
+            {
+                var name = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                return ScriptValue.FromString(((CssRuleStyleState)target).Properties.GetValueOrDefault(name, ""));
+            })
+            .DefineMethod("setProperty", (target, _, args) =>
+            {
+                if (args.Length > 1)
+                    ((CssRuleStyleState)target).Properties[WebIdlConversions.ToDOMString(args[0])] = WebIdlConversions.ToDOMString(args[1]);
+                return ScriptValue.Undefined;
+            });
+        CssRuleTemplate
+            .DefineProperty("selectorText", (target, _) => ScriptValue.FromString(((CssRuleState)target).SelectorText))
+            .DefineProperty("style", (target, _) => _context.Engine.CreateHostObject(CssRuleStyleTemplate, ((CssRuleState)target).Style));
+        CssStyleSheetTemplate = new HostObjectTemplate("CSSStyleSheet")
+            .DefineProperty("cssRules", (target, _) =>
+            {
+                var sheet = (CssStyleSheetState)target;
+                sheet.RefreshFromSource();
+                return _context.Engine.CreateArray(sheet.Rules.Select(rule => _context.Engine.CreateHostObject(CssRuleTemplate, new CssRuleState(rule))).ToArray());
+            })
+            .DefineMethod("insertRule", (target, _, args) =>
+            {
+                var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                var index = args.Length > 1 ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, ((CssStyleSheetState)target).Rules.Count) : ((CssStyleSheetState)target).Rules.Count;
+                var sheet = (CssStyleSheetState)target;
+                sheet.Rules.Insert(index, text);
+                sheet.SyncToSource();
+                return ScriptValue.FromNumber(index);
+            })
+            .DefineMethod("deleteRule", (target, _, args) =>
+            {
+                if (args.Length > 0 && WebIdlConversions.ToInt32(args[0]) is var index && index >= 0 && index < ((CssStyleSheetState)target).Rules.Count)
+                {
+                    var sheet = (CssStyleSheetState)target;
+                    sheet.Rules.RemoveAt(index);
+                    sheet.SyncToSource();
+                }
+                return ScriptValue.Undefined;
+            });
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -66,6 +226,8 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate StyleDeclarationTemplate { get; }
     public HostObjectTemplate ComputedStyleDeclarationTemplate { get; }
     public HostObjectTemplate DomRectTemplate { get; }
+    public HostObjectTemplate MutationRecordTemplate { get; }
+    public HostObjectTemplate MutationObserverTemplate { get; }
     public HostObjectTemplate HtmlInputElementTemplate { get; }
     public HostObjectTemplate HtmlButtonElementTemplate { get; }
     public HostObjectTemplate HtmlAnchorElementTemplate { get; }
@@ -75,6 +237,109 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlTextAreaElementTemplate { get; }
     public HostObjectTemplate HtmlTemplateElementTemplate { get; }
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
+    public HostObjectTemplate HtmlCanvasElementTemplate { get; }
+    public HostObjectTemplate CanvasRenderingContextTemplate { get; }
+    public HostObjectTemplate CanvasGradientTemplate { get; }
+    public HostObjectTemplate TextMetricsTemplate { get; }
+    public HostObjectTemplate ImageDataTemplate { get; }
+    public HostObjectTemplate Path2DTemplate { get; }
+    public HostObjectTemplate CssRuleTemplate { get; }
+    public HostObjectTemplate CssRuleStyleTemplate { get; }
+    public HostObjectTemplate CssStyleSheetTemplate { get; }
+
+    private static ScriptValue AddCanvasCommand(CanvasElementState state, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle,
+            name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null, Composite: state.GlobalCompositeOperation));
+        return ScriptValue.Undefined;
+    }
+
+    private void SetCanvasStyle(CanvasElementState state, ScriptValue value, bool stroke)
+    {
+        var style = _context.Engine.TryGetHostTarget(value, out var target) && target is CanvasGradientState gradient && gradient.Stops.Count > 0
+            ? gradient.PaintStyle
+            : WebIdlConversions.ToDOMString(value);
+        if (stroke) state.StrokeStyle = style;
+        else state.FillStyle = style;
+    }
+
+    private static ScriptValue SaveCanvasState(CanvasElementState state)
+    {
+        state.SavedStyles.Push(new CanvasStyleSnapshot(state.FillStyle, state.LineWidth, state.LineCap, state.LineJoin, state.GlobalAlpha, state.GlobalCompositeOperation, state.LineDash.ToArray()));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue RestoreCanvasState(CanvasElementState state)
+    {
+        if (state.SavedStyles.TryPop(out var snapshot))
+        {
+            state.FillStyle = snapshot.FillStyle;
+            state.LineWidth = snapshot.LineWidth;
+            state.LineCap = snapshot.LineCap;
+            state.LineJoin = snapshot.LineJoin;
+            state.GlobalAlpha = snapshot.GlobalAlpha;
+            state.GlobalCompositeOperation = snapshot.GlobalCompositeOperation;
+            state.LineDash.Clear();
+            state.LineDash.AddRange(snapshot.LineDash);
+        }
+        return ScriptValue.Undefined;
+    }
+
+    private ScriptValue SetLineDash(CanvasElementState state, ReadOnlySpan<ScriptValue> args)
+    {
+        state.LineDash.Clear();
+        var values = args.Length == 1 && _context.Engine.TryGetArrayItems(args[0], out var array) ? array : args.ToArray();
+        foreach (var value in values)
+            if (value.IsNumber)
+                state.LineDash.Add(Math.Max(0, value.AsNumber()));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue AddPathCommand(CanvasElementState state, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        var (x, y) = name switch
+        {
+            "quadraticCurveTo" => (Number(2), Number(3)),
+            "bezierCurveTo" => (Number(4), Number(5)),
+            _ => (Number(0), Number(1)),
+        };
+        state.Commands.Add(new CanvasCommand(name, x, y, 0, 0, ""));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue AddTextCommand(CanvasElementState state, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), text.Length * 7, 10, state.FillStyle, state.StrokeStyle, text, state.GlobalCompositeOperation));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue AddPathSegment(CanvasPathState path, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        path.Segments.Add((name, Number(0), Number(1)));
+        return ScriptValue.Undefined;
+    }
+
+    private HostObjectTemplate CreateHtmlCanvasElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLCanvasElement", htmlElementProto);
+        t.DefineProperty("width", (target, _) => ScriptValue.FromNumber(ReadDimension((ElementNode)target, "width", 300)), (target, _, value) => ((ElementNode)target).SetAttribute("width", WebIdlConversions.ToUint32(value).ToString()));
+        t.DefineProperty("height", (target, _) => ScriptValue.FromNumber(ReadDimension((ElementNode)target, "height", 150)), (target, _, value) => ((ElementNode)target).SetAttribute("height", WebIdlConversions.ToUint32(value).ToString()));
+        t.DefineMethod("getContext", (target, _, args) =>
+        {
+            if (args.Length == 0 || !string.Equals(WebIdlConversions.ToDOMString(args[0]), "2d", StringComparison.OrdinalIgnoreCase)) return ScriptValue.Null;
+            return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
+        });
+        t.DefineMethod("toDataURL", (_, _, _) => ScriptValue.FromString("data:image/png;base64,"));
+        return t;
+
+        static uint ReadDimension(ElementNode element, string name, uint fallback) =>
+            uint.TryParse(element.GetAttribute(name), out var value) ? value : fallback;
+    }
 
     private HostObjectTemplate CreateNodeTemplate()
     {
@@ -360,7 +625,7 @@ internal sealed class DomNodeTemplates
             (target, _, value) => { if (WebIdlConversions.ToBoolean(value)) ((ElementNode)target).SetAttribute("open", ""); else ((ElementNode)target).RemoveAttribute("open"); });
         t.DefineMethod("focus", (target, _, _) => { _context.Focus((ElementNode)target); return ScriptValue.Undefined; });
         t.DefineMethod("blur", (target, _, _) => { _context.Blur((ElementNode)target); return ScriptValue.Undefined; });
-        t.DefineMethod("getBoundingClientRect", (target, _, _) => _context.WrapRect(DomGeometry.Rect((ElementNode)target)));
+        t.DefineMethod("getBoundingClientRect", (target, _, _) => _context.WrapRect(DomGeometry.Rect((ElementNode)target, _context.Layout)));
         t.DefineMethod("getClientRects", (target, _, _) => _context.Engine.CreateArray([_context.WrapRect(DomGeometry.Rect((ElementNode)target))]));
         t.DefineProperty("offsetWidth", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target).Width));
         t.DefineProperty("offsetHeight", (target, _) => ScriptValue.FromNumber(DomGeometry.Rect((ElementNode)target).Height));
@@ -491,7 +756,10 @@ internal sealed class DomNodeTemplates
                 throw WebIdlException.TypeError("setAttribute requires 2 arguments.");
             var name = WebIdlConversions.ToDOMString(args[0]);
             var val = WebIdlConversions.ToDOMString(args[1]);
-            ((ElementNode)target).SetAttribute(name, val);
+            var element = (ElementNode)target;
+            var oldValue = element.GetAttribute(name);
+            element.SetAttribute(name, val);
+            _context.NotifyAttributeMutation(element, name, oldValue);
             return ScriptValue.Undefined;
         });
 
@@ -508,7 +776,11 @@ internal sealed class DomNodeTemplates
             if (args.Length > 0)
             {
                 var name = WebIdlConversions.ToDOMString(args[0]);
-                ((ElementNode)target).RemoveAttribute(name);
+                var element = (ElementNode)target;
+                var oldValue = element.GetAttribute(name);
+                element.RemoveAttribute(name);
+                if (oldValue is not null)
+                    _context.NotifyAttributeMutation(element, name, oldValue);
             }
             return ScriptValue.Undefined;
         });
@@ -535,13 +807,19 @@ internal sealed class DomNodeTemplates
             if (shouldHave)
             {
                 if (!has)
+                {
                     el.SetAttribute(name, "");
+                    _context.NotifyAttributeMutation(el, name, null);
+                }
                 return ScriptValue.FromBoolean(true);
             }
             else
             {
                 if (has)
+                {
                     el.RemoveAttribute(name);
+                    _context.NotifyAttributeMutation(el, name, "");
+                }
                 return ScriptValue.FromBoolean(false);
             }
         });
@@ -1191,6 +1469,16 @@ internal sealed class DomNodeTemplates
             return doc.CurrentScript is not null ? _context.Wrap(doc.CurrentScript) : ScriptValue.Null;
         });
 
+        t.DefineProperty("styleSheets", (target, _) =>
+        {
+            var doc = (DocumentNode)target;
+            var sheets = doc.Descendants.OfType<ElementNode>()
+                .Where(element => element.Name.Namespace == Namespaces.Html && element.LocalName == "style")
+                .Select(element => _context.Engine.CreateHostObject(CssStyleSheetTemplate, GetStyleSheet(element)))
+                .ToArray();
+            return _context.Engine.CreateArray(sheets);
+        });
+
         t.DefineProperty("activeElement", (target, _) =>
         {
             var doc = (DocumentNode)target;
@@ -1323,6 +1611,16 @@ internal sealed class DomNodeTemplates
         });
 
         return t;
+    }
+
+    private CssStyleSheetState GetStyleSheet(ElementNode element)
+    {
+        if (!_styleSheets.TryGetValue(element, out var sheet))
+        {
+            sheet = new CssStyleSheetState(element);
+            _styleSheets[element] = sheet;
+        }
+        return sheet;
     }
 
     private HostObjectTemplate CreateNodeListTemplate()

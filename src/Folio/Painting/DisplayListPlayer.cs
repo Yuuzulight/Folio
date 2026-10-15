@@ -28,6 +28,9 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Fill:
                     canvas.FillRoundedRect(item.Shape, new Paint(ToRgba(item.Color), Gradient: item.Gradient, Blend: item.Blend));
                     break;
+                case DisplayItemKind.ClearRect:
+                    canvas.ClearRect(item.Shape.Rect);
+                    break;
                 case DisplayItemKind.BoxShadow:
                     PaintBoxShadow(canvas, item);
                     break;

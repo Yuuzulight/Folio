@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
+    <ProjectReference Include="..\..\src\Folio.Diagrams\Folio.Diagrams.csproj" />
   </ItemGroup>
 
   <ItemGroup>
