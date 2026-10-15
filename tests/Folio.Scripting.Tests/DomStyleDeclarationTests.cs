@@ -240,7 +240,7 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { WebRtc = true }
         }));
-        Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); pc.createOffer().then(x => x.type === 'offer')").IsObject);
+        Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); let iceEvents = 0; let stateEvents = 0; pc.onicegatheringstatechange = () => iceEvents++; pc.onconnectionstatechange = () => stateEvents++; pc.createOffer().then(x => x.type === 'offer')").IsObject);
         Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 0)").IsObject);
         Assert.True(allowed.Evaluate("const track = new MediaStreamTrack('audio'); const stream = new MediaStream([track]); let changes = ''; stream.onaddtrack = e => changes += e.track.kind; stream.onremovetrack = e => changes += '-'; track.onmute = () => changes += 'm'; track.onunmute = () => changes += 'u'; track.onended = () => changes += 'e'; const second = new MediaStreamTrack('video'); stream.addTrack(second); stream.removeTrack(second); track.muted = true; track.muted = false; track.enabled = false; stream.getAudioTracks().length === 1 && stream.active; const clone = track.clone(); track.applyConstraints({ width: 640 }); track.getConstraints().width === 640 && track.getSettings().kind === 'audio' && track.getCapabilities().kind === 'audio'; track.stop(); let rejected = false; track.applyConstraints({ width: 320 }).catch(() => rejected = true); clone.readyState === 'live' && track.readyState === 'ended' && stream.id.length > 0 && changes === 'video-mue'").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
@@ -249,6 +249,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const sender = pc.addTrack({ kind: 'audio' }); pc.getSenders().length === 1 && sender.track.kind === 'audio'").AsBoolean());
         Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; let closed = false; dc.onmessage = e => received = e.data; dc.onclose = () => closed = true; dc.send(7); received === 7 && dc.bufferedAmount === 0 && dc.binaryType === 'blob'; dc.close(); closed && dc.readyState === 'closed'").AsBoolean());
         Assert.Equal("closed", allowed.Evaluate("pc.close(); pc.connectionState").AsString());
+        Assert.True(allowed.Evaluate("iceEvents >= 1 && stateEvents === 1").AsBoolean());
     }
 
     [Fact]

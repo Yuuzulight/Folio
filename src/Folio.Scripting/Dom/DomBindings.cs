@@ -119,25 +119,25 @@ public static class DomBindings
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); if (this.onremovetrack) this.onremovetrack({ track: track }); } };
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
-                this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable';
+                this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null;
                 this.localDescription = null; this.remoteDescription = null; this._senders = []; this._dataChannels = [];
             };
             RTCPeerConnection.prototype.createOffer = function() { return Promise.resolve({ type: 'offer', sdp: '' }); };
             RTCPeerConnection.prototype.createAnswer = function() { return Promise.resolve({ type: 'answer', sdp: '' }); };
-            RTCPeerConnection.prototype.setLocalDescription = function(description) { this.localDescription = description || null; this.iceGatheringState = 'complete'; return Promise.resolve(); };
+            RTCPeerConnection.prototype.setLocalDescription = function(description) { this.localDescription = description || null; this.iceGatheringState = 'complete'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); return Promise.resolve(); };
             RTCPeerConnection.prototype.setRemoteDescription = function(description) { this.remoteDescription = description || null; return Promise.resolve(); };
             RTCPeerConnection.prototype.addIceCandidate = function() { return Promise.resolve(); };
             RTCPeerConnection.prototype.addTrack = function(track) { var sender = { track: track, replaceTrack: function(next) { sender.track = next; return Promise.resolve(); } }; this._senders.push(sender); return sender; };
             RTCPeerConnection.prototype.getSenders = function() { return this._senders.slice(); };
             RTCPeerConnection.prototype.getConfiguration = function() { return this.configuration; };
-            RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; };
+            RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); };
             RTCPeerConnection.prototype.createDataChannel = function(label) {
                 var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', onmessage: null, onopen: null, onclose: null, onerror: null,
                     send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); channel.bufferedAmount = 0; if (channel.onmessage) channel.onmessage({ data: data }); },
                     close: function() { if (channel.readyState !== 'closed') { channel.readyState = 'closed'; if (channel.onclose) channel.onclose({}); } } };
                 this._dataChannels.push(channel); return channel;
             };
-            RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; };
+            RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 validate: function(bytes) {
