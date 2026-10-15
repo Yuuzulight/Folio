@@ -622,6 +622,7 @@ internal static class DisplayListBuilder
             {
             var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
             var gradient = CanvasGradient(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
+            var blend = CanvasBlend(command.Composite);
             switch (command.Name)
             {
                 case "translate":
@@ -643,7 +644,7 @@ internal static class DisplayListBuilder
                     var rect = new RectF((float)command.X, (float)command.Y,
                         (float)command.Width, (float)command.Height);
                     if (command.Name == "fillRect")
-                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color, Gradient: gradient));
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color, Blend: blend, Gradient: gradient));
                     else
                         list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color,
                             Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
@@ -655,7 +656,7 @@ internal static class DisplayListBuilder
                 case "fillText" or "strokeText":
                     var textRect = new RectF((float)command.X, (float)command.Y - (float)command.Height,
                         (float)command.Width, (float)command.Height);
-                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color, Gradient: gradient));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color, Blend: blend, Gradient: gradient));
                     break;
                 case "rect":
                     path.AddRoundedRect(new RoundedRect(new RectF((float)command.X, (float)command.Y,
@@ -1725,5 +1726,14 @@ internal static class DisplayListBuilder
             "white" => new CssColor(1, 1, 1, 1), _ => CssColor.Black,
         };
     }
+
+    private static BlendMode CanvasBlend(string value) => value.ToLowerInvariant() switch
+    {
+        "multiply" => BlendMode.Multiply, "screen" => BlendMode.Screen, "overlay" => BlendMode.Overlay,
+        "darken" => BlendMode.Darken, "lighten" => BlendMode.Lighten, "copy" => BlendMode.Normal,
+        "destination-out" => BlendMode.Normal, "destination-in" => BlendMode.DestinationIn,
+        "source-in" => BlendMode.SourceIn, "source-out" => BlendMode.SourceOut, "xor" => BlendMode.Xor,
+        _ => BlendMode.Normal,
+    };
 }
 

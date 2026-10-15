@@ -151,8 +151,8 @@ internal sealed class DomNodeTemplates
             .DefineMethod("bezierCurveTo", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "bezierCurveTo", args.ToArray()))
             .DefineMethod("arc", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "arc", args.ToArray()))
             .DefineMethod("closePath", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("closePath", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
-            .DefineMethod("fill", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, ((CanvasElementState)target).FillStyle)); return ScriptValue.Undefined; })
-            .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle)); return ScriptValue.Undefined; });
+            .DefineMethod("fill", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("fill", 0, 0, 0, 0, state.FillStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; })
+            .DefineMethod("stroke", (target, _, _) => { var state = (CanvasElementState)target; state.Commands.Add(new CanvasCommand("stroke", 0, 0, 0, 0, state.FillStyle, state.StrokeStyle, Composite: state.GlobalCompositeOperation)); return ScriptValue.Undefined; });
         Path2DTemplate = new HostObjectTemplate("Path2D")
             .DefineMethod("moveTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "moveTo", args.ToArray()))
             .DefineMethod("lineTo", (target, _, args) => AddPathSegment((CanvasPathState)target, "lineTo", args.ToArray()))
@@ -245,7 +245,7 @@ internal sealed class DomNodeTemplates
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
         state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle,
-            name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null));
+            name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null, Composite: state.GlobalCompositeOperation));
         return ScriptValue.Undefined;
     }
 
@@ -301,7 +301,7 @@ internal sealed class DomNodeTemplates
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
         var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), text.Length * 7, 10, state.FillStyle, state.StrokeStyle, text));
+        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), text.Length * 7, 10, state.FillStyle, state.StrokeStyle, text, state.GlobalCompositeOperation));
         return ScriptValue.Undefined;
     }
 
