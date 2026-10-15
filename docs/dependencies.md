@@ -157,7 +157,12 @@ public interface IImageDecoder
 
 ## Towards all-Folio
 
-Optional future work, done only if a dependency becomes a problem (size, licensing, platform reach, or a quality issue Folio cannot fix upstream). None of it blocks the milestones in the [roadmap](roadmap.md).
+The intended delivery strategy is dependency-first, replacement-last: finish the
+product on the mature backends, keep every backend behind a Folio-owned interface,
+then replace dependencies incrementally with differential tests and corpus
+benchmarks. This keeps product work moving while the replacements are built. A
+replacement is complete only when it matches the existing backend on conformance,
+goldens, fuzzing, performance, and failure behavior.
 
 1. **Extend the in-house shaper** script by script: Hebrew (marks), then Arabic (joining forms, mark positioning, contextual lookups), then Indic and South-East Asian scripts (reordering). *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
 2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
