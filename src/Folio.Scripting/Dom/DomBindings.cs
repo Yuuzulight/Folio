@@ -187,6 +187,15 @@ public static class DomBindings
                 }
                 return result;
             }
+            function __folio_wasm_custom_sections(bytes, wantedName) {
+                var result = []; var cursor = { i: 8 };
+                while (cursor.i < bytes.length) {
+                    var section = bytes[cursor.i++]; var size = __folio_wasm_read_u32(bytes, cursor); var start = cursor.i; var end = Math.min(bytes.length, start + size);
+                    if (section === 0) { var nameLength = __folio_wasm_read_u32(bytes, cursor); var name = ''; for (var n = 0; n < nameLength && cursor.i < end; n++) name += String.fromCharCode(bytes[cursor.i++]); if (name === String(wantedName)) result.push(bytes.slice(cursor.i, end)); }
+                    cursor.i = end;
+                }
+                return result;
+            }
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 RuntimeError: function(message) { this.name = 'RuntimeError'; this.message = String(message || ''); },
@@ -215,7 +224,7 @@ public static class DomBindings
                 },
                 Instance: function(module, imports) {
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
-                    var importedFunctions = []; var importedMemories = []; var importedTables = []; module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); if (entry.kind === 0) { if (typeof imports[entry.module][entry.name] !== 'function') throw new TypeError('WebAssembly function import is not callable.'); importedFunctions.push(imports[entry.module][entry.name]); } else if (entry.kind === 1) importedTables.push(imports[entry.module][entry.name]); else if (entry.kind === 2) importedMemories.push(imports[entry.module][entry.name]); });
+                    var importedFunctions = []; var importedMemories = []; var importedTables = []; module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); if (entry.kind === 0) { if (typeof imports[entry.module][entry.name] !== 'function') throw new TypeError('WebAssembly function import is not callable.'); importedFunctions.push(imports[entry.module][entry.name]); } else if (entry.kind === 1) { if (!(imports[entry.module][entry.name] instanceof WebAssembly.Table)) throw new TypeError('WebAssembly table import is not a Table.'); importedTables.push(imports[entry.module][entry.name]); } else if (entry.kind === 2) { if (!(imports[entry.module][entry.name] instanceof WebAssembly.Memory)) throw new TypeError('WebAssembly memory import is not a Memory.'); importedMemories.push(imports[entry.module][entry.name]); } });
                     this.module = module; this.exports = {};
                     module._exports.forEach(function(entry) { if (entry.kind === 0) { var functionIndex = entry.index - module._functionImportCount; this.exports[entry.name] = entry.index < module._functionImportCount ? importedFunctions[entry.index] : functionIndex >= 0 && module._functions[functionIndex] ? function() { return __folio_wasm_execute(module._functions[functionIndex], arguments); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; } else if (entry.kind === 1 && importedTables[entry.index]) this.exports[entry.name] = importedTables[entry.index]; else if (entry.kind === 2 && importedMemories[entry.index]) this.exports[entry.name] = importedMemories[entry.index]; }, this);
                 },
@@ -252,6 +261,10 @@ public static class DomBindings
             WebAssembly.Module.imports = function(module) {
                 if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.imports requires a Module.');
                 return module._imports.slice();
+            };
+            WebAssembly.Module.customSections = function(module, name) {
+                if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.customSections requires a Module.');
+                return __folio_wasm_custom_sections(module.bytes, name);
             };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;
