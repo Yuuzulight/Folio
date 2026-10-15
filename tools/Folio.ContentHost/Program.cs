@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Folio;
 using Folio.Scripting;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Jint;
@@ -7,6 +8,7 @@ using Folio.Dom;
 using Folio.Html;
 
 using var engine = new JintScriptEngine();
+Document? document = null;
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
 session.MessageReceived += async (message, cancellationToken) =>
 {
@@ -23,11 +25,19 @@ session.MessageReceived += async (message, cancellationToken) =>
     {
         if (message.Payload.TryGetProperty("html", out var htmlElement))
         {
-            var document = TreeBuilder.Parse(htmlElement.GetString() ?? "", new ParserLimits(ScriptingEnabled: true));
-            DomBindings.Install(engine, document);
+            document?.Dispose();
+            document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+            DomBindings.Install(engine, document.Node);
         }
         var result = engine.Evaluate(script, url);
-        await session.SendAsync(ContentMessageKind.Frame, new { sequence = message.Sequence, value = result.ToString() }, cancellationToken);
+        var frame = document is null ? null : document.Paint(1280, 720).List;
+        await session.SendAsync(ContentMessageKind.Frame, new
+        {
+            sequence = message.Sequence,
+            value = result.ToString(),
+            displayItems = frame?.Items.Count ?? 0,
+            canvasCommands = document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0
+        }, cancellationToken);
     }
     catch (Exception exception)
     {
