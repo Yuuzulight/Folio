@@ -391,6 +391,13 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let listenerSeen = 0; const listener = e => listenerSeen = e.data; f.contentWindow.addEventListener('message', listener); f.contentWindow.postMessage(10, 'https://child.example'); f.contentWindow.removeEventListener('message', listener); listenerSeen === 10").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
         Assert.True(allowed.Evaluate("f instanceof HTMLIFrameElement").AsBoolean());
+
+        using var inline = new JintScriptEngine();
+        DomBindings.Install(inline, Document.Parse("<iframe id='f' src='data:text/html,%3Chtml%3E%3Cbody%3E%3Cp%20id%3D%22child%22%3Eok%3C%2Fp%3E%3C%2Fbody%3E%3C%2Fhtml%3E'></iframe>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(inline.Evaluate("const child = document.getElementById('f').contentDocument; child !== null && child.getElementById('child').textContent === 'ok'").AsBoolean());
     }
 
     [Fact]
@@ -833,6 +840,7 @@ public sealed class DomStyleDeclarationTests
         await session.DisposeAsync();
     }
 }
+
 
 
 

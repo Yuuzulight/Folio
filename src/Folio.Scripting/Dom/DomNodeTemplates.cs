@@ -533,7 +533,12 @@ internal sealed class DomNodeTemplates
                 state.Window = _context.Engine.CreateHostObject(windowTemplate, state);
             return state.Window;
         });
-        t.DefineProperty("contentDocument", (_, _) => ScriptValue.Null);
+        t.DefineProperty("contentDocument", (target, _) =>
+        {
+            var state = _context.GetIframe((ElementNode)target);
+            state.LoadInlineDocument();
+            return state.ChildDocument is { } child ? _context.Wrap(child) : ScriptValue.Null;
+        });
         return t;
     }
 

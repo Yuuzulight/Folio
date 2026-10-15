@@ -1,4 +1,5 @@
 using Folio.Dom;
+using Folio.Html;
 
 namespace Folio.Scripting.Dom;
 
@@ -21,6 +22,7 @@ internal sealed class IframeState
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue Window { get; set; } = ScriptValue.Null;
+    public DocumentNode? ChildDocument { get; private set; }
     private readonly List<ScriptValue> _messageListeners = [];
 
     public void PostMessage(ScriptValue data, string targetOrigin)
@@ -40,4 +42,18 @@ internal sealed class IframeState
     public void RemoveMessageListener(ScriptValue listener) => _messageListeners.Remove(listener);
 
     public void Close() => Closed = true;
+
+    public void LoadInlineDocument()
+    {
+        if (ChildDocument is not null || !Enabled) return;
+        var source = Element.GetAttribute("src") ?? string.Empty;
+        if (!source.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase)) return;
+        var comma = source.IndexOf(',');
+        if (comma < 0) return;
+        var payload = source[(comma + 1)..];
+        var html = source[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
+            ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload))
+            : Uri.UnescapeDataString(payload);
+        ChildDocument = TreeBuilder.Parse(html);
+    }
 }
