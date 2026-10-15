@@ -175,7 +175,6 @@ internal static class DomTreeMutation
         var node = context.UnwrapNode(childVal);
         EnsurePreInsertionValidity(parent, node, null);
         parent.AppendChild(node);
-        context.NotifyChildListMutation(parent, [node], []);
         return childVal;
     }
 
@@ -185,7 +184,6 @@ internal static class DomTreeMutation
         var child = context.UnwrapNodeOptional(childVal);
         EnsurePreInsertionValidity(parent, node, child);
         parent.InsertBefore(node, child);
-        context.NotifyChildListMutation(parent, [node], []);
         return nodeVal;
     }
 
@@ -194,7 +192,6 @@ internal static class DomTreeMutation
         var child = context.UnwrapNode(childVal);
         EnsurePreRemoveValidity(parent, child);
         parent.RemoveChild(child);
-        context.NotifyChildListMutation(parent, [], [child]);
         return childVal;
     }
 
@@ -204,7 +201,6 @@ internal static class DomTreeMutation
         var child = context.UnwrapNode(childVal);
         EnsurePreReplaceValidity(parent, node, child);
         parent.ReplaceChild(node, child);
-        context.NotifyChildListMutation(parent, [node], [child]);
         return childVal;
     }
 

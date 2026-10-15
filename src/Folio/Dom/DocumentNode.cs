@@ -57,6 +57,12 @@ internal sealed class DocumentNode : ContainerNode
     /// <summary>Set when child elements are inserted or removed, meaning the box tree must be rebuilt.</summary>
     internal bool StructureMutated { get; set; }
 
+    /// <summary>Queues mutation records for observers; null while nothing observes this document.</summary>
+    internal IMutationRecorder? MutationRecorder { get; set; }
+
+    /// <summary>Above zero while an algorithm that queues one record of its own (replace, replace all) runs its inner steps.</summary>
+    internal int MutationRecordsSuppressed { get; set; }
+
     /// <summary>Set when an attribute or text changes, meaning the whole document is styled again (#416).</summary>
     internal bool StyleMutated { get; set; }
 
@@ -187,8 +193,10 @@ internal abstract class CharacterData(DocumentNode ownerDocument, string data) :
         get;
         set
         {
+            var old = field;
             field = value;
             OnMutated(MutationKind.CharacterData);
+            OwnerDocument.MutationRecorder?.CharacterData(this, old);
         }
     } = data;
 

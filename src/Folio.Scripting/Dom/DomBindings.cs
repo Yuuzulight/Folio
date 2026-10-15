@@ -47,9 +47,11 @@ public static class DomBindings
         var mutationHost = new HostObjectTemplate("MutationObserverHost")
             .DefineMethod("create", (_, _, args) =>
             {
-                if (args.Length == 0) throw WebIdlException.TypeError("MutationObserver callback must be callable.");
-                return engine.CreateHostObject(context.Templates.MutationObserverTemplate, context.CreateMutationObserver(args[0]));
-            });
+                if (args.Length < 2 || !args[0].IsFunction) throw WebIdlException.TypeError("MutationObserver callback must be callable.");
+                var observer = context.MutationObservers.Create(args[0], args[1]);
+                return engine.CreateHostObject(context.Templates.MutationObserverTemplate, observer);
+            })
+            .DefineMethod("notify", (_, _, _) => { context.MutationObservers.Notify(); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_mutation_host", engine.CreateHostObject(mutationHost, context));
         var canvasHost = new HostObjectTemplate("CanvasHost")
             .DefineMethod("createPath", (_, _, _) => engine.CreateHostObject(context.Templates.Path2DTemplate, new CanvasPathState()));
@@ -396,9 +398,38 @@ public static class DomBindings
             IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
             IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
             IntersectionObserver.prototype.takeRecords = function() { return []; };
-            globalThis.MutationObserver = function(callback) {
-                return __folio_mutation_host.create(callback);
-            };
+            {
+                const resolved = Promise.resolve();
+                const then = Promise.prototype.then;
+                // The notification is a promise job, so it runs in order with the script's own promise callbacks.
+                globalThis.__folio_mo_queue = function() { then.call(resolved, function() { __folio_mutation_host.notify(); }); };
+                const flag = function(options, name) { return options[name] === undefined ? undefined : !!options[name]; };
+                const bad = function(why) { throw new TypeError(""Failed to execute 'observe' on 'MutationObserver': "" + why); };
+                globalThis.MutationObserver = class MutationObserver {
+                    #host;
+                    constructor(callback) {
+                        if (typeof callback !== 'function') throw new TypeError(""Failed to construct 'MutationObserver': The callback provided as parameter 1 is not a function."");
+                        this.#host = __folio_mutation_host.create(callback, this);
+                    }
+                    observe(target, options) {
+                        if (options === undefined || options === null) options = {};
+                        else if (typeof options !== 'object' && typeof options !== 'function') bad('The provided value is not of type MutationObserverInit.');
+                        let attributes = flag(options, 'attributes'), characterData = flag(options, 'characterData');
+                        const attributeOldValue = flag(options, 'attributeOldValue'), characterDataOldValue = flag(options, 'characterDataOldValue');
+                        const filter = options.attributeFilter === undefined ? undefined : Array.from(options.attributeFilter, String);
+                        if ((attributeOldValue !== undefined || filter !== undefined) && attributes === undefined) attributes = true;
+                        if (characterDataOldValue !== undefined && characterData === undefined) characterData = true;
+                        const childList = !!options.childList, subtree = !!options.subtree;
+                        if (!childList && !attributes && !characterData) bad('The options object must set at least one of ""attributes"", ""characterData"", or ""childList"" to true.');
+                        if (attributeOldValue && !attributes) bad('The options object may only set ""attributeOldValue"" to true when ""attributes"" is true or not present.');
+                        if (filter !== undefined && !attributes) bad('The options object may only set ""attributeFilter"" when ""attributes"" is true or not present.');
+                        if (characterDataOldValue && !characterData) bad('The options object may only set ""characterDataOldValue"" to true when ""characterData"" is true or not present.');
+                        this.#host.observe(target, childList, subtree, !!attributes, !!attributeOldValue, !!characterData, !!characterDataOldValue, filter === undefined ? null : filter);
+                    }
+                    disconnect() { this.#host.disconnect(); }
+                    takeRecords() { return this.#host.takeRecords(); }
+                };
+            }
             globalThis.Path2D = function() { return __folio_canvas_host.createPath(); };
             globalThis.Audio = function(src) { const element = document.createElement('audio'); if (src !== undefined) element.src = String(src); return element; };
             globalThis.FormData = function(form) {

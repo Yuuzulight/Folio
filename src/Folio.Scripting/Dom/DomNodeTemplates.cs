@@ -43,17 +43,25 @@ internal sealed class DomNodeTemplates
             .DefineProperty("target", (target, _) => _context.Wrap(((MutationRecordState)target).Target))
             .DefineProperty("addedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).AddedNodes.Select(_context.Wrap).ToArray()))
             .DefineProperty("removedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).RemovedNodes.Select(_context.Wrap).ToArray()))
-            .DefineProperty("previousSibling", (_, _) => ScriptValue.Null)
-            .DefineProperty("nextSibling", (_, _) => ScriptValue.Null);
+            .DefineProperty("previousSibling", (target, _) => _context.Wrap(((MutationRecordState)target).PreviousSibling))
+            .DefineProperty("nextSibling", (target, _) => _context.Wrap(((MutationRecordState)target).NextSibling))
+            .DefineProperty("attributeNamespace", (_, _) => ScriptValue.Null);
         MutationObserverTemplate = new HostObjectTemplate("MutationObserver")
+            // The script-visible MutationObserver is a class in the bindings' script; it checks and normalises the options and
+            // calls these with (target, childList, subtree, attributes, attributeOldValue, characterData, characterDataOldValue, filter).
             .DefineMethod("observe", (target, _, args) =>
             {
-                if (args.Length == 0) throw WebIdlException.TypeError("observe requires a target.");
-                _context.ObserveMutations((MutationObserverState)target, _context.UnwrapNode(args[0]));
+                if (args.Length < 8 || !_context.Engine.TryGetHostTarget(args[0], out var node) || node is not Node observed)
+                    throw WebIdlException.TypeError("Failed to execute 'observe' on 'MutationObserver': parameter 1 is not of type 'Node'.");
+                IReadOnlyList<string>? filter = null;
+                if (args[7].IsArray && _context.Engine.TryGetArrayItems(args[7], out var items))
+                    filter = items.Select(item => item.AsString() ?? "").ToArray();
+                _context.MutationObservers.Observe((MutationObserverState)target, observed,
+                    new MutationObserverOptions(args[1].AsBoolean(), args[2].AsBoolean(), args[3].AsBoolean(), args[4].AsBoolean(), args[5].AsBoolean(), args[6].AsBoolean(), filter));
                 return ScriptValue.Undefined;
             })
-            .DefineMethod("disconnect", (target, _, _) => { _context.DisconnectMutations((MutationObserverState)target); return ScriptValue.Undefined; })
-            .DefineMethod("takeRecords", (target, _, _) => _context.TakeMutationRecords((MutationObserverState)target));
+            .DefineMethod("disconnect", (target, _, _) => { _context.MutationObservers.Disconnect((MutationObserverState)target); return ScriptValue.Undefined; })
+            .DefineMethod("takeRecords", (target, _, _) => _context.Engine.CreateArray(_context.MutationObservers.Take((MutationObserverState)target).Select(_context.WrapMutationRecord).ToArray()));
         MessageEventTemplate = new HostObjectTemplate("MessageEvent")
             .DefineProperty("data", (target, _) => ((MessageEventState)target).Data)
             .DefineProperty("origin", (target, _) => ScriptValue.FromString(((MessageEventState)target).Origin))
@@ -947,13 +955,7 @@ internal sealed class DomNodeTemplates
                 }
 
                 if (node is ContainerNode container)
-                {
-                    while (container.FirstChild is { } child)
-                        container.RemoveChild(child);
-
-                    if (text.Length > 0)
-                        container.AppendChild(container.OwnerDocument.CreateText(text));
-                }
+                    container.ReplaceAll(text.Length > 0 ? container.OwnerDocument.CreateText(text) : null);
             });
 
         // Methods
@@ -1230,9 +1232,7 @@ internal sealed class DomNodeTemplates
             var name = WebIdlConversions.ToDOMString(args[0]);
             var val = WebIdlConversions.ToDOMString(args[1]);
             var element = (ElementNode)target;
-            var oldValue = element.GetAttribute(name);
             element.SetAttribute(name, val);
-            _context.NotifyAttributeMutation(element, name, oldValue);
             return ScriptValue.Undefined;
         });
 
@@ -1252,8 +1252,6 @@ internal sealed class DomNodeTemplates
                 var element = (ElementNode)target;
                 var oldValue = element.GetAttribute(name);
                 element.RemoveAttribute(name);
-                if (oldValue is not null)
-                    _context.NotifyAttributeMutation(element, name, oldValue);
             }
             return ScriptValue.Undefined;
         });
@@ -1282,7 +1280,6 @@ internal sealed class DomNodeTemplates
                 if (!has)
                 {
                     el.SetAttribute(name, "");
-                    _context.NotifyAttributeMutation(el, name, null);
                 }
                 return ScriptValue.FromBoolean(true);
             }
@@ -1291,7 +1288,6 @@ internal sealed class DomNodeTemplates
                 if (has)
                 {
                     el.RemoveAttribute(name);
-                    _context.NotifyAttributeMutation(el, name, "");
                 }
                 return ScriptValue.FromBoolean(false);
             }

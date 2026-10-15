@@ -166,15 +166,10 @@ internal static class DomHtml
 
         var parsedNodes = TreeBuilder.ParseFragment(markup, target, target.OwnerDocument);
 
-        while (container.FirstChild is { } c)
-        {
-            container.RemoveChild(c);
-        }
-
+        var fragment = target.OwnerDocument.CreateFragment();
         foreach (var node in parsedNodes)
-        {
-            container.AppendChild(node);
-        }
+            fragment.AppendChild(node);
+        container.ReplaceAll(fragment);
     }
 
     /// <summary>
