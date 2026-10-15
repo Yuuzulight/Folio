@@ -48,6 +48,21 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void MutationObserverReceivesAttributeRecords()
+    {
+        var document = TreeBuilder.Parse("<html><body><div id='target'></div></body></html>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var result = engine.Evaluate(@"
+            let seen = '';
+            const observer = new MutationObserver(records => { seen = records[0].type + ':' + records[0].attributeName; });
+            observer.observe(document.body, { attributes: true, subtree: true });
+            document.getElementById('target').setAttribute('data-state', 'ready');
+            seen;");
+        Assert.Equal("attributes:data-state", result.AsString());
+    }
+
+    [Fact]
     public void CanvasElementExposesBasicTwoDimensionalContext()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='640' height='480'></canvas>");

@@ -70,6 +70,18 @@ internal sealed class DomContext
         }
     }
 
+    public void NotifyAttributeMutation(ElementNode target, string name, string? oldValue)
+    {
+        foreach (var observer in _mutationObservers.ToArray())
+        {
+            if (!observer.Targets.Any(observed => ReferenceEquals(observed, target) || observed.IsInclusiveAncestorOf(target))) continue;
+            observer.Records.Add(new MutationRecordState(target, Array.Empty<Node>(), Array.Empty<Node>(), "attributes", name, oldValue));
+            var records = observer.Records.Select(WrapMutationRecord).ToArray();
+            observer.Records.Clear();
+            Engine.Call(observer.Callback, ScriptValue.Undefined, [Engine.CreateArray(records), Engine.CreateHostObject(Templates.MutationObserverTemplate, observer)]);
+        }
+    }
+
     public CanvasElementState GetCanvas(ElementNode element) => _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element));
 
     public ScriptValue Wrap(Node? node)

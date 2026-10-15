@@ -37,7 +37,9 @@ internal sealed class DomNodeTemplates
         DomRectTemplate = CreateDomRectTemplate();
         AttrTemplate = CreateAttrTemplate(NodeTemplate);
         MutationRecordTemplate = new HostObjectTemplate("MutationRecord")
-            .DefineProperty("type", (_, _) => ScriptValue.FromString("childList"))
+            .DefineProperty("type", (target, _) => ScriptValue.FromString(((MutationRecordState)target).Type))
+            .DefineProperty("attributeName", (target, _) => ((MutationRecordState)target).AttributeName is { } name ? ScriptValue.FromString(name) : ScriptValue.Null)
+            .DefineProperty("oldValue", (target, _) => ((MutationRecordState)target).OldValue is { } value ? ScriptValue.FromString(value) : ScriptValue.Null)
             .DefineProperty("target", (target, _) => _context.Wrap(((MutationRecordState)target).Target))
             .DefineProperty("addedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).AddedNodes.Select(_context.Wrap).ToArray()))
             .DefineProperty("removedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).RemovedNodes.Select(_context.Wrap).ToArray()))
@@ -628,7 +630,10 @@ internal sealed class DomNodeTemplates
                 throw WebIdlException.TypeError("setAttribute requires 2 arguments.");
             var name = WebIdlConversions.ToDOMString(args[0]);
             var val = WebIdlConversions.ToDOMString(args[1]);
-            ((ElementNode)target).SetAttribute(name, val);
+            var element = (ElementNode)target;
+            var oldValue = element.GetAttribute(name);
+            element.SetAttribute(name, val);
+            _context.NotifyAttributeMutation(element, name, oldValue);
             return ScriptValue.Undefined;
         });
 
@@ -645,7 +650,11 @@ internal sealed class DomNodeTemplates
             if (args.Length > 0)
             {
                 var name = WebIdlConversions.ToDOMString(args[0]);
-                ((ElementNode)target).RemoveAttribute(name);
+                var element = (ElementNode)target;
+                var oldValue = element.GetAttribute(name);
+                element.RemoveAttribute(name);
+                if (oldValue is not null)
+                    _context.NotifyAttributeMutation(element, name, oldValue);
             }
             return ScriptValue.Undefined;
         });
@@ -672,13 +681,19 @@ internal sealed class DomNodeTemplates
             if (shouldHave)
             {
                 if (!has)
+                {
                     el.SetAttribute(name, "");
+                    _context.NotifyAttributeMutation(el, name, null);
+                }
                 return ScriptValue.FromBoolean(true);
             }
             else
             {
                 if (has)
+                {
                     el.RemoveAttribute(name);
+                    _context.NotifyAttributeMutation(el, name, "");
+                }
                 return ScriptValue.FromBoolean(false);
             }
         });

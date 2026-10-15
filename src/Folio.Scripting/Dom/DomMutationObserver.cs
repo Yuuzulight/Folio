@@ -10,4 +10,4 @@ internal sealed class MutationObserverState(DomContext context, ScriptValue call
     public List<MutationRecordState> Records { get; } = [];
 }
 
-internal sealed record MutationRecordState(Node Target, IReadOnlyList<Node> AddedNodes, IReadOnlyList<Node> RemovedNodes);
+internal sealed record MutationRecordState(Node Target, IReadOnlyList<Node> AddedNodes, IReadOnlyList<Node> RemovedNodes, string Type = "childList", string? AttributeName = null, string? OldValue = null);
