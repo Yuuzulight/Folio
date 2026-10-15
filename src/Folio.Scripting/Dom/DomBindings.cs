@@ -127,10 +127,10 @@ public static class DomBindings
                 },
                 compile: function(bytes) {
                     if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
-                    return Promise.resolve({});
+                    return Promise.resolve(new WebAssembly.Module(bytes));
                 },
                 instantiate: function(bytes, imports) {
-                    return this.compile(bytes).then(function(module) { return { module: module, instance: { exports: {} } }; });
+                    return this.compile(bytes).then(function(module) { return { module: module, instance: new WebAssembly.Instance(module, imports) }; });
                 },
                 Memory: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
@@ -138,6 +138,15 @@ public static class DomBindings
                     this._maximum = options.maximum === undefined ? __folio_wasm_max_pages : Number(options.maximum);
                     if (this._pages < 0 || this._pages > this._maximum || this._pages > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
                     this.buffer = new ArrayBuffer(this._pages * 65536);
+                },
+                Module: function(bytes) {
+                    if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
+                    this.bytes = bytes;
+                },
+                Instance: function(module, imports) {
+                    if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
+                    this.module = module; this.exports = {};
                 }
             };
             WebAssembly.Memory.prototype.grow = function(delta) {
