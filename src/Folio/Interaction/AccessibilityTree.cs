@@ -87,7 +87,7 @@ internal static class AccessibilityTree
     [
         "button", "caption", "cell", "checkbox", "columnheader", "combobox", "document", "group", "heading", "image", "img",
         "link", "list", "listbox", "listitem", "meter", "option", "paragraph", "progressbar", "radio", "row", "rowheader",
-        "searchbox", "slider", "spinbutton", "switch", "table", "textbox",
+        "searchbox", "slider", "spinbutton", "switch", "table", "textbox", "video", "audio", "iframe",
     ];
 
     private static readonly HashSet<string> NameFromContent =
@@ -245,6 +245,9 @@ internal static class AccessibilityTree
             "fieldset" => "group",
             "progress" => "progressbar",
             "meter" => "meter",
+            "video" => "video",
+            "audio" => "audio",
+            "iframe" or "frame" or "frameset" => "iframe",
             _ => null,
         };
     }
@@ -261,7 +264,19 @@ internal static class AccessibilityTree
         int.TryParse(element.GetAttribute("aria-level"), NumberStyles.None, CultureInfo.InvariantCulture, out var level) && level > 0 ? level
         : element.LocalName is ['h', >= '1' and <= '6' and var digit] ? digit - '0' : 2;
 
-    private static string NameOf(ElementNode element, string role) => Collapse(Name(element, role, referenced: false, recursing: false, [element]));
+    private static string NameOf(ElementNode element, string role)
+    {
+        var name = Collapse(Name(element, role, referenced: false, recursing: false, [element]));
+        if (!string.IsNullOrEmpty(name))
+            return name;
+        return role switch
+        {
+            "video" => "Video unavailable",
+            "audio" => "Audio unavailable",
+            "iframe" => "Embedded content unavailable",
+            _ => name ?? "",
+        };
+    }
 
     // https://www.w3.org/TR/accname-1.2/#computation-steps, steps 2B to 2I (2A, skipping hidden nodes, is the callers').
     private static string Name(ElementNode element, string? role, bool referenced, bool recursing, HashSet<Node> visited)

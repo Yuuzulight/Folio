@@ -81,6 +81,15 @@ public class AccessibilityTreeTests
         Assert.All(p.Children, child => Assert.Same(p, child.Parent));
     }
 
+    [Fact]
+    public void UnsupportedMediaHasAnAccessibleFallbackName()
+    {
+        var tree = Tree("<video style='width:120px;height:60px'></video><audio></audio><iframe></iframe>");
+
+        Assert.Equal(["Video unavailable", "Audio unavailable", "Embedded content unavailable"],
+            tree.Children.Where(node => node.Role is "video" or "audio" or "iframe").Select(node => node.Name));
+    }
+
 
     private static AccessibleNode Tree(string html)
     {

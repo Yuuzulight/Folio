@@ -531,6 +531,8 @@ internal static class DisplayListBuilder
                     PaintSvg(box, svg);
                 else if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
                     PaintCanvas(box, surface);
+                else if (box.Box is ReplacedBox { Kind: ReplacedKind.Media or ReplacedKind.Frame } replaced)
+                    PaintFeatureFallback(box, replaced);
                 else
                     PaintImage(box);
                 return;
@@ -609,6 +611,16 @@ internal static class DisplayListBuilder
                 var caretColor = style.Ui.CaretColor ?? style.Inherited.Color;
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(caretRect, default), caretColor));
             }
+        }
+
+        private void PaintFeatureFallback(PaintBox box, ReplacedBox replaced)
+        {
+            SetClip(box.Clip);
+            var color = box.Box.Style.Inherited.Color;
+            var background = color.A > 0
+                ? new CssColor(color.R, color.G, color.B, 0.08f)
+                : new CssColor(0.92f, 0.92f, 0.92f, 1);
+            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
         }
 
         private void PaintCanvas(PaintBox box, ICanvasSurface surface)
