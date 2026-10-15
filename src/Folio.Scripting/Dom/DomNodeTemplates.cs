@@ -71,13 +71,23 @@ internal sealed class DomNodeTemplates
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
         HtmlMediaElementTemplate = CreateHtmlMediaElementTemplate(HtmlElementTemplate);
         HtmlIFrameElementTemplate = CreateHtmlIFrameElementTemplate(HtmlElementTemplate);
+        TextTrackCueTemplate = new HostObjectTemplate("TextTrackCue")
+            .DefineProperty("startTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).StartTime))
+            .DefineProperty("endTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).EndTime))
+            .DefineProperty("text", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Text));
         TextTrackTemplate = new HostObjectTemplate("TextTrack")
             .DefineProperty("kind", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Kind))
             .DefineProperty("label", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Label))
             .DefineProperty("language", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Language))
             .DefineProperty("mode", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Mode),
                 (target, _, value) => ((MediaTextTrackState)target).Mode = WebIdlConversions.ToDOMString(value))
-            .DefineProperty("cues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).Cues.Select(ScriptValue.FromString).ToArray()));
+            .DefineProperty("cues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).Cues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
+            .DefineMethod("addCue", (target, _, args) =>
+            {
+                if (args.Length < 3) throw WebIdlException.TypeError("addCue requires start time, end time, and text.");
+                ((MediaTextTrackState)target).Cues.Add(new TextTrackCueState(WebIdlConversions.ToDouble(args[0]), WebIdlConversions.ToDouble(args[1]), WebIdlConversions.ToDOMString(args[2])));
+                return ScriptValue.Undefined;
+            });
         CanvasGradientTemplate = new HostObjectTemplate("CanvasGradient")
             .DefineMethod("addColorStop", (target, _, args) =>
             {
@@ -265,6 +275,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlMediaElementTemplate { get; }
     public HostObjectTemplate HtmlIFrameElementTemplate { get; }
     public HostObjectTemplate TextTrackTemplate { get; }
+    public HostObjectTemplate TextTrackCueTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlLoseContextTemplate { get; }

@@ -89,7 +89,20 @@ internal sealed class MediaTextTrackState(string kind, string label, string lang
     public string Label { get; } = label;
     public string Language { get; } = language;
     public string Mode { get; set; } = "disabled";
-    public List<string> Cues { get; } = [];
+    public List<TextTrackCueState> Cues { get; } = [];
+}
+
+internal sealed class TextTrackCueState
+{
+    public TextTrackCueState(double startTime, double endTime, string text)
+    {
+        StartTime = Math.Max(0, startTime);
+        EndTime = Math.Max(StartTime, endTime);
+        Text = text;
+    }
+    public double StartTime { get; }
+    public double EndTime { get; }
+    public string Text { get; }
 }
 
 internal sealed class WebGlContextState
