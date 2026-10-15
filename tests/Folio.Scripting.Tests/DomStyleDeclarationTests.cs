@@ -117,6 +117,7 @@ public sealed class DomStyleDeclarationTests
         });
         DomBindings.Install(limited, limitedDocument);
         Assert.Equal(0x0505, limited.Evaluate("const g = document.getElementById('c').getContext('webgl2'); const x = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, x); g.bufferData(g.ARRAY_BUFFER, 9, g.STATIC_DRAW); g.getError()").AsNumber());
+        Assert.Equal(0, limited.Evaluate("const a = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, a); g.bufferData(g.ARRAY_BUFFER, 8, g.STATIC_DRAW); g.deleteBuffer(a); const b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b); g.bufferData(g.ARRAY_BUFFER, 8, g.STATIC_DRAW); g.getError()").AsNumber());
     }
 
     [Fact]

@@ -534,6 +534,7 @@ internal sealed class DomNodeTemplates
             state.Buffers[handle] = new byte[size];
             return ScriptValue.Undefined;
         });
+        t.DefineMethod("deleteBuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteBuffer(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("createShader", (target, _, args) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
         t.DefineMethod("shaderSource", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length > 1) state.Shaders[WebIdlConversions.ToUint32(args[0])] = (0, WebIdlConversions.ToDOMString(args[1]), false); return ScriptValue.Undefined; });
         t.DefineMethod("compileShader", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length > 0 && state.Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader)) state.Shaders[WebIdlConversions.ToUint32(args[0])] = shader with { Compiled = shader.Source.Length <= 1_000_000 }; return ScriptValue.Undefined; });
@@ -555,7 +556,9 @@ internal sealed class DomNodeTemplates
             state.Textures[handle] = (width, height, new byte[bytes]);
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("createFramebuffer", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
+        t.DefineMethod("deleteTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteTexture(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("createFramebuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Framebuffers.Add(handle); return ScriptValue.FromNumber(handle); });
+        t.DefineMethod("deleteFramebuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Framebuffers.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("bindFramebuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundFramebuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("framebufferTexture2D", (target, _, args) => { if (args.Length < 5) ((WebGlContextState)target).SetError(0x0502); return ScriptValue.Undefined; });
         t.DefineMethod("readPixels", (target, _, args) =>
