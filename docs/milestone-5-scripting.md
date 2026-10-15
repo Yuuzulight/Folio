@@ -24,4 +24,10 @@ The reproducible `canvas-perf` command (`dotnet run --project tests/Folio.Render
 
 ## Remaining closing gates
 
-The native JIT backend and its two-engine CI matrix are not yet present. The final M5 closeout therefore remains open until the engine choice, p95 canvas measurements, artifact routing audit and corresponding baseline are completed.
+The current Jint backend and paint path meet the measured canvas target, but the
+native completion criterion is stricter: the shipped scripting backend must be
+Folio-owned and must not rely on Jint, V8, ClearScript, QuickJS, Node, or another
+external JavaScript runtime. The implementation plan is recorded in
+[`native-engine-plan.md`](native-engine-plan.md). Milestone 5 remains open until
+that engine passes the existing DOM and conformance suites and the compatibility
+backend can be removed from the production graph.

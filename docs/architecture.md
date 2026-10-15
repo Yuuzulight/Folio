@@ -57,7 +57,7 @@ One entry point drives it: `Document.Update()` runs only the stages that are dir
 8. **Deny-by-default resources**: all loads go through the host's `IResourceLoader`; the default allows `data:` URLs only.
 9. **Static documents render in-process; scripted documents run in a sandboxed content process** that owns DOM, style, layout and the script engine and sends display lists to the host.
 10. **Content never throws**: bad HTML/CSS is recovered per spec; limits stop work gracefully; everything is reported as diagnostics that a host (Mana) can feed back to the model that wrote the artifact.
-11. **Scripts**: Jint through M4, a native JIT-compiling engine from M5, both behind `IScriptEngine` so the switch is a backend swap. JSX is compiled by the host before content reaches Folio; diagram-description languages are rendered by Folio's own diagram renderer instead of a diagram library.
+11. **Scripts**: a temporary Jint compatibility backend while Folio's own parser, VM, and native hot-path compiler are built behind `IScriptEngine`. JSX is compiled by the host before content reaches Folio; diagram-description languages are rendered by Folio's own diagram renderer instead of a diagram library.
 12. **.NET 10 only**: `net10.0` for the engine (runs on Windows and Linux, which the tests use), `net10.0-windows` for the WinForms control and the content process.
 
 ## Solution layout
@@ -93,7 +93,7 @@ src/
                                               cursors, tooltips, popups
   Folio.Scripting/           net10.0          (M4) Event loop, generated DOM/CSSOM bindings, canvas 2D API,
                                               IPC protocol. Interface: IScriptEngine
-  Folio.Scripting.Jint/      net10.0          (M4) IScriptEngine on Jint
+  Folio.Scripting.Jint/      net10.0          temporary compatibility backend
   Folio.Scripting.Jit/       net10.0          (M5) IScriptEngine on a native JIT-compiling engine
   Folio.Diagrams/            net10.0          (M5) Diagram-description languages → SVG in the DOM
   Folio.ContentHost/         net10.0-windows  (M4) Sandboxed content process executable
@@ -121,7 +121,7 @@ tests/
 **Boundaries**:
 
 - `Folio` references no native library. Namespaces are layered: `Resources` → `Dom`/`Html`/`Xml` → `Css`/`Style` → `Typography`/`Imaging` → `Layout`/`Svg` → `Painting` → `Interaction` → `Hosting`; lower layers never reference higher ones (`Resources` sits at the bottom and knows nothing of the DOM). A unit test reads the assembly's metadata and fails on a layering violation.
-- Swap-out interfaces live in the engine; implementations that use a dependency live in `Folio.Skia`, `Folio.Scripting.Jint` or `Folio.Scripting.Jit`. Replacing a dependency means adding one assembly.
+- Swap-out interfaces live in the engine; `Folio.Scripting.Jint` is temporary compatibility code and will be removed when the Folio-owned engine is complete.
 - `Folio.WinForms` contains no rendering logic; it translates Windows messages to Folio input and blits the surface.
 
 ## Public API sketch

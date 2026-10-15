@@ -36,7 +36,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
 | Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
-| JavaScript engine | **Dependency**: Jint | Behind `IScriptEngine`; a native replacement remains optional |
+| JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
 | JSX compilation | **Host** (Mana) | Done before content reaches Folio |
 | Per-artifact script storage | **Host** | Behind `IArtifactStorage`: local, isolated per artifact |
@@ -128,7 +128,11 @@ public interface IScriptEngine : IDisposable
 }
 ```
 
-The engine runs only inside the sandboxed content process ([study](study/17-scripting.md)). Folio uses `Folio.Scripting.Jint` (pinned to Jint `4.1.0`, BSD 2-Clause licence). A second native engine is optional future work and does not block the milestone; the `IScriptEngine` boundary keeps that replacement possible without changing DOM bindings or the security model.
+The engine runs only inside the sandboxed content process ([study](study/17-scripting.md)).
+`Folio.Scripting.Jint` remains a temporary compatibility backend while Folio's
+own parser, VM, and native hot-path compiler are built. The production target is
+zero external JavaScript-runtime dependencies; see
+[`native-engine-plan.md`](native-engine-plan.md).
 
 ### Image codecs not built in-house
 
@@ -158,4 +162,5 @@ Optional future work, done only if a dependency becomes a problem (size, licensi
 1. **Extend the in-house shaper** script by script: Hebrew (marks), then Arabic (joining forms, mark positioning, contextual lookups), then Indic and South-East Asian scripts (reordering). *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
 2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
 3. **In-house GIF and WebP decoders**. *Good enough*: fuzzed, conformance images unchanged.
-4. **JavaScript engine**: not planned; it stays a dependency.
+4. **JavaScript engine**: planned removal of the temporary Jint dependency after
+   the Folio-owned engine passes the full scripting and conformance suites.
