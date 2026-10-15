@@ -103,13 +103,21 @@ public static class DomBindings
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
                 this.connectionState = 'new'; this.iceConnectionState = 'new'; this.signalingState = 'stable';
-                this.localDescription = null; this.remoteDescription = null;
+                this.localDescription = null; this.remoteDescription = null; this._senders = []; this._dataChannels = [];
             };
             RTCPeerConnection.prototype.createOffer = function() { return Promise.resolve({ type: 'offer', sdp: '' }); };
             RTCPeerConnection.prototype.createAnswer = function() { return Promise.resolve({ type: 'answer', sdp: '' }); };
             RTCPeerConnection.prototype.setLocalDescription = function(description) { this.localDescription = description || null; return Promise.resolve(); };
             RTCPeerConnection.prototype.setRemoteDescription = function(description) { this.remoteDescription = description || null; return Promise.resolve(); };
             RTCPeerConnection.prototype.addIceCandidate = function() { return Promise.resolve(); };
+            RTCPeerConnection.prototype.addTrack = function(track) { var sender = { track: track, replaceTrack: function(next) { sender.track = next; return Promise.resolve(); } }; this._senders.push(sender); return sender; };
+            RTCPeerConnection.prototype.getSenders = function() { return this._senders.slice(); };
+            RTCPeerConnection.prototype.createDataChannel = function(label) {
+                var channel = { label: String(label || ''), readyState: 'open', onmessage: null,
+                    send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); if (channel.onmessage) channel.onmessage({ data: data }); },
+                    close: function() { channel.readyState = 'closed'; } };
+                this._dataChannels.push(channel); return channel;
+            };
             RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; };
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
