@@ -621,6 +621,7 @@ internal static class DisplayListBuilder
             foreach (var command in surface.Commands)
             {
             var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
+            var gradient = CanvasGradient(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
             switch (command.Name)
             {
                 case "translate":
@@ -642,7 +643,7 @@ internal static class DisplayListBuilder
                     var rect = new RectF((float)command.X, (float)command.Y,
                         (float)command.Width, (float)command.Height);
                     if (command.Name == "fillRect")
-                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color));
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color, Gradient: gradient));
                     else
                         list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color,
                             Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
@@ -650,7 +651,7 @@ internal static class DisplayListBuilder
                 case "fillText" or "strokeText":
                     var textRect = new RectF((float)command.X, (float)command.Y - (float)command.Height,
                         (float)command.Width, (float)command.Height);
-                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color, Gradient: gradient));
                     break;
                 case "rect":
                     path.AddRoundedRect(new RoundedRect(new RectF((float)command.X, (float)command.Y,
@@ -1687,6 +1688,38 @@ internal static class DisplayListBuilder
 
         // Called at the end so the list is balanced.
         public void Finish() => PopTo(0);
+    }
+
+    private static Gradient? CanvasGradient(string value)
+    {
+        if (!value.StartsWith("gradient:", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var parts = value[9..].Split('|');
+        if (parts.Length < 2)
+            return null;
+        var geometry = parts[0].Split(',');
+        if (geometry.Length != 4 || !float.TryParse(geometry[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x0)
+            || !float.TryParse(geometry[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y0)
+            || !float.TryParse(geometry[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var x1)
+            || !float.TryParse(geometry[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var y1))
+            return null;
+        var stops = parts.Skip(1).Select(stop => stop.Split(':', 2)).Where(stop => stop.Length == 2
+            && float.TryParse(stop[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            .Select(stop => { var color = ParseCanvasColor(stop[1]); return new GradientStop(float.Parse(stop[0], CultureInfo.InvariantCulture), new Rgba(color.R, color.G, color.B, color.A)); })
+            .ToArray();
+        return stops.Length >= 2 ? new Gradient(GradientKind.Linear, stops, Start: new(x0, y0), End: new(x1, y1)) : null;
+    }
+
+    private static CssColor ParseCanvasColor(string value)
+    {
+        value = value.Trim();
+        if (value.StartsWith('#') && int.TryParse(value[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex) && value.Length == 7)
+            return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
+        return value.ToLowerInvariant() switch
+        {
+            "red" => new CssColor(1, 0, 0, 1), "green" => new CssColor(0, .5f, 0, 1), "blue" => new CssColor(0, 0, 1, 1),
+            "white" => new CssColor(1, 1, 1, 1), _ => CssColor.Black,
+        };
     }
 }
 

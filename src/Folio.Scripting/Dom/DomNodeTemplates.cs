@@ -252,7 +252,7 @@ internal sealed class DomNodeTemplates
     private void SetCanvasStyle(CanvasElementState state, ScriptValue value, bool stroke)
     {
         var style = _context.Engine.TryGetHostTarget(value, out var target) && target is CanvasGradientState gradient && gradient.Stops.Count > 0
-            ? gradient.Stops[0].Color
+            ? gradient.PaintStyle
             : WebIdlConversions.ToDOMString(value);
         if (stroke) state.StrokeStyle = style;
         else state.FillStyle = style;

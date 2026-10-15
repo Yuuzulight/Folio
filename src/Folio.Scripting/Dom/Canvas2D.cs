@@ -46,6 +46,7 @@ internal sealed class CanvasGradientState(double x0, double y0, double x1, doubl
 {
     public (double X0, double Y0, double X1, double Y1) Geometry { get; } = (x0, y0, x1, y1);
     public List<(double Offset, string Color)> Stops { get; } = [];
+    public string PaintStyle => $"gradient:{Geometry.X0},{Geometry.Y0},{Geometry.X1},{Geometry.Y1}|{string.Join('|', Stops.OrderBy(stop => stop.Offset).Select(stop => $"{stop.Offset}:{stop.Color}"))}";
 }
 
 internal sealed record CanvasTextMetricsState(double Width);
