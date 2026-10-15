@@ -62,6 +62,15 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void CssSupportsAndEscapeAreAvailable()
+    {
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, TreeBuilder.Parse("<html></html>"));
+        Assert.True(engine.Evaluate("CSS.supports('display', 'grid')").AsBoolean());
+        Assert.Equal("\\31 2abc", engine.Evaluate("CSS.escape('12abc')").AsString());
+    }
+
+    [Fact]
     public void InvalidPropertyValueDoesNotReplaceExistingValue()
     {
         var document = TreeBuilder.Parse("<div id='box' style='width: 10px'></div>");

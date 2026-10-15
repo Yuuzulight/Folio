@@ -75,6 +75,17 @@ internal static class DomBindings
                     dispatchEvent: function() { return true; }
                 };
             };
+            globalThis.CSS = globalThis.CSS || {};
+            globalThis.CSS.supports = function(property, value) {
+                if (arguments.length === 1) return /\(|\)/.test(String(property));
+                property = String(property).trim().toLowerCase();
+                value = String(value).trim();
+                return property.length > 0 && value.length > 0 && !/[{};]/.test(value);
+            };
+            globalThis.CSS.escape = function(value) {
+                value = String(value);
+                return value.replace(/[^a-zA-Z0-9_-]/g, function(c) { return String.fromCharCode(92) + c; }).replace(/^[0-9]/, function(c) { return String.fromCharCode(92) + '3' + c + ' '; });
+            };
             globalThis.ResizeObserver = function(callback) {
                 if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
                 this._callback = callback;
