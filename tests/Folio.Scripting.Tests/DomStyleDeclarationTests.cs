@@ -251,6 +251,8 @@ public sealed class DomStyleDeclarationTests
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("/", allowed.Evaluate("readyScope").AsString());
         Assert.True(allowed.Evaluate("registration.unregister()").IsObject);
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("navigator.serviceWorker.controller === null").AsBoolean());
     }
 
     [Fact]
