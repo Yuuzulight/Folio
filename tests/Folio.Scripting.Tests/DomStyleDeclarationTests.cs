@@ -170,6 +170,14 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const w = new Worker('data:text/javascript,'); let seen = 0; w.onmessage = e => { seen = e; }; w.postMessage(42); seen === 42").AsBoolean());
         Assert.Equal("data:text/javascript,", allowed.Evaluate("w.scriptURL").AsString());
         Assert.True(allowed.Evaluate("w.terminate(); w.postMessage(7); seen === 42").AsBoolean());
+
+        using var limited = new JintScriptEngine();
+        DomBindings.Install(limited, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerMessageBytes = 4 }
+        }));
+        Assert.ThrowsAny<Exception>(() => limited.Evaluate("const w = new Worker('data:text/javascript,'); w.postMessage('12345')"));
     }
 
     [Fact]

@@ -34,6 +34,7 @@ public sealed class Document : IDisposable
     public FeatureCapabilities Capabilities => Options.Capabilities;
     public int MaxGpuBytes => Options.Limits.MaxGpuBytes;
     public int MaxMediaBytes => Options.Limits.MaxMediaBytes;
+    public int MaxWorkerMessageBytes => Options.Limits.MaxWorkerMessageBytes;
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
 

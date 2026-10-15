@@ -13,15 +13,15 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes);
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes);
 
         // 1. Install DOMException
         InstallDomException(engine);
@@ -57,7 +57,12 @@ public static class DomBindings
             .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
             .DefineProperty("onerror", (target, _) => ((WorkerState)target).OnError, (target, _, value) => ((WorkerState)target).OnError = value)
             .DefineProperty("scriptURL", (target, _) => ScriptValue.FromString(((WorkerState)target).ScriptUrl))
-            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((WorkerState)target).PostMessage(args[0]); return ScriptValue.Undefined; })
+            .DefineMethod("postMessage", (target, _, args) =>
+            {
+                if (args.Length > 0 && !((WorkerState)target).PostMessage(args[0]))
+                    throw WebIdlException.DomException("DataCloneError", "The worker message exceeds the host limit.");
+                return ScriptValue.Undefined;
+            })
             .DefineMethod("terminate", (target, _, _) => { ((WorkerState)target).Terminate(); return ScriptValue.Undefined; });
         var workerHost = new HostObjectTemplate("WorkerHost")
             .DefineMethod("create", (_, _, args) =>
@@ -65,7 +70,7 @@ public static class DomBindings
                 if (!context.Capabilities.Workers)
                     throw WebIdlException.DomException(DomExceptionNames.NotSupportedError, "Workers are disabled by the host.");
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-                return engine.CreateHostObject(workerTemplate, new WorkerState(engine, url, true));
+                return engine.CreateHostObject(workerTemplate, new WorkerState(engine, url, true, context.MaxWorkerMessageBytes));
             });
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));

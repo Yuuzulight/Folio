@@ -30,6 +30,9 @@ public sealed record ResourceLimits
     /// <summary>Aggregate bytes available to a document's WebGL resources.</summary>
     public int MaxGpuBytes { get; init; } = 64 * 1024 * 1024;
     public int MaxMediaBytes { get; init; } = 128 * 1024 * 1024;
+
+    /// <summary>Maximum serialized payload accepted by a worker postMessage call.</summary>
+    public int MaxWorkerMessageBytes { get; init; } = 1 * 1024 * 1024;
 }
 
 /// <summary>Capabilities a host explicitly grants to a document.</summary>
