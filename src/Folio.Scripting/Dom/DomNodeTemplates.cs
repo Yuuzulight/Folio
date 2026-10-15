@@ -565,6 +565,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8D40));
         t.DefineProperty("FRAMEBUFFER_COMPLETE", (_, _) => ScriptValue.FromNumber(0x8CD5));
         t.DefineProperty("COLOR_ATTACHMENT0", (_, _) => ScriptValue.FromNumber(0x8CE0));
+        t.DefineProperty("MAX_DRAW_BUFFERS", (_, _) => ScriptValue.FromNumber(0x8824));
+        t.DefineProperty("DRAW_BUFFER0", (_, _) => ScriptValue.FromNumber(0x8825));
+        t.DefineProperty("BACK", (_, _) => ScriptValue.FromNumber(0x0405));
         t.DefineProperty("FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE", (_, _) => ScriptValue.FromNumber(0x8CD0));
         t.DefineProperty("FRAMEBUFFER_ATTACHMENT_OBJECT_NAME", (_, _) => ScriptValue.FromNumber(0x8CD1));
         t.DefineProperty("TEXTURE", (_, _) => ScriptValue.FromNumber(0x1702));
@@ -599,6 +602,8 @@ internal sealed class DomNodeTemplates
                 0x8B8C => ScriptValue.FromString("WebGL GLSL ES 3.00"),
                 0x0BA2 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ViewportX}, {((WebGlContextState)target).ViewportY}, {((WebGlContextState)target).ViewportWidth}, {((WebGlContextState)target).ViewportHeight}]"),
                 0x0C10 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ScissorX}, {((WebGlContextState)target).ScissorY}, {((WebGlContextState)target).ScissorWidth}, {((WebGlContextState)target).ScissorHeight}]"),
+                0x8824 => ScriptValue.FromNumber(4),
+                0x8825 => ScriptValue.FromNumber(((WebGlContextState)target).DrawBuffers.Count > 0 ? ((WebGlContextState)target).DrawBuffers[0] : 0x0405),
                 _ => ScriptValue.Null
             };
         });
@@ -747,6 +752,8 @@ internal sealed class DomNodeTemplates
         });
         t.DefineMethod("clearColor", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).SetClearColor((float)WebIdlConversions.ToDouble(args[0]), (float)WebIdlConversions.ToDouble(args[1]), (float)WebIdlConversions.ToDouble(args[2]), (float)WebIdlConversions.ToDouble(args[3])); return ScriptValue.Undefined; });
         t.DefineMethod("clear", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Clear(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("drawBuffers", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length == 0 || !_context.Engine.TryGetArrayItems(args[0], out var buffers)) { state.SetError(0x0502); return ScriptValue.Undefined; } state.DrawBuffers.Clear(); foreach (var buffer in buffers.Take(4)) state.DrawBuffers.Add(WebIdlConversions.ToUint32(buffer)); return ScriptValue.Undefined; });
+        t.DefineMethod("readBuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ReadBuffer = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("getError", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).TakeError()));
         t.DefineMethod("isContextLost", (target, _, _) => ScriptValue.FromBoolean(((WebGlContextState)target).Lost));
         t.DefineMethod("getExtension", (target, _, args) =>
