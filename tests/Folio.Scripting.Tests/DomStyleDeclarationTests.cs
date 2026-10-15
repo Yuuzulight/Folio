@@ -113,9 +113,10 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(0, allowed.Evaluate("const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); const p = new Uint8Array(16); p.fill(255); gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, p); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("p[0]").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("const ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); gl.isContextLost()").AsBoolean());
+        Assert.True(allowed.Evaluate("let contextEvents = ''; gl.oncontextlost = e => contextEvents += e.type; gl.oncontextrestored = e => contextEvents += e.type; const ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); gl.isContextLost() && contextEvents === 'webglcontextlost'").AsBoolean());
         Assert.Equal(0x9242, allowed.Evaluate("gl.getError()").AsNumber());
-        Assert.False(allowed.Evaluate("ext.restoreContext(); gl.isContextLost()").AsBoolean());
+        Assert.False(allowed.Evaluate("ext.restoreContext(); gl.isContextLost() && contextEvents === 'webglcontextlostwebglcontextrestored'").AsBoolean());
+        Assert.Equal("webglcontextlostwebglcontextrestored", allowed.Evaluate("contextEvents").AsString());
         var canvas = allowedDocument.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
         Assert.Contains(canvas.CanvasSurface!.Commands, command => command.Name == "fillRect" && command.FillStyle.StartsWith("rgba(255", StringComparison.Ordinal));
 

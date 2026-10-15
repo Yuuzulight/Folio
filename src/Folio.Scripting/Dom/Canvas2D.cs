@@ -135,6 +135,7 @@ internal sealed class MediaTimeRangesState(IReadOnlyList<(double Start, double E
 
 internal sealed class WebGlContextState
 {
+    private readonly IScriptEngine _engine;
     private readonly CanvasElementState _canvas;
     private readonly int _maxGpuBytes;
     private uint _nextHandle = 1;
@@ -161,13 +162,15 @@ internal sealed class WebGlContextState
     public float ClearG { get; private set; }
     public float ClearB { get; private set; }
     public float ClearA { get; private set; } = 1;
-    public WebGlContextState(CanvasElementState canvas, int maxGpuBytes) { _canvas = canvas; _maxGpuBytes = Math.Max(0, maxGpuBytes); }
+    public ScriptValue OnContextLost { get; set; } = ScriptValue.Null;
+    public ScriptValue OnContextRestored { get; set; } = ScriptValue.Null;
+    public WebGlContextState(IScriptEngine engine, CanvasElementState canvas, int maxGpuBytes) { _engine = engine; _canvas = canvas; _maxGpuBytes = Math.Max(0, maxGpuBytes); }
     public uint CreateHandle() => _nextHandle++;
     public void AddDrawCall() => DrawCalls++;
     public void SetError(int error) { if (Error == 0) Error = error; }
     public int TakeError() { var error = Error; Error = 0; return error; }
-    public void Lose() { Lost = true; SetError(0x9242); }
-    public void Restore() { Lost = false; }
+    public void Lose() { if (Lost) return; Lost = true; SetError(0x9242); if (OnContextLost.IsFunction) _engine.Call(OnContextLost, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextlost' })")]); }
+    public void Restore() { if (!Lost) return; Lost = false; if (OnContextRestored.IsFunction) _engine.Call(OnContextRestored, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextrestored' })")]); }
     public bool TryAllocate(int bytes)
     {
         if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes) { SetError(0x0505); return false; }

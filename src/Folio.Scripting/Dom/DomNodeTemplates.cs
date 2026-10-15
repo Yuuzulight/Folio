@@ -393,7 +393,7 @@ internal sealed class DomNodeTemplates
             if (string.Equals(kind, "webgl2", StringComparison.OrdinalIgnoreCase) && _context.Capabilities.WebGl)
             {
                 var canvas = _context.GetCanvas((ElementNode)target);
-                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(canvas, _context.MaxGpuBytes));
+                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes));
             }
             return ScriptValue.Null;
         });
@@ -544,6 +544,8 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("VENDOR", (_, _) => ScriptValue.FromNumber(0x1F00));
         t.DefineProperty("RENDERER", (_, _) => ScriptValue.FromNumber(0x1F01));
         t.DefineProperty("SHADING_LANGUAGE_VERSION", (_, _) => ScriptValue.FromNumber(0x8B8C));
+        t.DefineProperty("oncontextlost", (target, _) => ((WebGlContextState)target).OnContextLost, (target, _, value) => ((WebGlContextState)target).OnContextLost = value);
+        t.DefineProperty("oncontextrestored", (target, _) => ((WebGlContextState)target).OnContextRestored, (target, _, value) => ((WebGlContextState)target).OnContextRestored = value);
         t.DefineMethod("getParameter", (target, _, args) =>
         {
             if (args.Length == 0) return ScriptValue.Null;
