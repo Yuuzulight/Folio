@@ -1248,6 +1248,16 @@ public sealed class Document : IDisposable
         if (Node.StructureMutated)
         {
             Node.StructureMutated = false;
+            // A style or link element came, went or changed its text: the styles are resolved again before the boxes are built.
+            if (Node.SheetsMutated)
+            {
+                Node.SheetsMutated = false;
+                Node.StyleMutated = false;
+                var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+                _fonts ??= FontCollection.For(Options.Fonts);
+                var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+                StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
+            }
             return RebuildBoxes(last);
         }
 

@@ -83,7 +83,7 @@ internal static class StyleResolver
                 continue;
             if (element.LocalName == "style")
             {
-                author.Add(CssParser.ParseStyleSheet(element.TextContent ?? ""));
+                author.Add(CssParser.ParseStyleSheet(element.SheetText ?? element.TextContent ?? ""));
                 continue;
             }
             // https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet
@@ -93,7 +93,9 @@ internal static class StyleResolver
                 sources.Report?.Invoke($"Stylesheet \"{href}\" has no base URL to resolve against.");
                 continue;
             }
-            if (sources.LoadStyleSheet(url) is { } css)
+            if (element.SheetText is { } edited)
+                author.Add(CssParser.ParseStyleSheet(edited), url);
+            else if (sources.LoadStyleSheet(url) is { } css)
                 author.Add(CssParser.ParseStyleSheet(css), url);
         }
         origins.Add(author);
@@ -409,7 +411,8 @@ internal static class StyleResolver
                 continue;
             if (element.LocalName == "style")
             {
-                yield return element;
+                if (element.GetAttribute("disabled") is null)
+                    yield return element;
             }
             else if (element.LocalName == "link" && element.GetAttribute("disabled") is null && element.GetAttribute("href") is { Length: > 0 })
             {
