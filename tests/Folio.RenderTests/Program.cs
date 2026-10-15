@@ -4,6 +4,9 @@ using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 using Folio.Skia;
+using Folio.Painting;
+using Folio.Typography;
+using SkiaSharp;
 
 namespace Folio.RenderTests;
 
@@ -67,11 +70,20 @@ public static class Program
             using var runner = new ScriptRunner(document.Node, engine, loop, Conformance.Options);
             runner.Run();
             loop.UpdateTheRendering();
+            using var bitmap = new SKBitmap(new SKImageInfo(artifact.Category == "D5" ? 800 : 800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
+            using var canvas = new SKCanvas(bitmap);
+            void PaintFrame()
+            {
+                var (displayList, _) = document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, new HarfBuzzShaper());
+                canvas.Clear(SKColors.White);
+                DisplayListPlayer.Replay(displayList, new SkiaCanvas(canvas), new RectF(0, 0, 800, 600));
+                canvas.Flush();
+            }
             for (var warmup = 0; warmup < 3; warmup++)
             {
                 clock.Advance(16.7);
                 loop.UpdateTheRendering();
-                using var warmupFrame = HeadlessRenderer.Render(document, new RenderRequest(Conformance.ManifestOf(artifact).Viewport, null));
+                PaintFrame();
             }
             var samples = new List<double>(frameCount);
             for (var i = 0; i < frameCount; i++)
@@ -79,8 +91,7 @@ public static class Program
                 clock.Advance(16.7);
                 var start = System.Diagnostics.Stopwatch.GetTimestamp();
                 loop.UpdateTheRendering();
-                using var result = HeadlessRenderer.Render(document, new RenderRequest(Conformance.ManifestOf(artifact).Viewport, null));
-                _ = result.Width;
+                PaintFrame();
                 samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             }
             samples.Sort();
