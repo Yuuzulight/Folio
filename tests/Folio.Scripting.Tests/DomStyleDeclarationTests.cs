@@ -9,6 +9,17 @@ namespace Folio.Scripting.Tests;
 
 public sealed class DomStyleDeclarationTests
 {
+    private static string ContentHostPath()
+    {
+        var relative = Path.Combine("tools", "Folio.ContentHost", "bin", "{0}", "net10.0", "Folio.ContentHost.dll");
+        foreach (var configuration in new[] { "Debug", "Release" })
+        {
+            var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../", string.Format(relative, configuration)));
+            if (File.Exists(path)) return path;
+        }
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../", string.Format(relative, "Debug")));
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -401,7 +412,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public async Task ContentProcessClientRunsScriptThroughContentHost()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         Assert.True(File.Exists(host), $"Content host was not built: {host}");
         await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
         var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -429,7 +440,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public async Task ContentHostPublishesAFrameIntoTheRequestedSharedBuffer()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         var framePath = Path.Combine(Path.GetTempPath(), $"folio-test-frame-{Guid.NewGuid():N}.bin");
         try
         {
@@ -466,7 +477,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public async Task ContentProcessStopsAnInfiniteScriptWithDiagnostic()
     {
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var host = ContentHostPath();
         await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"");
         var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         client.MessageReceived += (message, _) =>

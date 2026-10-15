@@ -104,7 +104,10 @@ public sealed class ContentProcessClient : IAsyncDisposable
     {
         _supervisor.Stop("content process client disposed");
         _shutdown.Cancel();
-        try { await _reader.ConfigureAwait(false); } catch (OperationCanceledException) { }
+        try { await _reader.ConfigureAwait(false); }
+        catch (OperationCanceledException) { }
+        catch (InvalidDataException) { }
+        catch (IOException) { }
         try { await _watchdog.ConfigureAwait(false); } catch (OperationCanceledException) { }
         await _session.DisposeAsync().ConfigureAwait(false);
         if (!_process.HasExited) _process.Kill(entireProcessTree: true);
