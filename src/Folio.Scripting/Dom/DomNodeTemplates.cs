@@ -65,8 +65,23 @@ internal sealed class DomNodeTemplates
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
+        CanvasGradientTemplate = new HostObjectTemplate("CanvasGradient")
+            .DefineMethod("addColorStop", (target, _, args) =>
+            {
+                if (args.Length > 1)
+                    ((CanvasGradientState)target).Stops.Add((Math.Clamp(WebIdlConversions.ToDouble(args[0]), 0, 1), WebIdlConversions.ToDOMString(args[1])));
+                return ScriptValue.Undefined;
+            });
         CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
             .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => ((CanvasElementState)target).FillStyle = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("strokeStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).StrokeStyle), (target, _, value) => ((CanvasElementState)target).StrokeStyle = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("font", (target, _) => ScriptValue.FromString(((CanvasElementState)target).Font), (target, _, value) => ((CanvasElementState)target).Font = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("textAlign", (target, _) => ScriptValue.FromString(((CanvasElementState)target).TextAlign), (target, _, value) => ((CanvasElementState)target).TextAlign = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("textBaseline", (target, _) => ScriptValue.FromString(((CanvasElementState)target).TextBaseline), (target, _, value) => ((CanvasElementState)target).TextBaseline = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("shadowColor", (target, _) => ScriptValue.FromString(((CanvasElementState)target).ShadowColor), (target, _, value) => ((CanvasElementState)target).ShadowColor = WebIdlConversions.ToDOMString(value))
+            .DefineProperty("shadowBlur", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).ShadowBlur), (target, _, value) => ((CanvasElementState)target).ShadowBlur = Math.Max(0, WebIdlConversions.ToDouble(value)))
+            .DefineProperty("shadowOffsetX", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).ShadowOffsetX), (target, _, value) => ((CanvasElementState)target).ShadowOffsetX = WebIdlConversions.ToDouble(value))
+            .DefineProperty("shadowOffsetY", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).ShadowOffsetY), (target, _, value) => ((CanvasElementState)target).ShadowOffsetY = WebIdlConversions.ToDouble(value))
             .DefineProperty("lineWidth", (target, _) => ScriptValue.FromNumber(((CanvasElementState)target).LineWidth), (target, _, value) => ((CanvasElementState)target).LineWidth = Math.Max(0, WebIdlConversions.ToDouble(value)))
             .DefineProperty("lineCap", (target, _) => ScriptValue.FromString(((CanvasElementState)target).LineCap), (target, _, value) => ((CanvasElementState)target).LineCap = WebIdlConversions.ToDOMString(value))
             .DefineProperty("lineJoin", (target, _) => ScriptValue.FromString(((CanvasElementState)target).LineJoin), (target, _, value) => ((CanvasElementState)target).LineJoin = WebIdlConversions.ToDOMString(value))
@@ -79,6 +94,16 @@ internal sealed class DomNodeTemplates
             .DefineMethod("translate", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "translate", args.ToArray()))
             .DefineMethod("scale", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "scale", args.ToArray()))
             .DefineMethod("rotate", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "rotate", args.ToArray()))
+            .DefineMethod("setTransform", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "setTransform", args.ToArray()))
+            .DefineMethod("resetTransform", (target, _, _) => AddCanvasCommand((CanvasElementState)target, "resetTransform", []))
+            .DefineMethod("fillText", (target, _, args) => AddTextCommand((CanvasElementState)target, "fillText", args.ToArray()))
+            .DefineMethod("strokeText", (target, _, args) => AddTextCommand((CanvasElementState)target, "strokeText", args.ToArray()))
+            .DefineMethod("createLinearGradient", (_, _, args) =>
+            {
+                var values = args.ToArray();
+                double Number(int index) => index < values.Length ? WebIdlConversions.ToDouble(values[index]) : 0;
+                return _context.Engine.CreateHostObject(CanvasGradientTemplate, new CanvasGradientState(Number(0), Number(1), Number(2), Number(3)));
+            })
             .DefineMethod("fillRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "fillRect", args.ToArray()))
             .DefineMethod("clearRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "clearRect", args.ToArray()))
             .DefineMethod("strokeRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "strokeRect", args.ToArray()))
@@ -172,6 +197,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
+    public HostObjectTemplate CanvasGradientTemplate { get; }
     public HostObjectTemplate Path2DTemplate { get; }
     public HostObjectTemplate CssRuleTemplate { get; }
     public HostObjectTemplate CssRuleStyleTemplate { get; }
@@ -220,6 +246,13 @@ internal sealed class DomNodeTemplates
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
         state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), 0, 0, ""));
+        return ScriptValue.Undefined;
+    }
+
+    private static ScriptValue AddTextCommand(CanvasElementState state, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), 0, 0, state.FillStyle));
         return ScriptValue.Undefined;
     }
 
