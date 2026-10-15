@@ -135,7 +135,9 @@ public sealed class DomStyleDeclarationTests
             observer.observe(document.body, { childList: true, subtree: true });
             document.body.appendChild(document.createElement('div'));
             seen;");
-        Assert.Equal("childList:1", result.AsString());
+        Assert.Equal("", result.AsString()); // records are delivered at the microtask checkpoint, not synchronously
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("childList:1", engine.Evaluate("seen").AsString());
     }
 
     [Fact]
@@ -150,7 +152,9 @@ public sealed class DomStyleDeclarationTests
             observer.observe(document.body, { attributes: true, subtree: true });
             document.getElementById('target').setAttribute('data-state', 'ready');
             seen;");
-        Assert.Equal("attributes:data-state", result.AsString());
+        Assert.Equal("", result.AsString()); // records are delivered at the microtask checkpoint, not synchronously
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("attributes:data-state", engine.Evaluate("seen").AsString());
     }
 
     [Fact]

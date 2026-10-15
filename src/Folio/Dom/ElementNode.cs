@@ -107,6 +107,7 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     {
         var atom = OwnerDocument.Intern(name);
         var index = Array.FindIndex(_attributes, a => a.Name == atom);
+        var oldValue = index >= 0 ? _attributes[index].Value : null;
         if (index >= 0)
         {
             _attributes[index] = new Attribute(atom, value);
@@ -119,6 +120,7 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
 
         Reflect(name, value);
         OnMutated(MutationKind.Attributes);
+        OwnerDocument.MutationRecorder?.Attribute(this, name, oldValue);
         if (IsHandlerAttributeName(name))
             OwnerDocument.NotifyHandlerAttributeChanged(this, name, value);
     }
@@ -135,12 +137,14 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
         var index = Array.FindIndex(_attributes, a => a.Name == atom);
         if (index < 0)
             return false;
+        var oldValue = _attributes[index].Value;
         var newAttrs = new Attribute[_attributes.Length - 1];
         Array.Copy(_attributes, 0, newAttrs, 0, index);
         Array.Copy(_attributes, index + 1, newAttrs, index, _attributes.Length - index - 1);
         _attributes = newAttrs;
         Reflect(name, "");
         OnMutated(MutationKind.Attributes);
+        OwnerDocument.MutationRecorder?.Attribute(this, name, oldValue);
         if (IsHandlerAttributeName(name))
             OwnerDocument.NotifyHandlerAttributeChanged(this, name, null);
         return true;

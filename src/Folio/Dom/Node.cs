@@ -153,6 +153,7 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
 
         if (node is DocumentFragment fragment)
         {
+            var previous = child is null ? LastChild : child.PreviousSibling;
             var movedList = new List<Node>();
             while (fragment.FirstChild is { } moved)
             {
@@ -161,6 +162,8 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
                 movedList.Add(moved);
             }
             fragment.OnMutated(MutationKind.ChildList);
+            if (movedList.Count > 0)
+                RecordChildList(movedList, [], previous, child);
             if (IsConnected)
             {
                 foreach (var m in movedList)
@@ -171,10 +174,14 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
         {
             if (node.Parent is { } oldParent)
             {
+                var (oldPrevious, oldNext) = (node.PreviousSibling, node.NextSibling);
                 oldParent.Unlink(node);
                 oldParent.OnMutated(MutationKind.ChildList);
+                oldParent.RecordChildList([], [node], oldPrevious, oldNext);
             }
+            var previous = child is null ? LastChild : child.PreviousSibling;
             Link(node, child);
+            RecordChildList([node], [], previous, child);
             if (IsConnected)
                 OwnerDocument.NotifyNodeInserted(node);
         }
@@ -189,8 +196,10 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
         if (child.Parent != this)
             throw new ArgumentException("The node is not a child of this node.", nameof(child));
 
+        var (previous, next) = (child.PreviousSibling, child.NextSibling);
         Unlink(child);
         OnMutated(MutationKind.ChildList);
+        RecordChildList([], [child], previous, next);
         return child;
     }
 
@@ -203,14 +212,63 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
         if (ReferenceEquals(node, child))
             return child;
 
+        // A node that is moved leaves its old parent (and says so to observers) before the replacement is one record.
+        if (node is not DocumentFragment && node.Parent is { } oldParent)
+            oldParent.RemoveChild(node);
+
         var next = child.NextSibling;
         if (ReferenceEquals(next, node))
             next = node.NextSibling;
 
-        RemoveChild(child);
-        InsertBefore(node, next);
+        IReadOnlyList<Node> added = node is DocumentFragment fragment ? [.. fragment.Children] : [node];
+        OwnerDocument.MutationRecordsSuppressed++;
+        try
+        {
+            RemoveChild(child);
+            InsertBefore(node, next);
+        }
+        finally
+        {
+            OwnerDocument.MutationRecordsSuppressed--;
+        }
+        RecordChildList(added, [child], added.Count > 0 ? added[0].PreviousSibling : next?.PreviousSibling ?? LastChild, next);
         return child;
     }
+
+    /// <summary>
+    /// https://dom.spec.whatwg.org/#concept-node-replace-all: removes every child and inserts <paramref name="node"/> (a
+    /// fragment's children, if it is one) as the only content, as one mutation record.
+    /// </summary>
+    internal void ReplaceAll(Node? node)
+    {
+        IReadOnlyList<Node> added = node is null ? [] : node is DocumentFragment fragment ? [.. fragment.Children] : [node];
+        IReadOnlyList<Node> removed = [.. Children];
+        if (node is not null && node is not DocumentFragment && node.Parent is { } oldParent)
+            oldParent.RemoveChild(node);
+
+        OwnerDocument.MutationRecordsSuppressed++;
+        try
+        {
+            while (FirstChild is { } existing)
+                RemoveChild(existing);
+            if (node is not null)
+                InsertBefore(node, null);
+        }
+        finally
+        {
+            OwnerDocument.MutationRecordsSuppressed--;
+        }
+        if (added.Count > 0 || removed.Count > 0)
+            RecordChildList(added, removed, null, null);
+    }
+
+    /// <summary>Queues a childList record for this node unless an enclosing algorithm queues its own.</summary>
+    private void RecordChildList(IReadOnlyList<Node> added, IReadOnlyList<Node> removed, Node? previousSibling, Node? nextSibling)
+    {
+        if (OwnerDocument.MutationRecorder is { } recorder && OwnerDocument.MutationRecordsSuppressed == 0)
+            recorder.ChildList(this, added, removed, previousSibling, nextSibling);
+    }
+
 
     // https://dom.spec.whatwg.org/#concept-node-ensure-pre-insertion-validity
     private void EnsurePreInsertionValidity(Node node, Node? child)
