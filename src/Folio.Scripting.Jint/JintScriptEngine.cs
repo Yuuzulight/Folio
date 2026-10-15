@@ -12,7 +12,7 @@ namespace Folio.Scripting.Jint;
 /// Jint-backed implementation of <see cref="IScriptEngine"/> (study 17, dependencies.md).
 /// Provides sandboxed ECMAScript evaluation with time, statement, recursion, and memory limits.
 /// </summary>
-public sealed class JintScriptEngine : IScriptEngine
+public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
 {
     private Engine? _engine;
     private CancellationTokenSource _cts = new();
@@ -30,6 +30,8 @@ public sealed class JintScriptEngine : IScriptEngine
         _limits = options.Limits;
         RebuildEngine();
     }
+
+    public IScriptEngine CreateIsolated() => new JintScriptEngine(_options);
 
     public void Configure(ScriptLimits limits)
     {

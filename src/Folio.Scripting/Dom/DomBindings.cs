@@ -74,7 +74,8 @@ public static class DomBindings
                 if (!context.Capabilities.Workers)
                     throw WebIdlException.DomException(DomExceptionNames.NotSupportedError, "Workers are disabled by the host.");
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-                var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes);
+                var isolatedEngine = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
+                var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine);
                 var worker = engine.CreateHostObject(workerTemplate, state);
                 state.Source = worker;
                 return worker;

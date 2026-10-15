@@ -61,3 +61,9 @@ public interface IScriptEngine : IDisposable
     /// </summary>
     void Interrupt();
 }
+
+/// <summary>Optional factory used by isolated execution contexts such as dedicated workers.</summary>
+public interface IScriptEngineFactory
+{
+    IScriptEngine CreateIsolated();
+}
