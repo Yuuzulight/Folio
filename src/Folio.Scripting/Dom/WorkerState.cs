@@ -22,6 +22,17 @@ internal sealed class WorkerState
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnError { get; set; } = ScriptValue.Null;
     public ScriptValue Source { get; set; } = ScriptValue.Null;
+    private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
+    public void AddEventListener(string type, ScriptValue listener)
+    {
+        if (!listener.IsFunction) return;
+        if (!_listeners.TryGetValue(type, out var list)) _listeners[type] = list = [];
+        if (!list.Contains(listener)) list.Add(listener);
+    }
+    public void RemoveEventListener(string type, ScriptValue listener)
+    {
+        if (_listeners.TryGetValue(type, out var list)) list.Remove(listener);
+    }
     public void Terminate() => Terminated = true;
     public bool PostMessage(ScriptValue value)
     {
@@ -29,7 +40,8 @@ internal sealed class WorkerState
         if (Enabled && !Terminated && OnMessage.IsFunction)
         {
             var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
-            Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
+            if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
+            if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
         }
         return true;
     }
