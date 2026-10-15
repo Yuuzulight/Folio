@@ -618,6 +618,7 @@ internal static class DisplayListBuilder
         list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(box.Rect.X, box.Rect.Y)));
         transformDepth++;
         var path = new PathData();
+            var currentPoint = Vector2.Zero;
             foreach (var command in surface.Commands)
             {
             var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
@@ -627,6 +628,7 @@ internal static class DisplayListBuilder
             {
                 case "beginPath":
                     path = new PathData();
+                    currentPoint = Vector2.Zero;
                     break;
                 case "translate":
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
@@ -667,13 +669,57 @@ internal static class DisplayListBuilder
                     break;
                 case "moveTo":
                     path.MoveTo((float)command.X, (float)command.Y);
+                    currentPoint = new((float)command.X, (float)command.Y);
                     break;
                 case "lineTo":
                     path.LineTo((float)command.X, (float)command.Y);
+                    currentPoint = new((float)command.X, (float)command.Y);
                     break;
                 case "quadraticCurveTo" or "bezierCurveTo":
-                    // Canvas curves are approximated by their endpoint in the display-list bridge.
-                    path.LineTo((float)command.X, (float)command.Y);
+                    var pathArgs = command.Arguments ?? [];
+                    var end = new Vector2((float)command.X, (float)command.Y);
+                    if (command.Name == "quadraticCurveTo" && pathArgs.Count >= 4)
+                    {
+                        var control = new Vector2((float)pathArgs[0], (float)pathArgs[1]);
+                        path.CubicTo(currentPoint + (control - currentPoint) * (2f / 3f), end + (control - end) * (2f / 3f), end);
+                    }
+                    else if (command.Name == "bezierCurveTo" && pathArgs.Count >= 6)
+                        path.CubicTo(new((float)pathArgs[0], (float)pathArgs[1]), new((float)pathArgs[2], (float)pathArgs[3]), end);
+                    else
+                        path.LineTo(end.X, end.Y);
+                    currentPoint = end;
+                    break;
+                case "arc":
+                    {
+                        var arcArgs = command.Arguments ?? [];
+                        if (arcArgs.Count >= 5)
+                        {
+                            var cx = arcArgs[0]; var cy = arcArgs[1]; var radius = Math.Abs(arcArgs[2]);
+                            var start = arcArgs[3]; var finish = arcArgs[4];
+                            var sweep = finish - start;
+                            if (Math.Abs(sweep) < 0.0001) sweep = 2 * Math.PI;
+                            var steps = Math.Max(8, (int)Math.Ceiling(Math.Abs(sweep) * 8));
+                            var first = new Vector2((float)(cx + radius * Math.Cos(start)), (float)(cy + radius * Math.Sin(start)));
+                            path.LineTo(first.X, first.Y);
+                            for (var i = 1; i <= steps; i++)
+                            {
+                                var angle = start + sweep * i / steps;
+                                path.LineTo((float)(cx + radius * Math.Cos(angle)), (float)(cy + radius * Math.Sin(angle)));
+                            }
+                            currentPoint = new((float)(cx + radius * Math.Cos(finish)), (float)(cy + radius * Math.Sin(finish)));
+                        }
+                    }
+                    break;
+                case "arcTo":
+                    {
+                        var arcToArgs = command.Arguments ?? [];
+                        if (arcToArgs.Count >= 4)
+                        {
+                            path.LineTo((float)arcToArgs[0], (float)arcToArgs[1]);
+                            path.LineTo((float)arcToArgs[2], (float)arcToArgs[3]);
+                            currentPoint = new((float)arcToArgs[2], (float)arcToArgs[3]);
+                        }
+                    }
                     break;
                 case "closePath":
                     path.Close();

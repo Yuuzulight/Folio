@@ -256,7 +256,8 @@ internal sealed class DomNodeTemplates
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
         state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle,
-            name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null, Composite: state.GlobalCompositeOperation));
+            name.StartsWith("stroke", StringComparison.Ordinal) ? state.StrokeStyle : null, Composite: state.GlobalCompositeOperation,
+            Arguments: args.Select(WebIdlConversions.ToDouble).ToArray()));
         return ScriptValue.Undefined;
     }
 
@@ -310,7 +311,7 @@ internal sealed class DomNodeTemplates
             "bezierCurveTo" => (Number(4), Number(5)),
             _ => (Number(0), Number(1)),
         };
-        state.Commands.Add(new CanvasCommand(name, x, y, 0, 0, ""));
+        state.Commands.Add(new CanvasCommand(name, x, y, 0, 0, "", Arguments: args.Select(WebIdlConversions.ToDouble).ToArray()));
         return ScriptValue.Undefined;
     }
 
