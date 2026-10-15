@@ -75,6 +75,10 @@ internal sealed class DomNodeTemplates
             .DefineProperty("startTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).StartTime))
             .DefineProperty("endTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).EndTime))
             .DefineProperty("text", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Text));
+        TimeRangesTemplate = new HostObjectTemplate("TimeRanges")
+            .DefineProperty("length", (target, _) => ScriptValue.FromNumber(((MediaTimeRangesState)target).Ranges.Count))
+            .DefineMethod("start", (target, _, args) => GetTimeRange((MediaTimeRangesState)target, args, start: true))
+            .DefineMethod("end", (target, _, args) => GetTimeRange((MediaTimeRangesState)target, args, start: false));
         TextTrackTemplate = new HostObjectTemplate("TextTrack")
             .DefineProperty("kind", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Kind))
             .DefineProperty("label", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Label))
@@ -276,6 +280,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlIFrameElementTemplate { get; }
     public HostObjectTemplate TextTrackTemplate { get; }
     public HostObjectTemplate TextTrackCueTemplate { get; }
+    public HostObjectTemplate TimeRangesTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlLoseContextTemplate { get; }
@@ -417,9 +422,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("readyState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).ReadyState));
         t.DefineProperty("networkState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).NetworkState));
         t.DefineProperty("error", (target, _) => _context.GetMedia((ElementNode)target).Error is { } error ? ScriptValue.FromString(error) : ScriptValue.Null);
-        t.DefineProperty("buffered", (_, _) => _context.Engine.CreateArray([]));
-        t.DefineProperty("seekable", (_, _) => _context.Engine.CreateArray([]));
-        t.DefineProperty("played", (_, _) => _context.Engine.CreateArray([]));
+        t.DefineProperty("buffered", (target, _) => CreateMediaRanges((ElementNode)target, buffered: true));
+        t.DefineProperty("seekable", (target, _) => CreateMediaRanges((ElementNode)target, buffered: false));
+        t.DefineProperty("played", (target, _) => CreateMediaRanges((ElementNode)target, buffered: null));
         t.DefineMethod("play", (target, _, _) =>
         {
             var state = _context.GetMedia((ElementNode)target);
@@ -446,6 +451,27 @@ internal sealed class DomNodeTemplates
             return _context.Engine.CreateHostObject(TextTrackTemplate, track);
         });
         return t;
+    }
+
+    private ScriptValue CreateMediaRanges(ElementNode element, bool? buffered)
+    {
+        var state = _context.GetMedia(element);
+        var ranges = buffered switch
+        {
+            true when state.Duration > 0 => new[] { (0d, state.Duration) },
+            false when state.Duration > 0 => new[] { (0d, state.Duration) },
+            null when state.CurrentTime > 0 => new[] { (0d, Math.Min(state.CurrentTime, state.Duration > 0 ? state.Duration : state.CurrentTime)) },
+            _ => Array.Empty<(double, double)>()
+        };
+        return _context.Engine.CreateHostObject(TimeRangesTemplate, new MediaTimeRangesState(ranges));
+    }
+
+    private static ScriptValue GetTimeRange(MediaTimeRangesState state, ReadOnlySpan<ScriptValue> args, bool start)
+    {
+        var index = args.Length > 0 ? WebIdlConversions.ToInt32(args[0]) : -1;
+        if (index < 0 || index >= state.Ranges.Count)
+            throw WebIdlException.DomException(DomExceptionNames.IndexSizeError, "Time range index is out of bounds.");
+        return ScriptValue.FromNumber(start ? state.Ranges[index].Start : state.Ranges[index].End);
     }
 
     private HostObjectTemplate CreateHtmlIFrameElementTemplate(IHostObjectTemplate htmlElementProto)

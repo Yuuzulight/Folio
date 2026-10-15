@@ -108,6 +108,11 @@ internal sealed class TextTrackCueState
     public string Text { get; }
 }
 
+internal sealed class MediaTimeRangesState(IReadOnlyList<(double Start, double End)> ranges)
+{
+    public IReadOnlyList<(double Start, double End)> Ranges { get; } = ranges;
+}
+
 internal sealed class WebGlContextState
 {
     private readonly CanvasElementState _canvas;
