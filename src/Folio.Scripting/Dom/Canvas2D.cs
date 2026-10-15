@@ -1,3 +1,4 @@
+using System.Globalization;
 using Folio.Dom;
 
 namespace Folio.Scripting.Dom;
@@ -38,6 +39,7 @@ internal sealed class CanvasElementState : ICanvasSurface
 
 internal sealed class WebGlContextState
 {
+    private readonly CanvasElementState _canvas;
     private uint _nextHandle = 1;
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
@@ -50,10 +52,24 @@ internal sealed class WebGlContextState
     public uint? CurrentProgram { get; set; }
     public int DrawCalls { get; private set; }
     public int Error { get; private set; }
+    public float ClearR { get; private set; }
+    public float ClearG { get; private set; }
+    public float ClearB { get; private set; }
+    public float ClearA { get; private set; } = 1;
+    public WebGlContextState(CanvasElementState canvas) => _canvas = canvas;
     public uint CreateHandle() => _nextHandle++;
     public void AddDrawCall() => DrawCalls++;
     public void SetError(int error) { if (Error == 0) Error = error; }
     public int TakeError() { var error = Error; Error = 0; return error; }
+    public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));
+    public void Clear(uint mask)
+    {
+        if ((mask & 0x4000) == 0) return;
+        var color = string.Create(CultureInfo.InvariantCulture, $"rgba({ClearR * 255:0.###}, {ClearG * 255:0.###}, {ClearB * 255:0.###}, {ClearA:0.###})");
+        var width = uint.TryParse(_canvas.Element.GetAttribute("width"), out var w) ? w : 300;
+        var height = uint.TryParse(_canvas.Element.GetAttribute("height"), out var h) ? h : 150;
+        _canvas.Commands.Add(new CanvasCommand("fillRect", 0, 0, width, height, color));
+    }
 }
 
 internal sealed record CanvasStyleSnapshot(string FillStyle, double LineWidth, string LineCap, string LineJoin, double GlobalAlpha, string GlobalCompositeOperation, double[] LineDash);

@@ -345,7 +345,7 @@ internal sealed class DomNodeTemplates
             if (string.Equals(kind, "2d", StringComparison.OrdinalIgnoreCase))
                 return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
             if (string.Equals(kind, "webgl2", StringComparison.OrdinalIgnoreCase) && _context.Capabilities.WebGl)
-                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, new WebGlContextState());
+                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, new WebGlContextState(_context.GetCanvas((ElementNode)target)));
             return ScriptValue.Null;
         });
         t.DefineMethod("toDataURL", (_, _, _) => ScriptValue.FromString("data:image/png;base64,"));
@@ -410,8 +410,8 @@ internal sealed class DomNodeTemplates
             var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("clearColor", (_, _, _) => ScriptValue.Undefined);
-        t.DefineMethod("clear", (_, _, _) => ScriptValue.Undefined);
+        t.DefineMethod("clearColor", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).SetClearColor((float)WebIdlConversions.ToDouble(args[0]), (float)WebIdlConversions.ToDouble(args[1]), (float)WebIdlConversions.ToDouble(args[2]), (float)WebIdlConversions.ToDouble(args[3])); return ScriptValue.Undefined; });
+        t.DefineMethod("clear", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Clear(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("getError", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).TakeError()));
         return t;
     }
