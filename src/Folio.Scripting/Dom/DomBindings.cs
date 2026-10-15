@@ -130,6 +130,8 @@ public static class DomBindings
             RTCPeerConnection.prototype.addTrack = function(track) { var sender = { track: track, replaceTrack: function(next) { sender.track = next; return Promise.resolve(); } }; this._senders.push(sender); return sender; };
             RTCPeerConnection.prototype.getSenders = function() { return this._senders.slice(); };
             RTCPeerConnection.prototype.getConfiguration = function() { return this.configuration; };
+            RTCPeerConnection.prototype.setConfiguration = function(configuration) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = configuration || {}; };
+            RTCPeerConnection.prototype.getStats = function() { return Promise.resolve(new Map()); };
             RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); if (this.oniceconnectionstatechange) this.oniceconnectionstatechange({}); };
             RTCPeerConnection.prototype.createDataChannel = function(label) {
                 var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', onmessage: null, onopen: null, onclose: null, onerror: null,
