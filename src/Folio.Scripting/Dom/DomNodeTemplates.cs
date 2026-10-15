@@ -530,8 +530,7 @@ internal sealed class DomNodeTemplates
             var state = (WebGlContextState)target;
             if (state.BoundArrayBuffer is not { } handle || args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
             var size = args[1].IsNumber ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, 16 * 1024 * 1024) : 0;
-            if (!state.TryAllocate(size)) return ScriptValue.Undefined;
-            state.Buffers[handle] = new byte[size];
+            state.ReplaceBuffer(handle, size);
             return ScriptValue.Undefined;
         });
         t.DefineMethod("deleteBuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteBuffer(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
@@ -554,8 +553,7 @@ internal sealed class DomNodeTemplates
             var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
             var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
             var bytes = Math.Min(width * height * 4, 64 * 1024 * 1024);
-            if (!state.TryAllocate(bytes)) return ScriptValue.Undefined;
-            state.Textures[handle] = (width, height, new byte[bytes]);
+            state.ReplaceTexture(handle, width, height, bytes);
             return ScriptValue.Undefined;
         });
         t.DefineMethod("deleteTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteTexture(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });

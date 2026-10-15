@@ -160,6 +160,15 @@ internal sealed class WebGlContextState
         AllocatedBytes += bytes;
         return true;
     }
+    public bool ReplaceBuffer(uint handle, int bytes)
+    {
+        var oldBytes = Buffers.TryGetValue(handle, out var existing) ? existing.Length : 0;
+        var nextTotal = AllocatedBytes - oldBytes + bytes;
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        AllocatedBytes = nextTotal;
+        Buffers[handle] = new byte[bytes];
+        return true;
+    }
     public void DeleteBuffer(uint handle)
     {
         if (Buffers.Remove(handle, out var buffer)) AllocatedBytes = Math.Max(0, AllocatedBytes - buffer.Length);
@@ -167,6 +176,15 @@ internal sealed class WebGlContextState
     public void DeleteTexture(uint handle)
     {
         if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
+    }
+    public bool ReplaceTexture(uint handle, int width, int height, int bytes)
+    {
+        var oldBytes = Textures.TryGetValue(handle, out var existing) ? existing.Pixels.Length : 0;
+        var nextTotal = AllocatedBytes - oldBytes + bytes;
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        AllocatedBytes = nextTotal;
+        Textures[handle] = (width, height, new byte[bytes]);
+        return true;
     }
     public void DeleteShader(uint handle) => Shaders.Remove(handle);
     public void DeleteProgram(uint handle) => Programs.Remove(handle);
