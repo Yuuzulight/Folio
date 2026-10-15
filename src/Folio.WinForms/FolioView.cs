@@ -57,6 +57,9 @@ public class FolioView : Control
     private readonly ToolTip _toolTip = new();
     private FolioViewAccessibleObject? _accessibleObject;
     private ContentProcessClient? _contentProcess;
+    private CanvasFrameStore? _contentFrameStore;
+    private Bitmap? _contentBitmap;
+    private string? _contentFramePath;
     private string? _scriptStoppedReason;
 
     public FolioView()
@@ -157,11 +160,79 @@ public class FolioView : Control
     {
         ArgumentNullException.ThrowIfNull(client);
         if (_contentProcess is not null)
+        {
             _contentProcess.ScriptStopped -= OnScriptStopped;
+            _contentProcess.MessageReceived -= OnContentMessage;
+        }
         _contentProcess = client;
         _contentProcess.ScriptStopped += OnScriptStopped;
+        _contentProcess.MessageReceived += OnContentMessage;
         _scriptStoppedReason = null;
     }
+
+    private ValueTask OnContentMessage(ContentMessage message, CancellationToken cancellationToken)
+    {
+        if (message.Kind != ContentMessageKind.Frame || !message.Payload.TryGetProperty("canvasFrame", out var frame))
+            return ValueTask.CompletedTask;
+        var path = frame.TryGetProperty("path", out var pathValue) ? pathValue.GetString() : null;
+        if (string.IsNullOrWhiteSpace(path)
+            || !frame.TryGetProperty("width", out var widthValue) || !widthValue.TryGetInt32(out var width)
+            || !frame.TryGetProperty("height", out var heightValue) || !heightValue.TryGetInt32(out var height)
+            || !frame.TryGetProperty("stride", out var strideValue) || !strideValue.TryGetInt32(out var stride))
+            return ValueTask.CompletedTask;
+
+        void Apply() => ApplyContentFrame(path!, width, height, stride);
+        try
+        {
+            if (!IsDisposed && IsHandleCreated)
+                BeginInvoke((Action)Apply);
+        }
+        catch (InvalidOperationException) { }
+        return ValueTask.CompletedTask;
+    }
+
+    private void ApplyContentFrame(string path, int width, int height, int stride)
+    {
+        try
+        {
+            if (_contentFramePath != path || _contentFrameStore is null)
+            {
+                _contentFrameStore?.Dispose();
+                _contentFrameStore = new CanvasFrameStore(path, width, height, stride);
+                _contentFramePath = path;
+            }
+
+            var pixels = _contentFrameStore.ReadLatest(out _);
+            _contentBitmap ??= new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+            if (_contentBitmap.Width != width || _contentBitmap.Height != height)
+            {
+                _contentBitmap.Dispose();
+                _contentBitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+            }
+            var area = new Rectangle(0, 0, width, height);
+            var data = _contentBitmap.LockBits(area, ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+            try { Marshal.Copy(pixels, 0, data.Scan0, Math.Min(pixels.Length, Math.Abs(data.Stride) * height)); }
+            finally { _contentBitmap.UnlockBits(data); }
+            Invalidate();
+        }
+        catch (Exception exception) when (exception is IOException or ArgumentException or ExternalException)
+        {
+            RenderFailed?.Invoke(this, new RenderFailedEventArgs(exception));
+        }
+    }
+
+    private async Task SendContentInputAsync(ContentInputEvent input)
+    {
+        try
+        {
+            if (_contentProcess is not null)
+                await _contentProcess.SendAsync(ContentMessageKind.Input, input).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException) { }
+        catch (IOException) { }
+    }
+
+    private void SendContentInput(ContentInputEvent input) => _ = SendContentInputAsync(input);
 
     private void OnScriptStopped(object? sender, ContentProcessStoppedEventArgs e)
     {
@@ -193,6 +264,11 @@ public class FolioView : Control
         _document.Input.SelectionChanged += OnDocumentSelectionChanged;
         if (Options.Scripting == ScriptingPolicy.ContentProcess && !string.IsNullOrWhiteSpace(Options.ContentProcessPath))
         {
+            _contentBitmap?.Dispose();
+            _contentBitmap = null;
+            _contentFrameStore?.Dispose();
+            _contentFrameStore = null;
+            _contentFramePath = null;
             if (_contentProcess is not null)
                 _ = _contentProcess.DisposeAsync();
             try
@@ -201,7 +277,16 @@ public class FolioView : Control
                 var script = string.Join("\n", Regex.Matches(html, @"<script(?:\s[^>]*)?>(.*?)</script>", RegexOptions.IgnoreCase | RegexOptions.Singleline)
                     .Select(match => match.Groups[1].Value));
                 var process = _contentProcess!;
-                _ = process.SendAsync(ContentMessageKind.Load, new { html, script, url = baseUri?.AbsoluteUri ?? "content" });
+                _contentFramePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}-{Guid.NewGuid():N}.bin");
+                _ = process.SendAsync(ContentMessageKind.Load, new
+                {
+                    html,
+                    script,
+                    url = baseUri?.AbsoluteUri ?? "content",
+                    framePath = _contentFramePath,
+                    viewportWidth = Math.Max(1, ClientSize.Width),
+                    viewportHeight = Math.Max(1, ClientSize.Height),
+                });
             }
             catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
             {
@@ -332,6 +417,12 @@ public class FolioView : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(BackColor);
+        if (_contentBitmap is not null)
+        {
+            e.Graphics.DrawImageUnscaled(_contentBitmap, 0, 0);
+            Rendered?.Invoke(this, EventArgs.Empty);
+            return;
+        }
         if (_document is null)
             return;
         try
@@ -377,6 +468,8 @@ public class FolioView : Control
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
+        if (_contentProcess is not null)
+            SendContentInput(new ContentInputEvent("wheel", e.X / PixelScale, e.Y / PixelScale + ScrollTop, DeltaY: -e.Delta));
         if (!_scrollBar.Visible)
             return;
         // Each notch scrolls the system's number of lines, 16 CSS pixels each.
@@ -391,6 +484,12 @@ public class FolioView : Control
         if (_document is { } doc)
         {
             doc.Input.HandlePointerMove(ToPointerEvent(e, PointerButton.None));
+            if (_contentProcess is not null)
+            {
+                var pointer = ToPointerEvent(e, PointerButton.None);
+                SendContentInput(new ContentInputEvent("pointermove", pointer.Position.X, pointer.Position.Y,
+                    Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
+            }
             if ((e.Button & MouseButtons.Left) != 0)
                 Invalidate();
         }
@@ -404,6 +503,12 @@ public class FolioView : Control
         if (_document is { } doc)
         {
             doc.Input.HandlePointerDown(ToPointerEvent(e, ToButton(e.Button)));
+            if (_contentProcess is not null)
+            {
+                var pointer = ToPointerEvent(e, ToButton(e.Button));
+                SendContentInput(new ContentInputEvent("pointerdown", pointer.Position.X, pointer.Position.Y,
+                    (int)pointer.Button, Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
+            }
             Invalidate();
         }
     }
@@ -414,6 +519,12 @@ public class FolioView : Control
         if (_document is { } doc)
         {
             doc.Input.HandlePointerUp(ToPointerEvent(e, ToButton(e.Button)));
+            if (_contentProcess is not null)
+            {
+                var pointer = ToPointerEvent(e, ToButton(e.Button));
+                SendContentInput(new ContentInputEvent("pointerup", pointer.Position.X, pointer.Position.Y,
+                    (int)pointer.Button, Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
+            }
             Invalidate();
         }
     }
@@ -422,6 +533,8 @@ public class FolioView : Control
     {
         base.OnMouseLeave(e);
         _document?.Input.HandlePointerLeave();
+        if (_contentProcess is not null)
+            SendContentInput(new ContentInputEvent("pointerleave"));
     }
 
     private void OnDocumentLinkActivated(object? sender, Folio.LinkActivatedEventArgs e)
@@ -583,6 +696,8 @@ public class FolioView : Control
             };
 
             doc.Input.HandleKeyDown(new KeyEvent(key, code, modifiers));
+            if (_contentProcess is not null)
+                SendContentInput(new ContentInputEvent("keydown", Key: key, Code: code, Modifiers: (int)modifiers));
             Invalidate();
         }
     }
@@ -593,9 +708,24 @@ public class FolioView : Control
         if (_document is { } doc && !char.IsControl(e.KeyChar))
         {
             doc.Input.HandleTextInput(new TextInputEvent(e.KeyChar.ToString()));
+            if (_contentProcess is not null)
+                SendContentInput(new ContentInputEvent("textinput", Text: e.KeyChar.ToString()));
             e.Handled = true;
             Invalidate();
         }
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        base.OnKeyUp(e);
+        if (_contentProcess is null)
+            return;
+
+        var modifiers = KeyModifiers.None;
+        if (e.Alt) modifiers |= KeyModifiers.Alt;
+        if (e.Control) modifiers |= KeyModifiers.Control;
+        if (e.Shift) modifiers |= KeyModifiers.Shift;
+        SendContentInput(new ContentInputEvent("keyup", Key: e.KeyCode.ToString(), Code: e.KeyCode.ToString(), Modifiers: (int)modifiers));
     }
 
     private Uri? LinkAt(Point point) => _document?.LinkAt(point.X / PixelScale, point.Y / PixelScale + ScrollTop);
@@ -607,6 +737,18 @@ public class FolioView : Control
             _frames.Dispose();
             _toolTip.Dispose();
             _document?.Dispose();
+            _contentBitmap?.Dispose();
+            _contentFrameStore?.Dispose();
+            if (_contentProcess is not null)
+            {
+                _contentProcess.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                _contentProcess = null;
+            }
+            if (_contentFramePath is { } framePath)
+            {
+                try { File.Delete(framePath); } catch { }
+                _contentFramePath = null;
+            }
         }
         base.Dispose(disposing);
     }

@@ -427,6 +427,43 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public async Task ContentHostPublishesAFrameIntoTheRequestedSharedBuffer()
+    {
+        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));
+        var framePath = Path.Combine(Path.GetTempPath(), $"folio-test-frame-{Guid.NewGuid():N}.bin");
+        try
+        {
+            await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"");
+            var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            client.MessageReceived += (message, _) =>
+            {
+                if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+                return ValueTask.CompletedTask;
+            };
+
+            await client.SendAsync(ContentMessageKind.Load, new
+            {
+                html = "<body><button>Run</button></body>",
+                script = "",
+                framePath,
+                viewportWidth = 320,
+                viewportHeight = 180,
+                url = "test"
+            }, TestContext.Current.CancellationToken);
+
+            var frame = await received.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var shared = frame.Payload.GetProperty("canvasFrame");
+            Assert.Equal(framePath, shared.GetProperty("path").GetString());
+            Assert.True(shared.GetProperty("sequence").GetInt64() > 0);
+            Assert.True(File.Exists(framePath));
+        }
+        finally
+        {
+            try { File.Delete(framePath); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task ContentProcessStopsAnInfiniteScriptWithDiagnostic()
     {
         var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin/Debug/net10.0/Folio.ContentHost.dll"));

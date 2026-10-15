@@ -5,7 +5,18 @@ namespace Folio.Scripting.Ipc;
 /// <summary>Host/content payloads carried by the versioned protocol.</summary>
 public sealed record DisplayListFrame(long DocumentRevision, int ViewportWidth, int ViewportHeight, JsonElement Commands);
 
-public sealed record ContentInputEvent(string Type, double X = 0, double Y = 0, int Button = 0, string? Key = null, string? Text = null);
+public sealed record ContentInputEvent(
+    string Type,
+    double X = 0,
+    double Y = 0,
+    int Button = 0,
+    string? Key = null,
+    string? Text = null,
+    int Buttons = 0,
+    int Modifiers = 0,
+    double DeltaX = 0,
+    double DeltaY = 0,
+    string? Code = null);
 
 public static class ContentMessagePayloads
 {
