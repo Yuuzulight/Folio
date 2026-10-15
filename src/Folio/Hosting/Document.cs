@@ -1293,9 +1293,12 @@ public sealed class Document : IDisposable
         }
 
         var maxDamage = Damage.Paint;
+        var changed = new List<ElementNode>();
         foreach (var (element, (oldStyle, oldBefore, oldAfter, oldMarker)) in oldStyles)
         {
             var newStyle = element.ComputedStyle();
+            if (!ReferenceEquals(oldStyle, newStyle) && !Equals(oldStyle, newStyle))
+                changed.Add(element);
             CompareStyles(oldStyle, newStyle, ref maxDamage);
             if (maxDamage == Damage.Boxes) break;
 
@@ -1330,7 +1333,7 @@ public sealed class Document : IDisposable
                     {
                         PseudoElement.Before => el.PseudoStyle(PseudoElement.Before),
                         PseudoElement.After => el.PseudoStyle(PseudoElement.After),
-                        PseudoElement.Marker => el.PseudoStyle(PseudoElement.Marker),
+                        PseudoElement.Marker => el.PseudoStyle(PseudoElement.Marker) ?? el.ComputedStyle(),
                         _ => el.ComputedStyle(),
                     }
                     : box is MarkerBox && box.Parent?.Node is ElementNode pEl
@@ -1348,6 +1351,20 @@ public sealed class Document : IDisposable
                     // Collapsed table borders are resolved against the neighbouring cells in layout and kept in the fragments.
                     var collapsedBorder = box is TablePartBox && newStyle.Text.BorderCollapse == BorderCollapse.Collapse && !previous.Equals(newStyle);
                     if (box.ContainsFixed != containsFixed || collapsedBorder)
+                    {
+                        needsLayout = true;
+                        break;
+                    }
+                }
+            }
+
+            // An inline SVG's render tree has its paints (currentColor, inherited fill and stroke) resolved when it is built in
+            // layout: a style change on the SVG, inside it or above it needs that tree built again, not just a repaint.
+            if (!needsLayout && changed.Count > 0)
+            {
+                foreach (var box in boxes)
+                {
+                    if (box is ReplacedBox { SvgRoot: { } svgRoot } && changed.Any(c => IsAncestorOrSelf(c, svgRoot) || IsAncestorOrSelf(svgRoot, c)))
                     {
                         needsLayout = true;
                         break;
@@ -1435,15 +1452,38 @@ public sealed class Document : IDisposable
             }
         }
 
+        static bool IsAncestorOrSelf(Node ancestor, Node node)
+        {
+            for (Node? current = node; current is not null; current = current.Parent)
+            {
+                if (ReferenceEquals(current, ancestor))
+                    return true;
+            }
+            return false;
+        }
+
         static List<Box> AllBoxes(Box root)
         {
             var boxes = new List<Box>();
+            var seen = new HashSet<Box>(ReferenceEqualityComparer.Instance);
             var stack = new Stack<Box>([root]);
             while (stack.TryPop(out var box))
             {
+                if (!seen.Add(box))
+                    continue;
                 boxes.Add(box);
                 if (box is BlockContainerBox { Marker: { } marker })
                     stack.Push(marker);
+                // Boxes inside a paragraph (an inline disclosure marker, an atomic inline) are items of its inline
+                // formatting context, not children, and take a new style like any other box.
+                if (box is BlockContainerBox { Inline: { } inline })
+                {
+                    foreach (var item in inline.Items)
+                    {
+                        if (item.Box is { } inlineBox)
+                            stack.Push(inlineBox);
+                    }
+                }
                 foreach (var child in box.Children)
                     stack.Push(child);
             }

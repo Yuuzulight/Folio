@@ -1,4 +1,5 @@
 using Folio.Css;
+using Folio.Painting;
 
 namespace Folio.Tests.Css;
 
@@ -93,4 +94,42 @@ public class PropertyDamageTests
         Assert.Equal(Damage.Boxes, damage);
         Assert.Equal(count + 1, document.LayoutCount);
     }
+
+    // The inside disclosure triangle of <summary> is a marker box in an inline run, not a child of a block's Marker slot:
+    // a colour change has to reach it, or the update draws the old colour and a fresh render draws the new one.
+    [Fact]
+    public void ColorChangeOnASummaryRecoloursItsDisclosureTriangle()
+    {
+        const string Html = "<!DOCTYPE html><details open><summary{0}>Question</summary><p>Answer</p></details>";
+        using var document = Document.Parse(string.Format(Html, ""));
+        document.Paint(800, 600);
+        document.QuerySelector("summary")!.SetAttribute("style", "color: red");
+
+        Assert.Equal(Damage.Paint, document.Update());
+
+        using var fresh = Document.Parse(string.Format(Html, " style='color: red'"));
+        var (full, _) = fresh.Paint(800, 600);
+        var triangle = (DisplayItem item) => item.Kind == DisplayItemKind.FillPath;
+        Assert.Equal(full.Items.Where(triangle).Select(i => i.Color), document.DisplayList!.Items.Where(triangle).Select(i => i.Color));
+    }
+
+    // An inline SVG's paints are resolved when its render tree is built in layout, so a colour change on the SVG, inside
+    // it or above it has to build that tree again.
+    [Theory]
+    [InlineData("span")]
+    [InlineData("circle")]
+    public void ColorChangeAroundAnInlineSvgRecoloursItsCurrentColorStroke(string target)
+    {
+        const string Html = "<!DOCTYPE html><span{0}><svg width='24' height='24' viewBox='0 0 24 24'><circle{1} cx='12' cy='12' r='5' fill='none' stroke='currentColor'/></svg></span>";
+        using var document = Document.Parse(string.Format(Html, "", ""));
+        document.Paint(800, 600);
+        document.QuerySelector(target)!.SetAttribute("style", "color: red");
+        document.Update();
+
+        using var fresh = Document.Parse(string.Format(Html, target == "span" ? " style='color: red'" : "", target == "circle" ? " style='color: red'" : ""));
+        var (full, _) = fresh.Paint(800, 600);
+        var strokes = (DisplayItem item) => item.Kind == DisplayItemKind.StrokePath;
+        Assert.Equal(full.Items.Where(strokes).Select(i => i.Color), document.DisplayList!.Items.Where(strokes).Select(i => i.Color));
+    }
 }
+
