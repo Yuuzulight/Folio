@@ -26,6 +26,12 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("<html><body><p id='remote'>loaded</p></body></html>"), "text/html"));
     }
 
+    private sealed class ServiceWorkerResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.skipWaiting(); self.clients.claim(); onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript"));
+    }
+
     private sealed class WavResourceLoader : IResourceLoader
     {
         private readonly byte[] _wav = CreateWav();
@@ -369,7 +375,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(scripted, Document.Parse("<html></html>", new FolioOptions
         {
             BaseUri = new Uri("https://worker.example/"),
-            ResourceLoader = new WorkerResourceLoader(),
+            ResourceLoader = new ServiceWorkerResourceLoader(),
             Capabilities = new FeatureCapabilities { ServiceWorkers = true }
         }));
         Assert.True(scripted.Evaluate("let scriptedResult = 0; navigator.serviceWorker.register('sw.js').then(r => { r.active.onmessage = e => scriptedResult = e.data; r.active.postMessage(40); }); true").AsBoolean());
@@ -892,6 +898,7 @@ public sealed class DomStyleDeclarationTests
         await session.DisposeAsync();
     }
 }
+
 
 
 
