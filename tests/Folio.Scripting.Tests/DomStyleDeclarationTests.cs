@@ -247,7 +247,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("rejected").AsBoolean());
         Assert.True(allowed.Evaluate("pc.iceGatheringState === 'new' && pc.getConfiguration() !== null; pc.setLocalDescription({ type: 'offer' }); pc.iceGatheringState === 'complete'; pc.restartIce(); pc.iceGatheringState === 'new'").AsBoolean());
         Assert.True(allowed.Evaluate("const sender = pc.addTrack({ kind: 'audio' }); pc.getSenders().length === 1 && sender.track.kind === 'audio'").AsBoolean());
-        Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; dc.onmessage = e => received = e.data; dc.send(7); received === 7").AsBoolean());
+        Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; let closed = false; dc.onmessage = e => received = e.data; dc.onclose = () => closed = true; dc.send(7); received === 7 && dc.bufferedAmount === 0 && dc.binaryType === 'blob'; dc.close(); closed && dc.readyState === 'closed'").AsBoolean());
         Assert.Equal("closed", allowed.Evaluate("pc.close(); pc.connectionState").AsString());
     }
 

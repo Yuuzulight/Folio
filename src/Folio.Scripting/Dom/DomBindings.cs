@@ -132,9 +132,9 @@ public static class DomBindings
             RTCPeerConnection.prototype.getConfiguration = function() { return this.configuration; };
             RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; };
             RTCPeerConnection.prototype.createDataChannel = function(label) {
-                var channel = { label: String(label || ''), readyState: 'open', onmessage: null,
-                    send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); if (channel.onmessage) channel.onmessage({ data: data }); },
-                    close: function() { channel.readyState = 'closed'; } };
+                var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', onmessage: null, onopen: null, onclose: null, onerror: null,
+                    send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); channel.bufferedAmount = 0; if (channel.onmessage) channel.onmessage({ data: data }); },
+                    close: function() { if (channel.readyState !== 'closed') { channel.readyState = 'closed'; if (channel.onclose) channel.onclose({}); } } };
                 this._dataChannels.push(channel); return channel;
             };
             RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; };
