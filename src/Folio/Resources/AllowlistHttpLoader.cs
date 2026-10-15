@@ -210,7 +210,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
             .Where(item => item.Algorithm is "sha256" or "sha384" or "sha512")
             .OrderByDescending(item => item.Algorithm == "sha512" ? 3 : item.Algorithm == "sha384" ? 2 : 1)
             .FirstOrDefault();
-        return strongest.Token is not null && Matches(data, strongest.Token);
+        return strongest.Token is null || Matches(data, strongest.Token);
     }
 
     private static byte[] TryBase64(string text)

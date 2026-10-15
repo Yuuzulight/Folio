@@ -117,6 +117,7 @@ public class AllowlistTests
         server.Routes["https://cdn.example/app.js?bad"] = () => Ok(bytes, "text/html");
 
         Assert.True((await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script, integrity), CancellationToken.None))!.Succeeded);
+        Assert.True((await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script, "md5-AAAA"), CancellationToken.None))!.Succeeded);
         Assert.False((await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script, "sha256-AAAA"), CancellationToken.None))!.Succeeded);
         Assert.Contains("MIME type", (await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js?bad", ResourceKind.Script), CancellationToken.None))!.Error ?? "");
     }
