@@ -6,9 +6,12 @@ using Folio.Scripting.Jint;
 using Folio.Scripting.Dom;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Skia;
 
 using var engine = new JintScriptEngine();
 Document? document = null;
+var framePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
+using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
 session.MessageReceived += async (message, cancellationToken) =>
 {
@@ -31,12 +34,18 @@ session.MessageReceived += async (message, cancellationToken) =>
         }
         var result = engine.Evaluate(script, url);
         var frame = document is null ? null : document.Paint(1280, 720).List;
+        if (document is not null)
+        {
+            using var rendered = HeadlessRenderer.Render(document, new RenderRequest(1280, 720));
+            frameStore.Publish(rendered.Pixels);
+        }
         await session.SendAsync(ContentMessageKind.Frame, new
         {
             sequence = message.Sequence,
             value = result.ToString(),
             displayItems = frame?.Items.Count ?? 0,
-            canvasCommands = document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0
+            canvasCommands = document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0,
+            canvasFrame = new { path = framePath, width = frameStore.Width, height = frameStore.Height, stride = frameStore.Stride, sequence = frameStore.Sequence }
         }, cancellationToken);
     }
     catch (Exception exception)
