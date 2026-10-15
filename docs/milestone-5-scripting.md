@@ -20,6 +20,8 @@ The public D2–D7 corpus is run with the content-process scripting path and a 1
 - `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 216/216 passed.
 - D5 and D7 paint-only performance still require a dedicated p95 frame measurement against the 16.7 ms M5 target.
 
+The reproducible `canvas-perf` command (`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -- canvas-perf 3`) currently reports full conformance wall-time p95s of approximately 1.9 s for D5 and 0.6 s for D7. These are document-render timings, not paint-only frame timings, and therefore do not satisfy the M5 performance gate; they expose the need for a frame-level benchmark rather than hiding the gap.
+
 ## Remaining closing gates
 
 The native JIT backend and its two-engine CI matrix are not yet present. The final M5 closeout therefore remains open until the engine choice, p95 canvas measurements, artifact routing audit and corresponding baseline are completed.

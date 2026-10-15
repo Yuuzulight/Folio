@@ -11,11 +11,36 @@ public static class Program
             return Approve(args[1..]);
         if (args.Length > 0 && args[0] == "conformance")
             return ConformanceReport(args[1..]);
+        if (args.Length > 0 && args[0] == "canvas-perf")
+            return CanvasPerformance(args.Length > 1 && int.TryParse(args[1], out var n) ? Math.Max(3, n) : 10);
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
             return TestPlatformTestFramework.RunAsync(args, SelfRegisteredExtensions.AddSelfRegisteredExtensions).GetAwaiter().GetResult();
         return ConsoleRunner.Run(args).GetAwaiter().GetResult();
+    }
+
+    private static int CanvasPerformance(int iterations)
+    {
+        var artifacts = Conformance.Discover().Where(a => a.Category is "D5" or "D7").ToArray();
+        Console.WriteLine($"Canvas conformance wall-time benchmark ({iterations} iterations per artifact)");
+        Console.WriteLine("| Artifact | Median ms | p95 ms |");
+        Console.WriteLine("|---|--:|--:|");
+        foreach (var artifact in artifacts)
+        {
+            var samples = new List<double>(iterations);
+            for (var i = 0; i < iterations; i++)
+            {
+                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                _ = Conformance.Run(artifact);
+                samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            }
+            samples.Sort();
+            var median = samples[samples.Count / 2];
+            var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
+            Console.WriteLine($"| {artifact.Id} | {median:F1} | {p95:F1} |");
+        }
+        return 0;
     }
 
     // folio-test conformance [category|category/name]...: renders the corpus and prints pass rates per category (also to
