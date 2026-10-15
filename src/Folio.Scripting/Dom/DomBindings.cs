@@ -159,9 +159,9 @@ public static class DomBindings
                 while (cursor.i < bytes.length) { var section = bytes[cursor.i++]; var size = __folio_wasm_read_u32(bytes, cursor); var end = Math.min(bytes.length, cursor.i + size); if (section !== 10) { cursor.i = end; continue; } var count = __folio_wasm_read_u32(bytes, cursor); for (var i = 0; i < count && cursor.i < end; i++) { var bodySize = __folio_wasm_read_u32(bytes, cursor); result.push(bytes.slice(cursor.i, Math.min(end, cursor.i + bodySize))); cursor.i += bodySize; } cursor.i = end; }
                 return result;
             }
-            function __folio_wasm_execute(body) {
+            function __folio_wasm_execute(body, argumentsObject) {
                 var cursor = { i: 0 }; var localGroups = __folio_wasm_read_u32(body, cursor); for (var group = 0; group < localGroups; group++) { __folio_wasm_read_u32(body, cursor); cursor.i++; }
-                var stack = []; while (cursor.i < body.length) { var opcode = body[cursor.i++]; if (opcode === 0x41) stack.push(__folio_wasm_read_s32(body, cursor)); else if (opcode === 0x6a) { var right = stack.pop(); var left = stack.pop(); stack.push((left + right) | 0); } else if (opcode === 0x0b) return stack.length ? stack[stack.length - 1] : undefined; else throw new WebAssembly.CompileError('Unsupported WebAssembly instruction.'); }
+                var stack = []; while (cursor.i < body.length) { var opcode = body[cursor.i++]; if (opcode === 0x41) stack.push(__folio_wasm_read_s32(body, cursor)); else if (opcode === 0x20) { var localIndex = __folio_wasm_read_u32(body, cursor); stack.push(Number(argumentsObject[localIndex] || 0) | 0); } else if (opcode === 0x6a) { var right = stack.pop(); var left = stack.pop(); stack.push((left + right) | 0); } else if (opcode === 0x0b) return stack.length ? stack[stack.length - 1] : undefined; else throw new WebAssembly.CompileError('Unsupported WebAssembly instruction.'); }
                 return undefined;
             }
             function __folio_wasm_metadata(bytes, wanted) {
@@ -209,7 +209,7 @@ public static class DomBindings
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
                     module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); });
                     this.module = module; this.exports = {};
-                    module._exports.forEach(function(entry) { if (entry.kind === 0) this.exports[entry.name] = module._functions[entry.index] ? function() { return __folio_wasm_execute(module._functions[entry.index]); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; }, this);
+                    module._exports.forEach(function(entry) { if (entry.kind === 0) this.exports[entry.name] = module._functions[entry.index] ? function() { return __folio_wasm_execute(module._functions[entry.index], arguments); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; }, this);
                 },
                 Table: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
