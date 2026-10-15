@@ -46,6 +46,14 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         canvas.DrawRoundRect(skRect, skPaint);
     }
 
+    public void ClearRect(in RectF rect)
+    {
+        canvas.Save();
+        canvas.ClipRect(new SKRect(rect.X, rect.Y, rect.Right, rect.Bottom));
+        canvas.Clear(SKColors.Transparent);
+        canvas.Restore();
+    }
+
     public void FillPath(PathData path, FillRule rule, in Paint paint)
     {
         using var skPath = ToSkia(path, rule);

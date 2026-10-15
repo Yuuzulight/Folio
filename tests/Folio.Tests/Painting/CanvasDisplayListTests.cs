@@ -66,6 +66,19 @@ public sealed class CanvasDisplayListTests
         Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.Fill && item.Gradient is { Stops.Count: 2 });
     }
 
+    [Fact]
+    public void ClearRectBecomesAFirstClassPaintOperation()
+    {
+        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
+        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
+        canvas.CanvasSurface = new TestCanvasSurface([
+            new CanvasSurfaceCommand("clearRect", 1, 2, 3, 4, "")
+        ]);
+
+        var (displayList, _) = document.Paint(200, 100);
+        Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.ClearRect);
+    }
+
     private sealed class TestCanvasSurface(IReadOnlyList<CanvasSurfaceCommand> commands) : ICanvasSurface
     {
         public IReadOnlyList<CanvasSurfaceCommand> Commands { get; } = commands;

@@ -11,6 +11,9 @@ internal enum DisplayItemKind
     /// </summary>
     Fill,
 
+    /// <summary>Clears a rectangular region to transparent pixels.</summary>
+    ClearRect,
+
     /// <summary>Draws the border described by <see cref="DisplayItem.Border"/> inside <see cref="DisplayItem.Shape"/>.</summary>
     Border,
 
