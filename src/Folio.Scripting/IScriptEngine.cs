@@ -19,7 +19,8 @@ public sealed record ScriptEngineOptions
 
 /// <summary>
 /// Abstraction for a sandboxed JavaScript engine (dependencies.md, study 17).
-/// Implemented by Jint in M4, and a native JIT-compiling engine in M5.
+/// Implemented by the dependency-backed Jint engine for M4–M5. The interface
+/// remains the replacement seam for the later Folio-owned engine.
 /// </summary>
 public interface IScriptEngine : IDisposable
 {
