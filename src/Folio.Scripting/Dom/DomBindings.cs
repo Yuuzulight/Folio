@@ -261,6 +261,7 @@ public static class DomBindings
                 return __folio_mutation_host.create(callback);
             };
             globalThis.Path2D = function() { return __folio_canvas_host.createPath(); };
+            globalThis.Audio = function(src) { const element = document.createElement('audio'); if (src !== undefined) element.src = String(src); return element; };
             globalThis.FormData = function(form) {
                 this._entries = [];
                 if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');
