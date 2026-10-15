@@ -40,6 +40,7 @@ internal sealed class CanvasElementState : ICanvasSurface
 internal sealed class WebGlContextState
 {
     private readonly CanvasElementState _canvas;
+    private readonly int _maxGpuBytes;
     private uint _nextHandle = 1;
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
@@ -52,15 +53,22 @@ internal sealed class WebGlContextState
     public uint? CurrentProgram { get; set; }
     public int DrawCalls { get; private set; }
     public int Error { get; private set; }
+    public int AllocatedBytes { get; private set; }
     public float ClearR { get; private set; }
     public float ClearG { get; private set; }
     public float ClearB { get; private set; }
     public float ClearA { get; private set; } = 1;
-    public WebGlContextState(CanvasElementState canvas) => _canvas = canvas;
+    public WebGlContextState(CanvasElementState canvas, int maxGpuBytes) { _canvas = canvas; _maxGpuBytes = Math.Max(0, maxGpuBytes); }
     public uint CreateHandle() => _nextHandle++;
     public void AddDrawCall() => DrawCalls++;
     public void SetError(int error) { if (Error == 0) Error = error; }
     public int TakeError() { var error = Error; Error = 0; return error; }
+    public bool TryAllocate(int bytes)
+    {
+        if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes) { SetError(0x0505); return false; }
+        AllocatedBytes += bytes;
+        return true;
+    }
     public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));
     public void Clear(uint mask)
     {

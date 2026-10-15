@@ -26,6 +26,9 @@ public sealed record ResourceLimits
 
     /// <summary>Rules per stylesheet.</summary>
     public int MaxStyleRules { get; init; } = 100_000;
+
+    /// <summary>Aggregate bytes available to a document's WebGL resources.</summary>
+    public int MaxGpuBytes { get; init; } = 64 * 1024 * 1024;
 }
 
 /// <summary>Capabilities a host explicitly grants to a document.</summary>

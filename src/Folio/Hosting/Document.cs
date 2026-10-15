@@ -32,6 +32,7 @@ public sealed class Document : IDisposable
 
     /// <summary>Stage-6 capabilities granted by the host for this document.</summary>
     public FeatureCapabilities Capabilities => Options.Capabilities;
+    public int MaxGpuBytes => Options.Limits.MaxGpuBytes;
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
 

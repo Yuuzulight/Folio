@@ -345,7 +345,7 @@ internal sealed class DomNodeTemplates
             if (string.Equals(kind, "2d", StringComparison.OrdinalIgnoreCase))
                 return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
             if (string.Equals(kind, "webgl2", StringComparison.OrdinalIgnoreCase) && _context.Capabilities.WebGl)
-                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, new WebGlContextState(_context.GetCanvas((ElementNode)target)));
+                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, new WebGlContextState(_context.GetCanvas((ElementNode)target), _context.MaxGpuBytes));
             return ScriptValue.Null;
         });
         t.DefineMethod("toDataURL", (_, _, _) => ScriptValue.FromString("data:image/png;base64,"));
@@ -377,6 +377,7 @@ internal sealed class DomNodeTemplates
             var state = (WebGlContextState)target;
             if (state.BoundArrayBuffer is not { } handle || args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
             var size = args[1].IsNumber ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, 16 * 1024 * 1024) : 0;
+            if (!state.TryAllocate(size)) return ScriptValue.Undefined;
             state.Buffers[handle] = new byte[size];
             return ScriptValue.Undefined;
         });
@@ -396,7 +397,9 @@ internal sealed class DomNodeTemplates
             if (state.BoundTexture is not { } handle || args.Length < 9) { state.SetError(0x0502); return ScriptValue.Undefined; }
             var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
             var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
-            state.Textures[handle] = (width, height, new byte[Math.Min(width * height * 4, 64 * 1024 * 1024)]);
+            var bytes = Math.Min(width * height * 4, 64 * 1024 * 1024);
+            if (!state.TryAllocate(bytes)) return ScriptValue.Undefined;
+            state.Textures[handle] = (width, height, new byte[bytes]);
             return ScriptValue.Undefined;
         });
         t.DefineMethod("createFramebuffer", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));

@@ -104,6 +104,15 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(0, allowed.Evaluate("gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.getError()").AsNumber());
         var canvas = allowedDocument.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
         Assert.Contains(canvas.CanvasSurface!.Commands, command => command.Name == "fillRect" && command.FillStyle.StartsWith("rgba(255", StringComparison.Ordinal));
+
+        using var limited = new JintScriptEngine();
+        var limitedDocument = Document.Parse("<canvas id='c'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Limits = ResourceLimits.Default with { MaxGpuBytes = 8 }
+        });
+        DomBindings.Install(limited, limitedDocument);
+        Assert.Equal(0x0505, limited.Evaluate("const g = document.getElementById('c').getContext('webgl2'); const x = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, x); g.bufferData(g.ARRAY_BUFFER, 9, g.STATIC_DRAW); g.getError()").AsNumber());
     }
 
     [Fact]

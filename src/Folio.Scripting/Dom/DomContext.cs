@@ -15,13 +15,14 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
         WrapperCache = wrapperCache ?? new ScriptWrapperCache();
         Layout = layout;
         Capabilities = capabilities ?? FeatureCapabilities.Default;
+        MaxGpuBytes = Math.Max(0, maxGpuBytes);
 
         Templates = new DomNodeTemplates(this);
     }
@@ -31,6 +32,7 @@ internal sealed class DomContext
     public ScriptWrapperCache WrapperCache { get; }
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
     public FeatureCapabilities Capabilities { get; }
+    public int MaxGpuBytes { get; }
     public DomNodeTemplates Templates { get; }
     public ElementNode? FocusedElement { get; private set; }
     public void Focus(ElementNode element) => FocusedElement = element;
