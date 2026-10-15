@@ -38,3 +38,12 @@ internal sealed class CanvasGradientState(double x0, double y0, double x1, doubl
     public (double X0, double Y0, double X1, double Y1) Geometry { get; } = (x0, y0, x1, y1);
     public List<(double Offset, string Color)> Stops { get; } = [];
 }
+
+internal sealed record CanvasTextMetricsState(double Width);
+
+internal sealed class CanvasImageDataState(int width, int height)
+{
+    public int Width { get; } = width;
+    public int Height { get; } = height;
+    public int[] Data { get; } = new int[Math.Min(4_000_000, Math.Max(0, width * height * 4))];
+}

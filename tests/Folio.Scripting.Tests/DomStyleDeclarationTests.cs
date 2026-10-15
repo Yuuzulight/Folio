@@ -76,6 +76,8 @@ public sealed class DomStyleDeclarationTests
         engine.Evaluate("ctx.beginPath(); ctx.rect(0, 0, 20, 20); ctx.quadraticCurveTo(5, 5, 10, 10); ctx.bezierCurveTo(1, 2, 3, 4, 5, 6); ctx.arc(10, 10, 4, 0, 3.14); ctx.fill();");
         engine.Evaluate("const p = new Path2D(); p.rect(0, 0, 2, 2); p.arc(1, 1, 1, 0, 6.28);");
         engine.Evaluate("const gradient = ctx.createLinearGradient(0, 0, 10, 10); gradient.addColorStop(0, 'red'); gradient.addColorStop(1, 'blue'); ctx.fillStyle = gradient; ctx.fillText('hello', 1, 2);");
+        Assert.True(engine.Evaluate("ctx.measureText('hello').width > 0").AsBoolean());
+        Assert.Equal(4, engine.Evaluate("ctx.createImageData(1, 1).data.length").AsNumber());
         Assert.StartsWith("data:image/png;base64,", engine.Evaluate("canvas.toDataURL()").AsString());
         Assert.True(engine.Evaluate("canvas.getContext('webgl') === null").AsBoolean());
     }

@@ -72,6 +72,12 @@ internal sealed class DomNodeTemplates
                     ((CanvasGradientState)target).Stops.Add((Math.Clamp(WebIdlConversions.ToDouble(args[0]), 0, 1), WebIdlConversions.ToDOMString(args[1])));
                 return ScriptValue.Undefined;
             });
+        TextMetricsTemplate = new HostObjectTemplate("TextMetrics")
+            .DefineProperty("width", (target, _) => ScriptValue.FromNumber(((CanvasTextMetricsState)target).Width));
+        ImageDataTemplate = new HostObjectTemplate("ImageData")
+            .DefineProperty("width", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Width))
+            .DefineProperty("height", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Height))
+            .DefineProperty("data", (target, _) => _context.Engine.CreateArray(((CanvasImageDataState)target).Data.Select(value => ScriptValue.FromNumber(value)).ToArray()));
         CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
             .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => ((CanvasElementState)target).FillStyle = WebIdlConversions.ToDOMString(value))
             .DefineProperty("strokeStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).StrokeStyle), (target, _, value) => ((CanvasElementState)target).StrokeStyle = WebIdlConversions.ToDOMString(value))
@@ -98,6 +104,25 @@ internal sealed class DomNodeTemplates
             .DefineMethod("resetTransform", (target, _, _) => AddCanvasCommand((CanvasElementState)target, "resetTransform", []))
             .DefineMethod("fillText", (target, _, args) => AddTextCommand((CanvasElementState)target, "fillText", args.ToArray()))
             .DefineMethod("strokeText", (target, _, args) => AddTextCommand((CanvasElementState)target, "strokeText", args.ToArray()))
+            .DefineMethod("measureText", (_, _, args) =>
+            {
+                var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                return _context.Engine.CreateHostObject(TextMetricsTemplate, new CanvasTextMetricsState(text.Length * 7));
+            })
+            .DefineMethod("drawImage", (target, _, _) => { ((CanvasElementState)target).Commands.Add(new CanvasCommand("drawImage", 0, 0, 0, 0, "")); return ScriptValue.Undefined; })
+            .DefineMethod("getImageData", (_, _, args) =>
+            {
+                var width = args.Length > 2 ? Math.Max(0, WebIdlConversions.ToInt32(args[2])) : 0;
+                var height = args.Length > 3 ? Math.Max(0, WebIdlConversions.ToInt32(args[3])) : 0;
+                return _context.Engine.CreateHostObject(ImageDataTemplate, new CanvasImageDataState(width, height));
+            })
+            .DefineMethod("createImageData", (_, _, args) =>
+            {
+                var width = args.Length > 0 ? Math.Max(0, WebIdlConversions.ToInt32(args[0])) : 0;
+                var height = args.Length > 1 ? Math.Max(0, WebIdlConversions.ToInt32(args[1])) : 0;
+                return _context.Engine.CreateHostObject(ImageDataTemplate, new CanvasImageDataState(width, height));
+            })
+            .DefineMethod("putImageData", (_, _, _) => ScriptValue.Undefined)
             .DefineMethod("createLinearGradient", (_, _, args) =>
             {
                 var values = args.ToArray();
@@ -198,6 +223,8 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate CanvasGradientTemplate { get; }
+    public HostObjectTemplate TextMetricsTemplate { get; }
+    public HostObjectTemplate ImageDataTemplate { get; }
     public HostObjectTemplate Path2DTemplate { get; }
     public HostObjectTemplate CssRuleTemplate { get; }
     public HostObjectTemplate CssRuleStyleTemplate { get; }
