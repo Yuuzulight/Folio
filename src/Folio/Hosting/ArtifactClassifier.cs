@@ -202,7 +202,8 @@ public static class ArtifactClassifier
             if (string.IsNullOrWhiteSpace(source))
                 return;
             var text = source;
-            if (Contains(text, "getContext('webgl") || Contains(text, "getContext(\"webgl"))
+            if (Contains(text, "getContext('webgl") || Contains(text, "getContext(\"webgl")
+                || Contains(text, "getContext('experimental-webgl") || Contains(text, "getContext(\"experimental-webgl"))
                 Require(options.Capabilities.WebGl, "uses WebGL", "WebGL");
             if (Contains(text, "new Worker(") || Contains(text, "new SharedWorker("))
                 Require(options.Capabilities.Workers, "uses workers", "workers");

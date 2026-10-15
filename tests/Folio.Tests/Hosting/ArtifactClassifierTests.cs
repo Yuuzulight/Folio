@@ -100,6 +100,7 @@ public class ArtifactClassifierTests
 
     [Theory]
     [InlineData("<canvas id=c></canvas><script>c.getContext('webgl2')</script>", "WebGL", "WebGL")]
+    [InlineData("<canvas id=c></canvas><script>c.getContext('experimental-webgl')</script>", "WebGL", "WebGL")]
     [InlineData("<video src='movie.mp4'></video>", "<video>", "media")]
     [InlineData("<script>new Worker('worker.js')</script>", "workers", "workers")]
     [InlineData("<script>WebAssembly.instantiate(bytes)</script>", "WebAssembly", "WebAssembly")]
