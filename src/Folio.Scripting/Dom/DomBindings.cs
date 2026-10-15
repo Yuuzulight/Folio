@@ -351,17 +351,6 @@ public static class DomBindings
                     dispatchEvent: function() { return true; }
                 };
             };
-            globalThis.CSS = globalThis.CSS || {};
-            globalThis.CSS.supports = function(property, value) {
-                if (arguments.length === 1) return /\(|\)/.test(String(property));
-                property = String(property).trim().toLowerCase();
-                value = String(value).trim();
-                return property.length > 0 && value.length > 0 && !/[{};]/.test(value);
-            };
-            globalThis.CSS.escape = function(value) {
-                value = String(value);
-                return value.replace(/[^a-zA-Z0-9_-]/g, function(c) { return String.fromCharCode(92) + c; }).replace(/^[0-9]/, function(c) { return String.fromCharCode(92) + '3' + c + ' '; });
-            };
             globalThis.fetch = function(input) {
                 const url = String(input);
                 if (url.slice(0, 5).toLowerCase() !== 'data:')
@@ -482,6 +471,7 @@ public static class DomBindings
             globalThis.console = globalThis.console || {};
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ");
+        CssBindings.Install(engine);
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);
