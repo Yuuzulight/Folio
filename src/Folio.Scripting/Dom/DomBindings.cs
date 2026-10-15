@@ -103,7 +103,11 @@ public static class DomBindings
                     var url = String(scriptURL); var scope = (options && options.scope) || '/';
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scriptURL === url && r.scope === scope; });
                     if (existing) return Promise.resolve(existing);
-                    var worker = { scriptURL: url, state: 'activated', onstatechange: null, postMessage: function() {} };
+                    var workerListeners = [];
+                    var worker = { scriptURL: url, state: 'activated', onstatechange: null, onmessage: null,
+                        addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function' && workerListeners.indexOf(handler) < 0) workerListeners.push(handler); },
+                        removeEventListener: function(type, handler) { if (type === 'message') { var index = workerListeners.indexOf(handler); if (index >= 0) workerListeners.splice(index, 1); } },
+                        postMessage: function(data) { var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { handler(event); }); } };
                     var registration = { scope: scope, scriptURL: url, active: worker, installing: null, waiting: null, onupdatefound: null,
                         update: function() { if (registration.onupdatefound) registration.onupdatefound({ type: 'updatefound', target: registration }); return Promise.resolve(registration); },
                         unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); if (navigator.serviceWorker.controller === worker) { navigator.serviceWorker.controller = null; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); } return Promise.resolve(true); } };
