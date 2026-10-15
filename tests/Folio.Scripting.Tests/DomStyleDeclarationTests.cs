@@ -88,9 +88,10 @@ public sealed class DomStyleDeclarationTests
         var result = engine.Evaluate(@"
             const ctx = document.getElementById('chart').getContext('2d');
             ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.globalAlpha = 0.5;
+            ctx.setLineDash([2, 4]);
             ctx.save(); ctx.fillStyle = 'red'; ctx.translate(10, 20); ctx.restore();
-            `${ctx.lineWidth}|${ctx.lineCap}|${ctx.globalAlpha}|${ctx.fillStyle}`;");
-        Assert.Equal("3|round|0.5|#000000", result.AsString());
+            `${ctx.lineWidth}|${ctx.lineCap}|${ctx.globalAlpha}|${ctx.fillStyle}|${ctx.getLineDash().join(',')}`;");
+        Assert.Equal("3|round|0.5|#000000|2,4", result.AsString());
     }
 
     [Fact]

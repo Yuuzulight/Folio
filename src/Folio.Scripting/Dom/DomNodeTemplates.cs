@@ -189,10 +189,11 @@ internal sealed class DomNodeTemplates
         return ScriptValue.Undefined;
     }
 
-    private static ScriptValue SetLineDash(CanvasElementState state, ReadOnlySpan<ScriptValue> args)
+    private ScriptValue SetLineDash(CanvasElementState state, ReadOnlySpan<ScriptValue> args)
     {
         state.LineDash.Clear();
-        foreach (var value in args)
+        var values = args.Length == 1 && _context.Engine.TryGetArrayItems(args[0], out var array) ? array : args.ToArray();
+        foreach (var value in values)
             if (value.IsNumber)
                 state.LineDash.Add(Math.Max(0, value.AsNumber()));
         return ScriptValue.Undefined;
