@@ -264,7 +264,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("pc.signalingState === 'have-local-offer' && candidates === 1; pc.setRemoteDescription({ type: 'answer' }); pc.signalingState === 'stable'").AsBoolean());
         Assert.True(allowed.Evaluate("const sender = pc.addTrack({ kind: 'audio' }); pc.getSenders().length === 1 && sender.track.kind === 'audio'").AsBoolean());
         Assert.True(allowed.Evaluate("pc.setConfiguration({ iceServers: [] }); pc.getConfiguration().iceServers.length === 0; pc.getStats().then(stats => stats instanceof Map)").IsObject);
-        Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; let closed = false; dc.onmessage = e => received = e.data; dc.onclose = () => closed = true; dc.send(7); received === 7 && dc.bufferedAmount === 0 && dc.binaryType === 'blob'; dc.close(); closed && dc.readyState === 'closed'").AsBoolean());
+        Assert.True(allowed.Evaluate("const dc = pc.createDataChannel('events'); let received = 0; let opened = 0; let closed = false; dc.onopen = () => opened++; dc.onmessage = e => received = e.data; dc.onclose = () => closed = true; dc.send(7); received === 7 && opened === 1 && dc.bufferedAmount === 0 && dc.binaryType === 'blob'; dc.close(); closed && dc.readyState === 'closed'").AsBoolean());
         Assert.Equal("closed", allowed.Evaluate("pc.close(); pc.connectionState").AsString());
         Assert.True(allowed.Evaluate("iceEvents >= 1 && stateEvents === 1").AsBoolean());
     }

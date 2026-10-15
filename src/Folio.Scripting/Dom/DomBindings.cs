@@ -135,9 +135,10 @@ public static class DomBindings
             RTCPeerConnection.prototype.getStats = function() { return Promise.resolve(new Map()); };
             RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); if (this.oniceconnectionstatechange) this.oniceconnectionstatechange({}); };
             RTCPeerConnection.prototype.createDataChannel = function(label) {
-                var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', onmessage: null, onopen: null, onclose: null, onerror: null,
+                var channel = { label: String(label || ''), readyState: 'open', bufferedAmount: 0, binaryType: 'blob', onmessage: null, _onopen: null, onclose: null, onerror: null,
                     send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); channel.bufferedAmount = 0; if (channel.onmessage) channel.onmessage({ data: data }); },
                     close: function() { if (channel.readyState !== 'closed') { channel.readyState = 'closed'; if (channel.onclose) channel.onclose({}); } } };
+                Object.defineProperty(channel, 'onopen', { get: function() { return channel._onopen; }, set: function(handler) { channel._onopen = handler; if (typeof handler === 'function') handler({}); } });
                 this._dataChannels.push(channel); return channel;
             };
             RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
