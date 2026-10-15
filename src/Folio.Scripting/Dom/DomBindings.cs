@@ -155,6 +155,11 @@ public static class DomBindings
                     options = options || {}; this._maximum = options.maximum === undefined ? 100000 : Number(options.maximum); this._entries = [];
                     var initial = Number(options.initial) || 0; if (initial < 0 || initial > this._maximum || initial > 100000) throw new RangeError('WebAssembly table limit exceeded.');
                     for (var i = 0; i < initial; i++) this._entries.push(null);
+                },
+                Global: function(options, value) {
+                    if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    options = options || {}; this.type = String(options.value || 'i32'); this.mutable = !!options.mutable; this._value = value === undefined ? 0 : value;
+                    Object.defineProperty(this, 'value', { get: function() { return this._value; }, set: function(next) { if (!this.mutable) throw new TypeError('Immutable WebAssembly.Global.'); this._value = next; } });
                 }
             };
             WebAssembly.Memory.prototype.grow = function(delta) {
@@ -170,6 +175,7 @@ public static class DomBindings
             };
             WebAssembly.Table.prototype.get = function(index) { index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); return this._entries[index]; };
             WebAssembly.Table.prototype.set = function(index, value) { index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); this._entries[index] = value; };
+            WebAssembly.Global.prototype.valueOf = function() { return this.value; };
             WebAssembly.Module.exports = function(module) {
                 if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Module.exports requires a Module.');
                 return [];
