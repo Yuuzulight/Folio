@@ -66,6 +66,7 @@ internal sealed class DomNodeTemplates
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
         HtmlMediaElementTemplate = CreateHtmlMediaElementTemplate(HtmlElementTemplate);
+        HtmlIFrameElementTemplate = CreateHtmlIFrameElementTemplate(HtmlElementTemplate);
         CanvasGradientTemplate = new HostObjectTemplate("CanvasGradient")
             .DefineMethod("addColorStop", (target, _, args) =>
             {
@@ -250,6 +251,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
     public HostObjectTemplate HtmlMediaElementTemplate { get; }
+    public HostObjectTemplate HtmlIFrameElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlLoseContextTemplate { get; }
@@ -393,6 +395,27 @@ internal sealed class DomNodeTemplates
             var type = WebIdlConversions.ToDOMString(args[0]).ToLowerInvariant();
             return ScriptValue.FromString(type.Contains("audio") || type.Contains("video") ? "maybe" : "");
         });
+        return t;
+    }
+
+    private HostObjectTemplate CreateHtmlIFrameElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var windowTemplate = new HostObjectTemplate("WindowProxy")
+            .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((IframeState)target).Closed))
+            .DefineProperty("onmessage", (target, _) => ((IframeState)target).OnMessage, (target, _, value) => ((IframeState)target).OnMessage = value)
+            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((IframeState)target).PostMessage(args[0]); return ScriptValue.Undefined; })
+            .DefineMethod("close", (target, _, _) => { ((IframeState)target).Close(); return ScriptValue.Undefined; });
+        var t = new HostObjectTemplate("HTMLIFrameElement", htmlElementProto);
+        t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
+            (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
+        t.DefineProperty("sandbox", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("sandbox") ?? ""),
+            (target, _, value) => ((ElementNode)target).SetAttribute("sandbox", WebIdlConversions.ToDOMString(value)));
+        t.DefineProperty("contentWindow", (target, _) =>
+        {
+            var state = _context.GetIframe((ElementNode)target);
+            return _context.Engine.CreateHostObject(windowTemplate, state);
+        });
+        t.DefineProperty("contentDocument", (_, _) => ScriptValue.Null);
         return t;
     }
 

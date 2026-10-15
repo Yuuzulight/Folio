@@ -205,6 +205,22 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void IframeContentWindowMessagingIsCapabilityGated()
+    {
+        using var denied = new JintScriptEngine();
+        DomBindings.Install(denied, Document.Parse("<iframe id='f' src='/child.html'></iframe>"));
+        Assert.True(denied.Evaluate("const f = document.getElementById('f'); f.src === '/child.html' && f.contentDocument === null").AsBoolean());
+
+        using var allowed = new JintScriptEngine();
+        DomBindings.Install(allowed, Document.Parse("<iframe id='f'></iframe>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; f.contentWindow.onmessage = x => { seen = x; }; f.contentWindow.postMessage(9, '*'); seen === 9").AsBoolean());
+        Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");
