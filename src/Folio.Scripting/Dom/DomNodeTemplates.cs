@@ -618,7 +618,17 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("deleteTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteTexture(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isTexture", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Textures.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("createFramebuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Framebuffers.Add(handle); return ScriptValue.FromNumber(handle); });
-        t.DefineMethod("deleteFramebuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).Framebuffers.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
+        t.DefineMethod("deleteFramebuffer", (target, _, args) =>
+        {
+            if (args.Length > 0)
+            {
+                var state = (WebGlContextState)target;
+                var handle = WebIdlConversions.ToUint32(args[0]);
+                state.Framebuffers.Remove(handle);
+                if (state.BoundFramebuffer == handle) state.BoundFramebuffer = null;
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("isFramebuffer", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Framebuffers.Contains(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("bindFramebuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundFramebuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("framebufferTexture2D", (target, _, args) => { if (args.Length < 5) ((WebGlContextState)target).SetError(0x0502); return ScriptValue.Undefined; });

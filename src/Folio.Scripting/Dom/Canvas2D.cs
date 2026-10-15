@@ -174,10 +174,12 @@ internal sealed class WebGlContextState
     public void DeleteBuffer(uint handle)
     {
         if (Buffers.Remove(handle, out var buffer)) AllocatedBytes = Math.Max(0, AllocatedBytes - buffer.Length);
+        if (BoundArrayBuffer == handle) BoundArrayBuffer = null;
     }
     public void DeleteTexture(uint handle)
     {
         if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
+        if (BoundTexture == handle) BoundTexture = null;
     }
     public bool ReplaceTexture(uint handle, int width, int height, int bytes)
     {
