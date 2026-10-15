@@ -140,6 +140,12 @@ public static class DomBindings
                 this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null;
                 this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = [];
             };
+            globalThis.RTCRtpSender = function() {};
+            globalThis.RTCRtpReceiver = function() {};
+            var __folio_audio_codecs = [{ mimeType: 'audio/opus', clockRate: 48000, channels: 2 }];
+            var __folio_video_codecs = [{ mimeType: 'video/VP8', clockRate: 90000 }, { mimeType: 'video/H264', clockRate: 90000 }];
+            RTCRtpSender.getCapabilities = function(kind) { return { codecs: (String(kind) === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
+            RTCRtpReceiver.getCapabilities = function(kind) { return { codecs: (String(kind) === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
             globalThis.RTCIceCandidate = function(init) { init = init || {}; this.candidate = String(init.candidate || ''); this.sdpMid = init.sdpMid === undefined ? null : init.sdpMid; this.sdpMLineIndex = init.sdpMLineIndex === undefined ? null : init.sdpMLineIndex; this.usernameFragment = init.usernameFragment === undefined ? null : init.usernameFragment; };
             globalThis.RTCSessionDescription = function(init) { init = init || {}; this.type = String(init.type || ''); this.sdp = String(init.sdp || ''); };
             RTCIceCandidate.prototype.toJSON = function() { return { candidate: this.candidate, sdpMid: this.sdpMid, sdpMLineIndex: this.sdpMLineIndex, usernameFragment: this.usernameFragment }; };
