@@ -222,6 +222,7 @@ internal sealed class DomNodeTemplates
             if (args.Length == 0 || !string.Equals(WebIdlConversions.ToDOMString(args[0]), "2d", StringComparison.OrdinalIgnoreCase)) return ScriptValue.Null;
             return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
         });
+        t.DefineMethod("toDataURL", (_, _, _) => ScriptValue.FromString("data:image/png;base64,"));
         return t;
 
         static uint ReadDimension(ElementNode element, string name, uint fallback) =>
