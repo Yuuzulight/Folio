@@ -154,6 +154,23 @@ public sealed class JintScriptEngine : IScriptEngine
         return false;
     }
 
+    public bool TrySetArrayItem(ScriptValue value, int index, ScriptValue item)
+    {
+        if (index < 0) return false;
+        var jsItem = ToJsValue(_engine!, item);
+        if (value.Raw is ArrayInstance array)
+        {
+            array.Set(index, jsItem);
+            return true;
+        }
+        if (value.Raw is JsTypedArray typed)
+        {
+            typed.Set(index, jsItem);
+            return true;
+        }
+        return false;
+    }
+
     public void SetGlobalProperty(string name, ScriptValue value)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

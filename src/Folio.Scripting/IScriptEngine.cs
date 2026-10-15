@@ -44,6 +44,7 @@ public interface IScriptEngine : IDisposable
 
     /// <summary>Reads a script array for bindings that accept sequence arguments.</summary>
     bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items) { items = []; return false; }
+    bool TrySetArrayItem(ScriptValue value, int index, ScriptValue item) => false;
 
     /// <summary>Sets a global property on the engine's global object.</summary>
     void SetGlobalProperty(string name, ScriptValue value);

@@ -501,6 +501,10 @@ internal sealed class DomNodeTemplates
             if (args.Length < 7 || !state.BoundFramebuffer.HasValue) { state.SetError(0x0502); return ScriptValue.Undefined; }
             var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
             var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
+            var count = Math.Min(width * height * 4, 16 * 1024 * 1024);
+            if (args.Length > 6)
+                for (var i = 0; i < count; i++)
+                    _context.Engine.TrySetArrayItem(args[6], i, ScriptValue.FromNumber(0));
             return ScriptValue.Undefined;
         });
         t.DefineMethod("clearColor", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).SetClearColor((float)WebIdlConversions.ToDouble(args[0]), (float)WebIdlConversions.ToDouble(args[1]), (float)WebIdlConversions.ToDouble(args[2]), (float)WebIdlConversions.ToDouble(args[3])); return ScriptValue.Undefined; });
