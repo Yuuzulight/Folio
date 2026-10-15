@@ -70,6 +70,7 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
+        engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -87,6 +88,17 @@ public static class DomBindings
                 getRegistration: function() { return Promise.resolve(undefined); },
                 getRegistrations: function() { return Promise.resolve([]); }
             };
+            globalThis.RTCPeerConnection = function(configuration) {
+                if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
+                this.connectionState = 'new'; this.iceConnectionState = 'new'; this.signalingState = 'stable';
+                this.localDescription = null; this.remoteDescription = null;
+            };
+            RTCPeerConnection.prototype.createOffer = function() { return Promise.resolve({ type: 'offer', sdp: '' }); };
+            RTCPeerConnection.prototype.createAnswer = function() { return Promise.resolve({ type: 'answer', sdp: '' }); };
+            RTCPeerConnection.prototype.setLocalDescription = function(description) { this.localDescription = description || null; return Promise.resolve(); };
+            RTCPeerConnection.prototype.setRemoteDescription = function(description) { this.remoteDescription = description || null; return Promise.resolve(); };
+            RTCPeerConnection.prototype.addIceCandidate = function() { return Promise.resolve(); };
+            RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; };
             globalThis.WebAssembly = {
                 validate: function(bytes) {
                     if (!__folio_wasm_enabled || !bytes || bytes.length < 8) return false;

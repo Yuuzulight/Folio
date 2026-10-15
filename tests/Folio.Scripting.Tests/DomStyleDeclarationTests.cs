@@ -189,6 +189,22 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void WebRtcPeerConnectionIsCapabilityGated()
+    {
+        using var denied = new JintScriptEngine();
+        DomBindings.Install(denied, Document.Parse("<html></html>"));
+        Assert.ThrowsAny<Exception>(() => denied.Evaluate("new RTCPeerConnection()"));
+
+        using var allowed = new JintScriptEngine();
+        DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = true }
+        }));
+        Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); pc.createOffer().then(x => x.type === 'offer')").IsObject);
+        Assert.Equal("closed", allowed.Evaluate("pc.close(); pc.connectionState").AsString());
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");
