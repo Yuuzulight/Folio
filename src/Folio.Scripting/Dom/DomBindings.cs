@@ -142,6 +142,8 @@ public static class DomBindings
             };
             globalThis.RTCIceCandidate = function(init) { init = init || {}; this.candidate = String(init.candidate || ''); this.sdpMid = init.sdpMid === undefined ? null : init.sdpMid; this.sdpMLineIndex = init.sdpMLineIndex === undefined ? null : init.sdpMLineIndex; this.usernameFragment = init.usernameFragment === undefined ? null : init.usernameFragment; };
             globalThis.RTCSessionDescription = function(init) { init = init || {}; this.type = String(init.type || ''); this.sdp = String(init.sdp || ''); };
+            RTCIceCandidate.prototype.toJSON = function() { return { candidate: this.candidate, sdpMid: this.sdpMid, sdpMLineIndex: this.sdpMLineIndex, usernameFragment: this.usernameFragment }; };
+            RTCSessionDescription.prototype.toJSON = function() { return { type: this.type, sdp: this.sdp }; };
             RTCPeerConnection.prototype.createOffer = function() { return Promise.resolve(new RTCSessionDescription({ type: 'offer', sdp: '' })); };
             RTCPeerConnection.prototype.createAnswer = function() { return Promise.resolve(new RTCSessionDescription({ type: 'answer', sdp: '' })); };
             RTCPeerConnection.prototype.setLocalDescription = function(description) { this.localDescription = description || null; if (this.localDescription && this.localDescription.type === 'offer') { this.signalingState = 'have-local-offer'; if (this.onsignalingstatechange) this.onsignalingstatechange({}); } this.iceGatheringState = 'complete'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); if (this.onicecandidate) this.onicecandidate({ candidate: null }); return Promise.resolve(); };
