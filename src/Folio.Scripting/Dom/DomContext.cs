@@ -17,7 +17,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -25,6 +25,7 @@ internal sealed class DomContext
         Layout = layout;
         Capabilities = capabilities ?? FeatureCapabilities.Default;
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
+        MaxMediaBytes = Math.Max(0, maxMediaBytes);
 
         Templates = new DomNodeTemplates(this);
     }
@@ -35,6 +36,7 @@ internal sealed class DomContext
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
     public FeatureCapabilities Capabilities { get; }
     public int MaxGpuBytes { get; }
+    public int MaxMediaBytes { get; }
     public DomNodeTemplates Templates { get; }
     public ElementNode? FocusedElement { get; private set; }
     public void Focus(ElementNode element) => FocusedElement = element;
@@ -93,7 +95,7 @@ internal sealed class DomContext
     }
 
     public CanvasElementState GetCanvas(ElementNode element) => _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element));
-    public MediaElementState GetMedia(ElementNode element) => _media.TryGetValue(element, out var state) ? state : (_media[element] = new MediaElementState(element, Capabilities.Media));
+    public MediaElementState GetMedia(ElementNode element) => _media.TryGetValue(element, out var state) ? state : (_media[element] = new MediaElementState(element, Capabilities.Media, MaxMediaBytes));
     public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, element, Capabilities.Iframes));
 
     public ScriptValue Wrap(Node? node)

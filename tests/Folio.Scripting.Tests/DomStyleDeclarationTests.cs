@@ -137,6 +137,14 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
         Assert.True(allowed.Evaluate("v.pause(); v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("v.load(); v.currentTime === 0 && v.paused").AsBoolean());
+
+        using var limited = new JintScriptEngine();
+        DomBindings.Install(limited, Document.Parse("<video id='v' data-size='1024'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true },
+            Limits = ResourceLimits.Default with { MaxMediaBytes = 128 }
+        }));
+        Assert.True(limited.Evaluate("const v = document.getElementById('v'); v.readyState === 0 && v.error !== null; v.play(); v.paused").AsBoolean());
     }
 
     [Fact]

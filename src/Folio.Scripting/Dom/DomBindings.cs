@@ -13,15 +13,15 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes);
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes);
 
         // 1. Install DOMException
         InstallDomException(engine);

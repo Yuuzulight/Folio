@@ -39,11 +39,13 @@ internal sealed class CanvasElementState : ICanvasSurface
 
 internal sealed class MediaElementState
 {
-    public MediaElementState(ElementNode element, bool enabled)
+    public MediaElementState(ElementNode element, bool enabled, int maxMediaBytes)
     {
         Element = element;
         Enabled = enabled;
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : 0;
+        SourceBytes = long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0;
+        if (SourceBytes > maxMediaBytes) Error = "Media resource exceeds the host budget.";
     }
 
     public ElementNode Element { get; }
@@ -57,13 +59,14 @@ internal sealed class MediaElementState
     public bool Autoplay { get; set; }
     public bool Loop { get; set; }
     public bool Controls { get; set; }
-    public int ReadyState => Enabled ? 4 : 0;
-    public int NetworkState => Enabled ? 1 : 0;
+    public int ReadyState => Enabled && Error is null ? 4 : 0;
+    public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }
+    public long SourceBytes { get; }
 
     public void Play()
     {
-        if (!Enabled) { Error = "Media playback is unavailable."; return; }
+        if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return; }
         Paused = false;
         Ended = false;
     }

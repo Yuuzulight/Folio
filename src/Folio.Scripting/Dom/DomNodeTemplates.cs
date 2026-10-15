@@ -386,6 +386,7 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).Controls = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("readyState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).ReadyState));
         t.DefineProperty("networkState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).NetworkState));
+        t.DefineProperty("error", (target, _) => _context.GetMedia((ElementNode)target).Error is { } error ? ScriptValue.FromString(error) : ScriptValue.Null);
         t.DefineMethod("play", (target, _, _) => { _context.GetMedia((ElementNode)target).Play(); return ScriptValue.Undefined; });
         t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
         t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
