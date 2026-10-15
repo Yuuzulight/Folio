@@ -366,6 +366,10 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("LINK_STATUS", (_, _) => ScriptValue.FromNumber(0x8B82));
         t.DefineProperty("TRIANGLES", (_, _) => ScriptValue.FromNumber(0x0004));
         t.DefineProperty("COLOR_BUFFER_BIT", (_, _) => ScriptValue.FromNumber(0x4000));
+        t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
+        t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
+        t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
+        t.DefineProperty("FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8D40));
         t.DefineMethod("createBuffer", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
         t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundArrayBuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("bufferData", (target, _, args) =>
@@ -384,6 +388,28 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("linkProgram", (target, _, args) => { if (args.Length > 1) ((WebGlContextState)target).Programs.Add(WebIdlConversions.ToUint32(args[1])); return ScriptValue.Undefined; });
         t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 1 ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
+        t.DefineMethod("createTexture", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
+        t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("texImage2D", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (state.BoundTexture is not { } handle || args.Length < 9) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
+            var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
+            state.Textures[handle] = (width, height, new byte[Math.Min(width * height * 4, 64 * 1024 * 1024)]);
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("createFramebuffer", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).CreateHandle()));
+        t.DefineMethod("bindFramebuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundFramebuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("framebufferTexture2D", (target, _, args) => { if (args.Length < 5) ((WebGlContextState)target).SetError(0x0502); return ScriptValue.Undefined; });
+        t.DefineMethod("readPixels", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 7 || !state.BoundFramebuffer.HasValue) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
+            var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("clearColor", (_, _, _) => ScriptValue.Undefined);
         t.DefineMethod("clear", (_, _, _) => ScriptValue.Undefined);
         t.DefineMethod("getError", (target, _, _) => ScriptValue.FromNumber(((WebGlContextState)target).TakeError()));

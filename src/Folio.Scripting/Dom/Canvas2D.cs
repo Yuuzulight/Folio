@@ -42,6 +42,10 @@ internal sealed class WebGlContextState
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
     public HashSet<uint> Programs { get; } = [];
+    public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
+    public HashSet<uint> Framebuffers { get; } = [];
+    public uint? BoundTexture { get; set; }
+    public uint? BoundFramebuffer { get; set; }
     public uint? BoundArrayBuffer { get; set; }
     public uint? CurrentProgram { get; set; }
     public int DrawCalls { get; private set; }

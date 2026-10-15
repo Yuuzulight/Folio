@@ -100,6 +100,7 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
         Assert.True(allowed.Evaluate("const s = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(s, 'void main(){}'); gl.compileShader(s); gl.getShaderParameter(s, gl.COMPILE_STATUS)").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("gl.drawArrays(gl.TRIANGLES, 0, 3); gl.getError()").AsNumber());
+        Assert.Equal(0, allowed.Evaluate("const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); const p = new Uint8Array(16); gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, p); gl.getError()").AsNumber());
     }
 
     [Fact]
