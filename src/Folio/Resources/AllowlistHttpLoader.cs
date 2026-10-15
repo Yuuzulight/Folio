@@ -165,7 +165,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
                              || type.StartsWith("font/", StringComparison.Ordinal) || type.StartsWith("application/font-", StringComparison.Ordinal)
                              || type.StartsWith("application/x-font-", StringComparison.Ordinal),
         ResourceKind.Image or ResourceKind.SvgImage => type is not null && type.StartsWith("image/", StringComparison.Ordinal),
-        ResourceKind.Script => type is null or "text/javascript" or "application/javascript" or "application/ecmascript" or "text/ecmascript",
+        ResourceKind.Script => type is "text/javascript" or "application/javascript" or "application/ecmascript" or "text/ecmascript",
         _ => false,
     };
 
