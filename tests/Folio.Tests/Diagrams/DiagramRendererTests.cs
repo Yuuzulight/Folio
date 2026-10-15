@@ -22,4 +22,13 @@ public sealed class DiagramRendererTests
         Assert.Contains("Bob", svg);
         Assert.Contains("Hello", svg);
     }
+
+    [Fact]
+    public void RendersPieValuesAsSvg()
+    {
+        var svg = DiagramRenderer.Render("pie title Sales\n\"North\" : 60\n\"South\" : 40");
+        Assert.Contains("North", svg);
+        Assert.Contains("South", svg);
+        Assert.Contains("width=\"300", svg);
+    }
 }

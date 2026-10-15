@@ -12,9 +12,22 @@ public static class DiagramRenderer
         var lines = source.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (lines.Length == 0)
             return Svg([], []);
+        if (lines[0].StartsWith("pie", StringComparison.OrdinalIgnoreCase))
+            return RenderPie(lines.Skip(1));
         return lines[0].StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase)
             ? RenderSequence(lines.Skip(1))
             : RenderFlow(lines);
+    }
+
+    private static string RenderPie(IEnumerable<string> lines)
+    {
+        var slices = lines.Select(line => line.Split(':', 2, StringSplitOptions.TrimEntries))
+            .Where(parts => parts.Length == 2 && double.TryParse(parts[1], out _))
+            .Select(parts => (Label: parts[0].Trim('"'), Value: double.Parse(parts[1])))
+            .ToList();
+        var total = slices.Sum(slice => slice.Value);
+        var bars = slices.Select((slice, i) => $"<rect x=\"40\" y=\"{40 + i * 36}\" width=\"{Math.Max(1, 500 * slice.Value / Math.Max(1, total)):0.##}\" height=\"24\"/><text x=\"560\" y=\"{58 + i * 36}\">{XmlEscape(slice.Label)} ({slice.Value:0.##})</text>");
+        return Svg(bars, []);
     }
 
     private static string RenderFlow(IEnumerable<string> lines)
