@@ -20,11 +20,12 @@ internal sealed class IframeState
     public string Origin { get; }
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
+    public ScriptValue Window { get; set; } = ScriptValue.Null;
 
     public void PostMessage(ScriptValue data, string targetOrigin)
     {
         if (!Enabled || Closed || !OnMessage.IsFunction || (targetOrigin != "*" && targetOrigin != Origin)) return;
-        var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, ScriptValue.Null));
+        var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window));
         Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
     }
 

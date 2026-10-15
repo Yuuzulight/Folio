@@ -282,8 +282,8 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; let messageOrigin = ''; f.contentWindow.onmessage = x => { seen = x.data; messageOrigin = x.origin; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && messageOrigin === 'https://child.example' && f.contentWindow.origin === 'https://child.example'").AsBoolean());
+        Assert.True(allowed.Evaluate("const f = document.getElementById('f'); let seen = 0; let messageOrigin = ''; let messageSource = false; let messageTarget = false; f.contentWindow.onmessage = x => { seen = x.data; messageOrigin = x.origin; messageSource = x.source === f.contentWindow; messageTarget = x.target === f.contentWindow; }; f.contentWindow.postMessage(8, 'https://other.example'); seen === 0").AsBoolean());
+        Assert.True(allowed.Evaluate("f.contentWindow.postMessage(9, 'https://child.example'); seen === 9 && messageOrigin === 'https://child.example' && messageSource && messageTarget && f.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(allowed.Evaluate("f.contentWindow.close(); f.contentWindow.closed").AsBoolean());
         Assert.True(allowed.Evaluate("f instanceof HTMLIFrameElement").AsBoolean());
     }

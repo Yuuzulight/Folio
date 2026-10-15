@@ -506,7 +506,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("contentWindow", (target, _) =>
         {
             var state = _context.GetIframe((ElementNode)target);
-            return _context.Engine.CreateHostObject(windowTemplate, state);
+            if (!state.Window.IsObject)
+                state.Window = _context.Engine.CreateHostObject(windowTemplate, state);
+            return state.Window;
         });
         t.DefineProperty("contentDocument", (_, _) => ScriptValue.Null);
         return t;
