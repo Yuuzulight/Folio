@@ -126,7 +126,7 @@ public static class Conformance
             using var runner = new ScriptRunner(document.Node, engine, loop, Options);
             runner.Run();
             loop.UpdateTheRendering();
-            clock.Advance(manifest.AnimationTime ?? 1000);
+            clock.Advance(manifest.AnimationTime ?? 100);
             loop.UpdateTheRendering();
             if (manifest.Interaction is { Length: > 0 } script)
             {
