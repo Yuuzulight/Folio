@@ -26,10 +26,114 @@ internal static class DomBindings
         // 3. Bind document to global scope
         var docWrapper = context.Wrap(document);
         engine.SetGlobalProperty("document", docWrapper);
+        var styleHost = new HostObjectTemplate("StyleHost")
+            .DefineMethod("getComputedStyle", (target, _, args) =>
+            {
+                if (args.Length == 0 || !context.Engine.TryGetHostTarget(args[0], out var node) || node is not ElementNode element)
+                    throw WebIdlException.TypeError("getComputedStyle requires an Element.");
+                return context.WrapComputedStyle(element);
+            });
+        engine.SetGlobalProperty("__folio_style_host", engine.CreateHostObject(styleHost, context));
+        engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
+            globalThis.innerWidth = 800;
+            globalThis.innerHeight = 600;
+            globalThis.devicePixelRatio = 1;
+            globalThis.scrollX = 0;
+            globalThis.scrollY = 0;
+            Object.defineProperty(globalThis, 'pageXOffset', { get: function() { return globalThis.scrollX; } });
+            Object.defineProperty(globalThis, 'pageYOffset', { get: function() { return globalThis.scrollY; } });
+            globalThis.scrollTo = function(x, y) { globalThis.scrollX = Number(x) || 0; globalThis.scrollY = Number(y) || 0; };
+            globalThis.scrollBy = function(x, y) { globalThis.scrollX += Number(x) || 0; globalThis.scrollY += Number(y) || 0; };
+            globalThis.matchMedia = function(query) {
+                query = String(query);
+                const min = /min-width\s*:\s*(\d+)px/.exec(query);
+                const max = /max-width\s*:\s*(\d+)px/.exec(query);
+                const matches = (!min || globalThis.innerWidth >= Number(min[1])) && (!max || globalThis.innerWidth <= Number(max[1]));
+                const listeners = [];
+                return {
+                    media: query,
+                    matches: matches,
+                    onchange: null,
+                    addListener: function(fn) { if (typeof fn === 'function') listeners.push(fn); },
+                    removeListener: function(fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); },
+                    addEventListener: function(type, fn) { if (type === 'change') this.addListener(fn); },
+                    removeEventListener: function(type, fn) { if (type === 'change') this.removeListener(fn); },
+                    dispatchEvent: function() { return true; }
+                };
+            };
+            globalThis.ResizeObserver = function(callback) {
+                if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
+                this._callback = callback;
+                this._targets = [];
+            };
+            ResizeObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            ResizeObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            ResizeObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            globalThis.IntersectionObserver = function(callback, options) {
+                if (typeof callback !== 'function') throw new TypeError('IntersectionObserver callback must be callable');
+                this._callback = callback;
+                this.root = options && options.root || null;
+                this.rootMargin = options && options.rootMargin || '0px';
+                this.thresholds = options && options.threshold !== undefined ? [].concat(options.threshold) : [0];
+                this._targets = [];
+            };
+            IntersectionObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            IntersectionObserver.prototype.takeRecords = function() { return []; };
+            globalThis.FormData = function(form) {
+                this._entries = [];
+                if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');
+            };
+            FormData.prototype.append = function(name, value) { this._entries.push([String(name), value]); };
+            FormData.prototype.set = function(name, value) { this.delete(name); this.append(name, value); };
+            FormData.prototype.get = function(name) { const e = this._entries.find(x => x[0] === String(name)); return e ? e[1] : null; };
+            FormData.prototype.getAll = function(name) { return this._entries.filter(x => x[0] === String(name)).map(x => x[1]); };
+            FormData.prototype.has = function(name) { return this._entries.some(x => x[0] === String(name)); };
+            FormData.prototype.delete = function(name) { name = String(name); this._entries = this._entries.filter(x => x[0] !== name); };
+            FormData.prototype.entries = function() { return this._entries[Symbol.iterator](); };
+            FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
+            FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
+            function makeStorage() {
+                const data = Object.create(null);
+                const storage = {
+                    get length() { return Object.keys(data).length; },
+                    key: function(index) { return Object.keys(data)[index] ?? null; },
+                    getItem: function(key) { key = String(key); return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
+                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; },
+                    removeItem: function(key) { delete data[String(key)]; },
+                    clear: function() { for (const key of Object.keys(data)) delete data[key]; }
+                };
+                return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
+            }
+            globalThis.localStorage = makeStorage();
+            globalThis.sessionStorage = makeStorage();
+            globalThis.URLSearchParams = function(init) {
+                this._pairs = [];
+                if (typeof init === 'string') for (const part of init.replace(/^\?/, '').split('&')) if (part) { const i = part.indexOf('='); this.append(decodeURIComponent(i < 0 ? part : part.slice(0, i)), decodeURIComponent(i < 0 ? '' : part.slice(i + 1))); }
+            };
+            URLSearchParams.prototype.append = function(k,v) { this._pairs.push([String(k), String(v)]); };
+            URLSearchParams.prototype.set = function(k,v) { this.delete(k); this.append(k,v); };
+            URLSearchParams.prototype.get = function(k) { const p = this._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
+            URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
+            URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
+            URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
+            globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); this.protocol = match && match[1] ? match[1] + ':' : ''; this.host = match && match[2] ? match[2] : ''; this.origin = this.protocol && this.host ? this.protocol + '//' + this.host : ''; this.pathname = match && match[3] ? match[3] : '/'; this.search = match && match[4] ? match[4] : ''; this.hash = match && match[5] ? match[5] : ''; this.href = this.origin + this.pathname + this.search + this.hash; this.searchParams = new URLSearchParams(this.search); };
+            globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
+            globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
+            globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };
+            globalThis.crypto = { getRandomValues: function(array) { for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256); return array; } };
+            globalThis.TextEncoder = function() {};
+            TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
+            globalThis.TextDecoder = function() {};
+            TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
+            globalThis.structuredClone = function(value) { return JSON.parse(JSON.stringify(value)); };
+            globalThis.console = globalThis.console || {};
+            for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ");
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
@@ -253,6 +357,8 @@ internal static class DomBindings
                 DOMTokenList.prototype.entries = Array.prototype.entries;
 
                 const DOMStringMap = defClass('DOMStringMap');
+
+                const CSSStyleDeclaration = defClass('CSSStyleDeclaration');
 
                 const NamedNodeMap = defClass('NamedNodeMap');
                 NamedNodeMap.prototype[Symbol.iterator] = Array.prototype.values;

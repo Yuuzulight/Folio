@@ -9,6 +9,7 @@ namespace Folio.Scripting.Dom;
 internal sealed class DomContext
 {
     private readonly Dictionary<string, IHostObjectTemplate> _htmlElementTemplates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<ElementNode, (double X, double Y)> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null)
     {
@@ -23,6 +24,12 @@ internal sealed class DomContext
     public DocumentNode Document { get; }
     public ScriptWrapperCache WrapperCache { get; }
     public DomNodeTemplates Templates { get; }
+    public ElementNode? FocusedElement { get; private set; }
+    public void Focus(ElementNode element) => FocusedElement = element;
+    public void Blur(ElementNode element) { if (ReferenceEquals(FocusedElement, element)) FocusedElement = null; }
+
+    public (double X, double Y) GetScroll(ElementNode element) => _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
+    public void SetScroll(ElementNode element, double x, double y) => _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
 
     public ScriptValue Wrap(Node? node)
     {
@@ -81,6 +88,18 @@ internal sealed class DomContext
         ArgumentNullException.ThrowIfNull(element);
         return WrapperCache.GetOrCreate(Engine, Templates.NamedNodeMapTemplate, new LiveNamedNodeMap(element));
     }
+
+    public ScriptValue WrapStyle(ElementNode element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return WrapperCache.GetOrCreate(Engine, Templates.StyleDeclarationTemplate, new LiveStyleDeclaration(element));
+    }
+
+    public ScriptValue WrapComputedStyle(ElementNode element) =>
+        WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(element));
+
+    public ScriptValue WrapRect(DomRect rect) =>
+        WrapperCache.GetOrCreate(Engine, Templates.DomRectTemplate, rect);
 
     private readonly Dictionary<(ElementNode, string), LiveAttr> _attrCache = new();
 

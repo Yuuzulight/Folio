@@ -2,8 +2,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Folio.Painting;
 using Folio.Skia;
+using Folio.Scripting.Ipc;
 using SkiaSharp;
 
 namespace Folio.WinForms;
@@ -28,6 +30,11 @@ public sealed class RenderFailedEventArgs(Exception exception) : EventArgs
     public Exception Exception { get; } = exception;
 }
 
+public sealed class ScriptStoppedEventArgs(string reason) : EventArgs
+{
+    public string Reason { get; } = reason;
+}
+
 /// <summary>
 /// Shows an HTML document (docs/architecture.md, WinForms control): lays it out at the control's width, relays it out
 /// on resize and zoom, scrolls the page with the wheel and a scroll bar, passes link clicks to the host, and plays CSS
@@ -49,6 +56,8 @@ public class FolioView : Control
     private readonly Stopwatch _timeline = new();
     private readonly ToolTip _toolTip = new();
     private FolioViewAccessibleObject? _accessibleObject;
+    private ContentProcessClient? _contentProcess;
+    private string? _scriptStoppedReason;
 
     public FolioView()
     {
@@ -132,6 +141,7 @@ public class FolioView : Control
     public event EventHandler? Rendered;
     public event EventHandler<DiagnosticsEventArgs>? DiagnosticsChanged;
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
+    public event EventHandler<ScriptStoppedEventArgs>? ScriptStopped;
 
     /// <summary>A link was clicked. Unless handled, http, https and mailto links open in the system browser.</summary>
     public event EventHandler<LinkActivatedEventArgs>? LinkActivated;
@@ -142,6 +152,24 @@ public class FolioView : Control
     /// <summary>A form was submitted.</summary>
     public event EventHandler<FormSubmittedEventArgs>? FormSubmitted;
 
+    /// <summary>Connects the control to a content process and displays a visible stopped notice if it is terminated.</summary>
+    public void AttachContentProcess(ContentProcessClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        if (_contentProcess is not null)
+            _contentProcess.ScriptStopped -= OnScriptStopped;
+        _contentProcess = client;
+        _contentProcess.ScriptStopped += OnScriptStopped;
+        _scriptStoppedReason = null;
+    }
+
+    private void OnScriptStopped(object? sender, ContentProcessStoppedEventArgs e)
+    {
+        _scriptStoppedReason = e.Reason;
+        ScriptStopped?.Invoke(this, new ScriptStoppedEventArgs(e.Reason));
+        if (!IsDisposed) Invalidate();
+    }
+
     public void LoadHtml(string html, Uri? baseUri = null)
     {
         ArgumentNullException.ThrowIfNull(html);
@@ -149,7 +177,7 @@ public class FolioView : Control
         {
             BaseUri = baseUri ?? Options.BaseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion || SystemReducedMotion(),
             UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.Fonts,
-            ResourceLoader = Options.ResourceLoader,
+            ResourceLoader = Options.ResourceLoader, Scripting = Options.Scripting, ContentProcessPath = Options.ContentProcessPath,
         };
         _document?.Dispose();
         _document = Document.Parse(html, options);
@@ -163,6 +191,23 @@ public class FolioView : Control
         _document.Input.FormSubmitted += (_, e) => FormSubmitted?.Invoke(this, e);
         _document.Input.FocusChanged += OnDocumentFocusChanged;
         _document.Input.SelectionChanged += OnDocumentSelectionChanged;
+        if (Options.Scripting == ScriptingPolicy.ContentProcess && !string.IsNullOrWhiteSpace(Options.ContentProcessPath))
+        {
+            if (_contentProcess is not null)
+                _ = _contentProcess.DisposeAsync();
+            try
+            {
+                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath));
+                var script = string.Join("\n", Regex.Matches(html, @"<script(?:\s[^>]*)?>(.*?)</script>", RegexOptions.IgnoreCase | RegexOptions.Singleline)
+                    .Select(match => match.Groups[1].Value));
+                var process = _contentProcess!;
+                _ = process.SendAsync(ContentMessageKind.Load, new { html, script, url = baseUri?.AbsoluteUri ?? "content" });
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                OnScriptStopped(this, new ContentProcessStoppedEventArgs($"unable to start content process: {exception.Message}"));
+            }
+        }
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
         _timeline.Reset();
@@ -308,6 +353,13 @@ public class FolioView : Control
             }
             using var image = new Bitmap(width, height, bitmap.RowBytes, PixelFormat.Format32bppPArgb, bitmap.GetPixels());
             e.Graphics.DrawImageUnscaled(image, 0, 0);
+            if (_scriptStoppedReason is { } reason)
+            {
+                using var brush = new SolidBrush(Color.FromArgb(235, Color.White));
+                e.Graphics.FillRectangle(brush, 12, 12, Math.Min(width - 24, 520), 44);
+                using var textBrush = new SolidBrush(Color.DarkRed);
+                e.Graphics.DrawString($"Script stopped: {reason}", Font, textBrush, 20, 25);
+            }
             Rendered?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

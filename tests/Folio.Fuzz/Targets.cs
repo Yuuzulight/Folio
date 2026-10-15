@@ -7,6 +7,7 @@ using Folio.Layout;
 using Folio.Painting;
 using Folio.Resources;
 using Folio.RenderTests;
+using Folio.Scripting.Ipc;
 using Folio.Style;
 using Folio.Tests.Typography;
 using Folio.Typography;
@@ -48,6 +49,7 @@ internal static class Targets
             " in2=\"", " numOctaves=\"", " primitiveUnits=\"objectBoundingBox\"", " filter=\"", " mask=\"",
             "<pattern id=\"", " patternUnits=\"userSpaceOnUse\"", " patternTransform=\"", " href=\"#", " fill=\"url(#",
             "<foreignObject width=\"", "<div xmlns=\"http://www.w3.org/1999/xhtml\">"]),
+        new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -110,6 +112,21 @@ internal static class Targets
         var css = Encoding.UTF8.GetString(data);
         CssParser.ParseBlockContents(css);
         StyleResolver.Resolve(TreeBuilder.Parse(StyledDocument), Media, userStyleSheet: css);
+    }
+
+    private static void Ipc(byte[] data)
+    {
+        ContentProtocol.TryDecode(data, out _);
+        var reader = new ContentProtocolReader();
+        for (var offset = 0; offset < data.Length; offset += Math.Min(7, data.Length - offset))
+            reader.Push(data.AsMemory(offset, Math.Min(7, data.Length - offset)));
+    }
+
+    private static IEnumerable<byte[]> IpcSeeds()
+    {
+        using var payload = System.Text.Json.JsonDocument.Parse("{}");
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Hello, 1, payload.RootElement.Clone()));
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Heartbeat, 2, payload.RootElement.Clone()));
     }
 
     // DOM invariant: parent, child and sibling links agree.
