@@ -124,7 +124,7 @@ public static class DomBindings
                     var workerScript = __folio_service_worker_loader.load(url);
                     var workerSelfListeners = [];
                     var workerSelf = { onmessage: null, addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function') workerSelfListeners.push(handler); }, removeEventListener: function(type, handler) { if (type === 'message') workerSelfListeners = workerSelfListeners.filter(function(item) { return item !== handler; }); }, postMessage: function(data) { var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { handler(event); }); } };
-                    if (workerScript !== null && workerScript !== undefined) new Function('self', workerScript)(workerSelf);
+                    if (workerScript !== null && workerScript !== undefined) new Function('self', 'with (self) { ' + workerScript + ' }')(workerSelf);
                     var worker = { scriptURL: url, state: 'activated', onstatechange: null, onmessage: null,
                         addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function' && workerListeners.indexOf(handler) < 0) workerListeners.push(handler); },
                         removeEventListener: function(type, handler) { if (type === 'message') { var index = workerListeners.indexOf(handler); if (index >= 0) workerListeners.splice(index, 1); } },
@@ -685,6 +685,7 @@ public static class DomBindings
         ");
     }
 }
+
 
 
 

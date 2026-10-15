@@ -16,7 +16,7 @@ public sealed class DomStyleDeclarationTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
-                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.onmessage = function(e) { self.postMessage(e.data + 2); };"), "application/javascript")
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript")
                 : ResourceResponse.Refused("unsupported"));
     }
 
@@ -891,6 +891,7 @@ public sealed class DomStyleDeclarationTests
         await session.DisposeAsync();
     }
 }
+
 
 
 
