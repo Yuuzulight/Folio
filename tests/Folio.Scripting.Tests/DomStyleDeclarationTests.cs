@@ -170,7 +170,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example'").AsBoolean());
-        Assert.Equal("data:text/javascript,", allowed.Evaluate("w.scriptURL").AsString());
+        Assert.Equal("https://worker.example/worker.js", allowed.Evaluate("w.scriptURL").AsString());
         Assert.True(allowed.Evaluate("w.terminate(); w.postMessage(7); seen === 42").AsBoolean());
 
         using var limited = new JintScriptEngine();
