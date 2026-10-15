@@ -5,7 +5,7 @@ Milestone 6 is being built dependency-first. Each capability is exposed only whe
 Implemented dependency-backed surfaces:
 
 - WebGL resource state, limits, framebuffer/texture/query/sync operations and context loss.
-- Audio/video element state, resource-backed WAV metadata, device tracks and playback promises.
+- Audio/video element state, resource-backed WAV/MPEG metadata, format-aware `canPlayType()`, device tracks and playback promises.
 - Dedicated workers with isolated script engines, resource-backed scripts, message/error events and termination limits.
 - WebAssembly validation, imports/exports, bounded memory/tables/globals and a bounded i32 interpreter.
 - Iframes with data or host-loaded child documents, child window identity and cross-document messaging.
