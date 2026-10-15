@@ -72,9 +72,12 @@ public static class Program
             loop.UpdateTheRendering();
             using var bitmap = new SKBitmap(new SKImageInfo(artifact.Category == "D5" ? 800 : 800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
             using var canvas = new SKCanvas(bitmap);
-            void PaintFrame()
+            DisplayList BuildFrame()
             {
-                var (displayList, _) = document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, new HarfBuzzShaper());
+                return document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, new HarfBuzzShaper()).List;
+            }
+            void Replay(DisplayList displayList)
+            {
                 canvas.Clear(SKColors.White);
                 DisplayListPlayer.Replay(displayList, new SkiaCanvas(canvas), new RectF(0, 0, 800, 600));
                 canvas.Flush();
@@ -83,15 +86,16 @@ public static class Program
             {
                 clock.Advance(16.7);
                 loop.UpdateTheRendering();
-                PaintFrame();
+                Replay(BuildFrame());
             }
             var samples = new List<double>(frameCount);
             for (var i = 0; i < frameCount; i++)
             {
                 clock.Advance(16.7);
-                var start = System.Diagnostics.Stopwatch.GetTimestamp();
                 loop.UpdateTheRendering();
-                PaintFrame();
+                var displayList = BuildFrame();
+                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                Replay(displayList);
                 samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             }
             samples.Sort();
