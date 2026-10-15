@@ -31,4 +31,11 @@ public sealed class DiagramRendererTests
         Assert.Contains("South", svg);
         Assert.Contains("width=\"300", svg);
     }
+
+    [Fact]
+    public void RendersClassAndStateEdgesAsSvg()
+    {
+        Assert.Contains("Base", DiagramRenderer.Render("classDiagram\nBase <|-- Child"));
+        Assert.Contains("Ready", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready"));
+    }
 }

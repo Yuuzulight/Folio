@@ -37,9 +37,15 @@ public static class DiagramRenderer
         foreach (var line in lines)
         {
             var arrow = line.IndexOf("-->", StringComparison.Ordinal);
+            var markerLength = 3;
+            if (arrow < 0)
+            {
+                arrow = line.IndexOf("--", StringComparison.Ordinal);
+                markerLength = 2;
+            }
             if (arrow < 0) continue;
-            var left = Node(line[..arrow]);
-            var right = Node(line[(arrow + 3)..]);
+            var left = Node(line[..arrow].TrimEnd('<', '|'));
+            var right = Node(line[(arrow + markerLength)..].TrimStart('>', '|'));
             var from = Index(nodes, left);
             var to = Index(nodes, right);
             edges.Add((from, to));
