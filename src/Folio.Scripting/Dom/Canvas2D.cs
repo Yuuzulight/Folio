@@ -63,6 +63,7 @@ internal sealed class MediaElementState
     public double PlaybackRate { get; set; } = 1;
     public double DefaultPlaybackRate { get; set; } = 1;
     public bool PreservesPitch { get; set; } = true;
+    public ScriptValue SrcObject { get; set; } = ScriptValue.Null;
     public int ReadyState => Enabled && Error is null ? 4 : 0;
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }

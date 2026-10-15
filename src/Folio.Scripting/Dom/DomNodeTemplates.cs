@@ -402,6 +402,8 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
+        t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
+            (target, _, value) => _context.GetMedia((ElementNode)target).SrcObject = value);
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
             (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded); } });
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
