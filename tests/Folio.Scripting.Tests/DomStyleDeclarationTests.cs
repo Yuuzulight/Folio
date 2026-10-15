@@ -186,7 +186,7 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === w; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example' && sourceMatches").AsBoolean());
         Assert.Equal("https://worker.example/worker.js", allowed.Evaluate("w.scriptURL").AsString());
-        Assert.True(allowed.Evaluate("w.terminate(); w.postMessage(7); seen === 42").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("w.terminate(); w.postMessage(7)"));
 
         using var limited = new JintScriptEngine();
         DomBindings.Install(limited, Document.Parse("<html></html>", new FolioOptions
@@ -195,6 +195,7 @@ public sealed class DomStyleDeclarationTests
             Limits = ResourceLimits.Default with { MaxWorkerMessageBytes = 4 }
         }));
         Assert.ThrowsAny<Exception>(() => limited.Evaluate("const w = new Worker('data:text/javascript,'); w.postMessage('12345')"));
+        Assert.ThrowsAny<Exception>(() => limited.Evaluate("w.terminate(); w.postMessage('ok')"));
     }
 
     [Fact]

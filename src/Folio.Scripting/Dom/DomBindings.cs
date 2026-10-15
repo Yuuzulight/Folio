@@ -59,6 +59,8 @@ public static class DomBindings
             .DefineProperty("scriptURL", (target, _) => ScriptValue.FromString(((WorkerState)target).ScriptUrl))
             .DefineMethod("postMessage", (target, _, args) =>
             {
+                if (((WorkerState)target).Terminated)
+                    throw WebIdlException.DomException(DomExceptionNames.InvalidStateError, "The worker has been terminated.");
                 if (args.Length > 0 && !((WorkerState)target).PostMessage(args[0]))
                     throw WebIdlException.DomException("DataCloneError", "The worker message exceeds the host limit.");
                 return ScriptValue.Undefined;
