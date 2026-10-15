@@ -23,6 +23,55 @@ internal sealed class DomContext
     /// <summary>The script functions behind <c>document.styleSheets</c> and an element's <c>sheet</c>, set when the CSSOM is installed.</summary>
     public ScriptValue CssomStyleSheets { get; set; }
     public ScriptValue CssomSheetOf { get; set; }
+    private long _fetchedBytes;
+    private readonly Dictionary<int, byte[]> _fetchBodies = [];
+    private int _nextFetchBody;
+
+    /// <summary>Keeps a fetched body here, out of script's memory, until the page reads it (or drops it): returns its handle.</summary>
+    public int StoreFetchBody(byte[] data)
+    {
+        _fetchBodies[++_nextFetchBody] = data;
+        return _nextFetchBody;
+    }
+
+    public byte[]? FetchBody(int handle) => _fetchBodies.GetValueOrDefault(handle);
+
+    public void FreeFetchBody(int handle) => _fetchBodies.Remove(handle);
+
+    /// <summary>The most one document may fetch in all (study 16).</summary>
+    public const long MaxFetchedBytes = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// A fetch() load: a data: URL or the host's loader, one response within the loader's size cap and all of them within
+    /// <see cref="MaxFetchedBytes"/>. Refusals are reported as a diagnostic.
+    /// </summary>
+    public (ResourceResponse? Response, string? Error) Fetch(string url)
+    {
+        string? error = null;
+        ResourceResponse? response = null;
+        var allowed = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+        if (!allowed)
+            error = "Only data:, http: and https: URLs can be fetched.";
+        else
+        {
+            var loaded = new Folio.Resources.ResourceLoader(allowedFolders: null, maxBytes: Folio.Resources.ResourceLoader.MaxResourceBytes, host: ResourceLoader)
+                .Load(new ResourceRequest(url, ResourceKind.Fetch));
+            if (!loaded.Succeeded)
+                error = loaded.Error ?? "The load failed.";
+            else if (_fetchedBytes + loaded.Data!.Length > MaxFetchedBytes)
+                error = "This document has already fetched the most bytes it may.";
+            else
+            {
+                _fetchedBytes += loaded.Data.Length;
+                response = loaded;
+            }
+        }
+
+        if (response is null)
+            Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ResourceNotLoaded, Severity.Warning, $"fetch('{(url.Length > 120 ? url[..120] + "..." : url)}') failed: {error}", null, "fetch"));
+        return (response, error);
+    }
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,

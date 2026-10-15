@@ -351,22 +351,6 @@ public static class DomBindings
                     dispatchEvent: function() { return true; }
                 };
             };
-            globalThis.fetch = function(input) {
-                const url = String(input);
-                if (url.slice(0, 5).toLowerCase() !== 'data:')
-                    return Promise.reject(new TypeError('The requested URL is not allowed by Folio.'));
-                const comma = url.indexOf(',');
-                const header = comma < 0 ? '' : url.slice(5, comma);
-                const payload = comma < 0 ? '' : url.slice(comma + 1);
-                const body = header.toLowerCase().indexOf(';base64') >= 0
-                    ? (typeof atob === 'function' ? atob(payload) : payload)
-                    : decodeURIComponent(payload);
-                return Promise.resolve({
-                    ok: true, status: 200, url: url,
-                    text: function() { return Promise.resolve(body); },
-                    json: function() { return Promise.resolve(JSON.parse(body)); }
-                });
-            };
             globalThis.ResizeObserver = function(callback) {
                 if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
                 this._callback = callback;
@@ -473,6 +457,7 @@ public static class DomBindings
         ");
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
+        FetchBindings.Install(engine, context);
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);

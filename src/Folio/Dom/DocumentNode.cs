@@ -59,6 +59,8 @@ internal sealed class DocumentNode : ContainerNode
 
     /// <summary>A style or link element was added, removed or had its text changed: the cascade has to be resolved again.</summary>
     internal bool SheetsMutated { get; set; }
+    /// <summary>Where script-side loads (fetch) report what they could not do; set by the script runner.</summary>
+    internal Action<Diagnostic>? DiagnosticSink { get; set; }
 
     /// <summary>Queues mutation records for observers; null while nothing observes this document.</summary>
     internal IMutationRecorder? MutationRecorder { get; set; }

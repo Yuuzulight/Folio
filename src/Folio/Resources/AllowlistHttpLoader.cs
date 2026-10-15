@@ -168,6 +168,7 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
         ResourceKind.Script => type is "text/javascript" or "application/javascript" or "application/ecmascript" or "text/ecmascript",
         ResourceKind.Document => type is "text/html" or "application/xhtml+xml",
         ResourceKind.Media => type is not null && (type.StartsWith("audio/", StringComparison.Ordinal) || type.StartsWith("video/", StringComparison.Ordinal)),
+        ResourceKind.Fetch => true,
         _ => false,
     };
 

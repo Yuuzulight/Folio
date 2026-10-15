@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Security.Cryptography;
 using Folio.Resources;
 
@@ -56,6 +57,22 @@ public class AllowlistTests
         Assert.False(Load(loader, "http://fonts.example/v2/a.woff2")!.Succeeded);                        // not HTTPS
         Assert.Null(Load(loader, "file:///C:/fonts/a.woff2"));                                            // not this loader's
         Assert.False(Load(loader, "https://user:secret@fonts.example/v2/a.woff2")!.Succeeded);           // credentials
+        Assert.Single(server.Requests);
+    }
+
+    // fetch() loads (issue #497): any content type, but only from an origin the host allowed for the Fetch kind.
+    [Fact]
+    public void FetchLoadsAreAllowedPerOriginAndAnyContentTypeFits()
+    {
+        var (loader, server) = Loader(new AllowlistOptions { Origins = [new AllowedOrigin("https://api.example", ResourceKind.Fetch), new AllowedOrigin("https://fonts.example", ResourceKind.Font)] });
+        server.Routes["https://api.example/v1/data.json"] = () => Ok(Encoding.UTF8.GetBytes("{}"), "application/json");
+        server.Routes["https://fonts.example/v2/a.json"] = () => Ok(Encoding.UTF8.GetBytes("{}"), "application/json");
+
+        var allowed = Load(loader, "https://api.example/v1/data.json", ResourceKind.Fetch)!;
+        Assert.True(allowed.Succeeded);
+        Assert.Equal("application/json", allowed.ContentType);
+        Assert.False(Load(loader, "https://fonts.example/v2/a.json", ResourceKind.Fetch)!.Succeeded); // the origin allows fonts, not fetch
+        Assert.False(Load(loader, "https://api.example/v1/data.json", ResourceKind.Font)!.Succeeded); // and not the other way round
         Assert.Single(server.Requests);
     }
 
