@@ -9,13 +9,18 @@ namespace Folio.Scripting.Dom;
 public static class DomBindings
 {
     public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
-        Install(engine, document.Node, wrapperCache, eventLoop);
-    internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null)
+        Install(engine, document.Node, wrapperCache, eventLoop, element =>
+        {
+            var bounds = document.GetElementBounds(element);
+            return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
+        });
+    internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
+        HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache);
+        var context = new DomContext(engine, document, wrapperCache, layout);
 
         // 1. Install DOMException
         InstallDomException(engine);

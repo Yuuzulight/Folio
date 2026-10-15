@@ -121,7 +121,7 @@ public static class Conformance
             using var engine = new JintScriptEngine();
             var clock = new VirtualEventLoopClock();
             using var loop = new HtmlEventLoop(engine, clock);
-            DomBindings.Install(engine, document.Node, eventLoop: loop);
+            DomBindings.Install(engine, document, eventLoop: loop);
             ScriptGlobalsInstaller.Install(loop, engine);
             using var runner = new ScriptRunner(document.Node, engine, loop, Options);
             runner.Run();
