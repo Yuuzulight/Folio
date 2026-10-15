@@ -15,7 +15,7 @@ public sealed class DomStyleDeclarationTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
-                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript")
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.onmessage = function(e) { self.postMessage(e.data + 2); };"), "application/javascript")
                 : ResourceResponse.Refused("unsupported"));
     }
 
@@ -340,6 +340,17 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("registration.unregister()").IsObject);
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("navigator.serviceWorker.controller === null").AsBoolean());
+
+        using var scripted = new JintScriptEngine();
+        DomBindings.Install(scripted, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new WorkerResourceLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(scripted.Evaluate("let scriptedResult = 0; navigator.serviceWorker.register('sw.js').then(r => { r.active.onmessage = e => scriptedResult = e.data; r.active.postMessage(40); }); true").AsBoolean());
+        scripted.PerformMicrotaskCheckpoint();
+        Assert.Equal(42, scripted.Evaluate("scriptedResult").AsNumber());
     }
 
     [Fact]
@@ -855,6 +866,7 @@ public sealed class DomStyleDeclarationTests
         await session.DisposeAsync();
     }
 }
+
 
 
 

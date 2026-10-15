@@ -88,6 +88,17 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_wasm_max_pages", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 65536)));
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
+        var serviceWorkerLoader = new HostObjectTemplate("ServiceWorkerLoader")
+            .DefineMethod("load", (_, _, args) =>
+            {
+                if (resourceLoader is null || args.Length == 0) return ScriptValue.Null;
+                var url = WebIdlConversions.ToDOMString(args[0]);
+                if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolved)) url = resolved.AbsoluteUri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return ScriptValue.Null;
+                var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult();
+                return response?.Data is { } data ? ScriptValue.FromString(System.Text.Encoding.UTF8.GetString(data)) : ScriptValue.Null;
+            });
+        engine.SetGlobalProperty("__folio_service_worker_loader", engine.CreateHostObject(serviceWorkerLoader, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -110,10 +121,14 @@ public static class DomBindings
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scriptURL === url && r.scope === scope; });
                     if (existing) return Promise.resolve(existing);
                     var workerListeners = [];
+                    var workerScript = __folio_service_worker_loader.load(url);
+                    var workerSelfListeners = [];
+                    var workerSelf = { onmessage: null, addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function') workerSelfListeners.push(handler); }, removeEventListener: function(type, handler) { if (type === 'message') workerSelfListeners = workerSelfListeners.filter(function(item) { return item !== handler; }); }, postMessage: function(data) { var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { handler(event); }); } };
+                    if (workerScript !== null && workerScript !== undefined) new Function('self', workerScript)(workerSelf);
                     var worker = { scriptURL: url, state: 'activated', onstatechange: null, onmessage: null,
                         addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function' && workerListeners.indexOf(handler) < 0) workerListeners.push(handler); },
                         removeEventListener: function(type, handler) { if (type === 'message') { var index = workerListeners.indexOf(handler); if (index >= 0) workerListeners.splice(index, 1); } },
-                        postMessage: function(data) { var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { handler(event); }); } };
+                        postMessage: function(data) { var event = { type: 'message', data: data, target: workerSelf, source: null, origin: '' }; var handled = !!workerSelf.onmessage || workerSelfListeners.length > 0; if (workerSelf.onmessage) workerSelf.onmessage(event); workerSelfListeners.slice().forEach(function(handler) { handler(event); }); if (!handled) { if (worker.onmessage) worker.onmessage({ type: 'message', data: data, target: worker, source: null, origin: '' }); workerListeners.slice().forEach(function(handler) { handler({ type: 'message', data: data, target: worker, source: null, origin: '' }); }); } } };
                     var registrationListeners = [];
                     var registration = { scope: scope, scriptURL: url, active: worker, installing: null, waiting: null, onupdatefound: null,
                         addEventListener: function(type, handler) { if (type === 'updatefound' && typeof handler === 'function' && registrationListeners.indexOf(handler) < 0) registrationListeners.push(handler); },
