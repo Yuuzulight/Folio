@@ -98,6 +98,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(allowed, allowedDocument);
         Assert.True(allowed.Evaluate("const gl = document.getElementById('c').getContext('webgl2'); gl !== null && gl.ARRAY_BUFFER === 34962").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
+        Assert.Equal(0, allowed.Evaluate("const typed = new Float32Array(4); gl.bufferData(gl.ARRAY_BUFFER, typed, gl.STATIC_DRAW); gl.getError()").AsNumber());
         Assert.True(allowed.Evaluate("const s = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(s, 'void main(){}'); gl.compileShader(s); gl.getShaderParameter(s, gl.COMPILE_STATUS)").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("const ds = gl.createShader(gl.VERTEX_SHADER); gl.deleteShader(ds); const dp = gl.createProgram(); gl.deleteProgram(dp); gl.getError()").AsNumber());
         Assert.True(allowed.Evaluate("const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs, 'void main(){}'); gl.compileShader(vs); const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs, 'void main(){}'); gl.compileShader(fs); const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog); gl.getProgramParameter(prog, gl.LINK_STATUS)").AsBoolean());

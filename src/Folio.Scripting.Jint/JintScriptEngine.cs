@@ -150,6 +150,14 @@ public sealed class JintScriptEngine : IScriptEngine
             items = result;
             return true;
         }
+        if (value.Raw is JsTypedArray typed)
+        {
+            var result = new ScriptValue[(int)typed.Get("length").AsNumber()];
+            for (var i = 0; i < result.Length; i++)
+                result[i] = ToScriptValue(typed.Get(i.ToString()));
+            items = result;
+            return true;
+        }
         items = [];
         return false;
     }

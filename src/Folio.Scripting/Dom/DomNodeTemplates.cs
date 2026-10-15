@@ -529,7 +529,11 @@ internal sealed class DomNodeTemplates
         {
             var state = (WebGlContextState)target;
             if (state.BoundArrayBuffer is not { } handle || args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
-            var size = args[1].IsNumber ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, 16 * 1024 * 1024) : 0;
+            var size = args[1].IsNumber
+                ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, 16 * 1024 * 1024)
+                : _context.Engine.TryGetArrayItems(args[1], out var data)
+                    ? Math.Clamp(data.Count * 4, 0, 16 * 1024 * 1024)
+                    : 0;
             state.ReplaceBuffer(handle, size);
             return ScriptValue.Undefined;
         });
