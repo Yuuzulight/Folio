@@ -34,6 +34,13 @@ internal static class DomBindings
                 return context.WrapComputedStyle(element);
             });
         engine.SetGlobalProperty("__folio_style_host", engine.CreateHostObject(styleHost, context));
+        var mutationHost = new HostObjectTemplate("MutationObserverHost")
+            .DefineMethod("create", (_, _, args) =>
+            {
+                if (args.Length == 0) throw WebIdlException.TypeError("MutationObserver callback must be callable.");
+                return engine.CreateHostObject(context.Templates.MutationObserverTemplate, context.CreateMutationObserver(args[0]));
+            });
+        engine.SetGlobalProperty("__folio_mutation_host", engine.CreateHostObject(mutationHost, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -85,6 +92,9 @@ internal static class DomBindings
             IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
             IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
             IntersectionObserver.prototype.takeRecords = function() { return []; };
+            globalThis.MutationObserver = function(callback) {
+                return __folio_mutation_host.create(callback);
+            };
             globalThis.FormData = function(form) {
                 this._entries = [];
                 if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');

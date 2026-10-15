@@ -33,6 +33,33 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void MutationObserverReceivesChildListRecords()
+    {
+        var document = TreeBuilder.Parse("<html><body></body></html>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var result = engine.Evaluate(@"
+            let seen = '';
+            const observer = new MutationObserver(records => { seen = records[0].type + ':' + records[0].addedNodes.length; });
+            observer.observe(document.body, { childList: true, subtree: true });
+            document.body.appendChild(document.createElement('div'));
+            seen;");
+        Assert.Equal("childList:1", result.AsString());
+    }
+
+    [Fact]
+    public void CanvasElementExposesBasicTwoDimensionalContext()
+    {
+        var document = TreeBuilder.Parse("<canvas id='chart' width='640' height='480'></canvas>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        Assert.Equal(640, engine.Evaluate("const canvas = document.getElementById('chart'); canvas.width").AsNumber());
+        Assert.Equal("#000000", engine.Evaluate("const ctx = canvas.getContext('2d'); ctx.fillStyle").AsString());
+        Assert.Equal("#f00", engine.Evaluate("ctx.fillStyle = '#f00'; ctx.fillRect(1, 2, 30, 40); ctx.fillStyle").AsString());
+        Assert.True(engine.Evaluate("canvas.getContext('webgl') === null").AsBoolean());
+    }
+
+    [Fact]
     public void InvalidPropertyValueDoesNotReplaceExistingValue()
     {
         var document = TreeBuilder.Parse("<div id='box' style='width: 10px'></div>");

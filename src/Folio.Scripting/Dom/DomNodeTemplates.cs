@@ -35,6 +35,22 @@ internal sealed class DomNodeTemplates
         ComputedStyleDeclarationTemplate = CreateComputedStyleDeclarationTemplate();
         DomRectTemplate = CreateDomRectTemplate();
         AttrTemplate = CreateAttrTemplate(NodeTemplate);
+        MutationRecordTemplate = new HostObjectTemplate("MutationRecord")
+            .DefineProperty("type", (_, _) => ScriptValue.FromString("childList"))
+            .DefineProperty("target", (target, _) => _context.Wrap(((MutationRecordState)target).Target))
+            .DefineProperty("addedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).AddedNodes.Select(_context.Wrap).ToArray()))
+            .DefineProperty("removedNodes", (target, _) => _context.Engine.CreateArray(((MutationRecordState)target).RemovedNodes.Select(_context.Wrap).ToArray()))
+            .DefineProperty("previousSibling", (_, _) => ScriptValue.Null)
+            .DefineProperty("nextSibling", (_, _) => ScriptValue.Null);
+        MutationObserverTemplate = new HostObjectTemplate("MutationObserver")
+            .DefineMethod("observe", (target, _, args) =>
+            {
+                if (args.Length == 0) throw WebIdlException.TypeError("observe requires a target.");
+                _context.ObserveMutations((MutationObserverState)target, _context.UnwrapNode(args[0]));
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("disconnect", (target, _, _) => { _context.DisconnectMutations((MutationObserverState)target); return ScriptValue.Undefined; })
+            .DefineMethod("takeRecords", (target, _, _) => _context.TakeMutationRecords((MutationObserverState)target));
 
         HtmlInputElementTemplate = CreateHtmlInputElementTemplate(HtmlElementTemplate);
         HtmlButtonElementTemplate = CreateHtmlButtonElementTemplate(HtmlElementTemplate);
@@ -45,6 +61,12 @@ internal sealed class DomNodeTemplates
         HtmlTextAreaElementTemplate = CreateHtmlTextAreaElementTemplate(HtmlElementTemplate);
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
+        HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
+        CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
+            .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => ((CanvasElementState)target).FillStyle = WebIdlConversions.ToDOMString(value))
+            .DefineMethod("fillRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "fillRect", args.ToArray()))
+            .DefineMethod("clearRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "clearRect", args.ToArray()))
+            .DefineMethod("strokeRect", (target, _, args) => AddCanvasCommand((CanvasElementState)target, "strokeRect", args.ToArray()));
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -66,6 +88,8 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate StyleDeclarationTemplate { get; }
     public HostObjectTemplate ComputedStyleDeclarationTemplate { get; }
     public HostObjectTemplate DomRectTemplate { get; }
+    public HostObjectTemplate MutationRecordTemplate { get; }
+    public HostObjectTemplate MutationObserverTemplate { get; }
     public HostObjectTemplate HtmlInputElementTemplate { get; }
     public HostObjectTemplate HtmlButtonElementTemplate { get; }
     public HostObjectTemplate HtmlAnchorElementTemplate { get; }
@@ -75,6 +99,31 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlTextAreaElementTemplate { get; }
     public HostObjectTemplate HtmlTemplateElementTemplate { get; }
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
+    public HostObjectTemplate HtmlCanvasElementTemplate { get; }
+    public HostObjectTemplate CanvasRenderingContextTemplate { get; }
+
+    private static ScriptValue AddCanvasCommand(CanvasElementState state, string name, ScriptValue[] args)
+    {
+        double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
+        state.Commands.Add(new CanvasCommand(name, Number(0), Number(1), Number(2), Number(3), state.FillStyle));
+        return ScriptValue.Undefined;
+    }
+
+    private HostObjectTemplate CreateHtmlCanvasElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLCanvasElement", htmlElementProto);
+        t.DefineProperty("width", (target, _) => ScriptValue.FromNumber(ReadDimension((ElementNode)target, "width", 300)), (target, _, value) => ((ElementNode)target).SetAttribute("width", WebIdlConversions.ToUint32(value).ToString()));
+        t.DefineProperty("height", (target, _) => ScriptValue.FromNumber(ReadDimension((ElementNode)target, "height", 150)), (target, _, value) => ((ElementNode)target).SetAttribute("height", WebIdlConversions.ToUint32(value).ToString()));
+        t.DefineMethod("getContext", (target, _, args) =>
+        {
+            if (args.Length == 0 || !string.Equals(WebIdlConversions.ToDOMString(args[0]), "2d", StringComparison.OrdinalIgnoreCase)) return ScriptValue.Null;
+            return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
+        });
+        return t;
+
+        static uint ReadDimension(ElementNode element, string name, uint fallback) =>
+            uint.TryParse(element.GetAttribute(name), out var value) ? value : fallback;
+    }
 
     private HostObjectTemplate CreateNodeTemplate()
     {

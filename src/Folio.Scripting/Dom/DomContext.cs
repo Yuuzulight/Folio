@@ -10,6 +10,8 @@ internal sealed class DomContext
 {
     private readonly Dictionary<string, IHostObjectTemplate> _htmlElementTemplates = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ElementNode, (double X, double Y)> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
+    private readonly List<MutationObserverState> _mutationObservers = [];
+    private readonly Dictionary<ElementNode, CanvasElementState> _canvases = new(ReferenceEqualityComparer.Instance);
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null)
     {
@@ -30,6 +32,45 @@ internal sealed class DomContext
 
     public (double X, double Y) GetScroll(ElementNode element) => _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
     public void SetScroll(ElementNode element, double x, double y) => _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
+
+    public MutationObserverState CreateMutationObserver(ScriptValue callback)
+    {
+        if (!callback.IsFunction) throw WebIdlException.TypeError("MutationObserver callback must be callable.");
+        var observer = new MutationObserverState(this, callback);
+        _mutationObservers.Add(observer);
+        return observer;
+    }
+
+    public void ObserveMutations(MutationObserverState observer, Node target) => observer.Targets.Add(target);
+
+    public void DisconnectMutations(MutationObserverState observer)
+    {
+        observer.Targets.Clear();
+        observer.Records.Clear();
+    }
+
+    public ScriptValue TakeMutationRecords(MutationObserverState observer)
+    {
+        var records = observer.Records.Select(WrapMutationRecord).ToArray();
+        observer.Records.Clear();
+        return Engine.CreateArray(records);
+    }
+
+    public ScriptValue WrapMutationRecord(MutationRecordState record) => WrapperCache.GetOrCreate(Engine, Templates.MutationRecordTemplate, record);
+
+    public void NotifyChildListMutation(Node target, IReadOnlyList<Node> added, IReadOnlyList<Node> removed)
+    {
+        foreach (var observer in _mutationObservers.ToArray())
+        {
+            if (!observer.Targets.Any(observed => ReferenceEquals(observed, target) || observed.IsInclusiveAncestorOf(target))) continue;
+            observer.Records.Add(new MutationRecordState(target, added, removed));
+            var records = observer.Records.Select(WrapMutationRecord).ToArray();
+            observer.Records.Clear();
+            Engine.Call(observer.Callback, ScriptValue.Undefined, [Engine.CreateArray(records), Engine.CreateHostObject(Templates.MutationObserverTemplate, observer)]);
+        }
+    }
+
+    public CanvasElementState GetCanvas(ElementNode element) => _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element));
 
     public ScriptValue Wrap(Node? node)
     {
@@ -131,6 +172,7 @@ internal sealed class DomContext
             "select" => Templates.HtmlSelectElementTemplate,
             "textarea" => Templates.HtmlTextAreaElementTemplate,
             "template" => Templates.HtmlTemplateElementTemplate,
+            "canvas" => Templates.HtmlCanvasElementTemplate,
             "script" => Templates.HtmlScriptElementTemplate,
             _ => GetStandardHtmlElementTemplate(local),
         };
