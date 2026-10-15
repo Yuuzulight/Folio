@@ -109,7 +109,7 @@ public static class DomBindings
                     return Promise.resolve(new MediaStream([]));
                 }
             };
-            globalThis.MediaStreamTrack = function(kind) { this.id = 'track-' + Math.random().toString(16).slice(2); this.kind = String(kind || ''); this.enabled = true; this.muted = false; this.readyState = 'live'; this.stop = function() { this.readyState = 'ended'; }; this.clone = function() { return new MediaStreamTrack(this.kind); }; };
+            globalThis.MediaStreamTrack = function(kind) { this.id = 'track-' + Math.random().toString(16).slice(2); this.kind = String(kind || ''); this.enabled = true; this._muted = false; this.readyState = 'live'; this.onended = null; this.onmute = null; this.onunmute = null; Object.defineProperty(this, 'muted', { get: function() { return this._muted; }, set: function(next) { next = !!next; if (next !== this._muted) { this._muted = next; var handler = next ? this.onmute : this.onunmute; if (handler) handler({ track: this }); } } }); this.stop = function() { if (this.readyState !== 'ended') { this.readyState = 'ended'; if (this.onended) this.onended({ track: this }); } }; this.clone = function() { return new MediaStreamTrack(this.kind); }; };
             globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks ? tracks.slice() : []; this.onaddtrack = null; this.onremovetrack = null; };
             Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
             MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
