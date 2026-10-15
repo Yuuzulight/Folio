@@ -77,7 +77,7 @@ internal sealed class DomNodeTemplates
         ImageDataTemplate = new HostObjectTemplate("ImageData")
             .DefineProperty("width", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Width))
             .DefineProperty("height", (target, _) => ScriptValue.FromNumber(((CanvasImageDataState)target).Height))
-            .DefineProperty("data", (target, _) => _context.Engine.CreateArray(((CanvasImageDataState)target).Data.Select(value => ScriptValue.FromNumber(value)).ToArray()));
+            .DefineProperty("data", (target, _) => ((CanvasImageDataState)target).GetDataArray(_context.Engine));
         CanvasRenderingContextTemplate = new HostObjectTemplate("CanvasRenderingContext2D")
             .DefineProperty("fillStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).FillStyle), (target, _, value) => SetCanvasStyle((CanvasElementState)target, value, stroke: false))
             .DefineProperty("strokeStyle", (target, _) => ScriptValue.FromString(((CanvasElementState)target).StrokeStyle), (target, _, value) => SetCanvasStyle((CanvasElementState)target, value, stroke: true))
@@ -130,6 +130,11 @@ internal sealed class DomNodeTemplates
                 if (args.Length > 0 && _context.Engine.TryGetHostTarget(args[0], out var imageTarget) && imageTarget is CanvasImageDataState image)
                 {
                     var state = (CanvasElementState)target;
+                    if (_context.Engine.TryGetArrayItems(image.GetDataArray(_context.Engine), out var values))
+                    {
+                        for (var i = 0; i < image.Data.Length && i < values.Count; i++)
+                            image.Data[i] = Math.Clamp(WebIdlConversions.ToInt32(values[i]), 0, 255);
+                    }
                     Array.Copy(image.Data, state.Pixels, Math.Min(image.Data.Length, state.Pixels.Length));
                 }
                 return ScriptValue.Undefined;

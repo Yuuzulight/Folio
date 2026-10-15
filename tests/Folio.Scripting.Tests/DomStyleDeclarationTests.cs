@@ -83,6 +83,24 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
+    {
+        var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+
+        var result = engine.Evaluate(@"
+            const ctx = document.getElementById('chart').getContext('2d');
+            const image = ctx.createImageData(1, 1);
+            image.data[0] = 255; image.data[3] = 255;
+            ctx.putImageData(image, 0, 0);
+            const copy = ctx.getImageData(0, 0, 1, 1);
+            `${copy.data[0]},${copy.data[3]}`;");
+
+        Assert.Equal("255,255", result.AsString());
+    }
+
+    [Fact]
     public void CanvasContextSupportsStateAndTransformOperations()
     {
         var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");

@@ -53,7 +53,19 @@ internal sealed record CanvasTextMetricsState(double Width);
 
 internal sealed class CanvasImageDataState(int width, int height)
 {
+    private ScriptValue _dataArray;
+    private bool _hasDataArray;
     public int Width { get; } = width;
     public int Height { get; } = height;
     public int[] Data { get; } = new int[Math.Min(4_000_000, Math.Max(0, width * height * 4))];
+
+    public ScriptValue GetDataArray(IScriptEngine engine)
+    {
+        if (!_hasDataArray)
+        {
+            _dataArray = engine.CreateArray(Data.Select(value => ScriptValue.FromNumber(value)).ToArray());
+            _hasDataArray = true;
+        }
+        return _dataArray;
+    }
 }

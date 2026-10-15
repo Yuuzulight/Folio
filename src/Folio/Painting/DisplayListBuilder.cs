@@ -679,11 +679,11 @@ internal static class DisplayListBuilder
                     path.Close();
                     break;
                 case "fill" when path.Commands.Count > 0:
-                    list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Path: path));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Blend: blend, Gradient: gradient, Path: path));
                     path = new PathData();
                     break;
                 case "stroke" when path.Commands.Count > 0:
-                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Path: path, Stroke: new Stroke(1)));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Blend: blend, Gradient: gradient, Path: path, Stroke: new Stroke(1)));
                     path = new PathData();
                     break;
             }
