@@ -98,6 +98,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(allowed, allowedDocument);
         Assert.True(allowed.Evaluate("const gl = document.getElementById('c').getContext('webgl2'); gl !== null && gl.ARRAY_BUFFER === 34962").AsBoolean());
         Assert.True(allowed.Evaluate("const glAgain = document.getElementById('c').getContext('webgl2'); glAgain.getParameter(glAgain.VERSION) === 'WebGL 2.0 Folio'").AsBoolean());
+        Assert.True(allowed.Evaluate("gl.drawingBufferWidth === 300 && gl.drawingBufferHeight === 150 && gl.getContextAttributes().depth === true").AsBoolean());
         Assert.True(allowed.Evaluate("gl.getParameter(gl.MAX_TEXTURE_SIZE) === 4096 && gl.getParameter(gl.VERSION).includes('WebGL 2.0') && gl.getSupportedExtensions()[0] === 'WEBGL_lose_context'").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("const typed = new Float32Array(4); gl.bufferData(gl.ARRAY_BUFFER, typed, gl.STATIC_DRAW); gl.getError()").AsNumber());

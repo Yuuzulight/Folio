@@ -158,6 +158,7 @@ internal sealed class WebGlContextState
     public int Error { get; private set; }
     public bool Lost { get; private set; }
     public int AllocatedBytes { get; private set; }
+    public CanvasElementState Canvas => _canvas;
     public float ClearR { get; private set; }
     public float ClearG { get; private set; }
     public float ClearB { get; private set; }

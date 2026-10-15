@@ -544,6 +544,8 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("VENDOR", (_, _) => ScriptValue.FromNumber(0x1F00));
         t.DefineProperty("RENDERER", (_, _) => ScriptValue.FromNumber(0x1F01));
         t.DefineProperty("SHADING_LANGUAGE_VERSION", (_, _) => ScriptValue.FromNumber(0x8B8C));
+        t.DefineProperty("drawingBufferWidth", (target, _) => ScriptValue.FromNumber(ReadCanvasDimension(((WebGlContextState)target).Canvas, "width", 300)));
+        t.DefineProperty("drawingBufferHeight", (target, _) => ScriptValue.FromNumber(ReadCanvasDimension(((WebGlContextState)target).Canvas, "height", 150)));
         t.DefineProperty("oncontextlost", (target, _) => ((WebGlContextState)target).OnContextLost, (target, _, value) => ((WebGlContextState)target).OnContextLost = value);
         t.DefineProperty("oncontextrestored", (target, _) => ((WebGlContextState)target).OnContextRestored, (target, _, value) => ((WebGlContextState)target).OnContextRestored = value);
         t.DefineMethod("getParameter", (target, _, args) =>
@@ -562,6 +564,7 @@ internal sealed class DomNodeTemplates
             };
         });
         t.DefineMethod("getSupportedExtensions", (target, _, _) => _context.Engine.CreateArray([ScriptValue.FromString("WEBGL_lose_context")]));
+        t.DefineMethod("getContextAttributes", (_, _, _) => _context.Engine.Evaluate("({ alpha: true, depth: true, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })"));
         t.DefineMethod("createBuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Buffers[handle] = []; return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundArrayBuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("bufferData", (target, _, args) =>
@@ -692,6 +695,9 @@ internal sealed class DomNodeTemplates
                 ? _context.Engine.CreateHostObject(WebGlLoseContextTemplate, target)
                 : ScriptValue.Null);
         return t;
+
+        static uint ReadCanvasDimension(CanvasElementState canvas, string name, uint fallback) =>
+            uint.TryParse(canvas.Element.GetAttribute(name), out var value) ? value : fallback;
 
         static ScriptValue StoreUniform(WebGlContextState state, ReadOnlySpan<ScriptValue> args, int count)
         {
