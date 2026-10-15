@@ -101,6 +101,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("gl.drawingBufferWidth === 300 && gl.drawingBufferHeight === 150 && gl.getContextAttributes().depth === true").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("gl.enable(gl.DEPTH_TEST); gl.clearDepth(0.5); gl.depthFunc(gl.LEQUAL); gl.clear(gl.DEPTH_BUFFER_BIT); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD); gl.getError()").AsNumber());
+        Assert.Equal(0, allowed.Evaluate("gl.enable(gl.STENCIL_TEST); gl.stencilFunc(0x0207, 1, 0xff); gl.stencilOp(0x1e00, 0x1e00, 0x1e00); gl.clearStencil(0); gl.getError()").AsNumber());
         Assert.True(allowed.Evaluate("gl.getParameter(gl.MAX_TEXTURE_SIZE) === 4096 && gl.getParameter(gl.VERSION).includes('WebGL 2.0') && gl.getSupportedExtensions()[0] === 'WEBGL_lose_context'").AsBoolean());
         Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
         Assert.Equal(0, allowed.Evaluate("const typed = new Float32Array(4); gl.bufferData(gl.ARRAY_BUFFER, typed, gl.STATIC_DRAW); gl.getError()").AsNumber());

@@ -152,6 +152,13 @@ internal sealed class WebGlContextState
     public uint BlendSourceFactor { get; set; } = 1;
     public uint BlendDestinationFactor { get; set; } = 0;
     public uint BlendEquation { get; set; } = 0x8006;
+    public uint StencilFunction { get; set; } = 0x0207;
+    public int StencilReference { get; set; }
+    public uint StencilMask { get; set; } = 0xFFFFFFFF;
+    public uint StencilFail { get; set; }
+    public uint StencilDepthFail { get; set; }
+    public uint StencilDepthPass { get; set; }
+    public int ClearStencil { get; set; }
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
     public HashSet<uint> VertexArrays { get; } = [];

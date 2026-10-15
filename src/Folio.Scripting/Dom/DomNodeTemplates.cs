@@ -538,6 +538,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("SRC_ALPHA", (_, _) => ScriptValue.FromNumber(0x0302));
         t.DefineProperty("ONE_MINUS_SRC_ALPHA", (_, _) => ScriptValue.FromNumber(0x0303));
         t.DefineProperty("FUNC_ADD", (_, _) => ScriptValue.FromNumber(0x8006));
+        t.DefineProperty("STENCIL_TEST", (_, _) => ScriptValue.FromNumber(0x0B90));
         t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
         t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
@@ -653,6 +654,9 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("depthFunc", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DepthFunction = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("blendFunc", (target, _, args) => { if (args.Length > 1) { var state = (WebGlContextState)target; state.BlendSourceFactor = WebIdlConversions.ToUint32(args[0]); state.BlendDestinationFactor = WebIdlConversions.ToUint32(args[1]); } return ScriptValue.Undefined; });
         t.DefineMethod("blendEquation", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).BlendEquation = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
+        t.DefineMethod("stencilFunc", (target, _, args) => { if (args.Length > 2) { var state = (WebGlContextState)target; state.StencilFunction = WebIdlConversions.ToUint32(args[0]); state.StencilReference = WebIdlConversions.ToInt32(args[1]); state.StencilMask = WebIdlConversions.ToUint32(args[2]); } return ScriptValue.Undefined; });
+        t.DefineMethod("stencilOp", (target, _, args) => { if (args.Length > 2) { var state = (WebGlContextState)target; state.StencilFail = WebIdlConversions.ToUint32(args[0]); state.StencilDepthFail = WebIdlConversions.ToUint32(args[1]); state.StencilDepthPass = WebIdlConversions.ToUint32(args[2]); } return ScriptValue.Undefined; });
+        t.DefineMethod("clearStencil", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearStencil = WebIdlConversions.ToInt32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("createTexture", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Textures[handle] = (0, 0, []); return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
