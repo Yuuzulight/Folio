@@ -65,6 +65,7 @@ internal sealed class DomNodeTemplates
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
+        HtmlMediaElementTemplate = CreateHtmlMediaElementTemplate(HtmlElementTemplate);
         CanvasGradientTemplate = new HostObjectTemplate("CanvasGradient")
             .DefineMethod("addColorStop", (target, _, args) =>
             {
@@ -248,6 +249,7 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlTemplateElementTemplate { get; }
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
+    public HostObjectTemplate HtmlMediaElementTemplate { get; }
     public HostObjectTemplate CanvasRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlRenderingContextTemplate { get; }
     public HostObjectTemplate WebGlLoseContextTemplate { get; }
@@ -357,6 +359,41 @@ internal sealed class DomNodeTemplates
 
         static uint ReadDimension(ElementNode element, string name, uint fallback) =>
             uint.TryParse(element.GetAttribute(name), out var value) ? value : fallback;
+    }
+
+    private HostObjectTemplate CreateHtmlMediaElementTemplate(IHostObjectTemplate htmlElementProto)
+    {
+        var t = new HostObjectTemplate("HTMLMediaElement", htmlElementProto);
+        t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
+            (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
+        t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
+        t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
+            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration; });
+        t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
+        t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
+        t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));
+        t.DefineProperty("volume", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Volume),
+            (target, _, value) => _context.GetMedia((ElementNode)target).Volume = Math.Clamp(WebIdlConversions.ToDouble(value), 0, 1));
+        t.DefineProperty("muted", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Muted),
+            (target, _, value) => _context.GetMedia((ElementNode)target).Muted = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("autoplay", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Autoplay),
+            (target, _, value) => _context.GetMedia((ElementNode)target).Autoplay = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("loop", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Loop),
+            (target, _, value) => _context.GetMedia((ElementNode)target).Loop = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("controls", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Controls),
+            (target, _, value) => _context.GetMedia((ElementNode)target).Controls = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("readyState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).ReadyState));
+        t.DefineProperty("networkState", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).NetworkState));
+        t.DefineMethod("play", (target, _, _) => { _context.GetMedia((ElementNode)target).Play(); return ScriptValue.Undefined; });
+        t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
+        t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
+        t.DefineMethod("canPlayType", (target, _, args) =>
+        {
+            if (!_context.GetMedia((ElementNode)target).Enabled || args.Length == 0) return ScriptValue.FromString("");
+            var type = WebIdlConversions.ToDOMString(args[0]).ToLowerInvariant();
+            return ScriptValue.FromString(type.Contains("audio") || type.Contains("video") ? "maybe" : "");
+        });
+        return t;
     }
 
     private HostObjectTemplate CreateWebGlRenderingContextTemplate()

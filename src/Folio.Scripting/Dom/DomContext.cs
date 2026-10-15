@@ -12,6 +12,7 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, (double X, double Y)> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
     private readonly List<MutationObserverState> _mutationObservers = [];
     private readonly Dictionary<ElementNode, CanvasElementState> _canvases = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<ElementNode, MediaElementState> _media = new(ReferenceEqualityComparer.Instance);
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
@@ -91,6 +92,7 @@ internal sealed class DomContext
     }
 
     public CanvasElementState GetCanvas(ElementNode element) => _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element));
+    public MediaElementState GetMedia(ElementNode element) => _media.TryGetValue(element, out var state) ? state : (_media[element] = new MediaElementState(element, Capabilities.Media));
 
     public ScriptValue Wrap(Node? node)
     {
@@ -193,6 +195,7 @@ internal sealed class DomContext
             "textarea" => Templates.HtmlTextAreaElementTemplate,
             "template" => Templates.HtmlTemplateElementTemplate,
             "canvas" => Templates.HtmlCanvasElementTemplate,
+            "video" or "audio" => Templates.HtmlMediaElementTemplate,
             "script" => Templates.HtmlScriptElementTemplate,
             _ => GetStandardHtmlElementTemplate(local),
         };

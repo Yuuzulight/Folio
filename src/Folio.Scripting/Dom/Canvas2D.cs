@@ -37,6 +37,48 @@ internal sealed class CanvasElementState : ICanvasSurface
     public Stack<CanvasStyleSnapshot> SavedStyles { get; } = [];
 }
 
+internal sealed class MediaElementState
+{
+    public MediaElementState(ElementNode element, bool enabled)
+    {
+        Element = element;
+        Enabled = enabled;
+        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : 0;
+    }
+
+    public ElementNode Element { get; }
+    public bool Enabled { get; }
+    public double CurrentTime { get; set; }
+    public double Duration { get; }
+    public bool Paused { get; set; } = true;
+    public bool Ended { get; set; }
+    public double Volume { get; set; } = 1;
+    public bool Muted { get; set; }
+    public bool Autoplay { get; set; }
+    public bool Loop { get; set; }
+    public bool Controls { get; set; }
+    public int ReadyState => Enabled ? 4 : 0;
+    public int NetworkState => Enabled ? 1 : 0;
+    public string? Error { get; set; }
+
+    public void Play()
+    {
+        if (!Enabled) { Error = "Media playback is unavailable."; return; }
+        Paused = false;
+        Ended = false;
+    }
+
+    public void Pause() => Paused = true;
+
+    public void Load()
+    {
+        CurrentTime = 0;
+        Paused = true;
+        Ended = false;
+        Error = null;
+    }
+}
+
 internal sealed class WebGlContextState
 {
     private readonly CanvasElementState _canvas;
