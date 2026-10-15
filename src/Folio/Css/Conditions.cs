@@ -120,6 +120,19 @@ internal static class Conditions
 
     public static bool Supports(string source, List<ComponentValue> prelude) => Condition(source, prelude, null, allowOr: true) == true;
 
+    /// <summary>A <supports-condition>'s value: true or false, or null when the text is not a valid condition.</summary>
+    public static bool? SupportsOrInvalid(string source, List<ComponentValue> prelude) => Condition(source, prelude, null, allowOr: true);
+
+    /// <summary>CSS.supports(property, value): whether <c>property: value</c> is a declaration Folio understands.</summary>
+    public static bool SupportsDeclaration(string property, string value)
+    {
+        var text = property + ":" + value;
+        var (blockSource, block) = CssParser.ParseBlockContents(text);
+        if (block.Declarations is not [var declaration] || block.Rules.Count > 0 || declaration.Value.Count == 0)
+            return false;
+        return declaration.IsCustomProperty || Properties.Parse(blockSource, declaration) is not null;
+    }
+
     private static bool SupportsDeclaration(string source, List<ComponentValue> contents)
     {
         var (blockSource, block) = CssParser.ParseBlockContents(Text(source, contents));
