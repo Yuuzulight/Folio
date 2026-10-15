@@ -13,15 +13,15 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes);
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes);
 
         // 1. Install DOMException
         InstallDomException(engine);
@@ -74,6 +74,7 @@ public static class DomBindings
             });
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
+        engine.SetGlobalProperty("__folio_wasm_max_pages", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 65536)));
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
@@ -105,6 +106,7 @@ public static class DomBindings
             RTCPeerConnection.prototype.addIceCandidate = function() { return Promise.resolve(); };
             RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; };
             globalThis.WebAssembly = {
+                CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 validate: function(bytes) {
                     if (!__folio_wasm_enabled || !bytes || bytes.length < 8) return false;
                     return bytes[0] === 0 && bytes[1] === 97 && bytes[2] === 115 && bytes[3] === 109 && bytes[4] === 1 && bytes[5] === 0 && bytes[6] === 0 && bytes[7] === 0;
@@ -115,7 +117,19 @@ public static class DomBindings
                 },
                 instantiate: function(bytes, imports) {
                     return this.compile(bytes).then(function(module) { return { module: module, instance: { exports: {} } }; });
+                },
+                Memory: function(options) {
+                    if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    options = options || {}; this._pages = Number(options.initial) || 0;
+                    this._maximum = options.maximum === undefined ? __folio_wasm_max_pages : Number(options.maximum);
+                    if (this._pages < 0 || this._pages > this._maximum || this._pages > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
+                    this.buffer = new ArrayBuffer(this._pages * 65536);
                 }
+            };
+            WebAssembly.Memory.prototype.grow = function(delta) {
+                delta = Number(delta) || 0; var previous = this._pages; var next = previous + delta;
+                if (delta < 0 || next > this._maximum || next > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
+                this._pages = next; this.buffer = new ArrayBuffer(next * 65536); return previous;
             };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;

@@ -194,6 +194,8 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(allowed.Evaluate("WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0]))").AsBoolean());
         Assert.False(allowed.Evaluate("WebAssembly.validate(new Uint8Array([1,2,3]))").AsBoolean());
+        Assert.True(allowed.Evaluate("const memory = new WebAssembly.Memory({ initial: 1, maximum: 2 }); memory.buffer.byteLength === 65536 && memory.grow(1) === 1 && memory.buffer.byteLength === 131072").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1, maximum: 2 }).grow(2)"));
     }
 
     [Fact]

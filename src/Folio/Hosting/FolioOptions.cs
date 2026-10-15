@@ -33,6 +33,9 @@ public sealed record ResourceLimits
 
     /// <summary>Maximum serialized payload accepted by a worker postMessage call.</summary>
     public int MaxWorkerMessageBytes { get; init; } = 1 * 1024 * 1024;
+
+    /// <summary>Maximum WebAssembly linear-memory bytes available to a document.</summary>
+    public int MaxWebAssemblyBytes { get; init; } = 64 * 1024 * 1024;
 }
 
 /// <summary>Capabilities a host explicitly grants to a document.</summary>
