@@ -701,6 +701,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("uniform1i", (target, _, args) => StoreUniform((WebGlContextState)target, args, 1));
         t.DefineMethod("uniform4f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 4));
         t.DefineMethod("uniformMatrix4fv", (target, _, args) => StoreUniform((WebGlContextState)target, args, 16));
+        t.DefineMethod("getUniform", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.UniformValues.TryGetValue(WebIdlConversions.ToInt32(args[1]), out var values)) return ScriptValue.Null; return values.Length == 1 ? ScriptValue.FromNumber(values[0]) : _context.Engine.CreateArray(values.Select(ScriptValue.FromNumber).ToArray()); });
         t.DefineMethod("enable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Add(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("disable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("clearDepth", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearDepth = Math.Clamp((float)WebIdlConversions.ToDouble(args[0]), 0, 1); return ScriptValue.Undefined; });
