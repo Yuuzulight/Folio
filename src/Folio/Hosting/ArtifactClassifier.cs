@@ -36,7 +36,7 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>a resource the options' loader would refuse: stylesheets, images, scripts, <c>@import</c> and CSS
 ///   <c>url()</c>s other than <c>data:</c> URLs (the only loads the default options allow);</item>
 /// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
-/// <item>elements Folio draws only as empty boxes: MathML, <c>canvas</c>, <c>video</c>, <c>audio</c>, <c>iframe</c>,
+/// <item>elements Folio draws only as empty boxes: MathML, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
 /// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, masks, filters
 ///   and their primitives, <c>use</c>, <c>symbol</c> and markers: other SVG elements (patterns, images, animation, ...),
