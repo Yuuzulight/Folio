@@ -647,6 +647,11 @@ internal static class DisplayListBuilder
                         list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color,
                             Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
                     break;
+                case "fillText" or "strokeText":
+                    var textRect = new RectF((float)command.X, (float)command.Y - (float)command.Height,
+                        (float)command.Width, (float)command.Height);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color));
+                    break;
                 case "rect":
                     path.AddRoundedRect(new RoundedRect(new RectF((float)command.X, (float)command.Y,
                         (float)command.Width, (float)command.Height), default));

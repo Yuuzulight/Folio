@@ -2,7 +2,7 @@ using Folio.Dom;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed record CanvasCommand(string Name, double X, double Y, double Width, double Height, string FillStyle, string? StrokeStyle = null);
+internal sealed record CanvasCommand(string Name, double X, double Y, double Width, double Height, string FillStyle, string? StrokeStyle = null, string Text = "");
 
 internal sealed class CanvasElementState : ICanvasSurface
 {
@@ -16,7 +16,7 @@ internal sealed class CanvasElementState : ICanvasSurface
     public List<CanvasCommand> Commands { get; } = [];
     public int[] Pixels { get; } = new int[300 * 150 * 4];
     IReadOnlyList<CanvasSurfaceCommand> ICanvasSurface.Commands => Commands.Select(command =>
-        new CanvasSurfaceCommand(command.Name, command.X, command.Y, command.Width, command.Height, command.FillStyle, command.StrokeStyle)).ToArray();
+        new CanvasSurfaceCommand(command.Name, command.X, command.Y, command.Width, command.Height, command.FillStyle, command.StrokeStyle, command.Text)).ToArray();
     public string FillStyle { get; set; } = "#000000";
     public string StrokeStyle { get; set; } = "#000000";
     public string Font { get; set; } = "10px sans-serif";

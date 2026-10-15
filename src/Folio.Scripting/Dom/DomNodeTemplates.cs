@@ -291,7 +291,8 @@ internal sealed class DomNodeTemplates
     private static ScriptValue AddTextCommand(CanvasElementState state, string name, ScriptValue[] args)
     {
         double Number(int index) => index < args.Length ? WebIdlConversions.ToDouble(args[index]) : 0;
-        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), 0, 0, state.FillStyle, state.StrokeStyle));
+        var text = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+        state.Commands.Add(new CanvasCommand(name, Number(1), Number(2), text.Length * 7, 10, state.FillStyle, state.StrokeStyle, text));
         return ScriptValue.Undefined;
     }
 
