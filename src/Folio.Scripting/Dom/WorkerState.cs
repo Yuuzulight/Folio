@@ -1,8 +1,10 @@
+using Folio.Resources;
+
 namespace Folio.Scripting.Dom;
 
 internal sealed class WorkerState
 {
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null)
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -18,7 +20,7 @@ internal sealed class WorkerState
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
-            if (TryReadDataScript(scriptUrl, out var source)) WorkerEngine.Evaluate(source, scriptUrl);
+            if (TryReadScript(scriptUrl, resourceLoader, out var source)) WorkerEngine.Evaluate(source, scriptUrl);
         }
     }
 
@@ -77,16 +79,23 @@ internal sealed class WorkerState
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
     }
 
-    private static bool TryReadDataScript(string url, out string source)
+    private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source)
     {
         source = string.Empty;
-        if (!url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return false;
-        var comma = url.IndexOf(',');
-        if (comma < 0) return false;
-        var payload = url[(comma + 1)..];
-        source = url[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
-            ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload))
-            : Uri.UnescapeDataString(payload);
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = url.IndexOf(',');
+            if (comma < 0) return false;
+            var payload = url[(comma + 1)..];
+            source = url[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
+                ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload))
+                : Uri.UnescapeDataString(payload);
+            return true;
+        }
+        if (resourceLoader is null || !Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult();
+        if (response?.Data is not { } data) return false;
+        source = System.Text.Encoding.UTF8.GetString(data);
         return true;
     }
 }

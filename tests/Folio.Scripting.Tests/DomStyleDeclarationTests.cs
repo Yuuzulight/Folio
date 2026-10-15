@@ -3,12 +3,22 @@ using Folio.Html;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 using Folio.Scripting.Ipc;
+using Folio.Resources;
+using System.Text;
 using System.Text.Json;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class DomStyleDeclarationTests
 {
+    private sealed class WorkerResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript")
+                : ResourceResponse.Refused("unsupported"));
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -219,6 +229,19 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.ThrowsAny<Exception>(() => limited.Evaluate("const w = new Worker('data:text/javascript,'); w.postMessage('12345')"));
         Assert.ThrowsAny<Exception>(() => limited.Evaluate("w.terminate(); w.postMessage('ok')"));
+    }
+
+    [Fact]
+    public void WorkerLoadsScriptThroughConfiguredResourceLoader()
+    {
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/app/"),
+            ResourceLoader = new WorkerResourceLoader(),
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(engine.Evaluate("const loaded = new Worker('worker.js'); let result = 0; loaded.onmessage = e => result = e.data; loaded.postMessage(40); result === 42").AsBoolean());
     }
 
     [Fact]

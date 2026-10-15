@@ -1,5 +1,6 @@
 using Folio;
 using Folio.Dom;
+using Folio.Resources;
 
 namespace Folio.Scripting.Dom;
 
@@ -13,10 +14,10 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes);
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.Options.ResourceLoader, document.Options.BaseUri);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
@@ -74,8 +75,10 @@ public static class DomBindings
                 if (!context.Capabilities.Workers)
                     throw WebIdlException.DomException(DomExceptionNames.NotSupportedError, "Workers are disabled by the host.");
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-                var isolatedEngine = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
-                var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine);
+                if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolvedWorkerUrl)) url = resolvedWorkerUrl.AbsoluteUri;
+                var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
+                var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
+                var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader);
                 var worker = engine.CreateHostObject(workerTemplate, state);
                 state.Source = worker;
                 return worker;
