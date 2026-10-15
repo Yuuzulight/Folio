@@ -387,6 +387,8 @@ internal static class DisplayListBuilder
             }
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
+            if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
+                PaintCanvas(box, surface);
             // A border image that can be drawn replaces the border styles (collapsed table borders have none).
             if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border, style.BorderImage, "border-image-source"))
                 return;
@@ -527,6 +529,8 @@ internal static class DisplayListBuilder
                     PaintDropDownArrow(box);
                 else if (box.Fragment.Svg is { } svg)
                     PaintSvg(box, svg);
+                else if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
+                    PaintCanvas(box, surface);
                 else
                     PaintImage(box);
                 return;
@@ -605,6 +609,40 @@ internal static class DisplayListBuilder
                 var caretColor = style.Ui.CaretColor ?? style.Inherited.Color;
                 list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(caretRect, default), caretColor));
             }
+        }
+
+        private void PaintCanvas(PaintBox box, ICanvasSurface surface)
+        {
+            SetClip(box.Clip);
+            foreach (var command in surface.Commands)
+            {
+                if (command.Name is not ("fillRect" or "strokeRect" or "rect"))
+                    continue;
+                var color = CanvasColor(command.FillStyle);
+                var rect = new RectF(box.Rect.X + (float)command.X, box.Rect.Y + (float)command.Y,
+                    (float)command.Width, (float)command.Height);
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color));
+            }
+        }
+
+        private static CssColor CanvasColor(string value)
+        {
+            value = value.Trim();
+            if (value.StartsWith('#') && int.TryParse(value[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex))
+            {
+                if (value.Length == 4)
+                    return new CssColor(((hex >> 8) & 0xF) / 15f, ((hex >> 4) & 0xF) / 15f, (hex & 0xF) / 15f, 1);
+                if (value.Length == 7)
+                    return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
+            }
+            return value.ToLowerInvariant() switch
+            {
+                "red" => new CssColor(1, 0, 0, 1),
+                "green" => new CssColor(0, 0.5f, 0, 1),
+                "blue" => new CssColor(0, 0, 1, 1),
+                "white" => new CssColor(1, 1, 1, 1),
+                _ => CssColor.Black,
+            };
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)

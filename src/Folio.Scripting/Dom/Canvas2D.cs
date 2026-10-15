@@ -4,10 +4,18 @@ namespace Folio.Scripting.Dom;
 
 internal sealed record CanvasCommand(string Name, double X, double Y, double Width, double Height, string FillStyle);
 
-internal sealed class CanvasElementState(ElementNode element)
+internal sealed class CanvasElementState : ICanvasSurface
 {
-    public ElementNode Element { get; } = element;
+    public CanvasElementState(ElementNode element)
+    {
+        Element = element;
+        element.CanvasSurface = this;
+    }
+
+    public ElementNode Element { get; }
     public List<CanvasCommand> Commands { get; } = [];
+    IReadOnlyList<CanvasSurfaceCommand> ICanvasSurface.Commands => Commands.Select(command =>
+        new CanvasSurfaceCommand(command.Name, command.X, command.Y, command.Width, command.Height, command.FillStyle)).ToArray();
     public string FillStyle { get; set; } = "#000000";
     public string StrokeStyle { get; set; } = "#000000";
     public string Font { get; set; } = "10px sans-serif";

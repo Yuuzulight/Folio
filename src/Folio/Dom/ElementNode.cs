@@ -24,6 +24,9 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>The computed style, owned by the style module (typed there, so the DOM layer does not reference it).</summary>
     internal object? StyleData { get; set; }
 
+    /// <summary>Canvas drawing data installed by the scripting layer, when this is a canvas element.</summary>
+    internal ICanvasSurface? CanvasSurface { get; set; }
+
     /// <summary>The current form control value (separate from the 'value' content attribute).</summary>
     public string? Value { get; set; }
 
