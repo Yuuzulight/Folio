@@ -81,7 +81,7 @@ public static class ArtifactClassifier
         ];
 
         private static readonly HashSet<string> BoxOnlyElements =
-            ["canvas", "video", "audio", "iframe", "object", "embed", "frame", "frameset"];
+            ["video", "audio", "iframe", "object", "embed", "frame", "frameset"];
 
         // https://mimesniff.spec.whatwg.org/#javascript-mime-type, plus module scripts.
         private static readonly HashSet<string> ScriptTypes = new(StringComparer.OrdinalIgnoreCase)

@@ -72,7 +72,6 @@ public class ArtifactClassifierTests
     [InlineData("<svg><text rotate=\"10\">a</text></svg>", "uses the SVG text attribute rotate")]
     [InlineData("<svg><g stroke=\"red\"><text>a</text></g></svg>", "uses stroked SVG text")]
     [InlineData("<svg><path vector-effect=\"non-scaling-stroke\" /></svg>", "uses vector-effect")]
-    [InlineData("<canvas></canvas>", "uses <canvas>")]
     [InlineData("<iframe srcdoc=x></iframe>", "uses <iframe>")]
     [InlineData("<div popover>menu</div>", "uses popovers")]
     [InlineData("<style>.a { background: linear-gradient(red, blue) }</style>", "uses CSS gradients")]
@@ -91,6 +90,12 @@ public class ArtifactClassifierTests
 
         Assert.Equal(ArtifactKind.NeedsBrowser, kind);
         Assert.Contains(reasons, r => r.Contains(reason, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CanvasMarkupIsSupportedByM5()
+    {
+        Assert.Equal(ArtifactKind.Static, ArtifactClassifier.Classify("<canvas width='20' height='20'></canvas>").Kind);
     }
 
     [Theory]
