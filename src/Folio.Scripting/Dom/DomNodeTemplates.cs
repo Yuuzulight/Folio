@@ -391,7 +391,10 @@ internal sealed class DomNodeTemplates
             if (string.Equals(kind, "2d", StringComparison.OrdinalIgnoreCase))
                 return _context.Engine.CreateHostObject(CanvasRenderingContextTemplate, _context.GetCanvas((ElementNode)target));
             if (string.Equals(kind, "webgl2", StringComparison.OrdinalIgnoreCase) && _context.Capabilities.WebGl)
-                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, new WebGlContextState(_context.GetCanvas((ElementNode)target), _context.MaxGpuBytes));
+            {
+                var canvas = _context.GetCanvas((ElementNode)target);
+                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(canvas, _context.MaxGpuBytes));
+            }
             return ScriptValue.Null;
         });
         t.DefineMethod("toDataURL", (_, _, _) => ScriptValue.FromString("data:image/png;base64,"));

@@ -35,6 +35,7 @@ internal sealed class CanvasElementState : ICanvasSurface
     public string GlobalCompositeOperation { get; set; } = "source-over";
     public List<double> LineDash { get; } = [];
     public Stack<CanvasStyleSnapshot> SavedStyles { get; } = [];
+    public WebGlContextState? WebGlContext { get; set; }
 }
 
 internal sealed class MediaElementState
