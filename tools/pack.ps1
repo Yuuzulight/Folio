@@ -1,4 +1,4 @@
-# Packs Folio, Folio.Skia and Folio.WinForms into a folder that works as a local NuGet feed.
+# Packs Folio, Folio.Skia, Folio.Scripting and Folio.WinForms into a folder that works as a local NuGet feed.
 # The version is 0.1.0-m1.N, where N is the number of commits in HEAD's history, so each commit on main packs as its
 # own version. The working tree must match HEAD: the version names the commit.
 #
@@ -16,7 +16,7 @@ if ((git -C $root rev-parse --is-shallow-repository) -eq 'true') {
 $build = git -C $root rev-list --count HEAD
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-foreach ($project in 'Folio', 'Folio.Skia', 'Folio.WinForms') {
+foreach ($project in 'Folio', 'Folio.Skia', 'Folio.Scripting', 'Folio.WinForms') {
     dotnet pack (Join-Path $root "src/$project/$project.csproj") -c Release -o $Output "-p:FolioBuild=$build"
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }
