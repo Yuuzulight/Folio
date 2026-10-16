@@ -89,7 +89,7 @@ public static class Program
                 continue;
 
             var width = Viewport(folder);
-            var html = File.ReadAllText(index) + Injected(faces);
+            var html = LocalLibraries(File.ReadAllText(index), root) + Injected(faces);
             foreach (var (file, browser) in browsers)
             {
                 WaitForMemory();
@@ -106,6 +106,27 @@ public static class Program
             }
         }
         return failures == 0 ? 0 : 1;
+    }
+
+    // Library URLs in the page point at the cached files (tests/conformance-cache) instead, so the reference browser runs the
+    // same bytes Folio does and needs no network; the pins are not checked there, the cache tests check them.
+    private static string LocalLibraries(string html, string root)
+    {
+        var cache = Path.Combine(root, "tests", "conformance-cache");
+        var manifest = Path.Combine(cache, "cache.json");
+        if (!File.Exists(manifest))
+            return html;
+        using var json = JsonDocument.Parse(File.ReadAllText(manifest));
+        var replaced = false;
+        foreach (var entry in json.RootElement.GetProperty("entries").EnumerateArray())
+        {
+            var url = entry.GetProperty("url").GetString()!;
+            if (!html.Contains(url, StringComparison.Ordinal))
+                continue;
+            html = html.Replace(url, new Uri(Path.Combine(cache, "files", entry.GetProperty("file").GetString()!)).AbsoluteUri, StringComparison.Ordinal);
+            replaced = true;
+        }
+        return replaced ? Regex.Replace(html, @"\s(integrity|crossorigin)(=""[^""]*""|='[^']*')?", "", RegexOptions.IgnoreCase) : html;
     }
 
     private static (int Width, int Height) Capture(Browser browser, string html, int width, string destination)

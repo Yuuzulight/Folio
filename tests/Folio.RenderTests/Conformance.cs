@@ -32,6 +32,12 @@ public enum ConformanceOutcome
     Hang,
     LimitHit,
     ScriptFailed,
+
+    /// <summary>Marked <c>expectedToFail</c> in its manifest (it needs something not built yet) and it still does not match.</summary>
+    ExpectedFail,
+
+    /// <summary>Marked <c>expectedToFail</c> and it now matches: the mark is out of date.</summary>
+    UnexpectedPass,
 }
 
 public sealed record ConformanceResult(ConformanceArtifact Artifact, ConformanceOutcome Outcome, string? Detail)
@@ -72,7 +78,8 @@ public static class Conformance
         Fonts = TestRenderer.Options.Fonts,
         UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
         Scripting = ScriptingPolicy.ContentProcess,
-        Raster = new SkiaRasterBackend(),
+        // Library scripts come from the pinned test cache: no run needs the network (issue #487).
+        ResourceLoader = ConformanceCache.Loader,
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -107,10 +114,24 @@ public static class Conformance
 
     public static ConformanceResult Run(ConformanceArtifact artifact)
     {
+        var result = RunArtifact(artifact);
+        if (ManifestOf(artifact).ExpectedToFail is not { } reason)
+            return result;
+        return result.Outcome switch
+        {
+            ConformanceOutcome.Mismatch or ConformanceOutcome.ScriptFailed => result with { Outcome = ConformanceOutcome.ExpectedFail, Detail = $"{reason} ({result.Detail})" },
+            ConformanceOutcome.Pass or ConformanceOutcome.PassSecondary => result with { Outcome = ConformanceOutcome.UnexpectedPass, Detail = $"matches its reference now; remove expectedToFail ({reason})" },
+            _ => result,
+        };
+    }
+
+    private static ConformanceResult RunArtifact(ConformanceArtifact artifact)
+    {
         var manifest = ManifestOf(artifact);
         var reference = LoadIfExists(Path.Combine(artifact.Folder, "reference.png"));
         var secondary = LoadIfExists(Path.Combine(artifact.Folder, "reference-secondary.png"));
-        var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
+        // A page that needs the host to compile it (JSX) is rendered from its compiled form; the reference comes from index.html.
+        var html = File.ReadAllText(Path.Combine(artifact.Folder, manifest.Compiled ?? "index.html"));
         var request = new RenderRequest(manifest.Viewport, reference?.Height);
 
         // ponytail: a hung render keeps its thread spinning until the process exits; the content process (M4) is
@@ -129,14 +150,16 @@ public static class Conformance
             loop.UpdateTheRendering();
             clock.Advance(manifest.AnimationTime ?? 100);
             loop.UpdateTheRendering();
+            // The picture is the page as it loads, like the reference; the interaction script then runs against it as assertions.
+            using var result = HeadlessRenderer.Render(document, request);
+            var image = new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
             if (manifest.Interaction is { Length: > 0 } script)
             {
-                var scriptResult = RunScript(document, script, manifest.Viewport, reference?.Height);
+                var scriptResult = RunScript(document, script, manifest.Viewport, reference?.Height, new ScriptHost(loop, clock));
                 if (scriptResult is not null)
                     return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
             }
-            using var result = HeadlessRenderer.Render(document, request);
-            return (Image: (PixelBuffer?)new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray()), result.Diagnostics, ScriptFailure: (string?)null);
+            return (Image: (PixelBuffer?)image, result.Diagnostics, ScriptFailure: (string?)null);
         });
         try
         {
@@ -182,7 +205,7 @@ public static class Conformance
     /// and assertions <c>text &lt;selector&gt; &lt;expected&gt;</c>, <c>exists &lt;selector&gt;</c>.
     /// Returns null on success, or an error description string on failure.
     /// </summary>
-    public static string? RunScript(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight)
+    public static string? RunScript(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight, ScriptHost? host = null)
     {
         document.Paint(viewportWidth, viewportHeight ?? 600);
 
@@ -253,7 +276,11 @@ public static class Conformance
                     if (!int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds) || milliseconds < 0)
                         return $"step {i + 1} ({line}): expected a non-negative millisecond duration";
                     for (var elapsed = 0; elapsed < milliseconds; elapsed += 16)
+                    {
+                        host?.Clock.Advance(Math.Min(16, milliseconds - elapsed));
+                        host?.Loop.UpdateTheRendering();
                         document.Update();
+                    }
                     break;
                 }
                 case "exists":
@@ -280,10 +307,19 @@ public static class Conformance
                 default:
                     return $"step {i + 1} ({line}): unknown command '{cmd}'";
             }
+            // What the page's scripts queued in answer runs before the next step: promise jobs, then the rendering steps.
+            if (cmd is not ("wait" or "exists" or "text"))
+            {
+                host?.Loop.PerformMicrotaskCheckpoint();
+                host?.Loop.UpdateTheRendering();
+            }
         }
 
         return null;
     }
+
+    /// <summary>The page's script side of a run: the event loop and its virtual clock, so interaction steps can let timers and promise jobs run.</summary>
+    public sealed record ScriptHost(HtmlEventLoop Loop, VirtualEventLoopClock Clock);
 
     /// <summary>
     /// Where the differences are, to tell drift from local errors: the first differing row, the bounding box of the
@@ -355,8 +391,8 @@ public static class Conformance
     public static string Report(IReadOnlyList<ConformanceResult> results)
     {
         var text = new StringBuilder()
-            .AppendLine("| Category | Artifacts | Pass | Pass (secondary, review) | Mismatch | No reference | Crash | Hang | Limit hit | Pass rate |")
-            .AppendLine("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|");
+            .AppendLine("| Category | Artifacts | Pass | Pass (secondary, review) | Mismatch | No reference | Crash | Hang | Limit hit | Script failed | Expected to fail | Pass rate |")
+            .AppendLine("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|");
         foreach (var group in results.GroupBy(r => (r.Artifact.Corpus, r.Artifact.Category)).OrderBy(g => g.Key))
         {
             int Count(ConformanceOutcome o) => group.Count(r => r.Outcome == o);
@@ -366,7 +402,7 @@ public static class Conformance
             var name = (group.Key.Corpus.Length > 0 ? group.Key.Corpus + "/" : "") + group.Key.Category;
             text.AppendLine($"| {name} | {group.Count()} | {Count(ConformanceOutcome.Pass)} | {Count(ConformanceOutcome.PassSecondary)} | " +
                 $"{Count(ConformanceOutcome.Mismatch)} | {Count(ConformanceOutcome.NoReference)} | {Count(ConformanceOutcome.Crash)} | " +
-                $"{Count(ConformanceOutcome.Hang)} | {Count(ConformanceOutcome.LimitHit)} | {rate} |");
+                $"{Count(ConformanceOutcome.Hang)} | {Count(ConformanceOutcome.LimitHit)} | {Count(ConformanceOutcome.ScriptFailed)} | {Count(ConformanceOutcome.ExpectedFail)} | {rate} |");
         }
 
         var notPassed = results.Where(r => !r.Passed).ToList();
@@ -381,7 +417,8 @@ public static class Conformance
 
     private static PixelBuffer? LoadIfExists(string path) => File.Exists(path) ? PixelBuffer.LoadPng(path) : null;
 
-    public sealed record Manifest(string? Prompt = null, string[]? Features = null, int Viewport = 800, ToleranceOverride? Tolerance = null, string[]? Interaction = null, double? AnimationTime = null);
+    public sealed record Manifest(string? Prompt = null, string[]? Features = null, int Viewport = 800, ToleranceOverride? Tolerance = null, string[]? Interaction = null, double? AnimationTime = null,
+        string? Compiled = null, string? ExpectedToFail = null);
 
     public sealed record ToleranceOverride(int ChannelThreshold, double MaxDifferingRatio, string? Reason);
 }

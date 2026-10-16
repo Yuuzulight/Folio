@@ -3,3 +3,6 @@
 *.otf binary
 *.png binary
 *.jpg binary
+
+# Pinned library bytes must stay exactly as downloaded: their Subresource Integrity pins are over the bytes.
+tests/conformance-cache/files/** -text

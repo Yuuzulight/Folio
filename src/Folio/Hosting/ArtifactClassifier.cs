@@ -83,6 +83,13 @@ public static class ArtifactClassifier
         private static readonly HashSet<string> BoxOnlyElements =
             ["video", "audio", "iframe", "object", "embed", "frame", "frameset"];
 
+        // Script types an in-page compiler (Babel standalone, a TypeScript transpiler) turns into JavaScript.
+        private static readonly Dictionary<string, string> CompiledByHost = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["text/babel"] = "JSX", ["text/jsx"] = "JSX", ["application/jsx"] = "JSX", ["text/tsx"] = "JSX",
+            ["text/typescript"] = "TypeScript", ["application/typescript"] = "TypeScript", ["text/ts"] = "TypeScript",
+        };
+
         // https://mimesniff.spec.whatwg.org/#javascript-mime-type, plus module scripts.
         private static readonly HashSet<string> ScriptTypes = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -177,6 +184,11 @@ public static class ArtifactClassifier
 
             switch (tag)
             {
+                // Folio never runs an in-page compiler: the host hands it plain JavaScript in place of each JSX or TypeScript script
+                // (docs/interactive-artifacts.md, "JSX and TypeScript").
+                case "script" when CompiledByHost.TryGetValue((element.GetAttribute("type") ?? "").Trim(), out var language):
+                    Unsupported.Add($"uses in-page {language}; {language} must be compiled by the host");
+                    break;
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
                     Scripts.Add("runs scripts: a script element");
                     if (element.GetAttribute("src") is { } src)
@@ -205,6 +217,8 @@ public static class ArtifactClassifier
             if (Contains(text, "getContext('webgl") || Contains(text, "getContext(\"webgl")
                 || Contains(text, "getContext('experimental-webgl") || Contains(text, "getContext(\"experimental-webgl"))
                 Require(options.Capabilities.WebGl, "uses WebGL", "WebGL");
+            if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
+                Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
             if (Contains(text, "new Worker(") || Contains(text, "new SharedWorker("))
                 Require(options.Capabilities.Workers, "uses workers", "workers");
             if (Contains(text, "WebAssembly."))

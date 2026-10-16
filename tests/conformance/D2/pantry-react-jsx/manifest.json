@@ -1,0 +1,28 @@
+{
+  "prompt": "Make a pantry stock tracker with React and JSX: a list of items with plus and minus steppers, category filter chips, a count of items to restock, and low stock highlighted.",
+  "features": [
+    "script",
+    "react",
+    "jsx",
+    "hooks",
+    "event-handlers",
+    "filter",
+    "flex",
+    "grid",
+    "custom-properties"
+  ],
+  "viewport": 800,
+  "compiled": "compiled.html",
+  "interaction": [
+    "click [data-chip=\"Oils\"]",
+    "text footer 2 of 8 items shown",
+    "click [data-id=\"3\"]>.stepper>[aria-label=\"more\"]",
+    "text [data-id=\"3\"]>.stepper>output 3",
+    "click [data-chip=\"All\"]",
+    "text footer 8 of 8 items shown",
+    "click [data-id=\"8\"]>.stepper>[aria-label=\"more\"]",
+    "click [data-id=\"8\"]>.stepper>[aria-label=\"more\"]",
+    "text [data-id=\"8\"]>.stepper>output 2",
+    "text header>p 4 items to restock"
+  ]
+}
