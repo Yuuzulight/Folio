@@ -1,4 +1,5 @@
 using Folio.Diagrams;
+using System.Text.RegularExpressions;
 
 namespace Folio.Tests.Diagrams;
 
@@ -29,7 +30,8 @@ public sealed class DiagramRendererTests
         var svg = DiagramRenderer.Render("pie title Sales\n\"North\" : 60\n\"South\" : 40");
         Assert.Contains("North", svg);
         Assert.Contains("South", svg);
-        Assert.Contains("width=\"300", svg);
+        Assert.Equal(2, Regex.Matches(svg, "folio-diagram-slice").Count);
+        Assert.Contains(" A 130 130", svg);
     }
 
     [Fact]
@@ -45,6 +47,17 @@ public sealed class DiagramRendererTests
         Assert.Contains("er-edge", DiagramRenderer.Render("erDiagram\nCUSTOMER ||--o{ ORDER : places"));
         Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\n2024 : Launch"));
         Assert.Contains("gantt-task", DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d"));
+    }
+
+    [Fact]
+    public void PieDiagramUsesArcSlicesAndInvariantNumbers()
+    {
+        var svg = DiagramRenderer.Render("pie title Sales\n\"North\" : 60.5\n\"South\" : 39.5");
+
+        Assert.Equal(2, Regex.Matches(svg, "folio-diagram-slice").Count);
+        Assert.Contains("data-label=\"North\"", svg);
+        Assert.Contains(" A 130 130", svg);
+        Assert.Contains("39.5", svg);
     }
 
     [Theory]

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Xml;
+using System.Globalization;
 
 namespace Folio.Diagrams;
 
@@ -87,7 +88,7 @@ public static class DiagramRenderer
         if (first.StartsWith("erDiagram", StringComparison.OrdinalIgnoreCase))
             return lines.Any(line => line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).Length >= 3);
         if (first.StartsWith("pie", StringComparison.OrdinalIgnoreCase))
-            return lines.Any(line => line.Contains(':') && double.TryParse(line[(line.IndexOf(':') + 1)..].Trim(), out _));
+            return lines.Any(line => line.Contains(':') && double.TryParse(line[(line.IndexOf(':') + 1)..].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out _));
         if (first.StartsWith("timeline", StringComparison.OrdinalIgnoreCase))
             return lines.Any(line => line.Contains(':'));
         if (first.StartsWith("gantt", StringComparison.OrdinalIgnoreCase))
@@ -98,12 +99,29 @@ public static class DiagramRenderer
     private static string RenderPie(IEnumerable<string> lines)
     {
         var slices = lines.Select(line => line.Split(':', 2, StringSplitOptions.TrimEntries))
-            .Where(parts => parts.Length == 2 && double.TryParse(parts[1], out _))
-            .Select(parts => (Label: parts[0].Trim('"'), Value: double.Parse(parts[1])))
+            .Where(parts => parts.Length == 2 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            .Select(parts => (Label: parts[0].Trim('"'), Value: double.Parse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture)))
+            .Where(slice => slice.Value > 0)
             .ToList();
         var total = slices.Sum(slice => slice.Value);
-        var bars = slices.Select((slice, i) => $"<rect class=\"folio-diagram-slice\" x=\"40\" y=\"{40 + i * 36}\" width=\"{Math.Max(1, 500 * slice.Value / Math.Max(1, total)):0.##}\" height=\"24\"/><text class=\"folio-diagram-label\" x=\"560\" y=\"{58 + i * 36}\">{XmlEscape(slice.Label)} ({slice.Value:0.##})</text>");
-        return Svg(bars, []);
+        if (total <= 0) return Svg([], []);
+        const double cx = 230, cy = 190, radius = 130;
+        var angle = -Math.PI / 2;
+        var arcs = new List<string>();
+        var legend = new List<string>();
+        for (var i = 0; i < slices.Count; i++)
+        {
+            var slice = slices[i];
+            var end = angle + slice.Value / total * Math.PI * 2;
+            var x1 = cx + radius * Math.Cos(angle); var y1 = cy + radius * Math.Sin(angle);
+            var x2 = cx + radius * Math.Cos(end); var y2 = cy + radius * Math.Sin(end);
+            var large = end - angle > Math.PI ? 1 : 0;
+            var path = $"M {cx:0.##} {cy:0.##} L {x1:0.##} {y1:0.##} A {radius:0.##} {radius:0.##} 0 {large} 1 {x2:0.##} {y2:0.##} Z";
+            arcs.Add($"<path class=\"folio-diagram-slice\" data-label=\"{XmlEscape(slice.Label)}\" d=\"{path}\"/>");
+            legend.Add($"<text class=\"folio-diagram-label folio-diagram-legend\" x=\"470\" y=\"{70 + i * 28}\">{XmlEscape(slice.Label)} ({slice.Value.ToString("0.##", CultureInfo.InvariantCulture)})</text>");
+            angle = end;
+        }
+        return Svg(arcs.Concat(legend), []);
     }
 
     private static string RenderFlow(IEnumerable<string> lines)
