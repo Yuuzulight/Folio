@@ -110,7 +110,14 @@ internal sealed class DomContext
     public int MaxWorkerMessageBytes { get; }
     public int MaxWorkers { get; }
     public long MaxWorkerMemoryBytes { get; }
-    public bool TryAcquireWorker() => MaxWorkers > 0 && Interlocked.Increment(ref _workerCount) <= MaxWorkers;
+    public bool TryAcquireWorker()
+    {
+        if (MaxWorkers <= 0) return false;
+        var count = Interlocked.Increment(ref _workerCount);
+        if (count <= MaxWorkers) return true;
+        Interlocked.Decrement(ref _workerCount);
+        return false;
+    }
     public void ReleaseWorker() { if (Interlocked.Decrement(ref _workerCount) < 0) Interlocked.Exchange(ref _workerCount, 0); }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }

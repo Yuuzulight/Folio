@@ -116,7 +116,7 @@ internal sealed class WorkerState
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
-        foreach (var item in transferred) WorkerEngine.TryDetachArrayBuffer(item);
+        foreach (var item in transferred) WorkerEngine!.TryDetachArrayBuffer(item);
     }
 
     private static IReadOnlyList<ScriptValue> TransferList(IScriptEngine engine, ScriptValue transfer)

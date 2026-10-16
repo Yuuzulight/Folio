@@ -102,10 +102,19 @@ public static class DomBindings
                 if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolvedWorkerUrl)) url = resolvedWorkerUrl.AbsoluteUri;
                 var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
-                var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.ReleaseWorker);
-                var worker = engine.CreateHostObject(workerTemplate, state);
-                state.Source = worker;
-                return worker;
+                try
+                {
+                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.ReleaseWorker);
+                    var worker = engine.CreateHostObject(workerTemplate, state);
+                    state.Source = worker;
+                    return worker;
+                }
+                catch
+                {
+                    context.ReleaseWorker();
+                    isolatedEngine?.Dispose();
+                    throw;
+                }
             });
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
