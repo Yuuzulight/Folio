@@ -18,11 +18,11 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 ## Verification baseline
 
 - `dotnet build Folio.slnx --no-restore`: passes.
-- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,809 passed, 5 environment-dependent Unicode and symlink tests skipped.
+- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,810 passed, 5 environment-dependent Unicode and symlink tests skipped.
 - `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 458/458 passed.
-- `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7`: 60/60 passed.
+- `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7`: 51 passed and 9 explicit expected failures, with no unexpected failures.
 - `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj --no-restore`: 454/454 passed.
 
 ## Milestone status
 
-Milestone 5 is in progress using the dependency-backed Jint engine. Remaining work includes complete diagram-library artifact coverage, the native-engine implementation and dual-engine tests, final classifier routing, and the closing tracking work. The Folio-owned engine described in [`native-engine-plan.md`](native-engine-plan.md) remains a later replacement project.
+Milestone 5 is complete on the dependency-backed Jint engine. The native-engine implementation and dual-engine matrix are deliberately deferred to the Folio-owned replacement project described in [`native-engine-plan.md`](native-engine-plan.md); the M5 tracker records those issues as deferred rather than presenting the dependency-backed path as native.
