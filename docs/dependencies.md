@@ -112,6 +112,8 @@ public interface ITextShaper
 
 ### JavaScript engine — Jint
 
+**M5 decision (2026-10-16):** keep Jint as the dependency-backed engine behind `IScriptEngine` while scripted parity is completed. We are not selecting a native JIT binding for M5: it would add architecture-specific binaries and a second binding surface before the corpus demonstrates that Jint misses a required bar. The Folio-owned parser, VM, and optimizer remain the planned replacement after the dependency-backed path is complete.
+
 **Why it is hard to build**: a standards-conforming ECMAScript engine (the whole language, its built-in library, regular expressions, garbage-collected object model, and enough speed for library bundles) is a project of its own, unrelated to rendering.
 
 **Swap-out interface**:
