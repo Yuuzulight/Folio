@@ -56,7 +56,7 @@ internal sealed partial class Canvas2DContext
     /// <summary>fillText and strokeText (HTML §4.12.5.1.10).</summary>
     public void DrawText(string text, double x, double y, double? maxWidth, bool stroke)
     {
-        if (!Finite(x, y) || maxWidth is { } limit && (double.IsNaN(limit) || limit <= 0) || _styles is null || _styles.Resolve(State.Font) is not { } style)
+        if (!Finite(x, y) || maxWidth is { } limit && (double.IsNaN(limit) || limit <= 0) || _styles is null || _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning) is not { } style)
             return;
         var layout = _styles.Layout(Flatten(text), style, RightToLeft);
         if (layout.Runs.Count == 0)
@@ -88,7 +88,7 @@ internal sealed partial class Canvas2DContext
     // ponytail: actualBoundingBox* use the font's ascent and descent and the advance width, not the glyph outlines.
     public CanvasTextMetrics MeasureText(string text)
     {
-        if (_styles is null || _styles.Resolve(State.Font) is not { } style)
+        if (_styles is null || _styles.Resolve(State.Font, State.LetterSpacing, State.WordSpacing, State.FontKerning) is not { } style)
             return new CanvasTextMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
         var layout = _styles.Layout(Flatten(text), style, RightToLeft);
         var (offsetX, offsetY) = Anchor(layout);

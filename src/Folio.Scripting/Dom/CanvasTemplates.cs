@@ -550,8 +550,18 @@ internal sealed class CanvasTemplates
             if (kerning is "auto" or "normal" or "none")
                 Ctx(target).State.FontKerning = kerning;
         });
-        t.DefineProperty("letterSpacing", (target, _) => ScriptValue.FromString(Ctx(target).State.LetterSpacing), (target, _, value) => Ctx(target).State.LetterSpacing = WebIdlConversions.ToDOMString(value));
-        t.DefineProperty("wordSpacing", (target, _) => ScriptValue.FromString(Ctx(target).State.WordSpacing), (target, _, value) => Ctx(target).State.WordSpacing = WebIdlConversions.ToDOMString(value));
+        t.DefineProperty("letterSpacing", (target, _) => ScriptValue.FromString(Ctx(target).State.LetterSpacing), (target, _, value) =>
+        {
+            var spacing = WebIdlConversions.ToDOMString(value).Trim();
+            if (spacing.Length <= 64 && Conditions.SupportsDeclaration("letter-spacing", spacing))
+                Ctx(target).State.LetterSpacing = spacing;
+        });
+        t.DefineProperty("wordSpacing", (target, _) => ScriptValue.FromString(Ctx(target).State.WordSpacing), (target, _, value) =>
+        {
+            var spacing = WebIdlConversions.ToDOMString(value).Trim();
+            if (spacing.Length <= 64 && Conditions.SupportsDeclaration("word-spacing", spacing))
+                Ctx(target).State.WordSpacing = spacing;
+        });
         t.DefineProperty("fontStretch", (target, _) => ScriptValue.FromString(Ctx(target).State.FontStretch), (target, _, value) => Ctx(target).State.FontStretch = WebIdlConversions.ToDOMString(value));
         t.DefineProperty("fontVariantCaps", (target, _) => ScriptValue.FromString(Ctx(target).State.FontVariantCaps), (target, _, value) => Ctx(target).State.FontVariantCaps = WebIdlConversions.ToDOMString(value));
         t.DefineProperty("textRendering", (target, _) => ScriptValue.FromString(Ctx(target).State.TextRendering), (target, _, value) => Ctx(target).State.TextRendering = WebIdlConversions.ToDOMString(value));

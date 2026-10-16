@@ -79,6 +79,82 @@ public class CanvasReftests
             "<text x='20' y='70' font-family='Source Sans 3' font-size='40' fill='#000'>Folio 42</text>"),
     };
 
+    // ---- references that are HTML and CSS rather than SVG: blend modes, conic gradients, shadows and filters
+
+    private const string Stage = "<div style='position:relative;width:200px;height:120px;isolation:isolate'>{0}</div>";
+
+    private static string Box(int x, int y, int width, int height, string style) =>
+        $"<div style='position:absolute;left:{x}px;top:{y}px;width:{width}px;height:{height}px;{style}'></div>";
+
+    private static readonly string[] BlendModes =
+    [
+        "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light",
+        "difference", "exclusion", "hue", "saturation", "color", "luminosity",
+    ];
+
+    private static readonly Dictionary<string, (string Script, string Html)> Css = BuildCss();
+
+    private static Dictionary<string, (string, string)> BuildCss()
+    {
+        var cases = new Dictionary<string, (string, string)>();
+        foreach (var mode in BlendModes)
+        {
+            cases["blend-" + mode] = (
+                $"ctx.fillStyle = '#d9803a'; ctx.fillRect(20, 20, 100, 70); ctx.globalCompositeOperation = '{mode}'; ctx.fillStyle = '#3a8ed9'; ctx.fillRect(60, 40, 100, 70);",
+                string.Format(Stage, Box(20, 20, 100, 70, "background:#d9803a") + Box(60, 40, 100, 70, $"background:#3a8ed9;mix-blend-mode:{mode}")));
+        }
+        cases["conicGradient"] = (
+            "var g = ctx.createConicGradient(0, 100, 60); g.addColorStop(0, '#f00'); g.addColorStop(0.5, '#00f'); g.addColorStop(1, '#f00'); ctx.fillStyle = g; ctx.fillRect(0, 0, 200, 120);",
+            string.Format(Stage, Box(0, 0, 200, 120, "background:conic-gradient(from 90deg at 100px 60px, #f00, #00f, #f00)")));
+        cases["shadow"] = (
+            "ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 16; ctx.shadowOffsetX = 10; ctx.shadowOffsetY = 12; ctx.fillStyle = '#4a9'; ctx.fillRect(40, 20, 80, 50);",
+            string.Format(Stage, Box(40, 20, 80, 50, "background:#4a9;box-shadow:10px 12px 16px rgba(0,0,0,0.5)")));
+        cases["hardShadow"] = (
+            "ctx.shadowColor = '#c33'; ctx.shadowOffsetX = -14; ctx.shadowOffsetY = 9; ctx.fillStyle = '#39c'; ctx.fillRect(70, 20, 80, 50);",
+            string.Format(Stage, Box(70, 20, 80, 50, "background:#39c;box-shadow:-14px 9px 0 #c33")));
+        cases["filterBlur"] = (
+            "ctx.filter = 'blur(4px)'; ctx.fillStyle = '#c63'; ctx.fillRect(50, 30, 100, 50);",
+            string.Format(Stage, Box(50, 30, 100, 50, "background:#c63;filter:blur(4px)")));
+        cases["filterColour"] = (
+            "ctx.filter = 'grayscale(0.6) contrast(1.4) hue-rotate(40deg)'; ctx.fillStyle = '#c63'; ctx.fillRect(50, 30, 100, 50);",
+            string.Format(Stage, Box(50, 30, 100, 50, "background:#c63;filter:grayscale(0.6) contrast(1.4) hue-rotate(40deg)")));
+        cases["filterDropShadow"] = (
+            "ctx.filter = 'drop-shadow(8px 8px 4px rgba(0, 0, 0, 0.6))'; ctx.fillStyle = '#39c'; ctx.fillRect(40, 20, 90, 50);",
+            string.Format(Stage, Box(40, 20, 90, 50, "background:#39c;filter:drop-shadow(8px 8px 4px rgba(0,0,0,0.6))")));
+        return cases;
+    }
+
+    public static TheoryData<string> CssCases => new(Css.Keys);
+
+    [Theory]
+    [MemberData(nameof(CssCases))]
+    public void CanvasDrawingMatchesTheSameThingInCss(string name)
+    {
+        var (script, html) = Css[name];
+        var outputBase = Path.Combine(RenderOutput.Root, "canvas-reftests", name);
+        RenderOutput.Clear(outputBase);
+        var expected = Render(html);
+        var actual = Render(CanvasTag, script);
+        var result = ImageComparer.Compare(expected, actual, new Tolerance(24, 0.01));
+        if (!result.Passed)
+            RenderOutput.Write(outputBase, actual, expected, result.Diff);
+        Assert.True(result.Passed, $"{name}: {result.DifferingRatio * 100:F2}% of pixels differ");
+    }
+
+    [Fact]
+    public void ACanvasPatternMatchesAnSvgPattern()
+    {
+        const string Script = "var s = document.getElementById('s').getContext('2d'); s.fillStyle = '#d33'; s.fillRect(0, 0, 5, 10); s.fillStyle = '#33d'; s.fillRect(5, 0, 5, 10);"
+            + "ctx.fillStyle = ctx.createPattern(document.getElementById('s'), 'repeat'); ctx.fillRect(15, 15, 170, 90);";
+        var svg = Svg("<defs><pattern id='p' width='10' height='10' patternUnits='userSpaceOnUse'><rect width='5' height='10' fill='#d33'/><rect x='5' width='5' height='10' fill='#33d'/></pattern></defs><rect x='15' y='15' width='170' height='90' fill='url(#p)'/>");
+        var expected = Render(svg);
+        var actual = Render(CanvasTag + "<canvas id='s' width='10' height='10' style='display:none'></canvas>", Script);
+        var result = ImageComparer.Compare(expected, actual, new Tolerance(24, 0.01));
+        if (!result.Passed)
+            RenderOutput.Write(Path.Combine(RenderOutput.Root, "canvas-reftests", "pattern"), actual, expected, result.Diff);
+        Assert.True(result.Passed, $"pattern: {result.DifferingRatio * 100:F2}% of pixels differ");
+    }
+
     [Theory]
     [MemberData(nameof(Cases))]
     public void CanvasDrawingMatchesTheSameShapesInSvg(string name)

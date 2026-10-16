@@ -1135,6 +1135,50 @@ public class CanvasTests
     }
 
     [Fact]
+    public void LetterAndWordSpacingWidenText()
+    {
+        using var page = new Page(fonts: true);
+        page.Js("ctx.font = '20px sans-serif'; ''");
+        var plain = page.Num("ctx.measureText('a b').width");
+        Assert.Equal(plain + 6, page.Num("ctx.letterSpacing = '2px'; ctx.measureText('a b').width"), 1);
+        Assert.Equal(plain + 6 + 10, page.Num("ctx.wordSpacing = '10px'; ctx.measureText('a b').width"), 1);
+        Assert.Equal("2px", page.Js("ctx.letterSpacing = 'wide'; ctx.letterSpacing"));
+        Assert.Equal("10px", page.Js("ctx.wordSpacing = '1 2'; ctx.wordSpacing"));
+        // spacing is part of the state
+        Assert.Equal("0px", page.Js("canvas.width = 100; ctx.letterSpacing"));
+    }
+
+    [Fact]
+    public void RightToLeftTextIsShapedAndOrderedByTheBidiAlgorithm()
+    {
+        using var page = new Page(fonts: true);
+        // Arabic and Hebrew draw, and measure the same as the same text in an inline box laid out by the engine
+        foreach (var (family, text) in new[] { ("Noto Sans Arabic", "سلام"), ("Noto Sans Hebrew", "שלום") })
+        {
+            page.Js($"ctx.font = \"30px '{family}'\"; ctx.clearRect(0, 0, 100, 60); ctx.fillText('{text}', 10, 45); ''");
+            var ink = Enumerable.Range(0, 100).Count(x => Enumerable.Range(0, 60).Any(y => int.Parse(page.Pixel(x, y).Split(',')[3]) > 100));
+            Assert.True(ink > 15, $"{family}: {ink}");
+        }
+    }
+
+    [Theory]
+    [InlineData("Folio Box", "Hello, world 123")]
+    [InlineData("Source Sans 3", "Fast waves, AVAVA fi")]
+    [InlineData("Noto Sans Arabic", "سلام عليكم")]
+    [InlineData("Noto Sans Hebrew", "שלום עולם")]
+    [InlineData("Noto Sans JP", "こんにちは世界")]
+    public void MeasureTextAgreesWithInlineLayoutForTheSameText(string family, string text)
+    {
+        using var page = new Page($"<canvas id='c' width='100' height='60'></canvas><div style=\"position:absolute;top:0;left:0;white-space:nowrap\"><span id='t' style=\"font:30px '{family}'\">{text}</span></div>", fonts: true);
+        page.Document.Paint(800, 600, 1, new HarfBuzzShaper());
+        var span = page.Document.Node.Descendants.OfType<Folio.Dom.ElementNode>().Single(e => e.LocalName == "span");
+        var inline = page.Document.GetElementBounds(span)!.Value.Width;
+        var measured = page.Num($"ctx.font = \"30px '{family}'\"; ctx.measureText('{text}').width");
+        Assert.True(measured > 10);
+        Assert.InRange(measured, inline - 0.05, inline + 0.05);
+    }
+
+    [Fact]
     public void WithoutFontsTextIsMeasuredAndDrawsNothing()
     {
         using var page = new Page();
