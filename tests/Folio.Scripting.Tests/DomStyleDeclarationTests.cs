@@ -298,6 +298,9 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Media = true }
         }));
         Assert.Equal(0.052, mpeg.Evaluate("document.getElementById('a').duration").AsNumber(), 3);
+        using var corrupt = new JintScriptEngine();
+        DomBindings.Install(corrupt, Document.Parse("<audio id='a' src='data:audio/wav;base64,AAAA'></audio>", new FolioOptions { Capabilities = new FeatureCapabilities { Media = true } }));
+        Assert.True(corrupt.Evaluate("const a = document.getElementById('a'); let errorType = ''; a.onerror = e => errorType = e.type; a.load(); a.error !== null && errorType === 'error'").AsBoolean());
         Assert.True(allowed.Evaluate("const audio = new Audio('/sound.ogg'); audio instanceof HTMLAudioElement && audio.src === '/sound.ogg'").AsBoolean());
         Assert.True(allowed.Evaluate("const stream = new MediaStream([]); v.srcObject = stream; v.srcObject === stream").AsBoolean());
 

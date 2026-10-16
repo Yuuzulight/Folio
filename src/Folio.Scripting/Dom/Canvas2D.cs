@@ -19,6 +19,7 @@ internal sealed class MediaElementState
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
+        if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes)) Error = "Media resource is corrupt or truncated.";
     }
 
     public ElementNode Element { get; }
@@ -51,6 +52,7 @@ internal sealed class MediaElementState
     public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
+    public ScriptValue OnError { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
     private readonly IResourceLoader? _resourceLoader;
     private readonly Uri? _baseUri;
@@ -88,12 +90,13 @@ internal sealed class MediaElementState
         {
             SourceBytes = bytes.LongLength;
             Duration = ParseMediaDuration(bytes);
+            Error = LooksLikeMedia(bytes) ? null : "Media resource is corrupt or truncated.";
         }
         CurrentTime = 0;
         Paused = true;
         Ended = false;
-        Error = null;
-        Dispatch(OnLoadedMetadata, "loadedmetadata");
+        if (Error is { }) Dispatch(OnError, "error");
+        else Dispatch(OnLoadedMetadata, "loadedmetadata");
     }
 
     public string CanPlayType(string type)
@@ -135,6 +138,12 @@ internal sealed class MediaElementState
         var wav = ParseWavDuration(bytes);
         return wav > 0 ? wav : ParseMpegDuration(bytes);
     }
+
+    private static bool LooksLikeMedia(byte[] bytes) =>
+        bytes.Length >= 12 && ((bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) && bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8)) ||
+        bytes.AsSpan(0, 4).SequenceEqual("OggS"u8) || bytes.AsSpan(0, 3).SequenceEqual("ID3"u8) ||
+        (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0) || bytes.AsSpan(4, 4).SequenceEqual("ftyp"u8) ||
+        (bytes[0] == 0x1A && bytes[1] == 0x45 && bytes[2] == 0xDF && bytes[3] == 0xA3));
 
     private static double ParseMpegDuration(byte[]? bytes)
     {
