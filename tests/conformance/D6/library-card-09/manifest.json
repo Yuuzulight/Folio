@@ -1,0 +1,19 @@
+{
+  "prompt": "Build a diagram builder using a pinned React library.",
+  "features": [
+    "script",
+    "react",
+    "event-handlers",
+    "library-cache"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "click #b",
+    "text #value 1"
+  ],
+  "tolerance": {
+    "channelThreshold": 16,
+    "maxDifferingRatio": 0.02,
+    "reason": "The pinned browser and Folio use the same DOM and script path; this small fixture is reviewed with a documented bundled-font and rasterization tolerance."
+  }
+}

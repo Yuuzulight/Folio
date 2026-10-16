@@ -4,7 +4,7 @@ This document records the current M5 implementation and verification baseline.
 
 ## Conformance
 
-The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus still needs to grow to at least ten reviewed artifacts per category before pass-rate claims are meaningful. The current inventory is D2=2, D3=1, D4=1, D5=1, D6=1, and D7=1.
+The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total); the current conformance run passes all 60, including their interaction scripts.
 
 ## Implemented surface
 
@@ -16,10 +16,11 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 ## Verification baseline
 
 - `dotnet build Folio.slnx --no-restore`: passes.
-- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,808 passed, 5 environment-dependent Unicode and symlink tests skipped.
-- `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 451/451 passed.
+- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,809 passed, 5 environment-dependent Unicode and symlink tests skipped.
+- `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 458/458 passed.
+- `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7`: 60/60 passed.
 - `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj --no-restore`: 454/454 passed.
 
 ## Milestone status
 
-Milestone 5 is in progress using the dependency-backed Jint engine. Remaining work includes reviewed D2–D7 corpus expansion, complete diagram-library artifact coverage, the engine investigation, final classifier routing, and the closing tracking work. The Folio-owned engine described in [`native-engine-plan.md`](native-engine-plan.md) remains a later replacement project.
+Milestone 5 is in progress using the dependency-backed Jint engine. Remaining work includes complete diagram-library artifact coverage, the native-engine implementation and dual-engine tests, final classifier routing, and the closing tracking work. The Folio-owned engine described in [`native-engine-plan.md`](native-engine-plan.md) remains a later replacement project.
