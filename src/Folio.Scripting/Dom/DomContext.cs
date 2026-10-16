@@ -15,6 +15,7 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, MediaElementState> _media = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private long _mediaBytesAllocated;
+    private int _workerCount;
     private CssomRegistry? _cssom;
 
     /// <summary>The document's CSSOM sheets and rules.</summary>
@@ -75,7 +76,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -87,6 +88,8 @@ internal sealed class DomContext
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
+        MaxWorkers = Math.Max(0, maxWorkers);
+        MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
@@ -105,6 +108,10 @@ internal sealed class DomContext
     public int MaxMediaBytes { get; }
     public int MaxMediaDecoders { get; }
     public int MaxWorkerMessageBytes { get; }
+    public int MaxWorkers { get; }
+    public long MaxWorkerMemoryBytes { get; }
+    public bool TryAcquireWorker() => MaxWorkers > 0 && Interlocked.Increment(ref _workerCount) <= MaxWorkers;
+    public void ReleaseWorker() { if (Interlocked.Decrement(ref _workerCount) < 0) Interlocked.Exchange(ref _workerCount, 0); }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }

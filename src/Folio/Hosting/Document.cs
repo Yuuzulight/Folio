@@ -36,6 +36,8 @@ public sealed class Document : IDisposable
     public int MaxMediaBytes => Options.Limits.MaxMediaBytes;
     public int MaxMediaDecoders => Options.Limits.MaxMediaDecoders;
     public int MaxWorkerMessageBytes => Options.Limits.MaxWorkerMessageBytes;
+    public int MaxWorkers => Options.Limits.MaxWorkers;
+    public long MaxWorkerMemoryBytes => Options.Limits.MaxWorkerMemoryBytes;
     public int MaxWebAssemblyBytes => Options.Limits.MaxWebAssemblyBytes;
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;

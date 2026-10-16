@@ -355,7 +355,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; let eventType = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === w && e.target === w; eventType = e.type; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example' && sourceMatches && eventType === 'message'").AsBoolean());
         Assert.True(allowed.Evaluate("const isolated = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data + 1); };')); let isolatedSeen = 0; isolated.onmessage = e => isolatedSeen = e.data; isolated.postMessage(41); isolatedSeen === 42").AsBoolean());
         Assert.True(allowed.Evaluate("const cloneWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage({ nested: e.data.nested }); };')); let cloned = null; cloneWorker.onmessage = e => cloned = e.data; const original = { nested: 7 }; cloneWorker.postMessage(original); cloned.nested === 7 && cloned !== original").AsBoolean());
-        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("const cyclic = {}; cyclic.self = cyclic; cloneWorker.postMessage(cyclic)"));
+        Assert.True(allowed.Evaluate("const cyclicWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data.self === e.data); };')); let cycleSeen = false; cyclicWorker.onmessage = e => cycleSeen = e.data; const cyclic = {}; cyclic.self = cyclic; cyclicWorker.postMessage(cyclic); cycleSeen").AsBoolean());
         Assert.True(allowed.Evaluate("const richWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { const d=e.data; postMessage(d.map.get(\"k\") + d.set.has(9) + d.date.getUTCFullYear() + d.re.test(\"abc\") + d.bytes[1] + (d.self === d)); };')); let rich = 0; richWorker.onmessage = e => rich = e.data; const richValue = { map: new Map([[\"k\", 3]]), set: new Set([9]), date: new Date('2020-01-01T00:00:00Z'), re: /abc/, bytes: new Uint8Array([4, 8]), self: null }; richValue.self = richValue; richWorker.postMessage(richValue); rich === '3true2020true8true'").AsBoolean());
         Assert.True(allowed.Evaluate("const transferWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data.byteLength); };')); let transferredLength = 0; transferWorker.onmessage = e => transferredLength = e.data; const buffer = new ArrayBuffer(4); transferWorker.postMessage(buffer, [buffer]); transferredLength === 4 && buffer.byteLength === 0").AsBoolean());
         Assert.True(allowed.Evaluate("const broken = new Worker('data:text/javascript,' + encodeURIComponent('throw new Error(\\\"boom\\\");')); let workerError = ''; broken.onerror = e => workerError = e.message; broken.postMessage(1); workerError === 'boom'").AsBoolean());
@@ -372,6 +372,14 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.ThrowsAny<Exception>(() => limited.Evaluate("const w = new Worker('data:text/javascript,'); w.postMessage('12345')"));
         Assert.ThrowsAny<Exception>(() => limited.Evaluate("w.terminate(); w.postMessage('ok')"));
+
+        using var workerLimited = new JintScriptEngine();
+        DomBindings.Install(workerLimited, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkers = 1 }
+        }));
+        Assert.ThrowsAny<Exception>(() => workerLimited.Evaluate("const first = new Worker('data:text/javascript,'); new Worker('data:text/javascript,')"));
     }
 
     [Fact]

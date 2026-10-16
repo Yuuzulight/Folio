@@ -4,7 +4,9 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class WorkerState
 {
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null)
+    private readonly Action? _releaseWorker;
+    private bool _released;
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, Action? releaseWorker = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -13,6 +15,8 @@ internal sealed class WorkerState
         Enabled = enabled;
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
         WorkerEngine = workerEngine;
+        _releaseWorker = releaseWorker;
+        WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes) });
         EnsureCloneHelpers(Engine);
         if (WorkerEngine is not null) EnsureCloneHelpers(WorkerEngine);
         if (WorkerEngine is not null)
@@ -79,6 +83,7 @@ internal sealed class WorkerState
         Terminated = true;
         WorkerEngine?.Interrupt();
         WorkerEngine?.Dispose();
+        if (!_released) { _released = true; _releaseWorker?.Invoke(); }
     }
     public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
     {
