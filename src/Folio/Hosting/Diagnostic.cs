@@ -16,6 +16,9 @@ public enum DiagnosticCode
 
     /// <summary>An uncaught error was thrown during script execution.</summary>
     ScriptError,
+
+    /// <summary>Folio selected a native implementation for a recognized library-backed feature.</summary>
+    FeatureRouted,
 }
 
 public enum Severity

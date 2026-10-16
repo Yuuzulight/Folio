@@ -80,6 +80,12 @@ public sealed class FolioOptions
     /// </summary>
     public Resources.IResourceLoader? ResourceLoader { get; init; }
 
+    /// <summary>
+    /// Pinned diagram-library URLs that Folio may replace with its own diagram stand-in. The URL must match the
+    /// resolved <c>script src</c> exactly; leaving this empty keeps ordinary script loading behaviour.
+    /// </summary>
+    public IReadOnlySet<string> DiagramLibraryUrls { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Whether parse errors are recorded in <see cref="Document.Diagnostics"/>; limit hits always are.</summary>
     public bool CollectDiagnostics { get; init; } = true;
 

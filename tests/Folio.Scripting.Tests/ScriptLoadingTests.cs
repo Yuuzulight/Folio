@@ -31,11 +31,11 @@ public class ScriptLoadingTests
     private static string Integrity(string algorithm, string body) =>
         algorithm + "-" + Convert.ToBase64String(algorithm == "sha256" ? SHA256.HashData(Encoding.UTF8.GetBytes(body)) : SHA384.HashData(Encoding.UTF8.GetBytes(body)));
 
-    private static (string Log, FakeLoader Loader, List<Diagnostic> Diagnostics) Run(string html, FakeLoader? loader = null)
+    private static (string Log, FakeLoader Loader, List<Diagnostic> Diagnostics) Run(string html, FakeLoader? loader = null, FolioOptions? optionsOverride = null)
     {
         loader ??= new FakeLoader();
         var diagnostics = new List<Diagnostic>();
-        var options = new FolioOptions { Scripting = ScriptingPolicy.ContentProcess, BaseUri = new Uri("https://example.com/app/index.html"), ResourceLoader = loader };
+        var options = optionsOverride ?? new FolioOptions { Scripting = ScriptingPolicy.ContentProcess, BaseUri = new Uri("https://example.com/app/index.html"), ResourceLoader = loader };
         var document = TreeBuilder.Parse(html, new ParserLimits(ScriptingEnabled: true));
         using var engine = new JintScriptEngine();
         var loop = new HtmlEventLoop(engine);
@@ -45,6 +45,43 @@ public class ScriptLoadingTests
         engine.Evaluate("window.log = [];");
         runner.Run();
         return (engine.Evaluate("window.log.join(';')").AsString()!, loader, diagnostics);
+    }
+
+    [Fact]
+    public void ConfiguredDiagramLibraryIsReplacedAndItsSourceIsNotEvaluated()
+    {
+        var loader = new FakeLoader();
+        loader.Scripts["https://example.com/app/mermaid.js"] = "throw new Error('library must not run');";
+        var options = new FolioOptions
+        {
+            Scripting = ScriptingPolicy.ContentProcess,
+            BaseUri = new Uri("https://example.com/app/index.html"),
+            ResourceLoader = loader,
+            DiagramLibraryUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://example.com/app/mermaid.js" }
+        };
+        var (log, _, diagnostics) = Run("<div class='mermaid'>flowchart LR\nA[Start] --> B[Finish]</div><script src='mermaid.js'></script><script>mermaid.run(); log.push(document.querySelector('.mermaid').innerHTML.includes('<svg'));</script>", optionsOverride: options);
+
+        Assert.Equal("true", log);
+        Assert.DoesNotContain(diagnostics, d => d.Code == DiagnosticCode.ScriptError);
+        Assert.Contains(diagnostics, d => d.Feature == "diagrams");
+    }
+
+    [Fact]
+    public void UnsupportedDiagramSyntaxRunsTheConfiguredLibrary()
+    {
+        var loader = new FakeLoader();
+        loader.Scripts["https://example.com/app/mermaid.js"] = "mermaid = { run: function() { document.querySelector('.mermaid').innerHTML = '<p>fallback</p>'; } };";
+        var options = new FolioOptions
+        {
+            Scripting = ScriptingPolicy.ContentProcess,
+            BaseUri = new Uri("https://example.com/app/index.html"),
+            ResourceLoader = loader,
+            DiagramLibraryUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://example.com/app/mermaid.js" }
+        };
+        var (log, _, diagnostics) = Run("<div class='mermaid'>unsupportedDiagram x</div><script src='mermaid.js'></script><script>mermaid.run(); log.push(document.querySelector('.mermaid').textContent);</script>", optionsOverride: options);
+
+        Assert.Equal("fallback", log);
+        Assert.DoesNotContain(diagnostics, d => d.Feature == "diagrams");
     }
 
     [Fact]

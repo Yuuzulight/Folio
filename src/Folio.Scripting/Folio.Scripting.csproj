@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Folio\Folio.csproj" />
+    <ProjectReference Include="..\Folio.Diagrams\Folio.Diagrams.csproj" />
   </ItemGroup>
 
   <ItemGroup>

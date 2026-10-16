@@ -217,6 +217,21 @@ public class ArtifactClassifierTests
     }
 
     [Fact]
+    public void ConfiguredDiagramLibraryAndBlocksStayInFolio()
+    {
+        var options = new FolioOptions
+        {
+            BaseUri = new Uri("https://example.com/app/index.html"),
+            DiagramLibraryUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://cdn.example.com/mermaid.js" }
+        };
+        var result = ArtifactClassifier.Classify("<div class='mermaid'>flowchart LR\nA --> B</div><script src='https://cdn.example.com/mermaid.js'></script>", options);
+
+        Assert.Equal(ArtifactKind.Scripted, result.Kind);
+        Assert.Contains(result.Reasons, reason => reason.Contains("Folio.Diagrams", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("do not allow", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ALimitHitNeedsTheBrowser()
     {
         var options = new FolioOptions { Limits = ResourceLimits.Default with { MaxNestingDepth = 4 } };

@@ -1,4 +1,5 @@
 using Folio.Dom;
+using Folio.Diagrams;
 using Folio.Resources;
 
 namespace Folio.Scripting;
@@ -17,6 +18,7 @@ public sealed class ScriptRunner : IDisposable
     private readonly List<Diagnostic> _diagnostics;
     private readonly Uri _baseUri;
     private readonly HashSet<ElementNode> _pendingScripts = new(ReferenceEqualityComparer.Instance);
+    private bool _diagramStandInInstalled;
     private bool _disposed;
 
     public ScriptRunner(Document document, IScriptEngine engine, HtmlEventLoop eventLoop, FolioOptions? options = null, List<Diagnostic>? diagnostics = null)
@@ -142,6 +144,7 @@ public sealed class ScriptRunner : IDisposable
 
         var navigatorObj = _engine.CreateHostObject(navigatorTemplate, new object());
         _engine.SetGlobalProperty("navigator", navigatorObj);
+
     }
 
     private static string GetOrigin(Uri uri)
@@ -297,6 +300,21 @@ public sealed class ScriptRunner : IDisposable
             }
 
             scriptUrl = resolved;
+
+            if (IsConfiguredDiagramLibrary(scriptUrl) && CanUseDiagramStandIn())
+            {
+                if (!_diagramStandInInstalled)
+                {
+                    DiagramBindings.Install(_engine);
+                    _diagramStandInInstalled = true;
+                }
+                script.ScriptAlreadyStarted = true;
+                _diagnostics.Add(new Diagnostic(DiagnosticCode.FeatureRouted, Severity.Info,
+                    "Replaced the configured diagram library with Folio.Diagrams.", null, "diagrams"));
+                FireScriptEvent(script, "load");
+                return;
+            }
+
             var integrity = script.GetAttribute("integrity");
             var request = new ResourceRequest(resolved, ResourceKind.Script, integrity);
 
@@ -340,6 +358,27 @@ public sealed class ScriptRunner : IDisposable
 
         // An inline script runs where it is and fires no load event.
         ExecuteSource(scriptSource, scriptUrl, isModule ? null : script);
+    }
+
+    private bool IsConfiguredDiagramLibrary(string url) =>
+        _options.DiagramLibraryUrls.Contains(url);
+
+    private bool CanUseDiagramStandIn()
+    {
+        var blocks = _document.Descendants.OfType<ElementNode>()
+            .Where(HasDiagramBlock)
+            .ToList();
+        if (blocks.Count == 0)
+            return false;
+        return blocks.All(block => DiagramRenderer.TryRender(block.TextContent ?? "", out _));
+    }
+
+    private static bool HasDiagramBlock(ElementNode element)
+    {
+        var classes = element.GetAttribute("class") ?? "";
+        return classes.Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries)
+            .Contains("mermaid", StringComparer.OrdinalIgnoreCase)
+            || element.GetAttribute("data-diagram") is not null;
     }
 
     // https://html.spec.whatwg.org/multipage/scripting.html#execute-the-script-element: an external script fires load at its

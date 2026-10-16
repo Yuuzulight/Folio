@@ -72,6 +72,7 @@ public static class ArtifactClassifier
     {
         public readonly HashSet<string> Unsupported = [];
         public readonly HashSet<string> Scripts = [];
+        private bool _diagramBlockSeen;
 
         // Media blocks count when they match some screen: a phone or a wide window.
         private readonly MediaContext[] _screens =
@@ -126,7 +127,9 @@ public static class ArtifactClassifier
                     Unsupported.Add($"hits a limit: {diagnostic.Message}");
             }
 
-            foreach (var element in document.QuerySelectorAll("*"))
+            var elements = document.QuerySelectorAll("*");
+            _diagramBlockSeen = elements.Any(HasDiagramBlock);
+            foreach (var element in elements)
                 Element(element);
 
             foreach (var script in document.QuerySelectorAll("script"))
@@ -192,7 +195,12 @@ public static class ArtifactClassifier
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
                     Scripts.Add("runs scripts: a script element");
                     if (element.GetAttribute("src") is { } src)
-                        Load(src, "a script");
+                    {
+                        if (!IsConfiguredDiagramLibrary(src) || !_diagramBlockSeen)
+                            Load(src, "a script");
+                        else
+                            Scripts.Add("renders diagram blocks through Folio.Diagrams");
+                    }
                     break;
                 case "style":
                     StyleSheet(element.TextContent);
@@ -207,6 +215,27 @@ public static class ArtifactClassifier
                         Image(candidate.Split(' ', 2)[0]);
                     break;
             }
+
+            if (HasDiagramBlock(element))
+                _diagramBlockSeen = true;
+        }
+
+        private bool IsConfiguredDiagramLibrary(string url)
+        {
+            url = url.Trim();
+            if (options.DiagramLibraryUrls.Contains(url))
+                return true;
+            if (options.BaseUri is not null && Uri.TryCreate(options.BaseUri, url, out var resolved))
+                return options.DiagramLibraryUrls.Contains(resolved.AbsoluteUri);
+            return false;
+        }
+
+        private static bool HasDiagramBlock(Element element)
+        {
+            var classes = element.GetAttribute("class") ?? "";
+            var hasMermaidClass = classes.Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries)
+                .Contains("mermaid", StringComparer.OrdinalIgnoreCase);
+            return hasMermaidClass || element.GetAttribute("data-diagram") is not null;
         }
 
         private void ScriptSource(string? source)

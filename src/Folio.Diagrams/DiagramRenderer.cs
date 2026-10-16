@@ -6,6 +6,26 @@ namespace Folio.Diagrams;
 /// <summary>Small, dependency-free renderer for the diagram text used by scripted artifacts.</summary>
 public static class DiagramRenderer
 {
+    /// <summary>Attempts to render a supported diagram description without silently accepting another language.</summary>
+    public static bool TryRender(string source, out string svg)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var first = source.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
+        if (!IsSupportedHeader(first))
+        {
+            svg = "";
+            return false;
+        }
+        var lines = source.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!HasSupportedConstruct(first, lines.Skip(1)))
+        {
+            svg = "";
+            return false;
+        }
+        svg = Render(source);
+        return true;
+    }
+
     public static string Render(string source)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -24,9 +44,44 @@ public static class DiagramRenderer
             return RenderTimeline(lines.Skip(1));
         if (lines[0].StartsWith("gantt", StringComparison.OrdinalIgnoreCase))
             return RenderGantt(lines.Skip(1));
-        return lines[0].StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase)
-            ? RenderSequence(lines.Skip(1))
-            : RenderFlow(lines);
+        if (lines[0].StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase))
+            return RenderSequence(lines.Skip(1));
+        if (lines[0].StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) || lines[0].StartsWith("graph", StringComparison.OrdinalIgnoreCase))
+            return RenderFlow(lines.Skip(1));
+        return Svg([], []);
+    }
+
+    private static bool IsSupportedHeader(string first) =>
+        first.StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("graph", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("classDiagram", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("stateDiagram", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("erDiagram", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("timeline", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("gantt", StringComparison.OrdinalIgnoreCase) ||
+        first.StartsWith("pie", StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasSupportedConstruct(string first, IEnumerable<string> body)
+    {
+        var lines = body.Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith("%%", StringComparison.Ordinal)).ToArray();
+        if (first.StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) || first.StartsWith("graph", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Contains("--", StringComparison.Ordinal));
+        if (first.StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Contains("->>", StringComparison.Ordinal));
+        if (first.StartsWith("stateDiagram", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Contains("-->", StringComparison.Ordinal));
+        if (first.StartsWith("classDiagram", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Contains("<|--", StringComparison.Ordinal) || line.Contains("..>", StringComparison.Ordinal) || line.Contains("class ", StringComparison.OrdinalIgnoreCase));
+        if (first.StartsWith("erDiagram", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).Length >= 3);
+        if (first.StartsWith("pie", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Contains(':') && double.TryParse(line[(line.IndexOf(':') + 1)..].Trim(), out _));
+        if (first.StartsWith("timeline", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Contains(':'));
+        if (first.StartsWith("gantt", StringComparison.OrdinalIgnoreCase))
+            return lines.Any(line => line.Split(',', StringSplitOptions.TrimEntries).Length >= 3);
+        return false;
     }
 
     private static string RenderPie(IEnumerable<string> lines)

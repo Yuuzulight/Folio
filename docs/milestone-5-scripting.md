@@ -10,7 +10,7 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 
 - MutationObserver, CSSOM rule mutation, restricted `fetch`, integrity checks and allowlisted script handling.
 - Canvas 2D state, paths, gradients, transforms, compositing, functional colors, image data mutation, and raster-backed content-host rendering.
-- Native diagram parsing/layout/SVG writing for flowchart, sequence, class, state, and entity-relationship forms on the local development branch; wiring, Gantt, pie, timeline, and the Mermaid stand-in remain.
+- Native diagram parsing/layout/SVG writing for flowchart, sequence, class, state, entity-relationship, Gantt, pie, and timeline forms, with configured Mermaid-library routing through the Folio stand-in and unsupported syntax fallback.
 - Content-process shutdown and watchdog handling, including closed-pipe cleanup during termination.
 
 ## Verification baseline
