@@ -86,7 +86,7 @@ public static class DomBindings
                     throw WebIdlException.DomException(DomExceptionNames.InvalidStateError, "The worker has been terminated.");
                 if (args.Length > 0 && args[0].IsFunction)
                     throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a worker.");
-                if (args.Length > 0 && !((WorkerState)target).PostMessage(args[0]))
+                if (args.Length > 0 && !((WorkerState)target).PostMessage(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined))
                     throw WebIdlException.DomException("DataCloneError", "The worker message exceeds the host limit.");
                 return ScriptValue.Undefined;
             })

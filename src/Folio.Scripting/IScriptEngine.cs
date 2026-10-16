@@ -58,6 +58,15 @@ public interface IScriptEngine : IDisposable
     /// <summary>Writes <paramref name="bytes"/> into the elements of a <c>Uint8Array</c> or <c>Uint8ClampedArray</c> of the same length; false if it is not one.</summary>
     bool TrySetBytes(ScriptValue value, ReadOnlySpan<byte> bytes) => false;
 
+    /// <summary>Reads an ArrayBuffer without exposing the engine's object handle.</summary>
+    bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes) { bytes = []; return false; }
+
+    /// <summary>Creates an ArrayBuffer owned by this engine.</summary>
+    ScriptValue CreateArrayBuffer(ReadOnlySpan<byte> bytes) => throw new NotSupportedException();
+
+    /// <summary>Detaches an ArrayBuffer, as required by a transfer list.</summary>
+    bool TryDetachArrayBuffer(ScriptValue value) => false;
+
     /// <summary>Sets a global property on the engine's global object.</summary>
     void SetGlobalProperty(string name, ScriptValue value);
 

@@ -16,7 +16,7 @@ internal sealed class WorkerState
         if (WorkerEngine is not null)
         {
             var bridge = new HostObjectTemplate("WorkerBridge")
-                .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0]); } return ScriptValue.Undefined; });
+                .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined); } return ScriptValue.Undefined; });
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
             var imports = new HostObjectTemplate("WorkerImports")
@@ -78,16 +78,18 @@ internal sealed class WorkerState
         WorkerEngine?.Interrupt();
         WorkerEngine?.Dispose();
     }
-    public bool PostMessage(ScriptValue value)
+    public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
         if (_scriptError is not null && !Terminated) { DispatchError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
+            var transferred = TransferList(Engine, transfer);
             WorkerEngine.SetGlobalProperty("__folio_worker_message_data", CloneIntoWorker(value));
             WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
             WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
             WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
+            foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
             return true;
         }
         if (Enabled && !Terminated && OnMessage.IsFunction)
@@ -99,18 +101,32 @@ internal sealed class WorkerState
         return true;
     }
 
-    private void DispatchToParent(ScriptValue value)
+    private void DispatchToParent(ScriptValue value, ScriptValue transfer)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return;
+        var transferred = TransferList(WorkerEngine!, transfer);
         value = CloneIntoParent(value);
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+        foreach (var item in transferred) WorkerEngine.TryDetachArrayBuffer(item);
+    }
+
+    private static IReadOnlyList<ScriptValue> TransferList(IScriptEngine engine, ScriptValue transfer)
+    {
+        if (transfer.IsNullOrUndefined) return [];
+        if (!engine.TryGetArrayItems(transfer, out var items))
+            throw WebIdlException.DomException("DataCloneError", "The transfer list must be an array.");
+        foreach (var item in items)
+            if (!engine.TryGetArrayBufferBytes(item, out _))
+                throw WebIdlException.DomException("DataCloneError", "Only ArrayBuffer values may be transferred.");
+        return items;
     }
 
     private ScriptValue CloneIntoWorker(ScriptValue value)
     {
         if (value.IsNullOrUndefined || !value.IsObject) return value;
+        if (Engine.TryGetArrayBufferBytes(value, out var buffer)) return WorkerEngine!.CreateArrayBuffer(buffer);
         try
         {
             Engine.SetGlobalProperty("__folio_clone_value", value);
@@ -131,6 +147,7 @@ internal sealed class WorkerState
     private ScriptValue CloneIntoParent(ScriptValue value)
     {
         if (value.IsNullOrUndefined || !value.IsObject) return value;
+        if (WorkerEngine!.TryGetArrayBufferBytes(value, out var buffer)) return Engine.CreateArrayBuffer(buffer);
         try
         {
             WorkerEngine!.SetGlobalProperty("__folio_clone_value", value);

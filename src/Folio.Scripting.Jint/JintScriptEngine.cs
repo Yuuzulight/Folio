@@ -306,6 +306,53 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
         return true;
     }
 
+    public bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes)
+    {
+        bytes = [];
+        if (value.IsNullOrUndefined || value.IsFunction) return false;
+        try
+        {
+            SetGlobalProperty("__folio_array_buffer", value);
+            if (!string.Equals(Evaluate("Object.prototype.toString.call(__folio_array_buffer)").AsString(), "[object ArrayBuffer]", StringComparison.Ordinal))
+            {
+                SetGlobalProperty("__folio_array_buffer", ScriptValue.Undefined);
+                return false;
+            }
+            var array = Evaluate("Array.from(new Uint8Array(__folio_array_buffer))");
+            SetGlobalProperty("__folio_array_buffer", ScriptValue.Undefined);
+            if (!TryGetArrayItems(array, out var items)) return false;
+            bytes = items.Select(item => (byte)Math.Clamp(item.AsNumber(), 0, 255)).ToArray();
+            return true;
+        }
+        catch
+        {
+            SetGlobalProperty("__folio_array_buffer", ScriptValue.Undefined);
+            return false;
+        }
+    }
+
+    public ScriptValue CreateArrayBuffer(ReadOnlySpan<byte> bytes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return ToScriptValue(_engine!.Intrinsics.ArrayBuffer.Construct(bytes.ToArray()));
+    }
+
+    public bool TryDetachArrayBuffer(ScriptValue value)
+    {
+        try
+        {
+            SetGlobalProperty("__folio_transfer_buffer", value);
+            Evaluate("__folio_transfer_buffer.transfer()");
+            SetGlobalProperty("__folio_transfer_buffer", ScriptValue.Undefined);
+            return true;
+        }
+        catch
+        {
+            SetGlobalProperty("__folio_transfer_buffer", ScriptValue.Undefined);
+            return false;
+        }
+    }
+
     public bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items)
     {
         if (value.Raw is ArrayInstance array)
