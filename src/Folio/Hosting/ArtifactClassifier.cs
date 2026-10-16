@@ -196,6 +196,8 @@ public static class ArtifactClassifier
                     Scripts.Add("runs scripts: a script element");
                     if (element.GetAttribute("src") is { } src)
                     {
+                        if (IsKnownCanvasLibrary(src) && document.QuerySelectorAll("canvas").Count > 0)
+                            Unsupported.Add("uses a canvas library whose painting is not yet pixel-equivalent: Chart.js");
                         if (!IsConfiguredDiagramLibrary(src) || !_diagramBlockSeen)
                             Load(src, "a script");
                         else
@@ -229,6 +231,10 @@ public static class ArtifactClassifier
                 return options.DiagramLibraryUrls.Contains(resolved.AbsoluteUri);
             return false;
         }
+
+        private static bool IsKnownCanvasLibrary(string url) =>
+            url.Contains("chart.js", StringComparison.OrdinalIgnoreCase) ||
+            url.Contains("chart.umd", StringComparison.OrdinalIgnoreCase);
 
         private static bool HasDiagramBlock(Element element)
         {

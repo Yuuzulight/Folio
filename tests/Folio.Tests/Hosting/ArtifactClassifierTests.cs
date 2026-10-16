@@ -232,6 +232,15 @@ public class ArtifactClassifierTests
     }
 
     [Fact]
+    public void ChartJsCanvasPaintingIsRoutedToTheBrowserUntilPixelParity()
+    {
+        var result = ArtifactClassifier.Classify("<canvas id='chart'></canvas><script src='https://cdn.example.com/chart.umd.min.js'></script>");
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
+        Assert.Contains(result.Reasons, reason => reason.Contains("Chart.js", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ALimitHitNeedsTheBrowser()
     {
         var options = new FolioOptions { Limits = ResourceLimits.Default with { MaxNestingDepth = 4 } };
