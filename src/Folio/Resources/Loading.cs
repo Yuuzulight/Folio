@@ -12,6 +12,9 @@ public enum ResourceKind
     Document,
     Media,
     SvgImage,
+
+    /// <summary>Data a script reads with <c>fetch()</c>: any content type, GET only, with no cookies, credentials or Referer.</summary>
+    Fetch,
 }
 
 /// <summary>A load a document asks for: an absolute URL and what it is for.</summary>

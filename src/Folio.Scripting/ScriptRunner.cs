@@ -38,6 +38,7 @@ public sealed class ScriptRunner : IDisposable
 
         // Hook dynamic script insertions into connected document
         _document.NodeInserted += OnNodeInserted;
+        _document.DiagnosticSink = _diagnostics.Add;
     }
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
