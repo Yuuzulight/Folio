@@ -51,10 +51,15 @@ internal sealed class IframeState
     public void LoadInlineDocument()
     {
         if (ChildDocument is not null || !Enabled) return;
+        var inline = Element.GetAttribute("srcdoc");
         var source = Element.GetAttribute("src") ?? string.Empty;
         if (BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved)) source = resolved.AbsoluteUri;
         string html;
-        if (source.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
+        if (inline is not null)
+        {
+            html = inline;
+        }
+        else if (source.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
         {
             var comma = source.IndexOf(',');
             if (comma < 0) return;
