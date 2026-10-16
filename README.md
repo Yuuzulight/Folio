@@ -4,7 +4,7 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** milestones 1–5 are complete and in use in Mana. Milestone 6 is in progress on the dependency-backed path; the capability surfaces and host limits are implemented while native media decoding and real network WebRTC transport remain follow-on work.
+**Status:** milestones 1–4 are complete and in use in Mana. Milestone 5 is in progress: its scripting, Fetch, Canvas 2D, and conformance-cache foundations are merged, while diagrams, corpus expansion, and several host integrations remain. Milestone 6 has not started as a browser-level implementation.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
@@ -30,8 +30,8 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Done | 0 |
-| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Complete | 36 |
-| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 45 |
+| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | In progress | 36 |
+| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | Not started | 45 |
 | Optional: towards all-Folio: an in-house shaper, rasteriser and image decoders. Never a blocker for the milestones above. | Not started | 19 |
 
 Until a milestone lands, anything Folio can't handle yet opens in the system browser.
