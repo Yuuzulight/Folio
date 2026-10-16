@@ -87,7 +87,8 @@ internal sealed class DomNodeTemplates
         TextTrackCueTemplate = new HostObjectTemplate("TextTrackCue")
             .DefineProperty("startTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).StartTime))
             .DefineProperty("endTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).EndTime))
-            .DefineProperty("text", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Text));
+            .DefineProperty("text", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Text))
+            .DefineProperty("id", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Id));
         TimeRangesTemplate = new HostObjectTemplate("TimeRanges")
             .DefineProperty("length", (target, _) => ScriptValue.FromNumber(((MediaTimeRangesState)target).Ranges.Count))
             .DefineMethod("start", (target, _, args) => GetTimeRange((MediaTimeRangesState)target, args, start: true))
@@ -99,6 +100,9 @@ internal sealed class DomNodeTemplates
             .DefineProperty("mode", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Mode),
                 (target, _, value) => ((MediaTextTrackState)target).Mode = WebIdlConversions.ToDOMString(value))
             .DefineProperty("cues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).Cues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
+            .DefineProperty("activeCues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).ActiveCues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
+            .DefineProperty("oncuechange", (target, _) => ((MediaTextTrackState)target).OnCueChange,
+                (target, _, value) => ((MediaTextTrackState)target).OnCueChange = value)
             .DefineMethod("addCue", (target, _, args) =>
             {
                 if (args.Length < 3) throw WebIdlException.TypeError("addCue requires start time, end time, and text.");
@@ -218,7 +222,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
             (target, _, value) => _context.GetMedia((ElementNode)target).SrcObject = value);
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
-            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); } });
+            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); foreach (var track in state.TextTracks) track.CurrentTime = state.CurrentTime; if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); } });
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
         t.DefineProperty("videoWidth", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-width")));
         t.DefineProperty("videoHeight", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-height")));
@@ -234,6 +238,7 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).Loop = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("controls", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Controls),
             (target, _, value) => _context.GetMedia((ElementNode)target).Controls = WebIdlConversions.ToBoolean(value));
+        t.DefineProperty("textTracks", (target, _) => _context.Engine.CreateArray(_context.GetMedia((ElementNode)target).TextTracks.Select(track => _context.Engine.CreateHostObject(TextTrackTemplate, track)).ToArray()));
         t.DefineProperty("preload", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).Preload),
             (target, _, value) => _context.GetMedia((ElementNode)target).Preload = WebIdlConversions.ToDOMString(value));
         t.DefineProperty("defaultMuted", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).DefaultMuted),

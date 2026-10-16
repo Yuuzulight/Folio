@@ -212,19 +212,24 @@ internal sealed class MediaTextTrackState(string kind, string label, string lang
     public string Language { get; } = language;
     public string Mode { get; set; } = "disabled";
     public List<TextTrackCueState> Cues { get; } = [];
+    public ScriptValue OnCueChange { get; set; } = ScriptValue.Null;
+    public double CurrentTime { get; set; }
+    public IReadOnlyList<TextTrackCueState> ActiveCues => Cues.Where(cue => CurrentTime >= cue.StartTime && CurrentTime < cue.EndTime).ToArray();
 }
 
 internal sealed class TextTrackCueState
 {
-    public TextTrackCueState(double startTime, double endTime, string text)
+    public TextTrackCueState(double startTime, double endTime, string text, string id = "")
     {
         StartTime = Math.Max(0, startTime);
         EndTime = Math.Max(StartTime, endTime);
         Text = text;
+        Id = id;
     }
     public double StartTime { get; }
     public double EndTime { get; }
     public string Text { get; }
+    public string Id { get; }
 }
 
 internal sealed class MediaTimeRangesState(IReadOnlyList<(double Start, double End)> ranges)

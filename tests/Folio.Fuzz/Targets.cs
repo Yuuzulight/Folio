@@ -55,6 +55,7 @@ internal static class Targets
         new("cssom", Cssom, CssomSeeds, ["{", "}", ";", ":", "@media ", "@supports ", "@import ", "@namespace ", "@keyframes ", "@layer ", "@container ",
             "@font-face", "@property ", "@page ", "@charset ", "@starting-style", "!important", "&", "from", "to", "50%", "url(", "(", ")", "\"", "'", "\\", "/*", "*/"]),
         new("canvas", Canvas, CanvasSeeds, ["M", "L", "C", "Z", "a", "e", "red", "#", "rgb(", "hsl(", "blur(", "drop-shadow(", "px ", "serif", "bold ", "repeat", "evenodd", "lighter", "xor", "NaN", ",", "-", "e999"]),
+        new("webvtt", WebVtt, WebVttSeeds, ["WEBVTT", "NOTE", "--> ", "00:00.000", "align:start", "&amp;", "<b>", "\n\n"]),
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
     ];
@@ -153,6 +154,19 @@ internal static class Targets
         "p { color: red }", "@media (min-width: 1px) { p { top: 0 } }", "@import url(a.css);", "@namespace url(http://example.com);",
         "@keyframes x { 50% { top: 1px } }", "@layer a, b;", "@supports (display: grid) { a { b: c } }", "@font-face { font-family: F }",
         "a { & b { c: d } }", "50% { top: 1px }", "not a rule", "a { } b { }", "", "@charset \"utf-8\";",
+    }.Select(Encoding.UTF8.GetBytes);
+
+    private static void WebVtt(byte[] data)
+    {
+        WebVttParser.Parse(Encoding.UTF8.GetString(data));
+    }
+
+    private static IEnumerable<byte[]> WebVttSeeds() => new[]
+    {
+        "WEBVTT\n\n00:00.000 --> 00:01.000\nHello",
+        "WEBVTT\n\nintro\n00:01.500 --> 00:03.250 align:start\nHello &amp; world",
+        "WEBVTT\n\nNOTE this is ignored\ncomment\n",
+        "WEBVTT\n\n00:02.000 --> 00:01.000\nreversed",
     }.Select(Encoding.UTF8.GetBytes);
 
     private static void Diagrams(byte[] data)

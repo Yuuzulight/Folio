@@ -16,6 +16,7 @@
     <InternalsVisibleTo Include="Folio.Scripting.Jint" />
     <InternalsVisibleTo Include="Folio.ContentHost" />
     <InternalsVisibleTo Include="Folio.RenderTests" />
+    <InternalsVisibleTo Include="Folio.Fuzz" />
   </ItemGroup>
 
 </Project>
