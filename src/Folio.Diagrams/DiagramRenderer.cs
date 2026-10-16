@@ -334,11 +334,22 @@ public static class DiagramRenderer
 
     private static string RenderState(IEnumerable<string> lines)
     {
-        var states = new List<string>(); var edges = new List<(string From, string To, string Label)>(); var notes = new List<(string State, string Text)>();
+        var states = new List<string>(); var kinds = new Dictionary<string, string>(StringComparer.Ordinal); var edges = new List<(string From, string To, string Label)>(); var notes = new List<(string State, string Text)>();
         string? composite = null;
         foreach (var raw in lines)
         {
             var line = raw.Trim();
+            if (line.StartsWith("state ", StringComparison.OrdinalIgnoreCase) && !line.EndsWith('{'))
+            {
+                var declaration = line[6..].Trim();
+                var marker = declaration.IndexOf("<<", StringComparison.Ordinal);
+                if (marker >= 0 && declaration.EndsWith(">>", StringComparison.Ordinal))
+                {
+                    var name = declaration[..marker].Trim();
+                    var kind = declaration[(marker + 2)..^2].Trim().ToLowerInvariant();
+                    if (name.Length != 0 && kind is "choice" or "fork" or "join") { states.Add(name); kinds[name] = kind; continue; }
+                }
+            }
             if (line.StartsWith("state ", StringComparison.OrdinalIgnoreCase) && line.EndsWith('{')) { composite = line[6..^1].Trim(); states.Add(composite); continue; }
             if (line == "}") { composite = null; continue; }
             if (line.StartsWith("note ", StringComparison.OrdinalIgnoreCase)) { var colon = line.IndexOf(':'); if (colon > 5) notes.Add((line[5..colon].Trim(), line[(colon + 1)..].Trim())); continue; }
@@ -350,7 +361,16 @@ public static class DiagramRenderer
             states.Add(from); states.Add(to); edges.Add((from, to, label));
         }
         states = states.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = states.Select((name, i) => $"<rect class=\"folio-diagram-node state-node\" x=\"30\" y=\"{30 + i * 64}\" width=\"180\" height=\"40\" rx=\"20\"/><text class=\"folio-diagram-label\" x=\"120\" y=\"{55 + i * 64}\">{XmlEscape(name == "[*]" ? "start" : name)}</text>");
+        var boxes = states.Select((name, i) =>
+        {
+            var y = 30 + i * 64;
+            var label = XmlEscape(name == "[*]" ? "start" : name);
+            if (!kinds.TryGetValue(name, out var kind))
+                return $"<rect class=\"folio-diagram-node state-node\" x=\"30\" y=\"{y}\" width=\"180\" height=\"40\" rx=\"20\"/><text class=\"folio-diagram-label\" x=\"120\" y=\"{y + 25}\">{label}</text>";
+            if (kind == "choice")
+                return $"<polygon class=\"folio-diagram-node state-choice\" data-kind=\"choice\" points=\"120,{y} 140,{y + 20} 120,{y + 40} 100,{y + 20}\"/><text class=\"folio-diagram-label\" x=\"150\" y=\"{y + 25}\">{label}</text>";
+            return $"<rect class=\"folio-diagram-node state-{kind}\" data-kind=\"{kind}\" x=\"70\" y=\"{y + 16}\" width=\"100\" height=\"8\"/><text class=\"folio-diagram-label\" x=\"180\" y=\"{y + 25}\">{label}</text>";
+        });
         var paths = edges.Select(e => { var a = states.IndexOf(e.From); var b = states.IndexOf(e.To); var y = 50 + Math.Min(a, b) * 64; return $"<path class=\"state-edge\" d=\"M 120 {70 + a * 64} L 120 {30 + b * 64}\" marker-end=\"url(#arrow)\"/>{(e.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label state-transition-label\" x=\"145\" y=\"{y}\">{XmlEscape(e.Label)}</text>")}"; });
         var noteSvg = notes.Select(note => $"<text class=\"folio-diagram-note\" data-state=\"{XmlEscape(note.State)}\" x=\"230\" y=\"{55 + Math.Max(0, states.IndexOf(note.State)) * 64}\">{XmlEscape(note.Text)}</text>");
         return Svg(boxes, paths.Concat(noteSvg));

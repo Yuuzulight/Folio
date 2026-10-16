@@ -73,6 +73,19 @@ public sealed class DiagramRendererTests
     }
 
     [Fact]
+    public void StateChoiceForkAndJoinMarkersExposeStableShapes()
+    {
+        var svg = DiagramRenderer.Render("stateDiagram-v2\nstate choose <<choice>>\nstate split <<fork>>\nstate merge <<join>>\n[*] --> choose\nchoose --> split\nsplit --> merge");
+
+        Assert.Contains("state-choice", svg);
+        Assert.Contains("data-kind=\"choice\"", svg);
+        Assert.Contains("state-fork", svg);
+        Assert.Contains("data-kind=\"fork\"", svg);
+        Assert.Contains("state-join", svg);
+        Assert.Contains("data-kind=\"join\"", svg);
+    }
+
+    [Fact]
     public void RendersEntityRelationshipTimelineAndGanttDiagrams()
     {
         Assert.Contains("er-edge", DiagramRenderer.Render("erDiagram\nCUSTOMER ||--o{ ORDER : places"));
