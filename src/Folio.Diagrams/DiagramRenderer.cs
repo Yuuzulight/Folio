@@ -6,20 +6,31 @@ namespace Folio.Diagrams;
 /// <summary>Small, dependency-free renderer for the diagram text used by scripted artifacts.</summary>
 public static class DiagramRenderer
 {
+    /// <summary>Describes why a diagram could not be safely handled by the native renderer.</summary>
+    public sealed record DiagramDiagnostic(string Message, int Position);
+
     /// <summary>Attempts to render a supported diagram description without silently accepting another language.</summary>
     public static bool TryRender(string source, out string svg)
+        => TryRender(source, out svg, out _);
+
+    /// <summary>Attempts rendering and returns a source position when known syntax is unsupported.</summary>
+    public static bool TryRender(string source, out string svg, out DiagramDiagnostic? diagnostic)
     {
         ArgumentNullException.ThrowIfNull(source);
+        diagnostic = null;
         var first = source.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
         if (!IsSupportedHeader(first))
         {
             svg = "";
+            diagnostic = new DiagramDiagnostic("The diagram header is not supported.", 0);
             return false;
         }
         var lines = source.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (!HasSupportedConstruct(first, lines.Skip(1)))
         {
             svg = "";
+            var position = source.IndexOf('\n') is var newline && newline >= 0 ? newline + 1 : source.Length;
+            diagnostic = new DiagramDiagnostic("The diagram contains no supported construct.", position);
             return false;
         }
         svg = Render(source);
@@ -97,26 +108,51 @@ public static class DiagramRenderer
 
     private static string RenderFlow(IEnumerable<string> lines)
     {
-        var nodes = new List<(string Id, string Label)>();
-        var edges = new List<(int From, int To)>();
+        var nodes = new List<FlowNode>();
+        var edges = new List<(int From, int To, string Label, string Kind)>();
         foreach (var line in lines)
         {
-            var arrow = line.IndexOf("-->", StringComparison.Ordinal);
-            var markerLength = 3;
-            if (arrow < 0)
-            {
-                arrow = line.IndexOf("--", StringComparison.Ordinal);
-                markerLength = 2;
-            }
+            var arrow = FindFlowArrow(line, out var markerLength, out var kind);
             if (arrow < 0) continue;
-            var left = Node(line[..arrow].TrimEnd('<', '|'));
-            var right = Node(line[(arrow + markerLength)..].TrimStart('>', '|'));
+            var rest = line[(arrow + markerLength)..].Trim();
+            var edgeLabel = "";
+            if (rest.StartsWith("|", StringComparison.Ordinal))
+            {
+                var end = rest.IndexOf('|', 1);
+                if (end > 1) { edgeLabel = rest[1..end].Trim(); rest = rest[(end + 1)..].Trim(); }
+            }
+            var left = Node(line[..arrow].TrimEnd('<', '|', '.', '=', ' '));
+            var right = Node(rest);
             var from = Index(nodes, left);
             var to = Index(nodes, right);
-            edges.Add((from, to));
+            edges.Add((from, to, edgeLabel, kind));
         }
-        return Svg(nodes.Select((node, i) => $"<rect class=\"folio-diagram-node\" x=\"{40 + i * 180}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/><text class=\"folio-diagram-label\" x=\"{110 + i * 180}\" y=\"67\">{XmlEscape(node.Label)}</text>"),
-            edges.Select(edge => $"<path class=\"folio-diagram-edge\" d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>"));
+        var body = nodes.Select((node, i) => NodeSvg(node, i));
+        var overlays = edges.Select(edge => $"<path class=\"folio-diagram-edge\" data-kind=\"{XmlEscape(edge.Kind)}\" d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>{(edge.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label folio-diagram-edge-label\" x=\"{100 + Math.Min(edge.From, edge.To) * 180}\" y=\"72\">{XmlEscape(edge.Label)}</text>")}");
+        return Svg(body, overlays);
+    }
+
+    private static int FindFlowArrow(string line, out int length, out string kind)
+    {
+        foreach (var candidate in new[] { "-.->", "==>", "-->", "---", "--" })
+        {
+            var index = line.IndexOf(candidate, StringComparison.Ordinal);
+            if (index >= 0) { length = candidate.Length; kind = candidate; return index; }
+        }
+        length = 0; kind = ""; return -1;
+    }
+
+    private static string NodeSvg(FlowNode node, int index)
+    {
+        var x = 40 + index * 180;
+        var shape = node.Shape switch
+        {
+            "round" => $"<rect class=\"folio-diagram-node folio-diagram-round\" x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"22\"/>",
+            "diamond" => $"<path class=\"folio-diagram-node folio-diagram-diamond\" d=\"M {x + 70} 30 L {x + 140} 62 L {x + 70} 94 L {x} 62 Z\"/>",
+            "circle" => $"<circle class=\"folio-diagram-node folio-diagram-circle\" cx=\"{x + 70}\" cy=\"62\" r=\"28\"/>",
+            _ => $"<rect class=\"folio-diagram-node folio-diagram-rect\" x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/>"
+        };
+        return $"{shape}<text class=\"folio-diagram-label\" x=\"{x + 70}\" y=\"67\">{XmlEscape(node.Label)}</text>";
     }
 
     private static string RenderSequence(IEnumerable<string> lines)
@@ -227,15 +263,23 @@ public static class DiagramRenderer
         return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 400\"><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\"><path d=\"M0,0 L8,4 L0,8 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
     }
 
-    private static (string Id, string Label) Node(string text)
+    private sealed record FlowNode(string Id, string Label, string Shape);
+
+    private static FlowNode Node(string text)
     {
         text = text.Trim();
-        var open = text.IndexOf('[');
-        if (open >= 0 && text.EndsWith(']')) return (text[..open].Trim(), text[(open + 1)..^1]);
-        return (text, text);
+        var circle = text.IndexOf("((", StringComparison.Ordinal);
+        if (circle >= 0 && text.EndsWith("))", StringComparison.Ordinal))
+            return new FlowNode(text[..circle].Trim(), text[(circle + 2)..^2].Trim(), "circle");
+        foreach (var (open, close, shape) in new[] { ('[', ']', "rect"), ('(', ')', "round"), ('{', '}', "diamond") })
+        {
+            var start = text.IndexOf(open);
+            if (start >= 0 && text.EndsWith(close)) return new FlowNode(text[..start].Trim(), text[(start + 1)..^1].Trim(), shape);
+        }
+        return new FlowNode(text, text, "rect");
     }
 
-    private static int Index(List<(string Id, string Label)> nodes, (string Id, string Label) node)
+    private static int Index(List<FlowNode> nodes, FlowNode node)
     {
         var index = nodes.FindIndex(existing => existing.Id == node.Id);
         if (index >= 0) return index;

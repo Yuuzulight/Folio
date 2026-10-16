@@ -63,4 +63,29 @@ public sealed class DiagramRendererTests
         Assert.Contains("class=\"folio-diagram-content\"", svg);
         Assert.Contains("folio-diagram-", svg);
     }
+
+    [Fact]
+    public void FlowchartsRenderCommonShapesEdgeKindsAndLabels()
+    {
+        var source = "flowchart LR\nA((Start)) -.-> B{Choice}\nB ==> C(Round)\nA -->|yes| C";
+        var svg = DiagramRenderer.Render(source);
+
+        Assert.Contains("folio-diagram-circle", svg);
+        Assert.Contains("folio-diagram-diamond", svg);
+        Assert.Contains("folio-diagram-round", svg);
+        Assert.Contains("data-kind=\"-.-&gt;\"", svg);
+        Assert.Contains("data-kind=\"==&gt;\"", svg);
+        Assert.Contains("yes", svg);
+    }
+
+    [Fact]
+    public void UnsupportedKnownDiagramReturnsAStableSourcePosition()
+    {
+        var source = "flowchart LR\nsubgraph Missing\nend";
+
+        Assert.False(DiagramRenderer.TryRender(source, out _, out var diagnostic));
+        Assert.NotNull(diagnostic);
+        Assert.True(diagnostic!.Position >= source.IndexOf('\n') + 1);
+        Assert.Contains("supported construct", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
