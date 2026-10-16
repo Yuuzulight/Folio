@@ -249,18 +249,21 @@ public static class ArtifactClassifier
             if (string.IsNullOrWhiteSpace(source))
                 return;
             var text = source;
-            if (Contains(text, "getContext('webgl") || Contains(text, "getContext(\"webgl")
-                || Contains(text, "getContext('experimental-webgl") || Contains(text, "getContext(\"experimental-webgl"))
+            // Whitespace and quote style do not change these API calls. Compacting first keeps this scan
+            // conservative without attempting to parse arbitrary JavaScript.
+            var compact = string.Concat(text.Where(character => !char.IsWhiteSpace(character)));
+            if (Contains(compact, "getContext('webgl") || Contains(compact, "getContext(\"webgl") || Contains(compact, "getContext(`webgl")
+                || Contains(compact, "getContext('experimental-webgl") || Contains(compact, "getContext(\"experimental-webgl") || Contains(compact, "getContext(`experimental-webgl"))
                 Require(options.Capabilities.WebGl, "uses WebGL", "WebGL");
             if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
                 Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
-            if (Contains(text, "new Worker(") || Contains(text, "new SharedWorker("))
+            if (Contains(compact, "newWorker(") || Contains(compact, "newSharedWorker("))
                 Require(options.Capabilities.Workers, "uses workers", "workers");
-            if (Contains(text, "WebAssembly."))
+            if (Contains(compact, "WebAssembly."))
                 Require(options.Capabilities.WebAssembly, "uses WebAssembly", "WebAssembly");
-            if (Contains(text, "RTCPeerConnection") || Contains(text, "getUserMedia("))
+            if (Contains(compact, "RTCPeerConnection") || Contains(compact, "getUserMedia("))
                 Require(options.Capabilities.WebRtc, "uses WebRTC", "WebRTC");
-            if (Contains(text, "navigator.serviceWorker") || Contains(text, "serviceWorker.register("))
+            if (Contains(compact, "navigator.serviceWorker") || Contains(compact, "serviceWorker.register("))
                 Require(options.Capabilities.ServiceWorkers, "uses service workers", "service workers");
         }
 
