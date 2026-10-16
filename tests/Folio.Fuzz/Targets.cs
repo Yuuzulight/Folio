@@ -1,5 +1,6 @@
 using System.Text;
 using Folio.Css;
+using Folio.Diagrams;
 using Folio.Dom;
 using Folio.Html;
 using Folio.Imaging;
@@ -54,6 +55,7 @@ internal static class Targets
         new("cssom", Cssom, CssomSeeds, ["{", "}", ";", ":", "@media ", "@supports ", "@import ", "@namespace ", "@keyframes ", "@layer ", "@container ",
             "@font-face", "@property ", "@page ", "@charset ", "@starting-style", "!important", "&", "from", "to", "50%", "url(", "(", ")", "\"", "'", "\\", "/*", "*/"]),
         new("canvas", Canvas, CanvasSeeds, ["M", "L", "C", "Z", "a", "e", "red", "#", "rgb(", "hsl(", "blur(", "drop-shadow(", "px ", "serif", "bold ", "repeat", "evenodd", "lighter", "xor", "NaN", ",", "-", "e999"]),
+        new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
     ];
 
@@ -151,6 +153,21 @@ internal static class Targets
         "p { color: red }", "@media (min-width: 1px) { p { top: 0 } }", "@import url(a.css);", "@namespace url(http://example.com);",
         "@keyframes x { 50% { top: 1px } }", "@layer a, b;", "@supports (display: grid) { a { b: c } }", "@font-face { font-family: F }",
         "a { & b { c: d } }", "50% { top: 1px }", "not a rule", "a { } b { }", "", "@charset \"utf-8\";",
+    }.Select(Encoding.UTF8.GetBytes);
+
+    private static void Diagrams(byte[] data)
+    {
+        // Every parser is deliberately total: unsupported or malformed text must return an SVG or throw only from
+        // the outer fuzz harness's normal input limits, never escape as an unexpected parser exception.
+        DiagramRenderer.Render(Encoding.UTF8.GetString(data));
+    }
+
+    private static IEnumerable<byte[]> DiagramSeeds() => new[]
+    {
+        "flowchart LR\nA[Start] --> B[Finish]", "sequenceDiagram\nAlice->>Bob: Hello",
+        "classDiagram\nBase <|-- Child", "stateDiagram-v2\n[*] --> Ready",
+        "erDiagram\nCUSTOMER ||--o{ ORDER : places", "timeline\n2024 : Launch",
+        "gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d", "pie title Sales\n\"North\" : 60",
     }.Select(Encoding.UTF8.GetBytes);
 
     // Canvas 2D calls with hostile numbers and strings (issues #504 and #507): the text picks the calls and their arguments from

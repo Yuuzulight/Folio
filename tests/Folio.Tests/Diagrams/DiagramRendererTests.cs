@@ -38,4 +38,12 @@ public sealed class DiagramRendererTests
         Assert.Contains("Base", DiagramRenderer.Render("classDiagram\nBase <|-- Child"));
         Assert.Contains("Ready", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready"));
     }
+
+    [Fact]
+    public void RendersEntityRelationshipTimelineAndGanttDiagrams()
+    {
+        Assert.Contains("er-edge", DiagramRenderer.Render("erDiagram\nCUSTOMER ||--o{ ORDER : places"));
+        Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\n2024 : Launch"));
+        Assert.Contains("gantt-task", DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d"));
+    }
 }
