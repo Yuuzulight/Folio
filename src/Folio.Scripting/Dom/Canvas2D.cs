@@ -30,7 +30,7 @@ internal sealed class MediaElementState : IImageHandle
     public ElementNode Element { get; }
     public IScriptEngine Engine { get; }
     public IHostObjectTemplate EventTemplate { get; }
-    public bool Enabled { get; }
+    public bool Enabled { get; private set; }
     public bool AllowSoundAutoplay { get; }
     public int Width => int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 0;
     public int Height => int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 0;
@@ -55,9 +55,28 @@ internal sealed class MediaElementState : IImageHandle
     public int ReadyState => Enabled && Error is null ? 4 : 0;
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }
+    private bool _capabilityDisabled;
     public long SourceBytes { get; private set; }
     public List<MediaTextTrackState> TextTracks { get; } = [];
     public void RejectForBudget() => Error = "Media resource exceeds the host budget.";
+    public void SetCapability(bool enabled)
+    {
+        if (Enabled == enabled && !_capabilityDisabled) return;
+        Enabled = enabled;
+        if (!enabled)
+        {
+            _capabilityDisabled = true;
+            Paused = true;
+            Error = "Media is disabled by the host.";
+            Dispatch(OnError, "error");
+        }
+        else if (_capabilityDisabled)
+        {
+            _capabilityDisabled = false;
+            Error = null;
+            Load();
+        }
+    }
     public ScriptValue OnLoadedMetadata { get; set; } = ScriptValue.Null;
     public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;

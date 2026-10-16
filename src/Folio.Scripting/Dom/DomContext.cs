@@ -118,7 +118,10 @@ internal sealed class DomContext
     {
         ArgumentNullException.ThrowIfNull(capabilities);
         var wasWebGlEnabled = Capabilities.WebGl;
+        var wasMediaEnabled = Capabilities.Media;
         Capabilities = capabilities;
+        if (wasMediaEnabled != capabilities.Media)
+            foreach (var media in _media.Values) media.SetCapability(capabilities.Media);
         if (wasWebGlEnabled == capabilities.WebGl) return;
         foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
         {
