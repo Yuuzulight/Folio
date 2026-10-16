@@ -42,7 +42,12 @@ session.MessageReceived += async (message, cancellationToken) =>
         if (message.Payload.TryGetProperty("html", out var htmlElement))
         {
             document?.Dispose();
-            document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess, Capabilities = capabilities });
+            document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions
+            {
+                Scripting = ScriptingPolicy.ContentProcess,
+                Capabilities = capabilities,
+                Raster = new SkiaRasterBackend()
+            });
             DomBindings.Install(engine, document);
         }
         var result = engine.Evaluate(script, url);

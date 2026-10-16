@@ -6,6 +6,7 @@ namespace Folio.Scripting.Ipc;
 public sealed class CanvasFrameStore : IDisposable
 {
     private const int HeaderBytes = 32;
+    private readonly FileStream _file;
     private readonly MemoryMappedFile _map;
     private readonly MemoryMappedViewAccessor _view;
     private readonly int _capacity;
@@ -17,7 +18,8 @@ public sealed class CanvasFrameStore : IDisposable
         Height = height;
         Stride = stride;
         _capacity = checked(HeaderBytes + 2 * stride * height);
-        _map = MemoryMappedFile.CreateFromFile(path, FileMode.OpenOrCreate, null, _capacity, MemoryMappedFileAccess.ReadWrite);
+        _file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
+        _map = MemoryMappedFile.CreateFromFile(_file, null, _capacity, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: true);
         _view = _map.CreateViewAccessor(0, _capacity, MemoryMappedFileAccess.ReadWrite);
         var magic = _view.ReadInt32(0);
         if (magic != 0 && magic != 0x4F494C46)
@@ -98,5 +100,6 @@ public sealed class CanvasFrameStore : IDisposable
     {
         _view.Dispose();
         _map.Dispose();
+        _file.Dispose();
     }
 }

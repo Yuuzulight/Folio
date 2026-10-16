@@ -967,6 +967,39 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public async Task ContentProcessPublishesCanvasPixelsThroughSharedMemory()
+    {
+        var host = ContentHostPath();
+        Assert.True(File.Exists(host), $"Content host was not built: {host}");
+        await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"", new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
+        var received = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostic = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.MessageReceived += (message, _) =>
+        {
+            if (message.Kind == ContentMessageKind.Frame) received.TrySetResult(message);
+            if (message.Kind == ContentMessageKind.Diagnostic) diagnostic.TrySetResult(message);
+            return ValueTask.CompletedTask;
+        };
+        await client.SendAsync(ContentMessageKind.Load, new
+        {
+            html = "<canvas id=c width=32 height=32></canvas>",
+            script = "const c=document.getElementById('c'), x=c.getContext('2d'); x.fillStyle='red'; x.fillRect(0,0,8,8); 1",
+            url = "canvas-test"
+        }, TestContext.Current.CancellationToken);
+        var completed = await Task.WhenAny(received.Task, diagnostic.Task).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var diagnosticMessage = diagnostic.Task.IsCompletedSuccessfully ? (await diagnostic.Task).Payload.ToString() : "The content host returned neither a frame nor a diagnostic.";
+        Assert.True(ReferenceEquals(received.Task, completed), diagnosticMessage);
+        var frame = await received.Task;
+        var descriptor = frame.Payload.GetProperty("canvasFrame");
+        var path = descriptor.GetProperty("path").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(path));
+        using var store = new CanvasFrameStore(path!, descriptor.GetProperty("width").GetInt32(), descriptor.GetProperty("height").GetInt32(), descriptor.GetProperty("stride").GetInt32());
+        var pixels = store.ReadLatest(out var sequence);
+        Assert.True(sequence > 0);
+        Assert.Contains(pixels, value => value != 0);
+    }
+
+    [Fact]
     public async Task ContentProcessStopsAnInfiniteScriptWithDiagnostic()
     {
         var host = ContentHostPath();
