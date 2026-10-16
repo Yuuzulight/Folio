@@ -330,6 +330,14 @@ public sealed class DomStyleDeclarationTests
             Limits = ResourceLimits.Default with { MaxMediaBytes = 128 }
         }));
         Assert.True(aggregate.Evaluate("const a = document.getElementById('a'); const b = document.getElementById('b'); a.error === null && b.error !== null").AsBoolean());
+
+        using var decoderLimited = new JintScriptEngine();
+        DomBindings.Install(decoderLimited, Document.Parse("<video id='a'></video><video id='b'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true },
+            Limits = ResourceLimits.Default with { MaxMediaDecoders = 1 }
+        }));
+        Assert.True(decoderLimited.Evaluate("document.getElementById('a').readyState === 4 && document.getElementById('b').error === 'Media decoder limit exceeded.'").AsBoolean());
     }
 
     [Fact]

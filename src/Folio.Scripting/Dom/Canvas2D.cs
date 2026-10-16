@@ -58,7 +58,7 @@ internal sealed class MediaElementState : IImageHandle
     private bool _capabilityDisabled;
     public long SourceBytes { get; private set; }
     public List<MediaTextTrackState> TextTracks { get; } = [];
-    public void RejectForBudget() => Error = "Media resource exceeds the host budget.";
+    public void RejectForBudget(string message = "Media resource exceeds the host budget.") => Error = message;
     public void SetCapability(bool enabled)
     {
         if (Enabled == enabled && !_capabilityDisabled) return;

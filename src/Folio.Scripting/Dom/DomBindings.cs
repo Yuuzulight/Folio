@@ -27,17 +27,17 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.Options.ResourceLoader, document.Options.BaseUri,
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.Options.ResourceLoader, document.Options.BaseUri,
         document.Options.Raster, () => document.CanvasText);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes, resourceLoader, baseUri, raster, canvasStyles);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, resourceLoader, baseUri, raster, canvasStyles);
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
 

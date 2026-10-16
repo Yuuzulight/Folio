@@ -75,7 +75,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -85,6 +85,7 @@ internal sealed class DomContext
         Capabilities = capabilities ?? FeatureCapabilities.Default;
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
+        MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
         ResourceLoader = resourceLoader;
@@ -102,6 +103,7 @@ internal sealed class DomContext
     public FeatureCapabilities Capabilities { get; private set; }
     public int MaxGpuBytes { get; }
     public int MaxMediaBytes { get; }
+    public int MaxMediaDecoders { get; }
     public int MaxWorkerMessageBytes { get; }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
@@ -177,7 +179,9 @@ internal sealed class DomContext
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
         var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri);
-        if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)
+        if (_media.Count >= MaxMediaDecoders)
+            state.RejectForBudget("Media decoder limit exceeded.");
+        else if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)
             state.RejectForBudget();
         else
             _mediaBytesAllocated += state.SourceBytes;
