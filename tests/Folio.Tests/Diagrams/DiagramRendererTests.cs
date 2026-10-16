@@ -135,6 +135,17 @@ public sealed class DiagramRendererTests
     }
 
     [Fact]
+    public void FlowchartsRenderSubgraphsAndClassStyles()
+    {
+        var svg = DiagramRenderer.Render("flowchart LR\nsubgraph Input\nA[Start] --> B[Validate]\nend\nclassDef hot fill:#fee2e2,stroke:#dc2626\nclass B hot");
+
+        Assert.Contains("folio-diagram-subgraph", svg);
+        Assert.Contains("data-name=\"Input\"", svg);
+        Assert.Contains("data-class=\"hot\"", svg);
+        Assert.Contains("fill:#fee2e2", svg);
+    }
+
+    [Fact]
     public void UnsupportedKnownDiagramReturnsAStableSourcePosition()
     {
         var source = "flowchart LR\nsubgraph Missing\nend";

@@ -135,8 +135,32 @@ public static class DiagramRenderer
     {
         var nodes = new List<FlowNode>();
         var edges = new List<(int From, int To, string Label, string Kind)>();
+        var subgraphs = new List<(string Name, HashSet<string> Nodes)>();
+        var classStyles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var nodeClasses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        (string Name, HashSet<string> Nodes)? currentSubgraph = null;
         foreach (var line in lines)
         {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("subgraph ", StringComparison.OrdinalIgnoreCase))
+            {
+                currentSubgraph = (trimmed[9..].Trim(), new HashSet<string>(StringComparer.Ordinal));
+                subgraphs.Add(currentSubgraph.Value);
+                continue;
+            }
+            if (trimmed.Equals("end", StringComparison.OrdinalIgnoreCase)) { currentSubgraph = null; continue; }
+            if (trimmed.StartsWith("classDef ", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = trimmed[9..].Split(' ', 2, StringSplitOptions.TrimEntries);
+                if (parts.Length == 2 && parts[0].Length > 0) classStyles[parts[0]] = parts[1];
+                continue;
+            }
+            if (trimmed.StartsWith("class ", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = trimmed[6..].Split(' ', 2, StringSplitOptions.TrimEntries);
+                if (parts.Length == 2) foreach (var id in parts[0].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) nodeClasses[id] = parts[1];
+                continue;
+            }
             var arrow = FindFlowArrow(line, out var markerLength, out var kind);
             if (arrow < 0) continue;
             var rest = line[(arrow + markerLength)..].Trim();
@@ -150,11 +174,20 @@ public static class DiagramRenderer
             var right = Node(rest);
             var from = Index(nodes, left);
             var to = Index(nodes, right);
+            currentSubgraph?.Nodes.Add(left.Id);
+            currentSubgraph?.Nodes.Add(right.Id);
             edges.Add((from, to, edgeLabel, kind));
         }
-        var body = nodes.Select((node, i) => NodeSvg(node, i));
+        var body = nodes.Select((node, i) => NodeSvg(node, i, nodeClasses.TryGetValue(node.Id, out var className) ? className : null, classStyles));
+        var groups = subgraphs.Select((group, i) =>
+        {
+            var indexes = nodes.Select((node, index) => (node, index)).Where(pair => group.Nodes.Contains(pair.node.Id)).Select(pair => pair.index).ToArray();
+            if (indexes.Length == 0) return "";
+            var left = 20 + indexes.Min() * 180; var right = 170 + indexes.Max() * 180;
+            return $"<rect class=\"folio-diagram-subgraph\" data-name=\"{XmlEscape(group.Name)}\" x=\"{left}\" y=\"18\" width=\"{right - left}\" height=\"100\" rx=\"10\"/><text class=\"folio-diagram-label folio-diagram-subgraph-label\" x=\"{left + 8}\" y=\"32\">{XmlEscape(group.Name)}</text>";
+        });
         var overlays = edges.Select(edge => $"<path class=\"folio-diagram-edge\" data-kind=\"{XmlEscape(edge.Kind)}\" d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>{(edge.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label folio-diagram-edge-label\" x=\"{100 + Math.Min(edge.From, edge.To) * 180}\" y=\"72\">{XmlEscape(edge.Label)}</text>")}");
-        return Svg(body, overlays);
+        return Svg(body, groups.Concat(overlays));
     }
 
     private static int FindFlowArrow(string line, out int length, out string kind)
@@ -167,15 +200,17 @@ public static class DiagramRenderer
         length = 0; kind = ""; return -1;
     }
 
-    private static string NodeSvg(FlowNode node, int index)
+    private static string NodeSvg(FlowNode node, int index, string? className = null, IReadOnlyDictionary<string, string>? classStyles = null)
     {
         var x = 40 + index * 180;
+        var classAttribute = className is null ? "" : $" data-class=\"{XmlEscape(className)}\"";
+        var styleAttribute = className is not null && classStyles is not null && classStyles.TryGetValue(className, out var style) ? $" style=\"{XmlEscape(style)}\"" : "";
         var shape = node.Shape switch
         {
-            "round" => $"<rect class=\"folio-diagram-node folio-diagram-round\" x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"22\"/>",
-            "diamond" => $"<path class=\"folio-diagram-node folio-diagram-diamond\" d=\"M {x + 70} 30 L {x + 140} 62 L {x + 70} 94 L {x} 62 Z\"/>",
-            "circle" => $"<circle class=\"folio-diagram-node folio-diagram-circle\" cx=\"{x + 70}\" cy=\"62\" r=\"28\"/>",
-            _ => $"<rect class=\"folio-diagram-node folio-diagram-rect\" x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/>"
+            "round" => $"<rect class=\"folio-diagram-node folio-diagram-round\"{classAttribute}{styleAttribute} x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"22\"/>",
+            "diamond" => $"<path class=\"folio-diagram-node folio-diagram-diamond\"{classAttribute}{styleAttribute} d=\"M {x + 70} 30 L {x + 140} 62 L {x + 70} 94 L {x} 62 Z\"/>",
+            "circle" => $"<circle class=\"folio-diagram-node folio-diagram-circle\"{classAttribute}{styleAttribute} cx=\"{x + 70}\" cy=\"62\" r=\"28\"/>",
+            _ => $"<rect class=\"folio-diagram-node folio-diagram-rect\"{classAttribute}{styleAttribute} x=\"{x}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/>"
         };
         return $"{shape}<text class=\"folio-diagram-label\" x=\"{x + 70}\" y=\"67\">{XmlEscape(node.Label)}</text>";
     }
