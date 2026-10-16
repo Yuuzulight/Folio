@@ -224,6 +224,7 @@ internal sealed class WebGlContextState
     public HashSet<uint> LinkedPrograms { get; } = [];
     public HashSet<int> EnabledVertexAttributes { get; } = [];
     public Dictionary<int, (int Size, uint Type, bool Normalized, int Stride, int Offset)> VertexAttribPointers { get; } = [];
+    public Dictionary<int, uint> VertexAttribDivisors { get; } = [];
     public Dictionary<int, double[]> UniformValues { get; } = [];
     public HashSet<uint> EnabledCapabilities { get; } = [];
     public float ClearDepth { get; set; } = 1;
