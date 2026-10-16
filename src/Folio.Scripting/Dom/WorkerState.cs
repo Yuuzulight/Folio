@@ -13,6 +13,8 @@ internal sealed class WorkerState
         Enabled = enabled;
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
         WorkerEngine = workerEngine;
+        EnsureCloneHelpers(Engine);
+        if (WorkerEngine is not null) EnsureCloneHelpers(WorkerEngine);
         if (WorkerEngine is not null)
         {
             var bridge = new HostObjectTemplate("WorkerBridge")
@@ -130,11 +132,11 @@ internal sealed class WorkerState
         try
         {
             Engine.SetGlobalProperty("__folio_clone_value", value);
-            var json = Engine.Evaluate("JSON.stringify(__folio_clone_value)").AsString();
+            var json = Engine.Evaluate("__folio_encode_clone(__folio_clone_value)").AsString();
             Engine.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
             if (json is null) throw new InvalidOperationException("The value cannot be cloned.");
             WorkerEngine!.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(json));
-            var clone = WorkerEngine.Evaluate("JSON.parse(__folio_clone_json)");
+            var clone = WorkerEngine.Evaluate("__folio_decode_clone(__folio_clone_json)");
             WorkerEngine.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
             return clone;
         }
@@ -151,11 +153,11 @@ internal sealed class WorkerState
         try
         {
             WorkerEngine!.SetGlobalProperty("__folio_clone_value", value);
-            var json = WorkerEngine.Evaluate("JSON.stringify(__folio_clone_value)").AsString();
+            var json = WorkerEngine.Evaluate("__folio_encode_clone(__folio_clone_value)").AsString();
             WorkerEngine.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
             if (json is null) throw new InvalidOperationException("The value cannot be cloned.");
             Engine.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(json));
-            var clone = Engine.Evaluate("JSON.parse(__folio_clone_json)");
+            var clone = Engine.Evaluate("__folio_decode_clone(__folio_clone_json)");
             Engine.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
             return clone;
         }
@@ -164,6 +166,60 @@ internal sealed class WorkerState
             throw WebIdlException.DomException("DataCloneError", error.Message);
         }
     }
+
+    private static void EnsureCloneHelpers(IScriptEngine engine) => engine.Evaluate(StructuredCloneScript);
+
+    private const string StructuredCloneScript = """
+        (function() {
+          if (globalThis.__folio_encode_clone) return;
+          globalThis.__folio_encode_clone = function(root) {
+            const seen = new Map(), records = [];
+            function scalar(v) {
+              if (v === undefined) return { u: 1 };
+              if (typeof v === 'number' && Number.isNaN(v)) return { n: 'NaN' };
+              if (v === Infinity) return { n: 'Infinity' };
+              if (v === -Infinity) return { n: '-Infinity' };
+              if (typeof v === 'bigint') return { i: String(v) };
+              return { p: v };
+            }
+            function visit(v) {
+              if (v === null || typeof v !== 'object') {
+                if (typeof v === 'function' || typeof v === 'symbol') throw new Error('Value cannot be cloned');
+                return scalar(v);
+              }
+              if (seen.has(v)) return { r: seen.get(v) };
+              const id = records.length, rec = { t: 'o' }; seen.set(v, id); records.push(rec);
+              if (v instanceof ArrayBuffer) { rec.t = 'ab'; rec.b = Array.from(new Uint8Array(v)); }
+              else if (ArrayBuffer.isView(v)) { rec.t = 'ta'; rec.c = v.constructor.name; rec.b = Array.from(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)); }
+              else if (v instanceof Date) { rec.t = 'date'; rec.v = v.getTime(); }
+              else if (v instanceof RegExp) { rec.t = 're'; rec.s = v.source; rec.f = v.flags; rec.i = v.lastIndex; }
+              else if (v instanceof Map) { rec.t = 'map'; rec.e = Array.from(v, x => [visit(x[0]), visit(x[1])]); }
+              else if (v instanceof Set) { rec.t = 'set'; rec.e = Array.from(v, visit); }
+              else if (v instanceof Error) { rec.t = 'error'; rec.n = v.name; rec.m = v.message; rec.s = v.stack; }
+              else if (v instanceof Function) throw new Error('Function cannot be cloned');
+              else if (Array.isArray(v)) { rec.t = 'array'; rec.e = v.map(visit); }
+              else { rec.p = Object.keys(v).map(k => [k, visit(v[k])]); }
+              return { r: id };
+            }
+            return JSON.stringify({ root: visit(root), records });
+          };
+          globalThis.__folio_decode_clone = function(text) {
+            const data = JSON.parse(text), records = data.records || [], objects = records.map(r => {
+              if (r.t === 'ab') return new Uint8Array(r.b || []).buffer;
+              if (r.t === 'ta') { const b = new Uint8Array(r.b || []).buffer; return r.c === 'DataView' ? new DataView(b) : new globalThis[r.c](b); }
+              if (r.t === 'date') return new Date(r.v);
+              if (r.t === 're') { const x = new RegExp(r.s, r.f); x.lastIndex = r.i || 0; return x; }
+              if (r.t === 'map') return new Map();
+              if (r.t === 'set') return new Set();
+              if (r.t === 'error') { const x = new Error(r.m); x.name = r.n; x.stack = r.s; return x; }
+              return r.t === 'array' ? [] : {};
+            });
+            function read(x) { if (x && x.r !== undefined) return objects[x.r]; if (x && x.u) return undefined; if (x && x.n) return x.n === 'NaN' ? NaN : Number(x.n); if (x && x.i) return BigInt(x.i); return x ? x.p : undefined; }
+            records.forEach((r, i) => { const o = objects[i]; if (r.t === 'map') r.e.forEach(x => o.set(read(x[0]), read(x[1]))); else if (r.t === 'set') r.e.forEach(x => o.add(read(x))); else if (r.t === 'array') r.e.forEach((x, j) => o[j] = read(x)); else if (r.t === 'o') r.p.forEach(x => o[x[0]] = read(x[1])); });
+            return read(data.root);
+          };
+        })();
+        """;
 
     private void DispatchError(Exception error)
     {
