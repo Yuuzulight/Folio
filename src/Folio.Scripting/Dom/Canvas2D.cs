@@ -1,12 +1,13 @@
 using System.Globalization;
 using Folio.Dom;
+using Folio.Imaging;
 using Folio.Painting;
 using Folio.Resources;
 using System.Buffers.Binary;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed class MediaElementState
+internal sealed class MediaElementState : IImageHandle
 {
     public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
     {
@@ -31,6 +32,10 @@ internal sealed class MediaElementState
     public IHostObjectTemplate EventTemplate { get; }
     public bool Enabled { get; }
     public bool AllowSoundAutoplay { get; }
+    public int Width => int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 0;
+    public int Height => int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 0;
+    private byte[]? _framePixels;
+    public ReadOnlyMemory<byte> Pixels => _framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)];
     public double CurrentTime { get; set; }
     public double Duration { get; private set; }
     public bool Paused { get; set; } = true;

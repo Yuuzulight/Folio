@@ -767,6 +767,19 @@ public class CanvasTests
     }
 
     [Fact]
+    public void DrawImageAcceptsVideoFramesWithMetadataDimensions()
+    {
+        using var engine = new JintScriptEngine();
+        var document = Document.Parse("<canvas id='c' width='40' height='30'></canvas><video id='v' data-width='8' data-height='6'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true },
+            Raster = new SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        Assert.True(engine.Evaluate("const c = document.getElementById('c'); const v = document.getElementById('v'); const ctx = c.getContext('2d'); ctx.drawImage(v, 0, 0); v.videoWidth === 8 && v.videoHeight === 6").AsBoolean());
+    }
+
+    [Fact]
     public void DrawImageWithASourceRectangleCopiesThatPart()
     {
         using var page = new Page("<canvas id='c' width='100' height='60'></canvas><canvas id='s' width='20' height='10'></canvas>");

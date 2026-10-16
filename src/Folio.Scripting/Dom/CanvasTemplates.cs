@@ -688,6 +688,8 @@ internal sealed class CanvasTemplates
         }
         if (element.LocalName == "img")
             return _context.ImageOf(element);
+        if (element.LocalName == "video")
+            return _context.GetMedia(element);
         throw WebIdlException.TypeError($"{method}: the image source is not a supported type.");
     }
 }
