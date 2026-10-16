@@ -233,7 +233,7 @@ internal static class PaintOrderWalker
             if (outlined && !ownOutline)
                 real.Outlines.Add(placed);
             // Replaced content paints with the inline content, after backgrounds and floats (CSS 2.2 Appendix E, step 7).
-            var content = box is ReplacedBox { Image: not null } || box is ReplacedBox { Kind: ReplacedKind.FormControl } || placed.Fragment.Svg is not null || IsDropDown(box) ? placed : null;
+            var content = box is ReplacedBox { Image: not null } || box is ReplacedBox { Kind: ReplacedKind.FormControl or ReplacedKind.Canvas } || placed.Fragment.Svg is not null || IsDropDown(box) ? placed : null;
             // A table's positioning and stacking properties apply to its wrapper box (CSS 2 §17.4); the table grid box,
             // which shares the wrapper's style, paints as a plain block inside it.
             if (box is TablePartBox { Part: TablePart.Table })

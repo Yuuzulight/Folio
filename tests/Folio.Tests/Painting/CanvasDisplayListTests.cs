@@ -1,4 +1,5 @@
 using Folio.Dom;
+using Folio.Imaging;
 using Folio.Painting;
 
 namespace Folio.Tests.Painting;
@@ -6,81 +7,59 @@ namespace Folio.Tests.Painting;
 public sealed class CanvasDisplayListTests
 {
     [Fact]
-    public void RectangleCommandsArePaintedIntoTheDisplayList()
+    public void ACanvasPaintsItsBitmapAsAnImageOfItsContentBox()
     {
-        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
+        using var document = Document.Parse("<html><body style='margin:0'><canvas width='40' height='30'></canvas></body></html>");
         var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        canvas.CanvasSurface = new TestCanvasSurface([
-            new CanvasSurfaceCommand("fillRect", 2, 3, 10, 8, "#f00")
-        ]);
+        canvas.CanvasSurface = new TestCanvasSurface(2, 2);
 
         var (displayList, _) = document.Paint(200, 100);
-        var fill = Assert.Single(displayList.Items, item => item.Kind == DisplayItemKind.Fill && item.Color.R > 0.9f && item.Color.G < 0.1f);
-        Assert.Equal(10, fill.Shape.Rect.Width);
-        Assert.Equal(8, fill.Shape.Rect.Height);
+        var image = Assert.Single(displayList.Items, item => item.Kind == DisplayItemKind.Image);
+        Assert.Equal(new RectF(0, 0, 40, 30), image.Shape.Rect);
     }
 
     [Fact]
-    public void PathCommandsArePaintedIntoTheDisplayList()
+    public void ACanvasWithoutAContextPaintsNothing()
     {
         using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
-        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        canvas.CanvasSurface = new TestCanvasSurface([
-            new CanvasSurfaceCommand("beginPath", 0, 0, 0, 0, ""),
-            new CanvasSurfaceCommand("moveTo", 2, 3, 0, 0, ""),
-            new CanvasSurfaceCommand("lineTo", 12, 3, 0, 0, ""),
-            new CanvasSurfaceCommand("lineTo", 12, 11, 0, 0, ""),
-            new CanvasSurfaceCommand("closePath", 0, 0, 0, 0, ""),
-            new CanvasSurfaceCommand("fill", 0, 0, 0, 0, "#00f")
-        ]);
 
         var (displayList, _) = document.Paint(200, 100);
-        Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.FillPath && item.Color.B > 0.9f);
+        Assert.DoesNotContain(displayList.Items, item => item.Kind == DisplayItemKind.Image);
     }
 
-    [Fact]
-    public void TransformCommandsWrapSubsequentCanvasPaint()
+    [Theory]
+    [InlineData("<canvas></canvas>", 300, 150)]
+    [InlineData("<canvas width='64'></canvas>", 64, 150)]
+    [InlineData("<canvas height='20'></canvas>", 300, 20)]
+    [InlineData("<canvas width='x' height='-3'></canvas>", 300, 150)]
+    [InlineData("<canvas width='10' height='10' style='width:80px'></canvas>", 80, 80)]
+    public void ACanvasIsSizedByItsAttributesLikeAReplacedElement(string html, float width, float height)
     {
-        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
+        using var document = Document.Parse("<html><body style='margin:0'>" + html + "</body></html>");
         var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        canvas.CanvasSurface = new TestCanvasSurface([
-            new CanvasSurfaceCommand("translate", 5, 7, 0, 0, ""),
-            new CanvasSurfaceCommand("fillRect", 1, 2, 3, 4, "#0f0")
-        ]);
+        document.Paint(800, 600);
 
-        var (displayList, _) = document.Paint(200, 100);
-        var transforms = displayList.Items.Where(item => item.Kind == DisplayItemKind.PushTransform).ToList();
-        Assert.Contains(transforms, item => item.Transform.Translation == new System.Numerics.Vector2(5, 7));
+        var bounds = document.GetElementBounds(canvas)!.Value;
+        Assert.Equal((width, height), (bounds.Width, bounds.Height));
     }
 
-    [Fact]
-    public void LinearCanvasGradientBecomesDisplayListGradient()
+    private sealed class TestCanvasSurface(int width, int height) : ICanvasSurface
     {
-        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
-        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        canvas.CanvasSurface = new TestCanvasSurface([
-            new CanvasSurfaceCommand("fillRect", 0, 0, 10, 10, "gradient:0,0,10,0|0:red|1:blue")
-        ]);
+        public int Width { get; } = width;
 
-        var (displayList, _) = document.Paint(200, 100);
-        Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.Fill && item.Gradient is { Stops.Count: 2 });
+        public int Height { get; } = height;
+
+        public IImageHandle? Snapshot() => new Pixels(Width, Height);
     }
 
-    [Fact]
-    public void ClearRectBecomesAFirstClassPaintOperation()
+    private sealed class Pixels(int width, int height) : IImageHandle
     {
-        using var document = Document.Parse("<html><body><canvas width='40' height='30'></canvas></body></html>");
-        var canvas = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        canvas.CanvasSurface = new TestCanvasSurface([
-            new CanvasSurfaceCommand("clearRect", 1, 2, 3, 4, "")
-        ]);
+        public int Width { get; } = width;
 
-        var (displayList, _) = document.Paint(200, 100);
-        Assert.Contains(displayList.Items, item => item.Kind == DisplayItemKind.ClearRect);
-    }
+        public int Height { get; } = height;
 
-    private sealed class TestCanvasSurface(IReadOnlyList<CanvasSurfaceCommand> commands) : ICanvasSurface
-    {
-        public IReadOnlyList<CanvasSurfaceCommand> Commands { get; } = commands;
+        public ReadOnlyMemory<byte> Pixels_ => new byte[width * height * 4];
+
+        ReadOnlyMemory<byte> IImageHandle.Pixels => Pixels_;
     }
 }

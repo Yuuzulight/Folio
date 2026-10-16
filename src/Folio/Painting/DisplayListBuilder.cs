@@ -387,8 +387,6 @@ internal static class DisplayListBuilder
             }
             if (style.Shadows.Box.Count > 0)
                 PaintBoxShadows(box, shape, border, inset: true);
-            if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
-                PaintCanvas(box, surface);
             // A border image that can be drawn replaces the border styles (collapsed table borders have none).
             if (box.Fragment.PaintedBorder is null && PaintBorderImage(box, border, style.BorderImage, "border-image-source"))
                 return;
@@ -529,8 +527,6 @@ internal static class DisplayListBuilder
                     PaintDropDownArrow(box);
                 else if (box.Fragment.Svg is { } svg)
                     PaintSvg(box, svg);
-                else if (box.Box.Node is ElementNode { LocalName: "canvas", CanvasSurface: { } surface })
-                    PaintCanvas(box, surface);
                 else if (box.Box is ReplacedBox { Kind: ReplacedKind.Media or ReplacedKind.Frame } replaced)
                     PaintFeatureFallback(box, replaced);
                 else
@@ -621,186 +617,6 @@ internal static class DisplayListBuilder
                 ? new CssColor(color.R, color.G, color.B, 0.08f)
                 : new CssColor(0.92f, 0.92f, 0.92f, 1);
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
-        }
-
-        private void PaintCanvas(PaintBox box, ICanvasSurface surface)
-        {
-            SetClip(box.Clip);
-        var transformDepth = 0;
-        list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(box.Rect.X, box.Rect.Y)));
-        transformDepth++;
-        var path = new PathData();
-            var currentPoint = Vector2.Zero;
-            foreach (var command in surface.Commands)
-            {
-            var color = CanvasColor(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
-            var gradient = CanvasGradient(command.Name is "stroke" or "strokeRect" or "strokeText" ? command.StrokeStyle ?? command.FillStyle : command.FillStyle);
-            var blend = CanvasBlend(command.Composite);
-            switch (command.Name)
-            {
-                case "beginPath":
-                    path = new PathData();
-                    currentPoint = Vector2.Zero;
-                    break;
-                case "translate":
-                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
-                        Transform: Matrix3x2.CreateTranslation((float)command.X, (float)command.Y)));
-                    transformDepth++;
-                    break;
-                case "scale":
-                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
-                        Transform: Matrix3x2.CreateScale((float)command.X, (float)command.Y)));
-                    transformDepth++;
-                    break;
-                case "rotate":
-                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform,
-                        Transform: Matrix3x2.CreateRotation((float)command.X)));
-                    transformDepth++;
-                    break;
-                case "fillRect" or "strokeRect":
-                    var rect = new RectF((float)command.X, (float)command.Y,
-                        (float)command.Width, (float)command.Height);
-                    if (command.Name == "fillRect")
-                        list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(rect, default), color, Blend: blend, Gradient: gradient));
-                    else
-                        list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color,
-                            Path: new PathData().AddRoundedRect(new RoundedRect(rect, default)), Stroke: new Stroke(1)));
-                    break;
-                case "clearRect":
-                    var clearRect = new RectF((float)command.X, (float)command.Y, (float)command.Width, (float)command.Height);
-                    list.Items.Add(new DisplayItem(DisplayItemKind.ClearRect, new RoundedRect(clearRect, default)));
-                    break;
-                case "fillText" or "strokeText":
-                    var textRect = new RectF((float)command.X, (float)command.Y - (float)command.Height,
-                        (float)command.Width, (float)command.Height);
-                    list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(textRect, default), color, Blend: blend, Gradient: gradient));
-                    break;
-                case "rect":
-                    path.AddRoundedRect(new RoundedRect(new RectF((float)command.X, (float)command.Y,
-                        (float)command.Width, (float)command.Height), default));
-                    break;
-                case "moveTo":
-                    path.MoveTo((float)command.X, (float)command.Y);
-                    currentPoint = new((float)command.X, (float)command.Y);
-                    break;
-                case "lineTo":
-                    path.LineTo((float)command.X, (float)command.Y);
-                    currentPoint = new((float)command.X, (float)command.Y);
-                    break;
-                case "quadraticCurveTo" or "bezierCurveTo":
-                    var pathArgs = command.Arguments ?? [];
-                    var end = new Vector2((float)command.X, (float)command.Y);
-                    if (command.Name == "quadraticCurveTo" && pathArgs.Count >= 4)
-                    {
-                        var control = new Vector2((float)pathArgs[0], (float)pathArgs[1]);
-                        path.CubicTo(currentPoint + (control - currentPoint) * (2f / 3f), end + (control - end) * (2f / 3f), end);
-                    }
-                    else if (command.Name == "bezierCurveTo" && pathArgs.Count >= 6)
-                        path.CubicTo(new((float)pathArgs[0], (float)pathArgs[1]), new((float)pathArgs[2], (float)pathArgs[3]), end);
-                    else
-                        path.LineTo(end.X, end.Y);
-                    currentPoint = end;
-                    break;
-                case "arc":
-                    {
-                        var arcArgs = command.Arguments ?? [];
-                        if (arcArgs.Count >= 5)
-                        {
-                            var cx = arcArgs[0]; var cy = arcArgs[1]; var radius = Math.Abs(arcArgs[2]);
-                            var start = arcArgs[3]; var finish = arcArgs[4];
-                            var sweep = finish - start;
-                            if (Math.Abs(sweep) < 0.0001) sweep = 2 * Math.PI;
-                            var steps = Math.Max(8, (int)Math.Ceiling(Math.Abs(sweep) * 8));
-                            var first = new Vector2((float)(cx + radius * Math.Cos(start)), (float)(cy + radius * Math.Sin(start)));
-                            path.LineTo(first.X, first.Y);
-                            for (var i = 1; i <= steps; i++)
-                            {
-                                var angle = start + sweep * i / steps;
-                                path.LineTo((float)(cx + radius * Math.Cos(angle)), (float)(cy + radius * Math.Sin(angle)));
-                            }
-                            currentPoint = new((float)(cx + radius * Math.Cos(finish)), (float)(cy + radius * Math.Sin(finish)));
-                        }
-                    }
-                    break;
-                case "arcTo":
-                    {
-                        var arcToArgs = command.Arguments ?? [];
-                        if (arcToArgs.Count >= 4)
-                        {
-                            path.LineTo((float)arcToArgs[0], (float)arcToArgs[1]);
-                            path.LineTo((float)arcToArgs[2], (float)arcToArgs[3]);
-                            currentPoint = new((float)arcToArgs[2], (float)arcToArgs[3]);
-                        }
-                    }
-                    break;
-                case "closePath":
-                    path.Close();
-                    break;
-                case "fill" when path.Commands.Count > 0:
-                    list.Items.Add(new DisplayItem(DisplayItemKind.FillPath, Color: color, Blend: blend, Gradient: gradient, Path: path));
-                    path = new PathData();
-                    break;
-                case "stroke" when path.Commands.Count > 0:
-                    list.Items.Add(new DisplayItem(DisplayItemKind.StrokePath, Color: color, Blend: blend, Gradient: gradient, Path: path, Stroke: new Stroke(1)));
-                    path = new PathData();
-                    break;
-            }
-            }
-        while (transformDepth-- > 0)
-            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
-        surface.ClearCommands();
-        }
-
-        private static CssColor CanvasColor(string value)
-        {
-            value = value.Trim();
-            if (value.StartsWith('#') && int.TryParse(value[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex))
-            {
-                if (value.Length == 4)
-                    return new CssColor(((hex >> 8) & 0xF) / 15f, ((hex >> 4) & 0xF) / 15f, (hex & 0xF) / 15f, 1);
-                if (value.Length == 7)
-                    return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
-            }
-            if (TryFunctionalColor(value, out var functional))
-                return functional;
-            return value.ToLowerInvariant() switch
-            {
-                "red" => new CssColor(1, 0, 0, 1),
-                "green" => new CssColor(0, 0.5f, 0, 1),
-                "blue" => new CssColor(0, 0, 1, 1),
-                "white" => new CssColor(1, 1, 1, 1),
-                _ => CssColor.Black,
-            };
-        }
-
-        private static bool TryFunctionalColor(string value, out CssColor color)
-        {
-            color = CssColor.Black;
-            var open = value.IndexOf('(');
-            if (open <= 0 || !value.EndsWith(')')) return false;
-            var name = value[..open].Trim().ToLowerInvariant();
-            var parts = value[(open + 1)..^1].Split(',', StringSplitOptions.TrimEntries);
-            if (name is "rgb" or "rgba" && parts.Length >= 3
-                && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var r)
-                && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var g)
-                && float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var b))
-            {
-                var a = parts.Length > 3 && float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var alpha) ? alpha : 1;
-                color = new CssColor(Math.Clamp(r / 255, 0, 1), Math.Clamp(g / 255, 0, 1), Math.Clamp(b / 255, 0, 1), Math.Clamp(a, 0, 1));
-                return true;
-            }
-            if (name == "hsl" && parts.Length >= 3
-                && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var h)
-                && float.TryParse(parts[1].TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out var s)
-                && float.TryParse(parts[2].TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out var l))
-            {
-                h = (h % 360 + 360) % 360 / 360; s = Math.Clamp(s / 100, 0, 1); l = Math.Clamp(l / 100, 0, 1);
-                var q = l < .5f ? l * (1 + s) : l + s - l * s; var p = 2 * l - q;
-                static float Hue(float p, float q, float t) { if (t < 0) t += 1; if (t > 1) t -= 1; return t < 1f / 6 ? p + (q - p) * 6 * t : t < .5f ? q : t < 2f / 3 ? p + (q - p) * (2f / 3 - t) * 6 : p; }
-                color = new CssColor(Hue(p, q, h + 1f / 3), Hue(p, q, h), Hue(p, q, h - 1f / 3), 1);
-                return true;
-            }
-            return false;
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)
@@ -1528,7 +1344,12 @@ internal static class DisplayListBuilder
         {
             var replaced = (ReplacedBox)box.Box;
             var style = replaced.Style;
-            if (style.Inherited.Visibility != Visibility.Visible || replaced.Image is not { } image || replaced.NaturalSize is not { } natural)
+            // A canvas draws its bitmap, a pixel for a natural CSS pixel, as an image does.
+            Imaging.IImageHandle? image = replaced.Image;
+            var naturalSize = replaced.NaturalSize;
+            if (replaced.Kind == ReplacedKind.Canvas && replaced.Node is ElementNode { CanvasSurface: Imaging.ICanvasSurface surface } && surface.Snapshot() is { } bitmap)
+                (image, naturalSize) = (bitmap, (bitmap.Width, bitmap.Height));
+            if (style.Inherited.Visibility != Visibility.Visible || image is null || naturalSize is not { } natural)
                 return;
             var (border, spacing, w) = (style.Border, style.Spacing, box.Fragment.Width);
             var content = box.Rect.Inset(border.TopWidth + spacing.PaddingTop.Resolve(w), border.RightWidth + spacing.PaddingRight.Resolve(w),
@@ -1792,46 +1613,4 @@ internal static class DisplayListBuilder
         // Called at the end so the list is balanced.
         public void Finish() => PopTo(0);
     }
-
-    private static Gradient? CanvasGradient(string value)
-    {
-        if (!value.StartsWith("gradient:", StringComparison.OrdinalIgnoreCase))
-            return null;
-        var parts = value[9..].Split('|');
-        if (parts.Length < 2)
-            return null;
-        var geometry = parts[0].Split(',');
-        if (geometry.Length != 4 || !float.TryParse(geometry[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x0)
-            || !float.TryParse(geometry[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y0)
-            || !float.TryParse(geometry[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var x1)
-            || !float.TryParse(geometry[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var y1))
-            return null;
-        var stops = parts.Skip(1).Select(stop => stop.Split(':', 2)).Where(stop => stop.Length == 2
-            && float.TryParse(stop[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-            .Select(stop => { var color = ParseCanvasColor(stop[1]); return new GradientStop(float.Parse(stop[0], CultureInfo.InvariantCulture), new Rgba(color.R, color.G, color.B, color.A)); })
-            .ToArray();
-        return stops.Length >= 2 ? new Gradient(GradientKind.Linear, stops, Start: new(x0, y0), End: new(x1, y1)) : null;
-    }
-
-    private static CssColor ParseCanvasColor(string value)
-    {
-        value = value.Trim();
-        if (value.StartsWith('#') && int.TryParse(value[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex) && value.Length == 7)
-            return new CssColor(((hex >> 16) & 0xFF) / 255f, ((hex >> 8) & 0xFF) / 255f, (hex & 0xFF) / 255f, 1);
-        return value.ToLowerInvariant() switch
-        {
-            "red" => new CssColor(1, 0, 0, 1), "green" => new CssColor(0, .5f, 0, 1), "blue" => new CssColor(0, 0, 1, 1),
-            "white" => new CssColor(1, 1, 1, 1), _ => CssColor.Black,
-        };
-    }
-
-    private static BlendMode CanvasBlend(string value) => value.ToLowerInvariant() switch
-    {
-        "multiply" => BlendMode.Multiply, "screen" => BlendMode.Screen, "overlay" => BlendMode.Overlay,
-        "darken" => BlendMode.Darken, "lighten" => BlendMode.Lighten, "copy" => BlendMode.Normal,
-        "destination-out" => BlendMode.Normal, "destination-in" => BlendMode.DestinationIn,
-        "source-in" => BlendMode.SourceIn, "source-out" => BlendMode.SourceOut, "xor" => BlendMode.Xor,
-        _ => BlendMode.Normal,
-    };
 }
-

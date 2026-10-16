@@ -90,6 +90,28 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         canvas.DrawText(blob, 0, 0, skPaint);
     }
 
+    public void StrokeGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Stroke stroke, in Paint paint)
+    {
+        if (Typeface(font) is not { } typeface || glyphs.Length == 0)
+            return;
+        using var skFont = new SKFont(typeface, size) { Subpixel = true };
+        var points = new SKPoint[origins.Length];
+        for (var i = 0; i < points.Length; i++)
+            points[i] = new SKPoint(origins[i].X, origins[i].Y);
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPositionedRun(glyphs, skFont, points);
+        using var blob = builder.Build();
+        using var skPaint = Fill(paint);
+        skPaint.Style = SKPaintStyle.Stroke;
+        skPaint.StrokeWidth = stroke.Width;
+        skPaint.StrokeCap = stroke.Cap switch { LineCap.Round => SKStrokeCap.Round, LineCap.Square => SKStrokeCap.Square, _ => SKStrokeCap.Butt };
+        skPaint.StrokeJoin = stroke.Join switch { LineJoin.Round => SKStrokeJoin.Round, LineJoin.Bevel => SKStrokeJoin.Bevel, _ => SKStrokeJoin.Miter };
+        skPaint.StrokeMiter = stroke.MiterLimit;
+        using var dash = stroke.Dashes is { Count: > 0 } d ? SKPathEffect.CreateDash([.. d], stroke.DashOffset) : null;
+        skPaint.PathEffect = dash;
+        canvas.DrawText(blob, 0, 0, skPaint);
+    }
+
     public void DrawImage(IImageHandle image, in RectF destination, ImageSampling sampling)
     {
         if (Image(image) is not { } skImage)
@@ -99,6 +121,22 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
             : new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
         using var paint = new SKPaint { IsAntialias = true };
         canvas.DrawImage(skImage, new SKRect(destination.X, destination.Y, destination.Right, destination.Bottom), options, paint);
+    }
+
+    public void DrawImage(IImageHandle image, in RectF source, in RectF destination, ImageSampling sampling, in Paint paint)
+    {
+        if (Image(image) is not { } skImage)
+            return;
+        var options = sampling == ImageSampling.Pixelated
+            ? new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None)
+            : new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        using var skPaint = new SKPaint
+        {
+            IsAntialias = true, Color = SKColors.Black.WithAlpha(ToByte(paint.Color.A)), BlendMode = ToSkia(paint.Blend),
+            MaskFilter = paint.Blur > 0 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, paint.Blur) : null,
+        };
+        canvas.DrawImage(skImage, new SKRect(source.X, source.Y, source.Right, source.Bottom),
+            new SKRect(destination.X, destination.Y, destination.Right, destination.Bottom), options, skPaint);
     }
 
     // One Skia image per image handle, copied from its straight-alpha RGBA pixels on first use.
@@ -353,15 +391,32 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         BlendMode.SourceIn => SKBlendMode.SrcIn,
         BlendMode.SourceOut => SKBlendMode.SrcOut,
         BlendMode.DestinationIn => SKBlendMode.DstIn,
+        BlendMode.SourceAtop => SKBlendMode.SrcATop,
+        BlendMode.DestinationOver => SKBlendMode.DstOver,
+        BlendMode.DestinationOut => SKBlendMode.DstOut,
+        BlendMode.DestinationAtop => SKBlendMode.DstATop,
+        BlendMode.Copy => SKBlendMode.Src,
         _ => Enum.Parse<SKBlendMode>(mode.ToString()),
     };
 
     private static SKPaint Fill(in Paint paint) => new()
     {
-        IsAntialias = true, Style = SKPaintStyle.Fill, Color = paint.Gradient is null ? ToSkia(paint.Color) : SKColors.Black, BlendMode = ToSkia(paint.Blend),
+        IsAntialias = true, Style = SKPaintStyle.Fill, Color = paint.Gradient is null && paint.Pattern is null ? ToSkia(paint.Color) : SKColors.Black.WithAlpha(paint.Gradient is null ? ToByte(paint.Color.A) : (byte)255),
+        BlendMode = ToSkia(paint.Blend),
         MaskFilter = paint.Blur > 0 ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, paint.Blur) : null,
-        Shader = paint.Gradient is { } gradient ? Shader(gradient) : null,
+        Shader = paint.Gradient is { } gradient ? Shader(gradient) : paint.Pattern is { } pattern ? PatternShader(pattern) : null,
     };
+
+    private static SKShader? PatternShader(ImagePattern pattern)
+    {
+        if (Image(pattern.Image) is not { } image)
+            return null;
+        var options = pattern.Sampling == ImageSampling.Pixelated
+            ? new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None)
+            : new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        return image.ToShader(pattern.RepeatX ? SKShaderTileMode.Repeat : SKShaderTileMode.Decal, pattern.RepeatY ? SKShaderTileMode.Repeat : SKShaderTileMode.Decal,
+            options, ToSkia(pattern.Transform));
+    }
 
     // Stops between which alpha changes come with extra stops interpolated premultiplied, so the plain sRGB
     // interpolation here matches css-color-4 §12.3.

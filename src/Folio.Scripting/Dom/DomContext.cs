@@ -26,7 +26,8 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -39,6 +40,8 @@ internal sealed class DomContext
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
+        RasterBackend = raster;
+        _canvasStyles = canvasStyles;
 
         Templates = new DomNodeTemplates(this);
     }
@@ -54,6 +57,9 @@ internal sealed class DomContext
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }
+    public Folio.Painting.IRasterBackend? RasterBackend { get; }
+    private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;
+    private readonly Dictionary<ElementNode, (string Source, Folio.Imaging.IImageHandle? Image)> _images = new(ReferenceEqualityComparer.Instance);
     public DomNodeTemplates Templates { get; }
     public ElementNode? FocusedElement { get; private set; }
     public void Focus(ElementNode element) => FocusedElement = element;
@@ -69,7 +75,35 @@ internal sealed class DomContext
 
     public ScriptValue WrapMutationRecord(MutationRecordState record) => WrapperCache.GetOrCreate(Engine, Templates.MutationRecordTemplate, record);
 
-    public CanvasElementState GetCanvas(ElementNode element) => _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element));
+    public CanvasElementState GetCanvas(ElementNode element) =>
+        _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element, RasterBackend, _canvasStyles?.Invoke()));
+
+    /// <summary>The pixels an <c>img</c> element shows, decoded from its <c>src</c> (a data: URL, or what the host's loader gives); null while it has none.</summary>
+    public Folio.Imaging.IImageHandle? ImageOf(ElementNode image)
+    {
+        var source = image.GetAttribute("src")?.Trim() ?? "";
+        if (_images.TryGetValue(image, out var known) && known.Source == source)
+            return known.Image;
+        Folio.Imaging.IImageHandle? decoded = null;
+        if (source.Length > 0)
+        {
+            byte[]? bytes = null;
+            if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Folio.Resources.DataUrl.TryParse(source, out var data, out _))
+                    bytes = data;
+            }
+            else if (ResourceLoader is { } loader)
+            {
+                var url = BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
+                if (Uri.TryCreate(url, UriKind.Absolute, out var absolute))
+                    bytes = loader.LoadAsync(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+            }
+            decoded = bytes is null ? null : Folio.Imaging.ImageLoader.Decode(bytes);
+        }
+        _images[image] = (source, decoded);
+        return decoded;
+    }
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;

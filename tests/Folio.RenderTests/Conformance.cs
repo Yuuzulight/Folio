@@ -72,6 +72,7 @@ public static class Conformance
         Fonts = TestRenderer.Options.Fonts,
         UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
         Scripting = ScriptingPolicy.ContentProcess,
+        Raster = new SkiaRasterBackend(),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

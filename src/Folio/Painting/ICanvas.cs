@@ -46,8 +46,20 @@ public interface ICanvas
     /// <summary>Draws glyphs of a font by id at a size in CSS pixels, each at its baseline origin.</summary>
     void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint);
 
+    /// <summary>Strokes the outlines of glyphs placed as by <see cref="DrawGlyphs"/>; a canvas that cannot draws nothing.</summary>
+    void StrokeGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Stroke stroke, in Paint paint) { }
+
     /// <summary>Draws a whole image scaled into <paramref name="destination"/>.</summary>
     void DrawImage(Imaging.IImageHandle image, in RectF destination, ImageSampling sampling);
+
+    /// <summary>
+    /// Draws the part of an image inside <paramref name="source"/> (image pixels) scaled into <paramref name="destination"/>,
+    /// with the alpha and blend mode of <paramref name="paint"/> (its colour is ignored). A canvas that cannot
+    /// do this draws the whole image into the destination.
+    /// </summary>
+    void DrawImage(Imaging.IImageHandle image, in RectF source, in RectF destination, ImageSampling sampling, in Paint paint) =>
+        DrawImage(image, destination, sampling);
+
     /// <summary>
     /// Where the outlines of glyphs drawn as by <see cref="DrawGlyphs"/> cross the horizontal band from
     /// <paramref name="top"/> to <paramref name="bottom"/>: pairs of left and right x coordinates, one pair per crossing,

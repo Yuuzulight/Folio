@@ -89,6 +89,12 @@ public sealed class FolioOptions
     /// </summary>
     public ScriptingPolicy Scripting { get; init; } = ScriptingPolicy.Disabled;
 
+    /// <summary>
+    /// Makes the bitmaps canvas elements draw on. Null (the default) leaves <c>getContext('2d')</c> returning null.
+    /// <c>Folio.Skia</c> has one.
+    /// </summary>
+    public Painting.IRasterBackend? Raster { get; init; }
+
     /// <summary>Optional content-host executable used by a host that enables <see cref="ScriptingPolicy.ContentProcess"/>.</summary>
     public string? ContentProcessPath { get; init; }
 }

@@ -205,6 +205,15 @@ public static class WebIdlConversions
         return unchecked((long)(ulong)(decimal)i);
     }
 
+    // The integer modulo 2^32, as WebIDL's conversion to a 32-bit integer defines it; a cast of a double beyond the range of long is not that.
+    private static uint ModuloTwoTo32(double integer)
+    {
+        var remainder = integer % 4294967296.0;
+        if (remainder < 0)
+            remainder += 4294967296.0;
+        return (uint)remainder;
+    }
+
     public static int ToInt32(ScriptValue val, bool enforceRange = false, bool clamp = false)
     {
         var x = ToUnrestrictedDouble(val);
@@ -219,8 +228,7 @@ public static class WebIdlConversions
             if (double.IsNaN(x)) return 0;
             return (int)Math.Clamp(Math.Round(x, MidpointRounding.ToEven), int.MinValue, int.MaxValue);
         }
-        var i = ToIntegerHelper(val);
-        return unchecked((int)(uint)(long)i);
+        return unchecked((int)ModuloTwoTo32(ToIntegerHelper(val)));
     }
 
     public static uint ToUint32(ScriptValue val, bool enforceRange = false, bool clamp = false)
@@ -237,8 +245,7 @@ public static class WebIdlConversions
             if (double.IsNaN(x)) return 0;
             return (uint)Math.Clamp(Math.Round(x, MidpointRounding.ToEven), 0, uint.MaxValue);
         }
-        var i = ToIntegerHelper(val);
-        return unchecked((uint)(long)i);
+        return ModuloTwoTo32(ToIntegerHelper(val));
     }
 
     public static short ToInt16(ScriptValue val, bool enforceRange = false, bool clamp = false)
