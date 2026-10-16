@@ -1,0 +1,7 @@
+{
+  "prompt": "Build a seekable media timeline showing current time, duration and a seek button.",
+  "features": ["script", "media", "seek", "playback-clock"],
+  "viewport": 800,
+  "interaction": ["click #seek", "click #play"],
+  "expectedToFail": "Native media decoding is not enabled in the conformance host yet."
+}

@@ -1,0 +1,6 @@
+{
+  "prompt": "Build a captioned video clip with a text track and language selector.",
+  "features": ["script", "media", "video", "text-track", "captions"],
+  "viewport": 800,
+  "expectedToFail": "Native media decoding and caption rendering are not enabled in the conformance host yet."
+}

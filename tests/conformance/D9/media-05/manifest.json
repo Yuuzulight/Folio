@@ -1,0 +1,7 @@
+{
+  "prompt": "Build a video frame capture page that draws a video element into a canvas at a fixed time.",
+  "features": ["script", "media", "video", "canvas-2d", "drawImage"],
+  "viewport": 800,
+  "interaction": ["click #capture"],
+  "expectedToFail": "Native media decoding and video frame capture are not enabled in the conformance host yet."
+}
