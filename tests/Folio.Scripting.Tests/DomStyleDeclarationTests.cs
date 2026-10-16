@@ -15,7 +15,7 @@ public sealed class DomStyleDeclarationTests
     private sealed class WorkerResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script && request.Url.EndsWith("worker.js", StringComparison.Ordinal)
                 ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('message', function(e) { postMessage(e.data + 2); });"), "application/javascript")
                 : ResourceResponse.Refused("unsupported"));
     }
@@ -380,6 +380,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(engine.Evaluate("const loaded = new Worker('worker.js'); let result = 0; loaded.onmessage = e => result = e.data; loaded.postMessage(40); result === 42").AsBoolean());
+        Assert.True(engine.Evaluate("const missing = new Worker('missing.js'); let workerError = ''; missing.onerror = e => workerError = e.message; missing.postMessage(1); workerError.includes('could not load')").AsBoolean());
 
         using var importing = new JintScriptEngine();
         DomBindings.Install(importing, Document.Parse("<html></html>", new FolioOptions

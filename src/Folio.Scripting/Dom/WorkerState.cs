@@ -41,6 +41,10 @@ internal sealed class WorkerState
                 try { WorkerEngine.Evaluate(source, scriptUrl); }
                 catch (Exception error) { _scriptError = error; }
             }
+            else
+            {
+                _scriptError = new InvalidOperationException($"Worker script could not load '{scriptUrl}'.");
+            }
         }
     }
 
@@ -67,7 +71,13 @@ internal sealed class WorkerState
     {
         if (_listeners.TryGetValue(type, out var list)) list.Remove(listener);
     }
-    public void Terminate() { Terminated = true; WorkerEngine?.Dispose(); }
+    public void Terminate()
+    {
+        if (Terminated) return;
+        Terminated = true;
+        WorkerEngine?.Interrupt();
+        WorkerEngine?.Dispose();
+    }
     public bool PostMessage(ScriptValue value)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
