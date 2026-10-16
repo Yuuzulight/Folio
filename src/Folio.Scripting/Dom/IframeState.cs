@@ -12,7 +12,11 @@ internal sealed class IframeState
         MessageEventTemplate = messageEventTemplate;
         Element = element;
         Enabled = enabled;
-        Origin = Uri.TryCreate(element.GetAttribute("src"), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
+        var sandbox = (element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
+        SandboxTokens = sandbox;
+        HasSandbox = element.GetAttribute("sandbox") is not null;
+        var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
+        Origin = sameOrigin && Uri.TryCreate(element.GetAttribute("src"), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
     }
@@ -22,6 +26,10 @@ internal sealed class IframeState
     public ElementNode Element { get; }
     public bool Enabled { get; }
     public string Origin { get; }
+    public bool ScriptsAllowed => !HasSandbox || SandboxTokens.Contains("allow-scripts", StringComparer.OrdinalIgnoreCase);
+    public bool FormsAllowed => !HasSandbox || SandboxTokens.Contains("allow-forms", StringComparer.OrdinalIgnoreCase);
+    public bool HasSandbox { get; }
+    private string[] SandboxTokens { get; }
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }
     public bool Closed { get; private set; }

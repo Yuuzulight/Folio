@@ -609,6 +609,12 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(srcdoc.Evaluate("document.getElementById('f').contentDocument.getElementById('child').textContent === 'inline'").AsBoolean());
+        using var sandboxed = new JintScriptEngine();
+        DomBindings.Install(sandboxed, Document.Parse("<iframe id='f' sandbox src='https://child.example/app'></iframe><iframe id='same' sandbox='allow-same-origin allow-scripts' src='https://child.example/app'></iframe>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(sandboxed.Evaluate("document.getElementById('f').contentWindow.origin === 'null' && document.getElementById('f').sandbox === '' && document.getElementById('same').contentWindow.origin === 'https://child.example'").AsBoolean());
 
         using var remote = new JintScriptEngine();
         DomBindings.Install(remote, Document.Parse("<iframe id='f' src='/child.html'></iframe>", new FolioOptions
