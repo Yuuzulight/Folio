@@ -1,5 +1,5 @@
 {
-  "prompt": "Build a D6 library artifact using its pinned runtime library.",
+  "prompt": "Build a D6 pie library artifact using its pinned Mermaid runtime library.",
   "features": [
     "script",
     "d6",
