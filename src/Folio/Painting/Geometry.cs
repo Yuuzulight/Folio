@@ -37,7 +37,15 @@ public readonly record struct Rgba(float R, float G, float B, float A);
 /// <summary>What a fill or stroke paints with: a solid colour, or a gradient when one is given.</summary>
 /// <param name="Blur">The standard deviation, in CSS pixels, of a Gaussian blur applied to what is painted (shadows); 0 for none.</param>
 /// <param name="Blend">How what is painted blends with what is under it.</param>
-public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradient = null, BlendMode Blend = BlendMode.Normal);
+/// <param name="Pattern">An image to paint with instead, when given (a gradient wins over it).</param>
+public readonly record struct Paint(Rgba Color, float Blur = 0, Gradient? Gradient = null, BlendMode Blend = BlendMode.Normal, ImagePattern? Pattern = null);
+
+/// <summary>
+/// An image repeated as a paint (a canvas pattern): drawn at its pixel size, mapped to the canvas by
+/// <paramref name="Transform"/>, tiled along the axes that repeat and transparent beyond it along the others. The paint's
+/// colour alpha scales it.
+/// </summary>
+public sealed record ImagePattern(Imaging.IImageHandle Image, bool RepeatX, bool RepeatY, Matrix3x2 Transform, ImageSampling Sampling = ImageSampling.Smooth);
 
 /// <summary>
 /// How a source blends with its backdrop: source-over with the blend functions of
@@ -76,6 +84,21 @@ public enum BlendMode
 
     /// <summary>Porter-Duff xor: the source and the backdrop where they do not overlap.</summary>
     Xor,
+
+    /// <summary>Porter-Duff source atop: the source where the backdrop is, the backdrop elsewhere.</summary>
+    SourceAtop,
+
+    /// <summary>Porter-Duff destination over: the backdrop, with the source behind it.</summary>
+    DestinationOver,
+
+    /// <summary>Porter-Duff destination out: the backdrop where the source is not.</summary>
+    DestinationOut,
+
+    /// <summary>Porter-Duff destination atop: the backdrop where the source is, the source elsewhere.</summary>
+    DestinationAtop,
+
+    /// <summary>The source replaces the backdrop.</summary>
+    Copy,
 }
 
 public enum GradientKind

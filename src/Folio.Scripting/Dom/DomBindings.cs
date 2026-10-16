@@ -14,15 +14,17 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.Options.ResourceLoader, document.Options.BaseUri);
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.Options.ResourceLoader, document.Options.BaseUri,
+        document.Options.Raster, () => document.CanvasText);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes, resourceLoader, baseUri);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes, resourceLoader, baseUri, raster, canvasStyles);
 
         // 1. Install DOMException
         InstallDomException(engine);
@@ -54,7 +56,8 @@ public static class DomBindings
             .DefineMethod("notify", (_, _, _) => { context.MutationObservers.Notify(); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_mutation_host", engine.CreateHostObject(mutationHost, context));
         var canvasHost = new HostObjectTemplate("CanvasHost")
-            .DefineMethod("createPath", (_, _, _) => engine.CreateHostObject(context.Templates.Path2DTemplate, new CanvasPathState()));
+            .DefineMethod("createPath", (_, _, args) => engine.CreateHostObject(context.Templates.Canvas.Path2D, context.Templates.Canvas.NewPath2D(args)))
+            .DefineMethod("imageData", (_, _, args) => context.Templates.Canvas.ConstructImageData(args));
         engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
         var workerTemplate = new HostObjectTemplate("Worker")
             .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
@@ -419,7 +422,8 @@ public static class DomBindings
                     takeRecords() { return this.#host.takeRecords(); }
                 };
             }
-            globalThis.Path2D = function() { return __folio_canvas_host.createPath(); };
+            globalThis.Path2D = function(path) { return arguments.length ? __folio_canvas_host.createPath(path) : __folio_canvas_host.createPath(); };
+            globalThis.ImageData = function(a, b, c) { return __folio_canvas_host.imageData(a, b, c); };
             globalThis.Audio = function(src) { const element = document.createElement('audio'); if (src !== undefined) element.src = String(src); return element; };
             globalThis.FormData = function(form) {
                 this._entries = [];

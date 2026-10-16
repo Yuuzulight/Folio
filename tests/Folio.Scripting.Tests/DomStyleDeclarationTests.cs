@@ -160,12 +160,12 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public void CanvasElementExposesBasicTwoDimensionalContext()
     {
-        var document = TreeBuilder.Parse("<canvas id='chart' width='640' height='480'></canvas>");
+        var document = Document.Parse("<canvas id='chart' width='640' height='480'></canvas>", new FolioOptions { Raster = new Folio.Skia.SkiaRasterBackend() });
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, document);
         Assert.Equal(640, engine.Evaluate("const canvas = document.getElementById('chart'); canvas.width").AsNumber());
         Assert.Equal("#000000", engine.Evaluate("const ctx = canvas.getContext('2d'); ctx.fillStyle").AsString());
-        Assert.Equal("#f00", engine.Evaluate("ctx.fillStyle = '#f00'; ctx.fillRect(1, 2, 30, 40); ctx.fillStyle").AsString());
+        Assert.Equal("#ff0000", engine.Evaluate("ctx.fillStyle = '#f00'; ctx.fillRect(1, 2, 30, 40); ctx.fillStyle").AsString());
         Assert.Equal("object", engine.Evaluate("const path = new Path2D(); path.moveTo(0, 0); path.lineTo(10, 10); typeof path").AsString());
         engine.Evaluate("ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, 10); ctx.closePath(); ctx.stroke();");
         engine.Evaluate("ctx.beginPath(); ctx.rect(0, 0, 20, 20); ctx.quadraticCurveTo(5, 5, 10, 10); ctx.bezierCurveTo(1, 2, 3, 4, 5, 6); ctx.arc(10, 10, 4, 0, 3.14); ctx.fill();");
@@ -188,7 +188,8 @@ public sealed class DomStyleDeclarationTests
         using var allowed = new JintScriptEngine();
         var allowedDocument = Document.Parse("<canvas id='c'></canvas>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { WebGl = true }
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend(),
         });
         DomBindings.Install(allowed, allowedDocument);
         Assert.True(allowed.Evaluate("const gl = document.getElementById('c').getContext('webgl2'); gl !== null && gl.ARRAY_BUFFER === 34962").AsBoolean());
@@ -228,7 +229,9 @@ public sealed class DomStyleDeclarationTests
         Assert.False(allowed.Evaluate("ext.restoreContext(); gl.isContextLost() && contextEvents === 'webglcontextlostwebglcontextrestored'").AsBoolean());
         Assert.Equal("webglcontextlostwebglcontextrestored", allowed.Evaluate("contextEvents").AsString());
         var canvas = allowedDocument.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        Assert.Contains(canvas.CanvasSurface!.Commands, command => command.Name == "fillRect" && command.FillStyle.StartsWith("rgba(255", StringComparison.Ordinal));
+        // gl.clearColor(1, 0.25, 0, 1) then gl.clear(COLOR_BUFFER_BIT) filled the bitmap.
+        var pixels = ((Folio.Imaging.ICanvasSurface)canvas.CanvasSurface!).Snapshot()!.Pixels.Span;
+        Assert.Equal(new byte[] { 255, 64, 0, 255 }, pixels[..4].ToArray());
 
         using var limited = new JintScriptEngine();
         var limitedDocument = Document.Parse("<canvas id='c'></canvas>", new FolioOptions
@@ -563,7 +566,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
-        var document = TreeBuilder.Parse("<canvas id='chart' width='1' height='1'></canvas>");
+        var document = Document.Parse("<canvas id='chart' width='1' height='1'></canvas>", new FolioOptions { Raster = new Folio.Skia.SkiaRasterBackend() });
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, document);
 
@@ -581,7 +584,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public void CanvasSupportsFunctionalColorsAndArcTo()
     {
-        var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");
+        var document = Document.Parse("<canvas id='chart'></canvas>", new FolioOptions { Raster = new Folio.Skia.SkiaRasterBackend() });
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, document);
 
@@ -599,7 +602,7 @@ public sealed class DomStyleDeclarationTests
     [Fact]
     public void CanvasContextSupportsStateAndTransformOperations()
     {
-        var document = TreeBuilder.Parse("<canvas id='chart'></canvas>");
+        var document = Document.Parse("<canvas id='chart'></canvas>", new FolioOptions { Raster = new Folio.Skia.SkiaRasterBackend() });
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, document);
         var result = engine.Evaluate(@"

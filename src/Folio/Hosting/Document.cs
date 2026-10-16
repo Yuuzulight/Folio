@@ -149,6 +149,13 @@ public sealed class Document : IDisposable
         new(DiagnosticCode.LimitExceeded, Severity.Warning, message, at, null);
 
     private FontCollection? _fonts;
+
+    // Canvas text, shaped with this document's fonts (and web fonts) by the raster backend's shaper.
+    private Hosting.CanvasStyleEngine? _canvasText;
+
+    internal Hosting.CanvasStyleEngine? CanvasText => Options.Raster is { } raster
+        ? _canvasText ??= new Hosting.CanvasStyleEngine(_fonts ??= FontCollection.For(Options.Fonts), raster.TextShaper)
+        : null;
     private Imaging.ImageLoader? _images;
     private bool _webFontsLoaded;
     private readonly Dictionary<ElementNode, Element> _elements = [];

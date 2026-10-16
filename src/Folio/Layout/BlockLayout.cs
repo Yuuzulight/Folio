@@ -671,6 +671,10 @@ internal static class BlockLayout
     /// </summary>
     /// <param name="usedWidth">A width already decided by the parent's algorithm (content box), which the height follows.</param>
     /// <param name="fillWidth">The width that fills the containing block; null in intrinsic sizing, where 300px is used.</param>
+    // A canvas side from its attribute: a non-negative integer, else the default.
+    private static int CanvasSide(Dom.ElementNode canvas, string name, int fallback) =>
+        int.TryParse(canvas.GetAttribute(name)?.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var side) ? side : fallback;
+
     internal static (float Width, float Height)? ReplacedSize(ReplacedBox box, float cbWidth, float? cbHeight, float frameX, float frameY,
                                                             float? usedWidth = null, float? fillWidth = null)
     {
@@ -679,6 +683,13 @@ internal static class BlockLayout
             (nw, nh, ratio) = (natural.Width, natural.Height, natural.Width > 0 && natural.Height > 0 ? natural.Width / natural.Height : null);
         else if (box.SvgNatural is { } svg)
             (nw, nh, ratio) = svg;
+        else if (box.Kind == ReplacedKind.Canvas && box.Node is Dom.ElementNode canvas)
+        {
+            // The bitmap's size, 300 by 150 unless the element's width and height attributes say otherwise (HTML §4.12.5).
+            var cw = CanvasSide(canvas, "width", 300);
+            var ch = CanvasSide(canvas, "height", 150);
+            (nw, nh, ratio) = (cw, ch, cw > 0 && ch > 0 ? (float)cw / ch : null);
+        }
         else if (box.Kind == ReplacedKind.FormControl && box.Node is Dom.ElementNode el)
         {
             var type = (el.GetAttribute("type") ?? "text").ToLowerInvariant();

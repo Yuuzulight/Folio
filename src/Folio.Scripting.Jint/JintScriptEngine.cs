@@ -4,6 +4,7 @@ using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Function;
 using Jint.Native.Object;
+using Jint.Native.TypedArray;
 using Jint.Runtime;
 
 namespace Folio.Scripting.Jint;
@@ -140,6 +141,35 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
             jsArray.Set(i, ToJsValue(engine, elements[i]));
         }
         return ToScriptValue(jsArray);
+    }
+
+    public ScriptValue GetProperty(ScriptValue target, string name) =>
+        target.Raw is ObjectInstance obj ? ToScriptValue(obj.Get(name)) : ScriptValue.Undefined;
+
+    public ScriptValue CreateUint8ClampedArray(ReadOnlySpan<byte> bytes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var engine = _engine!;
+        var buffer = engine.Intrinsics.ArrayBuffer.Construct(bytes.ToArray());
+        return ToScriptValue(engine.Intrinsics.Uint8ClampedArray.Construct(buffer, null, null));
+    }
+
+    public bool TryGetBytes(ScriptValue value, out byte[] bytes)
+    {
+        bytes = [];
+        if (value.Raw is not JsValue js || !(js.IsUint8ClampedArray() || js.IsUint8Array()))
+            return false;
+        bytes = js.IsUint8ClampedArray() ? js.AsUint8ClampedArray() : js.AsUint8Array();
+        return true;
+    }
+
+    public bool TrySetBytes(ScriptValue value, ReadOnlySpan<byte> bytes)
+    {
+        if (value.Raw is not JsTypedArray typed || !(((JsValue)typed).IsUint8ClampedArray() || ((JsValue)typed).IsUint8Array()) || typed.Length != bytes.Length)
+            return false;
+        for (var i = 0; i < bytes.Length; i++)
+            typed.Set(i, (int)bytes[i]);
+        return true;
     }
 
     public bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items)

@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <ProjectReference Include="..\..\src\Folio.Scripting\Folio.Scripting.csproj" />
     <ProjectReference Include="..\..\src\Folio.Scripting.Jint\Folio.Scripting.Jint.csproj" />
+    <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
     <Compile Include="..\Folio.RenderTests\RepoPaths.cs" Link="RepoPaths.cs" />
     <Compile Include="..\Folio.Tests\Typography\WebFontWriter.cs" Link="WebFontWriter.cs" />
   </ItemGroup>

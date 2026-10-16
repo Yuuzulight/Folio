@@ -46,6 +46,18 @@ public interface IScriptEngine : IDisposable
     bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items) { items = []; return false; }
     bool TrySetArrayItem(ScriptValue value, int index, ScriptValue item) => false;
 
+    /// <summary>Reads a property of an object (<c>undefined</c> when it has none, or the value is not an object).</summary>
+    ScriptValue GetProperty(ScriptValue target, string name) => ScriptValue.Undefined;
+
+    /// <summary>Creates a <c>Uint8ClampedArray</c> holding a copy of <paramref name="bytes"/>.</summary>
+    ScriptValue CreateUint8ClampedArray(ReadOnlySpan<byte> bytes) => throw new NotSupportedException();
+
+    /// <summary>Copies the elements of a <c>Uint8Array</c> or <c>Uint8ClampedArray</c> into <paramref name="bytes"/>; false for any other value.</summary>
+    bool TryGetBytes(ScriptValue value, out byte[] bytes) { bytes = []; return false; }
+
+    /// <summary>Writes <paramref name="bytes"/> into the elements of a <c>Uint8Array</c> or <c>Uint8ClampedArray</c> of the same length; false if it is not one.</summary>
+    bool TrySetBytes(ScriptValue value, ReadOnlySpan<byte> bytes) => false;
+
     /// <summary>Sets a global property on the engine's global object.</summary>
     void SetGlobalProperty(string name, ScriptValue value);
 

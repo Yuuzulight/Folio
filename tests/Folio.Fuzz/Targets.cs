@@ -53,6 +53,7 @@ internal static class Targets
             "<foreignObject width=\"", "<div xmlns=\"http://www.w3.org/1999/xhtml\">"]),
         new("cssom", Cssom, CssomSeeds, ["{", "}", ";", ":", "@media ", "@supports ", "@import ", "@namespace ", "@keyframes ", "@layer ", "@container ",
             "@font-face", "@property ", "@page ", "@charset ", "@starting-style", "!important", "&", "from", "to", "50%", "url(", "(", ")", "\"", "'", "\\", "/*", "*/"]),
+        new("canvas", Canvas, CanvasSeeds, ["M", "L", "C", "Z", "a", "e", "red", "#", "rgb(", "hsl(", "blur(", "drop-shadow(", "px ", "serif", "bold ", "repeat", "evenodd", "lighter", "xor", "NaN", ",", "-", "e999"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
     ];
 
@@ -150,6 +151,102 @@ internal static class Targets
         "p { color: red }", "@media (min-width: 1px) { p { top: 0 } }", "@import url(a.css);", "@namespace url(http://example.com);",
         "@keyframes x { 50% { top: 1px } }", "@layer a, b;", "@supports (display: grid) { a { b: c } }", "@font-face { font-family: F }",
         "a { & b { c: d } }", "50% { top: 1px }", "not a rule", "a { } b { }", "", "@charset \"utf-8\";",
+    }.Select(Encoding.UTF8.GetBytes);
+
+    // Canvas 2D calls with hostile numbers and strings (issues #504 and #507): the text picks the calls and their arguments from
+    // a list of awkward values. Only DOMException, TypeError and RangeError may come out of a call, and the bitmap stays readable.
+    private static void Canvas(byte[] data)
+    {
+        var text = System.Text.Json.JsonSerializer.Serialize(Encoding.UTF8.GetString(data));
+        var document = Document.Parse("<!DOCTYPE html><canvas id=c width=48 height=48></canvas><canvas id=s width=8 height=8></canvas>",
+            new FolioOptions { Raster = new Folio.Skia.SkiaRasterBackend() });
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        try
+        {
+        engine.Evaluate($$"""
+            const s = {{text}};
+            const canvas = document.getElementById('c'), ctx = canvas.getContext('2d'), source = document.getElementById('s');
+            source.getContext('2d').fillRect(0, 0, 4, 4);
+            const awkward = [0, 1, -1, 0.5, 2, 7, 48, 100, NaN, Infinity, -Infinity, 1e300, -1e300, 1e-300, 65536, 2 ** 31, -(2 ** 31), 2 ** 53];
+            const code = (i) => (s.charCodeAt(i % Math.max(1, s.length)) || 0);
+            const num = (i) => awkward[code(i) % awkward.length];
+            const str = (i) => s.slice(code(i) % Math.max(1, s.length));
+            const calls = [
+              (i) => ctx.fillRect(num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.strokeRect(num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.clearRect(num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.moveTo(num(i), num(i + 1)),
+              (i) => ctx.lineTo(num(i), num(i + 1)),
+              (i) => ctx.arc(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), code(i) % 2 === 0),
+              (i) => ctx.arcTo(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4)),
+              (i) => ctx.ellipse(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5), num(i + 6), code(i) % 2 === 0),
+              (i) => ctx.roundRect(num(i), num(i + 1), num(i + 2), num(i + 3), [num(i + 4), num(i + 5)]),
+              (i) => ctx.quadraticCurveTo(num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.bezierCurveTo(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5)),
+              (i) => ctx.rect(num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.closePath(),
+              (i) => ctx.beginPath(),
+              (i) => ctx.fill(code(i) % 2 ? 'evenodd' : 'nonzero'),
+              (i) => ctx.stroke(),
+              (i) => ctx.clip(),
+              (i) => ctx.fill(new Path2D(str(i))),
+              (i) => ctx.stroke(new Path2D(str(i))),
+              (i) => ctx.isPointInPath(num(i), num(i + 1)),
+              (i) => ctx.isPointInStroke(num(i), num(i + 1)),
+              (i) => ctx.translate(num(i), num(i + 1)),
+              (i) => ctx.scale(num(i), num(i + 1)),
+              (i) => ctx.rotate(num(i)),
+              (i) => ctx.transform(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5)),
+              (i) => ctx.setTransform(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5)),
+              (i) => ctx.resetTransform(),
+              (i) => ctx.save(),
+              (i) => ctx.restore(),
+              (i) => { ctx.fillStyle = str(i); },
+              (i) => { ctx.strokeStyle = str(i); },
+              (i) => { ctx.shadowColor = str(i); ctx.shadowBlur = num(i + 1); ctx.shadowOffsetX = num(i + 2); },
+              (i) => { ctx.filter = str(i); },
+              (i) => { ctx.font = str(i); },
+              (i) => { ctx.globalCompositeOperation = str(i); },
+              (i) => { ctx.globalAlpha = num(i); },
+              (i) => { ctx.lineWidth = num(i); ctx.miterLimit = num(i + 1); ctx.lineDashOffset = num(i + 2); },
+              (i) => ctx.setLineDash([num(i), num(i + 1), num(i + 2)]),
+              (i) => { const g = ctx.createLinearGradient(num(i), num(i + 1), num(i + 2), num(i + 3)); g.addColorStop(code(i) / 255, str(i + 1)); ctx.fillStyle = g; },
+              (i) => { const g = ctx.createRadialGradient(num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5)); g.addColorStop(0.5, 'red'); ctx.strokeStyle = g; },
+              (i) => { const g = ctx.createConicGradient(num(i), num(i + 1), num(i + 2)); g.addColorStop(0, 'blue'); ctx.fillStyle = g; },
+              (i) => { const p = ctx.createPattern(source, str(i)); if (p) { p.setTransform({a: num(i), d: num(i + 1)}); ctx.fillStyle = p; } },
+              (i) => ctx.drawImage(source, num(i), num(i + 1)),
+              (i) => ctx.drawImage(source, num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.drawImage(source, num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5), num(i + 6), num(i + 7)),
+              (i) => ctx.drawImage(canvas, num(i), num(i + 1)),
+              (i) => ctx.getImageData(num(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.putImageData(ctx.createImageData(2, 2), num(i), num(i + 1), num(i + 2), num(i + 3), num(i + 4), num(i + 5)),
+              (i) => ctx.createImageData(num(i), num(i + 1)),
+              (i) => new ImageData(num(i), num(i + 1)),
+              (i) => ctx.fillText(str(i), num(i + 1), num(i + 2), num(i + 3)),
+              (i) => ctx.strokeText(str(i), num(i + 1), num(i + 2)),
+              (i) => ctx.measureText(str(i)).width,
+              (i) => canvas.toDataURL(str(i), num(i + 1)),
+              (i) => { canvas.width = Math.min(Math.abs(num(i)) | 0, 96); },
+            ];
+            const allowed = (e) => e instanceof DOMException || e instanceof TypeError || e instanceof RangeError;
+            for (let step = 0; step < 120; step++) {
+              try { calls[code(step * 3) % calls.length](step * 5 + code(step)); } catch (e) { if (!allowed(e)) throw e; }
+            }
+            ctx.getImageData(0, 0, 1, 1);
+            """);
+        }
+        catch (Folio.Scripting.ScriptLimitExceededException)
+        {
+            // The sandbox's own limits (memory, time) ending a script that asked for too much is the limit holding.
+        }
+        document.Paint(300, 300);
+    }
+
+    private static IEnumerable<byte[]> CanvasSeeds() => new[]
+    {
+        "M10 10 L 20 20 C 1 2 3 4 5 6 Z", "red", "rgb(1,2,3)", "blur(5px) drop-shadow(1px 1px 1px red)", "bold 12px serif", "lighter", "repeat-x", "e999", "NaN",
+        "10px", "M 0 0 A 1 1 0 0 1 10 10", "hsl(120, 50%, 50%)", "", "evenodd", "xor",
     }.Select(Encoding.UTF8.GetBytes);
 
     private static void Ipc(byte[] data)
