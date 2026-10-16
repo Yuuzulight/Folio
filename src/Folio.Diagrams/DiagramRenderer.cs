@@ -184,7 +184,7 @@ public static class DiagramRenderer
             var indexes = nodes.Select((node, index) => (node, index)).Where(pair => group.Nodes.Contains(pair.node.Id)).Select(pair => pair.index).ToArray();
             if (indexes.Length == 0) return "";
             var left = 20 + indexes.Min() * 180; var right = 170 + indexes.Max() * 180;
-            return $"<rect class=\"folio-diagram-subgraph\" data-name=\"{XmlEscape(group.Name)}\" x=\"{left}\" y=\"18\" width=\"{right - left}\" height=\"100\" rx=\"10\"/><text class=\"folio-diagram-label folio-diagram-subgraph-label\" x=\"{left + 8}\" y=\"32\">{XmlEscape(group.Name)}</text>";
+            return $"<rect class=\"folio-diagram-subgraph\" data-name=\"{XmlEscape(group.Name)}\" fill=\"none\" x=\"{left}\" y=\"18\" width=\"{right - left}\" height=\"100\" rx=\"10\"/><text class=\"folio-diagram-label folio-diagram-subgraph-label\" x=\"{left + 8}\" y=\"32\">{XmlEscape(group.Name)}</text>";
         });
         var overlays = edges.Select(edge => $"<path class=\"folio-diagram-edge\" data-kind=\"{XmlEscape(edge.Kind)}\" d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>{(edge.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label folio-diagram-edge-label\" x=\"{100 + Math.Min(edge.From, edge.To) * 180}\" y=\"72\">{XmlEscape(edge.Label)}</text>")}");
         return Svg(body, groups.Concat(overlays));
