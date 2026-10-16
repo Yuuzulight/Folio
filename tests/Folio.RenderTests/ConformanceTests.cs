@@ -37,9 +37,9 @@ public class ConformanceTests
 
         var report = Conformance.Report(results);
 
-        Assert.Contains("| S1 | 3 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 50.0% of 2 |", report);
-        Assert.Contains("| S3 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 100.0% of 1 |", report);
-        Assert.Contains("| D1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0.0% of 1 |", report);
+        Assert.Contains("| S1 | 3 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 50.0% of 2 |", report);
+        Assert.Contains("| S3 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% of 1 |", report);
+        Assert.Contains("| D1 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0.0% of 1 |", report);
         Assert.Contains("| S1/b | Mismatch | 2.0% of pixels differ |", report);
         Assert.DoesNotContain("| S1/a |", report);
     }

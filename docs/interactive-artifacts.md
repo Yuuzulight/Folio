@@ -23,3 +23,11 @@ browser fallback until Folio supports the required feature.
 
 The host owns approvals and presentation. Folio does not know about Mana,
 chat sessions, or user accounts.
+
+## JSX and TypeScript
+
+Folio never runs a JSX or TypeScript compiler inside a page. An artifact that asks for one is routed to the system browser by `ArtifactClassifier`, with the reason "JSX must be compiled by the host" (or "TypeScript must be compiled by the host"). That covers scripts of type `text/babel`, `text/jsx`, `application/jsx`, `text/tsx`, `text/typescript` and `application/typescript`, and calls to `Babel.transform`, `Babel.transformScriptTags`, `ts.transpile` and `ts.transpileModule`.
+
+A host that wants such an artifact in Folio compiles it first and hands over the same page with plain JavaScript in place of each JSX or TypeScript script. Classified again, the compiled page is an ordinary scripted artifact (and the compiler's own script, which the page no longer needs, is dropped). The host keeps the original for the system browser.
+
+The conformance corpus works the same way: an artifact that needs compiling stores its compiled form next to `index.html`, named by `compiled` in `manifest.json`. RefCapture captures the reference from `index.html`, where the browser runs the compiler, and the runner renders `compiled.html`. `tests/conformance/D2/pantry-react-jsx` is one.

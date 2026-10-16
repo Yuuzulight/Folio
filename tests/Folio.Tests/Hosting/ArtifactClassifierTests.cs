@@ -170,6 +170,43 @@ public class ArtifactClassifierTests
         Assert.Equal(["runs scripts: a script element in SVG"], reasons);
     }
 
+    [Theory]
+    [InlineData("text/babel", "JSX")]
+    [InlineData("text/jsx", "JSX")]
+    [InlineData("application/jsx", "JSX")]
+    [InlineData("text/tsx", "JSX")]
+    [InlineData("text/typescript", "TypeScript")]
+    [InlineData("application/typescript", "TypeScript")]
+    public void ScriptsThatNeedAnInPageCompilerAreRoutedToTheBrowserWithAReason(string type, string language)
+    {
+        var (kind, reasons) = ArtifactClassifier.Classify($"<div id=root></div><script type=\"{type}\">const x = <b>hi</b>;</script>");
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, kind);
+        Assert.Contains($"uses in-page {language}; {language} must be compiled by the host", reasons);
+    }
+
+    [Fact]
+    public void TheHostCompiledFormOfAJsxArtifactIsAnOrdinaryScript()
+    {
+        // What the host hands over in place of the JSX script: plain JavaScript.
+        var (kind, reasons) = ArtifactClassifier.Classify("<div id=root></div><script>ReactDOM.render(React.createElement('b', null, 'hi'), document.getElementById('root'));</script>");
+
+        Assert.Equal(ArtifactKind.Scripted, kind);
+        Assert.DoesNotContain(reasons, r => r.Contains("compiled by the host"));
+    }
+
+    [Theory]
+    [InlineData("const out = Babel.transform(src, { presets: ['react'] }).code;")]
+    [InlineData("Babel.transformScriptTags();")]
+    [InlineData("const js = ts.transpileModule(src, {}).outputText;")]
+    public void CallsToAnInPageCompilerAreRoutedToTheBrowser(string script)
+    {
+        var (kind, reasons) = ArtifactClassifier.Classify($"<script>{script}</script>");
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, kind);
+        Assert.Contains("compiles code in the page; JSX and TypeScript must be compiled by the host", reasons);
+    }
+
     [Fact]
     public void RoutingOutWinsOverScripting()
     {
