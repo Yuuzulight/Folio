@@ -16,7 +16,7 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 ## Verification baseline
 
 - `dotnet build Folio.slnx --no-restore`: passes.
-- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,806 passed, 5 environment-dependent Unicode and symlink tests skipped.
+- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,808 passed, 5 environment-dependent Unicode and symlink tests skipped.
 - `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 451/451 passed.
 - `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj --no-restore`: 454/454 passed.
 
