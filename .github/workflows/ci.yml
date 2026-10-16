@@ -117,3 +117,21 @@ jobs:
           name: fuzz-output
           path: tests/fuzz-output/
           if-no-files-found: ignore
+
+  capability-matrix:
+    name: capability matrix (${{ matrix.capability }})
+    strategy:
+      fail-fast: false
+      matrix:
+        capability: [none, webgl, media, workers, webassembly, iframes, webrtc, service-workers, all]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet build Folio.slnx -c Release
+      - name: Run sandbox and limits suite (${{ matrix.capability }})
+        env:
+          FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class CapabilityMatrixTests
