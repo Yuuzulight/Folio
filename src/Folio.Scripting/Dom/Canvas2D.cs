@@ -8,12 +8,16 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
         Element = element;
         Enabled = enabled;
+        AllowSoundAutoplay = allowSoundAutoplay;
+        Muted = element.GetAttribute("muted") is not null;
+        DefaultMuted = Muted;
+        Autoplay = element.GetAttribute("autoplay") is not null;
         _resourceLoader = resourceLoader;
         _baseUri = baseUri;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
@@ -26,6 +30,7 @@ internal sealed class MediaElementState
     public IScriptEngine Engine { get; }
     public IHostObjectTemplate EventTemplate { get; }
     public bool Enabled { get; }
+    public bool AllowSoundAutoplay { get; }
     public double CurrentTime { get; set; }
     public double Duration { get; private set; }
     public bool Paused { get; set; } = true;
@@ -73,12 +78,14 @@ internal sealed class MediaElementState
         if (_listeners.TryGetValue(type, out var list)) foreach (var listener in list.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [eventValue]);
     }
 
-    public void Play()
+    public bool Play(bool autoplay = false)
     {
-        if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return; }
+        if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return false; }
+        if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
         Paused = false;
         Ended = false;
         Dispatch(OnPlay, "play");
+        return true;
     }
 
     public void Pause() { Paused = true; Dispatch(OnPause, "pause"); }

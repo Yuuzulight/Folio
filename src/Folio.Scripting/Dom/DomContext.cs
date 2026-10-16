@@ -173,12 +173,13 @@ internal sealed class DomContext
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
-        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, ResourceLoader, BaseUri);
+        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri);
         if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)
             state.RejectForBudget();
         else
             _mediaBytesAllocated += state.SourceBytes;
         _media[element] = state;
+        if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;
     }
     public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri));

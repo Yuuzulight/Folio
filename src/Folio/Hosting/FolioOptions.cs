@@ -45,6 +45,8 @@ public sealed record FeatureCapabilities
 
     public bool WebGl { get; init; }
     public bool Media { get; init; }
+    /// <summary>Allows audible media to begin from an autoplay attribute without a user gesture.</summary>
+    public bool AllowSoundAutoplay { get; init; }
     public bool Workers { get; init; }
     public bool WebAssembly { get; init; }
     public bool Iframes { get; init; }

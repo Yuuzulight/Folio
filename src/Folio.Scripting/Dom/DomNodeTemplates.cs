@@ -267,10 +267,10 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("play", (target, _, _) =>
         {
             var state = _context.GetMedia((ElementNode)target);
-            state.Play();
-            return state.Error is null
+            var started = state.Play();
+            return started
                 ? _context.Engine.Evaluate("Promise.resolve()")
-                : _context.Engine.Evaluate("Promise.reject(new DOMException('Media playback is unavailable.', 'NotSupportedError'))");
+                : _context.Engine.Evaluate($"Promise.reject(new DOMException('Media playback is unavailable.', '{(state.Error?.Contains("autoplay", StringComparison.OrdinalIgnoreCase) == true ? "NotAllowedError" : "NotSupportedError")}'))");
         });
         t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
         t.DefineMethod("fastSeek", (target, _, args) => { if (args.Length > 0) { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, Math.Round(WebIdlConversions.ToDouble(args[0]))); } return ScriptValue.Undefined; });
