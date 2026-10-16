@@ -6,6 +6,7 @@ using Folio.Scripting.Jint;
 using Folio.Skia;
 using Folio.Painting;
 using Folio.Typography;
+using Folio.Scripting.Ipc;
 using SkiaSharp;
 
 namespace Folio.RenderTests;
@@ -22,6 +23,8 @@ public static class Program
             return CanvasPerformance(args.Length > 1 && int.TryParse(args[1], out var n) ? Math.Max(3, n) : 10);
         if (args.Length > 0 && args[0] == "canvas-frames")
             return CanvasFrames(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 30);
+        if (args.Length > 0 && args[0] == "canvas-shared-memory")
+            return CanvasSharedMemory(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 10);
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -104,6 +107,34 @@ public static class Program
             Console.WriteLine($"| {artifact.Id} | {median:F2} | {p95:F2} | 16.70 ms |");
         }
         return 0;
+    }
+
+    private static int CanvasSharedMemory(int frameCount)
+    {
+        const int width = 1920, height = 1080, stride = width * 4;
+        var path = Path.Combine(Path.GetTempPath(), $"folio-canvas-bench-{Guid.NewGuid():N}.frame");
+        var pixels = new byte[stride * height];
+        var samples = new List<double>(frameCount);
+        try
+        {
+            using var store = new CanvasFrameStore(path, width, height, stride);
+            for (var i = 0; i < frameCount; i++)
+            {
+                pixels[(i * 4099) % pixels.Length] = (byte)i;
+                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                store.Publish(pixels);
+                _ = store.ReadLatest(out var sequence);
+                if (sequence != i + 1) throw new InvalidDataException("Canvas frame sequence did not advance.");
+                samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            }
+            samples.Sort();
+            var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
+            Console.WriteLine($"Shared-memory canvas transfer benchmark ({width}x{height}, {frameCount} changing frames)");
+            Console.WriteLine("| Median ms | p95 ms | Bytes/frame |");
+            Console.WriteLine($"| {samples[samples.Count / 2]:F2} | {p95:F2} | {pixels.Length} |");
+            return 0;
+        }
+        finally { try { File.Delete(path); } catch (IOException) { } }
     }
 
     // folio-test conformance [category|category/name]...: renders the corpus and prints pass rates per category (also to

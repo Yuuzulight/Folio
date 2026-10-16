@@ -269,6 +269,8 @@ internal static class Targets
     private static void Ipc(byte[] data)
     {
         ContentProtocol.TryDecode(data, out _);
+        if (data.Length >= 12)
+            CanvasFrameStore.IsValidDescriptor(BitConverter.ToInt32(data, 0), BitConverter.ToInt32(data, 4), BitConverter.ToInt32(data, 8));
         var reader = new ContentProtocolReader();
         for (var offset = 0; offset < data.Length; offset += Math.Min(7, data.Length - offset))
             reader.Push(data.AsMemory(offset, Math.Min(7, data.Length - offset)));
