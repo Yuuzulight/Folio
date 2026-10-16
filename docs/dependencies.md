@@ -114,6 +114,19 @@ public interface ITextShaper
 
 **M5 decision (2026-10-16):** keep Jint as the dependency-backed engine behind `IScriptEngine` while scripted parity is completed. We are not selecting a native JIT binding for M5: it would add architecture-specific binaries and a second binding surface before the corpus demonstrates that Jint misses a required bar. The Folio-owned parser, VM, and optimizer remain the planned replacement after the dependency-backed path is complete.
 
+The decision was made against the options below. The current warm-process
+`folio-bench bench 3` run is the rendering baseline; an apples-to-apples engine
+startup and working-set comparison is intentionally deferred until the Folio-owned
+engine exists. The other rows are design options, not claims that an unbuilt engine
+has already been benchmarked.
+
+| Option | Current evidence | Decision |
+|---|---|---|
+| Jint 4.1 behind `IScriptEngine` | Existing scripting suite passes; the dependency-backed path is the only measured implementation today | Use for M5 parity and corpus growth |
+| Native JIT binding (V8 or equivalent) | Would require architecture-specific binaries, a second binding surface and a new sandbox audit before it could replace Jint | Do not add as an M5 dependency |
+| Folio-owned parser, VM and hot-path compiler | No implementation or measurements yet; the staged plan is documented in [`native-engine-plan.md`](native-engine-plan.md) | Build after the dependency-backed path, then measure against this baseline |
+| `IScriptEngine` compatibility seam | DOM bindings, limits, interrupts and microtask checkpoints are already independent of Jint | Keep as the cutover contract |
+
 **Why it is hard to build**: a standards-conforming ECMAScript engine (the whole language, its built-in library, regular expressions, garbage-collected object model, and enough speed for library bundles) is a project of its own, unrelated to rendering.
 
 **Swap-out interface**:
