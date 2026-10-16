@@ -84,7 +84,7 @@ internal sealed class WorkerState
         if (_scriptError is not null && !Terminated) { DispatchError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
-            WorkerEngine.SetGlobalProperty("__folio_worker_message_data", value);
+            WorkerEngine.SetGlobalProperty("__folio_worker_message_data", CloneIntoWorker(value));
             WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
             WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
             WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
@@ -102,9 +102,50 @@ internal sealed class WorkerState
     private void DispatchToParent(ScriptValue value)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return;
+        value = CloneIntoParent(value);
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+    }
+
+    private ScriptValue CloneIntoWorker(ScriptValue value)
+    {
+        if (value.IsNullOrUndefined || !value.IsObject) return value;
+        try
+        {
+            Engine.SetGlobalProperty("__folio_clone_value", value);
+            var json = Engine.Evaluate("JSON.stringify(__folio_clone_value)").AsString();
+            Engine.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
+            if (json is null) throw new InvalidOperationException("The value cannot be cloned.");
+            WorkerEngine!.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(json));
+            var clone = WorkerEngine.Evaluate("JSON.parse(__folio_clone_json)");
+            WorkerEngine.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
+            return clone;
+        }
+        catch (Exception error)
+        {
+            throw WebIdlException.DomException("DataCloneError", error.Message);
+        }
+    }
+
+    private ScriptValue CloneIntoParent(ScriptValue value)
+    {
+        if (value.IsNullOrUndefined || !value.IsObject) return value;
+        try
+        {
+            WorkerEngine!.SetGlobalProperty("__folio_clone_value", value);
+            var json = WorkerEngine.Evaluate("JSON.stringify(__folio_clone_value)").AsString();
+            WorkerEngine.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
+            if (json is null) throw new InvalidOperationException("The value cannot be cloned.");
+            Engine.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(json));
+            var clone = Engine.Evaluate("JSON.parse(__folio_clone_json)");
+            Engine.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
+            return clone;
+        }
+        catch (Exception error)
+        {
+            throw WebIdlException.DomException("DataCloneError", error.Message);
+        }
     }
 
     private void DispatchError(Exception error)
