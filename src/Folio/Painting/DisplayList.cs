@@ -27,6 +27,9 @@ internal enum DisplayItemKind
     /// <summary>Draws <see cref="DisplayItem.Glyphs"/> in <see cref="DisplayItem.Color"/>, or with <see cref="DisplayItem.Gradient"/>.</summary>
     Glyphs,
 
+    /// <summary>Draws a short fallback label inside <see cref="DisplayItem.Shape"/>.</summary>
+    Label,
+
     /// <summary>
     /// Draws a text decoration line in <see cref="DisplayItem.LineStyle"/> across <see cref="DisplayItem.Shape"/>, whose
     /// height is the line's thickness (a wavy line reaches three times that below its top edge). With
@@ -91,10 +94,11 @@ internal readonly record struct DisplayItem
                        Gradient? Gradient = null, System.Numerics.Matrix3x2 Transform = default,
                        IReadOnlyList<Filter>? Filters = null, IReadOnlyList<Filter>? Backdrop = null, BlendMode Blend = BlendMode.Normal,
                        PathData? Path = null, FillRule Rule = FillRule.NonZero, Stroke? Stroke = null,
-                       System.Numerics.Matrix4x4? Projection = null)
+                       System.Numerics.Matrix4x4? Projection = null, string? Text = null)
     {
         (this.Kind, this.Shape, this.Color, this.Opacity, this.Border, this.Glyphs, this.LineStyle, this.Blend) =
             (Kind, Shape, Color, Opacity, Border, Glyphs, LineStyle, Blend);
+        this.Text = Text;
         if (Image is not null || Sampling != ImageSampling.Smooth || Blur != 0 || Inset || Box != default || Gradient is not null
             || Transform != default || Filters is not null || Backdrop is not null || Path is not null || Rule != FillRule.NonZero
             || Stroke is not null || Projection is not null)
@@ -107,6 +111,7 @@ internal readonly record struct DisplayItem
     public float Opacity { get; init; }
     public BorderGroup? Border { get; init; }
     public GlyphRun? Glyphs { get; init; }
+    public string? Text { get; init; }
     public TextDecorationStyle LineStyle { get; init; }
     public BlendMode Blend { get; init; }
 

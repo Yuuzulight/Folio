@@ -46,6 +46,9 @@ public interface ICanvas
     /// <summary>Draws glyphs of a font by id at a size in CSS pixels, each at its baseline origin.</summary>
     void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint);
 
+    /// <summary>Draws a short system fallback label inside the supplied bounds.</summary>
+    void DrawText(string text, in RectF bounds, in Paint paint) { }
+
     /// <summary>Strokes the outlines of glyphs placed as by <see cref="DrawGlyphs"/>; a canvas that cannot draws nothing.</summary>
     void StrokeGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Stroke stroke, in Paint paint) { }
 

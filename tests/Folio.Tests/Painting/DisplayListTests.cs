@@ -61,6 +61,7 @@ public class DisplayListTests
         DisplayItemKind.Border => $"border {Shape(item.Shape)} {Sides(item.Border!)}",
         DisplayItemKind.Glyphs when item.Gradient is { } g => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {Gradient(g)}",
         DisplayItemKind.Glyphs => $"glyphs {string.Join(" ", item.Glyphs!.Origins.Select(o => $"{N(o.X)},{N(o.Y)}"))} {N(item.Glyphs.Size)}px {item.Color}{(item.Blur > 0 ? $" blur {N(item.Blur)}" : "")}",
+        DisplayItemKind.Label => $"label {Shape(item.Shape)} {item.Text}",
         DisplayItemKind.BoxShadow => $"shadow {Shape(item.Shape)} {item.Color} blur {N(item.Blur)} {(item.Inset ? "inside" : "outside")} {Shape(item.Box)}",
         DisplayItemKind.Decoration => $"decoration {Shape(item.Shape)} {item.LineStyle.ToString().ToLowerInvariant()} {item.Color}{(item.Glyphs is null ? "" : " skip-ink")}",
         DisplayItemKind.Image => $"image {Shape(item.Shape)} {item.Image!.Width}x{item.Image.Height} {item.Sampling.ToString().ToLowerInvariant()}",

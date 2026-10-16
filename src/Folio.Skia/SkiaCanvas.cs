@@ -90,6 +90,15 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
         canvas.DrawText(blob, 0, 0, skPaint);
     }
 
+    public void DrawText(string text, in RectF bounds, in Paint paint)
+    {
+        if (string.IsNullOrEmpty(text) || bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+        using var skPaint = Fill(paint);
+        using var font = new SKFont(SKTypeface.Default, Math.Clamp(bounds.Height * 0.28f, 8, 14));
+        canvas.DrawText(text, bounds.X + 4, bounds.Y + Math.Min(bounds.Height - 3, font.Size), font, skPaint);
+    }
+
     public void StrokeGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Stroke stroke, in Paint paint)
     {
         if (Typeface(font) is not { } typeface || glyphs.Length == 0)

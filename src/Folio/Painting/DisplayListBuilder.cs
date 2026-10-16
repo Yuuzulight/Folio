@@ -394,6 +394,9 @@ internal static class DisplayListBuilder
             if (box.Fragment.PaintedBorder is null || box.Box is not TablePartBox { Part: TablePart.Cell })
                 PaintBorder(box, border, shape);
 
+            if (box.Box is ReplacedBox { Kind: ReplacedKind.Media or ReplacedKind.Frame } replaced)
+                PaintFeatureFallback(box, replaced);
+
             if (text.Count == 0 && caret is { } c && c.Visible && box.Box.Node is ElementNode el && el == c.Element)
             {
                 SetClip(box.Clip);
@@ -617,6 +620,10 @@ internal static class DisplayListBuilder
                 ? new CssColor(color.R, color.G, color.B, 0.08f)
                 : new CssColor(0.92f, 0.92f, 0.92f, 1);
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
+            var label = replaced.Kind == ReplacedKind.Media
+                ? (replaced.Node is Dom.ElementNode element && element.LocalName == "audio" ? "Audio unavailable" : "Video unavailable")
+                : "Embedded content unavailable";
+            list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: label));
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)

@@ -40,6 +40,9 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Glyphs:
                     canvas.DrawGlyphs(item.Glyphs!.Font, item.Glyphs.Size, item.Glyphs.Glyphs, item.Glyphs.Origins, new Paint(ToRgba(item.Color), item.Blur, item.Gradient));
                     break;
+                case DisplayItemKind.Label:
+                    canvas.DrawText(item.Text ?? "Unavailable", item.Shape.Rect, new Paint(ToRgba(item.Color)));
+                    break;
                 case DisplayItemKind.Decoration when item.Glyphs is { } ink && SkipInk(canvas, item.Shape.Rect, item.LineStyle, ink) is { } gaps:
                     canvas.Save();
                     canvas.ClipPath(gaps, FillRule.NonZero);

@@ -27,6 +27,18 @@ public sealed class CanvasDisplayListTests
         Assert.DoesNotContain(displayList.Items, item => item.Kind == DisplayItemKind.Image);
     }
 
+    [Fact]
+    public void UnsupportedReplacedElementsPaintSizedFallbackLabels()
+    {
+        using var document = Document.Parse("<html><body style='margin:0'><video style='width:120px;height:60px'></video><iframe style='width:80px;height:40px'></iframe></body></html>");
+
+        var (displayList, _) = document.Paint(400, 200);
+
+        var labels = displayList.Items.Where(item => item.Kind == DisplayItemKind.Label).ToArray();
+        Assert.Equal(["Video unavailable", "Embedded content unavailable"], labels.Select(item => item.Text));
+        Assert.Equal([(120f, 60f), (80f, 40f)], labels.Select(item => (item.Shape.Rect.Width, item.Shape.Rect.Height)));
+    }
+
     [Theory]
     [InlineData("<canvas></canvas>", 300, 150)]
     [InlineData("<canvas width='64'></canvas>", 64, 150)]
