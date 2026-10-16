@@ -99,7 +99,7 @@ internal sealed class DomContext
     public DocumentNode Document { get; }
     public ScriptWrapperCache WrapperCache { get; }
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
-    public FeatureCapabilities Capabilities { get; }
+    public FeatureCapabilities Capabilities { get; private set; }
     public int MaxGpuBytes { get; }
     public int MaxMediaBytes { get; }
     public int MaxWorkerMessageBytes { get; }
@@ -113,6 +113,23 @@ internal sealed class DomContext
     public ElementNode? FocusedElement { get; private set; }
     public void Focus(ElementNode element) => FocusedElement = element;
     public void Blur(ElementNode element) { if (ReferenceEquals(FocusedElement, element)) FocusedElement = null; }
+
+    public void UpdateCapabilities(FeatureCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        var wasWebGlEnabled = Capabilities.WebGl;
+        Capabilities = capabilities;
+        if (wasWebGlEnabled == capabilities.WebGl) return;
+        foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
+        {
+            if (canvas.CanvasSurface is not CanvasElementState state) continue;
+            if (state.WebGlContext is { } context)
+            {
+                if (capabilities.WebGl) context.Restore();
+                else context.Lose();
+            }
+        }
+    }
 
     public (double X, double Y) GetScroll(ElementNode element) => _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
     public void SetScroll(ElementNode element, double x, double y) => _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));

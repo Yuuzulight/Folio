@@ -231,6 +231,10 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(0x9242, allowed.Evaluate("gl.getError()").AsNumber());
         Assert.False(allowed.Evaluate("ext.restoreContext(); gl.isContextLost() && contextEvents === 'webglcontextlostwebglcontextrestored'").AsBoolean());
         Assert.Equal("webglcontextlostwebglcontextrestored", allowed.Evaluate("contextEvents").AsString());
+        Assert.True(DomBindings.UpdateCapabilities(allowed, new FeatureCapabilities()));
+        Assert.True(allowed.Evaluate("gl.isContextLost() && document.getElementById('c').getContext('webgl2') === null").AsBoolean());
+        Assert.True(DomBindings.UpdateCapabilities(allowed, new FeatureCapabilities { WebGl = true }));
+        Assert.True(allowed.Evaluate("!gl.isContextLost() && document.getElementById('c').getContext('webgl2') !== null").AsBoolean());
         var canvas = allowedDocument.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
         // gl.clearColor(1, 0.25, 0, 1) then gl.clear(COLOR_BUFFER_BIT) filled the bitmap.
         var pixels = ((Folio.Imaging.ICanvasSurface)canvas.CanvasSurface!).Snapshot()!.Pixels.Span;

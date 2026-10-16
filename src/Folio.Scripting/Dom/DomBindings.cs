@@ -1,6 +1,7 @@
 using Folio;
 using Folio.Dom;
 using Folio.Resources;
+using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Dom;
 
@@ -9,6 +10,18 @@ namespace Folio.Scripting.Dom;
 /// </summary>
 public static class DomBindings
 {
+    private static readonly ConditionalWeakTable<IScriptEngine, DomContext> Contexts = new();
+
+    /// <summary>Changes host-granted capabilities for an installed document and applies WebGL loss/restore semantics.</summary>
+    public static bool UpdateCapabilities(IScriptEngine engine, FeatureCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        ArgumentNullException.ThrowIfNull(capabilities);
+        if (!Contexts.TryGetValue(engine, out var context)) return false;
+        context.UpdateCapabilities(capabilities);
+        return true;
+    }
+
     public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
         Install(engine, document.Node, wrapperCache, eventLoop, element =>
         {
@@ -25,6 +38,8 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(document);
 
         var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxWorkerMessageBytes, maxWebAssemblyBytes, resourceLoader, baseUri, raster, canvasStyles);
+        Contexts.Remove(engine);
+        Contexts.Add(engine, context);
 
         // 1. Install DOMException
         InstallDomException(engine);
