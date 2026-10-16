@@ -325,6 +325,21 @@ internal sealed class WebGlContextState
         Textures[handle] = (width, height, new byte[bytes]);
         return true;
     }
+    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, IReadOnlyList<ScriptValue> source)
+    {
+        if (!Textures.TryGetValue(handle, out var texture)) return;
+        var copyWidth = Math.Min(width, Math.Max(0, texture.Width - x));
+        var copyHeight = Math.Min(height, Math.Max(0, texture.Height - y));
+        for (var row = 0; row < copyHeight; row++)
+            for (var column = 0; column < copyWidth; column++)
+            {
+                var sourceIndex = (row * width + column) * 4;
+                var targetIndex = ((y + row) * texture.Width + x + column) * 4;
+                for (var channel = 0; channel < 4 && sourceIndex + channel < source.Count && targetIndex + channel < texture.Pixels.Length; channel++)
+                    texture.Pixels[targetIndex + channel] = (byte)Math.Clamp(WebIdlConversions.ToInt32(source[sourceIndex + channel]), 0, 255);
+            }
+        Textures[handle] = texture;
+    }
     public void DeleteShader(uint handle) => Shaders.Remove(handle);
     public void DeleteProgram(uint handle)
     {
