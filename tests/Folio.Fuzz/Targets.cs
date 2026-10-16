@@ -281,6 +281,9 @@ internal static class Targets
         using var payload = System.Text.Json.JsonDocument.Parse("{}");
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Hello, 1, payload.RootElement.Clone()));
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Heartbeat, 2, payload.RootElement.Clone()));
+        using var capabilities = System.Text.Json.JsonDocument.Parse("{\"capabilities\":{\"webGl\":true,\"media\":true,\"workers\":true,\"webAssembly\":true,\"iframes\":true,\"webRtc\":true,\"serviceWorkers\":true}}");
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Load, 3, capabilities.RootElement.Clone()));
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Capabilities, 4, capabilities.RootElement.Clone()));
     }
 
     // DOM invariant: parent, child and sibling links agree.
