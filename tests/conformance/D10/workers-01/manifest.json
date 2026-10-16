@@ -1,0 +1,1 @@
+{"expectedToFail":"Dedicated workers are not enabled in the conformance host yet.","viewport":800,"prompt":"Build a dedicated worker prime sieve with progress updates.","features":["script","worker","dedicated-worker"]}
