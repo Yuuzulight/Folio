@@ -16,7 +16,7 @@ internal sealed class WorkerState
         if (WorkerEngine is not null)
         {
             var bridge = new HostObjectTemplate("WorkerBridge")
-                .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) DispatchToParent(args[0]); return ScriptValue.Undefined; });
+                .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0]); } return ScriptValue.Undefined; });
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
             var imports = new HostObjectTemplate("WorkerImports")

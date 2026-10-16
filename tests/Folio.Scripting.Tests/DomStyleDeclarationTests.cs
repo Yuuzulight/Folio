@@ -358,6 +358,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let listenerSeen = 0; const listener = e => listenerSeen = e.data; w.addEventListener('message', listener); w.postMessage(43); w.removeEventListener('message', listener); listenerSeen === 43").AsBoolean());
         Assert.Equal("https://worker.example/worker.js", allowed.Evaluate("w.scriptURL").AsString());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("w.terminate(); w.postMessage(7)"));
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("w.postMessage(function () {})"));
 
         using var limited = new JintScriptEngine();
         DomBindings.Install(limited, Document.Parse("<html></html>", new FolioOptions
