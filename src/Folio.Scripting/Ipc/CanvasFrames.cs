@@ -16,13 +16,20 @@ public sealed class CanvasFrameStore : IDisposable
         Width = width;
         Height = height;
         Stride = stride;
-        _capacity = checked(HeaderBytes + stride * height);
+        _capacity = checked(HeaderBytes + 2 * stride * height);
         _map = MemoryMappedFile.CreateFromFile(path, FileMode.OpenOrCreate, null, _capacity, MemoryMappedFileAccess.ReadWrite);
         _view = _map.CreateViewAccessor(0, _capacity, MemoryMappedFileAccess.ReadWrite);
-        _view.Write(0, 0x4F494C46); // FOLI
-        _view.Write(4, width);
-        _view.Write(8, height);
-        _view.Write(12, stride);
+        if (_view.ReadInt32(0) != 0x4F494C46 || _view.ReadInt32(4) != width
+            || _view.ReadInt32(8) != height || _view.ReadInt32(12) != stride)
+        {
+            _view.Write(0, 0x4F494C46); // FOLI
+            _view.Write(4, width);
+            _view.Write(8, height);
+            _view.Write(12, stride);
+            _view.Write(16, 0L);
+            _view.Write(24, 0);
+            _view.Flush();
+        }
     }
 
     public int Width { get; }
@@ -33,18 +40,30 @@ public sealed class CanvasFrameStore : IDisposable
     public void Publish(ReadOnlySpan<byte> pixels)
     {
         if (pixels.Length != Stride * Height) throw new ArgumentException("Pixel buffer size does not match the frame.", nameof(pixels));
-        _view.WriteArray(HeaderBytes, pixels.ToArray(), 0, pixels.Length);
+        var active = _view.ReadInt32(24);
+        var inactive = active == 0 ? 1 : 0;
+        _view.WriteArray(HeaderBytes + inactive * Stride * Height, pixels.ToArray(), 0, pixels.Length);
         Sequence++;
         _view.Write(16, Sequence);
+        _view.Write(24, inactive);
         _view.Flush();
     }
 
     public byte[] ReadLatest(out long sequence)
     {
-        sequence = _view.ReadInt64(16);
         var pixels = new byte[Stride * Height];
-        _view.ReadArray(HeaderBytes, pixels, 0, pixels.Length);
-        return pixels;
+        for (var attempt = 0; ; attempt++)
+        {
+            var before = _view.ReadInt64(16);
+            var active = _view.ReadInt32(24);
+            _view.ReadArray(HeaderBytes + active * Stride * Height, pixels, 0, pixels.Length);
+            var after = _view.ReadInt64(16);
+            if (before == after || attempt == 3)
+            {
+                sequence = after;
+                return pixels;
+            }
+        }
     }
 
     public void Dispose()
