@@ -102,14 +102,12 @@ jobs:
             find tests/render-output -name '*.actual.png' | sed 's|^tests/render-output/||; s|\.actual\.png$||' | sort | sed 's|^|- |'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Mutation fuzzing of the parsers and decoders, per target: 10 seconds on pull requests, 30 on main and 120 in
-      # the nightly run.
+      # Mutation fuzzing of the parsers and decoders, per target: 10 seconds on pull requests and main, 120 in the
+      # nightly run. The aggregate suite has many targets, so the push budget must stay bounded.
       - name: Fuzz
         if: matrix.os == 'ubuntu-latest'
-        # The fuzzer duration is per target; PNG, diagrams and IPC make the aggregate main-branch run
-        # exceed ten minutes even when every target passes. Keep the scheduled run's tighter cap.
-        timeout-minutes: ${{ github.event_name == 'schedule' && 20 || 20 }}
-        run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz ${{ github.event_name == 'pull_request' && 10 || github.event_name == 'schedule' && 120 || 30 }}
+        timeout-minutes: ${{ github.event_name == 'schedule' && 20 || 10 }}
+        run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz ${{ github.event_name == 'schedule' && 120 || 10 }}
 
       # Inputs the fuzzer failed on; add them to tests/Folio.Fuzz/Regressions/<target>/ with the fix.
       - name: Upload fuzz failures
