@@ -472,6 +472,7 @@ public static class DomBindings
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ");
         CssBindings.Install(engine);
+        CssomBindings.Install(engine, context);
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);

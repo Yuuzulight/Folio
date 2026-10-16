@@ -51,6 +51,26 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>Whether this form control is disabled (directly or by an ancestor fieldset).</summary>
     internal bool IsDisabled => IsDisabledControl(this);
 
+    private string? _sheetText;
+
+    /// <summary>
+    /// The rules of a <c>style</c> or <c>link</c> element's sheet as the CSSOM left them (insertRule, deleteRule, a rule's
+    /// style): what the cascade reads instead of the element's text or the loaded file, until the page changes the
+    /// element's text, which clears it. The DOM text is never rewritten by the CSSOM, as in a browser.
+    /// </summary>
+    internal string? SheetText
+    {
+        get => _sheetText;
+        set
+        {
+            _sheetText = value;
+            OnMutated(MutationKind.Attributes);
+        }
+    }
+
+    /// <summary>Drops the CSSOM's override without queueing a restyle of its own (the DOM change that clears it does).</summary>
+    internal void ClearSheetText() => _sheetText = null;
+
     /// <summary>Tracks whether a script element has already executed or started execution (HTML §4.12.1.1 "already started").</summary>
     internal bool ScriptAlreadyStarted { get; set; }
 

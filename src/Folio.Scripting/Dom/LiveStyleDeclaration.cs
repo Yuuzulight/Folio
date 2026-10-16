@@ -4,14 +4,23 @@ using Folio.Style;
 
 namespace Folio.Scripting.Dom;
 
-/// <summary>Live CSS declaration block for an element's inline style attribute.</summary>
-internal sealed class LiveStyleDeclaration(ElementNode element)
+/// <summary>
+/// A live CSS declaration block (CSSStyleDeclaration): an element's inline style attribute, or the declarations of a rule
+/// in a style sheet. It reads its text from, and writes it back to, whatever holds the declarations.
+/// </summary>
+internal sealed class LiveStyleDeclaration(Func<string> read, Action<string> write)
 {
-    public ElementNode Element { get; } = element;
+    public LiveStyleDeclaration(ElementNode element)
+        : this(() => element.GetAttribute("style") ?? "", text => element.SetAttribute("style", text))
+    {
+        Element = element;
+    }
+
+    public ElementNode? Element { get; }
 
     public List<Entry> Entries()
     {
-        var text = Element.GetAttribute("style") ?? "";
+        var text = read();
         var (source, block) = CssParser.ParseBlockContents(text);
         var entries = new List<Entry>();
         foreach (var declaration in block.Declarations)
@@ -104,7 +113,7 @@ internal sealed class LiveStyleDeclaration(ElementNode element)
     }
 
     private void Write(IEnumerable<Entry> entries) =>
-        Element.SetAttribute("style", string.Join(" ", entries.Select(e => $"{e.Name}: {e.Value}{(e.Important ? " !important" : "")};")));
+        write(string.Join(" ", entries.Select(e => $"{e.Name}: {e.Value}{(e.Important ? " !important" : "")};")));
 
     internal static string NormalizeName(string name)
     {

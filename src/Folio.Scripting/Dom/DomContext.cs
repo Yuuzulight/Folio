@@ -15,6 +15,14 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, MediaElementState> _media = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private long _mediaBytesAllocated;
+    private CssomRegistry? _cssom;
+
+    /// <summary>The document's CSSOM sheets and rules.</summary>
+    public CssomRegistry Cssom => _cssom ??= new CssomRegistry(this);
+
+    /// <summary>The script functions behind <c>document.styleSheets</c> and an element's <c>sheet</c>, set when the CSSOM is installed.</summary>
+    public ScriptValue CssomStyleSheets { get; set; }
+    public ScriptValue CssomSheetOf { get; set; }
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,

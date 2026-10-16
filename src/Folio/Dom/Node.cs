@@ -77,6 +77,19 @@ internal abstract class Node
     /// <summary>https://dom.spec.whatwg.org/#concept-node-clone</summary>
     public abstract Node Clone(bool deep = false);
 
+    private static bool IsSheetElement(Node node) => node is ElementNode { LocalName: "style" or "link" };
+
+    /// <summary>Whether this node is, or holds, a style or link element: adding or removing it changes the cascade.</summary>
+    internal bool HoldsSheetElement()
+    {
+        for (Node? node = this; node is not null; node = node.NextInTree(this))
+        {
+            if (IsSheetElement(node))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// The single hook every mutation calls (docs/study/02-dom.md): marks the affected element for restyle and its
     /// ancestors as having a dirty descendant.
@@ -87,6 +100,20 @@ internal abstract class Node
             OwnerDocument.StructureMutated = true;
         else
             OwnerDocument.StyleMutated = true;
+
+        // The page changed a style element's text: what the CSSOM wrote over it no longer holds, and the cascade changes.
+        if (kind == MutationKind.ChildList && this is ElementNode changedElement)
+        {
+            changedElement.ClearSheetText();
+            if (IsSheetElement(changedElement))
+                OwnerDocument.SheetsMutated = true;
+        }
+        else if (kind == MutationKind.CharacterData && Parent is ElementNode parentElement)
+        {
+            parentElement.ClearSheetText();
+            if (IsSheetElement(parentElement))
+                OwnerDocument.SheetsMutated = true;
+        }
 
         Node? target = kind == MutationKind.CharacterData ? Parent : this;
         if (target is null)
@@ -164,6 +191,8 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
             fragment.OnMutated(MutationKind.ChildList);
             if (movedList.Count > 0)
                 RecordChildList(movedList, [], previous, child);
+            if (movedList.Any(moved => moved.HoldsSheetElement()))
+                OwnerDocument.SheetsMutated = true;
             if (IsConnected)
             {
                 foreach (var m in movedList)
@@ -182,6 +211,8 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
             var previous = child is null ? LastChild : child.PreviousSibling;
             Link(node, child);
             RecordChildList([node], [], previous, child);
+            if (node.HoldsSheetElement())
+                OwnerDocument.SheetsMutated = true;
             if (IsConnected)
                 OwnerDocument.NotifyNodeInserted(node);
         }
@@ -200,6 +231,8 @@ internal abstract class ContainerNode(DocumentNode? ownerDocument) : Node(ownerD
         Unlink(child);
         OnMutated(MutationKind.ChildList);
         RecordChildList([], [child], previous, next);
+        if (child.HoldsSheetElement())
+            OwnerDocument.SheetsMutated = true;
         return child;
     }
 

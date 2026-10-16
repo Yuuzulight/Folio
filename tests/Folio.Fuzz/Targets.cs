@@ -7,7 +7,9 @@ using Folio.Layout;
 using Folio.Painting;
 using Folio.Resources;
 using Folio.RenderTests;
+using Folio.Scripting.Dom;
 using Folio.Scripting.Ipc;
+using Folio.Scripting.Jint;
 using Folio.Style;
 using Folio.Tests.Typography;
 using Folio.Typography;
@@ -49,6 +51,8 @@ internal static class Targets
             " in2=\"", " numOctaves=\"", " primitiveUnits=\"objectBoundingBox\"", " filter=\"", " mask=\"",
             "<pattern id=\"", " patternUnits=\"userSpaceOnUse\"", " patternTransform=\"", " href=\"#", " fill=\"url(#",
             "<foreignObject width=\"", "<div xmlns=\"http://www.w3.org/1999/xhtml\">"]),
+        new("cssom", Cssom, CssomSeeds, ["{", "}", ";", ":", "@media ", "@supports ", "@import ", "@namespace ", "@keyframes ", "@layer ", "@container ",
+            "@font-face", "@property ", "@page ", "@charset ", "@starting-style", "!important", "&", "from", "to", "50%", "url(", "(", ")", "\"", "'", "\\", "/*", "*/"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
     ];
 
@@ -113,6 +117,40 @@ internal static class Targets
         CssParser.ParseBlockContents(css);
         StyleResolver.Resolve(TreeBuilder.Parse(StyledDocument), Media, userStyleSheet: css);
     }
+
+    // CSSOM insertRule/appendRule/deleteRule with generated rule text (issue #499): a DOMException is the expected answer to a
+    // bad rule; nothing else may escape, and a sheet never grows past its rule limit.
+    private static void Cssom(byte[] data)
+    {
+        var text = System.Text.Json.JsonSerializer.Serialize(Encoding.UTF8.GetString(data));
+        var document = Document.Parse("<!DOCTYPE html><style>a { color: red } @media screen { b { top: 0 } } @keyframes k { from { top: 0 } } @layer base { c { top: 1px } }</style><p>x</p>");
+        document.Paint(800, 600);
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        engine.Evaluate($$"""
+            const rule = {{text}};
+            const attempt = (f) => { try { f(); } catch (e) { if (!(e instanceof DOMException) && !(e instanceof TypeError)) throw e; } };
+            const sheet = document.styleSheets[0];
+            for (let index = 0; index <= 5; index++) attempt(() => sheet.insertRule(rule, index));
+            attempt(() => sheet.cssRules[1].insertRule(rule, 0));
+            attempt(() => sheet.cssRules[1].insertRule(rule, 99));
+            attempt(() => sheet.cssRules[2].appendRule(rule));
+            attempt(() => sheet.cssRules[3].insertRule(rule, 0));
+            attempt(() => { sheet.cssRules[0].selectorText = rule; });
+            attempt(() => { sheet.cssRules[0].style.cssText = rule; });
+            attempt(() => sheet.deleteRule(0));
+            attempt(() => sheet.cssRules[0].cssText);
+            if (sheet.cssRules.length > 100000) throw new Error('rule limit');
+            """);
+        document.Update();
+    }
+
+    private static IEnumerable<byte[]> CssomSeeds() => new[]
+    {
+        "p { color: red }", "@media (min-width: 1px) { p { top: 0 } }", "@import url(a.css);", "@namespace url(http://example.com);",
+        "@keyframes x { 50% { top: 1px } }", "@layer a, b;", "@supports (display: grid) { a { b: c } }", "@font-face { font-family: F }",
+        "a { & b { c: d } }", "50% { top: 1px }", "not a rule", "a { } b { }", "", "@charset \"utf-8\";",
+    }.Select(Encoding.UTF8.GetBytes);
 
     private static void Ipc(byte[] data)
     {

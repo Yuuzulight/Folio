@@ -57,6 +57,9 @@ internal sealed class DocumentNode : ContainerNode
     /// <summary>Set when child elements are inserted or removed, meaning the box tree must be rebuilt.</summary>
     internal bool StructureMutated { get; set; }
 
+    /// <summary>A style or link element was added, removed or had its text changed: the cascade has to be resolved again.</summary>
+    internal bool SheetsMutated { get; set; }
+
     /// <summary>Queues mutation records for observers; null while nothing observes this document.</summary>
     internal IMutationRecorder? MutationRecorder { get; set; }
 
