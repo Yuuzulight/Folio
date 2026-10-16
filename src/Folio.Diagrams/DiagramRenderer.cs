@@ -199,6 +199,8 @@ public static class DiagramRenderer
     {
         var names = new List<string>();
         var edges = new List<(string From, string To, string Kind)>();
+        var members = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        string? current = null;
         foreach (var raw in lines)
         {
             var line = raw.Trim();
@@ -211,28 +213,51 @@ public static class DiagramRenderer
                 if (from.Length > 0 && to.Length > 0) { names.Add(from); names.Add(to); edges.Add((from, to, relation)); }
                 continue;
             }
-            if (line.StartsWith("class ", StringComparison.OrdinalIgnoreCase)) names.Add(line[6..].Split([' ', '{'], 2)[0]);
-            else if (line.StartsWith("class ", StringComparison.OrdinalIgnoreCase) == false && line.Contains('{')) names.Add(line[..line.IndexOf('{')].Trim());
+            if (line.StartsWith("class ", StringComparison.OrdinalIgnoreCase))
+            {
+                current = line[6..].Split([' ', '{'], 2)[0].Trim();
+                if (current.Length > 0) { names.Add(current); members.TryAdd(current, []); }
+                continue;
+            }
+            if (line.Contains('{'))
+            {
+                current = line[..line.IndexOf('{')].Trim();
+                if (current.Length > 0) { names.Add(current); members.TryAdd(current, []); }
+                continue;
+            }
+            if (line == "}") { current = null; continue; }
+            if (!string.IsNullOrEmpty(current) && !line.StartsWith("note ", StringComparison.OrdinalIgnoreCase)
+                && members.TryGetValue(current, out var classMembers))
+                classMembers.Add(line.Trim(';'));
         }
         names = names.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = names.Select((name, i) => $"<rect class=\"folio-diagram-node class-node\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"54\" rx=\"6\"/><text class=\"folio-diagram-label class-label\" x=\"{105 + i * 180}\" y=\"72\">{XmlEscape(name)}</text>");
+        var boxes = names.Select((name, i) =>
+        {
+            var rows = members.TryGetValue(name, out var values) ? values : [];
+            var height = 54 + rows.Count * 18;
+            var text = $"<text class=\"folio-diagram-label class-label\" x=\"{105 + i * 180}\" y=\"64\">{XmlEscape(name)}</text>";
+            text += string.Join("", rows.Select((member, row) => $"<text class=\"folio-diagram-label class-member\" x=\"40\" y=\"{84 + row * 18}\">{XmlEscape(member)}</text>"));
+            return $"<rect class=\"folio-diagram-node class-node\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"{height}\" rx=\"6\"/>{text}";
+        });
         var paths = edges.Select(e => { var a = names.IndexOf(e.From); var b = names.IndexOf(e.To); return $"<path class=\"class-edge\" d=\"M {105 + a * 180} 40 L {105 + b * 180} 94\" data-kind=\"{XmlEscape(e.Kind)}\" marker-end=\"url(#arrow)\"/>"; });
         return Svg(boxes, paths);
     }
 
     private static string RenderState(IEnumerable<string> lines)
     {
-        var states = new List<string>(); var edges = new List<(string From, string To)>();
+        var states = new List<string>(); var edges = new List<(string From, string To, string Label)>();
         foreach (var raw in lines)
         {
             var line = raw.Trim(); var at = line.IndexOf("-->", StringComparison.Ordinal);
             if (at < 0) continue;
-            var from = line[..at].Trim(); var to = line[(at + 3)..].Split(':', 2)[0].Trim();
-            states.Add(from); states.Add(to); edges.Add((from, to));
+            var from = line[..at].Trim(); var remainder = line[(at + 3)..];
+            var fields = remainder.Split(':', 2);
+            var to = fields[0].Trim(); var label = fields.Length == 2 ? fields[1].Trim() : "";
+            states.Add(from); states.Add(to); edges.Add((from, to, label));
         }
         states = states.Distinct(StringComparer.Ordinal).ToList();
         var boxes = states.Select((name, i) => $"<rect class=\"folio-diagram-node state-node\" x=\"30\" y=\"{30 + i * 64}\" width=\"180\" height=\"40\" rx=\"20\"/><text class=\"folio-diagram-label\" x=\"120\" y=\"{55 + i * 64}\">{XmlEscape(name == "[*]" ? "start" : name)}</text>");
-        var paths = edges.Select(e => { var a = states.IndexOf(e.From); var b = states.IndexOf(e.To); return $"<path class=\"state-edge\" d=\"M 120 {70 + a * 64} L 120 {30 + b * 64}\" marker-end=\"url(#arrow)\"/>"; });
+        var paths = edges.Select(e => { var a = states.IndexOf(e.From); var b = states.IndexOf(e.To); var y = 50 + Math.Min(a, b) * 64; return $"<path class=\"state-edge\" d=\"M 120 {70 + a * 64} L 120 {30 + b * 64}\" marker-end=\"url(#arrow)\"/>{(e.Label.Length == 0 ? "" : $"<text class=\"folio-diagram-label state-transition-label\" x=\"145\" y=\"{y}\">{XmlEscape(e.Label)}</text>")}"; });
         return Svg(boxes, paths);
     }
 

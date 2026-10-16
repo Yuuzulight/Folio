@@ -37,8 +37,10 @@ public sealed class DiagramRendererTests
     [Fact]
     public void RendersClassAndStateEdgesAsSvg()
     {
-        Assert.Contains("Base", DiagramRenderer.Render("classDiagram\nBase <|-- Child"));
-        Assert.Contains("Ready", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready"));
+        Assert.Contains("Base", DiagramRenderer.Render("classDiagram\nclass Base {\n+int id\n}\nBase <|-- Child"));
+        Assert.Contains("class-member", DiagramRenderer.Render("classDiagram\nclass Base {\n+int id\n}"));
+        Assert.Contains("Ready", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready : boot"));
+        Assert.Contains("state-transition-label", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready : boot"));
     }
 
     [Fact]
