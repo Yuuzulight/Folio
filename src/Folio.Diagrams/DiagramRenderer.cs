@@ -80,7 +80,14 @@ public static class DiagramRenderer
         if (first.StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) || first.StartsWith("graph", StringComparison.OrdinalIgnoreCase))
             return lines.Any(line => line.Contains("--", StringComparison.Ordinal));
         if (first.StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase))
-            return lines.Any(line => line.Contains("->>", StringComparison.Ordinal));
+            return lines.Any(line => line.Contains("->", StringComparison.Ordinal) ||
+                line.StartsWith("participant ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("actor ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("note ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("loop ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("alt ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("opt ", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("par ", StringComparison.OrdinalIgnoreCase));
         if (first.StartsWith("stateDiagram", StringComparison.OrdinalIgnoreCase))
             return lines.Any(line => line.Contains("-->", StringComparison.Ordinal));
         if (first.StartsWith("classDiagram", StringComparison.OrdinalIgnoreCase))
@@ -176,23 +183,67 @@ public static class DiagramRenderer
     private static string RenderSequence(IEnumerable<string> lines)
     {
         var participants = new List<string>();
-        var messages = new List<(int From, int To, string Label)>();
+        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var messages = new List<(int From, int To, string Label, string Kind, bool Dashed)>();
+        var notes = new List<(string Text, int Participant, bool Right)>();
+        var blocks = new List<(string Kind, string Label, int Start, int End)>();
+        var activations = new HashSet<int>();
+        var openBlocks = new Stack<(string Kind, string Label, int Start)>();
         foreach (var line in lines)
         {
-            var arrow = line.IndexOf("->>", StringComparison.Ordinal);
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("participant ", StringComparison.OrdinalIgnoreCase) || trimmed.StartsWith("actor ", StringComparison.OrdinalIgnoreCase))
+            {
+                var declaration = trimmed[(trimmed.IndexOf(' ') + 1)..].Trim();
+                var asAt = declaration.IndexOf(" as ", StringComparison.OrdinalIgnoreCase);
+                var key = asAt < 0 ? declaration : declaration[..asAt].Trim();
+                var declaredLabel = asAt < 0 ? declaration : declaration[(asAt + 4)..].Trim();
+                aliases[key] = declaredLabel; Index(participants, declaredLabel); continue;
+            }
+            if (trimmed.StartsWith("activate ", StringComparison.OrdinalIgnoreCase) || trimmed.StartsWith("deactivate ", StringComparison.OrdinalIgnoreCase))
+            {
+                var key = trimmed[(trimmed.IndexOf(' ') + 1)..].Trim();
+                var participantLabel = aliases.TryGetValue(key, out var alias) ? alias : key;
+                var index = Index(participants, participantLabel);
+                if (trimmed.StartsWith("activate ", StringComparison.OrdinalIgnoreCase)) activations.Add(index);
+                continue;
+            }
+            foreach (var kind in new[] { "loop", "alt", "opt", "par" })
+            {
+                if (trimmed.StartsWith(kind + " ", StringComparison.OrdinalIgnoreCase))
+                { openBlocks.Push((kind, trimmed[(kind.Length + 1)..].Trim(), messages.Count)); goto next; }
+            }
+            if (trimmed.Equals("end", StringComparison.OrdinalIgnoreCase) && openBlocks.Count > 0)
+            { var block = openBlocks.Pop(); blocks.Add((block.Kind, block.Label, block.Start, messages.Count)); continue; }
+            if (trimmed.StartsWith("else", StringComparison.OrdinalIgnoreCase) && openBlocks.Count > 0)
+            { var block = openBlocks.Pop(); blocks.Add((block.Kind, block.Label, block.Start, messages.Count)); openBlocks.Push((block.Kind, trimmed.Length > 4 ? trimmed[4..].Trim() : "else", messages.Count)); continue; }
+            if (trimmed.StartsWith("note ", StringComparison.OrdinalIgnoreCase))
+            {
+                var note = trimmed[5..].Trim(); var noteColon = note.IndexOf(':');
+                if (noteColon >= 0) { var who = note[..noteColon].Trim(); var noteLabel = aliases.TryGetValue(who, out var alias) ? alias : who; notes.Add((note[(noteColon + 1)..].Trim(), Index(participants, noteLabel), note.Contains(" right of ", StringComparison.OrdinalIgnoreCase))); }
+                continue;
+            }
+            var arrow = -1; var arrowKind = "";
+            foreach (var candidate in new[] { "-->>", "->>", "--x", "-x", "-->" , "->" })
+                if ((arrow = trimmed.IndexOf(candidate, StringComparison.Ordinal)) >= 0) { arrowKind = candidate; break; }
             if (arrow < 0) continue;
-            var left = line[..arrow].Trim();
-            var rest = line[(arrow + 3)..];
+            var left = trimmed[..arrow].Trim();
+            var rest = trimmed[(arrow + arrowKind.Length)..];
             var colon = rest.IndexOf(':');
             var right = (colon < 0 ? rest : rest[..colon]).Trim();
             var label = colon < 0 ? "" : rest[(colon + 1)..].Trim();
-            var from = Index(participants, left);
-            var to = Index(participants, right);
-            messages.Add((from, to, label));
+            left = aliases.TryGetValue(left, out var leftAlias) ? leftAlias : left;
+            right = aliases.TryGetValue(right, out var rightAlias) ? rightAlias : right;
+            var from = Index(participants, left); var to = Index(participants, right);
+            messages.Add((from, to, label, arrowKind, arrowKind.StartsWith("--", StringComparison.Ordinal)));
+            next: ;
         }
-        var marks = participants.Select((name, i) => $"<text class=\"folio-diagram-participant\" x=\"{80 + i * 180}\" y=\"30\">{XmlEscape(name)}</text><path class=\"folio-diagram-lifeline\" d=\"M {80 + i * 180} 40 L {80 + i * 180} {60 + messages.Count * 48}\"/>");
-        var arrows = messages.Select((message, i) => $"<path class=\"folio-diagram-edge\" d=\"M {80 + message.From * 180} {60 + i * 48} L {80 + message.To * 180} {60 + i * 48}\" marker-end=\"url(#arrow)\"/><text class=\"folio-diagram-label\" x=\"{90 + Math.Min(message.From, message.To) * 180}\" y=\"{54 + i * 48}\">{XmlEscape(message.Label)}</text>");
-        return Svg(marks, arrows);
+        while (openBlocks.Count > 0) { var block = openBlocks.Pop(); blocks.Add((block.Kind, block.Label, block.Start, messages.Count)); }
+        var marks = participants.Select((name, i) => $"<text class=\"folio-diagram-participant\" data-role=\"participant\" x=\"{80 + i * 180}\" y=\"30\">{XmlEscape(name)}</text><path class=\"folio-diagram-lifeline\" d=\"M {80 + i * 180} 40 L {80 + i * 180} {60 + messages.Count * 48}\"/>{(activations.Contains(i) ? $"<rect class=\"folio-diagram-activation\" x=\"{74 + i * 180}\" y=\"40\" width=\"12\" height=\"{messages.Count * 48}\"/>" : "")}");
+        var arrows = messages.Select((message, i) => $"<path class=\"folio-diagram-edge sequence-message\" data-kind=\"{XmlEscape(message.Kind)}\" {(message.Dashed ? "stroke-dasharray=\"4 3\"" : "")} d=\"M {80 + message.From * 180} {60 + i * 48} L {80 + message.To * 180} {60 + i * 48}\" marker-end=\"url(#arrow)\"/><text class=\"folio-diagram-label sequence-message-label\" x=\"{90 + Math.Min(message.From, message.To) * 180}\" y=\"{54 + i * 48}\">{XmlEscape(message.Label)}</text>");
+        var blockSvg = blocks.Select((block, i) => $"<rect class=\"folio-diagram-block sequence-{XmlEscape(block.Kind)}\" x=\"12\" y=\"{48 + block.Start * 48}\" width=\"760\" height=\"{Math.Max(28, (block.End - block.Start) * 48)}\"/><text class=\"folio-diagram-label sequence-block-label\" x=\"20\" y=\"{68 + block.Start * 48}\">{XmlEscape(block.Kind)} {XmlEscape(block.Label)}</text>");
+        var noteSvg = notes.Select(note => $"<rect class=\"folio-diagram-note\" x=\"{(note.Right ? 110 : 0) + note.Participant * 180}\" y=\"{42 + messages.Count * 48}\" width=\"140\" height=\"26\"/><text class=\"folio-diagram-label\" x=\"{(note.Right ? 118 : 8) + note.Participant * 180}\" y=\"{60 + messages.Count * 48}\">{XmlEscape(note.Text)}</text>");
+        return Svg(marks, arrows.Concat(blockSvg).Concat(noteSvg));
     }
 
     private static string RenderClass(IEnumerable<string> lines)

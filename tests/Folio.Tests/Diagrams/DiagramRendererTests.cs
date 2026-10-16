@@ -25,6 +25,32 @@ public sealed class DiagramRendererTests
     }
 
     [Fact]
+    public void SequenceSupportsAliasesActivationsNotesAndBlocks()
+    {
+        var svg = DiagramRenderer.Render("sequenceDiagram\nparticipant A as Alice\nactor B as Bob\nactivate A\nloop retry\nA-->>B: ping\nend\nnote right of B: waiting\ndeactivate A");
+
+        Assert.Contains("data-role=\"participant\"", svg);
+        Assert.Contains("Alice", svg);
+        Assert.Contains("Bob", svg);
+        Assert.Contains("data-kind=\"--&gt;&gt;\"", svg);
+        Assert.Contains("folio-diagram-activation", svg);
+        Assert.Contains("sequence-loop", svg);
+        Assert.Contains("folio-diagram-note", svg);
+    }
+
+    [Theory]
+    [InlineData("sequenceDiagram\nA->>B: call")]
+    [InlineData("sequenceDiagram\nA-->>B: reply")]
+    [InlineData("sequenceDiagram\nA-xB: fail")]
+    [InlineData("sequenceDiagram\nA-->B: signal")]
+    public void SequenceMessageKindsArePreserved(string source)
+    {
+        var svg = DiagramRenderer.Render(source);
+        Assert.Contains("sequence-message", svg);
+        Assert.Contains("data-kind=", svg);
+    }
+
+    [Fact]
     public void RendersPieValuesAsSvg()
     {
         var svg = DiagramRenderer.Render("pie title Sales\n\"North\" : 60\n\"South\" : 40");
