@@ -99,7 +99,7 @@ public class ScriptLoadingTests
         var (log, _, diagnostics) = Run("<div class='mermaid'>unsupportedDiagram x</div><script src='mermaid.js'></script><script>mermaid.run(); log.push(document.querySelector('.mermaid').textContent);</script>", optionsOverride: options);
 
         Assert.Equal("fallback", log);
-        Assert.DoesNotContain(diagnostics, d => d.Feature == "diagrams");
+        Assert.Contains(diagnostics, d => d.Feature == "diagrams" && d.Message.Contains("source position", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

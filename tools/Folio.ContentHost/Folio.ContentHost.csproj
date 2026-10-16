@@ -9,5 +9,6 @@
     <ProjectReference Include="..\..\src\Folio.Scripting.Jint\Folio.Scripting.Jint.csproj" />
     <ProjectReference Include="..\..\src\Folio\Folio.csproj" />
     <ProjectReference Include="..\..\src\Folio.Skia\Folio.Skia.csproj" />
+    <ProjectReference Include="..\..\src\Folio.Diagrams\Folio.Diagrams.csproj" />
   </ItemGroup>
 </Project>

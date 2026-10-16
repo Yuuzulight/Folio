@@ -315,6 +315,16 @@ public sealed class ScriptRunner : IDisposable
                 return;
             }
 
+            if (IsConfiguredDiagramLibrary(scriptUrl))
+            {
+                var unsupported = FindUnsupportedDiagramBlock();
+                _diagnostics.Add(new Diagnostic(DiagnosticCode.FeatureRouted, Severity.Info,
+                    unsupported is null
+                        ? "Ran the configured diagram library because Folio.Diagrams could not be selected."
+                        : $"Ran the configured diagram library because Folio.Diagrams does not support the diagram at source position {unsupported.Position}: {unsupported.Message}",
+                    null, "diagrams"));
+            }
+
             var integrity = script.GetAttribute("integrity");
             var request = new ResourceRequest(resolved, ResourceKind.Script, integrity);
 
@@ -371,6 +381,17 @@ public sealed class ScriptRunner : IDisposable
         if (blocks.Count == 0)
             return false;
         return blocks.All(block => DiagramRenderer.TryRender(block.TextContent ?? "", out _));
+    }
+
+    private DiagramRenderer.DiagramDiagnostic? FindUnsupportedDiagramBlock()
+    {
+        foreach (var block in _document.Descendants.OfType<ElementNode>().Where(HasDiagramBlock))
+        {
+            if (!DiagramRenderer.TryRender(block.TextContent ?? "", out _, out var diagnostic))
+                return diagnostic;
+        }
+
+        return null;
     }
 
     private static bool HasDiagramBlock(ElementNode element)
