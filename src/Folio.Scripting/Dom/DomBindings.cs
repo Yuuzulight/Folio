@@ -694,6 +694,29 @@ public static class DomBindings
                 const NamedNodeMap = defClass('NamedNodeMap');
                 NamedNodeMap.prototype[Symbol.iterator] = Array.prototype.values;
                 NamedNodeMap.prototype.values = Array.prototype.values;
+
+                function DOMMatrix(init) {
+                    var v = [1, 0, 0, 1, 0, 0];
+                    if (Array.isArray(init)) for (var i = 0; i < 6 && i < init.length; i++) v[i] = Number(init[i]);
+                    else if (init && typeof init === 'object') {
+                        var names = ['a','b','c','d','e','f'], aliases = ['m11','m12','m21','m22','m41','m42'];
+                        for (var j = 0; j < 6; j++) { var x = init[names[j]]; if (x === undefined) x = init[aliases[j]]; if (x !== undefined) v[j] = Number(x); }
+                    } else if (arguments.length >= 6) for (var k = 0; k < 6; k++) v[k] = Number(arguments[k]);
+                    this.a=v[0]; this.b=v[1]; this.c=v[2]; this.d=v[3]; this.e=v[4]; this.f=v[5];
+                    this.m11=this.a; this.m12=this.b; this.m13=0; this.m14=0; this.m21=this.c; this.m22=this.d; this.m23=0; this.m24=0;
+                    this.m31=0; this.m32=0; this.m33=1; this.m34=0; this.m41=this.e; this.m42=this.f; this.m43=0; this.m44=1;
+                    this.is2D=true; this.isIdentity=this.a===1&&this.b===0&&this.c===0&&this.d===1&&this.e===0&&this.f===0;
+                }
+                DOMMatrix.prototype._set = function(a,b,c,d,e,f) { this.a=a; this.b=b; this.c=c; this.d=d; this.e=e; this.f=f; this.m11=a; this.m12=b; this.m21=c; this.m22=d; this.m41=e; this.m42=f; this.isIdentity=a===1&&b===0&&c===0&&d===1&&e===0&&f===0; return this; };
+                DOMMatrix.prototype.multiply = function(other) { other = new DOMMatrix(other); return new DOMMatrix([this.a*other.a+this.c*other.b, this.b*other.a+this.d*other.b, this.a*other.c+this.c*other.d, this.b*other.c+this.d*other.d, this.a*other.e+this.c*other.f+this.e, this.b*other.e+this.d*other.f+this.f]); };
+                DOMMatrix.prototype.multiplySelf = function(other) { var m=this.multiply(other); return this._set(m.a,m.b,m.c,m.d,m.e,m.f); };
+                DOMMatrix.prototype.translate = function(x,y) { return this.multiplySelf(new DOMMatrix([1,0,0,1,Number(x),Number(y)])); };
+                DOMMatrix.prototype.scale = function(x,y) { x=Number(x); y=y===undefined?x:Number(y); return this.multiplySelf(new DOMMatrix([x,0,0,y,0,0])); };
+                DOMMatrix.prototype.rotate = function(angle) { var r=Number(angle)*Math.PI/180, c=Math.cos(r), s=Math.sin(r); return this.multiplySelf(new DOMMatrix([c,s,-s,c,0,0])); };
+                DOMMatrix.prototype.inverse = function() { var det=this.a*this.d-this.b*this.c; if (det===0) throw new DOMException('The matrix is not invertible.','InvalidStateError'); return new DOMMatrix([this.d/det,-this.b/det,-this.c/det,this.a/det,(this.c*this.f-this.d*this.e)/det,(this.b*this.e-this.a*this.f)/det]); };
+                DOMMatrix.prototype.toString = function() { return 'matrix('+[this.a,this.b,this.c,this.d,this.e,this.f].join(', ')+')'; };
+                globalThis.DOMMatrix = DOMMatrix;
+                globalThis.DOMMatrixReadOnly = DOMMatrix;
             })();
         ");
     }

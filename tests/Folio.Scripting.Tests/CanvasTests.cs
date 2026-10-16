@@ -575,6 +575,17 @@ public class CanvasTests
     }
 
     [Fact]
+    public void DomMatrixSupportsCanvasInitAndMatrixOperations()
+    {
+        using var page = new Page();
+        Assert.Equal("2,0,0,3,10,14,true", page.Js("var m = new DOMMatrix([2,0,0,3,4,5]).translate(3, 3); var n = m.multiply(new DOMMatrix().scale(1, 1)); [n.a,n.b,n.c,n.d,n.e,n.f,n.is2D].join(',')"));
+        Assert.Equal("1,0,0,1,-7,-8", page.Js("var i = new DOMMatrix([1,0,0,1,7,8]).inverse(); [i.a,i.b,i.c,i.d,i.e,i.f].join(',')"));
+        Assert.Equal("2,0,0,3,4,5", page.Js("ctx.setTransform(new DOMMatrix([2,0,0,3,4,5])); var p = ctx.getTransform(); [p.a,p.b,p.c,p.d,p.e,p.f].join(',')"));
+        Assert.Equal("3,4,7,8", page.Js("var q = new DOMMatrix({m11:3,m22:4,m41:7,m42:8}); [q.a,q.d,q.e,q.f].join(',')"));
+        Assert.Equal("InvalidStateError", page.Js("try { new DOMMatrix([0,0,0,0,0,0]).inverse(); } catch (e) { e.name }"));
+    }
+
+    [Fact]
     public void NonFiniteTransformsAreIgnored()
     {
         using var page = new Page();
