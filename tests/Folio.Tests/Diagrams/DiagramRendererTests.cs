@@ -92,6 +92,7 @@ public sealed class DiagramRendererTests
         Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\nsection Releases\n2024 : Launch"));
         Assert.Contains("folio-diagram-section", DiagramRenderer.Render("timeline\nsection Releases\n2024 : Launch"));
         Assert.Contains("gantt-task", DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d"));
+        Assert.Contains("gantt-section", DiagramRenderer.Render("gantt\nsection Release\nBuild :build, 2024-01-30, 3d"));
         Assert.Contains("er-attribute", DiagramRenderer.Render("erDiagram\nCUSTOMER {\nstring id\n}\nCUSTOMER ||--o{ ORDER : places"));
     }
 

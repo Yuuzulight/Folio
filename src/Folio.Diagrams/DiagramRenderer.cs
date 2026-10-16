@@ -418,12 +418,14 @@ public static class DiagramRenderer
 
     private static string RenderGantt(IEnumerable<string> lines)
     {
-        var tasks = new List<(string Name, string Id, DateTime Start, int Days, string Dependency)>();
+        var tasks = new List<(string Name, string Id, DateTime Start, int Days, string Dependency, string? Section)>();
         var dateFormat = "yyyy-MM-dd";
+        string? section = null;
         foreach (var line in lines.Select(x => x.Trim()))
         {
             if (line.StartsWith("dateFormat ", StringComparison.OrdinalIgnoreCase)) { dateFormat = ToDateFormat(line[11..].Trim()); continue; }
             if (line.StartsWith("axisFormat ", StringComparison.OrdinalIgnoreCase)) continue;
+            if (line.StartsWith("section ", StringComparison.OrdinalIgnoreCase)) { section = line[8..].Trim(); continue; }
             var parts = line.Split(',', StringSplitOptions.TrimEntries);
             if (parts.Length < 3) continue;
             var descriptor = parts[0].Split(':', 2, StringSplitOptions.TrimEntries);
@@ -439,10 +441,10 @@ public static class DiagramRenderer
             }
             else if (!TryParseGanttDate(parts[^2], dateFormat, out start)) continue;
             var duration = parts[^1].EndsWith('d') && int.TryParse(parts[^1][..^1], out var d) ? d : 1;
-            tasks.Add((name, id, start, Math.Max(1, duration), dependency));
+            tasks.Add((name, id, start, Math.Max(1, duration), dependency, section));
         }
         var origin = tasks.Count == 0 ? DateTime.Today : tasks.Min(t => t.Start);
-        var bars = tasks.Select((task, i) => { var x = 180 + (task.Start - origin).Days * 18; return $"<text class=\"folio-diagram-label\" x=\"10\" y=\"{45 + i * 36}\">{XmlEscape(task.Name)}</text><rect class=\"folio-diagram-node gantt-task\" data-id=\"{XmlEscape(task.Id)}\" data-start=\"{task.Start:yyyy-MM-dd}\" data-days=\"{task.Days}\" data-after=\"{XmlEscape(task.Dependency)}\" x=\"{x}\" y=\"{28 + i * 36}\" width=\"{Math.Max(12, task.Days * 18)}\" height=\"22\"/>"; });
+        var bars = tasks.Select((task, i) => { var x = 180 + (task.Start - origin).Days * 18; var sectionSvg = task.Section is null ? "" : $"<text class=\"folio-diagram-section gantt-section\" x=\"10\" y=\"{25 + i * 36}\">{XmlEscape(task.Section)}</text>"; return $"{sectionSvg}<text class=\"folio-diagram-label\" x=\"10\" y=\"{45 + i * 36}\">{XmlEscape(task.Name)}</text><rect class=\"folio-diagram-node gantt-task\" data-id=\"{XmlEscape(task.Id)}\" data-section=\"{XmlEscape(task.Section ?? "")}\" data-start=\"{task.Start:yyyy-MM-dd}\" data-days=\"{task.Days}\" data-after=\"{XmlEscape(task.Dependency)}\" x=\"{x}\" y=\"{28 + i * 36}\" width=\"{Math.Max(12, task.Days * 18)}\" height=\"22\"/>"; });
         return Svg(bars, []);
     }
 
