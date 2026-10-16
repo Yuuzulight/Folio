@@ -91,7 +91,7 @@ public static class DiagramRenderer
             .Select(parts => (Label: parts[0].Trim('"'), Value: double.Parse(parts[1])))
             .ToList();
         var total = slices.Sum(slice => slice.Value);
-        var bars = slices.Select((slice, i) => $"<rect x=\"40\" y=\"{40 + i * 36}\" width=\"{Math.Max(1, 500 * slice.Value / Math.Max(1, total)):0.##}\" height=\"24\"/><text x=\"560\" y=\"{58 + i * 36}\">{XmlEscape(slice.Label)} ({slice.Value:0.##})</text>");
+        var bars = slices.Select((slice, i) => $"<rect class=\"folio-diagram-slice\" x=\"40\" y=\"{40 + i * 36}\" width=\"{Math.Max(1, 500 * slice.Value / Math.Max(1, total)):0.##}\" height=\"24\"/><text class=\"folio-diagram-label\" x=\"560\" y=\"{58 + i * 36}\">{XmlEscape(slice.Label)} ({slice.Value:0.##})</text>");
         return Svg(bars, []);
     }
 
@@ -115,8 +115,8 @@ public static class DiagramRenderer
             var to = Index(nodes, right);
             edges.Add((from, to));
         }
-        return Svg(nodes.Select((node, i) => $"<rect x=\"{40 + i * 180}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/><text x=\"{110 + i * 180}\" y=\"67\">{XmlEscape(node.Label)}</text>"),
-            edges.Select(edge => $"<path d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>"));
+        return Svg(nodes.Select((node, i) => $"<rect class=\"folio-diagram-node\" x=\"{40 + i * 180}\" y=\"40\" width=\"140\" height=\"44\" rx=\"8\"/><text class=\"folio-diagram-label\" x=\"{110 + i * 180}\" y=\"67\">{XmlEscape(node.Label)}</text>"),
+            edges.Select(edge => $"<path class=\"folio-diagram-edge\" d=\"M {110 + edge.From * 180} 84 L {110 + edge.To * 180} 40\" marker-end=\"url(#arrow)\"/>"));
     }
 
     private static string RenderSequence(IEnumerable<string> lines)
@@ -136,8 +136,8 @@ public static class DiagramRenderer
             var to = Index(participants, right);
             messages.Add((from, to, label));
         }
-        var marks = participants.Select((name, i) => $"<text x=\"{80 + i * 180}\" y=\"30\">{XmlEscape(name)}</text><path d=\"M {80 + i * 180} 40 L {80 + i * 180} {60 + messages.Count * 48}\"/>");
-        var arrows = messages.Select((message, i) => $"<path d=\"M {80 + message.From * 180} {60 + i * 48} L {80 + message.To * 180} {60 + i * 48}\" marker-end=\"url(#arrow)\"/><text x=\"{90 + Math.Min(message.From, message.To) * 180}\" y=\"{54 + i * 48}\">{XmlEscape(message.Label)}</text>");
+        var marks = participants.Select((name, i) => $"<text class=\"folio-diagram-participant\" x=\"{80 + i * 180}\" y=\"30\">{XmlEscape(name)}</text><path class=\"folio-diagram-lifeline\" d=\"M {80 + i * 180} 40 L {80 + i * 180} {60 + messages.Count * 48}\"/>");
+        var arrows = messages.Select((message, i) => $"<path class=\"folio-diagram-edge\" d=\"M {80 + message.From * 180} {60 + i * 48} L {80 + message.To * 180} {60 + i * 48}\" marker-end=\"url(#arrow)\"/><text class=\"folio-diagram-label\" x=\"{90 + Math.Min(message.From, message.To) * 180}\" y=\"{54 + i * 48}\">{XmlEscape(message.Label)}</text>");
         return Svg(marks, arrows);
     }
 
@@ -161,7 +161,7 @@ public static class DiagramRenderer
             else if (line.StartsWith("class ", StringComparison.OrdinalIgnoreCase) == false && line.Contains('{')) names.Add(line[..line.IndexOf('{')].Trim());
         }
         names = names.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = names.Select((name, i) => $"<rect class=\"class-node\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"54\" rx=\"6\"/><text class=\"class-label\" x=\"{105 + i * 180}\" y=\"72\">{XmlEscape(name)}</text>");
+        var boxes = names.Select((name, i) => $"<rect class=\"folio-diagram-node class-node\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"54\" rx=\"6\"/><text class=\"folio-diagram-label class-label\" x=\"{105 + i * 180}\" y=\"72\">{XmlEscape(name)}</text>");
         var paths = edges.Select(e => { var a = names.IndexOf(e.From); var b = names.IndexOf(e.To); return $"<path class=\"class-edge\" d=\"M {105 + a * 180} 40 L {105 + b * 180} 94\" data-kind=\"{XmlEscape(e.Kind)}\" marker-end=\"url(#arrow)\"/>"; });
         return Svg(boxes, paths);
     }
@@ -177,7 +177,7 @@ public static class DiagramRenderer
             states.Add(from); states.Add(to); edges.Add((from, to));
         }
         states = states.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = states.Select((name, i) => $"<rect class=\"state-node\" x=\"30\" y=\"{30 + i * 64}\" width=\"180\" height=\"40\" rx=\"20\"/><text x=\"120\" y=\"{55 + i * 64}\">{XmlEscape(name == "[*]" ? "start" : name)}</text>");
+        var boxes = states.Select((name, i) => $"<rect class=\"folio-diagram-node state-node\" x=\"30\" y=\"{30 + i * 64}\" width=\"180\" height=\"40\" rx=\"20\"/><text class=\"folio-diagram-label\" x=\"120\" y=\"{55 + i * 64}\">{XmlEscape(name == "[*]" ? "start" : name)}</text>");
         var paths = edges.Select(e => { var a = states.IndexOf(e.From); var b = states.IndexOf(e.To); return $"<path class=\"state-edge\" d=\"M 120 {70 + a * 64} L 120 {30 + b * 64}\" marker-end=\"url(#arrow)\"/>"; });
         return Svg(boxes, paths);
     }
@@ -194,7 +194,7 @@ public static class DiagramRenderer
             else if (tokens.Length >= 1 && tokens[0].Length > 0 && !tokens[0].Equals("title", StringComparison.OrdinalIgnoreCase)) entities.Add(tokens[0]);
         }
         entities = entities.Distinct(StringComparer.Ordinal).ToList();
-        var boxes = entities.Select((name, i) => $"<rect class=\"er-entity\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"50\"/><text x=\"{105 + i * 180}\" y=\"70\">{XmlEscape(name)}</text>");
+        var boxes = entities.Select((name, i) => $"<rect class=\"folio-diagram-node er-entity\" x=\"{30 + i * 180}\" y=\"40\" width=\"150\" height=\"50\"/><text class=\"folio-diagram-label\" x=\"{105 + i * 180}\" y=\"70\">{XmlEscape(name)}</text>");
         var paths = edges.Select(e => { var a = entities.IndexOf(e.From); var b = entities.IndexOf(e.To); return $"<path class=\"er-edge\" d=\"M {105 + a * 180} 90 L {105 + b * 180} 40\" data-cardinality=\"{XmlEscape(e.Label)}\" marker-end=\"url(#arrow)\"/>"; });
         return Svg(boxes, paths);
     }
@@ -202,7 +202,7 @@ public static class DiagramRenderer
     private static string RenderTimeline(IEnumerable<string> lines)
     {
         var items = lines.Select(line => line.Trim()).Where(line => line.Contains(':')).Select(line => line.Split(':', 2)).ToList();
-        var body = items.Select((item, i) => $"<circle class=\"timeline-event\" cx=\"50\" cy=\"{40 + i * 48}\" r=\"6\"/><text x=\"70\" y=\"{45 + i * 48}\"><tspan class=\"timeline-date\">{XmlEscape(item[0].Trim())}</tspan> {XmlEscape(item[1].Trim())}</text>");
+        var body = items.Select((item, i) => $"<circle class=\"folio-diagram-node timeline-event\" cx=\"50\" cy=\"{40 + i * 48}\" r=\"6\"/><text class=\"folio-diagram-label\" x=\"70\" y=\"{45 + i * 48}\"><tspan class=\"timeline-date\">{XmlEscape(item[0].Trim())}</tspan> {XmlEscape(item[1].Trim())}</text>");
         return Svg(body, []);
     }
 
@@ -217,14 +217,14 @@ public static class DiagramRenderer
             tasks.Add((parts[0].Split(':')[0].Trim(), start, Math.Max(1, duration)));
         }
         var origin = tasks.Count == 0 ? DateTime.Today : tasks.Min(t => t.Start);
-        var bars = tasks.Select((task, i) => { var x = 180 + (task.Start - origin).Days * 18; return $"<text x=\"10\" y=\"{45 + i * 36}\">{XmlEscape(task.Name)}</text><rect class=\"gantt-task\" x=\"{x}\" y=\"{28 + i * 36}\" width=\"{Math.Max(12, task.Days * 18)}\" height=\"22\"/>"; });
+        var bars = tasks.Select((task, i) => { var x = 180 + (task.Start - origin).Days * 18; return $"<text class=\"folio-diagram-label\" x=\"10\" y=\"{45 + i * 36}\">{XmlEscape(task.Name)}</text><rect class=\"folio-diagram-node gantt-task\" x=\"{x}\" y=\"{28 + i * 36}\" width=\"{Math.Max(12, task.Days * 18)}\" height=\"22\"/>"; });
         return Svg(bars, []);
     }
 
     private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays)
     {
         var content = string.Join("", body.Concat(overlays));
-        return $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 400\"><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\"><path d=\"M0,0 L8,4 L0,8 z\"/></marker></defs><g fill=\"white\" stroke=\"currentColor\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
+        return $"<svg class=\"folio-diagram\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 400\"><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\"><path d=\"M0,0 L8,4 L0,8 z\"/></marker></defs><g class=\"folio-diagram-content\" fill=\"white\" stroke=\"currentColor\" font-family=\"sans-serif\" font-size=\"14\">{content}</g></svg>";
     }
 
     private static (string Id, string Label) Node(string text)

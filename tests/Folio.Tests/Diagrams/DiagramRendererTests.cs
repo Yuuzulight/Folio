@@ -46,4 +46,21 @@ public sealed class DiagramRendererTests
         Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\n2024 : Launch"));
         Assert.Contains("gantt-task", DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d"));
     }
+
+    [Theory]
+    [InlineData("flowchart LR\nA --> B")]
+    [InlineData("sequenceDiagram\nAlice->>Bob: Hello")]
+    [InlineData("classDiagram\nBase <|-- Child")]
+    [InlineData("stateDiagram-v2\n[*] --> Ready")]
+    [InlineData("erDiagram\nCUSTOMER ||--o{ ORDER : places")]
+    [InlineData("timeline\n2024 : Launch")]
+    [InlineData("gantt\nBuild :done, id, 2024-01-30, 3d")]
+    [InlineData("pie\n\"North\" : 60")]
+    public void EverySupportedKindExposesStableDomClasses(string source)
+    {
+        Assert.True(DiagramRenderer.TryRender(source, out var svg));
+        Assert.Contains("class=\"folio-diagram\"", svg);
+        Assert.Contains("class=\"folio-diagram-content\"", svg);
+        Assert.Contains("folio-diagram-", svg);
+    }
 }

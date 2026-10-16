@@ -67,6 +67,24 @@ public class ScriptLoadingTests
     }
 
     [Fact]
+    public void DiagramStandInInsertsAnSvgThatScriptsCanInspectAndStyle()
+    {
+        var loader = new FakeLoader();
+        loader.Scripts["https://example.com/app/mermaid.js"] = "throw new Error('library must not run');";
+        var options = new FolioOptions
+        {
+            Scripting = ScriptingPolicy.ContentProcess,
+            BaseUri = new Uri("https://example.com/app/index.html"),
+            ResourceLoader = loader,
+            DiagramLibraryUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://example.com/app/mermaid.js" }
+        };
+
+        var (log, _, _) = Run("<div class='mermaid'>sequenceDiagram\nAlice->>Bob: Hello</div><script src='mermaid.js'></script><script>mermaid.run(); const svg = document.querySelector('.mermaid svg'); log.push(svg !== null && svg.getAttribute('class') === 'folio-diagram' && svg.querySelector('.folio-diagram-edge') !== null);</script>", optionsOverride: options);
+
+        Assert.Equal("true", log);
+    }
+
+    [Fact]
     public void UnsupportedDiagramSyntaxRunsTheConfiguredLibrary()
     {
         var loader = new FakeLoader();
