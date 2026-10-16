@@ -26,6 +26,7 @@ public sealed class HtmlEventLoop : IDisposable
         _engine = engine;
         _clock = clock ?? new RealEventLoopClock();
         RenderingHooks = renderingHooks ?? new RenderingStepsHooks();
+        _engine?.SetEventLoopPump(RunOneTurn);
 
         foreach (TaskSource source in Enum.GetValues<TaskSource>())
         {
@@ -126,7 +127,9 @@ public sealed class HtmlEventLoop : IDisposable
     /// 2. Perform a microtask checkpoint.
     /// Returns true if a task was executed, false if queues were empty.
     /// </summary>
-    public bool RunOneTurn()
+    public bool RunOneTurn() => RunOneTurnCore(allowEngineMicrotasks: true);
+
+    private bool RunOneTurnCore(bool allowEngineMicrotasks)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         CheckTimers();
@@ -157,21 +160,32 @@ public sealed class HtmlEventLoop : IDisposable
 
         if (selectedTask is not null)
         {
-            try
+            void RunTask()
             {
-                selectedTask.Action();
+                try
+                {
+                    selectedTask.Action();
+                }
+                catch (Exception ex)
+                {
+                    OnTaskException(ex);
+                }
             }
-            catch (Exception ex)
-            {
-                OnTaskException(ex);
-            }
+
+            if (_engine is not null)
+                _engine.RunHostTask(RunTask);
+            else
+                RunTask();
 
             PerformMicrotaskCheckpoint();
             return true;
         }
 
-        // Even if no macro task ran, perform microtask checkpoint if any exist
-        PerformMicrotaskCheckpoint();
+        // Even if no macro task ran, perform microtask checkpoint if any exist.
+        // The engine pump skips this while evaluation is suspended on another
+        // thread; Jint processes its own queued jobs on that thread.
+        if (allowEngineMicrotasks)
+            PerformMicrotaskCheckpoint();
         return false;
     }
 

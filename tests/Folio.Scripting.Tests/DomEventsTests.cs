@@ -53,6 +53,23 @@ public class DomEventsTests
     }
 
     [Fact]
+    public void AsyncEventHandlersResumeAfterHostTasks()
+    {
+        using var s = Create();
+        s.Run(@"
+            const log = [];
+            const btn = document.getElementById('btn');
+            btn.addEventListener('go', async () => {
+                log.push('start');
+                await new Promise(resolve => setTimeout(resolve, 0));
+                log.push('done');
+            });");
+        s.Run("document.getElementById('btn').dispatchEvent(new Event('go'));");
+        s.Loop.SpinUntilIdle();
+        Assert.Equal("start|done", s.Run("log.join('|')"));
+    }
+
+    [Fact]
     public void CaptureRunsBeforeBubbleAndTargetSeesBothInRegistrationOrder()
     {
         using var s = Create();

@@ -72,6 +72,19 @@ public interface IScriptEngine : IDisposable
     /// Causes the evaluation to immediately fail with <see cref="ScriptInterruptedException"/>.
     /// </summary>
     void Interrupt();
+
+    /// <summary>
+    /// Runs a task that was selected by Folio's event loop on the engine's execution context.
+    /// Engines that suspend while awaiting host work may enqueue the task on their internal loop.
+    /// </summary>
+    void RunHostTask(Action task) => task();
+
+    /// <summary>Connects the engine to the owning HTML event loop for host-task pumping.</summary>
+    void SetEventLoopPump(Func<bool> pump) { }
+
+    /// <summary>Whether the engine is suspended in an evaluation on another thread.</summary>
+    bool IsEvaluationSuspended => false;
+
 }
 
 /// <summary>Optional factory used by isolated execution contexts such as dedicated workers.</summary>

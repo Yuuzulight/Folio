@@ -9,8 +9,7 @@ namespace Folio.Scripting.Tests;
 /// <summary>
 /// Restricted fetch (issue #497): <c>fetch</c>, <c>Headers</c>, <c>Request</c> and <c>Response</c> over <c>data:</c> URLs
 /// and the host's loader, GET and HEAD only, with only the content type and length as response headers.
-/// The scripts chain promises: the engine's <c>await</c> blocks inside <c>Evaluate</c> on a promise that a host task
-/// settles, so these tests do not use it (see the issue filed for that).
+/// The scripts chain promises and cover <c>await</c> resumption across host tasks.
 /// </summary>
 public class FetchTests
 {
@@ -49,6 +48,22 @@ public class FetchTests
         runner.Run();
         loop.SpinUntilIdle();
         return engine.Evaluate("log.join('|')").AsString()!;
+    }
+
+    [Fact]
+    public void AwaitResumesAfterAHostTimerTask()
+    {
+        var log = Run("(async () => { await new Promise(resolve => setTimeout(resolve, 0)); log.push('timer'); })()");
+
+        Assert.Equal("timer", log);
+    }
+
+    [Fact]
+    public void AwaitResumesAfterAHostFetchTask()
+    {
+        var log = Run("(async () => { const response = await fetch('data:,ready'); log.push(await response.text()); })()");
+
+        Assert.Equal("ready", log);
     }
 
     [Fact]

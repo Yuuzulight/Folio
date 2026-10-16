@@ -480,13 +480,24 @@ internal static class DomEvents
                     try {
                         const callback = listener.callback;
                         if (typeof callback === 'function') {
-                            const result = callback.call(target, event);
-                            if (listener.handler !== undefined) processHandlerResult(listener.handler, event, result);
+                            // Jint cannot suspend a synchronous event dispatch while an
+                            // async listener awaits host work. Queue async listeners as a
+                            // timer task; dispatch itself still completes synchronously.
+                            if (callback.constructor && callback.constructor.name === 'AsyncFunction') {
+                                setTimeout(callback.bind(target, event), 0);
+                            } else {
+                                const result = callback.call(target, event);
+                                if (listener.handler !== undefined) processHandlerResult(listener.handler, event, result);
+                            }
                         } else {
                             const handler = callback.handleEvent;
                             if (typeof handler !== 'function')
                                 throw new TypeError("Failed to execute the event listener: 'handleEvent' is not a function.");
-                            handler.call(callback, event);
+                            if (handler.constructor && handler.constructor.name === 'AsyncFunction') {
+                                setTimeout(handler.bind(callback, event), 0);
+                            } else {
+                                handler.call(callback, event);
+                            }
                         }
                     } catch (error) {
                         reportError(error);
