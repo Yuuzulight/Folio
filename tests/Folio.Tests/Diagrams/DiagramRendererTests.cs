@@ -67,6 +67,8 @@ public sealed class DiagramRendererTests
         Assert.Contains("class-member", DiagramRenderer.Render("classDiagram\nclass Base {\n+int id\n}"));
         Assert.Contains("Ready", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready : boot"));
         Assert.Contains("state-transition-label", DiagramRenderer.Render("stateDiagram-v2\n[*] --> Ready : boot"));
+        Assert.Contains("data-cardinality=\"many\"", DiagramRenderer.Render("classDiagram\nBase <|-- Child : many"));
+        Assert.Contains("folio-diagram-note", DiagramRenderer.Render("stateDiagram-v2\nstate Ready {\n[*] --> Done\n}\nnote Ready: stable"));
     }
 
     [Fact]
@@ -76,6 +78,7 @@ public sealed class DiagramRendererTests
         Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\nsection Releases\n2024 : Launch"));
         Assert.Contains("folio-diagram-section", DiagramRenderer.Render("timeline\nsection Releases\n2024 : Launch"));
         Assert.Contains("gantt-task", DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d"));
+        Assert.Contains("er-attribute", DiagramRenderer.Render("erDiagram\nCUSTOMER {\nstring id\n}\nCUSTOMER ||--o{ ORDER : places"));
     }
 
     [Fact]
