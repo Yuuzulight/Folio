@@ -189,9 +189,11 @@ public static class DiagramRenderer
         var blocks = new List<(string Kind, string Label, int Start, int End)>();
         var activations = new HashSet<int>();
         var openBlocks = new Stack<(string Kind, string Label, int Start)>();
+        var autonumber = false;
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
+            if (trimmed.Equals("autonumber", StringComparison.OrdinalIgnoreCase)) { autonumber = true; continue; }
             if (trimmed.StartsWith("participant ", StringComparison.OrdinalIgnoreCase) || trimmed.StartsWith("actor ", StringComparison.OrdinalIgnoreCase))
             {
                 var declaration = trimmed[(trimmed.IndexOf(' ') + 1)..].Trim();
@@ -235,6 +237,7 @@ public static class DiagramRenderer
             left = aliases.TryGetValue(left, out var leftAlias) ? leftAlias : left;
             right = aliases.TryGetValue(right, out var rightAlias) ? rightAlias : right;
             var from = Index(participants, left); var to = Index(participants, right);
+            if (autonumber) label = $"{messages.Count + 1}. {label}";
             messages.Add((from, to, label, arrowKind, arrowKind.StartsWith("--", StringComparison.Ordinal)));
             next: ;
         }

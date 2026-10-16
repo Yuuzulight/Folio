@@ -36,6 +36,7 @@ public sealed class DiagramRendererTests
         Assert.Contains("folio-diagram-activation", svg);
         Assert.Contains("sequence-loop", svg);
         Assert.Contains("folio-diagram-note", svg);
+        Assert.Contains("1. ping", DiagramRenderer.Render("sequenceDiagram\nautonumber\nA->>B: ping"));
     }
 
     [Theory]
