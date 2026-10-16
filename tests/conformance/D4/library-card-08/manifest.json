@@ -1,10 +1,10 @@
 {
-  "prompt": "Build a svg data card using a pinned React library.",
+  "prompt": "Build a D4 library artifact using its pinned runtime library.",
   "features": [
     "script",
-    "react",
-    "event-handlers",
-    "library-cache"
+    "d4",
+    "library-cache",
+    "event-handlers"
   ],
   "viewport": 800,
   "interaction": [

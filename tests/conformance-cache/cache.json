@@ -1,25 +1,60 @@
 {
-    "entries":  [
-                    {
-                        "url":  "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js",
-                        "file":  "babel.min.js",
-                        "integrity":  "sha384-x/ilTFv/u/eu6YSmkFDZl5V5Mm/pkxxcVv2cVJOrr1J0rvILhMvRBCy6yA75wYBj",
-                        "licence":  "MIT",
-                        "licenceFile":  "cdnjs.cloudflare.com-babel.min.js.LICENSE.txt"
-                    },
-                    {
-                        "url":  "https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js",
-                        "file":  "react.production.min.js",
-                        "integrity":  "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z",
-                        "licence":  "MIT",
-                        "licenceFile":  "cdnjs.cloudflare.com-react.production.min.js.LICENSE.txt"
-                    },
-                    {
-                        "url":  "https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js",
-                        "file":  "react-dom.production.min.js",
-                        "integrity":  "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1",
-                        "licence":  "MIT",
-                        "licenceFile":  "cdnjs.cloudflare.com-react-dom.production.min.js.LICENSE.txt"
-                    }
-                ]
+  "entries": [
+    {
+      "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js",
+      "file": "chart.umd.min.js",
+      "integrity": "sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC",
+      "licence": "MIT",
+      "licenceFile": "cdn.jsdelivr.net-chart.umd.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js",
+      "file": "mermaid.min.js",
+      "integrity": "sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I",
+      "licence": "MIT",
+      "licenceFile": "cdn.jsdelivr.net-mermaid.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js",
+      "file": "phaser.min.js",
+      "integrity": "sha384-AvQiDMZAVLda3VtAoU5MCfBz8pzXhteb2CiUJeKBmPlWzpXj1uJ96Km11+YuFNu/",
+      "licence": "MIT",
+      "licenceFile": "cdn.jsdelivr.net-phaser.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/twind@0.16.19/shim/shim.min.js",
+      "file": "twind-shim.min.js",
+      "integrity": "sha384-a/8dRj8PLZEa6GWiQ2ii0EQUBw3SOsK4NyzQYwAimYIM/oHu1TWw2bODlk7H+A07",
+      "licence": "MIT",
+      "licenceFile": "cdn.jsdelivr.net-twind-shim.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js",
+      "file": "babel.min.js",
+      "integrity": "sha384-x/ilTFv/u/eu6YSmkFDZl5V5Mm/pkxxcVv2cVJOrr1J0rvILhMvRBCy6yA75wYBj",
+      "licence": "MIT",
+      "licenceFile": "cdnjs.cloudflare.com-babel.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js",
+      "file": "d3.min.js",
+      "integrity": "sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i",
+      "licence": "ISC",
+      "licenceFile": "cdnjs.cloudflare.com-d3.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js",
+      "file": "react-dom.production.min.js",
+      "integrity": "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1",
+      "licence": "MIT",
+      "licenceFile": "cdnjs.cloudflare.com-react-dom.production.min.js.LICENSE.txt"
+    },
+    {
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js",
+      "file": "react.production.min.js",
+      "integrity": "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z",
+      "licence": "MIT",
+      "licenceFile": "cdnjs.cloudflare.com-react.production.min.js.LICENSE.txt"
+    }
+  ]
 }

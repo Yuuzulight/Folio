@@ -4,7 +4,7 @@ This document records the current M5 implementation and verification baseline.
 
 ## Conformance
 
-The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total); the current conformance run passes all 60, including their interaction scripts.
+The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total), each with an interaction script and reference. The current run passes D2, D3, D4, D6 and D7 at 100%; D5 has one pass and nine explicit expected failures for Chart.js canvas painting, which remains routed to the browser.
 
 ## Implemented surface
 

@@ -1,10 +1,10 @@
 {
-  "prompt": "Build a canvas animation using a pinned React library.",
+  "prompt": "Build a D5 library artifact using its pinned runtime library.",
   "features": [
     "script",
-    "react",
-    "event-handlers",
-    "library-cache"
+    "d5",
+    "library-cache",
+    "event-handlers"
   ],
   "viewport": 800,
   "interaction": [
@@ -15,5 +15,6 @@
     "channelThreshold": 16,
     "maxDifferingRatio": 0.02,
     "reason": "The pinned browser and Folio use the same DOM and script path; this small fixture is reviewed with a documented bundled-font and rasterization tolerance."
-  }
+  },
+  "expectedToFail": "Chart.js canvas painting is routed to the browser until the full library-backed canvas animation path is measured."
 }
