@@ -22,4 +22,4 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 
 ## Milestone status
 
-Milestone 5 is in progress using the dependency-backed Jint engine. Remaining work includes the diagram and Mermaid issues, Canvas shared-memory frames and frame-time measurement, corpus expansion, the engine/custom-elements investigations, and the closing tracking and documentation issues. The Folio-owned engine described in [`native-engine-plan.md`](native-engine-plan.md) remains a later replacement project.
+Milestone 5 is in progress using the dependency-backed Jint engine. Remaining work includes the diagram and Mermaid issues, Canvas shared-memory frames, corpus expansion, the engine/custom-elements investigations, and the closing tracking and documentation issues. The frame-time requirement is covered by the D5/D7 benchmark and is tracked separately from the remaining implementation work. The Folio-owned engine described in [`native-engine-plan.md`](native-engine-plan.md) remains a later replacement project.
