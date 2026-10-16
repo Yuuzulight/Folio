@@ -380,6 +380,14 @@ public sealed class DomStyleDeclarationTests
             Limits = ResourceLimits.Default with { MaxWorkers = 1 }
         }));
         Assert.ThrowsAny<Exception>(() => workerLimited.Evaluate("const first = new Worker('data:text/javascript,'); new Worker('data:text/javascript,')"));
+
+        using var busy = new JintScriptEngine();
+        DomBindings.Install(busy, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(busy.Evaluate("const runaway = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); true").AsBoolean());
+        Assert.True(busy.Evaluate("runaway.terminate(); true").AsBoolean());
     }
 
     [Fact]

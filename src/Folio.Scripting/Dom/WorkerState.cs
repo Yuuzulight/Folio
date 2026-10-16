@@ -5,7 +5,10 @@ namespace Folio.Scripting.Dom;
 internal sealed class WorkerState
 {
     private readonly Action? _releaseWorker;
+    private readonly object _workerGate = new();
     private bool _released;
+    private volatile bool _workerExecuting;
+    private Task? _startupTask;
     public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, Action? releaseWorker = null)
     {
         Engine = engine;
@@ -44,8 +47,15 @@ internal sealed class WorkerState
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
             if (TryReadScriptWithImports(scriptUrl, resourceLoader, out var source))
             {
-                try { WorkerEngine.Evaluate(source, scriptUrl); }
-                catch (Exception error) { _scriptError = error; }
+                _startupTask = Task.Run(() =>
+                {
+                    _workerExecuting = true;
+                    try { WorkerEngine.Evaluate(source, scriptUrl); }
+                    catch (Exception error) { _scriptError = error; }
+                    finally { _workerExecuting = false; }
+                });
+                try { _startupTask.Wait(TimeSpan.FromMilliseconds(100)); }
+                catch (AggregateException) { }
             }
             else
             {
@@ -82,6 +92,8 @@ internal sealed class WorkerState
         if (Terminated) return;
         Terminated = true;
         WorkerEngine?.Interrupt();
+        try { _startupTask?.Wait(TimeSpan.FromMilliseconds(100)); }
+        catch (AggregateException) { }
         WorkerEngine?.Dispose();
         if (!_released) { _released = true; _releaseWorker?.Invoke(); }
     }
@@ -91,11 +103,22 @@ internal sealed class WorkerState
         if (_scriptError is not null && !Terminated) { DispatchError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
+            if (_workerExecuting) return true;
             var transferred = TransferList(Engine, transfer);
-            WorkerEngine.SetGlobalProperty("__folio_worker_message_data", CloneIntoWorker(value));
-            WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
-            WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
-            WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
+            var message = CloneIntoWorker(value);
+            lock (_workerGate)
+            {
+                if (Terminated || _workerExecuting) return true;
+                _workerExecuting = true;
+                try
+                {
+                    WorkerEngine.SetGlobalProperty("__folio_worker_message_data", message);
+                    WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
+                    WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
+                    WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
+                }
+                finally { _workerExecuting = false; }
+            }
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
             return true;
         }
