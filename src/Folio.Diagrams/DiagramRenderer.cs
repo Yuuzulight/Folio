@@ -255,24 +255,69 @@ public static class DiagramRenderer
 
     private static string RenderTimeline(IEnumerable<string> lines)
     {
-        var items = lines.Select(line => line.Trim()).Where(line => line.Contains(':')).Select(line => line.Split(':', 2)).ToList();
-        var body = items.Select((item, i) => $"<circle class=\"folio-diagram-node timeline-event\" cx=\"50\" cy=\"{40 + i * 48}\" r=\"6\"/><text class=\"folio-diagram-label\" x=\"70\" y=\"{45 + i * 48}\"><tspan class=\"timeline-date\">{XmlEscape(item[0].Trim())}</tspan> {XmlEscape(item[1].Trim())}</text>");
+        var rows = new List<(string? Section, string Date, string Event)>();
+        string? section = null;
+        foreach (var line in lines.Select(line => line.Trim()))
+        {
+            if (line.StartsWith("section ", StringComparison.OrdinalIgnoreCase)) { section = line[8..].Trim(); continue; }
+            var colon = line.IndexOf(':');
+            if (colon > 0) rows.Add((section, line[..colon].Trim(), line[(colon + 1)..].Trim()));
+        }
+        var body = rows.Select((item, i) =>
+        {
+            var y = 48 + i * 56;
+            var sectionSvg = item.Section is null ? "" : $"<text class=\"folio-diagram-section\" x=\"20\" y=\"{y - 20}\">{XmlEscape(item.Section)}</text>";
+            return $"{sectionSvg}<circle class=\"folio-diagram-node timeline-event\" cx=\"50\" cy=\"{y}\" r=\"6\"/><text class=\"folio-diagram-label\" x=\"70\" y=\"{y + 5}\"><tspan class=\"timeline-date\">{XmlEscape(item.Date)}</tspan> {XmlEscape(item.Event)}</text>";
+        });
         return Svg(body, []);
     }
 
     private static string RenderGantt(IEnumerable<string> lines)
     {
-        var tasks = new List<(string Name, DateTime Start, int Days)>();
+        var tasks = new List<(string Name, string Id, DateTime Start, int Days, string Dependency)>();
+        var dateFormat = "yyyy-MM-dd";
         foreach (var line in lines.Select(x => x.Trim()))
         {
+            if (line.StartsWith("dateFormat ", StringComparison.OrdinalIgnoreCase)) { dateFormat = ToDateFormat(line[11..].Trim()); continue; }
+            if (line.StartsWith("axisFormat ", StringComparison.OrdinalIgnoreCase)) continue;
             var parts = line.Split(',', StringSplitOptions.TrimEntries);
-            if (parts.Length < 3 || !DateTime.TryParse(parts[^2], out var start)) continue;
+            if (parts.Length < 3) continue;
+            var descriptor = parts[0].Split(':', 2, StringSplitOptions.TrimEntries);
+            var name = descriptor[0].Trim();
+            var id = descriptor.Length == 2 ? descriptor[1].Trim() : name;
+            var dependency = "";
+            DateTime start;
+            if (parts.Length >= 3 && parts[1].StartsWith("after ", StringComparison.OrdinalIgnoreCase))
+            {
+                dependency = parts[1][6..].Trim();
+                var previous = tasks.LastOrDefault(task => string.Equals(task.Id, dependency, StringComparison.OrdinalIgnoreCase));
+                start = previous == default ? DateTime.MinValue : previous.Start.AddDays(previous.Days);
+            }
+            else if (!TryParseGanttDate(parts[^2], dateFormat, out start)) continue;
             var duration = parts[^1].EndsWith('d') && int.TryParse(parts[^1][..^1], out var d) ? d : 1;
-            tasks.Add((parts[0].Split(':')[0].Trim(), start, Math.Max(1, duration)));
+            tasks.Add((name, id, start, Math.Max(1, duration), dependency));
         }
         var origin = tasks.Count == 0 ? DateTime.Today : tasks.Min(t => t.Start);
-        var bars = tasks.Select((task, i) => { var x = 180 + (task.Start - origin).Days * 18; return $"<text class=\"folio-diagram-label\" x=\"10\" y=\"{45 + i * 36}\">{XmlEscape(task.Name)}</text><rect class=\"folio-diagram-node gantt-task\" x=\"{x}\" y=\"{28 + i * 36}\" width=\"{Math.Max(12, task.Days * 18)}\" height=\"22\"/>"; });
+        var bars = tasks.Select((task, i) => { var x = 180 + (task.Start - origin).Days * 18; return $"<text class=\"folio-diagram-label\" x=\"10\" y=\"{45 + i * 36}\">{XmlEscape(task.Name)}</text><rect class=\"folio-diagram-node gantt-task\" data-id=\"{XmlEscape(task.Id)}\" data-start=\"{task.Start:yyyy-MM-dd}\" data-days=\"{task.Days}\" data-after=\"{XmlEscape(task.Dependency)}\" x=\"{x}\" y=\"{28 + i * 36}\" width=\"{Math.Max(12, task.Days * 18)}\" height=\"22\"/>"; });
         return Svg(bars, []);
+    }
+
+    private static string ToDateFormat(string format) => format
+        .Replace("YYYY", "yyyy", StringComparison.OrdinalIgnoreCase)
+        .Replace("DD", "dd", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryParseGanttDate(string value, string format, out DateTime date)
+    {
+        try
+        {
+            return DateTime.TryParseExact(value, format, CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
+                || DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+        }
+        catch (FormatException)
+        {
+            date = default;
+            return false;
+        }
     }
 
     private static string Svg(IEnumerable<string> body, IEnumerable<string> overlays)

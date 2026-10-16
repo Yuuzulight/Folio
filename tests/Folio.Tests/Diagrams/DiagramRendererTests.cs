@@ -45,8 +45,19 @@ public sealed class DiagramRendererTests
     public void RendersEntityRelationshipTimelineAndGanttDiagrams()
     {
         Assert.Contains("er-edge", DiagramRenderer.Render("erDiagram\nCUSTOMER ||--o{ ORDER : places"));
-        Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\n2024 : Launch"));
+        Assert.Contains("timeline-event", DiagramRenderer.Render("timeline\ntitle History\nsection Releases\n2024 : Launch"));
+        Assert.Contains("folio-diagram-section", DiagramRenderer.Render("timeline\nsection Releases\n2024 : Launch"));
         Assert.Contains("gantt-task", DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :done, id, 2024-01-30, 3d"));
+    }
+
+    [Fact]
+    public void GanttDependenciesCrossMonthAndYearBoundaries()
+    {
+        var svg = DiagramRenderer.Render("gantt\ndateFormat YYYY-MM-DD\nBuild :build, 2024-12-30, 3d\nDeploy :deploy, after build, 2d");
+
+        Assert.Contains("data-start=\"2024-12-30\"", svg);
+        Assert.Contains("data-start=\"2025-01-02\"", svg);
+        Assert.Contains("data-after=\"build\"", svg);
     }
 
     [Fact]
