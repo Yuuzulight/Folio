@@ -1,0 +1,6 @@
+{
+  "prompt": "Render a WebGL scene that reports context loss and restoration to the user.",
+  "features": ["script", "webgl", "context-lost", "context-restored"],
+  "viewport": 800,
+  "expectedToFail": "WebGL rendering is not enabled in the conformance host yet."
+}

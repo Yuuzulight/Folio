@@ -1,0 +1,6 @@
+{
+  "prompt": "Demonstrate a WebGL framebuffer with a textured offscreen pass.",
+  "features": ["script", "webgl", "framebuffer", "read-pixels"],
+  "viewport": 800,
+  "expectedToFail": "WebGL rendering is not enabled in the conformance host yet."
+}

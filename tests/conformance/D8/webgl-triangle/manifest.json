@@ -1,0 +1,6 @@
+{
+  "prompt": "Render a rotating WebGL triangle with a solid shader and a clear background.",
+  "features": ["script", "webgl", "shader", "draw-arrays"],
+  "viewport": 800,
+  "expectedToFail": "WebGL rendering is not enabled in the conformance host yet."
+}
