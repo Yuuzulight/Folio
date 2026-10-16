@@ -34,9 +34,43 @@ public static class DiagramRenderer
             diagnostic = new DiagramDiagnostic("The diagram contains no supported construct.", position);
             return false;
         }
+        if (FirstUnsupportedLine(first, lines.Skip(1)) is { } unsupported)
+        {
+            svg = "";
+            var position = source.IndexOf(unsupported, StringComparison.Ordinal);
+            diagnostic = new DiagramDiagnostic($"Unsupported diagram syntax: {unsupported}", position < 0 ? 0 : position);
+            return false;
+        }
         svg = Render(source);
         return true;
     }
+
+    private static string? FirstUnsupportedLine(string first, IEnumerable<string> body)
+    {
+        foreach (var line in body.Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith("%%", StringComparison.Ordinal)))
+        {
+            var supported = first.StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) || first.StartsWith("graph", StringComparison.OrdinalIgnoreCase)
+                ? line.Contains("--", StringComparison.Ordinal) || line.StartsWith("subgraph ", StringComparison.OrdinalIgnoreCase) || line is "end" || line.StartsWith("classDef ", StringComparison.OrdinalIgnoreCase) || line.StartsWith("class ", StringComparison.OrdinalIgnoreCase)
+                : first.StartsWith("sequenceDiagram", StringComparison.OrdinalIgnoreCase)
+                    ? line.Contains("->", StringComparison.Ordinal) || StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "participant", "actor", "activate", "deactivate", "note", "loop", "alt", "opt", "par", "critical", "break", "rect", "autonumber", "end", "else")
+                    : first.StartsWith("stateDiagram", StringComparison.OrdinalIgnoreCase)
+                        ? line.Contains("-->", StringComparison.Ordinal) || StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "state", "note") || line == "}"
+                        : first.StartsWith("classDiagram", StringComparison.OrdinalIgnoreCase)
+                            ? line.Contains("<|", StringComparison.Ordinal) || line.Contains("..>", StringComparison.Ordinal) || line.Contains("-->", StringComparison.Ordinal) || StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "class", "note") || line is "}" || line.Contains('{')
+                            : first.StartsWith("erDiagram", StringComparison.OrdinalIgnoreCase)
+                                ? line is "}" || line.Contains('{') || line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).Length >= 3
+                                : first.StartsWith("timeline", StringComparison.OrdinalIgnoreCase)
+                                    ? StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "title", "section") || line.Contains(':')
+                                    : first.StartsWith("gantt", StringComparison.OrdinalIgnoreCase)
+                                        ? StartsWithAny(line, StringComparison.OrdinalIgnoreCase, "dateFormat", "axisFormat", "section") || line.Split(',').Length >= 3
+                                        : line.StartsWith("title", StringComparison.OrdinalIgnoreCase) || line.Contains(':');
+            if (!supported) return line;
+        }
+        return null;
+    }
+
+    private static bool StartsWithAny(string value, StringComparison comparison, params string[] prefixes)
+        => prefixes.Any(prefix => value.StartsWith(prefix, comparison));
 
     public static string Render(string source)
     {

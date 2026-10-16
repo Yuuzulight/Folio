@@ -169,4 +169,15 @@ public sealed class DiagramRendererTests
         Assert.True(diagnostic!.Position >= source.IndexOf('\n') + 1);
         Assert.Contains("supported construct", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void MixedSupportedAndUnsupportedSyntaxIsRejected()
+    {
+        var source = "flowchart LR\nA --> B\nthis is not flowchart syntax";
+
+        Assert.False(DiagramRenderer.TryRender(source, out _, out var diagnostic));
+        Assert.NotNull(diagnostic);
+        Assert.Contains("unsupported", diagnostic!.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(diagnostic.Position > 0);
+    }
 }
