@@ -168,6 +168,25 @@ public class AllowlistTests
     }
 
     [Fact]
+    public async Task ScriptIntegrityPolicyIsScopedToScripts()
+    {
+        var bytes = "console.log('ok');"u8.ToArray();
+        var integrity = "sha256-" + Convert.ToBase64String(SHA256.HashData(bytes));
+        var (loader, server) = Loader(new AllowlistOptions
+        {
+            Origins = [new AllowedOrigin("https://cdn.example", ResourceKind.Script), new AllowedOrigin("https://cdn.example", ResourceKind.Font)],
+            AllowUnversioned = true,
+            RequireScriptIntegrity = true,
+        });
+        server.Routes["https://cdn.example/app.js"] = () => Ok(bytes, "text/javascript");
+        server.Routes["https://cdn.example/font.woff2"] = () => Ok(Font, "font/woff2");
+
+        Assert.Contains("neither a pinned hash nor integrity", (await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script), CancellationToken.None))!.Error);
+        Assert.True((await loader.LoadAsync(new ResourceRequest("https://cdn.example/app.js", ResourceKind.Script, integrity), CancellationToken.None))!.Succeeded);
+        Assert.True((await loader.LoadAsync(new ResourceRequest("https://cdn.example/font.woff2", ResourceKind.Font), CancellationToken.None))!.Succeeded);
+    }
+
+    [Fact]
     public void CachesVersionedResponsesThatPassedTheirChecks()
     {
         var folder = Directory.CreateTempSubdirectory("folio-cache").FullName;

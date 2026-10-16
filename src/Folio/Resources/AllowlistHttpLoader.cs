@@ -34,6 +34,9 @@ public sealed record AllowlistOptions
     /// <summary>Whether a URL without a pinned hash is refused.</summary>
     public bool RequirePinnedHashes { get; init; }
 
+    /// <summary>Whether script responses must carry element integrity metadata unless the URL has a pinned hash.</summary>
+    public bool RequireScriptIntegrity { get; init; }
+
     /// <summary>
     /// Whether URLs with no version in their path (such as a font stylesheet chosen by query string) load. They are
     /// never cached, since what they serve can change. Versioned and pinned URLs are cached as immutable.
@@ -83,6 +86,9 @@ internal sealed class AllowlistHttpLoader : IResourceLoader
         var pinned = _options.PinnedHashes.GetValueOrDefault(request.Url);
         if (pinned is null && _options.RequirePinnedHashes)
             return ResourceResponse.Refused("The URL has no pinned hash.");
+        if (request.Kind == ResourceKind.Script && pinned is null && _options.RequireScriptIntegrity
+            && string.IsNullOrWhiteSpace(request.Integrity))
+            return ResourceResponse.Refused("The script URL has neither a pinned hash nor integrity metadata.");
         var versioned = pinned is not null || IsVersioned(url);
         if (!versioned && !_options.AllowUnversioned)
             return ResourceResponse.Refused("The URL carries no version, so what it serves could change.");
