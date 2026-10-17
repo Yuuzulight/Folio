@@ -5,6 +5,7 @@ namespace Folio.Scripting.Dom;
 internal sealed class WorkerState
 {
     private readonly Action? _releaseWorker;
+    private readonly TimeSpan _workerExecutionTime;
     private readonly object _workerGate = new();
     private bool _released;
     private volatile bool _closedByWorker;
@@ -20,7 +21,8 @@ internal sealed class WorkerState
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
         WorkerEngine = workerEngine;
         _releaseWorker = releaseWorker;
-        WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes), Timeout = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime });
+        _workerExecutionTime = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime;
+        WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes), Timeout = _workerExecutionTime });
         EnsureCloneHelpers(Engine);
         if (WorkerEngine is not null) EnsureCloneHelpers(WorkerEngine);
         if (WorkerEngine is not null)
@@ -53,7 +55,7 @@ internal sealed class WorkerState
                 _startupTask = Task.Run(() =>
                 {
                     _workerExecuting = true;
-                    try { WorkerEngine.Evaluate(source, scriptUrl); }
+                    try { ExecuteWithWatchdog(() => WorkerEngine.Evaluate(source, scriptUrl)); }
                     catch (Exception error) { if (!_closedByWorker) _scriptError = error; }
                     finally { _workerExecuting = false; }
                 });
@@ -117,6 +119,21 @@ internal sealed class WorkerState
             }
         });
     }
+    private void ExecuteWithWatchdog(Action action)
+    {
+        using var cancellation = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(_workerExecutionTime, cancellation.Token).ConfigureAwait(false);
+                if (!cancellation.IsCancellationRequested && !Terminated) WorkerEngine?.Interrupt();
+            }
+            catch (OperationCanceledException) { }
+        });
+        try { action(); }
+        finally { cancellation.Cancel(); }
+    }
     public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
@@ -134,7 +151,7 @@ internal sealed class WorkerState
                 {
                     WorkerEngine.SetGlobalProperty("__folio_worker_message_data", message);
                     WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
-                    WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
+                    ExecuteWithWatchdog(() => WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
                     WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
                 }
                 catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { DispatchError(error); } catch { } } }
