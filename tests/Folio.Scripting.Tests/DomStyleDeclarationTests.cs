@@ -465,12 +465,10 @@ public sealed class DomStyleDeclarationTests
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("streamingError").AsString());
         Assert.True(allowed.Evaluate("let streamedSame = false; let streamedModule; const wasmResponse = new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }); WebAssembly.compileStreaming(wasmResponse).then(module => { streamedModule = module; return WebAssembly.compileStreaming(wasmResponse.clone()); }).then(module => streamedSame = module === streamedModule); true").AsBoolean());
-        allowed.PerformMicrotaskCheckpoint();
-        allowed.PerformMicrotaskCheckpoint();
+        for (var checkpoint = 0; checkpoint < 8; checkpoint++) allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("streamedSame").AsBoolean());
         Assert.True(allowed.Evaluate("let streamedInstance = false; WebAssembly.instantiateStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }), {}).then(result => streamedInstance = result.instance instanceof WebAssembly.Instance); true").AsBoolean());
-        allowed.PerformMicrotaskCheckpoint();
-        allowed.PerformMicrotaskCheckpoint();
+        for (var checkpoint = 0; checkpoint < 8; checkpoint++) allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("streamedInstance").AsBoolean());
         Assert.True(allowed.Evaluate("const module = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])); const instance = new WebAssembly.Instance(module, {}); module instanceof WebAssembly.Module && instance.exports !== null && WebAssembly.Module.exports(module).length === 0 && WebAssembly.Module.imports(module).length === 0").AsBoolean());
         Assert.True(allowed.Evaluate("const exported = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,7,7,1,3,114,117,110,0,0])); const exportedInstance = new WebAssembly.Instance(exported, {}); WebAssembly.Module.exports(exported)[0].name === 'run' && WebAssembly.Module.exports(exported)[0].kind === 0 && typeof exportedInstance.exports.run === 'function'").AsBoolean());
