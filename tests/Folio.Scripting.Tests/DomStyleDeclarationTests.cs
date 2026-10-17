@@ -601,6 +601,14 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let cacheResult = ''; caches.open('v1').then(cache => cache.put('/offline', new Response('cached'))).then(() => caches.open('v1')).then(cache => cache.match('/offline')).then(response => response.text()).then(text => cacheResult = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("cached", intercepted.Evaluate("cacheResult").AsString());
+        using var isolatedCache = new JintScriptEngine();
+        DomBindings.Install(isolatedCache, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(isolatedCache.Evaluate("let hasSharedCache = false; caches.has('v1').then(value => hasSharedCache = value); true").AsBoolean());
+        isolatedCache.PerformMicrotaskCheckpoint();
+        Assert.False(isolatedCache.Evaluate("hasSharedCache").AsBoolean());
 
         using var cacheLimited = new JintScriptEngine();
         DomBindings.Install(cacheLimited, Document.Parse("<html></html>", new FolioOptions
