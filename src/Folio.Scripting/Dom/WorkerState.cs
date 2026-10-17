@@ -12,6 +12,7 @@ internal sealed class WorkerState
     private readonly object _workerGate = new();
     private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingMessages = new();
     private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingParentMessages = new();
+    private readonly Queue<Exception> _pendingErrors = new();
     private bool _released;
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
@@ -65,12 +66,13 @@ internal sealed class WorkerState
                 {
                     _workerExecuting = true;
                     try { ExecuteWithWatchdog(() => WorkerEngine.Evaluate(source, scriptUrl)); }
-                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; ReportError(error); } }
+                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
                     finally { _workerExecuting = false; }
                 });
-                try { _startupTask.Wait(TimeSpan.FromMilliseconds(500)); }
+                try { _startupTask.Wait(_workerExecutionTime); }
                 catch (AggregateException) { }
                 DrainParentMessages();
+                DrainErrors();
             }
             else
             {
@@ -189,12 +191,13 @@ internal sealed class WorkerState
                         ExecuteWithWatchdog(() => WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
                         WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
                     }
-                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { ReportError(error); } catch { } } }
+                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
                     finally { _workerExecuting = false; }
                 }
             });
             workerTask.GetAwaiter().GetResult();
             DrainParentMessages();
+            DrainErrors();
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
             DrainPendingMessages();
             return true;
@@ -255,6 +258,20 @@ internal sealed class WorkerState
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
         foreach (var item in transferred) WorkerEngine!.TryDetachArrayBuffer(item);
+        }
+    }
+
+    private void DrainErrors()
+    {
+        while (true)
+        {
+            Exception error;
+            lock (_workerGate)
+            {
+                if (_pendingErrors.Count == 0) return;
+                error = _pendingErrors.Dequeue();
+            }
+            try { ReportError(error); } catch { }
         }
     }
 
