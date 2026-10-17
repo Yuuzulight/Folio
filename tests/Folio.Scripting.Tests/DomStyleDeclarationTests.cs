@@ -1038,7 +1038,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let devicesBeforeDispose = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesBeforeDispose = devices.length); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(2, allowed.Evaluate("devicesBeforeDispose").AsNumber());
+        Assert.True(allowed.Evaluate("let revokedChanges = 0; navigator.mediaDevices.ondevicechange = e => revokedChanges++; true").AsBoolean());
         Assert.True(DomBindings.Dispose(allowed));
+        Assert.Equal(1, allowed.Evaluate("revokedChanges").AsNumber());
         Assert.Equal("closed", allowed.Evaluate("pc.connectionState").AsString());
         Assert.True(allowed.Evaluate("let devicesAfterDispose = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesAfterDispose = devices.length); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();

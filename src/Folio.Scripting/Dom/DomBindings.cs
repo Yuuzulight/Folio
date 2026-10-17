@@ -30,7 +30,7 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         context.DisposeWorkers();
-        engine.Evaluate("if (Array.isArray(__folio_webrtc_peers)) __folio_webrtc_peers.slice().forEach(function(peer) { if (peer && typeof peer.close === 'function') peer.close(); }); if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); }); __folio_capture_devices_granted = false;");
+        engine.Evaluate("if (Array.isArray(__folio_webrtc_peers)) __folio_webrtc_peers.slice().forEach(function(peer) { if (peer && typeof peer.close === 'function') peer.close(); }); if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); }); if (__folio_capture_devices_granted && navigator.mediaDevices && typeof navigator.mediaDevices.dispatchEvent === 'function') navigator.mediaDevices.dispatchEvent({ type: 'devicechange', target: navigator.mediaDevices }); __folio_capture_devices_granted = false;");
         engine.Evaluate("if (typeof __folio_service_worker_shutdown === 'function') __folio_service_worker_shutdown();");
         return true;
     }
