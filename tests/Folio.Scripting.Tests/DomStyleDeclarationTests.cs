@@ -968,7 +968,7 @@ public sealed class DomStyleDeclarationTests
             BaseUri = new Uri("https://parent.example/"),
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(srcdoc.Evaluate("const srcdocFrame = document.getElementById('f'); srcdocFrame.contentDocument.getElementById('child').textContent === 'inline' && srcdocFrame.contentWindow.origin === 'https://parent.example'").AsBoolean());
+        Assert.True(srcdoc.Evaluate("const srcdocFrame = document.getElementById('f'); srcdocFrame.contentDocument.getElementById('child').textContent === 'inline' && srcdocFrame.contentWindow.document === srcdocFrame.contentDocument && srcdocFrame.contentWindow.origin === 'https://parent.example'").AsBoolean());
         Assert.True(srcdoc.Evaluate("srcdocFrame.setAttribute('srcdoc', '<p id=changed>updated</p>'); srcdocFrame.contentDocument.getElementById('changed').textContent === 'updated'").AsBoolean());
         Assert.True(srcdoc.Evaluate("srcdocFrame.srcdoc === '<p id=changed>updated</p>'; srcdocFrame.allow = 'camera; microphone'; srcdocFrame.allow === 'camera; microphone'").AsBoolean());
         using var sandboxed = new JintScriptEngine();
