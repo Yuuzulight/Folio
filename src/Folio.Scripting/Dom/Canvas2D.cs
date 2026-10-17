@@ -342,6 +342,7 @@ internal sealed class WebGlContextState
     public Dictionary<uint, uint> FramebufferColorAttachments { get; } = [];
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Renderbuffers { get; } = [];
     public Dictionary<uint, uint> FramebufferRenderbufferAttachments { get; } = [];
+    public Dictionary<uint, uint> FramebufferDepthRenderbufferAttachments { get; } = [];
     public List<uint> DrawBuffers { get; } = [];
     public uint ReadBuffer { get; set; } = 0x0405;
     public HashSet<uint> VertexArrays { get; } = [];
@@ -414,6 +415,7 @@ internal sealed class WebGlContextState
         Framebuffers.Remove(handle);
         FramebufferColorAttachments.Remove(handle);
         FramebufferRenderbufferAttachments.Remove(handle);
+        FramebufferDepthRenderbufferAttachments.Remove(handle);
         if (BoundFramebuffer == handle) BoundFramebuffer = null;
     }
     public void DeleteRenderbuffer(uint handle)
@@ -422,6 +424,8 @@ internal sealed class WebGlContextState
             AllocatedBytes = Math.Max(0, AllocatedBytes - renderbuffer.Pixels.Length);
         foreach (var attachment in FramebufferRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
             FramebufferRenderbufferAttachments.Remove(attachment);
+        foreach (var attachment in FramebufferDepthRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
+            FramebufferDepthRenderbufferAttachments.Remove(attachment);
         if (BoundRenderbuffer == handle) BoundRenderbuffer = null;
     }
     public bool ReplaceRenderbuffer(uint handle, int width, int height, int bytes)
