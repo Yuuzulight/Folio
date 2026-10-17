@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 using Folio.Dom;
 using Folio.Painting;
@@ -511,6 +512,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("STENCIL_TEST", (_, _) => ScriptValue.FromNumber(0x0B90));
         t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
+        t.DefineProperty("DEPTH_COMPONENT", (_, _) => ScriptValue.FromNumber(0x1902));
         t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
         t.DefineProperty("UNSIGNED_SHORT", (_, _) => ScriptValue.FromNumber(0x1403));
         t.DefineProperty("UNSIGNED_INT", (_, _) => ScriptValue.FromNumber(0x1405));
@@ -811,7 +813,28 @@ internal sealed class DomNodeTemplates
             var y = WebIdlConversions.ToInt32(args[1]);
             var width = WebIdlConversions.ToInt32(args[2]);
             var height = WebIdlConversions.ToInt32(args[3]);
-            if (WebIdlConversions.ToUint32(args[4]) != 0x1908 || WebIdlConversions.ToUint32(args[5]) != 0x1401)
+            var format = WebIdlConversions.ToUint32(args[4]);
+            var type = WebIdlConversions.ToUint32(args[5]);
+            if (format == 0x1902 && type == 0x1406)
+            {
+                if (width < 0 || height < 0 || width > 4096 || height > 4096 || !_context.Engine.TryGetArrayItems(args[6], out var depthDestination) || (long)width * height > 4 * 1024 * 1024 || depthDestination.Count < (long)width * height)
+                {
+                    state.SetError(0x0501);
+                    return ScriptValue.Undefined;
+                }
+                var depthSource = state.BoundFramebuffer is { } depthFramebuffer && state.FramebufferDepthRenderbufferAttachments.TryGetValue(depthFramebuffer, out var depthHandle) && state.Renderbuffers.TryGetValue(depthHandle, out var depthPixels) ? depthPixels : default;
+                for (var row = 0; row < height; row++)
+                    for (var column = 0; column < width; column++)
+                    {
+                        var sourceX = x + column;
+                        var sourceY = y + row;
+                        var sourceIndex = sourceX >= 0 && sourceY >= 0 && sourceX < depthSource.Width && sourceY < depthSource.Height ? (sourceY * depthSource.Width + sourceX) * 4 : -1;
+                        var depth = sourceIndex >= 0 && sourceIndex + 4 <= depthSource.Pixels.Length ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(depthSource.Pixels.AsSpan(sourceIndex, 4))) : 1f;
+                        _context.Engine.TrySetArrayItem(args[6], row * width + column, ScriptValue.FromNumber(depth));
+                    }
+                return ScriptValue.Undefined;
+            }
+            if (format != 0x1908 || type != 0x1401)
             {
                 state.SetError(0x0500);
                 return ScriptValue.Undefined;
