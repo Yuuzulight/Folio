@@ -74,6 +74,15 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("wrong resource kind"));
     }
 
+    private sealed class MutableServiceWorkerLoader : IResourceLoader
+    {
+        public int Version { get; set; } = 1;
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes($"onmessage = function(e) {{ postMessage(e.data + {Version}); }};"), "application/javascript")
+                : ResourceResponse.Refused("wrong resource kind"));
+    }
+
     private sealed class WavResourceLoader : IResourceLoader
     {
         private readonly byte[] _wav = CreateWav();
@@ -585,6 +594,20 @@ public sealed class DomStyleDeclarationTests
         Assert.True(cacheLimited.Evaluate("let quotaName = ''; caches.open('small').then(cache => cache.put('/x', new Response('12345'))).catch(error => quotaName = error.name); true").AsBoolean());
         cacheLimited.PerformMicrotaskCheckpoint();
         Assert.Equal("QuotaExceededError", cacheLimited.Evaluate("quotaName").AsString());
+
+        var mutableLoader = new MutableServiceWorkerLoader();
+        using var updating = new JintScriptEngine();
+        DomBindings.Install(updating, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = mutableLoader,
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(updating.Evaluate("let updatedValue = 0; let updateEvents = 0; navigator.serviceWorker.register('sw.js').then(r => { r.onupdatefound = () => updateEvents++; r.active.onmessage = e => updatedValue = e.data; registrationForUpdate = r; }); true").AsBoolean());
+        updating.PerformMicrotaskCheckpoint();
+        mutableLoader.Version = 2;
+        Assert.True(updating.Evaluate("registrationForUpdate.update(); true").AsBoolean());
+        Assert.True(updating.Evaluate("registrationForUpdate.active.onmessage = e => updatedValue = e.data; registrationForUpdate.active.postMessage(40); updateEvents === 1 && updatedValue === 42").AsBoolean());
     }
 
     [Fact]
