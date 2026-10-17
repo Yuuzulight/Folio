@@ -71,7 +71,7 @@ public sealed class DomStyleDeclarationTests
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
                 ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { if (e.request.url.endsWith('/offline')) e.respondWith(new Response('from worker', { status: 200 })); });"), "application/javascript")
-                : ResourceResponse.Refused("wrong resource kind"));
+                : ResourceResponse.Loaded(Encoding.UTF8.GetBytes("from host"), "text/plain"));
     }
 
     private sealed class MutableServiceWorkerLoader : IResourceLoader
@@ -581,6 +581,12 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let interceptedText = ''; navigator.serviceWorker.register('sw.js').then(() => fetch('/offline')).then(r => r.text()).then(text => interceptedText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from worker", intercepted.Evaluate("interceptedText").AsString());
+        Assert.True(intercepted.Evaluate("let scopedText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/offline')).then(r => r.text()).then(text => scopedText = text).catch(error => scopedText = error.name); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from host", intercepted.Evaluate("scopedText").AsString());
+        Assert.True(intercepted.Evaluate("let inScopeText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/app/offline')).then(r => r.text()).then(text => inScopeText = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from worker", intercepted.Evaluate("inScopeText").AsString());
         Assert.True(intercepted.Evaluate("let cacheResult = ''; caches.open('v1').then(cache => cache.put('/offline', new Response('cached'))).then(() => caches.open('v1')).then(cache => cache.match('/offline')).then(response => response.text()).then(text => cacheResult = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("cached", intercepted.Evaluate("cacheResult").AsString());
