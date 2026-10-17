@@ -548,6 +548,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("RGBA4", (_, _) => ScriptValue.FromNumber(0x8056));
         t.DefineProperty("RGBA8", (_, _) => ScriptValue.FromNumber(0x8058));
         t.DefineProperty("DEPTH_COMPONENT16", (_, _) => ScriptValue.FromNumber(0x81A5));
+        t.DefineProperty("RENDERBUFFER_WIDTH", (_, _) => ScriptValue.FromNumber(0x8D42));
+        t.DefineProperty("RENDERBUFFER_HEIGHT", (_, _) => ScriptValue.FromNumber(0x8D43));
+        t.DefineProperty("RENDERBUFFER_INTERNAL_FORMAT", (_, _) => ScriptValue.FromNumber(0x8D44));
         t.DefineProperty("VERTEX_ARRAY_BINDING", (_, _) => ScriptValue.FromNumber(0x85B5));
         t.DefineProperty("MAX_TEXTURE_SIZE", (_, _) => ScriptValue.FromNumber(0x0D33));
         t.DefineProperty("MAX_VERTEX_ATTRIBS", (_, _) => ScriptValue.FromNumber(0x8869));
@@ -742,11 +745,13 @@ internal sealed class DomNodeTemplates
             var width = WebIdlConversions.ToInt32(args[2]);
             var height = WebIdlConversions.ToInt32(args[3]);
             if (width < 0 || height < 0 || width > 4096 || height > 4096 || (long)width * height * 4 > 64 * 1024 * 1024) { state.SetError(0x0501); return ScriptValue.Undefined; }
-            state.ReplaceRenderbuffer(handle, width, height, width * height * 4);
+            if (state.ReplaceRenderbuffer(handle, width, height, width * height * 4))
+                state.RenderbufferFormats[handle] = format;
             return ScriptValue.Undefined;
         });
         t.DefineMethod("deleteRenderbuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteRenderbuffer(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isRenderbuffer", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Renderbuffers.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
+        t.DefineMethod("getRenderbufferParameter", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundRenderbuffer is not { } handle || args.Length < 2 || WebIdlConversions.ToUint32(args[0]) != 0x8D41 || !state.Renderbuffers.TryGetValue(handle, out var renderbuffer)) return ScriptValue.Null; return WebIdlConversions.ToUint32(args[1]) switch { 0x8D42 => ScriptValue.FromNumber(renderbuffer.Width), 0x8D43 => ScriptValue.FromNumber(renderbuffer.Height), 0x8D44 => ScriptValue.FromNumber(state.RenderbufferFormats.GetValueOrDefault(handle)), _ => ScriptValue.Null }; });
         t.DefineMethod("createVertexArray", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.VertexArrays.Add(handle); return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindVertexArray", (target, _, args) => { var state = (WebGlContextState)target; state.BoundVertexArray = args.Length > 0 && !args[0].IsNullOrUndefined ? WebIdlConversions.ToUint32(args[0]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("deleteVertexArray", (target, _, args) => { if (args.Length > 0) { var state = (WebGlContextState)target; var handle = WebIdlConversions.ToUint32(args[0]); state.VertexArrays.Remove(handle); if (state.BoundVertexArray == handle) state.BoundVertexArray = null; } return ScriptValue.Undefined; });

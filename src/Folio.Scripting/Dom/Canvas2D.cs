@@ -341,6 +341,7 @@ internal sealed class WebGlContextState
     public HashSet<uint> Framebuffers { get; } = [];
     public Dictionary<uint, uint> FramebufferColorAttachments { get; } = [];
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Renderbuffers { get; } = [];
+    public Dictionary<uint, uint> RenderbufferFormats { get; } = [];
     public Dictionary<uint, uint> FramebufferRenderbufferAttachments { get; } = [];
     public Dictionary<uint, uint> FramebufferDepthRenderbufferAttachments { get; } = [];
     public List<uint> DrawBuffers { get; } = [];
@@ -422,6 +423,7 @@ internal sealed class WebGlContextState
     {
         if (Renderbuffers.Remove(handle, out var renderbuffer))
             AllocatedBytes = Math.Max(0, AllocatedBytes - renderbuffer.Pixels.Length);
+        RenderbufferFormats.Remove(handle);
         foreach (var attachment in FramebufferRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
             FramebufferRenderbufferAttachments.Remove(attachment);
         foreach (var attachment in FramebufferDepthRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
