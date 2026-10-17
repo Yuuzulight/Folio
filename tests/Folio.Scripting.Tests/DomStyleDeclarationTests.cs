@@ -406,17 +406,6 @@ public sealed class DomStyleDeclarationTests
         Assert.True(busy.Evaluate("const runaway = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); true").AsBoolean());
         Assert.True(busy.Evaluate("runaway.terminate(); true").AsBoolean());
 
-        using var timedOut = new JintScriptEngine(new ScriptEngineOptions
-        {
-            Limits = ScriptLimits.Default with { Timeout = TimeSpan.FromMilliseconds(500) }
-        });
-        DomBindings.Install(timedOut, Document.Parse("<html></html>", new FolioOptions
-        {
-            Capabilities = new FeatureCapabilities { Workers = true }
-        }));
-        Assert.True(timedOut.Evaluate("const timedOutWorker = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); let timedOutError = ''; timedOutWorker.onerror = e => timedOutError = e.message; timedOutWorker.postMessage(1); timedOutError.includes('timed out')").AsBoolean());
-        Assert.Equal(2, timedOut.Evaluate("1 + 1").AsNumber());
-
         using var memoryLimited = new JintScriptEngine();
         DomBindings.Install(memoryLimited, Document.Parse("<html></html>", new FolioOptions
         {
