@@ -578,21 +578,22 @@ internal sealed class WebGlContextState
         if (!clearColor && !clearDepth)
             return;
         var clear = new[] { (byte)Math.Round(ClearR * 255), (byte)Math.Round(ClearG * 255), (byte)Math.Round(ClearB * 255), (byte)Math.Round(ClearA * 255) };
+        var clipped = EnabledCapabilities.Contains(0x0C11);
         if (BoundFramebuffer is { } framebuffer)
         {
             if (clearColor && FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && Textures.TryGetValue(texture, out var texturePixels))
             {
-                Fill(texturePixels.Pixels, clear);
+                Fill(texturePixels.Pixels, clear, texturePixels.Width, texturePixels.Height, clipped);
                 Textures[texture] = texturePixels;
             }
             else if (clearColor && FramebufferRenderbufferAttachments.TryGetValue(framebuffer, out var renderbuffer) && Renderbuffers.TryGetValue(renderbuffer, out var renderbufferPixels))
             {
-                Fill(renderbufferPixels.Pixels, clear);
+                Fill(renderbufferPixels.Pixels, clear, renderbufferPixels.Width, renderbufferPixels.Height, clipped);
                 Renderbuffers[renderbuffer] = renderbufferPixels;
             }
             if (clearDepth && FramebufferDepthRenderbufferAttachments.TryGetValue(framebuffer, out var depthBuffer) && Renderbuffers.TryGetValue(depthBuffer, out var depthPixels))
             {
-                FillDepth(depthPixels.Pixels, ClearDepth);
+                FillDepth(depthPixels.Pixels, ClearDepth, depthPixels.Width, depthPixels.Height, clipped);
                 Renderbuffers[depthBuffer] = depthPixels;
             }
             return;
@@ -600,7 +601,6 @@ internal sealed class WebGlContextState
         if (!clearColor || _canvas.Surface() is not { } surface)
             return;
         var color = new Rgba(ClearR, ClearG, ClearB, ClearA);
-        var clipped = EnabledCapabilities.Contains(0x0C11);
         if (clipped)
             surface.Canvas.Save();
         if (clipped)
@@ -611,17 +611,39 @@ internal sealed class WebGlContextState
             surface.Canvas.Restore();
         _canvas.Touch();
 
-        static void Fill(byte[] pixels, byte[] color)
+        void Fill(byte[] pixels, byte[] color, int width, int height, bool clipped)
         {
-            for (var i = 0; i + 3 < pixels.Length; i += 4)
-                color.AsSpan().CopyTo(pixels.AsSpan(i, 4));
+            if (!clipped)
+            {
+                for (var i = 0; i + 3 < pixels.Length; i += 4)
+                    color.AsSpan().CopyTo(pixels.AsSpan(i, 4));
+                return;
+            }
+            var left = Math.Clamp(ScissorX, 0, width);
+            var top = Math.Clamp(ScissorY, 0, height);
+            var right = Math.Clamp((long)ScissorX + ScissorWidth, 0, width);
+            var bottom = Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
+            for (var y = top; y < bottom; y++)
+                for (var x = left; x < right; x++)
+                    color.AsSpan().CopyTo(pixels.AsSpan((y * width + x) * 4, 4));
         }
 
-        static void FillDepth(byte[] pixels, float depth)
+        void FillDepth(byte[] pixels, float depth, int width, int height, bool clipped)
         {
             var bits = BitConverter.SingleToInt32Bits(depth);
-            for (var i = 0; i + 3 < pixels.Length; i += 4)
-                BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan(i, 4), bits);
+            if (!clipped)
+            {
+                for (var i = 0; i + 3 < pixels.Length; i += 4)
+                    BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan(i, 4), bits);
+                return;
+            }
+            var left = Math.Clamp(ScissorX, 0, width);
+            var top = Math.Clamp(ScissorY, 0, height);
+            var right = Math.Clamp((long)ScissorX + ScissorWidth, 0, width);
+            var bottom = Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
+            for (var y = top; y < bottom; y++)
+                for (var x = left; x < right; x++)
+                    BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan((y * width + x) * 4, 4), bits);
         }
     }
 }
