@@ -30,6 +30,7 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         context.DisposeWorkers();
+        engine.Evaluate("if (typeof __folio_service_worker_shutdown === 'function') __folio_service_worker_shutdown();");
         return true;
     }
 
@@ -249,6 +250,7 @@ public static class DomBindings
                 getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             };
+            globalThis.__folio_service_worker_shutdown = function() { __folio_service_worker_registrations.length = 0; if (navigator.serviceWorker) { navigator.serviceWorker.controller = null; navigator.serviceWorker.ready = Promise.resolve(undefined); } };
             if (!__folio_service_workers_enabled) delete globalThis.navigator.serviceWorker;
             (function() {
                 var cacheStores = new Map(), cacheBytes = 0;

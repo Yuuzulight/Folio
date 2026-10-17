@@ -707,8 +707,15 @@ public sealed class DomStyleDeclarationTests
         Assert.True(reopened.Evaluate("let restoredUrl = ''; navigator.serviceWorker.register('sw.js').then(r => restoredUrl = r.scriptURL); true").AsBoolean());
         reopened.PerformMicrotaskCheckpoint();
         Assert.Equal("sw.js", reopened.Evaluate("restoredUrl").AsString());
-        reopened.Evaluate("navigator.serviceWorker.getRegistration('/').then(r => r.unregister()); true");
+        Assert.True(DomBindings.Dispose(reopened));
+        Assert.True(reopened.Evaluate("navigator.serviceWorker.getRegistrations().then(items => items.length === 0); true").AsBoolean());
         reopened.PerformMicrotaskCheckpoint();
+        Assert.Equal(0, reopened.Evaluate("navigator.serviceWorker.getRegistrations().then(items => items.length)").AsNumber());
+        Assert.NotNull(storage.Read("persistent-sw:service-worker-registration/%2F"));
+        using var cleanup = new JintScriptEngine();
+        DomBindings.Install(cleanup, Document.Parse("<html></html>", Options()));
+        cleanup.Evaluate("navigator.serviceWorker.register('sw.js').then(r => r.unregister()); true");
+        cleanup.PerformMicrotaskCheckpoint();
         Assert.Null(storage.Read("persistent-sw:service-worker-registration/%2F"));
     }
 
