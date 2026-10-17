@@ -518,7 +518,8 @@ public static class DomBindings
                 compile: function(bytes) {
                     if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
                     var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) return Promise.resolve(cached.module);
-                    var module = new WebAssembly.Module(bytes); var size = bytes.byteLength || bytes.length || 0; var cap = Number(__folio_wasm_max_pages) * 65536;
+                    var module; try { module = new WebAssembly.Module(bytes); } catch (error) { return Promise.reject(error); }
+                    var size = bytes.byteLength || bytes.length || 0; var cap = Number(__folio_wasm_max_pages) * 65536;
                     if (size <= cap && __folio_wasm_compile_cache_bytes + size <= cap) { __folio_wasm_compile_cache.set(key, { module: module, size: size }); __folio_wasm_compile_cache_bytes += size; }
                     return Promise.resolve(module);
                 },
