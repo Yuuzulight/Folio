@@ -600,8 +600,15 @@ internal sealed class WebGlContextState
         if (!clearColor || _canvas.Surface() is not { } surface)
             return;
         var color = new Rgba(ClearR, ClearG, ClearB, ClearA);
+        var clipped = EnabledCapabilities.Contains(0x0C11);
+        if (clipped)
+            surface.Canvas.Save();
+        if (clipped)
+            surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
         surface.Canvas.FillPath(new PathData().AddRoundedRect(new RoundedRect(new RectF(0, 0, surface.Width, surface.Height), default)), FillRule.NonZero,
             new Paint(color, Blend: BlendMode.Copy));
+        if (clipped)
+            surface.Canvas.Restore();
         _canvas.Touch();
 
         static void Fill(byte[] pixels, byte[] color)
