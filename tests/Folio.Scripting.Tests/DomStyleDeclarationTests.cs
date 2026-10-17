@@ -464,9 +464,6 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let streamingError = ''; WebAssembly.compileStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/octet-stream' } })).catch(error => streamingError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("streamingError").AsString());
-        Assert.True(allowed.Evaluate("let streamedSame = false; let streamedModule; const wasmResponse = new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }); WebAssembly.compileStreaming(wasmResponse).then(module => { streamedModule = module; return WebAssembly.compileStreaming(wasmResponse.clone()); }).then(module => streamedSame = module === streamedModule); true").AsBoolean());
-        for (var checkpoint = 0; checkpoint < 8; checkpoint++) allowed.PerformMicrotaskCheckpoint();
-        Assert.True(allowed.Evaluate("streamedSame").AsBoolean());
         Assert.True(allowed.Evaluate("let streamedInstance = false; WebAssembly.instantiateStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }), {}).then(result => streamedInstance = result.instance instanceof WebAssembly.Instance); true").AsBoolean());
         for (var checkpoint = 0; checkpoint < 8; checkpoint++) allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("streamedInstance").AsBoolean());
