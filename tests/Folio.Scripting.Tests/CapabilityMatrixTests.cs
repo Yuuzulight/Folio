@@ -1,10 +1,23 @@
 using Folio;
+using Folio.Dom;
+using Folio.Resources;
 using Folio.Scripting.Ipc;
+using Folio.Scripting.Dom;
+using Folio.Scripting.Jint;
+using System.Text;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class CapabilityMatrixTests
 {
+    private sealed class ServiceWorkerLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { e.respondWith(new Response('offline')); });"), "application/javascript")
+                : ResourceResponse.Refused("unsupported"));
+    }
+
     [Fact]
     public void CapabilityRowEnablesOnlyTheRequestedFeatureAndKeepsLimitsActive()
     {
@@ -39,5 +52,28 @@ public sealed class CapabilityMatrixTests
         else
             Assert.Equal(0, new[] { capabilities.WebGl, capabilities.Media, capabilities.Workers, capabilities.WebAssembly,
                 capabilities.Iframes, capabilities.WebRtc, capabilities.ServiceWorkers }.Count(value => value));
+    }
+
+    [Fact]
+    public void ServiceWorkerCapabilityRowExercisesRegistrationCacheAndShutdown()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("service-workers" or "all")) return;
+
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ServiceWorkerLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true },
+            Limits = ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 8 }
+        }));
+        Assert.True(engine.Evaluate("navigator.serviceWorker.register('sw.js').then(() => caches.open('row').then(c => c.put('/x', new Response('12345678')))); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+        Assert.True(engine.Evaluate("let rowHasCache = false; caches.has('row').then(v => rowHasCache = v); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+        Assert.True(engine.Evaluate("rowHasCache").AsBoolean());
+        Assert.True(DomBindings.Dispose(engine));
+        Assert.Equal(0, engine.Evaluate("navigator.serviceWorker.getRegistrations().then(items => items.length)").AsNumber());
     }
 }
