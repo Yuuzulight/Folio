@@ -467,6 +467,8 @@ internal sealed class WebGlContextState
         var colorValues = UniformValues.TryGetValue(0, out var uniform) && uniform.Length >= 4 ? uniform : [1, 1, 1, 1];
         var color = new Rgba((float)Math.Clamp(colorValues[0], 0, 1), (float)Math.Clamp(colorValues[1], 0, 1),
             (float)Math.Clamp(colorValues[2], 0, 1), (float)Math.Clamp(colorValues[3], 0, 1));
+        var blend = EnabledCapabilities.Contains(0x0BE2) && BlendSourceFactor == 0x0302 && BlendDestinationFactor == 0x0303
+            ? BlendMode.Normal : BlendMode.Copy;
         var viewportX = ViewportX;
         var viewportY = ViewportY;
         var viewportWidth = ViewportWidth > 0 ? ViewportWidth : surface.Width;
@@ -494,7 +496,7 @@ internal sealed class WebGlContextState
             if (float.IsNaN(a.X) || float.IsNaN(a.Y) || float.IsNaN(b.X) || float.IsNaN(b.Y) || float.IsNaN(c.X) || float.IsNaN(c.Y))
                 continue;
             Canvas.Surface()!.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
-                FillRule.NonZero, new Paint(color, Blend: BlendMode.Copy));
+                FillRule.NonZero, new Paint(color, Blend: blend));
         }
         if (clipped)
             surface.Canvas.Restore();
