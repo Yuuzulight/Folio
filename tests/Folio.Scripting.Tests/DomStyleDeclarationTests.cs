@@ -278,6 +278,7 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(0, allowed.Evaluate("gl.vertexAttribDivisor(loc, 2); gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_DIVISOR) === 2 && (gl.drawArraysInstanced(gl.TRIANGLES, 0, 3, 2), gl.drawElementsInstanced(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0, 2), gl.getError())").AsNumber());
         Assert.True(allowed.Evaluate("const bad = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(bad, 'precision mediump float;'); gl.compileShader(bad); !gl.getShaderParameter(bad, gl.COMPILE_STATUS) && gl.getShaderInfoLog(bad).length > 0").AsBoolean());
         Assert.True(allowed.Evaluate("const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])); const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); const p = new Uint8Array(16); gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, p); gl.getError() === 0 && p[0] === 1 && p[3] === 4").AsBoolean());
+        Assert.True(allowed.Evaluate("gl.clearColor(0, 0.5, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); const cleared = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, cleared); cleared[0] === 0 && cleared[1] === 128 && cleared[2] === 255 && cleared[3] === 255 && gl.getError() === 0").AsBoolean());
         Assert.Equal(0x0501, allowed.Evaluate("gl.readPixels(0, 0, -1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());
         Assert.Equal(0x0501, allowed.Evaluate("gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());
         Assert.Equal(0x0500, allowed.Evaluate("gl.readPixels(0, 0, 1, 1, 0x1907, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());
@@ -290,7 +291,12 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("gl.deleteRenderbuffer(rb); !gl.isRenderbuffer(rb)").AsBoolean());
         Assert.Equal(1, allowed.Evaluate("p[0]").AsNumber());
         Assert.Equal(0, allowed.Evaluate("gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("gl.bindFramebuffer(gl.FRAMEBUFFER, null); const screen = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, screen); gl.getError() === 0 && screen[0] === 255 && screen[1] === 64 && screen[2] === 0 && screen[3] === 255").AsBoolean());
+        allowed.Evaluate("gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT); var screen = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, screen); true");
+        Assert.Equal(255, allowed.Evaluate("screen[0]").AsNumber());
+        Assert.InRange(allowed.Evaluate("screen[1]").AsNumber(), 63, 64);
+        Assert.Equal(0, allowed.Evaluate("screen[2]").AsNumber());
+        Assert.Equal(255, allowed.Evaluate("screen[3]").AsNumber());
+        Assert.Equal(0, allowed.Evaluate("gl.getError()").AsNumber());
         Assert.True(allowed.Evaluate("let contextEvents = ''; gl.oncontextlost = e => contextEvents += e.type; gl.oncontextrestored = e => contextEvents += e.type; const ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); gl.isContextLost() && contextEvents === 'webglcontextlost'").AsBoolean());
         Assert.Equal(0x9242, allowed.Evaluate("gl.getError()").AsNumber());
         Assert.False(allowed.Evaluate("ext.restoreContext(); gl.isContextLost() && contextEvents === 'webglcontextlostwebglcontextrestored'").AsBoolean());

@@ -476,11 +476,34 @@ internal sealed class WebGlContextState
     public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));
     public void Clear(uint mask)
     {
-        if ((mask & 0x4000) == 0 || _canvas.Surface() is not { } surface)
+        if ((mask & 0x4000) == 0)
+            return;
+        var clear = new[] { (byte)Math.Round(ClearR * 255), (byte)Math.Round(ClearG * 255), (byte)Math.Round(ClearB * 255), (byte)Math.Round(ClearA * 255) };
+        if (BoundFramebuffer is { } framebuffer)
+        {
+            if (FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && Textures.TryGetValue(texture, out var texturePixels))
+            {
+                Fill(texturePixels.Pixels, clear);
+                Textures[texture] = texturePixels;
+            }
+            else if (FramebufferRenderbufferAttachments.TryGetValue(framebuffer, out var renderbuffer) && Renderbuffers.TryGetValue(renderbuffer, out var renderbufferPixels))
+            {
+                Fill(renderbufferPixels.Pixels, clear);
+                Renderbuffers[renderbuffer] = renderbufferPixels;
+            }
+            return;
+        }
+        if (_canvas.Surface() is not { } surface)
             return;
         var color = new Rgba(ClearR, ClearG, ClearB, ClearA);
         surface.Canvas.FillPath(new PathData().AddRoundedRect(new RoundedRect(new RectF(0, 0, surface.Width, surface.Height), default)), FillRule.NonZero,
             new Paint(color, Blend: BlendMode.Copy));
         _canvas.Touch();
+
+        static void Fill(byte[] pixels, byte[] color)
+        {
+            for (var i = 0; i + 3 < pixels.Length; i += 4)
+                color.AsSpan().CopyTo(pixels.AsSpan(i, 4));
+        }
     }
 }
