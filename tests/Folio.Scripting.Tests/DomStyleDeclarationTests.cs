@@ -572,6 +572,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let interceptedText = ''; navigator.serviceWorker.register('sw.js').then(() => fetch('/offline')).then(r => r.text()).then(text => interceptedText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from worker", intercepted.Evaluate("interceptedText").AsString());
+        Assert.True(intercepted.Evaluate("let cacheResult = ''; caches.open('v1').then(cache => cache.put('/offline', new Response('cached'))).then(() => caches.open('v1')).then(cache => cache.match('/offline')).then(response => response.text()).then(text => cacheResult = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("cached", intercepted.Evaluate("cacheResult").AsString());
     }
 
     [Fact]

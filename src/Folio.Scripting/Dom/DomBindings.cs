@@ -199,6 +199,18 @@ public static class DomBindings
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             };
             if (!__folio_service_workers_enabled) delete globalThis.navigator.serviceWorker;
+            (function() {
+                var cacheStores = new Map();
+                function requestKey(request) { return request instanceof Request ? request.url : String(request); }
+                function Cache(name) { this._name = name; if (!cacheStores.has(name)) cacheStores.set(name, new Map()); this._entries = cacheStores.get(name); }
+                Cache.prototype.match = function(request) { var value = this._entries.get(requestKey(request)); return Promise.resolve(value ? value.clone() : undefined); };
+                Cache.prototype.put = function(request, response) { if (!(response instanceof Response)) return Promise.reject(new TypeError('Cache.put requires a Response.')); this._entries.set(requestKey(request), response.clone()); return Promise.resolve(); };
+                Cache.prototype.delete = function(request) { return Promise.resolve(this._entries.delete(requestKey(request))); };
+                Cache.prototype.keys = function() { return Promise.resolve(Array.from(this._entries.keys()).map(function(url) { return new Request(url); })); };
+                Cache.prototype.add = function(request) { var self = this; return fetch(request).then(function(response) { return self.put(request, response); }); };
+                Cache.prototype.addAll = function(requests) { var self = this; return Promise.all(Array.from(requests).map(function(request) { return self.add(request); })); };
+                globalThis.caches = { open: function(name) { return Promise.resolve(new Cache(String(name))); }, has: function(name) { return Promise.resolve(cacheStores.has(String(name))); }, delete: function(name) { return Promise.resolve(cacheStores.delete(String(name))); }, keys: function() { return Promise.resolve(Array.from(cacheStores.keys())); } };
+            })();
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
