@@ -1088,6 +1088,8 @@ internal sealed class DomNodeTemplates
             var val = WebIdlConversions.ToDOMString(args[1]);
             var element = (ElementNode)target;
             element.SetAttribute(name, val);
+            if (element.LocalName == "iframe" && string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase))
+                _context.GetIframe(element).Invalidate();
             return ScriptValue.Undefined;
         });
 
@@ -1107,6 +1109,8 @@ internal sealed class DomNodeTemplates
                 var element = (ElementNode)target;
                 var oldValue = element.GetAttribute(name);
                 element.RemoveAttribute(name);
+                if (element.LocalName == "iframe" && string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) && oldValue is not null)
+                    _context.GetIframe(element).Invalidate();
             }
             return ScriptValue.Undefined;
         });
@@ -1136,6 +1140,8 @@ internal sealed class DomNodeTemplates
                 {
                     el.SetAttribute(name, "");
                 }
+                if (el.LocalName == "iframe" && string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase))
+                    _context.GetIframe(el).Invalidate();
                 return ScriptValue.FromBoolean(true);
             }
             else
@@ -1144,6 +1150,8 @@ internal sealed class DomNodeTemplates
                 {
                     el.RemoveAttribute(name);
                 }
+                if (el.LocalName == "iframe" && string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase))
+                    _context.GetIframe(el).Invalidate();
                 return ScriptValue.FromBoolean(false);
             }
         });
