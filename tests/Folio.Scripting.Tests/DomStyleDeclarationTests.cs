@@ -423,6 +423,15 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(memoryLimited.Evaluate("const constrained = new Worker('data:text/javascript,' + encodeURIComponent('const values = []; for (let i = 0; i < 100000; i++) values.push(i);')); let constrainedError = ''; constrained.onerror = e => constrainedError = e.message; constrained.postMessage(1); constrainedError.length > 0").AsBoolean());
 
+        using var watchdog = new JintScriptEngine();
+        DomBindings.Install(watchdog, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(100) }
+        }));
+        Assert.True(watchdog.Evaluate("const runawayWorker = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); let watchdogError = ''; runawayWorker.onerror = e => watchdogError = e.message; runawayWorker.postMessage(1); watchdogError.length > 0").AsBoolean());
+        Assert.True(watchdog.Evaluate("1 + 1").AsNumber() == 2);
+
         using var closed = new JintScriptEngine();
         DomBindings.Install(closed, Document.Parse("<html></html>", new FolioOptions
         {

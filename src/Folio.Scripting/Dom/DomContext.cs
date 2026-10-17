@@ -79,7 +79,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -93,6 +93,7 @@ internal sealed class DomContext
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
         MaxWorkers = Math.Max(0, maxWorkers);
         MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
+        MaxWorkerExecutionTime = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime;
         MaxServiceWorkerCacheBytes = Math.Max(0, maxServiceWorkerCacheBytes);
         MaxIframes = Math.Max(0, maxIframes);
         MaxWebRtcConnections = Math.Max(0, maxWebRtcConnections);
@@ -120,6 +121,7 @@ internal sealed class DomContext
     public int MaxWorkerMessageBytes { get; }
     public int MaxWorkers { get; }
     public long MaxWorkerMemoryBytes { get; }
+    public TimeSpan MaxWorkerExecutionTime { get; }
     public long MaxServiceWorkerCacheBytes { get; }
     public int MaxIframes { get; }
     public int MaxWebRtcConnections { get; }

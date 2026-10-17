@@ -9,7 +9,7 @@ internal sealed class WorkerState
     private bool _released;
     private volatile bool _workerExecuting;
     private Task? _startupTask;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, Action? releaseWorker = null)
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -19,7 +19,7 @@ internal sealed class WorkerState
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
         WorkerEngine = workerEngine;
         _releaseWorker = releaseWorker;
-        WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes) });
+        WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes), Timeout = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime });
         EnsureCloneHelpers(Engine);
         if (WorkerEngine is not null) EnsureCloneHelpers(WorkerEngine);
         if (WorkerEngine is not null)
@@ -76,7 +76,7 @@ internal sealed class WorkerState
     public ScriptValue OnError { get; set; } = ScriptValue.Null;
     public ScriptValue Source { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
-    private Exception? _scriptError;
+    private volatile Exception? _scriptError;
     public void AddEventListener(string type, ScriptValue listener)
     {
         if (!listener.IsFunction) return;
@@ -117,6 +117,7 @@ internal sealed class WorkerState
                     WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
                     WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
                 }
+                catch (Exception error) { _scriptError = error; try { DispatchError(error); } catch { } }
                 finally { _workerExecuting = false; }
             }
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);

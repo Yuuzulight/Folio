@@ -38,6 +38,7 @@ public sealed class Document : IDisposable
     public int MaxWorkerMessageBytes => Options.Limits.MaxWorkerMessageBytes;
     public int MaxWorkers => Options.Limits.MaxWorkers;
     public long MaxWorkerMemoryBytes => Options.Limits.MaxWorkerMemoryBytes;
+    public TimeSpan MaxWorkerExecutionTime => Options.Limits.MaxWorkerExecutionTime;
     public long MaxServiceWorkerCacheBytes => Options.Limits.MaxServiceWorkerCacheBytes;
     public int MaxIframes => Options.Limits.MaxIframes;
     public int MaxWebRtcConnections => Options.Limits.MaxWebRtcConnections;
