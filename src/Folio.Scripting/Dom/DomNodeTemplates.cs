@@ -102,7 +102,15 @@ internal sealed class DomNodeTemplates
             .DefineProperty("label", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Label))
             .DefineProperty("language", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Language))
             .DefineProperty("mode", (target, _) => ScriptValue.FromString(((MediaTextTrackState)target).Mode),
-                (target, _, value) => ((MediaTextTrackState)target).Mode = WebIdlConversions.ToDOMString(value))
+                (target, _, value) =>
+                {
+                    var state = (MediaTextTrackState)target;
+                    var before = state.ActiveCues.ToArray();
+                    state.Mode = WebIdlConversions.ToDOMString(value);
+                    var after = state.ActiveCues;
+                    if (!before.SequenceEqual(after) && state.OnCueChange.IsFunction)
+                        _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                })
             .DefineProperty("cues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).Cues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
             .DefineProperty("activeCues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).ActiveCues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
             .DefineProperty("oncuechange", (target, _) => ((MediaTextTrackState)target).OnCueChange,
