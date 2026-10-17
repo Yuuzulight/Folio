@@ -320,6 +320,7 @@ internal sealed class WebGlContextState
     public HashSet<uint> LinkedPrograms { get; } = [];
     public HashSet<int> EnabledVertexAttributes { get; } = [];
     public Dictionary<int, (int Size, uint Type, bool Normalized, int Stride, int Offset)> VertexAttribPointers { get; } = [];
+    public Dictionary<int, uint> VertexAttribBuffers { get; } = [];
     public Dictionary<int, uint> VertexAttribDivisors { get; } = [];
     public Dictionary<int, double[]> UniformValues { get; } = [];
     public HashSet<uint> EnabledCapabilities { get; } = [];
@@ -404,6 +405,50 @@ internal sealed class WebGlContextState
     {
         if (Buffers.Remove(handle, out var buffer)) AllocatedBytes = Math.Max(0, AllocatedBytes - buffer.Length);
         if (BoundArrayBuffer == handle) BoundArrayBuffer = null;
+        foreach (var index in VertexAttribBuffers.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
+            VertexAttribBuffers.Remove(index);
+    }
+
+    public void DrawArrays(uint mode, int first, int count)
+    {
+        DrawCalls++;
+        if (mode != 0x0004 || count < 3 || count > 30_000 || first < 0 || !EnabledVertexAttributes.Contains(0) ||
+            !VertexAttribPointers.TryGetValue(0, out var pointer) || pointer.Type != 0x1406 || pointer.Size < 2 ||
+            !VertexAttribBuffers.TryGetValue(0, out var bufferHandle) || !Buffers.TryGetValue(bufferHandle, out var buffer))
+            return;
+        var surface = Canvas.Surface();
+        if (surface is null || surface.Width <= 0 || surface.Height <= 0)
+            return;
+        var stride = pointer.Stride > 0 ? pointer.Stride : pointer.Size * 4;
+        if (stride < pointer.Size * 4)
+            return;
+        var colorValues = UniformValues.TryGetValue(0, out var uniform) && uniform.Length >= 4 ? uniform : [1, 1, 1, 1];
+        var color = new Rgba((float)Math.Clamp(colorValues[0], 0, 1), (float)Math.Clamp(colorValues[1], 0, 1),
+            (float)Math.Clamp(colorValues[2], 0, 1), (float)Math.Clamp(colorValues[3], 0, 1));
+        var viewportX = ViewportX;
+        var viewportY = ViewportY;
+        var viewportWidth = ViewportWidth > 0 ? ViewportWidth : surface.Width;
+        var viewportHeight = ViewportHeight > 0 ? ViewportHeight : surface.Height;
+        float Read(int vertex, int component)
+        {
+            var offset = (long)(first + vertex) * stride + pointer.Offset + component * 4;
+            return offset >= 0 && offset + 4 <= buffer.Length ? BitConverter.ToSingle(buffer, (int)offset) : float.NaN;
+        }
+        (float X, float Y) Point(int vertex)
+        {
+            var x = Read(vertex, 0);
+            var y = Read(vertex, 1);
+            return (viewportX + (x + 1) * 0.5f * viewportWidth, viewportY + (1 - y) * 0.5f * viewportHeight);
+        }
+        for (var vertex = 0; vertex + 2 < count; vertex += 3)
+        {
+            var a = Point(vertex); var b = Point(vertex + 1); var c = Point(vertex + 2);
+            if (float.IsNaN(a.X) || float.IsNaN(a.Y) || float.IsNaN(b.X) || float.IsNaN(b.Y) || float.IsNaN(c.X) || float.IsNaN(c.Y))
+                continue;
+            Canvas.Surface()!.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
+                FillRule.NonZero, new Paint(color, Blend: BlendMode.Copy));
+        }
+        Canvas.Touch();
     }
     public void DeleteTexture(uint handle)
     {
