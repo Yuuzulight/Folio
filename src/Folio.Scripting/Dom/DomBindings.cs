@@ -402,17 +402,24 @@ public static class DomBindings
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); if (this.onaddtrack) this.onaddtrack({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); if (this.onremovetrack) this.onremovetrack({ type: 'removetrack', target: this, track: track }); } };
             var __folio_webrtc_peer_count = 0;
-            globalThis.RTCPeerConnection = function(configuration) {
-                if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
+            function __folio_validate_webrtc_configuration(configuration) {
                 configuration = configuration || {};
                 var iceServers = configuration.iceServers || [];
                 for (var serverIndex = 0; serverIndex < iceServers.length; serverIndex++) {
                     var server = iceServers[serverIndex] || {}, urls = server.urls === undefined ? [] : (Array.isArray(server.urls) ? server.urls : [server.urls]);
                     for (var urlIndex = 0; urlIndex < urls.length; urlIndex++) {
-                        var endpoint = String(urls[urlIndex]), origin = ''; try { var parsed = new URL(endpoint); origin = parsed.origin === 'null' ? endpoint.replace(/\/$/, '') : parsed.origin; } catch (_) { throw new DOMException('The WebRTC server URL is invalid or not allowed.', 'SecurityError'); }
-                        if (__folio_webrtc_allowed_origins.indexOf(origin) < 0 && __folio_webrtc_allowed_origins.indexOf(endpoint) < 0) throw new DOMException('The WebRTC server origin is not allowed by the host.', 'SecurityError');
+                        var endpoint = String(urls[urlIndex]), origin = '';
+                        try { var parsed = new URL(endpoint); origin = parsed.origin === 'null' ? endpoint.replace(/\/$/, '') : parsed.origin; }
+                        catch (_) { throw new DOMException('The WebRTC server URL is invalid or not allowed.', 'SecurityError'); }
+                        if (__folio_webrtc_allowed_origins.indexOf(origin) < 0 && __folio_webrtc_allowed_origins.indexOf(endpoint) < 0)
+                            throw new DOMException('The WebRTC server origin is not allowed by the host.', 'SecurityError');
                     }
                 }
+                return configuration;
+            }
+            globalThis.RTCPeerConnection = function(configuration) {
+                if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
+                configuration = __folio_validate_webrtc_configuration(configuration);
                 if (__folio_webrtc_peer_count >= Number(__folio_webrtc_max_connections)) throw new DOMException('The WebRTC peer connection limit has been exceeded.', 'QuotaExceededError');
                 __folio_webrtc_peer_count++;
                 this.configuration = configuration; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null;
@@ -438,7 +445,7 @@ public static class DomBindings
             RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; init = init || {}; var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: init.direction || 'sendrecv', currentDirection: null, stopped: false, _codecs: [], stop: function() { transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { transceiver._codecs = codecs ? codecs.slice() : []; }, get codecPreferences() { return transceiver._codecs.slice(); } }; transceiver.sender.replaceTrack = function(next) { if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); if (this.onnegotiationneeded) this.onnegotiationneeded({ type: 'negotiationneeded', target: this }); return transceiver; };
             RTCPeerConnection.prototype.getTransceivers = function() { return this._transceivers.slice(); };
             RTCPeerConnection.prototype.getConfiguration = function() { return this.configuration; };
-            RTCPeerConnection.prototype.setConfiguration = function(configuration) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = configuration || {}; };
+            RTCPeerConnection.prototype.setConfiguration = function(configuration) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = __folio_validate_webrtc_configuration(configuration); };
             RTCPeerConnection.prototype.getStats = function() { return Promise.resolve(new Map()); };
             RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; if (this.onicegatheringstatechange) this.onicegatheringstatechange({}); if (this.oniceconnectionstatechange) this.oniceconnectionstatechange({}); };
             RTCPeerConnection.prototype.createDataChannel = function(label, options) {
