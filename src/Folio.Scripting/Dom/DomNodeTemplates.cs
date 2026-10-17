@@ -734,15 +734,40 @@ internal sealed class DomNodeTemplates
         {
             var state = (WebGlContextState)target;
             if (args.Length < 7) { state.SetError(0x0502); return ScriptValue.Undefined; }
-            var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
-            var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
-            var count = Math.Min(width * height * 4, 16 * 1024 * 1024);
-            if (args.Length > 6 && _context.Engine.TryGetArrayItems(args[6], out var destination))
+            var x = WebIdlConversions.ToInt32(args[0]);
+            var y = WebIdlConversions.ToInt32(args[1]);
+            var width = WebIdlConversions.ToInt32(args[2]);
+            var height = WebIdlConversions.ToInt32(args[3]);
+            if (WebIdlConversions.ToUint32(args[4]) != 0x1908 || WebIdlConversions.ToUint32(args[5]) != 0x1401)
             {
-                var source = state.BoundFramebuffer is { } framebuffer && state.FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && state.Textures.TryGetValue(texture, out var pixels) ? pixels.Pixels : [];
-                for (var i = 0; i < count && i < destination.Count; i++)
-                    _context.Engine.TrySetArrayItem(args[6], i, ScriptValue.FromNumber(i < source.Length ? source[i] : 0));
+                state.SetError(0x0500);
+                return ScriptValue.Undefined;
             }
+            if (width < 0 || height < 0 || width > 4096 || height > 4096 ||
+                !_context.Engine.TryGetArrayItems(args[6], out var destination))
+            {
+                state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+            var count = (long)width * height * 4;
+            if (count > 16 * 1024 * 1024 || destination.Count < count)
+            {
+                state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+            var source = state.BoundFramebuffer is { } framebuffer && state.FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && state.Textures.TryGetValue(texture, out var pixels) ? pixels : default;
+            var sourcePixels = source.Pixels;
+            for (var row = 0; row < height; row++)
+                for (var column = 0; column < width; column++)
+                {
+                    var sourceX = x + column;
+                    var sourceY = y + row;
+                    var sourceIndex = sourcePixels is not null && sourceX >= 0 && sourceY >= 0 && sourceX < source.Width && sourceY < source.Height
+                        ? (sourceY * source.Width + sourceX) * 4 : -1;
+                    var destinationIndex = (row * width + column) * 4;
+                    for (var channel = 0; channel < 4; channel++)
+                        _context.Engine.TrySetArrayItem(args[6], destinationIndex + channel, ScriptValue.FromNumber(sourceIndex >= 0 ? sourcePixels![sourceIndex + channel] : 0));
+                }
             return ScriptValue.Undefined;
         });
         t.DefineMethod("clearColor", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).SetClearColor((float)WebIdlConversions.ToDouble(args[0]), (float)WebIdlConversions.ToDouble(args[1]), (float)WebIdlConversions.ToDouble(args[2]), (float)WebIdlConversions.ToDouble(args[3])); return ScriptValue.Undefined; });
