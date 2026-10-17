@@ -111,12 +111,13 @@ public static class DomBindings
                 if (!context.TryAcquireWorker())
                     throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The worker limit has been exceeded.");
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
+                var moduleWorker = args.Length > 1 && args[1].IsObject && string.Equals(engine.GetProperty(args[1], "type").AsString(), "module", StringComparison.OrdinalIgnoreCase);
                 if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolvedWorkerUrl)) url = resolvedWorkerUrl.AbsoluteUri;
                 var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
                 try
                 {
-                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker);
+                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker);
                     context.RegisterWorker(state);
                     var worker = engine.CreateHostObject(workerTemplate, state);
                     state.Source = worker;

@@ -1,4 +1,5 @@
 using Folio.Resources;
+using System.Text.RegularExpressions;
 
 namespace Folio.Scripting.Dom;
 
@@ -11,7 +12,7 @@ internal sealed class WorkerState
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
     private Task? _startupTask;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null)
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -50,7 +51,7 @@ internal sealed class WorkerState
             WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(null, arguments); };", ScriptUrl);
             WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
-            if (TryReadScriptWithImports(scriptUrl, resourceLoader, out var source))
+            if ((moduleWorker ? TryReadModuleScript(scriptUrl, resourceLoader, out var source) : TryReadScriptWithImports(scriptUrl, resourceLoader, out source)))
             {
                 _startupTask = Task.Run(() =>
                 {
@@ -339,6 +340,23 @@ internal sealed class WorkerState
             source = source.Remove(start, close - start + 1).Insert(start, imported);
             search = start + imported.Length;
         }
+        return true;
+    }
+
+    private static bool TryReadModuleScript(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null)
+    {
+        source = string.Empty;
+        seen ??= new HashSet<string>(StringComparer.Ordinal);
+        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source)) return false;
+        var imports = new Regex("(?m)^\\s*import\\s+(?:(?:[^;\"']+?)\\s+from\\s+)?[\"']([^\"']+)[\"']\\s*;?\\s*", RegexOptions.Compiled);
+        source = imports.Replace(source, match =>
+        {
+            var resolved = ResolveScriptUrl(url, match.Groups[1].Value);
+            return TryReadModuleScript(resolved, resourceLoader, out var imported, seen) ? imported + Environment.NewLine : string.Empty;
+        });
+        source = Regex.Replace(source, @"(?m)^\s*export\s+\{[^}]*\}\s*;?\s*$", string.Empty);
+        source = Regex.Replace(source, @"\bexport\s+(?=(?:default\s+)?(?:const|let|var|function|class)\b)", string.Empty);
+        source = source.Replace("export default ", string.Empty, StringComparison.Ordinal);
         return true;
     }
 
