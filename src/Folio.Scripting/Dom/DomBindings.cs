@@ -442,8 +442,8 @@ public static class DomBindings
             globalThis.RTCRtpReceiver = function() {};
             var __folio_audio_codecs = [{ mimeType: 'audio/opus', clockRate: 48000, channels: 2 }];
             var __folio_video_codecs = [{ mimeType: 'video/VP8', clockRate: 90000 }, { mimeType: 'video/H264', clockRate: 90000 }];
-            RTCRtpSender.getCapabilities = function(kind) { return { codecs: (String(kind) === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
-            RTCRtpReceiver.getCapabilities = function(kind) { return { codecs: (String(kind) === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
+            RTCRtpSender.getCapabilities = function(kind) { var normalizedKind = String(kind); if (normalizedKind !== 'audio' && normalizedKind !== 'video') return null; return { codecs: (normalizedKind === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
+            RTCRtpReceiver.getCapabilities = function(kind) { var normalizedKind = String(kind); if (normalizedKind !== 'audio' && normalizedKind !== 'video') return null; return { codecs: (normalizedKind === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
             globalThis.RTCIceCandidate = function(init) { init = init || {}; this.candidate = String(init.candidate || ''); this.sdpMid = init.sdpMid === undefined ? null : init.sdpMid; this.sdpMLineIndex = init.sdpMLineIndex === undefined ? null : init.sdpMLineIndex; this.usernameFragment = init.usernameFragment === undefined ? null : init.usernameFragment; };
             globalThis.RTCSessionDescription = function(init) { init = init || {}; this.type = String(init.type || ''); this.sdp = String(init.sdp || ''); };
             RTCIceCandidate.prototype.toJSON = function() { return { candidate: this.candidate, sdpMid: this.sdpMid, sdpMLineIndex: this.sdpMLineIndex, usernameFragment: this.usernameFragment }; };

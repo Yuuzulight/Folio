@@ -942,6 +942,7 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.removeTrack({ track: null })"));
         Assert.True(allowed.Evaluate("const transceiver = pc.addTransceiver('video', { direction: 'recvonly' }); transceiver.setCodecPreferences([{ mimeType: 'video/VP8' }]); transceiver.kind === 'video' && transceiver.direction === 'recvonly' && transceiver.codecPreferences.length === 1 && pc.getTransceivers().length === 2; transceiver.stop(); transceiver.direction === 'inactive'").AsBoolean());
         Assert.True(allowed.Evaluate("pc.getReceivers().length === pc.getTransceivers().length && pc.getReceivers()[0].track.kind === 'video'").AsBoolean());
+        Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('invalid') === null && RTCRtpReceiver.getCapabilities('invalid') === null").AsBoolean());
         Assert.True(allowed.Evaluate("const sending = pc.addTransceiver('audio'); sending.sender.setParameters({ encodings: [{ maxBitrate: 32000 }] }); sending.sender.getParameters().encodings.length === 1; sending.sender.replaceTrack({ kind: 'audio' })").IsObject);
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("sending.sender.track.kind === 'audio'").AsBoolean());
