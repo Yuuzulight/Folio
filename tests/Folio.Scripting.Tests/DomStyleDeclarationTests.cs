@@ -490,6 +490,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(moduleWorker.Evaluate("const modular = new Worker('data:text/javascript,' + encodeURIComponent('export const answer = 42; onmessage = function() { postMessage(answer); };'), { type: 'module' }); let moduleAnswer = 0; modular.onmessage = e => moduleAnswer = e.data; modular.postMessage(1); moduleAnswer === 42").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => moduleWorker.Evaluate("new Worker('data:text/javascript,', { type: 'invalid' })"));
 
         using var blobWorker = new JintScriptEngine();
         DomBindings.Install(blobWorker, Document.Parse("<html></html>", new FolioOptions

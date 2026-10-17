@@ -165,7 +165,13 @@ public static class DomBindings
                 if (!context.TryAcquireWorker())
                     throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The worker limit has been exceeded.");
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-                var moduleWorker = args.Length > 1 && args[1].IsObject && string.Equals(engine.GetProperty(args[1], "type").AsString(), "module", StringComparison.OrdinalIgnoreCase);
+                var workerType = args.Length > 1 && args[1].IsObject ? engine.GetProperty(args[1], "type").AsString() ?? "classic" : "classic";
+                if (!string.Equals(workerType, "classic", StringComparison.OrdinalIgnoreCase) && !string.Equals(workerType, "module", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.ReleaseWorker();
+                    throw WebIdlException.TypeError("Worker options.type must be 'classic' or 'module'.");
+                }
+                var moduleWorker = string.Equals(workerType, "module", StringComparison.OrdinalIgnoreCase);
                 if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolvedWorkerUrl)) url = resolvedWorkerUrl.AbsoluteUri;
                 var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
