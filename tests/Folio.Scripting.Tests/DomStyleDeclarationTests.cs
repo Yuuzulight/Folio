@@ -709,6 +709,18 @@ public sealed class DomStyleDeclarationTests
         Assert.True(peerLimited.Evaluate("const firstPeer = new RTCPeerConnection(); true").AsBoolean());
         Assert.ThrowsAny<Exception>(() => peerLimited.Evaluate("new RTCPeerConnection()"));
         Assert.True(peerLimited.Evaluate("firstPeer.close(); const secondPeer = new RTCPeerConnection(); secondPeer.connectionState === 'new'").AsBoolean());
+        using var routing = new JintScriptEngine();
+        DomBindings.Install(routing, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = true },
+            WebRtcAllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://stun.example", "stun:stun.example" }
+        }));
+        Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceServers: [{ urls: 'https://blocked.example' }] })"));
+        Assert.True(routing.Evaluate("const routedPeer = new RTCPeerConnection({ iceServers: [{ urls: 'https://stun.example' }] }); routedPeer.getConfiguration().iceServers.length === 1").AsBoolean());
+        Assert.True(routing.Evaluate("const stunPeer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.example' }] }); stunPeer.getConfiguration().iceServers.length === 1").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceServers: [{ urls: 'not a url' }] })"));
+        routing.Evaluate("routedPeer.close();");
+        routing.Evaluate("stunPeer.close();");
         using var permissionDenied = new JintScriptEngine();
         DomBindings.Install(permissionDenied, Document.Parse("<html></html>", new FolioOptions
         {

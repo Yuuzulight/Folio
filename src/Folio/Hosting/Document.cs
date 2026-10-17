@@ -45,6 +45,7 @@ public sealed class Document : IDisposable
     internal string ArtifactId => Options.ArtifactId;
     internal IArtifactStorage? ArtifactStorage => Options.ArtifactStorage;
     internal Func<MediaCaptureRequest, bool>? MediaCapturePermission => Options.MediaCapturePermission;
+    internal IReadOnlySet<string> WebRtcAllowedOrigins => Options.WebRtcAllowedOrigins;
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
 

@@ -38,17 +38,17 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MaxWebRtcConnections, document.MediaCapturePermission, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri,
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MaxWebRtcConnections, document.WebRtcAllowedOrigins, document.MediaCapturePermission, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri,
         document.Options.Raster, () => document.CanvasText);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
 
@@ -177,6 +177,7 @@ public static class DomBindings
         }
         engine.SetGlobalProperty("__folio_service_worker_cache_bytes", ScriptValue.FromNumber(context.MaxServiceWorkerCacheBytes));
         engine.SetGlobalProperty("__folio_webrtc_max_connections", ScriptValue.FromNumber(context.MaxWebRtcConnections));
+        engine.SetGlobalProperty("__folio_webrtc_allowed_origins", engine.CreateArray(context.WebRtcAllowedOrigins.Select(ScriptValue.FromString).ToArray()));
         var mediaPermission = new HostObjectTemplate("MediaPermission")
             .DefineMethod("check", (_, _, args) =>
             {
@@ -305,9 +306,18 @@ public static class DomBindings
             var __folio_webrtc_peer_count = 0;
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
+                configuration = configuration || {};
+                var iceServers = configuration.iceServers || [];
+                for (var serverIndex = 0; serverIndex < iceServers.length; serverIndex++) {
+                    var server = iceServers[serverIndex] || {}, urls = server.urls === undefined ? [] : (Array.isArray(server.urls) ? server.urls : [server.urls]);
+                    for (var urlIndex = 0; urlIndex < urls.length; urlIndex++) {
+                        var endpoint = String(urls[urlIndex]), origin = ''; try { var parsed = new URL(endpoint); origin = parsed.origin === 'null' ? endpoint.replace(/\/$/, '') : parsed.origin; } catch (_) { throw new DOMException('The WebRTC server URL is invalid or not allowed.', 'SecurityError'); }
+                        if (__folio_webrtc_allowed_origins.indexOf(origin) < 0 && __folio_webrtc_allowed_origins.indexOf(endpoint) < 0) throw new DOMException('The WebRTC server origin is not allowed by the host.', 'SecurityError');
+                    }
+                }
                 if (__folio_webrtc_peer_count >= Number(__folio_webrtc_max_connections)) throw new DOMException('The WebRTC peer connection limit has been exceeded.', 'QuotaExceededError');
                 __folio_webrtc_peer_count++;
-                this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null;
+                this.configuration = configuration; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null;
                 this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = []; this._folioReleased = false;
             };
             globalThis.RTCRtpSender = function() {};
