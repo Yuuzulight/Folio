@@ -445,10 +445,11 @@ internal sealed class WebGlContextState
 
     private void DrawElementsCore(uint mode, uint type, int count, int offset)
     {
-        if (type != 0x1403 || count < 3 || count > 30_000 || offset < 0 || BoundElementArrayBuffer is not { } elementBuffer ||
-            !BufferValues.TryGetValue(elementBuffer, out var indices) || offset % 2 != 0 || offset / 2 + count > indices.Length)
+        var indexStride = type switch { 0x1401u => 1, 0x1403u => 2, _ => 0 };
+        if (indexStride == 0 || count < 3 || count > 30_000 || offset < 0 || offset % indexStride != 0 || BoundElementArrayBuffer is not { } elementBuffer ||
+            !BufferValues.TryGetValue(elementBuffer, out var indices) || offset / indexStride + count > indices.Length)
             return;
-        DrawTriangles(mode, count, vertex => (int)indices[offset / 2 + vertex]);
+        DrawTriangles(mode, count, vertex => (int)indices[offset / indexStride + vertex]);
     }
 
     private void DrawTriangles(uint mode, int count, Func<int, int> vertexIndex)
