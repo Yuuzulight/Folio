@@ -7,6 +7,7 @@ internal sealed class WorkerState
     private readonly Action? _releaseWorker;
     private readonly object _workerGate = new();
     private bool _released;
+    private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
     private Task? _startupTask;
     public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null)
@@ -25,9 +26,11 @@ internal sealed class WorkerState
         if (WorkerEngine is not null)
         {
             var bridge = new HostObjectTemplate("WorkerBridge")
+                .DefineMethod("close", (_, _, _) => { CloseFromWorker(); return ScriptValue.Undefined; })
                 .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined); } return ScriptValue.Undefined; });
             WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
             WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
+            WorkerEngine.Evaluate("globalThis.close = function() { return __folio_worker_bridge.close(); };", ScriptUrl);
             var imports = new HostObjectTemplate("WorkerImports")
                 .DefineMethod("load", (_, _, args) =>
                 {
@@ -51,7 +54,7 @@ internal sealed class WorkerState
                 {
                     _workerExecuting = true;
                     try { WorkerEngine.Evaluate(source, scriptUrl); }
-                    catch (Exception error) { _scriptError = error; }
+                    catch (Exception error) { if (!_closedByWorker) _scriptError = error; }
                     finally { _workerExecuting = false; }
                 });
                 try { _startupTask.Wait(TimeSpan.FromMilliseconds(500)); }
@@ -97,6 +100,23 @@ internal sealed class WorkerState
         WorkerEngine?.Dispose();
         if (!_released) { _released = true; _releaseWorker?.Invoke(); }
     }
+    private void CloseFromWorker()
+    {
+        _closedByWorker = true;
+        Terminated = true;
+        WorkerEngine?.Interrupt();
+        _ = Task.Run(() =>
+        {
+            while (_workerExecuting) Thread.Yield();
+            WorkerEngine?.Dispose();
+            lock (_workerGate)
+            {
+                if (_released) return;
+                _released = true;
+                _releaseWorker?.Invoke();
+            }
+        });
+    }
     public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
@@ -117,7 +137,7 @@ internal sealed class WorkerState
                     WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl);
                     WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
                 }
-                catch (Exception error) { _scriptError = error; try { DispatchError(error); } catch { } }
+                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { DispatchError(error); } catch { } } }
                 finally { _workerExecuting = false; }
             }
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);

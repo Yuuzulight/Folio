@@ -432,6 +432,13 @@ public sealed class DomStyleDeclarationTests
         Assert.True(watchdog.Evaluate("const runawayWorker = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); let watchdogError = ''; runawayWorker.onerror = e => watchdogError = e.message; runawayWorker.postMessage(1); watchdogError.length > 0").AsBoolean());
         Assert.True(watchdog.Evaluate("1 + 1").AsNumber() == 2);
 
+        using var selfClosing = new JintScriptEngine();
+        DomBindings.Install(selfClosing, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(selfClosing.Evaluate("const selfClosingWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function() { close(); postMessage(1); };')); let selfCloseMessages = 0; let selfCloseErrors = 0; selfClosingWorker.onmessage = () => selfCloseMessages++; selfClosingWorker.onerror = () => selfCloseErrors++; selfClosingWorker.postMessage(1); selfCloseMessages === 0 && selfCloseErrors === 0").AsBoolean());
+
         using var closed = new JintScriptEngine();
         DomBindings.Install(closed, Document.Parse("<html></html>", new FolioOptions
         {
