@@ -572,6 +572,7 @@ public static class DomBindings
                 },
                 Module: function(bytes) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
                     var moduleSize = bytes && (bytes.byteLength || bytes.length) || 0;
                     if (moduleSize > Number(__folio_wasm_max_pages) * 65536) throw new RangeError('WebAssembly module size limit exceeded.');
                     if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
