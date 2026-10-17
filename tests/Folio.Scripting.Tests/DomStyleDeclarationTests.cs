@@ -832,10 +832,16 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { WebRtc = true }
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); let iceEvents = 0; let stateEvents = 0; let candidates = 0; pc.onicegatheringstatechange = () => iceEvents++; pc.onicecandidate = e => candidates++; pc.onconnectionstatechange = () => stateEvents++; pc.createOffer().then(x => x.type === 'offer' && x instanceof RTCSessionDescription)").IsObject);
+        Assert.True(allowed.Evaluate("let devicesBeforeCapture = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesBeforeCapture = devices.length); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal(0, allowed.Evaluate("devicesBeforeCapture").AsNumber());
         Assert.True(allowed.Evaluate("const candidate = new RTCIceCandidate({ candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 }); const description = new RTCSessionDescription({ type: 'offer', sdp: '' }); candidate.candidate === 'candidate:1' && description.type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("JSON.stringify(candidate.toJSON()).includes('candidate:1') && description.toJSON().type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('audio').codecs[0].mimeType === 'audio/opus' && RTCRtpReceiver.getCapabilities('video').codecs.length === 2").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 1 && stream.getAudioTracks().length === 1)").IsObject);
+        Assert.True(allowed.Evaluate("let devicesAfterCapture = ''; navigator.mediaDevices.enumerateDevices().then(devices => devicesAfterCapture = devices.length + ':' + devices[0].kind); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal("2:audioinput", allowed.Evaluate("devicesAfterCapture").AsString());
         using var peerLimited = new JintScriptEngine();
         DomBindings.Install(peerLimited, Document.Parse("<html></html>", new FolioOptions
         {
