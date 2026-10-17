@@ -50,6 +50,18 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(document);
 
         var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
+        var blobSources = new Dictionary<string, string>(StringComparer.Ordinal);
+        var blobStore = new HostObjectTemplate("BlobStore")
+            .DefineMethod("create", (_, _, args) =>
+            {
+                var source = args.Length > 0 ? args[0].AsString() : null;
+                if (source is null) return ScriptValue.Undefined;
+                var url = "blob:folio-" + Guid.NewGuid().ToString("N");
+                blobSources[url] = source;
+                return ScriptValue.FromString(url);
+            })
+            .DefineMethod("revoke", (_, _, args) => { if (args.Length > 0) blobSources.Remove(args[0].AsString() ?? ""); return ScriptValue.Undefined; });
+        engine.SetGlobalProperty("__folio_blob_store", engine.CreateHostObject(blobStore, context));
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
 
@@ -113,11 +125,11 @@ public static class DomBindings
                 var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
                 var moduleWorker = args.Length > 1 && args[1].IsObject && string.Equals(engine.GetProperty(args[1], "type").AsString(), "module", StringComparison.OrdinalIgnoreCase);
                 if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolvedWorkerUrl)) url = resolvedWorkerUrl.AbsoluteUri;
-                var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
+                var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
                 try
                 {
-                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker);
+                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources);
                     context.RegisterWorker(state);
                     var worker = engine.CreateHostObject(workerTemplate, state);
                     state.Source = worker;
@@ -617,7 +629,12 @@ public static class DomBindings
             URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
             URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
             URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
+            globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
+            Blob.prototype.text = function() { return Promise.resolve(this._text); };
+            Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
             globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); this.protocol = match && match[1] ? match[1] + ':' : ''; this.host = match && match[2] ? match[2] : ''; this.origin = this.protocol && this.host ? this.protocol + '//' + this.host : ''; this.pathname = match && match[3] ? match[3] : '/'; this.search = match && match[4] ? match[4] : ''; this.hash = match && match[5] ? match[5] : ''; this.href = this.origin + this.pathname + this.search + this.hash; this.searchParams = new URLSearchParams(this.search); };
+            URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
+            URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
             globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
             globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
             globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };

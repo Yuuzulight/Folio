@@ -7,12 +7,13 @@ internal sealed class WorkerState
 {
     private readonly Action? _releaseWorker;
     private readonly TimeSpan _workerExecutionTime;
+    private readonly IReadOnlyDictionary<string, string>? _blobSources;
     private readonly object _workerGate = new();
     private bool _released;
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
     private Task? _startupTask;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false)
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -22,6 +23,7 @@ internal sealed class WorkerState
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
         WorkerEngine = workerEngine;
         _releaseWorker = releaseWorker;
+        _blobSources = blobSources;
         _workerExecutionTime = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime;
         WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes), Timeout = _workerExecutionTime });
         EnsureCloneHelpers(Engine);
@@ -41,7 +43,7 @@ internal sealed class WorkerState
                     {
                         var reference = argument.AsString() ?? string.Empty;
                         var resolved = ResolveScriptUrl(ScriptUrl, reference);
-                        if (!TryReadScript(resolved, resourceLoader, out var imported))
+                        if (!TryReadScript(resolved, resourceLoader, out var imported, _blobSources))
                             throw new InvalidOperationException($"Worker script could not load '{reference}'.");
                         WorkerEngine.Evaluate(imported, resolved);
                     }
@@ -51,7 +53,7 @@ internal sealed class WorkerState
             WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(null, arguments); };", ScriptUrl);
             WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
             WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
-            if ((moduleWorker ? TryReadModuleScript(scriptUrl, resourceLoader, out var source) : TryReadScriptWithImports(scriptUrl, resourceLoader, out source)))
+            if ((moduleWorker ? TryReadModuleScript(scriptUrl, resourceLoader, out var source, blobSources: _blobSources) : TryReadScriptWithImports(scriptUrl, resourceLoader, out source, blobSources: _blobSources)))
             {
                 _startupTask = Task.Run(() =>
                 {
@@ -299,9 +301,10 @@ internal sealed class WorkerState
         Engine.SetGlobalProperty("__folio_worker_error_target", ScriptValue.Undefined);
     }
 
-    private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source)
+    private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source, IReadOnlyDictionary<string, string>? blobSources = null)
     {
         source = string.Empty;
+        if (blobSources is not null && blobSources.TryGetValue(url, out var blobSource)) { source = blobSource; return true; }
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             var comma = url.IndexOf(',');
@@ -319,11 +322,11 @@ internal sealed class WorkerState
         return true;
     }
 
-    private static bool TryReadScriptWithImports(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null)
+    private static bool TryReadScriptWithImports(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null, IReadOnlyDictionary<string, string>? blobSources = null)
     {
         source = string.Empty;
         seen ??= new HashSet<string>(StringComparer.Ordinal);
-        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source)) return false;
+        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source, blobSources)) return false;
         const string marker = "importScripts";
         for (var search = 0; ;)
         {
@@ -336,23 +339,23 @@ internal sealed class WorkerState
             if (open < 0 || quote < 0 || closeQuote < 0 || close < 0) { search = start + marker.Length; continue; }
             var reference = source[(quote + 1)..closeQuote];
             var resolved = ResolveScriptUrl(url, reference);
-            if (!TryReadScriptWithImports(resolved, resourceLoader, out var imported, seen)) return false;
+            if (!TryReadScriptWithImports(resolved, resourceLoader, out var imported, seen, blobSources)) return false;
             source = source.Remove(start, close - start + 1).Insert(start, imported);
             search = start + imported.Length;
         }
         return true;
     }
 
-    private static bool TryReadModuleScript(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null)
+    private static bool TryReadModuleScript(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null, IReadOnlyDictionary<string, string>? blobSources = null)
     {
         source = string.Empty;
         seen ??= new HashSet<string>(StringComparer.Ordinal);
-        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source)) return false;
+        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source, blobSources)) return false;
         var imports = new Regex("(?m)^\\s*import\\s+(?:(?:[^;\"']+?)\\s+from\\s+)?[\"']([^\"']+)[\"']\\s*;?\\s*", RegexOptions.Compiled);
         source = imports.Replace(source, match =>
         {
             var resolved = ResolveScriptUrl(url, match.Groups[1].Value);
-            return TryReadModuleScript(resolved, resourceLoader, out var imported, seen) ? imported + Environment.NewLine : string.Empty;
+            return TryReadModuleScript(resolved, resourceLoader, out var imported, seen, blobSources) ? imported + Environment.NewLine : string.Empty;
         });
         source = Regex.Replace(source, @"(?m)^\s*export\s+\{[^}]*\}\s*;?\s*$", string.Empty);
         source = Regex.Replace(source, @"\bexport\s+(?=(?:default\s+)?(?:const|let|var|function|class)\b)", string.Empty);

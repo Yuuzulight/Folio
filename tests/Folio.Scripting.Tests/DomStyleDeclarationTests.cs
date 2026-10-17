@@ -447,6 +447,13 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(moduleWorker.Evaluate("const modular = new Worker('data:text/javascript,' + encodeURIComponent('export const answer = 42; onmessage = function() { postMessage(answer); };'), { type: 'module' }); let moduleAnswer = 0; modular.onmessage = e => moduleAnswer = e.data; modular.postMessage(1); moduleAnswer === 42").AsBoolean());
 
+        using var blobWorker = new JintScriptEngine();
+        DomBindings.Install(blobWorker, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(blobWorker.Evaluate("const blob = new Blob(['onmessage = function() { postMessage(43); };'], { type: 'text/javascript' }); const blobUrl = URL.createObjectURL(blob); const fromBlob = new Worker(blobUrl); let blobAnswer = 0; fromBlob.onmessage = e => blobAnswer = e.data; fromBlob.postMessage(1); blobAnswer === 43").AsBoolean());
+
         using var closed = new JintScriptEngine();
         DomBindings.Install(closed, Document.Parse("<html></html>", new FolioOptions
         {
