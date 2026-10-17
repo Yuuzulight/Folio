@@ -24,6 +24,7 @@ internal sealed class IframeState
     public ElementNode Element { get; }
     public bool Enabled { get; }
     public string Origin { get; private set; }
+    public string ParentOrigin => BaseUri?.GetLeftPart(UriPartial.Authority) ?? string.Empty;
     public bool ScriptsAllowed => !HasSandbox || SandboxTokens.Contains("allow-scripts", StringComparer.OrdinalIgnoreCase);
     public bool FormsAllowed => !HasSandbox || SandboxTokens.Contains("allow-forms", StringComparer.OrdinalIgnoreCase);
     public bool HasSandbox => Element.GetAttribute("sandbox") is not null;

@@ -426,6 +426,7 @@ internal sealed class DomNodeTemplates
             {
                 var state = (IframeState)target;
                 state.LoadInlineDocument();
+                if (state.Origin != state.ParentOrigin) return ScriptValue.Null;
                 return state.ChildDocument is { } child ? _context.Wrap(child) : ScriptValue.Null;
             })
             .DefineProperty("onmessage", (target, _) => ((IframeState)target).OnMessage, (target, _, value) => ((IframeState)target).OnMessage = value)
@@ -462,6 +463,7 @@ internal sealed class DomNodeTemplates
             var state = _context.GetIframe((ElementNode)target);
             state.ElementObject = _context.Wrap((ElementNode)target);
             state.LoadInlineDocument();
+            if (state.Origin != state.ParentOrigin) return ScriptValue.Null;
             return state.ChildDocument is { } child ? _context.Wrap(child) : ScriptValue.Null;
         });
         return t;

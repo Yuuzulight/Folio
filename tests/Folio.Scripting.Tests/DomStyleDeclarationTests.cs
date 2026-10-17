@@ -990,6 +990,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(sandboxed.Evaluate("document.getElementById('f').contentWindow.origin === 'null' && document.getElementById('f').sandbox === 'allow-scripts' && document.getElementById('same').contentWindow.origin === 'https://child.example'").AsBoolean());
+        Assert.True(sandboxed.Evaluate("document.getElementById('same').contentDocument === null").AsBoolean());
         Assert.True(sandboxed.Evaluate("const dynamic = document.getElementById('f'); dynamic.sandbox = 'allow-same-origin allow-scripts'; dynamic.contentDocument; dynamic.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(sandboxed.Evaluate("dynamic.setAttribute('sandbox', 'allow-scripts'); dynamic.contentDocument; dynamic.contentWindow.origin === 'null'; dynamic.removeAttribute('sandbox'); dynamic.contentDocument; dynamic.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(sandboxed.Evaluate("let opaqueMessageOrigin = ''; dynamic.contentWindow.onmessage = e => opaqueMessageOrigin = e.origin; dynamic.sandbox = 'allow-scripts'; dynamic.contentWindow.postMessage('opaque', '*'); opaqueMessageOrigin === 'null'").AsBoolean());
@@ -1003,6 +1004,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(remote.Evaluate("document.getElementById('f').contentDocument.getElementById('remote').textContent === 'loaded'").AsBoolean());
+
+        using var crossOrigin = new JintScriptEngine();
+        DomBindings.Install(crossOrigin, Document.Parse("<iframe id='f' src='https://other.example/child.html'></iframe>", new FolioOptions
+        {
+            BaseUri = new Uri("https://child.example/"),
+            ResourceLoader = new IframeResourceLoader(),
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(crossOrigin.Evaluate("document.getElementById('f').contentDocument === null && document.getElementById('f').contentWindow.document === null").AsBoolean());
 
         using var refused = new JintScriptEngine();
         DomBindings.Install(refused, Document.Parse("<iframe id='f' src='/blocked.html'><p id='fallback'>fallback</p></iframe>", new FolioOptions
