@@ -76,4 +76,32 @@ public sealed class CapabilityMatrixTests
         Assert.True(DomBindings.Dispose(engine));
         Assert.Equal(0, engine.Evaluate("navigator.serviceWorker.getRegistrations().then(items => items.length)").AsNumber());
     }
+
+    [Fact]
+    public void IframeCapabilityRowExercisesRoutingSandboxAndFrameLimit()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("iframes" or "all")) return;
+
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, Document.Parse(
+            "<iframe id='one' sandbox='allow-same-origin' srcdoc='<p id=child>ok</p>'></iframe><iframe id='two'></iframe>",
+            new FolioOptions
+            {
+                BaseUri = new Uri("https://matrix.example/"),
+                Capabilities = capabilitiesFor(row),
+                Limits = ResourceLimits.Default with { MaxIframes = 1 }
+            }));
+
+        Assert.True(engine.Evaluate("const frame = document.getElementById('one'); frame.contentDocument.getElementById('child').textContent === 'ok' && frame.contentWindow.origin === 'https://matrix.example'").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => engine.Evaluate("document.getElementById('two').contentWindow"));
+
+        static FeatureCapabilities capabilitiesFor(string capabilityRow) => capabilityRow == "all"
+            ? new FeatureCapabilities
+            {
+                WebGl = true, Media = true, Workers = true, WebAssembly = true,
+                Iframes = true, WebRtc = true, ServiceWorkers = true
+            }
+            : new FeatureCapabilities { Iframes = true };
+    }
 }
