@@ -954,6 +954,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let removedNegotiations = 0; pc.onnegotiationneeded = e => removedNegotiations++; const removedSender = pc.addTrack({ kind: 'audio' }); pc.removeTrack(removedSender); removedSender.track === null && pc.getSenders().length === 2 && removedNegotiations === 2").AsBoolean());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.removeTrack({ track: null })"));
         Assert.True(allowed.Evaluate("const transceiver = pc.addTransceiver('video', { direction: 'recvonly' }); transceiver.setCodecPreferences([{ mimeType: 'video/VP8' }]); transceiver.kind === 'video' && transceiver.direction === 'recvonly' && transceiver.codecPreferences.length === 1 && pc.getTransceivers().length === 2; transceiver.stop(); transceiver.direction === 'inactive'").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.addTransceiver('data')"));
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.addTransceiver('audio', { direction: 'invalid' })"));
+        Assert.True(allowed.Evaluate("const defaultDirection = pc.addTransceiver('audio'); defaultDirection.direction === 'sendrecv'").AsBoolean());
         Assert.True(allowed.Evaluate("pc.getReceivers().length === pc.getTransceivers().length && pc.getReceivers()[0].track.kind === 'video'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('invalid') === null && RTCRtpReceiver.getCapabilities('invalid') === null").AsBoolean());
         Assert.True(allowed.Evaluate("const sending = pc.addTransceiver('audio'); sending.sender.setParameters({ encodings: [{ maxBitrate: 32000 }] }); sending.sender.getParameters().encodings.length === 1; sending.sender.replaceTrack({ kind: 'audio' })").IsObject);
