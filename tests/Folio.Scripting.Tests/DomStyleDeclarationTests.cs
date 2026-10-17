@@ -770,6 +770,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(remote.Evaluate("document.getElementById('f').contentDocument.getElementById('remote').textContent === 'loaded'").AsBoolean());
+
+        using var limited = new JintScriptEngine();
+        DomBindings.Install(limited, Document.Parse("<iframe id='one'></iframe><iframe id='two'></iframe>", new FolioOptions
+        {
+            Limits = ResourceLimits.Default with { MaxIframes = 1 },
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(limited.Evaluate("document.getElementById('one').contentWindow.closed === false").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => limited.Evaluate("document.getElementById('two').contentWindow"));
     }
 
     [Fact]

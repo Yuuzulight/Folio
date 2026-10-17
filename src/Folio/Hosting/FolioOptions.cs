@@ -39,6 +39,8 @@ public sealed record ResourceLimits
     public long MaxWorkerMemoryBytes { get; init; } = 64L * 1024 * 1024;
     /// <summary>Maximum bytes retained by the artifact's Cache API stores.</summary>
     public long MaxServiceWorkerCacheBytes { get; init; } = 64L * 1024 * 1024;
+    /// <summary>Maximum nested iframe contexts a document may create.</summary>
+    public int MaxIframes { get; init; } = 16;
 
     /// <summary>Maximum WebAssembly linear-memory bytes available to a document.</summary>
     public int MaxWebAssemblyBytes { get; init; } = 64 * 1024 * 1024;

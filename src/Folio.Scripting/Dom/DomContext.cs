@@ -16,6 +16,7 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private long _mediaBytesAllocated;
     private int _workerCount;
+    private int _iframeCount;
     private readonly List<WorkerState> _workers = [];
     private readonly object _workersGate = new();
     private CssomRegistry? _cssom;
@@ -78,7 +79,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -93,6 +94,7 @@ internal sealed class DomContext
         MaxWorkers = Math.Max(0, maxWorkers);
         MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
         MaxServiceWorkerCacheBytes = Math.Max(0, maxServiceWorkerCacheBytes);
+        MaxIframes = Math.Max(0, maxIframes);
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
@@ -116,6 +118,7 @@ internal sealed class DomContext
     public int MaxWorkers { get; }
     public long MaxWorkerMemoryBytes { get; }
     public long MaxServiceWorkerCacheBytes { get; }
+    public int MaxIframes { get; }
     public IArtifactStorage? ArtifactStorage { get; }
     public string ArtifactId { get; }
     public bool TryAcquireWorker()
@@ -226,7 +229,14 @@ internal sealed class DomContext
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;
     }
-    public IframeState GetIframe(ElementNode element) => _iframes.TryGetValue(element, out var state) ? state : (_iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri));
+    public IframeState GetIframe(ElementNode element)
+    {
+        if (_iframes.TryGetValue(element, out var state)) return state;
+        if (Capabilities.Iframes && _iframeCount >= MaxIframes)
+            throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The iframe limit has been exceeded.");
+        if (Capabilities.Iframes) _iframeCount++;
+        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri);
+    }
 
     public ScriptValue Wrap(Node? node)
     {

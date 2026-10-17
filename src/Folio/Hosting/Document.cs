@@ -39,6 +39,7 @@ public sealed class Document : IDisposable
     public int MaxWorkers => Options.Limits.MaxWorkers;
     public long MaxWorkerMemoryBytes => Options.Limits.MaxWorkerMemoryBytes;
     public long MaxServiceWorkerCacheBytes => Options.Limits.MaxServiceWorkerCacheBytes;
+    public int MaxIframes => Options.Limits.MaxIframes;
     public int MaxWebAssemblyBytes => Options.Limits.MaxWebAssemblyBytes;
     internal string ArtifactId => Options.ArtifactId;
     internal IArtifactStorage? ArtifactStorage => Options.ArtifactStorage;
