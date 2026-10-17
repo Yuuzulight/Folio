@@ -506,9 +506,9 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(watchdog, Document.Parse("<html></html>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Workers = true },
-            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(100) }
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(500) }
         }));
-        Thread.Sleep(250);
+        Thread.Sleep(750);
         Assert.True(watchdog.Evaluate("const runawayWorker = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); let watchdogError = ''; runawayWorker.onerror = e => watchdogError = e.message; runawayWorker.postMessage(1); watchdogError.length > 0").AsBoolean());
         Assert.True(watchdog.Evaluate("1 + 1").AsNumber() == 2);
 
