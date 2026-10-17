@@ -54,7 +54,7 @@ internal sealed class WorkerState
                     catch (Exception error) { _scriptError = error; }
                     finally { _workerExecuting = false; }
                 });
-                try { _startupTask.Wait(TimeSpan.FromMilliseconds(100)); }
+                try { _startupTask.Wait(TimeSpan.FromMilliseconds(500)); }
                 catch (AggregateException) { }
             }
             else
