@@ -930,7 +930,10 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const candidate = new RTCIceCandidate({ candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 }); const description = new RTCSessionDescription({ type: 'offer', sdp: '' }); candidate.candidate === 'candidate:1' && description.type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("JSON.stringify(candidate.toJSON()).includes('candidate:1') && description.toJSON().type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('audio').codecs[0].mimeType === 'audio/opus' && RTCRtpReceiver.getCapabilities('video').codecs.length === 2").AsBoolean());
-        Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 1 && stream.getAudioTracks().length === 1)").IsObject);
+        Assert.True(allowed.Evaluate("let deviceChanges = 0; let deviceEventTarget = false; navigator.mediaDevices.ondevicechange = e => { deviceChanges++; deviceEventTarget = e.target === navigator.mediaDevices; }; const deviceListener = () => deviceChanges++; navigator.mediaDevices.addEventListener('devicechange', deviceListener); navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 1 && stream.getAudioTracks().length === 1); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("deviceChanges === 2 && deviceEventTarget").AsBoolean());
+        Assert.True(allowed.Evaluate("navigator.mediaDevices.removeEventListener('devicechange', deviceListener); true").AsBoolean());
         Assert.True(allowed.Evaluate("let invalidCaptureError = ''; navigator.mediaDevices.getUserMedia({ audio: 'default' }).catch(error => invalidCaptureError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("invalidCaptureError").AsString());
