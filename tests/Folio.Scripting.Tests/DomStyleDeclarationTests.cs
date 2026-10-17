@@ -1022,7 +1022,7 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(loadedFrame.Evaluate("const loadedFrame = document.getElementById('f'); loadedFrame.contentWindow; let loadType = ''; let loadTarget = false; loadedFrame.onload = e => { loadType = e.type; loadTarget = e.target === loadedFrame; }; loadedFrame.contentDocument !== null; loadType === 'load' && loadTarget").AsBoolean());
+        Assert.True(loadedFrame.Evaluate("const loadedFrame = document.getElementById('f'); loadedFrame.contentWindow; let loadType = ''; let loadTarget = false; let loadListeners = 0; loadedFrame.onload = e => { loadType = e.type; loadTarget = e.target === loadedFrame; }; loadedFrame.addEventListener('load', () => loadListeners++); loadedFrame.contentDocument !== null; loadType === 'load' && loadTarget && loadListeners === 1").AsBoolean());
         using var srcdoc = new JintScriptEngine();
         DomBindings.Install(srcdoc, Document.Parse("<iframe id='f' srcdoc='<p id=child>inline</p>'></iframe>", new FolioOptions
         {

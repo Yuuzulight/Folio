@@ -106,6 +106,12 @@ internal sealed class IframeState
             html = System.Text.Encoding.UTF8.GetString(data);
         }
         ChildDocument = TreeBuilder.Parse(html);
+        if (ElementObject.IsObject)
+        {
+            Engine.SetGlobalProperty("__folio_iframe_load_target", ElementObject);
+            try { Engine.Evaluate("__folio_iframe_load_target.dispatchEvent(new Event('load'))"); }
+            finally { Engine.SetGlobalProperty("__folio_iframe_load_target", ScriptValue.Undefined); }
+        }
         if (OnLoad.IsFunction)
         {
             var target = ElementObject.IsObject ? ElementObject : Window.IsObject ? Window : Engine.CreateHostObject(MessageEventTemplate, this);
