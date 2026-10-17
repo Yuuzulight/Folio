@@ -429,6 +429,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true },
             Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(100) }
         }));
+        Thread.Sleep(250);
         Assert.True(watchdog.Evaluate("const runawayWorker = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); let watchdogError = ''; runawayWorker.onerror = e => watchdogError = e.message; runawayWorker.postMessage(1); watchdogError.length > 0").AsBoolean());
         Assert.True(watchdog.Evaluate("1 + 1").AsNumber() == 2);
 
