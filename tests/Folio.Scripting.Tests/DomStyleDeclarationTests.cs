@@ -682,6 +682,37 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void ServiceWorkerRegistrationMetadataPersistsPerArtifact()
+    {
+        var storage = new ArtifactMemoryStorage();
+        FolioOptions Options() => new()
+        {
+            ArtifactId = "persistent-sw",
+            ArtifactStorage = storage,
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ServiceWorkerResourceLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        };
+        using (var first = new JintScriptEngine())
+        {
+            DomBindings.Install(first, Document.Parse("<html></html>", Options()));
+            first.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+            first.PerformMicrotaskCheckpoint();
+        }
+        var persisted = storage.Read("service-worker-registration-%2F");
+        Assert.NotNull(persisted);
+        Assert.Contains("sw.js", persisted, StringComparison.Ordinal);
+        using var reopened = new JintScriptEngine();
+        DomBindings.Install(reopened, Document.Parse("<html></html>", Options()));
+        Assert.True(reopened.Evaluate("let restoredUrl = ''; navigator.serviceWorker.register('sw.js').then(r => restoredUrl = r.scriptURL); true").AsBoolean());
+        reopened.PerformMicrotaskCheckpoint();
+        Assert.Equal("sw.js", reopened.Evaluate("restoredUrl").AsString());
+        reopened.Evaluate("navigator.serviceWorker.getRegistration('/').then(r => r.unregister()); true");
+        reopened.PerformMicrotaskCheckpoint();
+        Assert.Null(storage.Read("service-worker-registration-%2F"));
+    }
+
+    [Fact]
     public void WebRtcPeerConnectionIsCapabilityGated()
     {
         using var denied = new JintScriptEngine();
