@@ -757,13 +757,23 @@ internal sealed class DomNodeTemplates
             }
             var source = state.BoundFramebuffer is { } framebuffer && state.FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && state.Textures.TryGetValue(texture, out var pixels) ? pixels : default;
             var sourcePixels = source.Pixels;
+            var sourceWidth = source.Width;
+            var sourceHeight = source.Height;
+            if (sourcePixels is null && state.Canvas.Surface() is { } surface)
+            {
+                sourcePixels = surface.ReadPixels(x, y, width, height);
+                sourceWidth = width;
+                sourceHeight = height;
+                x = 0;
+                y = 0;
+            }
             for (var row = 0; row < height; row++)
                 for (var column = 0; column < width; column++)
                 {
                     var sourceX = x + column;
                     var sourceY = y + row;
-                    var sourceIndex = sourcePixels is not null && sourceX >= 0 && sourceY >= 0 && sourceX < source.Width && sourceY < source.Height
-                        ? (sourceY * source.Width + sourceX) * 4 : -1;
+                    var sourceIndex = sourcePixels is not null && sourceX >= 0 && sourceY >= 0 && sourceX < sourceWidth && sourceY < sourceHeight
+                        ? (sourceY * sourceWidth + sourceX) * 4 : -1;
                     var destinationIndex = (row * width + column) * 4;
                     for (var channel = 0; channel < 4; channel++)
                         _context.Engine.TrySetArrayItem(args[6], destinationIndex + channel, ScriptValue.FromNumber(sourceIndex >= 0 ? sourcePixels![sourceIndex + channel] : 0));
