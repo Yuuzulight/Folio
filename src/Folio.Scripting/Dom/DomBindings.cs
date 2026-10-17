@@ -193,6 +193,7 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
         engine.SetGlobalProperty("__folio_wasm_max_pages", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 65536)));
+        engine.SetGlobalProperty("__folio_wasm_max_bytes", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes)));
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
         var serviceWorkerLoader = new HostObjectTemplate("ServiceWorkerLoader")
@@ -557,10 +558,10 @@ public static class DomBindings
                 compile: function(bytes) {
                     if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
                     if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
-                    var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) return Promise.resolve(cached.module);
+                    var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) { __folio_wasm_compile_cache.delete(key); __folio_wasm_compile_cache.set(key, cached); return Promise.resolve(cached.module); }
                     var module; try { module = new WebAssembly.Module(bytes); } catch (error) { return Promise.reject(error); }
-                    var size = bytes.byteLength || bytes.length || 0; var cap = Number(__folio_wasm_max_pages) * 65536;
-                    if (size <= cap && __folio_wasm_compile_cache_bytes + size <= cap) { __folio_wasm_compile_cache.set(key, { module: module, size: size }); __folio_wasm_compile_cache_bytes += size; }
+                    var size = bytes.byteLength || bytes.length || 0; var cap = Number(__folio_wasm_max_bytes);
+                    if (size <= cap) { while (__folio_wasm_compile_cache_bytes + size > cap && __folio_wasm_compile_cache.size) { var oldestKey = __folio_wasm_compile_cache.keys().next().value; var oldest = __folio_wasm_compile_cache.get(oldestKey); __folio_wasm_compile_cache.delete(oldestKey); __folio_wasm_compile_cache_bytes -= oldest ? oldest.size : 0; } if (__folio_wasm_compile_cache_bytes + size <= cap) { __folio_wasm_compile_cache.set(key, { module: module, size: size }); __folio_wasm_compile_cache_bytes += size; } }
                     return Promise.resolve(module);
                 },
                 compileStreaming: function(response) {
@@ -590,7 +591,7 @@ public static class DomBindings
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
                     if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
                     var moduleSize = bytes && (bytes.byteLength || bytes.length) || 0;
-                    if (moduleSize > Number(__folio_wasm_max_pages) * 65536) throw new RangeError('WebAssembly module size limit exceeded.');
+                    if (moduleSize > Number(__folio_wasm_max_bytes)) throw new RangeError('WebAssembly module size limit exceeded.');
                     if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
                     this.bytes = bytes; this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2); this._functions = __folio_wasm_functions(bytes); this._globals = __folio_wasm_globals(bytes); this._memories = __folio_wasm_memories(bytes); this._tables = __folio_wasm_tables(bytes); this._functionImportCount = this._imports.filter(function(entry) { return entry.kind === 0; }).length;
                 },

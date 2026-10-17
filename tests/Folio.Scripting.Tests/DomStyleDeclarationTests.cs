@@ -585,6 +585,16 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let compiledCacheHit = false; const cacheBytes = new Uint8Array([0,97,115,109,1,0,0,0]); WebAssembly.compile(cacheBytes).then(first => WebAssembly.compile(cacheBytes).then(second => compiledCacheHit = first === second)); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("compiledCacheHit").AsBoolean());
+        using var smallCache = new JintScriptEngine();
+        DomBindings.Install(smallCache, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = true },
+            Limits = ResourceLimits.Default with { MaxWebAssemblyBytes = 16 }
+        }));
+        Assert.True(smallCache.Evaluate("let replacementCacheHit = false; let replacementCacheError = false; const firstBytes = new Uint8Array([0,97,115,109,1,0,0,0,0,3,0,65,1]); const secondBytes = new Uint8Array([0,97,115,109,1,0,0,0,0,3,0,66,2]); WebAssembly.compile(firstBytes).then(first => WebAssembly.compile(secondBytes).then(() => WebAssembly.compile(firstBytes).then(firstAgain => WebAssembly.compile(firstBytes).then(repeated => replacementCacheHit = first !== firstAgain && firstAgain === repeated)))).catch(() => replacementCacheError = true); true").AsBoolean());
+        for (var checkpoint = 0; checkpoint < 32; checkpoint++) smallCache.PerformMicrotaskCheckpoint();
+        Assert.False(smallCache.Evaluate("replacementCacheError").AsBoolean());
+        Assert.True(smallCache.Evaluate("replacementCacheHit").AsBoolean());
         Assert.True(allowed.Evaluate("const module = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])); const instance = new WebAssembly.Instance(module, {}); module instanceof WebAssembly.Module && instance.exports !== null && WebAssembly.Module.exports(module).length === 0 && WebAssembly.Module.imports(module).length === 0").AsBoolean());
         Assert.True(allowed.Evaluate("const wasmBytes = new Uint8Array([0,97,115,109,1,0,0,0]).buffer; let wasmArrayBuffer = false; let wasmModuleInput = false; WebAssembly.compile(wasmBytes).then(m => WebAssembly.instantiate(wasmBytes, {}).then(() => wasmArrayBuffer = true)); WebAssembly.instantiate(module, {}).then(result => wasmModuleInput = result.module === module); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
