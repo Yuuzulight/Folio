@@ -381,8 +381,8 @@ internal sealed class WorkerState
     private void DispatchError(Exception error)
     {
         Engine.SetGlobalProperty("__folio_worker_error_message", ScriptValue.FromString(error.Message));
-        Engine.SetGlobalProperty("__folio_worker_error_target", Source);
-        var message = Engine.Evaluate("({ type: 'error', message: __folio_worker_error_message, target: __folio_worker_error_target })", ScriptUrl);
+        Engine.SetGlobalProperty("__folio_worker_error_target", ScriptValue.FromString(ScriptUrl));
+        var message = Engine.Evaluate("({ type: 'error', message: __folio_worker_error_message, filename: __folio_worker_error_target, lineno: 0, colno: 0, target: __folio_worker_error_target, preventDefault: function() {} })", ScriptUrl);
         if (OnError.IsFunction) Engine.Call(OnError, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("error", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
         Engine.SetGlobalProperty("__folio_worker_error_message", ScriptValue.Undefined);
