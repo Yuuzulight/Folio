@@ -118,7 +118,11 @@ internal sealed class DomNodeTemplates
             .DefineMethod("addCue", (target, _, args) =>
             {
                 if (args.Length < 3) throw WebIdlException.TypeError("addCue requires start time, end time, and text.");
-                ((MediaTextTrackState)target).Cues.Add(new TextTrackCueState(WebIdlConversions.ToDouble(args[0]), WebIdlConversions.ToDouble(args[1]), WebIdlConversions.ToDOMString(args[2])));
+                var state = (MediaTextTrackState)target;
+                var before = state.ActiveCues.ToArray();
+                state.Cues.Add(new TextTrackCueState(WebIdlConversions.ToDouble(args[0]), WebIdlConversions.ToDouble(args[1]), WebIdlConversions.ToDOMString(args[2])));
+                if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
+                    _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
                 return ScriptValue.Undefined;
             });
         Canvas = new CanvasTemplates(_context);
