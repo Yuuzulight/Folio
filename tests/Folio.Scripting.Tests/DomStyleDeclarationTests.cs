@@ -546,6 +546,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(denied, Document.Parse("<html></html>"));
         Assert.ThrowsAny<Exception>(() => denied.Evaluate("new RTCPeerConnection()"));
         Assert.True(denied.Evaluate("typeof navigator.mediaDevices.getUserMedia === 'function'").AsBoolean());
+        Assert.True(denied.Evaluate("navigator.mediaDevices.enumerateDevices().then(devices => devices.length === 0)").IsObject);
 
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
