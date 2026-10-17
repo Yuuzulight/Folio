@@ -523,6 +523,7 @@ public static class DomBindings
                     return Promise.resolve(module);
                 },
                 compileStreaming: function(response) {
+                    if (response && typeof response.then === 'function') return response.then(function(resolved) { return WebAssembly.compileStreaming(resolved); });
                     if (!response || typeof response.arrayBuffer !== 'function') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires a Response.'));
                     var contentType = response.headers && response.headers.get ? response.headers.get('content-type') : null;
                     if (!contentType || contentType.toLowerCase().split(';')[0].trim() !== 'application/wasm') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires an application/wasm response.'));
@@ -532,6 +533,7 @@ public static class DomBindings
                     return this.compile(bytes).then(function(module) { return { module: module, instance: new WebAssembly.Instance(module, imports) }; });
                 },
                 instantiateStreaming: function(response, imports) {
+                    if (response && typeof response.then === 'function') return response.then(function(resolved) { return WebAssembly.instantiateStreaming(resolved, imports); });
                     return this.compileStreaming(response).then(function(module) { return { module: module, instance: new WebAssembly.Instance(module, imports) }; });
                 },
                 Memory: function(options) {

@@ -554,6 +554,12 @@ public sealed class DomStyleDeclarationTests
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("streamingError").AsString());
         Assert.True(allowed.Evaluate("let streamedInstance = false; WebAssembly.instantiateStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }), {}).then(result => streamedInstance = result.instance instanceof WebAssembly.Instance); true").AsBoolean());
+        Assert.True(allowed.Evaluate("let promisedModule = false; WebAssembly.compileStreaming(Promise.resolve(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }))).then(module => promisedModule = module instanceof WebAssembly.Module); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("promisedModule").AsBoolean());
+        Assert.True(allowed.Evaluate("let promisedInstance = false; WebAssembly.instantiateStreaming(Promise.resolve(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } })), {}).then(result => promisedInstance = result.instance instanceof WebAssembly.Instance); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("promisedInstance").AsBoolean());
         for (var checkpoint = 0; checkpoint < 8; checkpoint++) allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("streamedInstance").AsBoolean());
         Assert.True(allowed.Evaluate("let compiledCacheHit = false; const cacheBytes = new Uint8Array([0,97,115,109,1,0,0,0]); WebAssembly.compile(cacheBytes).then(first => WebAssembly.compile(cacheBytes).then(second => compiledCacheHit = first === second)); true").AsBoolean());
