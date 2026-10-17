@@ -556,6 +556,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let streamedInstance = false; WebAssembly.instantiateStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/wasm' } }), {}).then(result => streamedInstance = result.instance instanceof WebAssembly.Instance); true").AsBoolean());
         for (var checkpoint = 0; checkpoint < 8; checkpoint++) allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("streamedInstance").AsBoolean());
+        Assert.True(allowed.Evaluate("let compiledCacheHit = false; const cacheBytes = new Uint8Array([0,97,115,109,1,0,0,0]); WebAssembly.compile(cacheBytes).then(first => WebAssembly.compile(cacheBytes).then(second => compiledCacheHit = first === second)); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("compiledCacheHit").AsBoolean());
         Assert.True(allowed.Evaluate("const module = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])); const instance = new WebAssembly.Instance(module, {}); module instanceof WebAssembly.Module && instance.exports !== null && WebAssembly.Module.exports(module).length === 0 && WebAssembly.Module.imports(module).length === 0").AsBoolean());
         Assert.True(allowed.Evaluate("const exported = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,7,7,1,3,114,117,110,0,0])); const exportedInstance = new WebAssembly.Instance(exported, {}); WebAssembly.Module.exports(exported)[0].name === 'run' && WebAssembly.Module.exports(exported)[0].kind === 0 && typeof exportedInstance.exports.run === 'function'").AsBoolean());
         Assert.Equal(42, allowed.Evaluate("const executable = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,65,42,11])); new WebAssembly.Instance(executable, {}).exports.run()").AsNumber());
