@@ -329,7 +329,10 @@ internal sealed class WebGlContextState
     public uint DepthFunction { get; set; } = 0x0203;
     public uint BlendSourceFactor { get; set; } = 1;
     public uint BlendDestinationFactor { get; set; } = 0;
+    public uint BlendSourceAlphaFactor { get; set; } = 1;
+    public uint BlendDestinationAlphaFactor { get; set; } = 0;
     public uint BlendEquation { get; set; } = 0x8006;
+    public uint BlendAlphaEquation { get; set; } = 0x8006;
     public uint StencilFunction { get; set; } = 0x0207;
     public int StencilReference { get; set; }
     public uint StencilMask { get; set; } = 0xFFFFFFFF;
