@@ -928,6 +928,9 @@ public sealed class DomStyleDeclarationTests
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("badDescription").AsBoolean());
         Assert.True(allowed.Evaluate("const stoppedPc = new RTCPeerConnection(); const stoppedTransceiver = stoppedPc.addTransceiver('audio'); stoppedTransceiver.stop(); let stoppedEvents = 0; stoppedPc.ontrack = () => stoppedEvents++; stoppedPc.setRemoteDescription({ type: 'answer' }); const noStoppedTrack = stoppedEvents === 0; stoppedPc.close(); noStoppedTrack").AsBoolean());
+        Assert.True(allowed.Evaluate("let closedDescriptionRejected = false; stoppedPc.setRemoteDescription({ type: 'answer' }).catch(error => closedDescriptionRejected = error.name === 'InvalidStateError'); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("closedDescriptionRejected").AsBoolean());
         Assert.True(allowed.Evaluate("let connectedEvents = 0; pc.onconnectionstatechange = e => connectedEvents++; pc.setRemoteDescription({ type: 'answer' }); pc.connectionState === 'connected' && pc.iceConnectionState === 'connected' && connectedEvents === 1").AsBoolean());
         Assert.True(allowed.Evaluate("const icePc = new RTCPeerConnection(); let iceConnected = 0; icePc.onconnectionstatechange = e => iceConnected++; icePc.addIceCandidate({ candidate: 'candidate:1' }); icePc.connectionState === 'connected' && iceConnected === 1").AsBoolean());
         Assert.True(allowed.Evaluate("icePc.addIceCandidate(null).then(() => true)").IsObject);
