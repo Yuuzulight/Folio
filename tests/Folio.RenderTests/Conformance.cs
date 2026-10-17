@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Folio;
 using Folio.Skia;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
@@ -202,7 +203,8 @@ public static class Conformance
     /// Executes a sequence of interaction script commands on a document (docs/study/19-testing.md):
     /// <c>click &lt;selector&gt;</c>, <c>hover &lt;selector&gt;</c>, <c>type &lt;selector&gt; &lt;text&gt;</c>,
     /// <c>key &lt;key&gt;</c>, <c>wheel &lt;selector&gt; &lt;dx&gt; &lt;dy&gt;</c>, <c>wait &lt;ms&gt;</c>,
-    /// and assertions <c>text &lt;selector&gt; &lt;expected&gt;</c>, <c>exists &lt;selector&gt;</c>.
+    /// and assertions <c>text &lt;selector&gt; &lt;expected&gt;</c>, <c>exists &lt;selector&gt;</c>; frame-scoped steps use
+    /// <c>frame &lt;iframe-selector&gt; &lt;click|exists|text&gt; &lt;child-selector&gt; [&lt;expected&gt;]</c>.
     /// Returns null on success, or an error description string on failure.
     /// </summary>
     public static string? RunScript(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight, ScriptHost? host = null)
@@ -221,6 +223,40 @@ public static class Conformance
 
             switch (cmd)
             {
+                case "frame":
+                {
+                    var frameParts = arg.Split(' ', 3, StringSplitOptions.TrimEntries);
+                    if (frameParts.Length < 3)
+                        return $"step {i + 1} ({line}): expected frame selector, command, and selector";
+                    var childSelector = frameParts[2];
+                    var expectedText = (string?)null;
+                    var childCommand = frameParts[1].ToLowerInvariant();
+                    if (childCommand == "text")
+                    {
+                        var textParts = frameParts[2].Split(' ', 2, StringSplitOptions.TrimEntries);
+                        if (textParts.Length < 2)
+                            return $"step {i + 1} ({line}): expected frame text selector and value";
+                        childSelector = textParts[0];
+                        expectedText = textParts[1];
+                    }
+                    var frame = document.QuerySelector(frameParts[0]);
+                    var source = frame?.GetAttribute("srcdoc");
+                    if (source is null)
+                        return $"step {i + 1} ({line}): frame not found or has no srcdoc '{frameParts[0]}'";
+                    using var child = Document.Parse(source);
+                    var childElement = child.QuerySelector(childSelector);
+                    if (childElement is null)
+                        return $"step {i + 1} ({line}): element not found in frame '{frameParts[2]}'";
+                    if (childCommand == "click") childElement.Click();
+                    else if (childCommand == "exists") { }
+                    else if (childCommand == "text")
+                    {
+                        if (!string.Equals(childElement.TextContent.Trim(), expectedText!.Trim(), StringComparison.Ordinal))
+                            return $"step {i + 1} ({line}): frame text mismatch";
+                    }
+                    else return $"step {i + 1} ({line}): unknown frame command '{childCommand}'";
+                    break;
+                }
                 case "click":
                 {
                     var el = document.QuerySelector(arg);

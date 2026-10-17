@@ -119,6 +119,14 @@ public class ConformanceTests
     }
 
     [Fact]
+    public void InteractionScriptResolvesSrcdocFrameSelectors()
+    {
+        using var doc = Document.Parse("<iframe id='preview' srcdoc='<p id=message>Nested text</p><button id=go>Go</button>'></iframe>");
+        var error = Conformance.RunScript(doc, ["frame #preview exists #message", "frame #preview text #message Nested text", "frame #preview click #go"], 800, 600);
+        Assert.Null(error);
+    }
+
+    [Fact]
     public void InteractionScriptFailsOnMissingElementOrAssertionMismatch()
     {
         const string html = "<!DOCTYPE html><div id=box>hello</div>";
