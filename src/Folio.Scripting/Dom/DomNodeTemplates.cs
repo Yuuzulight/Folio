@@ -519,6 +519,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("BLEND_EQUATION_RGB", (_, _) => ScriptValue.FromNumber(0x8009));
         t.DefineProperty("BLEND_EQUATION_ALPHA", (_, _) => ScriptValue.FromNumber(0x883D));
         t.DefineProperty("COLOR_WRITEMASK", (_, _) => ScriptValue.FromNumber(0x0C23));
+        t.DefineProperty("DEPTH_WRITEMASK", (_, _) => ScriptValue.FromNumber(0x0B72));
         t.DefineProperty("STENCIL_TEST", (_, _) => ScriptValue.FromNumber(0x0B90));
         t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
@@ -605,6 +606,7 @@ internal sealed class DomNodeTemplates
                 0x8009 => ScriptValue.FromNumber(((WebGlContextState)target).BlendEquation),
                 0x883D => ScriptValue.FromNumber(((WebGlContextState)target).BlendAlphaEquation),
                 0x0C23 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ColorMaskRed.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskGreen.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskBlue.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskAlpha.ToString().ToLowerInvariant()}]"),
+                0x0B72 => ScriptValue.FromBoolean(((WebGlContextState)target).DepthMask),
                 0x8824 => ScriptValue.FromNumber(4),
                 0x8825 => ScriptValue.FromNumber(((WebGlContextState)target).DrawBuffers.Count > 0 ? ((WebGlContextState)target).DrawBuffers[0] : 0x0405),
                 _ => ScriptValue.Null
@@ -735,6 +737,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("disable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("clearDepth", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearDepth = Math.Clamp((float)WebIdlConversions.ToDouble(args[0]), 0, 1); return ScriptValue.Undefined; });
         t.DefineMethod("depthFunc", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DepthFunction = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
+        t.DefineMethod("depthMask", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DepthMask = WebIdlConversions.ToBoolean(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("blendFunc", (target, _, args) => { if (args.Length > 1) { var state = (WebGlContextState)target; var source = WebIdlConversions.ToUint32(args[0]); var destination = WebIdlConversions.ToUint32(args[1]); state.BlendSourceFactor = source; state.BlendDestinationFactor = destination; state.BlendSourceAlphaFactor = source; state.BlendDestinationAlphaFactor = destination; } return ScriptValue.Undefined; });
         t.DefineMethod("blendFuncSeparate", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.BlendSourceFactor = WebIdlConversions.ToUint32(args[0]); state.BlendDestinationFactor = WebIdlConversions.ToUint32(args[1]); state.BlendSourceAlphaFactor = WebIdlConversions.ToUint32(args[2]); state.BlendDestinationAlphaFactor = WebIdlConversions.ToUint32(args[3]); } return ScriptValue.Undefined; });
         t.DefineMethod("blendEquation", (target, _, args) => { if (args.Length > 0) { var state = (WebGlContextState)target; var equation = WebIdlConversions.ToUint32(args[0]); state.BlendEquation = equation; state.BlendAlphaEquation = equation; } return ScriptValue.Undefined; });

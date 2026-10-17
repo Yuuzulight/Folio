@@ -327,6 +327,7 @@ internal sealed class WebGlContextState
     public HashSet<uint> EnabledCapabilities { get; } = [];
     public float ClearDepth { get; set; } = 1;
     public uint DepthFunction { get; set; } = 0x0203;
+    public bool DepthMask { get; set; } = true;
     public uint BlendSourceFactor { get; set; } = 1;
     public uint BlendDestinationFactor { get; set; } = 0;
     public uint BlendSourceAlphaFactor { get; set; } = 1;
@@ -598,7 +599,7 @@ internal sealed class WebGlContextState
                 Fill(renderbufferPixels.Pixels, clear, renderbufferPixels.Width, renderbufferPixels.Height, clipped);
                 Renderbuffers[renderbuffer] = renderbufferPixels;
             }
-            if (clearDepth && FramebufferDepthRenderbufferAttachments.TryGetValue(framebuffer, out var depthBuffer) && Renderbuffers.TryGetValue(depthBuffer, out var depthPixels))
+            if (clearDepth && DepthMask && FramebufferDepthRenderbufferAttachments.TryGetValue(framebuffer, out var depthBuffer) && Renderbuffers.TryGetValue(depthBuffer, out var depthPixels))
             {
                 FillDepth(depthPixels.Pixels, ClearDepth, depthPixels.Width, depthPixels.Height, clipped);
                 Renderbuffers[depthBuffer] = depthPixels;
