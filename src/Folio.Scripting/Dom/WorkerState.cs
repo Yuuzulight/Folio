@@ -11,6 +11,7 @@ internal sealed class WorkerState
     private readonly IReadOnlyDictionary<string, string>? _blobSources;
     private readonly object _workerGate = new();
     private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingMessages = new();
+    private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingParentMessages = new();
     private bool _released;
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
@@ -69,6 +70,7 @@ internal sealed class WorkerState
                 });
                 try { _startupTask.Wait(TimeSpan.FromMilliseconds(500)); }
                 catch (AggregateException) { }
+                DrainParentMessages();
             }
             else
             {
@@ -168,25 +170,30 @@ internal sealed class WorkerState
             }
             var transferred = TransferList(Engine, transfer);
             var message = CloneIntoWorker(value);
-            lock (_workerGate)
+            var workerTask = Task.Run(() =>
             {
-                if (Terminated) return true;
-                if (_workerExecuting)
+                lock (_workerGate)
                 {
-                    _pendingMessages.Enqueue((value, transfer));
-                    return true;
+                    if (Terminated) return;
+                    if (_workerExecuting)
+                    {
+                        _pendingMessages.Enqueue((value, transfer));
+                        return;
+                    }
+                    _workerExecuting = true;
+                    try
+                    {
+                        WorkerEngine.SetGlobalProperty("__folio_worker_message_data", message);
+                        WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
+                        ExecuteWithWatchdog(() => WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
+                        WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
+                    }
+                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { ReportError(error); } catch { } } }
+                    finally { _workerExecuting = false; }
                 }
-                _workerExecuting = true;
-                try
-                {
-                    WorkerEngine.SetGlobalProperty("__folio_worker_message_data", message);
-                    WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
-                    ExecuteWithWatchdog(() => WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
-                    WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
-                }
-                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { ReportError(error); } catch { } } }
-                finally { _workerExecuting = false; }
-            }
+            });
+            workerTask.GetAwaiter().GetResult();
+            DrainParentMessages();
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
             DrainPendingMessages();
             return true;
@@ -217,12 +224,28 @@ internal sealed class WorkerState
     private void DispatchToParent(ScriptValue value, ScriptValue transfer)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return;
+        lock (_workerGate) _pendingParentMessages.Enqueue((value, transfer));
+    }
+
+    private void DrainParentMessages()
+    {
+        while (true)
+        {
+            (ScriptValue Value, ScriptValue Transfer) next;
+            lock (_workerGate)
+            {
+                if (_pendingParentMessages.Count == 0) return;
+                next = _pendingParentMessages.Dequeue();
+            }
+            var value = next.Value;
+            var transfer = next.Transfer;
         var transferred = TransferList(WorkerEngine!, transfer);
         value = CloneIntoParent(value);
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
         foreach (var item in transferred) WorkerEngine!.TryDetachArrayBuffer(item);
+        }
     }
 
     private static IReadOnlyList<ScriptValue> TransferList(IScriptEngine engine, ScriptValue transfer)
