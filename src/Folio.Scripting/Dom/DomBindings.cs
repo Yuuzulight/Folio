@@ -325,6 +325,7 @@ public static class DomBindings
                 }
                 return result;
             }
+            var __folio_wasm_compile_cache = new Map();
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 RuntimeError: function(message) { this.name = 'RuntimeError'; this.message = String(message || ''); },
@@ -334,10 +335,20 @@ public static class DomBindings
                 },
                 compile: function(bytes) {
                     if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
-                    return Promise.resolve(new WebAssembly.Module(bytes));
+                    var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) return Promise.resolve(cached);
+                    var module = new WebAssembly.Module(bytes); __folio_wasm_compile_cache.set(key, module); return Promise.resolve(module);
+                },
+                compileStreaming: function(response) {
+                    if (!response || typeof response.arrayBuffer !== 'function') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires a Response.'));
+                    var contentType = response.headers && response.headers.get ? response.headers.get('content-type') : null;
+                    if (!contentType || contentType.toLowerCase().split(';')[0].trim() !== 'application/wasm') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires an application/wasm response.'));
+                    return response.arrayBuffer().then(function(buffer) { return WebAssembly.compile(new Uint8Array(buffer)); });
                 },
                 instantiate: function(bytes, imports) {
                     return this.compile(bytes).then(function(module) { return { module: module, instance: new WebAssembly.Instance(module, imports) }; });
+                },
+                instantiateStreaming: function(response, imports) {
+                    return this.compileStreaming(response).then(function(module) { return { module: module, instance: new WebAssembly.Instance(module, imports) }; });
                 },
                 Memory: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
