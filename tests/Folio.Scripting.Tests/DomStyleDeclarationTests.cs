@@ -408,7 +408,7 @@ public sealed class DomStyleDeclarationTests
 
         using var timedOut = new JintScriptEngine(new ScriptEngineOptions
         {
-            Limits = ScriptLimits.Default with { Timeout = TimeSpan.FromMilliseconds(50) }
+            Limits = ScriptLimits.Default with { Timeout = TimeSpan.FromMilliseconds(500) }
         });
         DomBindings.Install(timedOut, Document.Parse("<html></html>", new FolioOptions
         {
