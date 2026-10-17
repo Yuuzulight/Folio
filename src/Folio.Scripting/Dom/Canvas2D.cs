@@ -471,6 +471,12 @@ internal sealed class WebGlContextState
         var viewportY = ViewportY;
         var viewportWidth = ViewportWidth > 0 ? ViewportWidth : surface.Width;
         var viewportHeight = ViewportHeight > 0 ? ViewportHeight : surface.Height;
+        var clipped = EnabledCapabilities.Contains(0x0C11);
+        if (clipped)
+        {
+            surface.Canvas.Save();
+            surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
+        }
         float Read(int vertex, int component)
         {
             var offset = (long)vertexIndex(vertex) * stride + pointer.Offset + component * 4;
@@ -490,6 +496,8 @@ internal sealed class WebGlContextState
             Canvas.Surface()!.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
                 FillRule.NonZero, new Paint(color, Blend: BlendMode.Copy));
         }
+        if (clipped)
+            surface.Canvas.Restore();
         Canvas.Touch();
     }
     public void DeleteTexture(uint handle)

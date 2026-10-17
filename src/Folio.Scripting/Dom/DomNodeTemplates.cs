@@ -504,6 +504,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("COLOR_BUFFER_BIT", (_, _) => ScriptValue.FromNumber(0x4000));
         t.DefineProperty("DEPTH_BUFFER_BIT", (_, _) => ScriptValue.FromNumber(0x0100));
         t.DefineProperty("DEPTH_TEST", (_, _) => ScriptValue.FromNumber(0x0B71));
+        t.DefineProperty("SCISSOR_TEST", (_, _) => ScriptValue.FromNumber(0x0C11));
         t.DefineProperty("LEQUAL", (_, _) => ScriptValue.FromNumber(0x0203));
         t.DefineProperty("BLEND", (_, _) => ScriptValue.FromNumber(0x0BE2));
         t.DefineProperty("SRC_ALPHA", (_, _) => ScriptValue.FromNumber(0x0302));
