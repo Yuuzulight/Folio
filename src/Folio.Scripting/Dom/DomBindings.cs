@@ -530,13 +530,25 @@ public static class DomBindings
                 return result;
             }
             var __folio_wasm_compile_cache = new Map(), __folio_wasm_compile_cache_bytes = 0;
+            function __folio_wasm_validate_bytes(bytes) {
+                if (!bytes || bytes.length < 8 || bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 || bytes[3] !== 109 || bytes[4] !== 1 || bytes[5] !== 0 || bytes[6] !== 0 || bytes[7] !== 0) return false;
+                var cursor = 8, lastSection = 0;
+                while (cursor < bytes.length) {
+                    var section = bytes[cursor++]; if (section > 12) return false;
+                    if (section !== 0 && section <= lastSection) return false;
+                    var size = 0, shift = 0, read = 0, part;
+                    do { if (cursor >= bytes.length || read++ === 5) return false; part = bytes[cursor++]; size += (part & 127) * Math.pow(2, shift); shift += 7; } while (part & 128);
+                    if (!Number.isSafeInteger(size) || size > bytes.length - cursor) return false;
+                    cursor += size; if (section !== 0) lastSection = section;
+                }
+                return cursor === bytes.length;
+            }
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 RuntimeError: function(message) { this.name = 'RuntimeError'; this.message = String(message || ''); },
                 validate: function(bytes) {
                     if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
-                    if (!__folio_wasm_enabled || !bytes || bytes.length < 8) return false;
-                    return bytes[0] === 0 && bytes[1] === 97 && bytes[2] === 115 && bytes[3] === 109 && bytes[4] === 1 && bytes[5] === 0 && bytes[6] === 0 && bytes[7] === 0;
+                    return __folio_wasm_enabled && __folio_wasm_validate_bytes(bytes);
                 },
                 compile: function(bytes) {
                     if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
