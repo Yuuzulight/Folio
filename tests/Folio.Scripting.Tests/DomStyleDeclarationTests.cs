@@ -862,6 +862,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let devicesBeforeCapture = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesBeforeCapture = devices.length); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(0, allowed.Evaluate("devicesBeforeCapture").AsNumber());
+        Assert.True(allowed.Evaluate("navigator.mediaDevices.getSupportedConstraints().audio && navigator.mediaDevices.getSupportedConstraints().width && navigator.mediaDevices.getSupportedConstraints().echoCancellation").AsBoolean());
         Assert.True(allowed.Evaluate("const candidate = new RTCIceCandidate({ candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 }); const description = new RTCSessionDescription({ type: 'offer', sdp: '' }); candidate.candidate === 'candidate:1' && description.type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("JSON.stringify(candidate.toJSON()).includes('candidate:1') && description.toJSON().type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('audio').codecs[0].mimeType === 'audio/opus' && RTCRtpReceiver.getCapabilities('video').codecs.length === 2").AsBoolean());
