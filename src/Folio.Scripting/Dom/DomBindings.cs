@@ -196,6 +196,7 @@ public static class DomBindings
                 getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             };
+            if (!__folio_service_workers_enabled) delete globalThis.navigator.serviceWorker;
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));

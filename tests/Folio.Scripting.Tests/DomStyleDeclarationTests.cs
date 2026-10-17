@@ -499,8 +499,7 @@ public sealed class DomStyleDeclarationTests
     {
         using var denied = new JintScriptEngine();
         DomBindings.Install(denied, Document.Parse("<html></html>"));
-        Assert.True(denied.Evaluate("typeof navigator.serviceWorker.register === 'function'").AsBoolean());
-        Assert.True(denied.Evaluate("navigator.serviceWorker.controller === null").AsBoolean());
+        Assert.True(denied.Evaluate("typeof navigator.serviceWorker === 'undefined'").AsBoolean());
 
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
