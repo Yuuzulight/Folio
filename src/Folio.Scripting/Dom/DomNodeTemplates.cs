@@ -108,13 +108,14 @@ internal sealed class DomNodeTemplates
                     var before = state.ActiveCues.ToArray();
                     state.Mode = WebIdlConversions.ToDOMString(value);
                     var after = state.ActiveCues;
-                    if (!before.SequenceEqual(after) && state.OnCueChange.IsFunction)
-                        _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                    if (!before.SequenceEqual(after)) DispatchCueChange(state);
                 })
             .DefineProperty("cues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).Cues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
             .DefineProperty("activeCues", (target, _) => _context.Engine.CreateArray(((MediaTextTrackState)target).ActiveCues.Select(cue => _context.Engine.CreateHostObject(TextTrackCueTemplate, cue)).ToArray()))
             .DefineProperty("oncuechange", (target, _) => ((MediaTextTrackState)target).OnCueChange,
                 (target, _, value) => ((MediaTextTrackState)target).OnCueChange = value)
+            .DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1 && WebIdlConversions.ToDOMString(args[0]) == "cuechange" && args[1].IsFunction && !((MediaTextTrackState)target).CueChangeListeners.Contains(args[1])) ((MediaTextTrackState)target).CueChangeListeners.Add(args[1]); return ScriptValue.Undefined; })
+            .DefineMethod("removeEventListener", (target, _, args) => { if (args.Length > 1 && WebIdlConversions.ToDOMString(args[0]) == "cuechange") ((MediaTextTrackState)target).CueChangeListeners.Remove(args[1]); return ScriptValue.Undefined; })
             .DefineMethod("addCue", (target, _, args) =>
             {
                 if (args.Length < 3) throw WebIdlException.TypeError("addCue requires start time, end time, and text.");
@@ -125,8 +126,7 @@ internal sealed class DomNodeTemplates
                 if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end) || end < start)
                     throw WebIdlException.DomException(DomExceptionNames.IndexSizeError, "The cue end time must be finite and at least its start time.");
                 state.Cues.Add(new TextTrackCueState(start, end, WebIdlConversions.ToDOMString(args[2])));
-                if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
-                    _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                if (!before.SequenceEqual(state.ActiveCues)) DispatchCueChange(state);
                 return ScriptValue.Undefined;
             })
             .DefineMethod("removeCue", (target, _, args) =>
@@ -144,8 +144,7 @@ internal sealed class DomNodeTemplates
                 if (before.Contains(removed) && removed.OnExit.IsFunction)
                     _context.Engine.Call(removed.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
                 state.Cues.RemoveAt(index);
-                if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
-                    _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                if (!before.SequenceEqual(state.ActiveCues)) DispatchCueChange(state);
                 return ScriptValue.Undefined;
             });
         Canvas = new CanvasTemplates(_context);
@@ -276,11 +275,7 @@ internal sealed class DomNodeTemplates
                     foreach (var cue in active.Except(wasActive))
                         if (cue.OnEnter.IsFunction)
                             _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
-                    if (!wasActive.SequenceEqual(active) && track.OnCueChange.IsFunction)
-                    {
-                        var cueEvent = _context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"));
-                        _context.Engine.Call(track.OnCueChange, ScriptValue.Undefined, [cueEvent]);
-                    }
+                    if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
                 }
                 if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); }
             });
@@ -370,8 +365,7 @@ internal sealed class DomNodeTemplates
                         if (cue.OnExit.IsFunction) _context.Engine.Call(cue.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
                     foreach (var cue in active.Except(wasActive))
                         if (cue.OnEnter.IsFunction) _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
-                    if (!wasActive.SequenceEqual(active) && track.OnCueChange.IsFunction)
-                        _context.Engine.Call(track.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                    if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
                 }
                 state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration;
                 state.Dispatch(ScriptValue.Null, "seeked");
@@ -398,6 +392,14 @@ internal sealed class DomNodeTemplates
         return t;
 
         static int ReadMediaDimension(ElementNode element, string attribute) => int.TryParse(element.GetAttribute(attribute), out var value) ? Math.Max(0, value) : 0;
+    }
+
+    private void DispatchCueChange(MediaTextTrackState state)
+    {
+        var cueEvent = _context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"));
+        if (state.OnCueChange.IsFunction) _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [cueEvent]);
+        foreach (var listener in state.CueChangeListeners.ToArray())
+            if (listener.IsFunction) _context.Engine.Call(listener, ScriptValue.Undefined, [cueEvent]);
     }
 
     private ScriptValue CreateMediaRanges(ElementNode element, bool? buffered)

@@ -262,6 +262,7 @@ internal sealed class MediaTextTrackState(string kind, string label, string lang
         }
     }
     public List<TextTrackCueState> Cues { get; } = [];
+    public List<ScriptValue> CueChangeListeners { get; } = [];
     public ScriptValue OnCueChange { get; set; } = ScriptValue.Null;
     public double CurrentTime { get; set; }
     public IReadOnlyList<TextTrackCueState> ActiveCues => Mode == "disabled"
