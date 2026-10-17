@@ -340,6 +340,8 @@ internal sealed class WebGlContextState
     public HashSet<uint> TextureMipmaps { get; } = [];
     public HashSet<uint> Framebuffers { get; } = [];
     public Dictionary<uint, uint> FramebufferColorAttachments { get; } = [];
+    public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Renderbuffers { get; } = [];
+    public Dictionary<uint, uint> FramebufferRenderbufferAttachments { get; } = [];
     public List<uint> DrawBuffers { get; } = [];
     public uint ReadBuffer { get; set; } = 0x0405;
     public HashSet<uint> VertexArrays { get; } = [];
@@ -350,6 +352,7 @@ internal sealed class WebGlContextState
     public uint? BoundTexture { get; set; }
     public uint ActiveTextureUnit { get; set; } = 0x84C0;
     public uint? BoundFramebuffer { get; set; }
+    public uint? BoundRenderbuffer { get; set; }
     public uint? BoundArrayBuffer { get; set; }
     public uint? CurrentProgram { get; set; }
     public uint? BoundVertexArray { get; set; }
@@ -410,7 +413,25 @@ internal sealed class WebGlContextState
     {
         Framebuffers.Remove(handle);
         FramebufferColorAttachments.Remove(handle);
+        FramebufferRenderbufferAttachments.Remove(handle);
         if (BoundFramebuffer == handle) BoundFramebuffer = null;
+    }
+    public void DeleteRenderbuffer(uint handle)
+    {
+        if (Renderbuffers.Remove(handle, out var renderbuffer))
+            AllocatedBytes = Math.Max(0, AllocatedBytes - renderbuffer.Pixels.Length);
+        foreach (var attachment in FramebufferRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
+            FramebufferRenderbufferAttachments.Remove(attachment);
+        if (BoundRenderbuffer == handle) BoundRenderbuffer = null;
+    }
+    public bool ReplaceRenderbuffer(uint handle, int width, int height, int bytes)
+    {
+        var oldBytes = Renderbuffers.TryGetValue(handle, out var existing) ? existing.Pixels.Length : 0;
+        var nextTotal = AllocatedBytes - oldBytes + bytes;
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        AllocatedBytes = nextTotal;
+        Renderbuffers[handle] = (width, height, new byte[bytes]);
+        return true;
     }
     public bool ReplaceTexture(uint handle, int width, int height, int bytes)
     {
