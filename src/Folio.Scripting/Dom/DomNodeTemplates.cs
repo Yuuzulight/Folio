@@ -617,6 +617,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("isShader", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Shaders.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("getShaderParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) && shader.Compiled));
         t.DefineMethod("getShaderInfoLog", (target, _, args) => ScriptValue.FromString(args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) && !shader.Compiled ? (shader.Source.Length > 1_000_000 ? "Shader source exceeds the host limit." : "Shader source is missing a valid main entry point.") : ""));
+        t.DefineMethod("getShaderSource", (target, _, args) => args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) ? ScriptValue.FromString(shader.Source) : ScriptValue.Null);
         t.DefineMethod("createProgram", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Programs.Add(handle); return ScriptValue.FromNumber(handle); });
         t.DefineMethod("attachShader", (target, _, args) =>
         {
@@ -657,6 +658,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("isProgram", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Programs.Contains(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("getProgramParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 1 && WebIdlConversions.ToUint32(args[1]) == 0x8B82 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("getProgramInfoLog", (target, _, args) => ScriptValue.FromString(args.Length > 0 && !((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? "Program is not linked." : ""));
+        t.DefineMethod("getAttachedShaders", (target, _, args) => { var state = (WebGlContextState)target; var shaders = args.Length > 0 && state.ProgramShaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var attached) ? attached : []; return _context.Engine.CreateArray(shaders.Select(handle => ScriptValue.FromNumber(handle)).ToArray()); });
         t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 1 ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("getAttribLocation", (target, _, args) =>
             ScriptValue.FromNumber(args.Length > 1 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? 0 : -1));
