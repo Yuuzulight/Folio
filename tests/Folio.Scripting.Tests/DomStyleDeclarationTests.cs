@@ -568,6 +568,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(capped.Evaluate("let cappedCompileRejected = false; WebAssembly.compile(new Uint8Array([0,97,115,109,1,0,0,0])).catch(error => cappedCompileRejected = error.name === 'RangeError'); true").AsBoolean());
         capped.PerformMicrotaskCheckpoint();
         Assert.True(capped.Evaluate("cappedCompileRejected").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => capped.Evaluate("new WebAssembly.Table({ initial: 2 })"));
         Assert.True(allowed.Evaluate("let streamingError = ''; WebAssembly.compileStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/octet-stream' } })).catch(error => streamingError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("streamingError").AsString());

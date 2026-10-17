@@ -195,6 +195,7 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_wasm_enabled", ScriptValue.FromBoolean(context.Capabilities.WebAssembly));
         engine.SetGlobalProperty("__folio_wasm_max_pages", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 65536)));
         engine.SetGlobalProperty("__folio_wasm_max_bytes", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes)));
+        engine.SetGlobalProperty("__folio_wasm_max_table_elements", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 4)));
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
         var serviceWorkerLoader = new HostObjectTemplate("ServiceWorkerLoader")
@@ -604,8 +605,8 @@ public static class DomBindings
                 },
                 Table: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
-                    options = options || {}; this._maximum = options.maximum === undefined ? 100000 : Number(options.maximum); this._entries = [];
-                    var initial = Number(options.initial) || 0; if (!Number.isInteger(initial) || !Number.isInteger(this._maximum) || initial < 0 || this._maximum < 0 || initial > this._maximum || initial > 100000) throw new RangeError('WebAssembly table limit exceeded.');
+                    options = options || {}; this._maximum = options.maximum === undefined ? __folio_wasm_max_table_elements : Number(options.maximum); this._entries = [];
+                    var initial = Number(options.initial) || 0; if (!Number.isInteger(initial) || !Number.isInteger(this._maximum) || initial < 0 || this._maximum < 0 || this._maximum > __folio_wasm_max_table_elements || initial > this._maximum) throw new RangeError('WebAssembly table limit exceeded.');
                     for (var i = 0; i < initial; i++) this._entries.push(null);
                 },
                 Global: function(options, value) {
@@ -623,7 +624,7 @@ public static class DomBindings
             Object.defineProperty(WebAssembly.Table.prototype, 'length', { get: function() { return this._entries.length; } });
             WebAssembly.Table.prototype.grow = function(delta, value) {
                 delta = Number(delta); var previous = this._entries.length; var next = previous + delta;
-                if (!Number.isInteger(delta) || delta < 0 || next > this._maximum || next > 100000) throw new RangeError('WebAssembly table limit exceeded.');
+                if (!Number.isInteger(delta) || delta < 0 || next > this._maximum || next > __folio_wasm_max_table_elements) throw new RangeError('WebAssembly table limit exceeded.');
                 for (var i = previous; i < next; i++) this._entries.push(value === undefined ? null : value); return previous;
             };
             WebAssembly.Table.prototype.get = function(index) { index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); return this._entries[index]; };
