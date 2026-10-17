@@ -1122,7 +1122,7 @@ public sealed class DomStyleDeclarationTests
             ResourceLoader = new RefusingIframeResourceLoader(),
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(refused.Evaluate("const blocked = document.getElementById('f'); blocked.contentDocument === null && blocked.textContent.includes('fallback')").AsBoolean());
+        Assert.True(refused.Evaluate("const blocked = document.getElementById('f'); let errorType = ''; let errorTarget = false; blocked.onerror = e => { errorType = e.type; errorTarget = e.target === blocked; }; blocked.contentDocument === null && blocked.textContent.includes('fallback') && errorType === 'error' && errorTarget").AsBoolean());
 
         using var limited = new JintScriptEngine();
         DomBindings.Install(limited, Document.Parse("<iframe id='one'></iframe><iframe id='two'></iframe>", new FolioOptions

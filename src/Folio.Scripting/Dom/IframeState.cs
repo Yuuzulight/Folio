@@ -34,6 +34,7 @@ internal sealed class IframeState
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoad { get; set; } = ScriptValue.Null;
+    public ScriptValue OnError { get; set; } = ScriptValue.Null;
     public ScriptValue ElementObject { get; set; } = ScriptValue.Null;
     public ScriptValue Window { get; set; } = ScriptValue.Null;
     public DocumentNode? ChildDocument { get; private set; }
@@ -92,17 +93,21 @@ internal sealed class IframeState
         else if (source.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
         {
             var comma = source.IndexOf(',');
-            if (comma < 0) return;
+            if (comma < 0) { DispatchError(); return; }
             var payload = source[(comma + 1)..];
-            html = source[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
-                ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload))
-                : Uri.UnescapeDataString(payload);
+            try
+            {
+                html = source[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
+                    ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload))
+                    : Uri.UnescapeDataString(payload);
+            }
+            catch (FormatException) { DispatchError(); return; }
         }
         else
         {
-            if (ResourceLoader is null || !Uri.TryCreate(source, UriKind.Absolute, out var uri)) return;
+            if (ResourceLoader is null || !Uri.TryCreate(source, UriKind.Absolute, out var uri)) { DispatchError(); return; }
             var response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document), CancellationToken.None).GetAwaiter().GetResult();
-            if (response?.Data is not { } data) return;
+            if (response?.Data is not { } data) { DispatchError(); return; }
             html = System.Text.Encoding.UTF8.GetString(data);
         }
         ChildDocument = TreeBuilder.Parse(html);
@@ -119,6 +124,27 @@ internal sealed class IframeState
             var eventValue = Engine.Evaluate("({ type: 'load', target: __folio_iframe_load_target })");
             Engine.SetGlobalProperty("__folio_iframe_load_target", ScriptValue.Undefined);
             Engine.Call(OnLoad, ScriptValue.Undefined, [eventValue]);
+        }
+    }
+
+    private void DispatchError()
+    {
+        if (ElementObject.IsObject)
+        {
+            Engine.SetGlobalProperty("__folio_iframe_error_target", ElementObject);
+            try { Engine.Evaluate("__folio_iframe_error_target.dispatchEvent(new Event('error'))"); }
+            finally { Engine.SetGlobalProperty("__folio_iframe_error_target", ScriptValue.Undefined); }
+        }
+        if (OnError.IsFunction)
+        {
+            var target = ElementObject.IsObject ? ElementObject : Window.IsObject ? Window : Engine.CreateHostObject(MessageEventTemplate, this);
+            Engine.SetGlobalProperty("__folio_iframe_error_target", target);
+            try
+            {
+                var eventValue = Engine.Evaluate("({ type: 'error', target: __folio_iframe_error_target })");
+                Engine.Call(OnError, ScriptValue.Undefined, [eventValue]);
+            }
+            finally { Engine.SetGlobalProperty("__folio_iframe_error_target", ScriptValue.Undefined); }
         }
     }
 }

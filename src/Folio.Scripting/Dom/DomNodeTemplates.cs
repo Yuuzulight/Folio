@@ -471,6 +471,8 @@ internal sealed class DomNodeTemplates
             (target, _, value) => ((ElementNode)target).SetAttribute("allow", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("onload", (target, _) => _context.GetIframe((ElementNode)target).OnLoad,
             (target, _, value) => { var state = _context.GetIframe((ElementNode)target); state.ElementObject = _context.Wrap((ElementNode)target); state.OnLoad = value; });
+        t.DefineProperty("onerror", (target, _) => _context.GetIframe((ElementNode)target).OnError,
+            (target, _, value) => { var state = _context.GetIframe((ElementNode)target); state.ElementObject = _context.Wrap((ElementNode)target); state.OnError = value; });
         t.DefineProperty("contentWindow", (target, _) =>
         {
             var state = _context.GetIframe((ElementNode)target);
