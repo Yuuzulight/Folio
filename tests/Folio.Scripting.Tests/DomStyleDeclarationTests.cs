@@ -958,6 +958,8 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.addTransceiver('data')"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.addTransceiver('audio', { direction: 'invalid' })"));
         Assert.True(allowed.Evaluate("const defaultDirection = pc.addTransceiver('audio'); defaultDirection.direction === 'sendrecv'").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("defaultDirection.setCodecPreferences('bad')"));
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("defaultDirection.setCodecPreferences([{ mimeType: 'video/VP8' }])"));
         Assert.True(allowed.Evaluate("pc.getReceivers().length === pc.getTransceivers().length && pc.getReceivers()[0].track.kind === 'video'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('invalid') === null && RTCRtpReceiver.getCapabilities('invalid') === null").AsBoolean());
         Assert.True(allowed.Evaluate("const sending = pc.addTransceiver('audio'); sending.sender.setParameters({ encodings: [{ maxBitrate: 32000 }] }); sending.sender.getParameters().encodings.length === 1; sending.sender.replaceTrack({ kind: 'audio' })").IsObject);
