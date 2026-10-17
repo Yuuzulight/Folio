@@ -519,10 +519,12 @@ public static class DomBindings
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 RuntimeError: function(message) { this.name = 'RuntimeError'; this.message = String(message || ''); },
                 validate: function(bytes) {
+                    if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
                     if (!__folio_wasm_enabled || !bytes || bytes.length < 8) return false;
                     return bytes[0] === 0 && bytes[1] === 97 && bytes[2] === 115 && bytes[3] === 109 && bytes[4] === 1 && bytes[5] === 0 && bytes[6] === 0 && bytes[7] === 0;
                 },
                 compile: function(bytes) {
+                    if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
                     if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
                     var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) return Promise.resolve(cached.module);
                     var module; try { module = new WebAssembly.Module(bytes); } catch (error) { return Promise.reject(error); }
@@ -538,6 +540,7 @@ public static class DomBindings
                     return response.arrayBuffer().then(function(buffer) { return WebAssembly.compile(new Uint8Array(buffer)); });
                 },
                 instantiate: function(bytes, imports) {
+                    if (bytes instanceof WebAssembly.Module) return Promise.resolve({ module: bytes, instance: new WebAssembly.Instance(bytes, imports) });
                     return this.compile(bytes).then(function(module) { return { module: module, instance: new WebAssembly.Instance(module, imports) }; });
                 },
                 instantiateStreaming: function(response, imports) {
