@@ -919,6 +919,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("invalidType && invalidRange").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("rejected").AsBoolean());
+        Assert.True(allowed.Evaluate("let localDescriptionRejected = false; pc.setLocalDescription({ type: 'invalid' }).catch(error => localDescriptionRejected = error.name === 'TypeError'); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("localDescriptionRejected").AsBoolean());
         Assert.True(allowed.Evaluate("pc.iceGatheringState === 'new' && pc.getConfiguration() !== null; pc.setLocalDescription({ type: 'offer' }); pc.iceGatheringState === 'complete'; pc.restartIce(); pc.iceGatheringState === 'new'").AsBoolean());
         Assert.True(allowed.Evaluate("const remote = pc.addTransceiver('video'); let remoteKind = ''; let remoteStreams = 0; pc.ontrack = e => { remoteKind = e.track.kind; remoteStreams = e.streams.length; }; pc.signalingState === 'have-local-offer' && candidates === 1; pc.setRemoteDescription({ type: 'answer' }); pc.signalingState === 'stable' && remoteKind === 'video' && remoteStreams === 1").AsBoolean());
         Assert.True(allowed.Evaluate("let badDescription = false; pc.setRemoteDescription({ type: 'invalid' }).catch(error => badDescription = error.name === 'TypeError'); true").AsBoolean());
