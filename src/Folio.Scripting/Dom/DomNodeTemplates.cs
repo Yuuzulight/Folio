@@ -518,6 +518,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("BLEND_DST_ALPHA", (_, _) => ScriptValue.FromNumber(0x80CA));
         t.DefineProperty("BLEND_EQUATION_RGB", (_, _) => ScriptValue.FromNumber(0x8009));
         t.DefineProperty("BLEND_EQUATION_ALPHA", (_, _) => ScriptValue.FromNumber(0x883D));
+        t.DefineProperty("COLOR_WRITEMASK", (_, _) => ScriptValue.FromNumber(0x0C23));
         t.DefineProperty("STENCIL_TEST", (_, _) => ScriptValue.FromNumber(0x0B90));
         t.DefineProperty("TEXTURE_2D", (_, _) => ScriptValue.FromNumber(0x0DE1));
         t.DefineProperty("RGBA", (_, _) => ScriptValue.FromNumber(0x1908));
@@ -603,6 +604,7 @@ internal sealed class DomNodeTemplates
                 0x80CA => ScriptValue.FromNumber(((WebGlContextState)target).BlendDestinationAlphaFactor),
                 0x8009 => ScriptValue.FromNumber(((WebGlContextState)target).BlendEquation),
                 0x883D => ScriptValue.FromNumber(((WebGlContextState)target).BlendAlphaEquation),
+                0x0C23 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ColorMaskRed.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskGreen.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskBlue.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskAlpha.ToString().ToLowerInvariant()}]"),
                 0x8824 => ScriptValue.FromNumber(4),
                 0x8825 => ScriptValue.FromNumber(((WebGlContextState)target).DrawBuffers.Count > 0 ? ((WebGlContextState)target).DrawBuffers[0] : 0x0405),
                 _ => ScriptValue.Null
@@ -737,6 +739,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("blendFuncSeparate", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.BlendSourceFactor = WebIdlConversions.ToUint32(args[0]); state.BlendDestinationFactor = WebIdlConversions.ToUint32(args[1]); state.BlendSourceAlphaFactor = WebIdlConversions.ToUint32(args[2]); state.BlendDestinationAlphaFactor = WebIdlConversions.ToUint32(args[3]); } return ScriptValue.Undefined; });
         t.DefineMethod("blendEquation", (target, _, args) => { if (args.Length > 0) { var state = (WebGlContextState)target; var equation = WebIdlConversions.ToUint32(args[0]); state.BlendEquation = equation; state.BlendAlphaEquation = equation; } return ScriptValue.Undefined; });
         t.DefineMethod("blendEquationSeparate", (target, _, args) => { if (args.Length > 1) { var state = (WebGlContextState)target; state.BlendEquation = WebIdlConversions.ToUint32(args[0]); state.BlendAlphaEquation = WebIdlConversions.ToUint32(args[1]); } return ScriptValue.Undefined; });
+        t.DefineMethod("colorMask", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.ColorMaskRed = WebIdlConversions.ToBoolean(args[0]); state.ColorMaskGreen = WebIdlConversions.ToBoolean(args[1]); state.ColorMaskBlue = WebIdlConversions.ToBoolean(args[2]); state.ColorMaskAlpha = WebIdlConversions.ToBoolean(args[3]); } return ScriptValue.Undefined; });
         t.DefineMethod("stencilFunc", (target, _, args) => { if (args.Length > 2) { var state = (WebGlContextState)target; state.StencilFunction = WebIdlConversions.ToUint32(args[0]); state.StencilReference = WebIdlConversions.ToInt32(args[1]); state.StencilMask = WebIdlConversions.ToUint32(args[2]); } return ScriptValue.Undefined; });
         t.DefineMethod("stencilOp", (target, _, args) => { if (args.Length > 2) { var state = (WebGlContextState)target; state.StencilFail = WebIdlConversions.ToUint32(args[0]); state.StencilDepthFail = WebIdlConversions.ToUint32(args[1]); state.StencilDepthPass = WebIdlConversions.ToUint32(args[2]); } return ScriptValue.Undefined; });
         t.DefineMethod("clearStencil", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearStencil = WebIdlConversions.ToInt32(args[0]); return ScriptValue.Undefined; });

@@ -333,6 +333,10 @@ internal sealed class WebGlContextState
     public uint BlendDestinationAlphaFactor { get; set; } = 0;
     public uint BlendEquation { get; set; } = 0x8006;
     public uint BlendAlphaEquation { get; set; } = 0x8006;
+    public bool ColorMaskRed { get; set; } = true;
+    public bool ColorMaskGreen { get; set; } = true;
+    public bool ColorMaskBlue { get; set; } = true;
+    public bool ColorMaskAlpha { get; set; } = true;
     public uint StencilFunction { get; set; } = 0x0207;
     public int StencilReference { get; set; }
     public uint StencilMask { get; set; } = 0xFFFFFFFF;
@@ -604,6 +608,14 @@ internal sealed class WebGlContextState
         if (!clearColor || _canvas.Surface() is not { } surface)
             return;
         var color = new Rgba(ClearR, ClearG, ClearB, ClearA);
+        if (!ColorMaskRed || !ColorMaskGreen || !ColorMaskBlue || !ColorMaskAlpha)
+        {
+            var pixels = surface.ReadPixels(0, 0, surface.Width, surface.Height);
+            Fill(pixels, clear, surface.Width, surface.Height, clipped);
+            surface.WritePixels(0, 0, surface.Width, surface.Height, pixels);
+            _canvas.Touch();
+            return;
+        }
         if (clipped)
             surface.Canvas.Save();
         if (clipped)
@@ -619,7 +631,7 @@ internal sealed class WebGlContextState
             if (!clipped)
             {
                 for (var i = 0; i + 3 < pixels.Length; i += 4)
-                    color.AsSpan().CopyTo(pixels.AsSpan(i, 4));
+                    WriteColor(pixels, i, color);
                 return;
             }
             var left = Math.Clamp(ScissorX, 0, width);
@@ -628,7 +640,15 @@ internal sealed class WebGlContextState
             var bottom = Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
             for (var y = top; y < bottom; y++)
                 for (var x = left; x < right; x++)
-                    color.AsSpan().CopyTo(pixels.AsSpan((y * width + x) * 4, 4));
+                    WriteColor(pixels, (y * width + x) * 4, color);
+        }
+
+        void WriteColor(byte[] pixels, int offset, byte[] color)
+        {
+            if (ColorMaskRed) pixels[offset] = color[0];
+            if (ColorMaskGreen) pixels[offset + 1] = color[1];
+            if (ColorMaskBlue) pixels[offset + 2] = color[2];
+            if (ColorMaskAlpha) pixels[offset + 3] = color[3];
         }
 
         void FillDepth(byte[] pixels, float depth, int width, int height, bool clipped)
