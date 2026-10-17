@@ -566,7 +566,7 @@ public static class DomBindings
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
                     options = options || {}; this._pages = Number(options.initial) || 0;
                     this._maximum = options.maximum === undefined ? __folio_wasm_max_pages : Number(options.maximum);
-                    if (this._pages < 0 || this._pages > this._maximum || this._pages > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
+                    if (!Number.isInteger(this._pages) || !Number.isInteger(this._maximum) || this._pages < 0 || this._maximum < 0 || this._pages > this._maximum || this._pages > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
                     this.buffer = new ArrayBuffer(this._pages * 65536);
                 },
                 Module: function(bytes) {
@@ -585,7 +585,7 @@ public static class DomBindings
                 Table: function(options) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
                     options = options || {}; this._maximum = options.maximum === undefined ? 100000 : Number(options.maximum); this._entries = [];
-                    var initial = Number(options.initial) || 0; if (initial < 0 || initial > this._maximum || initial > 100000) throw new RangeError('WebAssembly table limit exceeded.');
+                    var initial = Number(options.initial) || 0; if (!Number.isInteger(initial) || !Number.isInteger(this._maximum) || initial < 0 || this._maximum < 0 || initial > this._maximum || initial > 100000) throw new RangeError('WebAssembly table limit exceeded.');
                     for (var i = 0; i < initial; i++) this._entries.push(null);
                 },
                 Global: function(options, value) {
@@ -595,14 +595,14 @@ public static class DomBindings
                 }
             };
             WebAssembly.Memory.prototype.grow = function(delta) {
-                delta = Number(delta) || 0; var previous = this._pages; var next = previous + delta;
-                if (delta < 0 || next > this._maximum || next > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
+                delta = Number(delta); var previous = this._pages; var next = previous + delta;
+                if (!Number.isInteger(delta) || delta < 0 || next > this._maximum || next > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
                 this._pages = next; this.buffer = new ArrayBuffer(next * 65536); return previous;
             };
             Object.defineProperty(WebAssembly.Table.prototype, 'length', { get: function() { return this._entries.length; } });
             WebAssembly.Table.prototype.grow = function(delta, value) {
-                delta = Number(delta) || 0; var previous = this._entries.length; var next = previous + delta;
-                if (delta < 0 || next > this._maximum || next > 100000) throw new RangeError('WebAssembly table limit exceeded.');
+                delta = Number(delta); var previous = this._entries.length; var next = previous + delta;
+                if (!Number.isInteger(delta) || delta < 0 || next > this._maximum || next > 100000) throw new RangeError('WebAssembly table limit exceeded.');
                 for (var i = previous; i < next; i++) this._entries.push(value === undefined ? null : value); return previous;
             };
             WebAssembly.Table.prototype.get = function(index) { index = Number(index); if (index < 0 || index >= this._entries.length) throw new RangeError('WebAssembly table index out of range.'); return this._entries[index]; };

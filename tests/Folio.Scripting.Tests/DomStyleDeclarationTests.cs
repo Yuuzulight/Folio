@@ -629,6 +629,10 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Instance(tableImport, { env: { tab: new WebAssembly.Memory({ initial: 1 }) } })"));
         Assert.True(allowed.Evaluate("const memory = new WebAssembly.Memory({ initial: 1, maximum: 2 }); memory.buffer.byteLength === 65536 && memory.grow(1) === 1 && memory.buffer.byteLength === 131072").AsBoolean());
         Assert.True(allowed.Evaluate("const table = new WebAssembly.Table({ initial: 1, maximum: 2 }); table.set(0, 7); table.get(0) === 7 && table.grow(1) === 1 && table.length === 2").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1.5 })"));
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Table({ initial: 1, maximum: 2.5 })"));
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1 }).grow(0.5)"));
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Table({ initial: 1 }).grow(0.5)"));
         Assert.True(allowed.Evaluate("const global = new WebAssembly.Global({ value: 'i32', mutable: true }, 4); global.valueOf() === 4; global.value = 9; global.value === 9").AsBoolean());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1, maximum: 2 }).grow(2)"));
     }
