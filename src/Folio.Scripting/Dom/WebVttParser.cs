@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed record WebVttCue(double StartTime, double EndTime, string Text);
+internal sealed record WebVttCue(double StartTime, double EndTime, string Text, string Id = "");
 
 internal static class WebVttParser
 {
@@ -17,6 +17,7 @@ internal static class WebVttParser
             while (i < lines.Length && string.IsNullOrWhiteSpace(lines[i])) i++;
             if (i >= lines.Length) break;
             if (lines[i].StartsWith("NOTE", StringComparison.Ordinal)) { while (i < lines.Length && !string.IsNullOrWhiteSpace(lines[i])) i++; continue; }
+            var cueId = "";
             string timing;
             if (lines[i].Contains("-->", StringComparison.Ordinal))
             {
@@ -24,6 +25,7 @@ internal static class WebVttParser
             }
             else if (i + 1 < lines.Length && lines[i + 1].Contains("-->", StringComparison.Ordinal))
             {
+                cueId = lines[i].Trim();
                 timing = lines[i + 1];
                 i += 2;
             }
@@ -37,7 +39,7 @@ internal static class WebVttParser
             if (arrow <= 0 || endParts.Length == 0 || !TryTime(timing[..arrow].Trim(), out var start) || !TryTime(endParts[0], out var end) || end < start) { while (i < lines.Length && !string.IsNullOrWhiteSpace(lines[i])) i++; continue; }
             var text = new List<string>();
             while (i < lines.Length && !string.IsNullOrWhiteSpace(lines[i])) text.Add(lines[i++]);
-            cues.Add(new WebVttCue(start, end, System.Net.WebUtility.HtmlDecode(string.Join('\n', text))));
+            cues.Add(new WebVttCue(start, end, System.Net.WebUtility.HtmlDecode(string.Join('\n', text)), cueId));
         }
         return cues;
     }

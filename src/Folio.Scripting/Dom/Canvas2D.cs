@@ -25,6 +25,7 @@ internal sealed class MediaElementState : IImageHandle
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
         if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes)) Error = "Media resource is corrupt or truncated.";
+        LoadTextTracks();
     }
 
     public ElementNode Element { get; }
@@ -58,6 +59,25 @@ internal sealed class MediaElementState : IImageHandle
     private bool _capabilityDisabled;
     public long SourceBytes { get; private set; }
     public List<MediaTextTrackState> TextTracks { get; } = [];
+
+    private void LoadTextTracks()
+    {
+        foreach (var element in Element.Children.OfType<ElementNode>().Where(child => child.Name.Namespace == Namespaces.Html && child.LocalName == "track"))
+        {
+            var kind = element.GetAttribute("kind") ?? "subtitles";
+            var track = new MediaTextTrackState(kind, element.GetAttribute("label") ?? "", element.GetAttribute("srclang") ?? "")
+            {
+                Mode = element.GetAttribute("default") is not null ? "showing" : "disabled"
+            };
+            var bytes = LoadSourceBytes(element.GetAttribute("src"), _resourceLoader, _baseUri);
+            if (bytes is not null)
+            {
+                foreach (var cue in WebVttParser.Parse(System.Text.Encoding.UTF8.GetString(bytes)))
+                    track.Cues.Add(new TextTrackCueState(cue.StartTime, cue.EndTime, cue.Text, cue.Id));
+            }
+            TextTracks.Add(track);
+        }
+    }
     public void RejectForBudget(string message = "Media resource exceeds the host budget.") => Error = message;
     public void SetCapability(bool enabled)
     {

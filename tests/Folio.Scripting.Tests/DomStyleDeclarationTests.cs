@@ -392,6 +392,19 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void MediaElementsLoadWebVttTrackChildren()
+    {
+        using var engine = new JintScriptEngine();
+        var vtt = "data:text/vtt,WEBVTT%0A%0Aintro%0A00:00.500%20--%3E%2000:02.000%0AHello%20%26amp%3B%20world";
+        DomBindings.Install(engine, Document.Parse($"<video id='v'><track kind='captions' label='English' srclang='en' default src='{vtt}'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true }
+        }));
+
+        Assert.True(engine.Evaluate("const v = document.getElementById('v'); const t = v.textTracks[0]; v.currentTime = 1; t.kind === 'captions' && t.label === 'English' && t.language === 'en' && t.mode === 'showing' && t.cues.length === 1 && t.cues[0].id === 'intro' && t.cues[0].text === 'Hello & world' && t.activeCues.length === 1").AsBoolean());
+    }
+
+    [Fact]
     public void WorkerIsCapabilityGatedAndDeliversBoundedMessages()
     {
         using var denied = new JintScriptEngine();
