@@ -618,7 +618,33 @@ internal sealed class DomNodeTemplates
                 state.BufferValues.Remove(bufferHandle);
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("bufferSubData", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundArrayBuffer is not { } handle || args.Length < 3 || !state.Buffers.TryGetValue(handle, out var buffer)) { state.SetError(0x0502); return ScriptValue.Undefined; } var offset = Math.Max(0, WebIdlConversions.ToInt32(args[1])); var size = args[2].IsNumber ? Math.Max(0, WebIdlConversions.ToInt32(args[2])) : _context.Engine.TryGetArrayItems(args[2], out var data) ? data.Count * 4 : 0; if (offset > buffer.Length || size > buffer.Length - offset) state.SetError(0x0501); return ScriptValue.Undefined; });
+        t.DefineMethod("bufferSubData", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            var handle = args.Length > 0 && WebIdlConversions.ToUint32(args[0]) == 0x8893 ? state.BoundElementArrayBuffer : state.BoundArrayBuffer;
+            if (handle is not { } bufferHandle || args.Length < 3 || !state.Buffers.TryGetValue(bufferHandle, out var buffer)) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var offset = Math.Max(0, WebIdlConversions.ToInt32(args[1]));
+            if (args[2].IsNumber)
+            {
+                var sizeBytes = Math.Max(0, WebIdlConversions.ToInt32(args[2]));
+                if (offset > buffer.Length || sizeBytes > buffer.Length - offset) state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+            if (!_context.Engine.TryGetArrayItems(args[2], out var data)) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var size = data.Count * 4;
+            if (offset > buffer.Length || size > buffer.Length - offset) { state.SetError(0x0501); return ScriptValue.Undefined; }
+            state.BufferValues.TryGetValue(bufferHandle, out var values);
+            var nextValues = values ?? new double[Math.Max(0, buffer.Length / 4)];
+            if (nextValues.Length < (offset + size) / 4) Array.Resize(ref nextValues, (offset + size) / 4);
+            for (var i = 0; i < data.Count; i++)
+            {
+                var value = WebIdlConversions.ToDouble(data[i]);
+                BitConverter.TryWriteBytes(buffer.AsSpan(offset + i * 4, 4), (float)value);
+                nextValues[offset / 4 + i] = value;
+            }
+            state.BufferValues[bufferHandle] = nextValues;
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("getBufferSubData", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundArrayBuffer is not { } handle || args.Length < 3 || !state.Buffers.TryGetValue(handle, out var buffer) || !_context.Engine.TryGetArrayItems(args[2], out var destination)) { state.SetError(0x0502); return ScriptValue.Undefined; } var offset = Math.Max(0, WebIdlConversions.ToInt32(args[1])); if (offset > buffer.Length || destination.Count > buffer.Length - offset) { state.SetError(0x0501); return ScriptValue.Undefined; } for (var i = 0; i < destination.Count; i++) _context.Engine.TrySetArrayItem(args[2], i, ScriptValue.FromNumber(buffer[offset + i])); return ScriptValue.Undefined; });
         t.DefineMethod("deleteBuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteBuffer(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isBuffer", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Buffers.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
