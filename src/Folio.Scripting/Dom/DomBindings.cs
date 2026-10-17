@@ -325,7 +325,7 @@ public static class DomBindings
                 }
                 return result;
             }
-            var __folio_wasm_compile_cache = new Map();
+            var __folio_wasm_compile_cache = new Map(), __folio_wasm_compile_cache_bytes = 0;
             globalThis.WebAssembly = {
                 CompileError: function(message) { this.name = 'CompileError'; this.message = String(message || ''); },
                 RuntimeError: function(message) { this.name = 'RuntimeError'; this.message = String(message || ''); },
@@ -335,8 +335,10 @@ public static class DomBindings
                 },
                 compile: function(bytes) {
                     if (!this.validate(bytes)) return Promise.reject(new WebAssembly.CompileError('Invalid WebAssembly module'));
-                    var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) return Promise.resolve(cached);
-                    var module = new WebAssembly.Module(bytes); __folio_wasm_compile_cache.set(key, module); return Promise.resolve(module);
+                    var key = Array.from(bytes).join(','); var cached = __folio_wasm_compile_cache.get(key); if (cached) return Promise.resolve(cached.module);
+                    var module = new WebAssembly.Module(bytes); var size = bytes.byteLength || bytes.length || 0; var cap = Number(__folio_wasm_max_pages) * 65536;
+                    if (size <= cap && __folio_wasm_compile_cache_bytes + size <= cap) { __folio_wasm_compile_cache.set(key, { module: module, size: size }); __folio_wasm_compile_cache_bytes += size; }
+                    return Promise.resolve(module);
                 },
                 compileStreaming: function(response) {
                     if (!response || typeof response.arrayBuffer !== 'function') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires a Response.'));
