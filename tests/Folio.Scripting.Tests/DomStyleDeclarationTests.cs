@@ -29,6 +29,19 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("unsupported"));
     }
 
+    private sealed class ModuleWorkerResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            var source = request.Url.EndsWith("dep.js", StringComparison.Ordinal)
+                ? "export const answer = 41;"
+                : "import { answer } from './dep.js'; onmessage = function() { postMessage(answer + 1); };";
+            return Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes(source), "application/javascript")
+                : ResourceResponse.Refused("wrong resource kind"));
+        }
+    }
+
     private sealed class ImportingWorkerResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
@@ -465,6 +478,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(blobWorker.Evaluate("const blob = new Blob(['onmessage = function() { postMessage(43); };'], { type: 'text/javascript' }); const blobUrl = URL.createObjectURL(blob); const fromBlob = new Worker(blobUrl); let blobAnswer = 0; fromBlob.onmessage = e => blobAnswer = e.data; fromBlob.postMessage(1); blobAnswer === 43").AsBoolean());
+
+        using var importedModuleWorker = new JintScriptEngine();
+        DomBindings.Install(importedModuleWorker, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ModuleWorkerResourceLoader(),
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(importedModuleWorker.Evaluate("const importedModule = new Worker('main.js', { type: 'module' }); let importedModuleAnswer = 0; importedModule.onmessage = e => importedModuleAnswer = e.data; importedModule.postMessage(1); importedModuleAnswer === 42").AsBoolean());
 
         using var closed = new JintScriptEngine();
         DomBindings.Install(closed, Document.Parse("<html></html>", new FolioOptions
