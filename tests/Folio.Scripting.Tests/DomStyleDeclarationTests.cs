@@ -972,6 +972,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(sandboxed.Evaluate("const dynamic = document.getElementById('f'); dynamic.sandbox = 'allow-same-origin allow-scripts'; dynamic.contentDocument; dynamic.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(sandboxed.Evaluate("dynamic.setAttribute('sandbox', 'allow-scripts'); dynamic.contentDocument; dynamic.contentWindow.origin === 'null'; dynamic.removeAttribute('sandbox'); dynamic.contentDocument; dynamic.contentWindow.origin === 'https://child.example'").AsBoolean());
         Assert.True(sandboxed.Evaluate("let opaqueMessageOrigin = ''; dynamic.contentWindow.onmessage = e => opaqueMessageOrigin = e.origin; dynamic.sandbox = 'allow-scripts'; dynamic.contentWindow.postMessage('opaque', '*'); opaqueMessageOrigin === 'null'").AsBoolean());
+        Assert.True(sandboxed.Evaluate("dynamic.sandbox = ''; dynamic.src = 'https://other.example/app'; dynamic.contentWindow.origin === 'https://other.example'; dynamic.setAttribute('src', 'https://third.example/app'); dynamic.contentWindow.origin === 'https://third.example'").AsBoolean());
 
         using var remote = new JintScriptEngine();
         DomBindings.Install(remote, Document.Parse("<iframe id='f' src='/child.html'></iframe>", new FolioOptions
