@@ -422,6 +422,29 @@ internal sealed class WebGlContextState
     public void DrawElements(uint mode, uint type, int count, int offset)
     {
         DrawCalls++;
+        DrawElementsCore(mode, type, count, offset);
+    }
+
+    public void DrawArraysInstanced(uint mode, int first, int count, int instanceCount)
+    {
+        DrawCalls++;
+        if (instanceCount < 0 || instanceCount > 1024)
+            return;
+        for (var instance = 0; instance < instanceCount; instance++)
+            DrawTriangles(mode, count, vertex => first + vertex);
+    }
+
+    public void DrawElementsInstanced(uint mode, uint type, int count, int offset, int instanceCount)
+    {
+        DrawCalls++;
+        if (instanceCount < 0 || instanceCount > 1024)
+            return;
+        for (var instance = 0; instance < instanceCount; instance++)
+            DrawElementsCore(mode, type, count, offset);
+    }
+
+    private void DrawElementsCore(uint mode, uint type, int count, int offset)
+    {
         if (type != 0x1403 || count < 3 || count > 30_000 || offset < 0 || BoundElementArrayBuffer is not { } elementBuffer ||
             !BufferValues.TryGetValue(elementBuffer, out var indices) || offset % 2 != 0 || offset / 2 + count > indices.Length)
             return;
