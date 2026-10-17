@@ -101,6 +101,7 @@ internal sealed class MediaElementState : IImageHandle
     public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
+    public ScriptValue OnVolumeChange { get; set; } = ScriptValue.Null;
     public ScriptValue OnError { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
     private readonly IResourceLoader? _resourceLoader;

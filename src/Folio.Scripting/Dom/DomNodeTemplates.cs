@@ -286,9 +286,19 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
         t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));
         t.DefineProperty("volume", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Volume),
-            (target, _, value) => _context.GetMedia((ElementNode)target).Volume = Math.Clamp(WebIdlConversions.ToDouble(value), 0, 1));
+            (target, _, value) =>
+            {
+                var state = _context.GetMedia((ElementNode)target);
+                var next = Math.Clamp(WebIdlConversions.ToDouble(value), 0, 1);
+                if (state.Volume != next) { state.Volume = next; state.Dispatch(state.OnVolumeChange, "volumechange"); }
+            });
         t.DefineProperty("muted", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Muted),
-            (target, _, value) => _context.GetMedia((ElementNode)target).Muted = WebIdlConversions.ToBoolean(value));
+            (target, _, value) =>
+            {
+                var state = _context.GetMedia((ElementNode)target);
+                var next = WebIdlConversions.ToBoolean(value);
+                if (state.Muted != next) { state.Muted = next; state.Dispatch(state.OnVolumeChange, "volumechange"); }
+            });
         t.DefineProperty("autoplay", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Autoplay),
             (target, _, value) => _context.GetMedia((ElementNode)target).Autoplay = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("loop", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Loop),
@@ -319,6 +329,8 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).OnPause = value);
         t.DefineProperty("onended", (target, _) => _context.GetMedia((ElementNode)target).OnEnded,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnEnded = value);
+        t.DefineProperty("onvolumechange", (target, _) => _context.GetMedia((ElementNode)target).OnVolumeChange,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnVolumeChange = value);
         t.DefineProperty("onerror", (target, _) => _context.GetMedia((ElementNode)target).OnError,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnError = value);
         t.DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1) _context.GetMedia((ElementNode)target).AddEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; });
