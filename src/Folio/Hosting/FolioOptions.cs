@@ -1,5 +1,8 @@
 namespace Folio;
 
+/// <summary>Requested camera and microphone tracks for a host permission decision.</summary>
+public readonly record struct MediaCaptureRequest(bool Audio, bool Video);
+
 /// <summary>The colour scheme the host reports to <c>prefers-color-scheme</c>.</summary>
 public enum ColorScheme
 {
@@ -70,6 +73,9 @@ public sealed class FolioOptions
 
     /// <summary>Optional host-owned persistence for artifact data such as service-worker caches.</summary>
     public IArtifactStorage? ArtifactStorage { get; init; }
+
+    /// <summary>Optional host permission callback for camera and microphone capture. Null preserves the capability-only path.</summary>
+    public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; init; }
 
     /// <summary>Stage-6 capabilities granted by the host. All are disabled by default.</summary>
     public FeatureCapabilities Capabilities { get; init; } = FeatureCapabilities.Default;

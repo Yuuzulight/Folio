@@ -700,6 +700,16 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("JSON.stringify(candidate.toJSON()).includes('candidate:1') && description.toJSON().type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('audio').codecs[0].mimeType === 'audio/opus' && RTCRtpReceiver.getCapabilities('video').codecs.length === 2").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 1 && stream.getAudioTracks().length === 1)").IsObject);
+        using var permissionDenied = new JintScriptEngine();
+        DomBindings.Install(permissionDenied, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = true },
+            MediaCapturePermission = request => request.Audio && !request.Video
+        }));
+        Assert.True(permissionDenied.Evaluate("let cameraDenied = ''; navigator.mediaDevices.getUserMedia({ video: true }).catch(error => cameraDenied = error.name); true").AsBoolean());
+        permissionDenied.PerformMicrotaskCheckpoint();
+        Assert.Equal("NotAllowedError", permissionDenied.Evaluate("cameraDenied").AsString());
+        Assert.True(permissionDenied.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream.getAudioTracks().length === 1)").IsObject);
         Assert.True(allowed.Evaluate("const track = new MediaStreamTrack('audio'); const stream = new MediaStream([track]); const copied = new MediaStream(stream); let changes = ''; stream.onaddtrack = e => changes += e.type + e.track.kind; stream.onremovetrack = e => changes += e.type === 'removetrack' ? '-' : '?'; track.onmute = e => changes += e.type[0]; track.onunmute = e => changes += e.type[0]; track.onended = e => changes += e.type[0]; const second = new MediaStreamTrack('video'); stream.addTrack(second); stream.removeTrack(second); track.muted = true; track.muted = false; track.enabled = false; track.contentHint = 'speech'; stream.getAudioTracks().length === 1 && copied.getTracks().length === 1 && stream.active; track.applyConstraints({ width: 640 }); const clone = track.clone(); track.getConstraints().width === 640 && track.getSettings().kind === 'audio' && track.getCapabilities().kind === 'audio'; track.stop(); let rejected = false; track.applyConstraints({ width: 320 }).catch(() => rejected = true); clone.readyState === 'live' && !clone.enabled && clone.contentHint === 'speech' && clone.getConstraints().width === 640 && track.readyState === 'ended' && stream.id.length > 0 && changes === 'addtrackvideo-mue'").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("rejected").AsBoolean());

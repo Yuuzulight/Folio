@@ -38,17 +38,17 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri,
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MediaCapturePermission, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri,
         document.Options.Raster, () => document.CanvasText);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, maxIframes, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, maxIframes, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
 
@@ -176,6 +176,16 @@ public static class DomBindings
             engine.SetGlobalProperty("__folio_artifact_storage", engine.CreateHostObject(artifactStorageTemplate, context));
         }
         engine.SetGlobalProperty("__folio_service_worker_cache_bytes", ScriptValue.FromNumber(context.MaxServiceWorkerCacheBytes));
+        var mediaPermission = new HostObjectTemplate("MediaPermission")
+            .DefineMethod("check", (_, _, args) =>
+            {
+                if (context.MediaCapturePermission is null) return ScriptValue.FromBoolean(true);
+                var audio = args.Length > 0 && args[0].AsBoolean();
+                var video = args.Length > 1 && args[1].AsBoolean();
+                try { return ScriptValue.FromBoolean(context.MediaCapturePermission(new MediaCaptureRequest(audio, video))); }
+                catch { return ScriptValue.FromBoolean(false); }
+            });
+        engine.SetGlobalProperty("__folio_media_permission", engine.CreateHostObject(mediaPermission, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -276,7 +286,7 @@ public static class DomBindings
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
-                    constraints = constraints || {}; var tracks = [];
+                    constraints = constraints || {}; if (!__folio_media_permission.check(!!constraints.audio, !!constraints.video)) return Promise.reject(new DOMException('The host denied camera or microphone capture.', 'NotAllowedError')); var tracks = [];
                     if (constraints.audio) tracks.push(new MediaStreamTrack('audio'));
                     if (constraints.video) tracks.push(new MediaStreamTrack('video'));
                     return Promise.resolve(new MediaStream(tracks));

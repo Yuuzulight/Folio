@@ -43,6 +43,7 @@ public sealed class Document : IDisposable
     public int MaxWebAssemblyBytes => Options.Limits.MaxWebAssemblyBytes;
     internal string ArtifactId => Options.ArtifactId;
     internal IArtifactStorage? ArtifactStorage => Options.ArtifactStorage;
+    internal Func<MediaCaptureRequest, bool>? MediaCapturePermission => Options.MediaCapturePermission;
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
 
