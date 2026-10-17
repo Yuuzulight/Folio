@@ -103,10 +103,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Mutation fuzzing of the parsers and decoders, per target: 10 seconds on pull requests and main, 120 in the
-      # nightly run. The aggregate suite has many targets, so the push budget must stay bounded.
+      # nightly run. The aggregate nightly suite takes over 20 minutes, so leave room for all targets to finish.
       - name: Fuzz
         if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: ${{ github.event_name == 'schedule' && 20 || 10 }}
+        timeout-minutes: ${{ github.event_name == 'schedule' && 30 || 10 }}
         run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz ${{ github.event_name == 'schedule' && 120 || 10 }}
 
       # Inputs the fuzzer failed on; add them to tests/Folio.Fuzz/Regressions/<target>/ with the fix.
