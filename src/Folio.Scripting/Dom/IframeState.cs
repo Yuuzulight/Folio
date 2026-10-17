@@ -59,7 +59,16 @@ internal sealed class IframeState
 
     public void Close() => Closed = true;
 
-    public void Invalidate() { ChildDocument = null; _loadedSource = null; }
+    public void Invalidate()
+    {
+        ChildDocument = null;
+        _loadedSource = null;
+        var sandbox = SandboxTokens;
+        var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
+        Origin = sameOrigin && Uri.TryCreate(ResolveSource(Element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri)
+            ? uri.GetLeftPart(UriPartial.Authority)
+            : "null";
+    }
 
     public void LoadInlineDocument()
     {
