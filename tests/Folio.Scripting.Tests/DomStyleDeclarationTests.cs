@@ -550,6 +550,13 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(allowed.Evaluate("WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0]))").AsBoolean());
         Assert.False(allowed.Evaluate("WebAssembly.validate(new Uint8Array([1,2,3]))").AsBoolean());
+        using var capped = new JintScriptEngine();
+        DomBindings.Install(capped, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = true },
+            Limits = ResourceLimits.Default with { MaxWebAssemblyBytes = 4 }
+        }));
+        Assert.ThrowsAny<Exception>(() => capped.Evaluate("new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]))"));
         Assert.True(allowed.Evaluate("let streamingError = ''; WebAssembly.compileStreaming(new Response(new Uint8Array([0,97,115,109,1,0,0,0]), { headers: { 'content-type': 'application/octet-stream' } })).catch(error => streamingError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("streamingError").AsString());

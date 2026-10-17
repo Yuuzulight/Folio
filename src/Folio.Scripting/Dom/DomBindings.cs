@@ -545,6 +545,8 @@ public static class DomBindings
                 },
                 Module: function(bytes) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    var moduleSize = bytes && (bytes.byteLength || bytes.length) || 0;
+                    if (moduleSize > Number(__folio_wasm_max_pages) * 65536) throw new RangeError('WebAssembly module size limit exceeded.');
                     if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
                     this.bytes = bytes; this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2); this._functions = __folio_wasm_functions(bytes); this._globals = __folio_wasm_globals(bytes); this._memories = __folio_wasm_memories(bytes); this._tables = __folio_wasm_tables(bytes); this._functionImportCount = this._imports.filter(function(entry) { return entry.kind === 0; }).length;
                 },
