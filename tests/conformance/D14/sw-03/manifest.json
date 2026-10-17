@@ -1,0 +1,1 @@
+{ "expectedToFail": "Service worker lifecycle and offline reopen are not enabled in the conformance host yet.", "viewport": 800, "prompt": "Cache-first image gallery with a service worker.", "interaction": ["reopen offline"], "features": ["script", "service-worker", "offline"] }
