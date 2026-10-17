@@ -88,6 +88,7 @@ internal sealed class WorkerState
     public int MaxMessageBytes { get; }
     public bool Terminated { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
+    public ScriptValue OnMessageError { get; set; } = ScriptValue.Null;
     public ScriptValue OnError
     {
         get => _onError;
@@ -239,8 +240,17 @@ internal sealed class WorkerState
             }
             var value = next.Value;
             var transfer = next.Transfer;
-        var transferred = TransferList(WorkerEngine!, transfer);
-        value = CloneIntoParent(value);
+            IReadOnlyList<ScriptValue> transferred;
+            try
+            {
+                transferred = TransferList(WorkerEngine!, transfer);
+                value = CloneIntoParent(value);
+            }
+            catch (Exception error)
+            {
+                DispatchMessageError(error);
+                continue;
+            }
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
@@ -393,6 +403,16 @@ internal sealed class WorkerState
           };
         })();
         """;
+
+    private void DispatchMessageError(Exception error)
+    {
+        if (!OnMessageError.IsFunction && (!_listeners.TryGetValue("messageerror", out var listeners) || listeners.Count == 0)) return;
+        Engine.SetGlobalProperty("__folio_worker_messageerror", ScriptValue.FromString(error.Message));
+        var message = Engine.Evaluate("({ type: 'messageerror', message: __folio_worker_messageerror, target: null })", ScriptUrl);
+        Engine.SetGlobalProperty("__folio_worker_messageerror", ScriptValue.Undefined);
+        if (OnMessageError.IsFunction) Engine.Call(OnMessageError, ScriptValue.Undefined, [message]);
+        if (_listeners.TryGetValue("messageerror", out var handlers)) foreach (var handler in handlers.ToArray()) if (handler.IsFunction) Engine.Call(handler, ScriptValue.Undefined, [message]);
+    }
 
     private void ReportError(Exception error)
     {

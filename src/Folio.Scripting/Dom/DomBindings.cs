@@ -142,6 +142,7 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_message_port_host", engine.CreateHostObject(messagePortHost, context));
         var workerTemplate = new HostObjectTemplate("Worker")
             .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
+            .DefineProperty("onmessageerror", (target, _) => ((WorkerState)target).OnMessageError, (target, _, value) => ((WorkerState)target).OnMessageError = value)
             .DefineProperty("onerror", (target, _) => ((WorkerState)target).OnError, (target, _, value) => ((WorkerState)target).OnError = value)
             .DefineProperty("scriptURL", (target, _) => ScriptValue.FromString(((WorkerState)target).ScriptUrl))
             .DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1) ((WorkerState)target).AddEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; })
