@@ -408,8 +408,10 @@ internal sealed class WorkerState
     {
         if (!OnMessageError.IsFunction && (!_listeners.TryGetValue("messageerror", out var listeners) || listeners.Count == 0)) return;
         Engine.SetGlobalProperty("__folio_worker_messageerror", ScriptValue.FromString(error.Message));
-        var message = Engine.Evaluate("({ type: 'messageerror', message: __folio_worker_messageerror, target: null })", ScriptUrl);
+        Engine.SetGlobalProperty("__folio_worker_message_target", Source.IsObject ? Source : ScriptValue.Null);
+        var message = Engine.Evaluate("({ type: 'messageerror', message: __folio_worker_messageerror, target: __folio_worker_message_target })", ScriptUrl);
         Engine.SetGlobalProperty("__folio_worker_messageerror", ScriptValue.Undefined);
+        Engine.SetGlobalProperty("__folio_worker_message_target", ScriptValue.Undefined);
         if (OnMessageError.IsFunction) Engine.Call(OnMessageError, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("messageerror", out var handlers)) foreach (var handler in handlers.ToArray()) if (handler.IsFunction) Engine.Call(handler, ScriptValue.Undefined, [message]);
     }
@@ -425,11 +427,13 @@ internal sealed class WorkerState
     {
         Engine.SetGlobalProperty("__folio_worker_error_message", ScriptValue.FromString(error.Message));
         Engine.SetGlobalProperty("__folio_worker_error_target", ScriptValue.FromString(ScriptUrl));
-        var message = Engine.Evaluate("({ type: 'error', message: __folio_worker_error_message, filename: __folio_worker_error_target, lineno: 0, colno: 0, target: __folio_worker_error_target, preventDefault: function() {} })", ScriptUrl);
+        Engine.SetGlobalProperty("__folio_worker_error_event_target", Source.IsObject ? Source : ScriptValue.Null);
+        var message = Engine.Evaluate("({ type: 'error', message: __folio_worker_error_message, filename: __folio_worker_error_target, lineno: 0, colno: 0, target: __folio_worker_error_event_target, preventDefault: function() {} })", ScriptUrl);
         if (OnError.IsFunction) Engine.Call(OnError, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("error", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
         Engine.SetGlobalProperty("__folio_worker_error_message", ScriptValue.Undefined);
         Engine.SetGlobalProperty("__folio_worker_error_target", ScriptValue.Undefined);
+        Engine.SetGlobalProperty("__folio_worker_error_event_target", ScriptValue.Undefined);
     }
 
     private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source, IReadOnlyDictionary<string, string>? blobSources = null)
