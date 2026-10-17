@@ -445,7 +445,7 @@ internal sealed class WebGlContextState
 
     private void DrawElementsCore(uint mode, uint type, int count, int offset)
     {
-        var indexStride = type switch { 0x1401u => 1, 0x1403u => 2, _ => 0 };
+        var indexStride = type switch { 0x1401u => 1, 0x1403u => 2, 0x1405u => 4, _ => 0 };
         if (indexStride == 0 || count < 3 || count > 30_000 || offset < 0 || offset % indexStride != 0 || BoundElementArrayBuffer is not { } elementBuffer ||
             !BufferValues.TryGetValue(elementBuffer, out var indices) || offset / indexStride + count > indices.Length)
             return;
