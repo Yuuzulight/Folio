@@ -347,7 +347,30 @@ internal sealed class DomNodeTemplates
                 : _context.Engine.Evaluate($"Promise.reject(new DOMException('Media playback is unavailable.', '{(state.Error?.Contains("autoplay", StringComparison.OrdinalIgnoreCase) == true ? "NotAllowedError" : "NotSupportedError")}'))");
         });
         t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
-        t.DefineMethod("fastSeek", (target, _, args) => { if (args.Length > 0) { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, Math.Round(WebIdlConversions.ToDouble(args[0]))); } return ScriptValue.Undefined; });
+        t.DefineMethod("fastSeek", (target, _, args) =>
+        {
+            if (args.Length > 0)
+            {
+                var state = _context.GetMedia((ElementNode)target);
+                state.Dispatch(ScriptValue.Null, "seeking");
+                state.CurrentTime = Math.Max(0, Math.Round(WebIdlConversions.ToDouble(args[0])));
+                foreach (var track in state.TextTracks)
+                {
+                    var wasActive = track.ActiveCues.ToArray();
+                    track.CurrentTime = state.CurrentTime;
+                    var active = track.ActiveCues.ToArray();
+                    foreach (var cue in wasActive.Except(active))
+                        if (cue.OnExit.IsFunction) _context.Engine.Call(cue.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
+                    foreach (var cue in active.Except(wasActive))
+                        if (cue.OnEnter.IsFunction) _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
+                    if (!wasActive.SequenceEqual(active) && track.OnCueChange.IsFunction)
+                        _context.Engine.Call(track.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                }
+                state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration;
+                state.Dispatch(ScriptValue.Null, "seeked");
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("setSinkId", (target, _, args) => _context.Engine.Evaluate("Promise.resolve()"));
         t.DefineMethod("captureStream", (target, _, _) => _context.Engine.Evaluate("new MediaStream([])"));
         t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
