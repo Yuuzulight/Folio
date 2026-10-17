@@ -222,7 +222,22 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
             (target, _, value) => _context.GetMedia((ElementNode)target).SrcObject = value);
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
-            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value)); foreach (var track in state.TextTracks) track.CurrentTime = state.CurrentTime; if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); } });
+            (target, _, value) =>
+            {
+                var state = _context.GetMedia((ElementNode)target);
+                state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value));
+                foreach (var track in state.TextTracks)
+                {
+                    var wasActive = track.ActiveCues.ToArray();
+                    track.CurrentTime = state.CurrentTime;
+                    if (!wasActive.SequenceEqual(track.ActiveCues) && track.OnCueChange.IsFunction)
+                    {
+                        var cueEvent = _context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"));
+                        _context.Engine.Call(track.OnCueChange, ScriptValue.Undefined, [cueEvent]);
+                    }
+                }
+                if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); }
+            });
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
         t.DefineProperty("videoWidth", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-width")));
         t.DefineProperty("videoHeight", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-height")));
