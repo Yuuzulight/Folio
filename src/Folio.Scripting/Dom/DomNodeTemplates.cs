@@ -263,7 +263,8 @@ internal sealed class DomNodeTemplates
             (target, _, value) =>
             {
                 var state = _context.GetMedia((ElementNode)target);
-                state.CurrentTime = Math.Max(0, WebIdlConversions.ToDouble(value));
+                var nextTime = Math.Max(0, WebIdlConversions.ToDouble(value));
+                state.CurrentTime = nextTime;
                 foreach (var track in state.TextTracks)
                 {
                     var wasActive = track.ActiveCues.ToArray();
@@ -277,6 +278,7 @@ internal sealed class DomNodeTemplates
                             _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
                     if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
                 }
+                state.Dispatch(ScriptValue.Null, "timeupdate");
                 if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); }
             });
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
@@ -315,7 +317,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("crossOrigin", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).CrossOrigin),
             (target, _, value) => _context.GetMedia((ElementNode)target).CrossOrigin = WebIdlConversions.ToDOMString(value));
         t.DefineProperty("playbackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).PlaybackRate),
-            (target, _, value) => _context.GetMedia((ElementNode)target).PlaybackRate = WebIdlConversions.ToDouble(value));
+            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.PlaybackRate = WebIdlConversions.ToDouble(value); state.Dispatch(ScriptValue.Null, "ratechange"); });
         t.DefineProperty("defaultPlaybackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).DefaultPlaybackRate),
             (target, _, value) => _context.GetMedia((ElementNode)target).DefaultPlaybackRate = WebIdlConversions.ToDouble(value));
         t.DefineProperty("preservesPitch", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).PreservesPitch),
@@ -368,6 +370,7 @@ internal sealed class DomNodeTemplates
                     if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
                 }
                 state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration;
+                state.Dispatch(ScriptValue.Null, "timeupdate");
                 state.Dispatch(ScriptValue.Null, "seeked");
             }
             return ScriptValue.Undefined;

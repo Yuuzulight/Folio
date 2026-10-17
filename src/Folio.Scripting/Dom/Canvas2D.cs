@@ -130,6 +130,7 @@ internal sealed class MediaElementState : IImageHandle
         Paused = false;
         Ended = false;
         Dispatch(OnPlay, "play");
+        Dispatch(ScriptValue.Null, "playing");
         return true;
     }
 
@@ -137,6 +138,7 @@ internal sealed class MediaElementState : IImageHandle
 
     public void Load()
     {
+        var previousDuration = Duration;
         var bytes = LoadSourceBytes(Element.GetAttribute("src"), _resourceLoader, _baseUri);
         if (bytes is not null)
         {
@@ -148,7 +150,15 @@ internal sealed class MediaElementState : IImageHandle
         Paused = true;
         Ended = false;
         if (Error is { }) Dispatch(OnError, "error");
-        else Dispatch(OnLoadedMetadata, "loadedmetadata");
+        else
+        {
+            Dispatch(ScriptValue.Null, "loadstart");
+            if (Duration != previousDuration) Dispatch(ScriptValue.Null, "durationchange");
+            Dispatch(OnLoadedMetadata, "loadedmetadata");
+            Dispatch(ScriptValue.Null, "loadeddata");
+            Dispatch(ScriptValue.Null, "canplay");
+            Dispatch(ScriptValue.Null, "canplaythrough");
+        }
     }
 
     public string CanPlayType(string type)
