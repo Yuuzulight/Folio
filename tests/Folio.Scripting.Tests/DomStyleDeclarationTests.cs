@@ -524,6 +524,11 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { ServiceWorkers = true }
         }));
         Assert.True(allowed.Evaluate("navigator.serviceWorker.register('/sw.js').then(r => r.scriptURL === '/sw.js')").IsObject);
+        allowed.Evaluate("let firstRegistration; navigator.serviceWorker.register('/sw.js').then(r => firstRegistration = r);");
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("let sameScopeResult = false; navigator.serviceWorker.register('/other.js').then(r => { const same = r === firstRegistration; return navigator.serviceWorker.getRegistration('/').then(found => sameScopeResult = same && found === r && r.scriptURL === '/other.js'); }); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.True(allowed.Evaluate("sameScopeResult").AsBoolean());
         allowed.Evaluate("let registrationCount = 0; let registration; navigator.serviceWorker.register('/sw.js').then(r => { registration = r; return navigator.serviceWorker.getRegistrations(); }).then(rs => registrationCount = rs.length);");
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(1, allowed.Evaluate("registrationCount").AsNumber());
