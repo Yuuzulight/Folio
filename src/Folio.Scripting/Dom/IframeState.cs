@@ -34,6 +34,7 @@ internal sealed class IframeState
     public Uri? BaseUri { get; }
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
+    public ScriptValue OnLoad { get; set; } = ScriptValue.Null;
     public ScriptValue Window { get; set; } = ScriptValue.Null;
     public DocumentNode? ChildDocument { get; private set; }
     private readonly List<ScriptValue> _messageListeners = [];
@@ -94,5 +95,13 @@ internal sealed class IframeState
             html = System.Text.Encoding.UTF8.GetString(data);
         }
         ChildDocument = TreeBuilder.Parse(html);
+        if (OnLoad.IsFunction)
+        {
+            var target = Window.IsObject ? Window : Engine.CreateHostObject(MessageEventTemplate, this);
+            Engine.SetGlobalProperty("__folio_iframe_load_target", target);
+            var eventValue = Engine.Evaluate("({ type: 'load', target: __folio_iframe_load_target })");
+            Engine.SetGlobalProperty("__folio_iframe_load_target", ScriptValue.Undefined);
+            Engine.Call(OnLoad, ScriptValue.Undefined, [eventValue]);
+        }
     }
 }
