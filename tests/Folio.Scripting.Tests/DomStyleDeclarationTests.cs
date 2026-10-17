@@ -958,6 +958,14 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.createDataChannel('invalid', { maxPacketLifeTime: 1, maxRetransmits: 1 })"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.createDataChannel('invalid', { maxRetransmits: -1 })"));
         Assert.True(allowed.Evaluate("const closingPc = new RTCPeerConnection(); const ownedChannel = closingPc.createDataChannel('owned'); let ownedClosed = false; ownedChannel.onclose = () => ownedClosed = true; closingPc.close(); ownedClosed && ownedChannel.readyState === 'closed'").AsBoolean());
+        Assert.True(allowed.Evaluate("let devicesBeforeDispose = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesBeforeDispose = devices.length); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal(2, allowed.Evaluate("devicesBeforeDispose").AsNumber());
+        Assert.True(DomBindings.Dispose(allowed));
+        Assert.Equal("closed", allowed.Evaluate("pc.connectionState").AsString());
+        Assert.True(allowed.Evaluate("let devicesAfterDispose = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesAfterDispose = devices.length); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal(0, allowed.Evaluate("devicesAfterDispose").AsNumber());
         Assert.Equal("closed", allowed.Evaluate("pc.close(); pc.connectionState").AsString());
         allowed.Evaluate("let replaceRejected = false; sender.replaceTrack({ kind: 'video' }).catch(() => replaceRejected = true);");
         allowed.PerformMicrotaskCheckpoint();

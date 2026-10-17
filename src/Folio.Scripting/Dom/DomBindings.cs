@@ -30,7 +30,7 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         context.DisposeWorkers();
-        engine.Evaluate("if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); });");
+        engine.Evaluate("if (Array.isArray(__folio_webrtc_peers)) __folio_webrtc_peers.slice().forEach(function(peer) { if (peer && typeof peer.close === 'function') peer.close(); }); if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); }); __folio_capture_devices_granted = false;");
         engine.Evaluate("if (typeof __folio_service_worker_shutdown === 'function') __folio_service_worker_shutdown();");
         return true;
     }
@@ -408,7 +408,7 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); if (this.onaddtrack) this.onaddtrack({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); if (this.onremovetrack) this.onremovetrack({ type: 'removetrack', target: this, track: track }); } };
-            var __folio_webrtc_peer_count = 0;
+            var __folio_webrtc_peer_count = 0, __folio_webrtc_peers = [];
             function __folio_validate_webrtc_configuration(configuration) {
                 configuration = configuration || {};
                 var iceTransportPolicy = configuration.iceTransportPolicy === undefined ? 'all' : String(configuration.iceTransportPolicy);
@@ -434,7 +434,7 @@ public static class DomBindings
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
                 configuration = __folio_validate_webrtc_configuration(configuration);
                 if (__folio_webrtc_peer_count >= Number(__folio_webrtc_max_connections)) throw new DOMException('The WebRTC peer connection limit has been exceeded.', 'QuotaExceededError');
-                __folio_webrtc_peer_count++;
+                __folio_webrtc_peer_count++; __folio_webrtc_peers.push(this);
                 this.configuration = configuration; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null;
                 this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = []; this._folioReleased = false;
             };
