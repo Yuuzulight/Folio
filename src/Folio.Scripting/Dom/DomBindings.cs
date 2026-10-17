@@ -22,6 +22,15 @@ public static class DomBindings
         return true;
     }
 
+    /// <summary>Stops background work owned by the document before its content process closes.</summary>
+    public static bool Dispose(IScriptEngine engine)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        if (!Contexts.TryGetValue(engine, out var context)) return false;
+        context.DisposeWorkers();
+        return true;
+    }
+
     public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
         Install(engine, document.Node, wrapperCache, eventLoop, element =>
         {
@@ -105,6 +114,7 @@ public static class DomBindings
                 try
                 {
                     var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.ReleaseWorker);
+                    context.RegisterWorker(state);
                     var worker = engine.CreateHostObject(workerTemplate, state);
                     state.Source = worker;
                     return worker;

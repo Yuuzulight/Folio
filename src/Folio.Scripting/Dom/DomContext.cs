@@ -16,6 +16,8 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private long _mediaBytesAllocated;
     private int _workerCount;
+    private readonly List<WorkerState> _workers = [];
+    private readonly object _workersGate = new();
     private CssomRegistry? _cssom;
 
     /// <summary>The document's CSSOM sheets and rules.</summary>
@@ -119,6 +121,21 @@ internal sealed class DomContext
         return false;
     }
     public void ReleaseWorker() { if (Interlocked.Decrement(ref _workerCount) < 0) Interlocked.Exchange(ref _workerCount, 0); }
+    public void RegisterWorker(WorkerState worker)
+    {
+        lock (_workersGate) _workers.Add(worker);
+    }
+
+    public void DisposeWorkers()
+    {
+        WorkerState[] workers;
+        lock (_workersGate)
+        {
+            workers = _workers.ToArray();
+            _workers.Clear();
+        }
+        foreach (var worker in workers) worker.Terminate();
+    }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }

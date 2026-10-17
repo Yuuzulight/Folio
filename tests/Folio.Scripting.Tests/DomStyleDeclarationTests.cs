@@ -388,6 +388,23 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(busy.Evaluate("const runaway = new Worker('data:text/javascript,' + encodeURIComponent('while (true) {}')); true").AsBoolean());
         Assert.True(busy.Evaluate("runaway.terminate(); true").AsBoolean());
+
+        using var memoryLimited = new JintScriptEngine();
+        DomBindings.Install(memoryLimited, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerMemoryBytes = 32 * 1024 }
+        }));
+        Assert.True(memoryLimited.Evaluate("const constrained = new Worker('data:text/javascript,' + encodeURIComponent('const values = []; for (let i = 0; i < 100000; i++) values.push(i);')); let constrainedError = ''; constrained.onerror = e => constrainedError = e.message; constrained.postMessage(1); constrainedError.length > 0").AsBoolean());
+
+        using var closed = new JintScriptEngine();
+        DomBindings.Install(closed, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true }
+        }));
+        Assert.True(closed.Evaluate("const owned = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function() { postMessage(1); };')); true").AsBoolean());
+        Assert.True(DomBindings.Dispose(closed));
+        Assert.ThrowsAny<Exception>(() => closed.Evaluate("owned.postMessage(1)"));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using Folio.Dom;
 using Folio.Diagrams;
 using Folio.Resources;
+using Folio.Scripting.Dom;
 
 namespace Folio.Scripting;
 
@@ -531,5 +532,6 @@ public sealed class ScriptRunner : IDisposable
 
         _disposed = true;
         _document.NodeInserted -= OnNodeInserted;
+        DomBindings.Dispose(_engine);
     }
 }
