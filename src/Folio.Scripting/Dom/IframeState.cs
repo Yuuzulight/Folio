@@ -12,20 +12,20 @@ internal sealed class IframeState
         MessageEventTemplate = messageEventTemplate;
         Element = element;
         Enabled = enabled;
+        ResourceLoader = resourceLoader;
+        BaseUri = baseUri;
         var sandbox = (element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
         SandboxTokens = sandbox;
         HasSandbox = element.GetAttribute("sandbox") is not null;
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
-        Origin = sameOrigin && Uri.TryCreate(element.GetAttribute("src"), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
-        ResourceLoader = resourceLoader;
-        BaseUri = baseUri;
+        Origin = sameOrigin && Uri.TryCreate(ResolveSource(element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
     }
 
     public IScriptEngine Engine { get; }
     public IHostObjectTemplate MessageEventTemplate { get; }
     public ElementNode Element { get; }
     public bool Enabled { get; }
-    public string Origin { get; }
+    public string Origin { get; private set; }
     public bool ScriptsAllowed => !HasSandbox || SandboxTokens.Contains("allow-scripts", StringComparer.OrdinalIgnoreCase);
     public bool FormsAllowed => !HasSandbox || SandboxTokens.Contains("allow-forms", StringComparer.OrdinalIgnoreCase);
     public bool HasSandbox { get; }
@@ -37,6 +37,9 @@ internal sealed class IframeState
     public ScriptValue Window { get; set; } = ScriptValue.Null;
     public DocumentNode? ChildDocument { get; private set; }
     private readonly List<ScriptValue> _messageListeners = [];
+    private string? _loadedSource;
+
+    private string ResolveSource(string source) => BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
 
     public void PostMessage(ScriptValue data, string targetOrigin)
     {
@@ -58,10 +61,17 @@ internal sealed class IframeState
 
     public void LoadInlineDocument()
     {
-        if (ChildDocument is not null || !Enabled) return;
+        if (!Enabled) return;
         var inline = Element.GetAttribute("srcdoc");
-        var source = Element.GetAttribute("src") ?? string.Empty;
-        if (BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved)) source = resolved.AbsoluteUri;
+        var source = ResolveSource(Element.GetAttribute("src") ?? string.Empty);
+        var current = inline is not null ? "srcdoc:" + inline : "src:" + source;
+        if (ChildDocument is not null && _loadedSource == current) return;
+        ChildDocument = null;
+        _loadedSource = current;
+        var sandbox = (Element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
+        var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
+        var originSource = inline is not null && BaseUri is not null ? BaseUri.AbsoluteUri : source;
+        Origin = sameOrigin && Uri.TryCreate(originSource, UriKind.Absolute, out var childUri) ? childUri.GetLeftPart(UriPartial.Authority) : "null";
         string html;
         if (inline is not null)
         {

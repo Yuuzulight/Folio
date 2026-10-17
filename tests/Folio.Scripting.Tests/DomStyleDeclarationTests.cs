@@ -750,9 +750,11 @@ public sealed class DomStyleDeclarationTests
         using var srcdoc = new JintScriptEngine();
         DomBindings.Install(srcdoc, Document.Parse("<iframe id='f' srcdoc='<p id=child>inline</p>'></iframe>", new FolioOptions
         {
+            BaseUri = new Uri("https://parent.example/"),
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
-        Assert.True(srcdoc.Evaluate("document.getElementById('f').contentDocument.getElementById('child').textContent === 'inline'").AsBoolean());
+        Assert.True(srcdoc.Evaluate("const srcdocFrame = document.getElementById('f'); srcdocFrame.contentDocument.getElementById('child').textContent === 'inline' && srcdocFrame.contentWindow.origin === 'https://parent.example'").AsBoolean());
+        Assert.True(srcdoc.Evaluate("srcdocFrame.setAttribute('srcdoc', '<p id=changed>updated</p>'); srcdocFrame.contentDocument.getElementById('changed').textContent === 'updated'").AsBoolean());
         using var sandboxed = new JintScriptEngine();
         DomBindings.Install(sandboxed, Document.Parse("<iframe id='f' sandbox='allow-scripts' src='https://child.example/app'></iframe><iframe id='same' sandbox='allow-same-origin allow-scripts' src='https://child.example/app'></iframe>", new FolioOptions
         {
