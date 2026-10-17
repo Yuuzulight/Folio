@@ -451,7 +451,7 @@ public static class DomBindings
                 Object.defineProperty(channel, 'onopen', { get: function() { return channel._onopen; }, set: function(handler) { channel._onopen = handler; if (typeof handler === 'function') handler({ type: 'open', target: channel }); } });
                 this._dataChannels.push(channel); return channel;
             };
-            RTCPeerConnection.prototype.close = function() { if (this._folioReleased) return; this._folioReleased = true; __folio_webrtc_peer_count--; this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
+            RTCPeerConnection.prototype.close = function() { if (this._folioReleased) return; this._folioReleased = true; __folio_webrtc_peer_count--; this._dataChannels.slice().forEach(function(channel) { channel.close(); }); this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
             function __folio_wasm_read_u32(bytes, cursor) { var value = 0; var shift = 0; while (cursor.i < bytes.length) { var part = bytes[cursor.i++]; value |= (part & 127) << shift; if ((part & 128) === 0) break; shift += 7; } return value >>> 0; }
             function __folio_wasm_read_name(bytes, cursor) { var length = __folio_wasm_read_u32(bytes, cursor); var text = ''; for (var i = 0; i < length && cursor.i < bytes.length; i++) text += String.fromCharCode(bytes[cursor.i++]); return text; }
             function __folio_wasm_skip_limits(bytes, cursor) { var flags = bytes[cursor.i++]; __folio_wasm_read_u32(bytes, cursor); if (flags & 1) __folio_wasm_read_u32(bytes, cursor); }

@@ -895,6 +895,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const configured = pc.createDataChannel('configured', { ordered: false, maxRetransmits: 2 }); let observed = 0; const handler = e => { observed = e.data; }; configured.addEventListener('message', handler); configured.send('ok'); configured.removeEventListener('message', handler); configured.send('ignored'); configured.ordered === false && configured.maxRetransmits === 2 && observed === 'ok'").AsBoolean());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.createDataChannel('invalid', { maxPacketLifeTime: 1, maxRetransmits: 1 })"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("pc.createDataChannel('invalid', { maxRetransmits: -1 })"));
+        Assert.True(allowed.Evaluate("const closingPc = new RTCPeerConnection(); const ownedChannel = closingPc.createDataChannel('owned'); let ownedClosed = false; ownedChannel.onclose = () => ownedClosed = true; closingPc.close(); ownedClosed && ownedChannel.readyState === 'closed'").AsBoolean());
         Assert.Equal("closed", allowed.Evaluate("pc.close(); pc.connectionState").AsString());
         allowed.Evaluate("let replaceRejected = false; sender.replaceTrack({ kind: 'video' }).catch(() => replaceRejected = true);");
         allowed.PerformMicrotaskCheckpoint();
