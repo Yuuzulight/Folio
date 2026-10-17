@@ -124,18 +124,23 @@ internal sealed class WorkerState
     }
     private void ExecuteWithWatchdog(Action action)
     {
-        using var cancellation = new CancellationTokenSource();
-        _ = Task.Run(async () =>
+        using var completed = new ManualResetEventSlim(false);
+        var watchdog = new Thread(() =>
         {
-            try
-            {
-                await Task.Delay(_workerExecutionTime, cancellation.Token).ConfigureAwait(false);
-                if (!cancellation.IsCancellationRequested && !Terminated) WorkerEngine?.Interrupt();
-            }
-            catch (OperationCanceledException) { }
-        });
+            if (!completed.Wait(_workerExecutionTime) && !Terminated)
+                WorkerEngine?.Interrupt();
+        })
+        {
+            IsBackground = true,
+            Name = "Folio worker watchdog"
+        };
+        watchdog.Start();
         try { action(); }
-        finally { cancellation.Cancel(); }
+        finally
+        {
+            completed.Set();
+            watchdog.Join(TimeSpan.FromMilliseconds(100));
+        }
     }
     public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
     {
