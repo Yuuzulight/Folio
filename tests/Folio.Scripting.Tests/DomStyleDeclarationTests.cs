@@ -891,6 +891,8 @@ public sealed class DomStyleDeclarationTests
         Assert.True(routing.Evaluate("const routedPeer = new RTCPeerConnection({ iceServers: [{ urls: 'https://stun.example' }] }); routedPeer.getConfiguration().iceServers.length === 1").AsBoolean());
         Assert.True(routing.Evaluate("const stunPeer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.example' }] }); stunPeer.getConfiguration().iceServers.length === 1").AsBoolean());
         Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceServers: [{ urls: 'not a url' }] })"));
+        Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceTransportPolicy: 'invalid' })"));
+        Assert.True(routing.Evaluate("const policyPeer = new RTCPeerConnection({ iceTransportPolicy: 'relay', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'negotiate' }); policyPeer.getConfiguration().iceTransportPolicy === 'relay' && policyPeer.getConfiguration().bundlePolicy === 'max-bundle' && policyPeer.getConfiguration().rtcpMuxPolicy === 'negotiate'").AsBoolean());
         Assert.ThrowsAny<Exception>(() => routing.Evaluate("routedPeer.setConfiguration({ iceServers: [{ urls: 'https://blocked.example' }] })"));
         Assert.True(routing.Evaluate("routedPeer.setConfiguration({ iceServers: [{ urls: 'https://stun.example' }] }); routedPeer.getConfiguration().iceServers[0].urls === 'https://stun.example'").AsBoolean());
         routing.Evaluate("routedPeer.close();");

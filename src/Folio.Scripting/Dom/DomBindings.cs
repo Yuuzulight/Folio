@@ -410,6 +410,12 @@ public static class DomBindings
             var __folio_webrtc_peer_count = 0;
             function __folio_validate_webrtc_configuration(configuration) {
                 configuration = configuration || {};
+                var iceTransportPolicy = configuration.iceTransportPolicy === undefined ? 'all' : String(configuration.iceTransportPolicy);
+                var bundlePolicy = configuration.bundlePolicy === undefined ? 'balanced' : String(configuration.bundlePolicy);
+                var rtcpMuxPolicy = configuration.rtcpMuxPolicy === undefined ? 'require' : String(configuration.rtcpMuxPolicy);
+                if (iceTransportPolicy !== 'all' && iceTransportPolicy !== 'relay') throw new TypeError('Invalid iceTransportPolicy.');
+                if (bundlePolicy !== 'balanced' && bundlePolicy !== 'max-compat' && bundlePolicy !== 'max-bundle') throw new TypeError('Invalid bundlePolicy.');
+                if (rtcpMuxPolicy !== 'require' && rtcpMuxPolicy !== 'negotiate') throw new TypeError('Invalid rtcpMuxPolicy.');
                 var iceServers = configuration.iceServers || [];
                 for (var serverIndex = 0; serverIndex < iceServers.length; serverIndex++) {
                     var server = iceServers[serverIndex] || {}, urls = server.urls === undefined ? [] : (Array.isArray(server.urls) ? server.urls : [server.urls]);
