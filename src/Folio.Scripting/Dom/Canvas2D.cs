@@ -98,6 +98,11 @@ internal sealed class MediaElementState : IImageHandle
         }
     }
     public ScriptValue OnLoadedMetadata { get; set; } = ScriptValue.Null;
+    public ScriptValue OnLoadedData { get; set; } = ScriptValue.Null;
+    public ScriptValue OnCanPlay { get; set; } = ScriptValue.Null;
+    public ScriptValue OnPlaying { get; set; } = ScriptValue.Null;
+    public ScriptValue OnTimeUpdate { get; set; } = ScriptValue.Null;
+    public ScriptValue OnRateChange { get; set; } = ScriptValue.Null;
     public ScriptValue OnPlay { get; set; } = ScriptValue.Null;
     public ScriptValue OnPause { get; set; } = ScriptValue.Null;
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
@@ -130,7 +135,7 @@ internal sealed class MediaElementState : IImageHandle
         Paused = false;
         Ended = false;
         Dispatch(OnPlay, "play");
-        Dispatch(ScriptValue.Null, "playing");
+        Dispatch(OnPlaying, "playing");
         return true;
     }
 
@@ -155,8 +160,8 @@ internal sealed class MediaElementState : IImageHandle
             Dispatch(ScriptValue.Null, "loadstart");
             if (Duration != previousDuration) Dispatch(ScriptValue.Null, "durationchange");
             Dispatch(OnLoadedMetadata, "loadedmetadata");
-            Dispatch(ScriptValue.Null, "loadeddata");
-            Dispatch(ScriptValue.Null, "canplay");
+            Dispatch(OnLoadedData, "loadeddata");
+            Dispatch(OnCanPlay, "canplay");
             Dispatch(ScriptValue.Null, "canplaythrough");
         }
     }

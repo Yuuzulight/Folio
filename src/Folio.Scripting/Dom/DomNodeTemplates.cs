@@ -278,7 +278,7 @@ internal sealed class DomNodeTemplates
                             _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
                     if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
                 }
-                state.Dispatch(ScriptValue.Null, "timeupdate");
+                state.Dispatch(state.OnTimeUpdate, "timeupdate");
                 if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); }
             });
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
@@ -317,7 +317,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("crossOrigin", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).CrossOrigin),
             (target, _, value) => _context.GetMedia((ElementNode)target).CrossOrigin = WebIdlConversions.ToDOMString(value));
         t.DefineProperty("playbackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).PlaybackRate),
-            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.PlaybackRate = WebIdlConversions.ToDouble(value); state.Dispatch(ScriptValue.Null, "ratechange"); });
+            (target, _, value) => { var state = _context.GetMedia((ElementNode)target); state.PlaybackRate = WebIdlConversions.ToDouble(value); state.Dispatch(state.OnRateChange, "ratechange"); });
         t.DefineProperty("defaultPlaybackRate", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).DefaultPlaybackRate),
             (target, _, value) => _context.GetMedia((ElementNode)target).DefaultPlaybackRate = WebIdlConversions.ToDouble(value));
         t.DefineProperty("preservesPitch", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).PreservesPitch),
@@ -327,8 +327,14 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("error", (target, _) => _context.GetMedia((ElementNode)target).Error is { } error ? ScriptValue.FromString(error) : ScriptValue.Null);
         t.DefineProperty("onloadedmetadata", (target, _) => _context.GetMedia((ElementNode)target).OnLoadedMetadata,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnLoadedMetadata = value);
+        t.DefineProperty("onloadeddata", (target, _) => _context.GetMedia((ElementNode)target).OnLoadedData,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnLoadedData = value);
+        t.DefineProperty("oncanplay", (target, _) => _context.GetMedia((ElementNode)target).OnCanPlay,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnCanPlay = value);
         t.DefineProperty("onplay", (target, _) => _context.GetMedia((ElementNode)target).OnPlay,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnPlay = value);
+        t.DefineProperty("onplaying", (target, _) => _context.GetMedia((ElementNode)target).OnPlaying,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnPlaying = value);
         t.DefineProperty("onpause", (target, _) => _context.GetMedia((ElementNode)target).OnPause,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnPause = value);
         t.DefineProperty("onended", (target, _) => _context.GetMedia((ElementNode)target).OnEnded,
@@ -337,6 +343,10 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).OnVolumeChange = value);
         t.DefineProperty("onerror", (target, _) => _context.GetMedia((ElementNode)target).OnError,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnError = value);
+        t.DefineProperty("ontimeupdate", (target, _) => _context.GetMedia((ElementNode)target).OnTimeUpdate,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnTimeUpdate = value);
+        t.DefineProperty("onratechange", (target, _) => _context.GetMedia((ElementNode)target).OnRateChange,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnRateChange = value);
         t.DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1) _context.GetMedia((ElementNode)target).AddEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; });
         t.DefineMethod("removeEventListener", (target, _, args) => { if (args.Length > 1) _context.GetMedia((ElementNode)target).RemoveEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; });
         t.DefineProperty("buffered", (target, _) => CreateMediaRanges((ElementNode)target, buffered: true));
@@ -370,7 +380,7 @@ internal sealed class DomNodeTemplates
                     if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
                 }
                 state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration;
-                state.Dispatch(ScriptValue.Null, "timeupdate");
+                state.Dispatch(state.OnTimeUpdate, "timeupdate");
                 state.Dispatch(ScriptValue.Null, "seeked");
             }
             return ScriptValue.Undefined;
