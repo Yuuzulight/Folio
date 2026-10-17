@@ -866,6 +866,11 @@ public sealed class DomStyleDeclarationTests
         permissionDenied.PerformMicrotaskCheckpoint();
         Assert.Equal("NotAllowedError", permissionDenied.Evaluate("cameraDenied").AsString());
         Assert.True(permissionDenied.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream.getAudioTracks().length === 1)").IsObject);
+        Assert.True(permissionDenied.Evaluate("let capturedTrack; navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => capturedTrack = stream.getAudioTracks()[0]); true").AsBoolean());
+        permissionDenied.PerformMicrotaskCheckpoint();
+        Assert.Equal("live", permissionDenied.Evaluate("capturedTrack.readyState").AsString());
+        Assert.True(DomBindings.Dispose(permissionDenied));
+        Assert.Equal("ended", permissionDenied.Evaluate("capturedTrack.readyState").AsString());
         Assert.True(allowed.Evaluate("const track = new MediaStreamTrack('audio'); const stream = new MediaStream([track]); const copied = new MediaStream(stream); let changes = ''; stream.onaddtrack = e => changes += e.type + e.track.kind; stream.onremovetrack = e => changes += e.type === 'removetrack' ? '-' : '?'; track.onmute = e => changes += e.type[0]; track.onunmute = e => changes += e.type[0]; track.onended = e => changes += e.type[0]; const second = new MediaStreamTrack('video'); stream.addTrack(second); stream.removeTrack(second); track.muted = true; track.muted = false; track.enabled = false; track.contentHint = 'speech'; stream.getAudioTracks().length === 1 && copied.getTracks().length === 1 && stream.active; track.applyConstraints({ width: 640 }); const clone = track.clone(); track.getConstraints().width === 640 && track.getSettings().kind === 'audio' && track.getCapabilities().kind === 'audio'; track.stop(); let rejected = false; track.applyConstraints({ width: 320 }).catch(() => rejected = true); clone.readyState === 'live' && !clone.enabled && clone.contentHint === 'speech' && clone.getConstraints().width === 640 && track.readyState === 'ended' && stream.id.length > 0 && changes === 'addtrackvideo-mue'").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("rejected").AsBoolean());

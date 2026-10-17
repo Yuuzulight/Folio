@@ -30,6 +30,7 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         context.DisposeWorkers();
+        engine.Evaluate("if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); });");
         engine.Evaluate("if (typeof __folio_service_worker_shutdown === 'function') __folio_service_worker_shutdown();");
         return true;
     }
@@ -379,12 +380,13 @@ public static class DomBindings
                 Cache.prototype.addAll = function(requests) { var self = this; return Promise.all(Array.from(requests).map(function(request) { return self.add(request); })); };
                 globalThis.caches = { open: function(name) { return Promise.resolve(new Cache(String(name))); }, has: function(name) { var key = String(name); return Promise.resolve(cacheStores.has(key) || !!(storage && storage.keys('service-worker-cache/' + encodeURIComponent(key) + '/').length)); }, delete: function(name) { var key = String(name), store = cacheStores.get(key), persisted = storage ? storage.keys('service-worker-cache/' + encodeURIComponent(key) + '/') : []; if (!store && !persisted.length) return Promise.resolve(false); if (store) store.forEach(function(value, request) { cacheBytes -= value.size; }); if (storage) persisted.forEach(function(entry) { storage.delete(entry); }); cacheStores.delete(key); return Promise.resolve(true); }, keys: function() { var names = Array.from(cacheStores.keys()); persistedCacheNames().forEach(function(name) { if (names.indexOf(name) < 0) names.push(name); }); return Promise.resolve(names); } };
             })();
+            globalThis.__folio_capture_tracks = [];
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
                     constraints = constraints || {}; if (!__folio_media_permission.check(!!constraints.audio, !!constraints.video)) return Promise.reject(new DOMException('The host denied camera or microphone capture.', 'NotAllowedError')); var tracks = [];
-                    if (constraints.audio) tracks.push(new MediaStreamTrack('audio'));
-                    if (constraints.video) tracks.push(new MediaStreamTrack('video'));
+                    if (constraints.audio) { var audioTrack = new MediaStreamTrack('audio'); __folio_capture_tracks.push(audioTrack); tracks.push(audioTrack); }
+                    if (constraints.video) { var videoTrack = new MediaStreamTrack('video'); __folio_capture_tracks.push(videoTrack); tracks.push(videoTrack); }
                     return Promise.resolve(new MediaStream(tracks));
                 },
                 enumerateDevices: function() { return Promise.resolve(__folio_webrtc_enabled ? [{ deviceId: 'folio-audio', kind: 'audioinput', label: 'Folio audio' }, { deviceId: 'folio-video', kind: 'videoinput', label: 'Folio video' }] : []); }
