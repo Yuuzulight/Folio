@@ -385,7 +385,7 @@ public static class DomBindings
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {
                     if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
-                    constraints = constraints || {}; if (!__folio_media_permission.check(!!constraints.audio, !!constraints.video)) return Promise.reject(new DOMException('The host denied camera or microphone capture.', 'NotAllowedError')); var tracks = [];
+                    constraints = constraints || {}; if (!constraints.audio && !constraints.video) return Promise.reject(new TypeError('getUserMedia requires an audio or video constraint.')); if (!__folio_media_permission.check(!!constraints.audio, !!constraints.video)) return Promise.reject(new DOMException('The host denied camera or microphone capture.', 'NotAllowedError')); var tracks = [];
                     __folio_capture_devices_granted = true;
                     if (constraints.audio) { var audioTrack = new MediaStreamTrack('audio'); __folio_capture_tracks.push(audioTrack); tracks.push(audioTrack); }
                     if (constraints.video) { var videoTrack = new MediaStreamTrack('video'); __folio_capture_tracks.push(videoTrack); tracks.push(videoTrack); }

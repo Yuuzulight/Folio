@@ -860,6 +860,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("JSON.stringify(candidate.toJSON()).includes('candidate:1') && description.toJSON().type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('audio').codecs[0].mimeType === 'audio/opus' && RTCRtpReceiver.getCapabilities('video').codecs.length === 2").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 1 && stream.getAudioTracks().length === 1)").IsObject);
+        Assert.True(allowed.Evaluate("let emptyCaptureError = ''; navigator.mediaDevices.getUserMedia({ audio: false, video: false }).catch(error => emptyCaptureError = error.name); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal("TypeError", allowed.Evaluate("emptyCaptureError").AsString());
         Assert.True(allowed.Evaluate("let devicesAfterCapture = ''; navigator.mediaDevices.enumerateDevices().then(devices => devicesAfterCapture = devices.length + ':' + devices[0].kind); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("2:audioinput", allowed.Evaluate("devicesAfterCapture").AsString());
