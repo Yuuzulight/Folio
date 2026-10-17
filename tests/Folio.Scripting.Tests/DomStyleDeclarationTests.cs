@@ -699,8 +699,8 @@ public sealed class DomStyleDeclarationTests
             first.Evaluate("navigator.serviceWorker.register('sw.js'); true");
             first.PerformMicrotaskCheckpoint();
         }
-        var persisted = storage.Read("service-worker-registration-%2F");
-        Assert.NotNull(persisted);
+        var persisted = storage.Read("persistent-sw:service-worker-registration/%2F");
+        Assert.True(persisted is not null, string.Join(",", storage.Keys("")));
         Assert.Contains("sw.js", persisted, StringComparison.Ordinal);
         using var reopened = new JintScriptEngine();
         DomBindings.Install(reopened, Document.Parse("<html></html>", Options()));
@@ -709,7 +709,7 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal("sw.js", reopened.Evaluate("restoredUrl").AsString());
         reopened.Evaluate("navigator.serviceWorker.getRegistration('/').then(r => r.unregister()); true");
         reopened.PerformMicrotaskCheckpoint();
-        Assert.Null(storage.Read("service-worker-registration-%2F"));
+        Assert.Null(storage.Read("persistent-sw:service-worker-registration/%2F"));
     }
 
     [Fact]
