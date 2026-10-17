@@ -597,21 +597,25 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("getSupportedExtensions", (target, _, _) => _context.Engine.CreateArray([ScriptValue.FromString("WEBGL_lose_context")]));
         t.DefineMethod("getContextAttributes", (_, _, _) => _context.Engine.Evaluate("({ alpha: true, depth: true, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })"));
         t.DefineMethod("createBuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Buffers[handle] = []; return ScriptValue.FromNumber(handle); });
-        t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundArrayBuffer = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; var binding = args.Length > 1 && !args[1].IsNullOrUndefined ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; if (args.Length > 0 && WebIdlConversions.ToUint32(args[0]) == 0x8893) state.BoundElementArrayBuffer = binding; else state.BoundArrayBuffer = binding; return ScriptValue.Undefined; });
         t.DefineMethod("bufferData", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
-            if (state.BoundArrayBuffer is not { } handle || args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var handle = args.Length > 0 && WebIdlConversions.ToUint32(args[0]) == 0x8893 ? state.BoundElementArrayBuffer : state.BoundArrayBuffer;
+            if (handle is not { } bufferHandle || args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
             var size = args[1].IsNumber
                 ? Math.Clamp(WebIdlConversions.ToInt32(args[1]), 0, 16 * 1024 * 1024)
                 : _context.Engine.TryGetArrayItems(args[1], out var data)
                     ? Math.Clamp(data.Count * 4, 0, 16 * 1024 * 1024)
                     : 0;
-            if (state.ReplaceBuffer(handle, size) && !args[1].IsNumber && _context.Engine.TryGetArrayItems(args[1], out var source) && state.Buffers.TryGetValue(handle, out var buffer))
+            if (state.ReplaceBuffer(bufferHandle, size) && !args[1].IsNumber && _context.Engine.TryGetArrayItems(args[1], out var source) && state.Buffers.TryGetValue(bufferHandle, out var buffer))
             {
+                state.BufferValues[bufferHandle] = source.Select(WebIdlConversions.ToDouble).ToArray();
                 for (var i = 0; i < source.Count && i * 4 + 4 <= buffer.Length; i++)
                     BitConverter.TryWriteBytes(buffer.AsSpan(i * 4, 4), (float)WebIdlConversions.ToDouble(source[i]));
             }
+            else if (state.Buffers.ContainsKey(bufferHandle))
+                state.BufferValues.Remove(bufferHandle);
             return ScriptValue.Undefined;
         });
         t.DefineMethod("bufferSubData", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundArrayBuffer is not { } handle || args.Length < 3 || !state.Buffers.TryGetValue(handle, out var buffer)) { state.SetError(0x0502); return ScriptValue.Undefined; } var offset = Math.Max(0, WebIdlConversions.ToInt32(args[1])); var size = args[2].IsNumber ? Math.Max(0, WebIdlConversions.ToInt32(args[2])) : _context.Engine.TryGetArrayItems(args[2], out var data) ? data.Count * 4 : 0; if (offset > buffer.Length || size > buffer.Length - offset) state.SetError(0x0501); return ScriptValue.Undefined; });
@@ -692,7 +696,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("stencilOp", (target, _, args) => { if (args.Length > 2) { var state = (WebGlContextState)target; state.StencilFail = WebIdlConversions.ToUint32(args[0]); state.StencilDepthFail = WebIdlConversions.ToUint32(args[1]); state.StencilDepthPass = WebIdlConversions.ToUint32(args[2]); } return ScriptValue.Undefined; });
         t.DefineMethod("clearStencil", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ClearStencil = WebIdlConversions.ToInt32(args[0]); return ScriptValue.Undefined; });
         t.DefineMethod("drawArrays", (target, _, args) => { if (args.Length > 2) { var state = (WebGlContextState)target; state.DrawArrays(WebIdlConversions.ToUint32(args[0]), WebIdlConversions.ToInt32(args[1]), WebIdlConversions.ToInt32(args[2])); } return ScriptValue.Undefined; });
-        t.DefineMethod("drawElements", (target, _, args) => { if (args.Length > 3) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
+        t.DefineMethod("drawElements", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.DrawElements(WebIdlConversions.ToUint32(args[0]), WebIdlConversions.ToUint32(args[2]), WebIdlConversions.ToInt32(args[1]), WebIdlConversions.ToInt32(args[3])); } return ScriptValue.Undefined; });
         t.DefineMethod("drawArraysInstanced", (target, _, args) => { if (args.Length > 4) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("drawElementsInstanced", (target, _, args) => { if (args.Length > 5) ((WebGlContextState)target).AddDrawCall(); return ScriptValue.Undefined; });
         t.DefineMethod("fenceSync", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || WebIdlConversions.ToUint32(args[0]) != 0x9117) { state.SetError(0x0500); return ScriptValue.Null; } var handle = state.CreateHandle(); state.Syncs.Add(handle); return ScriptValue.FromNumber(handle); });

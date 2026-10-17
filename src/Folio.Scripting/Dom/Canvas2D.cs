@@ -314,6 +314,7 @@ internal sealed class WebGlContextState
     private readonly int _maxGpuBytes;
     private uint _nextHandle = 1;
     public Dictionary<uint, byte[]> Buffers { get; } = [];
+    public Dictionary<uint, double[]> BufferValues { get; } = [];
     public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
     public HashSet<uint> Programs { get; } = [];
     public Dictionary<uint, List<uint>> ProgramShaders { get; } = [];
@@ -358,6 +359,7 @@ internal sealed class WebGlContextState
     public uint? BoundFramebuffer { get; set; }
     public uint? BoundRenderbuffer { get; set; }
     public uint? BoundArrayBuffer { get; set; }
+    public uint? BoundElementArrayBuffer { get; set; }
     public uint? CurrentProgram { get; set; }
     public uint? BoundVertexArray { get; set; }
     public int DrawCalls { get; private set; }
@@ -404,7 +406,9 @@ internal sealed class WebGlContextState
     public void DeleteBuffer(uint handle)
     {
         if (Buffers.Remove(handle, out var buffer)) AllocatedBytes = Math.Max(0, AllocatedBytes - buffer.Length);
+        BufferValues.Remove(handle);
         if (BoundArrayBuffer == handle) BoundArrayBuffer = null;
+        if (BoundElementArrayBuffer == handle) BoundElementArrayBuffer = null;
         foreach (var index in VertexAttribBuffers.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
             VertexAttribBuffers.Remove(index);
     }
@@ -412,7 +416,21 @@ internal sealed class WebGlContextState
     public void DrawArrays(uint mode, int first, int count)
     {
         DrawCalls++;
-        if (mode != 0x0004 || count < 3 || count > 30_000 || first < 0 || !EnabledVertexAttributes.Contains(0) ||
+        DrawTriangles(mode, count, vertex => first + vertex);
+    }
+
+    public void DrawElements(uint mode, uint type, int count, int offset)
+    {
+        DrawCalls++;
+        if (type != 0x1403 || count < 3 || count > 30_000 || offset < 0 || BoundElementArrayBuffer is not { } elementBuffer ||
+            !BufferValues.TryGetValue(elementBuffer, out var indices) || offset % 2 != 0 || offset / 2 + count > indices.Length)
+            return;
+        DrawTriangles(mode, count, vertex => (int)indices[offset / 2 + vertex]);
+    }
+
+    private void DrawTriangles(uint mode, int count, Func<int, int> vertexIndex)
+    {
+        if (mode != 0x0004 || count < 3 || count > 30_000 || !EnabledVertexAttributes.Contains(0) ||
             !VertexAttribPointers.TryGetValue(0, out var pointer) || pointer.Type != 0x1406 || pointer.Size < 2 ||
             !VertexAttribBuffers.TryGetValue(0, out var bufferHandle) || !Buffers.TryGetValue(bufferHandle, out var buffer))
             return;
@@ -431,7 +449,7 @@ internal sealed class WebGlContextState
         var viewportHeight = ViewportHeight > 0 ? ViewportHeight : surface.Height;
         float Read(int vertex, int component)
         {
-            var offset = (long)(first + vertex) * stride + pointer.Offset + component * 4;
+            var offset = (long)vertexIndex(vertex) * stride + pointer.Offset + component * 4;
             return offset >= 0 && offset + 4 <= buffer.Length ? BitConverter.ToSingle(buffer, (int)offset) : float.NaN;
         }
         (float X, float Y) Point(int vertex)
