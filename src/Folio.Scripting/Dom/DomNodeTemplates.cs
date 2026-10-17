@@ -124,6 +124,22 @@ internal sealed class DomNodeTemplates
                 if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
                     _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
                 return ScriptValue.Undefined;
+            })
+            .DefineMethod("removeCue", (target, _, args) =>
+            {
+                if (args.Length < 1 || !args[0].IsObject) throw WebIdlException.TypeError("removeCue requires a TextTrackCue.");
+                var state = (MediaTextTrackState)target;
+                var cue = args[0];
+                var start = WebIdlConversions.ToDouble(_context.Engine.GetProperty(cue, "startTime"));
+                var end = WebIdlConversions.ToDouble(_context.Engine.GetProperty(cue, "endTime"));
+                var text = WebIdlConversions.ToDOMString(_context.Engine.GetProperty(cue, "text"));
+                var index = state.Cues.FindIndex(item => item.StartTime == start && item.EndTime == end && item.Text == text);
+                if (index < 0) throw WebIdlException.DomException(DomExceptionNames.NotFoundError, "The cue is not in this text track.");
+                var before = state.ActiveCues.ToArray();
+                state.Cues.RemoveAt(index);
+                if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
+                    _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
+                return ScriptValue.Undefined;
             });
         Canvas = new CanvasTemplates(_context);
         WebGlRenderingContextTemplate = CreateWebGlRenderingContextTemplate();
