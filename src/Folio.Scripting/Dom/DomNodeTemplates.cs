@@ -120,7 +120,11 @@ internal sealed class DomNodeTemplates
                 if (args.Length < 3) throw WebIdlException.TypeError("addCue requires start time, end time, and text.");
                 var state = (MediaTextTrackState)target;
                 var before = state.ActiveCues.ToArray();
-                state.Cues.Add(new TextTrackCueState(WebIdlConversions.ToDouble(args[0]), WebIdlConversions.ToDouble(args[1]), WebIdlConversions.ToDOMString(args[2])));
+                var start = WebIdlConversions.ToDouble(args[0]);
+                var end = WebIdlConversions.ToDouble(args[1]);
+                if (double.IsNaN(start) || double.IsInfinity(start) || double.IsNaN(end) || double.IsInfinity(end) || end < start)
+                    throw WebIdlException.DomException(DomExceptionNames.IndexSizeError, "The cue end time must be finite and at least its start time.");
+                state.Cues.Add(new TextTrackCueState(start, end, WebIdlConversions.ToDOMString(args[2])));
                 if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
                     _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
                 return ScriptValue.Undefined;

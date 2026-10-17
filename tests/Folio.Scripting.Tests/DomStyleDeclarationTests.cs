@@ -331,6 +331,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("v.currentTime = 12; events === 'mpse'").AsBoolean());
         Assert.True(allowed.Evaluate("v.load(); v.currentTime === 0 && v.paused").AsBoolean());
         Assert.True(allowed.Evaluate("const captions = v.addTextTrack('captions', 'English', 'en'); let modeCueChanges = 0; captions.oncuechange = () => modeCueChanges++; captions.addCue(1, 2, 'Hello'); v.currentTime = 1; captions.mode = 'showing'; captions.addCue(0.5, 1.5, 'Second'); captions.mode === 'showing' && captions.activeCues.length === 2 && captions.cues[0].startTime === 1 && captions.cues[0].endTime === 2 && captions.cues[0].text === 'Hello' && modeCueChanges === 2").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("captions.addCue(2, 1, 'invalid')"));
         Assert.Equal(2, allowed.Evaluate("modeCueChanges").AsNumber());
         Assert.True(allowed.Evaluate("const removable = captions.cues[1]; let removedCueEvents = ''; removable.onexit = e => removedCueEvents += e.type; captions.removeCue(removable); captions.activeCues.length === 1 && captions.cues[0].text === 'Hello' && modeCueChanges === 3 && removedCueEvents === 'exit'").AsBoolean());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("captions.mode = 'invalid'"));
