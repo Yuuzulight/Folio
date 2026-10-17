@@ -13,6 +13,8 @@ internal sealed class WorkerState
     private bool _released;
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
+    private ScriptValue _onError = ScriptValue.Null;
+    private bool _errorReported;
     private Task? _startupTask;
     public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
     {
@@ -61,7 +63,7 @@ internal sealed class WorkerState
                 {
                     _workerExecuting = true;
                     try { ExecuteWithWatchdog(() => WorkerEngine.Evaluate(source, scriptUrl)); }
-                    catch (Exception error) { if (!_closedByWorker) _scriptError = error; }
+                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; ReportError(error); } }
                     finally { _workerExecuting = false; }
                 });
                 try { _startupTask.Wait(TimeSpan.FromMilliseconds(500)); }
@@ -83,7 +85,11 @@ internal sealed class WorkerState
     public int MaxMessageBytes { get; }
     public bool Terminated { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
-    public ScriptValue OnError { get; set; } = ScriptValue.Null;
+    public ScriptValue OnError
+    {
+        get => _onError;
+        set { _onError = value; if (value.IsFunction && _scriptError is { } error) ReportError(error); }
+    }
     public ScriptValue Source { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
     private volatile Exception? _scriptError;
@@ -92,6 +98,7 @@ internal sealed class WorkerState
         if (!listener.IsFunction) return;
         if (!_listeners.TryGetValue(type, out var list)) _listeners[type] = list = [];
         if (!list.Contains(listener)) list.Add(listener);
+        if (string.Equals(type, "error", StringComparison.Ordinal) && _scriptError is { } error) ReportError(error);
     }
     public void RemoveEventListener(string type, ScriptValue listener)
     {
@@ -147,7 +154,7 @@ internal sealed class WorkerState
     public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
     {
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return false;
-        if (_scriptError is not null && !Terminated) { DispatchError(_scriptError); return true; }
+        if (_scriptError is not null && !Terminated) { ReportError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
             if (_workerExecuting) return true;
@@ -164,7 +171,7 @@ internal sealed class WorkerState
                     ExecuteWithWatchdog(() => WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
                     WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
                 }
-                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { DispatchError(error); } catch { } } }
+                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; try { ReportError(error); } catch { } } }
                 finally { _workerExecuting = false; }
             }
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
@@ -335,6 +342,13 @@ internal sealed class WorkerState
           };
         })();
         """;
+
+    private void ReportError(Exception error)
+    {
+        if (_errorReported || (!OnError.IsFunction && (!_listeners.TryGetValue("error", out var listeners) || listeners.Count == 0))) return;
+        _errorReported = true;
+        DispatchError(error);
+    }
 
     private void DispatchError(Exception error)
     {

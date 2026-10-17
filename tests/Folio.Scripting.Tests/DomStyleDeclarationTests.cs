@@ -524,7 +524,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(engine.Evaluate("const loaded = new Worker('worker.js'); let result = 0; loaded.onmessage = e => result = e.data; loaded.postMessage(40); result === 42").AsBoolean());
-        Assert.True(engine.Evaluate("const missing = new Worker('missing.js'); let workerError = ''; missing.onerror = e => workerError = e.message; missing.postMessage(1); workerError.includes('could not load')").AsBoolean());
+        Assert.True(engine.Evaluate("const missing = new Worker('missing.js'); let workerError = ''; missing.onerror = e => workerError = e.message; const immediateWorkerError = workerError.includes('could not load'); missing.postMessage(1); immediateWorkerError && workerError.includes('could not load')").AsBoolean());
 
         using var importing = new JintScriptEngine();
         DomBindings.Install(importing, Document.Parse("<html></html>", new FolioOptions
