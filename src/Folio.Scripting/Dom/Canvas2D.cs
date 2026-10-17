@@ -269,6 +269,8 @@ internal sealed class TextTrackCueState
     public double EndTime { get; }
     public string Text { get; }
     public string Id { get; }
+    public ScriptValue OnEnter { get; set; } = ScriptValue.Null;
+    public ScriptValue OnExit { get; set; } = ScriptValue.Null;
 }
 
 internal sealed class MediaTimeRangesState(IReadOnlyList<(double Start, double End)> ranges)

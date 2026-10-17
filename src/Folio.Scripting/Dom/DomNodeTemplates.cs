@@ -88,7 +88,11 @@ internal sealed class DomNodeTemplates
             .DefineProperty("startTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).StartTime))
             .DefineProperty("endTime", (target, _) => ScriptValue.FromNumber(((TextTrackCueState)target).EndTime))
             .DefineProperty("text", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Text))
-            .DefineProperty("id", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Id));
+            .DefineProperty("id", (target, _) => ScriptValue.FromString(((TextTrackCueState)target).Id))
+            .DefineProperty("onenter", (target, _) => ((TextTrackCueState)target).OnEnter,
+                (target, _, value) => ((TextTrackCueState)target).OnEnter = value)
+            .DefineProperty("onexit", (target, _) => ((TextTrackCueState)target).OnExit,
+                (target, _, value) => ((TextTrackCueState)target).OnExit = value);
         TimeRangesTemplate = new HostObjectTemplate("TimeRanges")
             .DefineProperty("length", (target, _) => ScriptValue.FromNumber(((MediaTimeRangesState)target).Ranges.Count))
             .DefineMethod("start", (target, _, args) => GetTimeRange((MediaTimeRangesState)target, args, start: true))
@@ -230,7 +234,14 @@ internal sealed class DomNodeTemplates
                 {
                     var wasActive = track.ActiveCues.ToArray();
                     track.CurrentTime = state.CurrentTime;
-                    if (!wasActive.SequenceEqual(track.ActiveCues) && track.OnCueChange.IsFunction)
+                    var active = track.ActiveCues.ToArray();
+                    foreach (var cue in wasActive.Except(active))
+                        if (cue.OnExit.IsFunction)
+                            _context.Engine.Call(cue.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
+                    foreach (var cue in active.Except(wasActive))
+                        if (cue.OnEnter.IsFunction)
+                            _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
+                    if (!wasActive.SequenceEqual(active) && track.OnCueChange.IsFunction)
                     {
                         var cueEvent = _context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"));
                         _context.Engine.Call(track.OnCueChange, ScriptValue.Undefined, [cueEvent]);
