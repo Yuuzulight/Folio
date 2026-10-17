@@ -66,6 +66,14 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('install', function(e) { e.waitUntil(Promise.resolve()); }); self.addEventListener('activate', function(e) { e.waitUntil(Promise.resolve()); });"), "application/javascript"));
     }
 
+    private sealed class ServiceWorkerFetchLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { if (e.request.url.endsWith('/offline')) e.respondWith(new Response('from worker', { status: 200 })); });"), "application/javascript")
+                : ResourceResponse.Refused("wrong resource kind"));
+    }
+
     private sealed class WavResourceLoader : IResourceLoader
     {
         private readonly byte[] _wav = CreateWav();
@@ -553,6 +561,17 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { ServiceWorkers = true }
         }));
         Assert.True(lifecycle.Evaluate("navigator.serviceWorker.register('lifecycle.js').then(r => r.active.state === 'activated')").IsObject);
+
+        using var intercepted = new JintScriptEngine();
+        DomBindings.Install(intercepted, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ServiceWorkerFetchLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        }));
+        Assert.True(intercepted.Evaluate("let interceptedText = ''; navigator.serviceWorker.register('sw.js').then(() => fetch('/offline')).then(r => r.text()).then(text => interceptedText = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from worker", intercepted.Evaluate("interceptedText").AsString());
     }
 
     [Fact]

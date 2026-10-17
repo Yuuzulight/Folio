@@ -306,18 +306,23 @@ internal static class FetchBindings
                         settled = true;
                         if (signal) signal.removeEventListener('abort', onAbort);
                         if (signal && signal.aborted) { reject(signal.reason); return; }
-                        try {
-                            const result = JSON.parse(host.load(request.url, request.method === 'HEAD'));
-                            if (!result.ok) { reject(new TypeError('Failed to fetch: ' + result.error)); return; }
-                            const headers = new Headers();
-                            if (result.contentType) headers.set('content-type', result.contentType);
-                            headers.set('content-length', String(result.length));
-                            const response = new Response(null, { headers, statusText: 'OK' }, INTERNAL);
-                            Object.assign(responseState.get(response), { id: result.body === 0 ? null : result.body, url: request.url, type: 'basic', signal: signal });
-                            resolve(response);
-                        } catch (e) {
-                            reject(new TypeError('Failed to fetch: ' + (e && e.message)));
-                        }
+                        const controller = global.navigator && global.navigator.serviceWorker && global.navigator.serviceWorker.controller;
+                        const interception = controller && typeof controller._dispatchFetch === 'function' ? controller._dispatchFetch(request) : Promise.resolve(null);
+                        Promise.resolve(interception).then(function(intercepted) {
+                            if (intercepted instanceof Response) { resolve(intercepted); return; }
+                            try {
+                                const result = JSON.parse(host.load(request.url, request.method === 'HEAD'));
+                                if (!result.ok) { reject(new TypeError('Failed to fetch: ' + result.error)); return; }
+                                const headers = new Headers();
+                                if (result.contentType) headers.set('content-type', result.contentType);
+                                headers.set('content-length', String(result.length));
+                                const response = new Response(null, { headers, statusText: 'OK' }, INTERNAL);
+                                Object.assign(responseState.get(response), { id: result.body === 0 ? null : result.body, url: request.url, type: 'basic', signal: signal });
+                                resolve(response);
+                            } catch (e) {
+                                reject(new TypeError('Failed to fetch: ' + (e && e.message)));
+                            }
+                        }, function(error) { reject(error); });
                     });
                 });
             }
