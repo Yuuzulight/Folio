@@ -14,9 +14,7 @@ internal sealed class IframeState
         Enabled = enabled;
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
-        var sandbox = (element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
-        SandboxTokens = sandbox;
-        HasSandbox = element.GetAttribute("sandbox") is not null;
+        var sandbox = SandboxTokens;
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
         Origin = sameOrigin && Uri.TryCreate(ResolveSource(element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
     }
@@ -28,8 +26,8 @@ internal sealed class IframeState
     public string Origin { get; private set; }
     public bool ScriptsAllowed => !HasSandbox || SandboxTokens.Contains("allow-scripts", StringComparer.OrdinalIgnoreCase);
     public bool FormsAllowed => !HasSandbox || SandboxTokens.Contains("allow-forms", StringComparer.OrdinalIgnoreCase);
-    public bool HasSandbox { get; }
-    private string[] SandboxTokens { get; }
+    public bool HasSandbox => Element.GetAttribute("sandbox") is not null;
+    private string[] SandboxTokens => (Element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }
     public bool Closed { get; private set; }
@@ -60,6 +58,8 @@ internal sealed class IframeState
     public void RemoveMessageListener(ScriptValue listener) => _messageListeners.Remove(listener);
 
     public void Close() => Closed = true;
+
+    public void Invalidate() { ChildDocument = null; _loadedSource = null; }
 
     public void LoadInlineDocument()
     {

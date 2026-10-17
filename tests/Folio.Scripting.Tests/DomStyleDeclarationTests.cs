@@ -953,6 +953,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(sandboxed.Evaluate("document.getElementById('f').contentWindow.origin === 'null' && document.getElementById('f').sandbox === 'allow-scripts' && document.getElementById('same').contentWindow.origin === 'https://child.example'").AsBoolean());
+        Assert.True(sandboxed.Evaluate("const dynamic = document.getElementById('f'); dynamic.sandbox = 'allow-same-origin allow-scripts'; dynamic.contentDocument; dynamic.contentWindow.origin === 'https://child.example'").AsBoolean());
 
         using var remote = new JintScriptEngine();
         DomBindings.Install(remote, Document.Parse("<iframe id='f' src='/child.html'></iframe>", new FolioOptions

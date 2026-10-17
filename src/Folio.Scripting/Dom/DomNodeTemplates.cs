@@ -364,7 +364,12 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("srcdoc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("srcdoc") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("srcdoc", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("sandbox", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("sandbox") ?? ""),
-            (target, _, value) => ((ElementNode)target).SetAttribute("sandbox", WebIdlConversions.ToDOMString(value)));
+            (target, _, value) =>
+            {
+                var element = (ElementNode)target;
+                element.SetAttribute("sandbox", WebIdlConversions.ToDOMString(value));
+                _context.GetIframe(element).Invalidate();
+            });
         t.DefineProperty("allow", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("allow") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("allow", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("onload", (target, _) => _context.GetIframe((ElementNode)target).OnLoad,
