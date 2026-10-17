@@ -35,6 +35,7 @@ internal sealed class IframeState
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoad { get; set; } = ScriptValue.Null;
+    public ScriptValue ElementObject { get; set; } = ScriptValue.Null;
     public ScriptValue Window { get; set; } = ScriptValue.Null;
     public DocumentNode? ChildDocument { get; private set; }
     private readonly List<ScriptValue> _messageListeners = [];
@@ -97,7 +98,7 @@ internal sealed class IframeState
         ChildDocument = TreeBuilder.Parse(html);
         if (OnLoad.IsFunction)
         {
-            var target = Window.IsObject ? Window : Engine.CreateHostObject(MessageEventTemplate, this);
+            var target = ElementObject.IsObject ? ElementObject : Window.IsObject ? Window : Engine.CreateHostObject(MessageEventTemplate, this);
             Engine.SetGlobalProperty("__folio_iframe_load_target", target);
             var eventValue = Engine.Evaluate("({ type: 'load', target: __folio_iframe_load_target })");
             Engine.SetGlobalProperty("__folio_iframe_load_target", ScriptValue.Undefined);

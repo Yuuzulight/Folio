@@ -357,10 +357,11 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("allow", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("allow") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("allow", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("onload", (target, _) => _context.GetIframe((ElementNode)target).OnLoad,
-            (target, _, value) => _context.GetIframe((ElementNode)target).OnLoad = value);
+            (target, _, value) => { var state = _context.GetIframe((ElementNode)target); state.ElementObject = _context.Wrap((ElementNode)target); state.OnLoad = value; });
         t.DefineProperty("contentWindow", (target, _) =>
         {
             var state = _context.GetIframe((ElementNode)target);
+            state.ElementObject = _context.Wrap((ElementNode)target);
             if (!state.Window.IsObject)
                 state.Window = _context.Engine.CreateHostObject(windowTemplate, state);
             return state.Window;
@@ -368,6 +369,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("contentDocument", (target, _) =>
         {
             var state = _context.GetIframe((ElementNode)target);
+            state.ElementObject = _context.Wrap((ElementNode)target);
             state.LoadInlineDocument();
             return state.ChildDocument is { } child ? _context.Wrap(child) : ScriptValue.Null;
         });
