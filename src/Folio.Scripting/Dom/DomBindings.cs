@@ -138,6 +138,16 @@ public static class DomBindings
                 globalThis.window = globalThis;
             }
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
+            (function() {
+                function Port() { this.onmessage = null; this._listeners = []; this._peer = null; this._closed = false; }
+                Port.prototype.start = function() { this._started = true; };
+                Port.prototype.close = function() { this._closed = true; };
+                Port.prototype.addEventListener = function(type, handler) { if (type === 'message' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) this._listeners.push(handler); };
+                Port.prototype.removeEventListener = function(type, handler) { if (type === 'message') { var i = this._listeners.indexOf(handler); if (i >= 0) this._listeners.splice(i, 1); } };
+                Port.prototype.postMessage = function(data) { var peer = this._peer; if (!peer || peer._closed) return; var event = { type: 'message', data: data, target: peer, source: null, origin: '' }; if (peer.onmessage) peer.onmessage(event); peer._listeners.slice().forEach(function(listener) { listener(event); }); };
+                globalThis.MessagePort = Port;
+                globalThis.MessageChannel = function() { this.port1 = new Port(); this.port2 = new Port(); this.port1._peer = this.port2; this.port2._peer = this.port1; };
+            })();
             globalThis.navigator = globalThis.navigator || {};
             var __folio_service_worker_registrations = [];
             globalThis.navigator.serviceWorker = {
