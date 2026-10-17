@@ -50,6 +50,12 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("wrong resource kind"));
     }
 
+    private sealed class RefusingIframeResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Refused("blocked by host"));
+    }
+
     private sealed class ServiceWorkerResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -870,6 +876,15 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(remote.Evaluate("document.getElementById('f').contentDocument.getElementById('remote').textContent === 'loaded'").AsBoolean());
+
+        using var refused = new JintScriptEngine();
+        DomBindings.Install(refused, Document.Parse("<iframe id='f' src='/blocked.html'><p id='fallback'>fallback</p></iframe>", new FolioOptions
+        {
+            BaseUri = new Uri("https://child.example/"),
+            ResourceLoader = new RefusingIframeResourceLoader(),
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        }));
+        Assert.True(refused.Evaluate("const blocked = document.getElementById('f'); blocked.contentDocument === null && blocked.textContent.includes('fallback')").AsBoolean());
 
         using var limited = new JintScriptEngine();
         DomBindings.Install(limited, Document.Parse("<iframe id='one'></iframe><iframe id='two'></iframe>", new FolioOptions
