@@ -38,17 +38,17 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MediaCapturePermission, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri,
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MaxWebRtcConnections, document.MediaCapturePermission, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri,
         document.Options.Raster, () => document.CanvasText);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, maxIframes, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles);
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
 
@@ -176,6 +176,7 @@ public static class DomBindings
             engine.SetGlobalProperty("__folio_artifact_storage", engine.CreateHostObject(artifactStorageTemplate, context));
         }
         engine.SetGlobalProperty("__folio_service_worker_cache_bytes", ScriptValue.FromNumber(context.MaxServiceWorkerCacheBytes));
+        engine.SetGlobalProperty("__folio_webrtc_max_connections", ScriptValue.FromNumber(context.MaxWebRtcConnections));
         var mediaPermission = new HostObjectTemplate("MediaPermission")
             .DefineMethod("check", (_, _, args) =>
             {
@@ -301,10 +302,13 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); if (this.onaddtrack) this.onaddtrack({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); if (this.onremovetrack) this.onremovetrack({ type: 'removetrack', target: this, track: track }); } };
+            var __folio_webrtc_peer_count = 0;
             globalThis.RTCPeerConnection = function(configuration) {
                 if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
+                if (__folio_webrtc_peer_count >= Number(__folio_webrtc_max_connections)) throw new DOMException('The WebRTC peer connection limit has been exceeded.', 'QuotaExceededError');
+                __folio_webrtc_peer_count++;
                 this.configuration = configuration || {}; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null;
-                this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = [];
+                this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = []; this._folioReleased = false;
             };
             globalThis.RTCRtpSender = function() {};
             globalThis.RTCRtpReceiver = function() {};
@@ -339,7 +343,7 @@ public static class DomBindings
                 Object.defineProperty(channel, 'onopen', { get: function() { return channel._onopen; }, set: function(handler) { channel._onopen = handler; if (typeof handler === 'function') handler({ type: 'open', target: channel }); } });
                 this._dataChannels.push(channel); return channel;
             };
-            RTCPeerConnection.prototype.close = function() { this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
+            RTCPeerConnection.prototype.close = function() { if (this._folioReleased) return; this._folioReleased = true; __folio_webrtc_peer_count--; this.connectionState = 'closed'; if (this.onconnectionstatechange) this.onconnectionstatechange({}); };
             function __folio_wasm_read_u32(bytes, cursor) { var value = 0; var shift = 0; while (cursor.i < bytes.length) { var part = bytes[cursor.i++]; value |= (part & 127) << shift; if ((part & 128) === 0) break; shift += 7; } return value >>> 0; }
             function __folio_wasm_read_name(bytes, cursor) { var length = __folio_wasm_read_u32(bytes, cursor); var text = ''; for (var i = 0; i < length && cursor.i < bytes.length; i++) text += String.fromCharCode(bytes[cursor.i++]); return text; }
             function __folio_wasm_skip_limits(bytes, cursor) { var flags = bytes[cursor.i++]; __folio_wasm_read_u32(bytes, cursor); if (flags & 1) __folio_wasm_read_u32(bytes, cursor); }

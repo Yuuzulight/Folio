@@ -700,6 +700,15 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("JSON.stringify(candidate.toJSON()).includes('candidate:1') && description.toJSON().type === 'offer'").AsBoolean());
         Assert.True(allowed.Evaluate("RTCRtpSender.getCapabilities('audio').codecs[0].mimeType === 'audio/opus' && RTCRtpReceiver.getCapabilities('video').codecs.length === 2").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => stream instanceof MediaStream && stream.getTracks().length === 1 && stream.getAudioTracks().length === 1)").IsObject);
+        using var peerLimited = new JintScriptEngine();
+        DomBindings.Install(peerLimited, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = true },
+            Limits = ResourceLimits.Default with { MaxWebRtcConnections = 1 }
+        }));
+        Assert.True(peerLimited.Evaluate("const firstPeer = new RTCPeerConnection(); true").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => peerLimited.Evaluate("new RTCPeerConnection()"));
+        Assert.True(peerLimited.Evaluate("firstPeer.close(); const secondPeer = new RTCPeerConnection(); secondPeer.connectionState === 'new'").AsBoolean());
         using var permissionDenied = new JintScriptEngine();
         DomBindings.Install(permissionDenied, Document.Parse("<html></html>", new FolioOptions
         {

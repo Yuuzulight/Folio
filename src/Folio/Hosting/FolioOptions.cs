@@ -44,6 +44,8 @@ public sealed record ResourceLimits
     public long MaxServiceWorkerCacheBytes { get; init; } = 64L * 1024 * 1024;
     /// <summary>Maximum nested iframe contexts a document may create.</summary>
     public int MaxIframes { get; init; } = 16;
+    /// <summary>Maximum simultaneously open WebRTC peer connections.</summary>
+    public int MaxWebRtcConnections { get; init; } = 8;
 
     /// <summary>Maximum WebAssembly linear-memory bytes available to a document.</summary>
     public int MaxWebAssemblyBytes { get; init; } = 64 * 1024 * 1024;

@@ -40,6 +40,7 @@ public sealed class Document : IDisposable
     public long MaxWorkerMemoryBytes => Options.Limits.MaxWorkerMemoryBytes;
     public long MaxServiceWorkerCacheBytes => Options.Limits.MaxServiceWorkerCacheBytes;
     public int MaxIframes => Options.Limits.MaxIframes;
+    public int MaxWebRtcConnections => Options.Limits.MaxWebRtcConnections;
     public int MaxWebAssemblyBytes => Options.Limits.MaxWebAssemblyBytes;
     internal string ArtifactId => Options.ArtifactId;
     internal IArtifactStorage? ArtifactStorage => Options.ArtifactStorage;
