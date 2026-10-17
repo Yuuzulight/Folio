@@ -249,11 +249,23 @@ internal sealed class MediaTextTrackState(string kind, string label, string lang
     public string Kind { get; } = kind;
     public string Label { get; } = label;
     public string Language { get; } = language;
-    public string Mode { get; set; } = "disabled";
+    private string _mode = "disabled";
+    public string Mode
+    {
+        get => _mode;
+        set
+        {
+            if (value is not ("disabled" or "hidden" or "showing"))
+                throw WebIdlException.TypeError("TextTrack.mode must be disabled, hidden, or showing.");
+            _mode = value;
+        }
+    }
     public List<TextTrackCueState> Cues { get; } = [];
     public ScriptValue OnCueChange { get; set; } = ScriptValue.Null;
     public double CurrentTime { get; set; }
-    public IReadOnlyList<TextTrackCueState> ActiveCues => Cues.Where(cue => CurrentTime >= cue.StartTime && CurrentTime < cue.EndTime).ToArray();
+    public IReadOnlyList<TextTrackCueState> ActiveCues => Mode == "disabled"
+        ? []
+        : Cues.Where(cue => CurrentTime >= cue.StartTime && CurrentTime < cue.EndTime).ToArray();
 }
 
 internal sealed class TextTrackCueState
