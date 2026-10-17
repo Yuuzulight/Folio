@@ -871,6 +871,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { WebRtc = true }
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); let iceEvents = 0; let stateEvents = 0; let candidates = 0; pc.onicegatheringstatechange = () => iceEvents++; pc.onicecandidate = e => candidates++; pc.onconnectionstatechange = () => stateEvents++; pc.createOffer().then(x => x.type === 'offer' && x instanceof RTCSessionDescription)").IsObject);
+        Assert.True(allowed.Evaluate("const eventPc = new RTCPeerConnection(); let observedPeerEvents = ''; const peerStateHandler = e => { observedPeerEvents += e.type + (e.target === eventPc ? ':' : '?'); }; eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('iceconnectionstatechange', peerStateHandler); eventPc.addIceCandidate(null); eventPc.removeEventListener('connectionstatechange', peerStateHandler); observedPeerEvents === 'iceconnectionstatechange:connectionstatechange:'").AsBoolean());
         Assert.True(allowed.Evaluate("let devicesBeforeCapture = -1; navigator.mediaDevices.enumerateDevices().then(devices => devicesBeforeCapture = devices.length); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal(0, allowed.Evaluate("devicesBeforeCapture").AsNumber());
