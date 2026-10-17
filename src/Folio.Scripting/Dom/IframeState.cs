@@ -41,7 +41,7 @@ internal sealed class IframeState
 
     private string ResolveSource(string source) => BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
 
-    public void PostMessage(ScriptValue data, string targetOrigin)
+    public void PostMessage(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
     {
         if (!Enabled || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window));

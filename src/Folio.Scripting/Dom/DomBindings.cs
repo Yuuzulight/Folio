@@ -98,6 +98,47 @@ public static class DomBindings
             .DefineMethod("createPath", (_, _, args) => engine.CreateHostObject(context.Templates.Canvas.Path2D, context.Templates.Canvas.NewPath2D(args)))
             .DefineMethod("imageData", (_, _, args) => context.Templates.Canvas.ConstructImageData(args));
         engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
+        var messagePortTemplate = new HostObjectTemplate("MessagePort")
+            .DefineProperty("onmessage", (target, _) => ((MessagePortEndpoint)target).OnMessage,
+                (target, _, value) => ((MessagePortEndpoint)target).SetOnMessage(value))
+            .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((MessagePortEndpoint)target).Closed))
+            .DefineMethod("start", (target, _, _) => { ((MessagePortEndpoint)target).Start(); return ScriptValue.Undefined; })
+            .DefineMethod("close", (target, _, _) => { ((MessagePortEndpoint)target).Close(); return ScriptValue.Undefined; })
+            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((MessagePortEndpoint)target).PostMessage(args[0]); return ScriptValue.Undefined; });
+        var messagePortHost = new HostObjectTemplate("MessagePortHost")
+            .DefineMethod("create", (_, _, _) =>
+            {
+                var pair = MessagePortFactory.Create(context.Templates.MessageEventTemplate, messagePortTemplate, engine);
+                return engine.CreateArray([
+                    engine.CreateHostObject(messagePortTemplate, pair.First),
+                    engine.CreateHostObject(messagePortTemplate, pair.Second)
+                ]);
+            })
+            .DefineMethod("post", (_, _, args) =>
+            {
+                if (args.Length > 1 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
+                    endpoint.PostMessage(args[1]);
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("setHandler", (_, _, args) =>
+            {
+                if (args.Length > 1 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
+                    endpoint.SetOnMessage(args[1]);
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("start", (_, _, args) =>
+            {
+                if (args.Length > 0 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
+                    endpoint.Start();
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("close", (_, _, args) =>
+            {
+                if (args.Length > 0 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
+                    endpoint.Close();
+                return ScriptValue.Undefined;
+            });
+        engine.SetGlobalProperty("__folio_message_port_host", engine.CreateHostObject(messagePortHost, context));
         var workerTemplate = new HostObjectTemplate("Worker")
             .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
             .DefineProperty("onerror", (target, _) => ((WorkerState)target).OnError, (target, _, value) => ((WorkerState)target).OnError = value)
@@ -129,7 +170,7 @@ public static class DomBindings
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
                 try
                 {
-                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources);
+                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources);
                     context.RegisterWorker(state);
                     var worker = engine.CreateHostObject(workerTemplate, state);
                     state.Source = worker;
@@ -242,14 +283,15 @@ public static class DomBindings
             }
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
             (function() {
-                function Port() { this.onmessage = null; this._listeners = []; this._peer = null; this._closed = false; }
-                Port.prototype.start = function() { this._started = true; };
-                Port.prototype.close = function() { this._closed = true; };
-                Port.prototype.addEventListener = function(type, handler) { if (type === 'message' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) this._listeners.push(handler); };
+                function Port(endpoint) { this._endpoint = endpoint; this._listeners = []; this._closed = false; this._onmessage = null; }
+                Object.defineProperty(Port.prototype, 'onmessage', { get: function() { return this._onmessage; }, set: function(value) { this._onmessage = value; if (this._endpoint) __folio_message_port_host.setHandler(this._endpoint, value); } });
+                Port.prototype.start = function() { if (this._endpoint) __folio_message_port_host.start(this._endpoint); };
+                Port.prototype.close = function() { this._closed = true; if (this._endpoint) __folio_message_port_host.close(this._endpoint); };
+                Port.prototype.addEventListener = function(type, handler) { if (type === 'message' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) { this._listeners.push(handler); if (this._endpoint) __folio_message_port_host.setHandler(this._endpoint, handler); } };
                 Port.prototype.removeEventListener = function(type, handler) { if (type === 'message') { var i = this._listeners.indexOf(handler); if (i >= 0) this._listeners.splice(i, 1); } };
-                Port.prototype.postMessage = function(data) { var peer = this._peer; if (!peer || peer._closed) return; var event = { type: 'message', data: data, target: peer, source: null, origin: '' }; if (peer.onmessage) peer.onmessage(event); peer._listeners.slice().forEach(function(listener) { listener(event); }); };
+                Port.prototype.postMessage = function(data) { if (this._endpoint) { __folio_message_port_host.post(this._endpoint, data); return; } };
                 globalThis.MessagePort = Port;
-                globalThis.MessageChannel = function() { this.port1 = new Port(); this.port2 = new Port(); this.port1._peer = this.port2; this.port2._peer = this.port1; };
+                globalThis.MessageChannel = function() { var pair = __folio_message_port_host.create(); this.port1 = new Port(pair[0]); this.port2 = new Port(pair[1]); };
             })();
             globalThis.navigator = globalThis.navigator || {};
             var __folio_service_worker_registrations = [];

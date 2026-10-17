@@ -6,6 +6,7 @@ namespace Folio.Scripting.Dom;
 internal sealed class WorkerState
 {
     private readonly Action? _releaseWorker;
+    private readonly IHostObjectTemplate _messagePortTemplate;
     private readonly TimeSpan _workerExecutionTime;
     private readonly IReadOnlyDictionary<string, string>? _blobSources;
     private readonly object _workerGate = new();
@@ -13,10 +14,11 @@ internal sealed class WorkerState
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
     private Task? _startupTask;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
+        _messagePortTemplate = messagePortTemplate;
         ScriptUrl = scriptUrl;
         Origin = Uri.TryCreate(scriptUrl, UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
         Enabled = enabled;
@@ -194,7 +196,7 @@ internal sealed class WorkerState
         if (!engine.TryGetArrayItems(transfer, out var items))
             throw WebIdlException.DomException("DataCloneError", "The transfer list must be an array.");
         foreach (var item in items)
-            if (!engine.TryGetArrayBufferBytes(item, out _))
+            if (!engine.TryGetArrayBufferBytes(item, out _) && !TryGetPort(engine, item, out _))
                 throw WebIdlException.DomException("DataCloneError", "Only ArrayBuffer values may be transferred.");
         return items;
     }
@@ -202,6 +204,20 @@ internal sealed class WorkerState
     private ScriptValue CloneIntoWorker(ScriptValue value)
     {
         if (value.IsNullOrUndefined || !value.IsObject) return value;
+        if (TryGetPort(Engine, value, out var port))
+        {
+            var transferred = port.TransferTo(WorkerEngine!);
+            return WorkerEngine!.CreateHostObject(_messagePortTemplate, transferred);
+        }
+        var nestedPort = Engine.GetProperty(value, "port");
+        if (TryGetPort(Engine, nestedPort, out var nested))
+        {
+            var transferred = nested.TransferTo(WorkerEngine!);
+            WorkerEngine!.SetGlobalProperty("__folio_transferred_port", WorkerEngine.CreateHostObject(_messagePortTemplate, transferred));
+            var clone = WorkerEngine.Evaluate("({ port: __folio_transferred_port })", ScriptUrl);
+            WorkerEngine.SetGlobalProperty("__folio_transferred_port", ScriptValue.Undefined);
+            return clone;
+        }
         if (Engine.TryGetArrayBufferBytes(value, out var buffer)) return WorkerEngine!.CreateArrayBuffer(buffer);
         try
         {
@@ -223,6 +239,20 @@ internal sealed class WorkerState
     private ScriptValue CloneIntoParent(ScriptValue value)
     {
         if (value.IsNullOrUndefined || !value.IsObject) return value;
+        if (TryGetPort(WorkerEngine!, value, out var port))
+        {
+            var transferred = port.TransferTo(Engine);
+            return Engine.CreateHostObject(_messagePortTemplate, transferred);
+        }
+        var nestedPort = WorkerEngine!.GetProperty(value, "port");
+        if (TryGetPort(WorkerEngine!, nestedPort, out var nested))
+        {
+            var transferred = nested.TransferTo(Engine);
+            Engine.SetGlobalProperty("__folio_transferred_port", Engine.CreateHostObject(_messagePortTemplate, transferred));
+            var clone = Engine.Evaluate("({ port: __folio_transferred_port })", ScriptUrl);
+            Engine.SetGlobalProperty("__folio_transferred_port", ScriptValue.Undefined);
+            return clone;
+        }
         if (WorkerEngine!.TryGetArrayBufferBytes(value, out var buffer)) return Engine.CreateArrayBuffer(buffer);
         try
         {
@@ -242,6 +272,17 @@ internal sealed class WorkerState
     }
 
     private static void EnsureCloneHelpers(IScriptEngine engine) => engine.Evaluate(StructuredCloneScript);
+
+    private static bool TryGetPort(IScriptEngine engine, ScriptValue value, out MessagePortEndpoint port)
+    {
+        port = null!;
+        if (!value.IsObject) return false;
+        var endpoint = engine.GetProperty(value, "_endpoint");
+        if (!engine.TryGetHostTarget(endpoint, out var target) || target is not MessagePortEndpoint found)
+            return false;
+        port = found;
+        return true;
+    }
 
     private const string StructuredCloneScript = """
         (function() {
