@@ -590,8 +590,9 @@ public static class DomBindings
                 },
                 Global: function(options, value) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
-                    options = options || {}; this.type = String(options.value || 'i32'); this.mutable = !!options.mutable; this._value = value === undefined ? 0 : value;
-                    Object.defineProperty(this, 'value', { get: function() { return this._value; }, set: function(next) { if (!this.mutable) throw new TypeError('Immutable WebAssembly.Global.'); this._value = next; } });
+                    options = options || {}; this.type = String(options.value || 'i32'); if (['i32', 'i64', 'f32', 'f64', 'v128', 'funcref', 'externref'].indexOf(this.type) < 0) throw new TypeError('Invalid WebAssembly global value type.'); this.mutable = !!options.mutable; this._value = value === undefined ? 0 : value;
+                    if (this.type === 'i32' || this.type === 'i64') this._value = Number(this._value) | 0; else if (this.type === 'f32' || this.type === 'f64') this._value = Number(this._value);
+                    Object.defineProperty(this, 'value', { get: function() { return this._value; }, set: function(next) { if (!this.mutable) throw new TypeError('Immutable WebAssembly.Global.'); this._value = (this.type === 'i32' || this.type === 'i64') ? Number(next) | 0 : (this.type === 'f32' || this.type === 'f64') ? Number(next) : next; } });
                 }
             };
             WebAssembly.Memory.prototype.grow = function(delta) {

@@ -634,6 +634,8 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1 }).grow(0.5)"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Table({ initial: 1 }).grow(0.5)"));
         Assert.True(allowed.Evaluate("const global = new WebAssembly.Global({ value: 'i32', mutable: true }, 4); global.valueOf() === 4; global.value = 9; global.value === 9").AsBoolean());
+        Assert.Equal(4, allowed.Evaluate("const floatGlobal = new WebAssembly.Global({ value: 'f64' }, '4'); floatGlobal.value").AsNumber());
+        Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Global({ value: 'invalid' }, 0)"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1, maximum: 2 }).grow(2)"));
     }
 
