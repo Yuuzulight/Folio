@@ -136,6 +136,9 @@ internal sealed class DomNodeTemplates
                 var index = state.Cues.FindIndex(item => item.StartTime == start && item.EndTime == end && item.Text == text);
                 if (index < 0) throw WebIdlException.DomException(DomExceptionNames.NotFoundError, "The cue is not in this text track.");
                 var before = state.ActiveCues.ToArray();
+                var removed = state.Cues[index];
+                if (before.Contains(removed) && removed.OnExit.IsFunction)
+                    _context.Engine.Call(removed.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
                 state.Cues.RemoveAt(index);
                 if (!before.SequenceEqual(state.ActiveCues) && state.OnCueChange.IsFunction)
                     _context.Engine.Call(state.OnCueChange, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("cuechange"))]);
