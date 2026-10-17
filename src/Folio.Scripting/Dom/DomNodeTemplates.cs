@@ -350,8 +350,12 @@ internal sealed class DomNodeTemplates
         var t = new HostObjectTemplate("HTMLIFrameElement", htmlElementProto);
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
+        t.DefineProperty("srcdoc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("srcdoc") ?? ""),
+            (target, _, value) => ((ElementNode)target).SetAttribute("srcdoc", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("sandbox", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("sandbox") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("sandbox", WebIdlConversions.ToDOMString(value)));
+        t.DefineProperty("allow", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("allow") ?? ""),
+            (target, _, value) => ((ElementNode)target).SetAttribute("allow", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("onload", (target, _) => _context.GetIframe((ElementNode)target).OnLoad,
             (target, _, value) => _context.GetIframe((ElementNode)target).OnLoad = value);
         t.DefineProperty("contentWindow", (target, _) =>

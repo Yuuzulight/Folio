@@ -928,6 +928,7 @@ public sealed class DomStyleDeclarationTests
         }));
         Assert.True(srcdoc.Evaluate("const srcdocFrame = document.getElementById('f'); srcdocFrame.contentDocument.getElementById('child').textContent === 'inline' && srcdocFrame.contentWindow.origin === 'https://parent.example'").AsBoolean());
         Assert.True(srcdoc.Evaluate("srcdocFrame.setAttribute('srcdoc', '<p id=changed>updated</p>'); srcdocFrame.contentDocument.getElementById('changed').textContent === 'updated'").AsBoolean());
+        Assert.True(srcdoc.Evaluate("srcdocFrame.srcdoc === '<p id=changed>updated</p>'; srcdocFrame.allow = 'camera; microphone'; srcdocFrame.allow === 'camera; microphone'").AsBoolean());
         using var sandboxed = new JintScriptEngine();
         DomBindings.Install(sandboxed, Document.Parse("<iframe id='f' sandbox='allow-scripts' src='https://child.example/app'></iframe><iframe id='same' sandbox='allow-same-origin allow-scripts' src='https://child.example/app'></iframe>", new FolioOptions
         {
