@@ -36,17 +36,17 @@ public static class DomBindings
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.Options.ResourceLoader, document.Options.BaseUri,
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxServiceWorkerCacheBytes, document.Options.ResourceLoader, document.Options.BaseUri,
         document.Options.Raster, () => document.CanvasText);
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, resourceLoader, baseUri, raster, canvasStyles);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxServiceWorkerCacheBytes, resourceLoader, baseUri, raster, canvasStyles);
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
 
@@ -142,6 +142,7 @@ public static class DomBindings
                 return response?.Data is { } data ? ScriptValue.FromString(System.Text.Encoding.UTF8.GetString(data)) : ScriptValue.Null;
             });
         engine.SetGlobalProperty("__folio_service_worker_loader", engine.CreateHostObject(serviceWorkerLoader, context));
+        engine.SetGlobalProperty("__folio_service_worker_cache_bytes", ScriptValue.FromNumber(context.MaxServiceWorkerCacheBytes));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.Evaluate(@"
             if (typeof window === 'undefined') {
@@ -200,16 +201,16 @@ public static class DomBindings
             };
             if (!__folio_service_workers_enabled) delete globalThis.navigator.serviceWorker;
             (function() {
-                var cacheStores = new Map();
+                var cacheStores = new Map(), cacheBytes = 0;
                 function requestKey(request) { return request instanceof Request ? request.url : String(request); }
                 function Cache(name) { this._name = name; if (!cacheStores.has(name)) cacheStores.set(name, new Map()); this._entries = cacheStores.get(name); }
-                Cache.prototype.match = function(request) { var value = this._entries.get(requestKey(request)); return Promise.resolve(value ? value.clone() : undefined); };
-                Cache.prototype.put = function(request, response) { if (!(response instanceof Response)) return Promise.reject(new TypeError('Cache.put requires a Response.')); this._entries.set(requestKey(request), response.clone()); return Promise.resolve(); };
-                Cache.prototype.delete = function(request) { return Promise.resolve(this._entries.delete(requestKey(request))); };
+                Cache.prototype.match = function(request) { var value = this._entries.get(requestKey(request)); return Promise.resolve(value ? value.response.clone() : undefined); };
+                Cache.prototype.put = function(request, response) { if (!(response instanceof Response)) return Promise.reject(new TypeError('Cache.put requires a Response.')); var key = requestKey(request), stored = response.clone(), measured = response.clone(), self = this; return measured.arrayBuffer().then(function(buffer) { var old = self._entries.get(key), oldSize = old ? old.size : 0, next = cacheBytes - oldSize + buffer.byteLength; if (next > Number(globalThis.__folio_service_worker_cache_bytes)) throw new DOMException('The Cache API storage quota has been exceeded.', 'QuotaExceededError'); self._entries.set(key, { response: stored, size: buffer.byteLength }); cacheBytes = next; }); };
+                Cache.prototype.delete = function(request) { var key = requestKey(request), value = this._entries.get(key); if (value) { cacheBytes -= value.size; this._entries.delete(key); return Promise.resolve(true); } return Promise.resolve(false); };
                 Cache.prototype.keys = function() { return Promise.resolve(Array.from(this._entries.keys()).map(function(url) { return new Request(url); })); };
                 Cache.prototype.add = function(request) { var self = this; return fetch(request).then(function(response) { return self.put(request, response); }); };
                 Cache.prototype.addAll = function(requests) { var self = this; return Promise.all(Array.from(requests).map(function(request) { return self.add(request); })); };
-                globalThis.caches = { open: function(name) { return Promise.resolve(new Cache(String(name))); }, has: function(name) { return Promise.resolve(cacheStores.has(String(name))); }, delete: function(name) { return Promise.resolve(cacheStores.delete(String(name))); }, keys: function() { return Promise.resolve(Array.from(cacheStores.keys())); } };
+                globalThis.caches = { open: function(name) { return Promise.resolve(new Cache(String(name))); }, has: function(name) { return Promise.resolve(cacheStores.has(String(name))); }, delete: function(name) { var key = String(name), store = cacheStores.get(key); if (!store) return Promise.resolve(false); store.forEach(function(value) { cacheBytes -= value.size; }); cacheStores.delete(key); return Promise.resolve(true); }, keys: function() { return Promise.resolve(Array.from(cacheStores.keys())); } };
             })();
             globalThis.navigator.mediaDevices = {
                 getUserMedia: function(constraints) {

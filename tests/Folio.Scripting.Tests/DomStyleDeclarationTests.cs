@@ -575,6 +575,16 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let cacheResult = ''; caches.open('v1').then(cache => cache.put('/offline', new Response('cached'))).then(() => caches.open('v1')).then(cache => cache.match('/offline')).then(response => response.text()).then(text => cacheResult = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("cached", intercepted.Evaluate("cacheResult").AsString());
+
+        using var cacheLimited = new JintScriptEngine();
+        DomBindings.Install(cacheLimited, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true },
+            Limits = ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 4 }
+        }));
+        Assert.True(cacheLimited.Evaluate("let quotaName = ''; caches.open('small').then(cache => cache.put('/x', new Response('12345'))).catch(error => quotaName = error.name); true").AsBoolean());
+        cacheLimited.PerformMicrotaskCheckpoint();
+        Assert.Equal("QuotaExceededError", cacheLimited.Evaluate("quotaName").AsString());
     }
 
     [Fact]
