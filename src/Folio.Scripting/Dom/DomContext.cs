@@ -78,7 +78,7 @@ internal sealed class DomContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -93,6 +93,8 @@ internal sealed class DomContext
         MaxWorkers = Math.Max(0, maxWorkers);
         MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
         MaxServiceWorkerCacheBytes = Math.Max(0, maxServiceWorkerCacheBytes);
+        ArtifactStorage = artifactStorage;
+        ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
@@ -114,6 +116,8 @@ internal sealed class DomContext
     public int MaxWorkers { get; }
     public long MaxWorkerMemoryBytes { get; }
     public long MaxServiceWorkerCacheBytes { get; }
+    public IArtifactStorage? ArtifactStorage { get; }
+    public string ArtifactId { get; }
     public bool TryAcquireWorker()
     {
         if (MaxWorkers <= 0) return false;

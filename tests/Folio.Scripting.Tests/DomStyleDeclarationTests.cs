@@ -12,6 +12,15 @@ namespace Folio.Scripting.Tests;
 
 public sealed class DomStyleDeclarationTests
 {
+    private sealed class ArtifactMemoryStorage : IArtifactStorage
+    {
+        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+        public string? Read(string key) => _values.GetValueOrDefault(key);
+        public void Write(string key, string value) => _values[key] = value;
+        public void Delete(string key) => _values.Remove(key);
+        public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+    }
+
     private sealed class WorkerResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -609,6 +618,43 @@ public sealed class DomStyleDeclarationTests
         Assert.True(isolatedCache.Evaluate("let hasSharedCache = false; caches.has('v1').then(value => hasSharedCache = value); true").AsBoolean());
         isolatedCache.PerformMicrotaskCheckpoint();
         Assert.False(isolatedCache.Evaluate("hasSharedCache").AsBoolean());
+
+        var storage = new ArtifactMemoryStorage();
+        using (var persisted = new JintScriptEngine())
+        {
+            DomBindings.Install(persisted, Document.Parse("<html></html>", new FolioOptions
+            {
+                ArtifactId = "artifact-a",
+                ArtifactStorage = storage,
+                Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+            }));
+            persisted.Evaluate("let stored = ''; caches.open('persistent').then(cache => cache.put('/x', new Response('saved'))); true");
+            persisted.PerformMicrotaskCheckpoint();
+        }
+        using (var restored = new JintScriptEngine())
+        {
+            DomBindings.Install(restored, Document.Parse("<html></html>", new FolioOptions
+            {
+                ArtifactId = "artifact-a",
+                ArtifactStorage = storage,
+                Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+            }));
+            Assert.True(restored.Evaluate("let restoredText = ''; caches.open('persistent').then(cache => cache.match('/x')).then(response => response.text()).then(text => restoredText = text); true").AsBoolean());
+            restored.PerformMicrotaskCheckpoint();
+            Assert.Equal("saved", restored.Evaluate("restoredText").AsString());
+        }
+        using (var otherArtifact = new JintScriptEngine())
+        {
+            DomBindings.Install(otherArtifact, Document.Parse("<html></html>", new FolioOptions
+            {
+                ArtifactId = "artifact-b",
+                ArtifactStorage = storage,
+                Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+            }));
+            Assert.True(otherArtifact.Evaluate("let isolated = false; caches.open('persistent').then(cache => cache.match('/x')).then(response => isolated = response === undefined); true").AsBoolean());
+            otherArtifact.PerformMicrotaskCheckpoint();
+            Assert.True(otherArtifact.Evaluate("isolated").AsBoolean());
+        }
 
         using var cacheLimited = new JintScriptEngine();
         DomBindings.Install(cacheLimited, Document.Parse("<html></html>", new FolioOptions

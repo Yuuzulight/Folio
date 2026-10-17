@@ -63,6 +63,12 @@ public sealed record FeatureCapabilities
 /// <summary>How a host configures a document. Members for resource loading and scripting arrive with those features.</summary>
 public sealed class FolioOptions
 {
+    /// <summary>Stable host identity used to scope persisted artifact data.</summary>
+    public string ArtifactId { get; init; } = "default";
+
+    /// <summary>Optional host-owned persistence for artifact data such as service-worker caches.</summary>
+    public IArtifactStorage? ArtifactStorage { get; init; }
+
     /// <summary>Stage-6 capabilities granted by the host. All are disabled by default.</summary>
     public FeatureCapabilities Capabilities { get; init; } = FeatureCapabilities.Default;
 
