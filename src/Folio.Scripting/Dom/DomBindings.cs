@@ -196,6 +196,8 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_wasm_max_pages", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 65536)));
         engine.SetGlobalProperty("__folio_wasm_max_bytes", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes)));
         engine.SetGlobalProperty("__folio_wasm_max_table_elements", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 4)));
+        engine.SetGlobalProperty("__folio_wasm_max_globals", ScriptValue.FromNumber(Math.Max(0, context.MaxWebAssemblyBytes / 16)));
+        engine.SetGlobalProperty("__folio_wasm_global_count", ScriptValue.FromNumber(0));
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
         var serviceWorkerLoader = new HostObjectTemplate("ServiceWorkerLoader")
@@ -611,9 +613,11 @@ public static class DomBindings
                 },
                 Global: function(options, value) {
                     if (!__folio_wasm_enabled) throw new DOMException('WebAssembly is disabled by the host.', 'NotSupportedError');
+                    if (Number(__folio_wasm_global_count) >= Number(__folio_wasm_max_globals)) throw new RangeError('WebAssembly global limit exceeded.');
                     options = options || {}; this.type = String(options.value || 'i32'); if (['i32', 'i64', 'f32', 'f64', 'v128', 'funcref', 'externref'].indexOf(this.type) < 0) throw new TypeError('Invalid WebAssembly global value type.'); this.mutable = !!options.mutable; this._value = value === undefined ? 0 : value;
                     if (this.type === 'i32' || this.type === 'i64') this._value = Number(this._value) | 0; else if (this.type === 'f32' || this.type === 'f64') this._value = Number(this._value);
                     Object.defineProperty(this, 'value', { get: function() { return this._value; }, set: function(next) { if (!this.mutable) throw new TypeError('Immutable WebAssembly.Global.'); this._value = (this.type === 'i32' || this.type === 'i64') ? Number(next) | 0 : (this.type === 'f32' || this.type === 'f64') ? Number(next) : next; } });
+                    __folio_wasm_global_count++;
                 }
             };
             WebAssembly.Memory.prototype.grow = function(delta) {
