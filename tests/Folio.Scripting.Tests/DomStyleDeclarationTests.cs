@@ -81,6 +81,12 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('install', function(e) { e.waitUntil(Promise.resolve()); }); self.addEventListener('activate', function(e) { e.waitUntil(Promise.resolve()); });"), "application/javascript"));
     }
 
+    private sealed class HungServiceWorkerLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("while (true) {}"), "application/javascript"));
+    }
+
     private sealed class ServiceWorkerFetchLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -716,6 +722,24 @@ public sealed class DomStyleDeclarationTests
         mutableLoader.Version = 2;
         Assert.True(updating.Evaluate("registrationForUpdate.update(); true").AsBoolean());
         Assert.True(updating.Evaluate("registrationForUpdate.active.onmessage = e => updatedValue = e.data; registrationForUpdate.active.postMessage(40); updateEvents === 1 && updatedValue === 42").AsBoolean());
+    }
+
+    [Fact]
+    public void HungServiceWorkerIsRejectedWithoutStoppingThePage()
+    {
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new HungServiceWorkerLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(100) }
+        }));
+
+        Assert.True(engine.Evaluate("let workerErrorName = ''; navigator.serviceWorker.register('/hung.js').catch(error => workerErrorName = error.name); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("TimeoutError", engine.Evaluate("workerErrorName").AsString());
+        Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
     }
 
     [Fact]
