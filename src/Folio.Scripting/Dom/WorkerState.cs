@@ -10,6 +10,7 @@ internal sealed class WorkerState
     private readonly TimeSpan _workerExecutionTime;
     private readonly IReadOnlyDictionary<string, string>? _blobSources;
     private readonly object _workerGate = new();
+    private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingMessages = new();
     private bool _released;
     private volatile bool _closedByWorker;
     private volatile bool _workerExecuting;
@@ -157,12 +158,24 @@ internal sealed class WorkerState
         if (_scriptError is not null && !Terminated) { ReportError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
-            if (_workerExecuting) return true;
+            lock (_workerGate)
+            {
+                if (_workerExecuting)
+                {
+                    _pendingMessages.Enqueue((value, transfer));
+                    return true;
+                }
+            }
             var transferred = TransferList(Engine, transfer);
             var message = CloneIntoWorker(value);
             lock (_workerGate)
             {
-                if (Terminated || _workerExecuting) return true;
+                if (Terminated) return true;
+                if (_workerExecuting)
+                {
+                    _pendingMessages.Enqueue((value, transfer));
+                    return true;
+                }
                 _workerExecuting = true;
                 try
                 {
@@ -175,6 +188,7 @@ internal sealed class WorkerState
                 finally { _workerExecuting = false; }
             }
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
+            DrainPendingMessages();
             return true;
         }
         if (Enabled && !Terminated && OnMessage.IsFunction)
@@ -184,6 +198,20 @@ internal sealed class WorkerState
             if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
         }
         return true;
+    }
+
+    private void DrainPendingMessages()
+    {
+        while (true)
+        {
+            (ScriptValue Value, ScriptValue Transfer) next;
+            lock (_workerGate)
+            {
+                if (Terminated || _pendingMessages.Count == 0) return;
+                next = _pendingMessages.Dequeue();
+            }
+            PostMessage(next.Value, next.Transfer);
+        }
     }
 
     private void DispatchToParent(ScriptValue value, ScriptValue transfer)
