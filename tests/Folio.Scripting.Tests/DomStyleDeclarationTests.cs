@@ -111,8 +111,9 @@ public sealed class DomStyleDeclarationTests
     private sealed class MutableServiceWorkerLoader : IResourceLoader
     {
         public int Version { get; set; } = 1;
+        public bool RefuseScripts { get; set; }
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script && !RefuseScripts
                 ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes($"onmessage = function(e) {{ postMessage(e.data + {Version}); }};"), "application/javascript")
                 : ResourceResponse.Refused("wrong resource kind"));
     }
@@ -843,6 +844,11 @@ public sealed class DomStyleDeclarationTests
         mutableLoader.Version = 2;
         Assert.True(updating.Evaluate("registrationForUpdate.update(); true").AsBoolean());
         Assert.True(updating.Evaluate("registrationForUpdate.active.onmessage = e => updatedValue = e.data; registrationForUpdate.active.postMessage(40); updateEvents === 1 && updatedValue === 42").AsBoolean());
+        mutableLoader.RefuseScripts = true;
+        Assert.True(updating.Evaluate("let updateErrorName = ''; registrationForUpdate.update().catch(error => updateErrorName = error.name); true").AsBoolean());
+        updating.PerformMicrotaskCheckpoint();
+        Assert.Equal("TypeError", updating.Evaluate("updateErrorName").AsString());
+        Assert.True(updating.Evaluate("updatedValue = 0; registrationForUpdate.active.postMessage(40); updatedValue === 42").AsBoolean());
     }
 
     [Fact]
