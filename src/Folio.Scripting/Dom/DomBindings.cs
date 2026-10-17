@@ -550,6 +550,7 @@ public static class DomBindings
                 compileStreaming: function(response) {
                     if (response && typeof response.then === 'function') return response.then(function(resolved) { return WebAssembly.compileStreaming(resolved); });
                     if (!response || typeof response.arrayBuffer !== 'function') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires a Response.'));
+                    if (response.ok === false || response.status !== undefined && (response.status < 200 || response.status > 299)) return Promise.reject(new TypeError('WebAssembly.compileStreaming requires a successful response.'));
                     var contentType = response.headers && response.headers.get ? response.headers.get('content-type') : null;
                     if (!contentType || contentType.toLowerCase().split(';')[0].trim() !== 'application/wasm') return Promise.reject(new TypeError('WebAssembly.compileStreaming requires an application/wasm response.'));
                     return response.arrayBuffer().then(function(buffer) { return WebAssembly.compile(new Uint8Array(buffer)); });
