@@ -3,5 +3,9 @@
   "features": ["script", "media", "video", "controls"],
   "viewport": 800,
   "interaction": ["click #play", "click #pause"],
-  "expectedToFail": "Native media decoding is not enabled in the conformance host yet."
+  "tolerance": {
+    "channelThreshold": 48,
+    "maxDifferingRatio": 0.02,
+    "reason": "Chrome native media controls and Folio controls use different platform styling."
+  }
 }

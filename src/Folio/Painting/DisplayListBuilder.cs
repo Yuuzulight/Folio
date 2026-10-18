@@ -664,6 +664,9 @@ internal static class DisplayListBuilder
                 return;
             }
 
+            if (media.Poster is { } poster)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: new MediaPosterHandle(poster), Sampling: ImageSampling.Smooth));
+
             if (media.ActiveCues.Count > 0 && element.LocalName == "video")
             {
                 var cue = string.Join("\n", media.ActiveCues.Select(c => c.Text));
@@ -1684,5 +1687,12 @@ internal static class DisplayListBuilder
 
         // Called at the end so the list is balanced.
         public void Finish() => PopTo(0);
+    }
+
+    private sealed class MediaPosterHandle(IMediaPoster poster) : Imaging.IImageHandle
+    {
+        public int Width => poster.Width;
+        public int Height => poster.Height;
+        public ReadOnlyMemory<byte> Pixels => poster.Pixels;
     }
 }

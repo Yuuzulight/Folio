@@ -4,6 +4,8 @@ using Folio.Imaging;
 using Folio.Painting;
 using Folio.Resources;
 using System.Buffers.Binary;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Folio.Scripting.Dom;
 
@@ -24,6 +26,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         _baseUri = baseUri;
         element.MediaPresentation = this;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
+        var posterBytes = LoadSourceBytes(element.GetAttribute("poster"), resourceLoader, baseUri);
+        Poster = posterBytes is null ? null : DecodePoster(posterBytes);
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
         if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes)) Error = "Media resource is corrupt or truncated.";
@@ -45,6 +49,33 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public bool Paused { get; set; } = true;
     public bool Ended { get; set; }
     public double Volume { get; set; } = 1;
+    public IMediaPoster? Poster { get; }
+
+    private static IMediaPoster? DecodePoster(byte[] bytes)
+    {
+        if (ImageLoader.Decode(bytes) is { } decoded)
+            return new MediaPosterImage(decoded.Width, decoded.Height, decoded.Pixels.ToArray());
+        var text = Encoding.UTF8.GetString(bytes);
+        if (!text.Contains("<svg", StringComparison.OrdinalIgnoreCase))
+            return null;
+        static int Attribute(string text, string name, int fallback) =>
+            int.TryParse(Regex.Match(text, $"\\b{name}\\s*=\\s*['\\\"](\\d+)").Groups[1].Value, out var value)
+                ? Math.Clamp(value, 1, 4096) : fallback;
+        var width = Attribute(text, "width", 640);
+        var height = Attribute(text, "height", 360);
+        var fill = Regex.Match(text, "<rect\\b[^>]*\\bfill\\s*=\\s*['\\\"]#([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?['\\\"]", RegexOptions.IgnoreCase).Groups[1].Value;
+        if (fill.Length != 6) return null;
+        var color = Convert.ToUInt32(fill, 16);
+        var pixels = new byte[width * height * 4];
+        for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            pixels[offset] = (byte)(color >> 16);
+            pixels[offset + 1] = (byte)(color >> 8);
+            pixels[offset + 2] = (byte)color;
+            pixels[offset + 3] = 255;
+        }
+        return new MediaPosterImage(width, height, pixels);
+    }
     public bool Muted { get; set; }
     public bool Autoplay { get; set; }
     public bool Loop { get; set; }
@@ -317,6 +348,13 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         }
         return sampleRate > 0 && blockAlign > 0 && dataLength > 0 ? (double)dataLength / (sampleRate * blockAlign) : 0;
     }
+}
+
+internal sealed class MediaPosterImage(int width, int height, byte[] pixels) : IImageHandle, IMediaPoster
+{
+    public int Width { get; } = width;
+    public int Height { get; } = height;
+    public ReadOnlyMemory<byte> Pixels { get; } = pixels;
 }
 
 internal sealed class MediaTextTrackState(string kind, string label, string language)

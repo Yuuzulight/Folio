@@ -9,11 +9,19 @@ public interface IMediaPresentation
     double CurrentTime { get; }
     double Duration { get; }
     double Volume { get; }
+    IMediaPoster? Poster { get; }
     IReadOnlyList<IMediaCue> ActiveCues { get; }
     void TogglePlayPause();
     void SeekBy(double seconds);
     void ToggleMute();
     void SetVolume(double volume);
+}
+
+public interface IMediaPoster
+{
+    int Width { get; }
+    int Height { get; }
+    ReadOnlyMemory<byte> Pixels { get; }
 }
 
 public interface IMediaCue
