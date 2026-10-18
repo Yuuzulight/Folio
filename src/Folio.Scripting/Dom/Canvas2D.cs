@@ -53,7 +53,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     private readonly IMediaDecoder? _decoder;
     private readonly int _maxMediaBytes;
     private MediaAudioFrame? _audioFrame;
-    private bool _audioSubmitted;
+    private int _audioCursor;
     private byte[]? _framePixels;
     public ReadOnlyMemory<byte> Pixels => _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
     public double CurrentTime { get; set; }
@@ -140,7 +140,10 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public void SetVolume(double volume) { Volume = Math.Clamp(volume, 0, 1); Dispatch(OnVolumeChange, "volumechange"); }
     private void SetCurrentTime(double value)
     {
+        var previousTime = CurrentTime;
         CurrentTime = Math.Max(0, value);
+        if (CurrentTime < previousTime && _audioFrame is { } rewind)
+            _audioCursor = Math.Min(rewind.Samples.Length, (int)(CurrentTime * rewind.SampleRate) * rewind.Channels);
         foreach (var track in TextTracks)
         {
             var before = track.ActiveCues.ToArray();
@@ -236,11 +239,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
         Paused = false;
         Ended = false;
-        if (Element.LocalName == "audio" && !_audioSubmitted && _audioFrame is { } frame)
-        {
-            _audioOutput?.Submit(frame);
-            _audioSubmitted = true;
-        }
+        if (Element.LocalName == "audio") SubmitAudioThrough(CurrentTime);
         Dispatch(OnPlay, "play");
         Dispatch(OnPlaying, "playing");
         return true;
@@ -255,9 +254,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (next >= Duration)
         {
             SetCurrentTime(Duration);
+            SubmitAudioThrough(CurrentTime);
             if (Loop && !Paused)
             {
                 SetCurrentTime(0);
+                SubmitAudioThrough(CurrentTime);
                 Dispatch(OnPlay, "play");
                 Dispatch(OnPlaying, "playing");
             }
@@ -269,6 +270,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             return;
         }
         SetCurrentTime(next);
+        SubmitAudioThrough(CurrentTime);
     }
 
     public void Load()
@@ -290,7 +292,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             _audioFrame = null;
         }
         _framePixels = null;
-        _audioSubmitted = false;
+        _audioCursor = 0;
         CurrentTime = 0;
         Paused = true;
         Ended = false;
@@ -351,6 +353,22 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (_decoder is null || bytes is not { Length: > 0 } || bytes.Length > _maxMediaBytes) return null;
         try { return _decoder.Decode(bytes, null, video, _maxMediaBytes); }
         catch { return null; }
+    }
+
+    private void SubmitAudioThrough(double time)
+    {
+        if (_audioOutput is null || _audioFrame is not { } frame || frame.SampleRate <= 0 || frame.Channels <= 0) return;
+        var requested = Math.Max(0, time) * frame.SampleRate * frame.Channels;
+        var target = requested >= frame.Samples.Length ? frame.Samples.Length : (int)requested;
+        if (_audioCursor == 0 && target == 0)
+            target = Math.Min(frame.Samples.Length, Math.Max(1, frame.Channels * Math.Max(1, frame.SampleRate / 50)));
+        var chunkSamples = Math.Max(frame.Channels, frame.Channels * Math.Max(1, frame.SampleRate / 50));
+        while (_audioCursor < target)
+        {
+            var length = Math.Min(chunkSamples, target - _audioCursor);
+            _audioOutput.Submit(new MediaAudioFrame(frame.SampleRate, frame.Channels, frame.Samples.Slice(_audioCursor, length).ToArray()));
+            _audioCursor += length;
+        }
     }
 
     private static bool LooksLikeMedia(byte[] bytes) =>

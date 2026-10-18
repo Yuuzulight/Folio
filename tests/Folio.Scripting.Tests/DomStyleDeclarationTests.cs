@@ -443,18 +443,25 @@ public sealed class DomStyleDeclarationTests
 
         var audioOutput = new CollectingAudioOutput();
         using var outputEngine = new JintScriptEngine();
+        var outputClock = new VirtualEventLoopClock();
+        using var outputLoop = new HtmlEventLoop(outputEngine, outputClock);
         DomBindings.Install(outputEngine, Document.Parse("<audio id='a' src='/tone.wav'></audio>", new FolioOptions
         {
             BaseUri = new Uri("https://media.example/"),
             ResourceLoader = new WavResourceLoader(),
             MediaAudioOutput = audioOutput,
             Capabilities = new FeatureCapabilities { Media = true }
-        }));
+        }), eventLoop: outputLoop);
         Assert.True(outputEngine.Evaluate("document.getElementById('a').play(); true").AsBoolean());
         Assert.Single(audioOutput.Frames);
         Assert.Equal(8000, audioOutput.Frames[0].SampleRate);
         Assert.Equal(1, audioOutput.Frames[0].Channels);
-        Assert.Equal(8000, audioOutput.Frames[0].Samples.Length);
+        Assert.Equal(160, audioOutput.Frames[0].Samples.Length);
+        outputClock.SetNow(0);
+        outputLoop.UpdateTheRendering();
+        outputClock.SetNow(100);
+        outputLoop.UpdateTheRendering();
+        Assert.True(audioOutput.Frames.Count > 1);
 
         var compressedOutput = new CollectingAudioOutput();
         using var compressedEngine = new JintScriptEngine();
