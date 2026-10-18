@@ -241,6 +241,15 @@ internal sealed class DomContext
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;
     }
+
+    /// <summary>Creates presentation state for media elements before the first paint, so native controls and cues render even when script never touches the element.</summary>
+    internal void InitializeMediaElements()
+    {
+        for (Node? node = Document; node is not null; node = node.NextInTree(Document))
+            if (node is ElementNode { Name.Namespace: var ns, LocalName: var name } element
+                && ns == Namespaces.Html && name is ("video" or "audio"))
+                _ = GetMedia(element);
+    }
     public IframeState GetIframe(ElementNode element)
     {
         if (_iframes.TryGetValue(element, out var state)) return state;

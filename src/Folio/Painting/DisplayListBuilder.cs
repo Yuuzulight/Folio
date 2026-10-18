@@ -620,10 +620,44 @@ internal static class DisplayListBuilder
                 ? new CssColor(color.R, color.G, color.B, 0.08f)
                 : new CssColor(0.92f, 0.92f, 0.92f, 1);
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
-            var label = replaced.Kind == ReplacedKind.Media
-                ? (replaced.Node is Dom.ElementNode element && element.LocalName == "audio" ? "Audio unavailable" : "Video unavailable")
-                : "Embedded content unavailable";
-            list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: label));
+            if (replaced.Kind != ReplacedKind.Media || replaced.Node is not Dom.ElementNode element)
+            {
+                list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: "Embedded content unavailable"));
+                return;
+            }
+
+            var media = element.MediaPresentation;
+            var label = element.LocalName == "audio" ? "Audio unavailable" : "Video unavailable";
+            if (media is null)
+            {
+                list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: label));
+                return;
+            }
+
+            if (media.ActiveCues.Count > 0 && element.LocalName == "video")
+            {
+                var cue = string.Join("\n", media.ActiveCues.Select(c => c.Text));
+                var cueRect = new RectF(box.Rect.X + 8, box.Rect.Y + box.Rect.Height * .65f, Math.Max(0, box.Rect.Width - 16), box.Rect.Height * .25f);
+                list.Items.Add(new DisplayItem(DisplayItemKind.Label, new RoundedRect(cueRect, default), new CssColor(1, 1, 1, 1), Text: cue));
+            }
+
+            if (!media.Controls)
+                return;
+
+            var controlsHeight = Math.Clamp(box.Rect.Height * .22f, 28, 48);
+            var controlsRect = new RectF(box.Rect.X, box.Rect.Bottom - controlsHeight, box.Rect.Width, controlsHeight);
+            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(controlsRect, default), new CssColor(0, 0, 0, .78f)));
+            var play = media.Paused ? "▶" : "Ⅱ";
+            var mute = media.Muted || media.Volume <= 0 ? "🔇" : "🔊";
+            var time = $"{FormatTime(media.CurrentTime)} / {FormatTime(media.Duration)}";
+            list.Items.Add(new DisplayItem(DisplayItemKind.Label, new RoundedRect(controlsRect, default), new CssColor(1, 1, 1, 1), Text: $"{play}   {time}   {mute}"));
+        }
+
+        private static string FormatTime(double value)
+        {
+            if (!double.IsFinite(value) || value < 0) value = 0;
+            var seconds = (int)Math.Round(value);
+            return $"{seconds / 60}:{seconds % 60:00}";
         }
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)

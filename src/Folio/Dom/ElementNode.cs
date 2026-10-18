@@ -27,6 +27,9 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>The bitmap of a canvas element, an <see cref="Imaging.ICanvasSurface"/> installed by the scripting layer (typed loosely: Dom ranks below Imaging).</summary>
     internal object? CanvasSurface { get; set; }
 
+    /// <summary>Media state installed by the scripting layer for native controls and cue painting.</summary>
+    public IMediaPresentation? MediaPresentation { get; internal set; }
+
     /// <summary>The current form control value (separate from the 'value' content attribute).</summary>
     public string? Value { get; set; }
 

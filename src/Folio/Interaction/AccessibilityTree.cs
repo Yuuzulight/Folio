@@ -154,6 +154,45 @@ internal static class AccessibilityTree
                 AddChildren(element, node);
             // An element without a box of its own (display: contents) covers its children.
             node.Bounds = boxes.TryGetValue(element, out var bounds) ? bounds : Union(node.Children.Select(c => c.Bounds));
+            if (role is "video" or "audio" && element.GetAttribute("controls") is not null)
+                AddMediaControls(element, node);
+        }
+
+        static void AddMediaControls(ElementNode element, AccessibleNode media)
+        {
+            var state = element.MediaPresentation;
+            var bounds = media.Bounds;
+            var play = new AccessibleNode("button", element)
+            {
+                Name = state?.Paused != false ? "Play" : "Pause",
+                Bounds = bounds,
+                Parent = media
+            };
+            media.Children.Add(play);
+            var seek = new AccessibleNode("slider", element)
+            {
+                Name = "Seek",
+                Value = state is { Duration: > 0 } ? $"{state.CurrentTime:0.##} of {state.Duration:0.##}" : "0",
+                Bounds = bounds,
+                Parent = media
+            };
+            media.Children.Add(seek);
+            var volume = new AccessibleNode("slider", element)
+            {
+                Name = "Volume",
+                Value = $"{(state?.Volume ?? 1) * 100:0}"
+                    + (state?.Muted == true ? " muted" : ""),
+                Bounds = bounds,
+                Parent = media
+            };
+            media.Children.Add(volume);
+            var mute = new AccessibleNode("button", element)
+            {
+                Name = state?.Muted == true ? "Unmute" : "Mute",
+                Bounds = bounds,
+                Parent = media
+            };
+            media.Children.Add(mute);
         }
     }
 

@@ -65,6 +65,7 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_blob_store", engine.CreateHostObject(blobStore, context));
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
+        context.InitializeMediaElements();
 
         // 1. Install DOMException
         InstallDomException(engine);

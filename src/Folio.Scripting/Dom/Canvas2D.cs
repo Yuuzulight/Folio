@@ -7,7 +7,7 @@ using System.Buffers.Binary;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed class MediaElementState : IImageHandle
+internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 {
     public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
     {
@@ -19,8 +19,10 @@ internal sealed class MediaElementState : IImageHandle
         Muted = element.GetAttribute("muted") is not null;
         DefaultMuted = Muted;
         Autoplay = element.GetAttribute("autoplay") is not null;
+        Controls = element.GetAttribute("controls") is not null;
         _resourceLoader = resourceLoader;
         _baseUri = baseUri;
+        element.MediaPresentation = this;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
@@ -88,6 +90,34 @@ internal sealed class MediaElementState : IImageHandle
     private bool _capabilityDisabled;
     public long SourceBytes { get; private set; }
     public List<MediaTextTrackState> TextTracks { get; } = [];
+    public IReadOnlyList<IMediaCue> ActiveCues => TextTracks.SelectMany(track => track.ActiveCues).Cast<IMediaCue>().ToArray();
+    public void TogglePlayPause() { if (Paused) Play(); else Pause(); }
+    public void SeekBy(double seconds) => SetCurrentTime(CurrentTime + seconds);
+    public void ToggleMute() { Muted = !Muted; Dispatch(OnVolumeChange, "volumechange"); }
+    public void SetVolume(double volume) { Volume = Math.Clamp(volume, 0, 1); Dispatch(OnVolumeChange, "volumechange"); }
+    private void SetCurrentTime(double value)
+    {
+        CurrentTime = Math.Max(0, value);
+        foreach (var track in TextTracks)
+        {
+            var before = track.ActiveCues.ToArray();
+            track.CurrentTime = CurrentTime;
+            var after = track.ActiveCues.ToArray();
+            foreach (var cue in before.Except(after))
+                if (cue.OnExit.IsFunction) Engine.Call(cue.OnExit, ScriptValue.Undefined, [Engine.CreateHostObject(EventTemplate, new MediaEventState("exit"))]);
+            foreach (var cue in after.Except(before))
+                if (cue.OnEnter.IsFunction) Engine.Call(cue.OnEnter, ScriptValue.Undefined, [Engine.CreateHostObject(EventTemplate, new MediaEventState("enter"))]);
+            if (!before.SequenceEqual(after))
+            {
+                var eventValue = Engine.CreateHostObject(EventTemplate, new MediaEventState("cuechange"));
+                if (track.OnCueChange.IsFunction) Engine.Call(track.OnCueChange, ScriptValue.Undefined, [eventValue]);
+                foreach (var listener in track.CueChangeListeners.ToArray())
+                    if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [eventValue]);
+            }
+        }
+        Ended = Duration > 0 && CurrentTime >= Duration;
+        Dispatch(OnTimeUpdate, "timeupdate");
+    }
 
     private void LoadTextTracks()
     {
@@ -314,7 +344,7 @@ internal sealed class MediaTextTrackState(string kind, string label, string lang
         : Cues.Where(cue => CurrentTime >= cue.StartTime && CurrentTime < cue.EndTime).ToArray();
 }
 
-internal sealed class TextTrackCueState
+internal sealed class TextTrackCueState : IMediaCue
 {
     public TextTrackCueState(double startTime, double endTime, string text, string id = "")
     {

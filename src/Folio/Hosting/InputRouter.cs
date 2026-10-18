@@ -627,6 +627,12 @@ public sealed class InputRouter
                 return;
         }
 
+        if (_focused?.MediaPresentation is { } media && HandleMediaKeyDown(e, media))
+        {
+            _document.Update();
+            return;
+        }
+
         // Keyboard scrolling:
         // Target is the nearest scroll container of the focused element,
         // else the hovered element's nearest scroll container,
@@ -817,6 +823,45 @@ public sealed class InputRouter
         }
     }
 
+    private static bool HandleMediaKeyDown(KeyEvent e, IMediaPresentation media)
+    {
+        if (e.Modifiers != KeyModifiers.None)
+            return false;
+        switch (e.Key)
+        {
+            case " ":
+            case "Space":
+            case "k":
+            case "K":
+                media.TogglePlayPause();
+                return true;
+            case "ArrowLeft":
+                media.SeekBy(-5);
+                return true;
+            case "ArrowRight":
+                media.SeekBy(5);
+                return true;
+            case "ArrowUp":
+                media.SetVolume(media.Volume + .05);
+                return true;
+            case "ArrowDown":
+                media.SetVolume(media.Volume - .05);
+                return true;
+            case "m":
+            case "M":
+                media.ToggleMute();
+                return true;
+            case "Home":
+                media.SeekBy(-media.CurrentTime);
+                return true;
+            case "End":
+                media.SeekBy(Math.Max(0, media.Duration - media.CurrentTime));
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private void NavigateFocus(bool reverse)
     {
         var elements = GetSequentialFocusableElements();
@@ -906,6 +951,9 @@ public sealed class InputRouter
                 return 0;
 
             if (tag is "button" or "select" or "textarea")
+                return 0;
+
+            if (tag is "video" or "audio" && element.GetAttribute("controls") is not null)
                 return 0;
 
             if (tag is "input")

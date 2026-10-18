@@ -90,6 +90,15 @@ public class AccessibilityTreeTests
             tree.Children.Where(node => node.Role is "video" or "audio" or "iframe").Select(node => node.Name));
     }
 
+    [Fact]
+    public void MediaControlsAreExposedAsNamedChildren()
+    {
+        var tree = Tree("<video controls style='width:320px;height:180px'></video>");
+        var media = Assert.Single(tree.Children, node => node.Role == "video");
+        Assert.Equal(["Play", "Seek", "Volume", "Mute"], media.Children.Select(child => child.Name));
+        Assert.Equal(["button", "slider", "slider", "button"], media.Children.Select(child => child.Role));
+    }
+
 
     private static AccessibleNode Tree(string html)
     {

@@ -1,5 +1,6 @@
 using Folio.Dom;
 using Folio.Html;
+using Folio.Hosting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 using Folio.Scripting.Ipc;
@@ -345,12 +346,30 @@ public sealed class DomStyleDeclarationTests
         Assert.True(denied.Evaluate("const v = document.getElementById('v'); v.paused && v.readyState === 0 && v.canPlayType('video/mp4') === ''").AsBoolean());
 
         using var allowed = new JintScriptEngine();
-        var allowedDocument = Document.Parse("<video id='v' data-duration='12' data-width='640' data-height='360'></video>", new FolioOptions
+        var allowedDocument = Document.Parse("<video id='v' controls data-duration='12' data-width='640' data-height='360'></video>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Media = true }
         });
         DomBindings.Install(allowed, allowedDocument);
         Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; let eventType = ''; v.onloadedmetadata = e => { events += 'm'; eventType = e.type; }; v.onplay = e => { events += 'p'; eventType = e.type; }; v.onpause = e => { events += 's'; eventType = e.type; }; v.onended = e => { events += 'e'; eventType = e.type; }; let lifecycle = ''; ['loadstart','loadeddata','canplay','canplaythrough'].forEach(type => v.addEventListener(type, () => lifecycle += type[0])); v.load(); v.paused && v instanceof HTMLMediaElement && v instanceof HTMLVideoElement && v.duration === 12 && v.readyState === 4 && events === 'm' && eventType === 'loadedmetadata' && lifecycle === 'llcc'").AsBoolean());
+        var presentation = allowedDocument.GetElementById("v")!.Node.MediaPresentation;
+        Assert.NotNull(presentation);
+        Assert.True(presentation!.Controls && presentation.Paused);
+        presentation.TogglePlayPause();
+        Assert.False(presentation.Paused);
+        presentation.SeekBy(3);
+        Assert.Equal(3, presentation.CurrentTime);
+        presentation.ToggleMute();
+        Assert.True(presentation.Muted);
+        presentation.TogglePlayPause();
+        presentation.ToggleMute();
+        allowedDocument.Paint(800, 600);
+        allowedDocument.Input.Focus(allowedDocument.GetElementById("v"));
+        allowedDocument.Input.HandleKeyDown(new KeyEvent("ArrowRight", "ArrowRight"));
+        Assert.Equal(8, presentation.CurrentTime);
+        allowedDocument.Input.HandleKeyDown(new KeyEvent("m", "KeyM"));
+        Assert.True(presentation.Muted);
+        presentation.ToggleMute();
         Assert.True(allowed.Evaluate("v.src === '/clip.mp4' && v.currentSrc === '/clip.mp4'; v.src = '/other.mp4'; v.currentSrc === '/other.mp4'").AsBoolean());
         Assert.True(allowed.Evaluate("let observed = ''; const listener = e => observed = e.type; v.addEventListener('play', listener); v.play(); v.removeEventListener('play', listener); events = 'm'; observed === 'play'").AsBoolean());
         Assert.True(allowed.Evaluate("let volumeEvents = ''; let playbackEvents = ''; v.onvolumechange = e => volumeEvents += e.type; v.onplaying = e => playbackEvents += 'p'; v.ontimeupdate = e => playbackEvents += 't'; v.onratechange = e => playbackEvents += 'r'; v.currentTime = 4; v.volume = 0.5; v.muted = true; v.playbackRate = 1.5; v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 0.5 && v.muted && volumeEvents === 'volumechangevolumechange' && playbackEvents === 'trp'").AsBoolean());
