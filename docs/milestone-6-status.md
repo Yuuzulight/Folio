@@ -25,6 +25,6 @@ bounded compile cache (#544), WebAssembly limits and routing (#545), camera/micr
 limits and allowlisted routing (#554), iframe sandbox/origin/src loading (#548), and native media controls, captions,
 and text tracks (#536). The hosted matrix covers each of those capability rows on both supported CI platforms.
 
-Remaining work includes broader nested-frame reftests and selection edge cases, a GLSL/WebGL runtime and rasteriser, a Folio-owned
+Remaining work includes refreshing the D12 nested-frame reference images and a few selection edge cases, a GLSL/WebGL runtime and rasteriser, a Folio-owned
 WebAssembly engine, native media decoding/output, real WebRTC transport, and the remaining corpus and routing
 coverage. The current surfaces should not be read as milestone completion.

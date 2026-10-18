@@ -16,6 +16,7 @@ public sealed class InputRouter
     private readonly Document _document;
     private ElementNode? _hovered;
     private ElementNode? _active;
+    private Document? _capturedFrame;
     private ElementNode? _focused = null;
     private Selection? _selection;
     private bool _isSelecting;
@@ -277,6 +278,11 @@ public sealed class InputRouter
     /// <summary>A pointer moved over the document.</summary>
     public void HandlePointerMove(PointerEvent e)
     {
+        if (_capturedFrame is { } captured && _document.TryGetFrameCoordinates(captured, e.Position.X, e.Position.Y, out var capturedLocal))
+        {
+            captured.Input.HandlePointerMove(e with { Position = capturedLocal });
+            return;
+        }
         if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
         {
             child!.Input.HandlePointerMove(e with { Position = local });
@@ -347,6 +353,7 @@ public sealed class InputRouter
     {
         if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
         {
+            _capturedFrame = child;
             child!.Input.HandlePointerDown(e with { Position = local });
             return;
         }
@@ -424,8 +431,16 @@ public sealed class InputRouter
     /// <summary>A pointer button was released.</summary>
     public void HandlePointerUp(PointerEvent e)
     {
+        if (_capturedFrame is { } captured)
+        {
+            if (_document.TryGetFrameCoordinates(captured, e.Position.X, e.Position.Y, out var capturedLocal))
+                captured.Input.HandlePointerUp(e with { Position = capturedLocal });
+            _capturedFrame = null;
+            return;
+        }
         if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
         {
+            _capturedFrame = null;
             child!.Input.HandlePointerUp(e with { Position = local });
             return;
         }

@@ -79,6 +79,7 @@ public static class Conformance
         Fonts = TestRenderer.Options.Fonts,
         UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
         Scripting = ScriptingPolicy.ContentProcess,
+        Capabilities = new FeatureCapabilities { Iframes = true },
         // Library scripts come from the pinned test cache: no run needs the network (issue #487).
         ResourceLoader = ConformanceCache.Loader,
     };

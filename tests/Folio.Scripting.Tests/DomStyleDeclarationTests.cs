@@ -1253,12 +1253,68 @@ public sealed class DomStyleDeclarationTests
         var framePresentation = document.GetElementById("f")!.Node.FramePresentation;
         Assert.NotNull(framePresentation);
         framePresentation!.Render(240, 120);
+        Assert.IsType<Document>(framePresentation.ChildDocument);
         Assert.NotNull(framePresentation.DisplayList);
         Assert.NotNull(framePresentation.Accessibility);
         Assert.Contains("nested content", ((Folio.Interaction.AccessibleNode)framePresentation.Accessibility!).Dump(), StringComparison.Ordinal);
         document.Paint(320, 200);
         Assert.Contains("nested content", document.AccessibilityTree()!.Dump(), StringComparison.Ordinal);
         Assert.Contains(document.DisplayList!.Items, item => item.Text?.Contains("nested content", StringComparison.Ordinal) == true);
+        Assert.True(document.TryGetFrameAt(12, 12, out _, out _));
+        var childDocument = Assert.IsType<Document>(framePresentation.ChildDocument);
+        var frameBounds = document.GetElementBounds(document.GetElementById("f")!.Node)!.Value;
+        var buttonBounds = childDocument.GetElementBounds(childDocument.GetElementById("nested")!.Node)!.Value;
+        var buttonPoint = new System.Numerics.Vector2(frameBounds.X + buttonBounds.X + buttonBounds.Width / 2,
+            frameBounds.Y + buttonBounds.Y + buttonBounds.Height / 2);
+        document.Input.HandleKeyDown(new KeyEvent("Tab"));
+        Assert.Equal("nested", childDocument.Input.FocusedElement?.Id);
+        document.Input.HandlePointerDown(new PointerEvent(buttonPoint, PointerButton.Primary, PointerButtons.Primary));
+        Assert.Equal("nested", childDocument.Input.FocusedElement?.Id);
+    }
+
+    [Fact]
+    public void WheelInputScrollsAChildFrame()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<html><body><iframe id='f' srcdoc='<div id=\"scroll\" style=\"height:40px;overflow:auto\"><div style=\"height:400px\">long content</div></div>' style='width:240px;height:120px'></iframe></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        });
+        DomBindings.Install(engine, document);
+        document.Paint(320, 200);
+        var frame = document.GetElementById("f")!.Node.FramePresentation!;
+        frame.Render(240, 120);
+        var child = Assert.IsType<Document>(frame.ChildDocument);
+        var frameBounds = document.GetElementBounds(document.GetElementById("f")!.Node)!.Value;
+        var scroll = child.GetElementById("scroll")!.Node;
+        var scrollBounds = child.GetElementBounds(scroll)!.Value;
+        var point = new System.Numerics.Vector2(frameBounds.X + scrollBounds.X + 5, frameBounds.Y + scrollBounds.Y + 5);
+        document.Input.HandleWheel(new WheelEvent(point, new System.Numerics.Vector2(0, 100)));
+        Assert.True(child.GetScrollTop(scroll) > 0);
+    }
+
+    [Fact]
+    public void DragSelectionStaysInsideAChildFrame()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<html><body><iframe id='f' srcdoc='<p id=\"a\">alpha</p><p id=\"b\">beta</p>' style='width:240px;height:120px'></iframe></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        });
+        DomBindings.Install(engine, document);
+        document.Paint(320, 200);
+        var frame = document.GetElementById("f")!.Node.FramePresentation!;
+        frame.Render(240, 120);
+        var child = Assert.IsType<Document>(frame.ChildDocument);
+        var frameBounds = document.GetElementBounds(document.GetElementById("f")!.Node)!.Value;
+        var start = child.GetElementBounds(child.GetElementById("a")!.Node)!.Value;
+        var end = child.GetElementBounds(child.GetElementById("b")!.Node)!.Value;
+        var startPoint = new System.Numerics.Vector2(frameBounds.X + start.X + 4, frameBounds.Y + start.Y + start.Height / 2);
+        var endPoint = new System.Numerics.Vector2(frameBounds.X + end.X + end.Width - 2, frameBounds.Y + end.Y + end.Height / 2);
+        document.Input.HandlePointerDown(new PointerEvent(startPoint, PointerButton.Primary, PointerButtons.Primary));
+        document.Input.HandlePointerMove(new PointerEvent(endPoint, PointerButton.None, PointerButtons.Primary));
+        document.Input.HandlePointerUp(new PointerEvent(endPoint));
+        Assert.NotNull(child.Input.Selection);
     }
 
     [Fact]

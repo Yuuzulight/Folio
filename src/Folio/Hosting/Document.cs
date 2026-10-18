@@ -1026,6 +1026,21 @@ public sealed class Document : IDisposable
         return true;
     }
 
+    internal bool TryGetFrameCoordinates(Document child, float x, float y, out Vector2 local)
+    {
+        for (Node? candidate = Node; candidate is not null; candidate = candidate.NextInTree(Node))
+        {
+            if (candidate is not ElementNode iframe || iframe.LocalName != "iframe"
+                || iframe.FramePresentation?.ChildDocument is not Document nested || !ReferenceEquals(nested, child)
+                || GetElementBounds(iframe) is not { } bounds)
+                continue;
+            local = new Vector2(x - bounds.X, y - bounds.Y);
+            return true;
+        }
+        local = default;
+        return false;
+    }
+
     /// <summary>
     /// Computes the CSS cursor keyword active at the given point (page coordinates in CSS pixels).
     /// Defaults to "default", resolves "auto" over selectable text to "text", and respects "user-select: none".
