@@ -12,6 +12,10 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
     private const uint WhdrDone = 1;
     private readonly object _gate = new();
     private readonly uint _deviceId;
+    private readonly IWaveOutApi _api;
+    private readonly int _maxQueuedBytes;
+    private int _queuedBytes;
+    private static readonly uint HeaderSize = (uint)Marshal.SizeOf<WaveHeader>();
     private readonly List<NativeBuffer> _buffers = [];
     private IntPtr _waveOut;
     private int _sampleRate;
@@ -19,33 +23,49 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
     private bool _started;
     private bool _disposed;
 
-    public WinMmMediaAudioOutput(uint deviceId = WaveMapper) => _deviceId = deviceId;
+    public WinMmMediaAudioOutput(uint deviceId = WaveMapper) : this(new NativeWaveOutApi(), deviceId, 4 * 1024 * 1024) { }
+
+    internal WinMmMediaAudioOutput(IWaveOutApi api, uint deviceId, int maxQueuedBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxQueuedBytes);
+        _api = api;
+        _deviceId = deviceId;
+        _maxQueuedBytes = maxQueuedBytes;
+    }
 
     public void Submit(MediaAudioFrame frame)
     {
-        if (frame.SampleRate <= 0 || frame.Channels is < 1 or > 2 || frame.Samples.IsEmpty)
+        if (frame.SampleRate is <= 0 or > 384000 || frame.Channels is < 1 or > 2 || frame.Samples.IsEmpty || frame.Samples.Length % frame.Channels != 0)
             return;
 
         lock (_gate)
         {
             ThrowIfDisposed();
             DrainCompleted();
+            var byteCount = checked(frame.Samples.Length * sizeof(short));
+            if (byteCount > _maxQueuedBytes - _queuedBytes)
+                throw new InvalidOperationException("The Windows audio queue exceeds its byte limit.");
             EnsureDevice(frame.SampleRate, frame.Channels);
             var samples = frame.Samples.Span;
             var pcm = new short[samples.Length];
             for (var i = 0; i < samples.Length; i++)
-                pcm[i] = (short)Math.Clamp((int)MathF.Round(samples[i] * short.MaxValue), short.MinValue, short.MaxValue);
+                pcm[i] = float.IsNaN(samples[i]) ? (short)0 : (short)Math.Clamp(MathF.Round(samples[i] * 32768f), short.MinValue, short.MaxValue);
 
             var buffer = new NativeBuffer(pcm);
-            var prepared = waveOutPrepareHeader(_waveOut, buffer.Header, (uint)Marshal.SizeOf<WaveHeader>()) == 0;
-            if (!prepared || waveOutWrite(_waveOut, buffer.Header, (uint)Marshal.SizeOf<WaveHeader>()) != 0)
+            var prepared = _api.Prepare(_waveOut, buffer.Header, HeaderSize) == 0;
+            if (!prepared || _api.Write(_waveOut, buffer.Header, HeaderSize) != 0)
             {
-                if (prepared)
-                    waveOutUnprepareHeader(_waveOut, buffer.Header, (uint)Marshal.SizeOf<WaveHeader>());
-                buffer.Dispose();
+                if (prepared && _api.Unprepare(_waveOut, buffer.Header, HeaderSize) != 0)
+                {
+                    // Retain native memory until the driver relinquishes the prepared header.
+                    _buffers.Add(buffer);
+                    _queuedBytes += byteCount;
+                }
+                else buffer.Dispose();
                 throw new InvalidOperationException("The Windows wave-out device rejected an audio buffer.");
             }
             _buffers.Add(buffer);
+            _queuedBytes += byteCount;
         }
     }
 
@@ -55,7 +75,7 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
         {
             ThrowIfDisposed();
             if (_waveOut != IntPtr.Zero)
-                waveOutRestart(_waveOut);
+                Check(_api.Restart(_waveOut));
             _started = true;
         }
     }
@@ -65,7 +85,7 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
         lock (_gate)
         {
             if (_waveOut != IntPtr.Zero)
-                waveOutPause(_waveOut);
+                Check(_api.Pause(_waveOut));
             _started = false;
         }
     }
@@ -76,7 +96,7 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
         {
             if (_waveOut == IntPtr.Zero)
                 return;
-            waveOutReset(_waveOut);
+            Check(_api.Reset(_waveOut));
             DrainCompleted(force: true);
         }
     }
@@ -87,9 +107,9 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
         {
             if (_waveOut != IntPtr.Zero)
             {
-                waveOutReset(_waveOut);
+                Check(_api.Reset(_waveOut));
                 DrainCompleted(force: true);
-                waveOutClose(_waveOut);
+                Check(_api.Close(_waveOut));
                 _waveOut = IntPtr.Zero;
             }
             _started = false;
@@ -112,7 +132,9 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
     {
         if (_waveOut != IntPtr.Zero && (_sampleRate != sampleRate || _channels != channels))
         {
+            var wasStarted = _started;
             Stop();
+            _started = wasStarted;
         }
         if (_waveOut != IntPtr.Zero)
             return;
@@ -126,13 +148,13 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
             BlockAlign = (ushort)(channels * 2),
             AverageBytesPerSecond = (uint)(sampleRate * channels * 2)
         };
-        var result = waveOutOpen(out _waveOut, _deviceId, ref format, IntPtr.Zero, IntPtr.Zero, CallbackNull);
+        var result = _api.Open(out _waveOut, _deviceId, ref format);
         if (result != 0)
             throw new InvalidOperationException($"Unable to open the Windows wave-out device (error {result}).");
         _sampleRate = sampleRate;
         _channels = channels;
-        if (_started)
-            waveOutRestart(_waveOut);
+        if (!_started)
+            Check(_api.Pause(_waveOut));
     }
 
     private void DrainCompleted(bool force = false)
@@ -143,8 +165,12 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
             var header = Marshal.PtrToStructure<WaveHeader>(buffer.Header);
             if (force || (header.Flags & WhdrDone) != 0)
             {
-                if (_waveOut != IntPtr.Zero)
-                    waveOutUnprepareHeader(_waveOut, buffer.Header, (uint)Marshal.SizeOf<WaveHeader>());
+                if (_waveOut != IntPtr.Zero && _api.Unprepare(_waveOut, buffer.Header, HeaderSize) != 0)
+                {
+                    if (force) throw new InvalidOperationException("The Windows audio device still owns a buffer.");
+                    continue;
+                }
+                _queuedBytes -= checked((int)header.BufferLength);
                 buffer.Dispose();
                 _buffers.RemoveAt(i);
             }
@@ -165,7 +191,8 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
         public NativeBuffer(short[] samples)
         {
             _data = Marshal.AllocHGlobal(Math.Max(1, samples.Length * sizeof(short)));
-            Header = Marshal.AllocHGlobal(Marshal.SizeOf<WaveHeader>());
+            try { Header = Marshal.AllocHGlobal(Marshal.SizeOf<WaveHeader>()); }
+            catch { Marshal.FreeHGlobal(_data); throw; }
             if (samples.Length != 0)
             {
                 Marshal.Copy(samples, 0, _data, samples.Length);
@@ -181,7 +208,7 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
-    private struct WaveFormat
+    internal struct WaveFormat
     {
         public ushort FormatTag, Channels;
         public uint SamplesPerSecond, AverageBytesPerSecond;
@@ -192,8 +219,39 @@ public sealed class WinMmMediaAudioOutput : IMediaAudioOutput, IMediaAudioOutput
     private struct WaveHeader
     {
         public IntPtr Data;
-        public uint BufferLength, BytesRecorded, User, Flags, Loops;
+        public uint BufferLength, BytesRecorded;
+        public UIntPtr User;
+        public uint Flags, Loops;
         public IntPtr Next, Reserved;
+    }
+
+    private static void Check(uint result)
+    {
+        if (result != 0) throw new InvalidOperationException($"The Windows audio device failed (error {result}).");
+    }
+
+    internal interface IWaveOutApi
+    {
+        uint Open(out IntPtr handle, uint deviceId, ref WaveFormat format);
+        uint Prepare(IntPtr handle, IntPtr header, uint size);
+        uint Write(IntPtr handle, IntPtr header, uint size);
+        uint Unprepare(IntPtr handle, IntPtr header, uint size);
+        uint Pause(IntPtr handle);
+        uint Restart(IntPtr handle);
+        uint Reset(IntPtr handle);
+        uint Close(IntPtr handle);
+    }
+
+    private sealed class NativeWaveOutApi : IWaveOutApi
+    {
+        public uint Open(out IntPtr handle, uint deviceId, ref WaveFormat format) => waveOutOpen(out handle, deviceId, ref format, IntPtr.Zero, IntPtr.Zero, CallbackNull);
+        public uint Prepare(IntPtr handle, IntPtr header, uint size) => waveOutPrepareHeader(handle, header, size);
+        public uint Write(IntPtr handle, IntPtr header, uint size) => waveOutWrite(handle, header, size);
+        public uint Unprepare(IntPtr handle, IntPtr header, uint size) => waveOutUnprepareHeader(handle, header, size);
+        public uint Pause(IntPtr handle) => waveOutPause(handle);
+        public uint Restart(IntPtr handle) => waveOutRestart(handle);
+        public uint Reset(IntPtr handle) => waveOutReset(handle);
+        public uint Close(IntPtr handle) => waveOutClose(handle);
     }
 
     [DllImport("winmm.dll", EntryPoint = "waveOutOpen")]

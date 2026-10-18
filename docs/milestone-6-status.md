@@ -1,33 +1,22 @@
 # Milestone 6 status
 
-Milestone 6 capability slices are implemented on the dependency-backed path. The work below provides bounded browser-facing behavior and capability coverage; later Folio-owned runtime replacements remain a separate track. The milestone is complete on the supported bounded host path.
+Milestone 6 is **in progress**. The earlier completion announcement and issue closures did not establish the original acceptance criteria. See the [issue-by-issue audit](milestone-6-audit.md) for all 45 issues and their unresolved requirements.
 
-Current exploratory surfaces:
+## Verified during the 2026-10-18 audit
 
-- WebGL resource state, limits, framebuffer/texture/query/sync operations and context loss.
-- Audio/video element state, resource-backed WAV/MPEG metadata, host-owned PCM output, optional FFmpeg decoding for common compressed formats, format-aware `canPlayType()`, device tracks and playback promises.
-- Dedicated workers with isolated script engines, resource-backed classic/module/blob scripts, transferable message ports, message/error events and termination limits.
-- WebAssembly validation, imports/exports, bounded memory/tables/globals and a bounded i32 interpreter.
-- Iframes with data or host-loaded child documents, sandbox origin/flag handling, child window identity, transferable cross-document messaging and load events.
-- Static `srcdoc` frames now own a parsed child document, layout and accessibility tree; the host paints their replaced box and routes pointer and wheel input into the child context.
-- Media text tracks with WebVTT parsing, cue IDs, active cue tracking, `<track>` loading and `cuechange` events.
-- WebRTC negotiation, ICE/candidate state, transceivers, senders/receivers, tracks, data channels and deterministic in-process loopback transport.
-- Service-worker registration, script loading, install/activate lifecycle events, controller changes and messages.
+Native Windows adapters now have direct runtime regression checks. `MediaFoundationAudioDecoder` decodes WAV/MP3 audio and an H.264 video thumbnail with actual format metadata, end-of-stream handling, bounded output and native cleanup. `WinMmMediaAudioOutput` uses the correct pointer-sized header layout, bounds queued PCM and implements lifecycle commands. Tests exercise real system codecs, concurrent decoding, corrupt/truncated input, queue failures, and silent submission to a local output device where available. Windows CI runs codec checks; Linux runs portable fake-driver and layout checks and skips native-only cases.
 
-Verified capture progress (M6 #552): camera and microphone permission is host-controlled; live tracks expose
-settings, capabilities and bounded synthetic video frames; `video.srcObject` can be drawn into a canvas; `FolioView`
-shows a capture-in-use indicator in both in-process and content-process hosting; and a changed host permission ends
-live tracks when their settings or constraints are next read. These paths are covered by the scripting suite and the
-hosted Windows/Ubuntu CI matrix.
+These adapters are explicitly host supplied through `FolioOptions.MediaDecoder` and `MediaAudioOutput`; `FolioView.LoadHtml` forwards them for in-process documents. Content-process decoder/output IPC is not wired. A single decoded thumbnail is not moving video playback.
 
-Verified issue slices now closed in the tracker include dedicated workers (#539), WebAssembly API, streaming and limits
-(#543–#545), camera/microphone capture and WebRTC transport (#552–#554), iframe loading, messaging and limits
-(#547–#550), media controls, captions and text tracks (#533–#537), WebGL resources and limits (#527–#531), and
-service-worker lifecycle, interception, cache and limits (#555–#559). The hosted matrix covers each capability row on
-both supported CI platforms.
+## Remaining acceptance work
 
-The current M6 conformance artifacts pass D8 through D14 at 100% on the deterministic host, and the full Release suite
-passes with the hosted Windows and Ubuntu capability matrix. The production JavaScript engine is still Jint behind
-`IScriptEngine`; a Folio-owned engine, streaming media extension points and host-owned external WebRTC transport
-remain documented replacement work. Image-backed video frames are supported for deterministic canvas composition, while
-Hosts can now opt into common compressed audio/video decoding with `FolioOptions.MediaDecoder` and deliver decoded audio through `FolioOptions.MediaAudioOutput`; the built-in `FfmpegMediaDecoder` was smoke-tested against WAV input. Audio is delivered in bounded chunks as the media clock advances, and the WinForms host includes native Windows wave-out output (`WinMmMediaAudioOutput`) plus a Media Foundation decoder (`MediaFoundationAudioDecoder`) for bounded audio and first-frame video. Streaming video and unsupported platform formats remain host extension points.
+- WebGL resource state and limited triangle drawing exist, but GLSL validation/execution and a GPU backend do not.
+- Media still needs timed video frames, synchronized audio/video and content-process IPC, full mute/volume/seek behavior, and aggregate decoded-memory accounting.
+- Workers use isolated engines, but their complete worker event-loop/global surface and zero-copy transfers are not established.
+- WebAssembly is a JavaScript interpreter on Jint, not the native engine required by the issues; its compilation cache is an in-page map.
+- Static iframe documents render, but the full scripted-child, capability inheritance and watchdog acceptance remains to be proven.
+- Camera/microphone output is synthetic, and WebRTC is in-page loopback without a permitted device/network transport backend.
+- Service-worker handlers run in the page engine, document subresource interception is incomplete, and the conformance runner's `reopen offline` step does not recreate the document with an offline loader.
+- The capability matrix does not yet execute the complete real process sandbox suite once per feature.
+
+Existing Release tests and D8�D14 images are useful regression checks for the behavior they exercise. Passing them does not resolve missing backend or lifecycle requirements. Dependency-first delivery remains the plan; replacing mature dependencies with Folio-owned implementations is a later, separate track.

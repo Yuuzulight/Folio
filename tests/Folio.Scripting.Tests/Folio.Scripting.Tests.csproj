@@ -13,4 +13,11 @@
     <ProjectReference Include="..\..\tools\Folio.Gen\Folio.Gen.csproj" />
   </ItemGroup>
 
+  <!-- Exercise the exact native adapters on Windows CI without loading Windows Forms on Linux. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Folio.WinForms\MediaFoundationAudioDecoder.cs" Link="Native\MediaFoundationAudioDecoder.cs" />
+    <Compile Include="..\..\src\Folio.WinForms\WinMmMediaAudioOutput.cs" Link="Native\WinMmMediaAudioOutput.cs" />
+    <None Include="Native\Fixtures\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
