@@ -462,6 +462,25 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void MediaControlsAndCuesArePainted()
+    {
+        using var engine = new JintScriptEngine();
+        var document = Document.Parse("<video id='v' controls data-duration='12' style='width:320px;height:180px'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true }
+        });
+        DomBindings.Install(engine, document);
+        Assert.True(engine.Evaluate("const v = document.getElementById('v'); const t = v.addTextTrack('captions'); t.mode = 'showing'; t.addCue(0, 10, 'On-screen caption'); v.currentTime = 1; true").AsBoolean());
+        document.Paint(320, 180);
+        var labels = document.DisplayList!.Items
+            .Where(item => item.Kind == Folio.Painting.DisplayItemKind.Label)
+            .Select(item => item.Text)
+            .ToArray();
+        Assert.Contains(labels, text => text!.Contains("On-screen caption", StringComparison.Ordinal));
+        Assert.Contains(labels, text => text!.Contains("0:01 / 0:12", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WorkerIsCapabilityGatedAndDeliversBoundedMessages()
     {
         using var denied = new JintScriptEngine();
