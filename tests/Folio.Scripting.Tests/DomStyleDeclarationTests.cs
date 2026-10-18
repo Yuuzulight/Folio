@@ -919,7 +919,8 @@ public sealed class DomStyleDeclarationTests
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { WebRtc = true }
+            Capabilities = new FeatureCapabilities { WebRtc = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); let iceEvents = 0; let stateEvents = 0; let candidates = 0; pc.onicegatheringstatechange = () => iceEvents++; pc.onicecandidate = e => candidates++; pc.onconnectionstatechange = () => stateEvents++; pc.createOffer().then(x => x.type === 'offer' && x instanceof RTCSessionDescription)").IsObject);
         Assert.True(allowed.Evaluate("const eventPc = new RTCPeerConnection(); let observedPeerEvents = ''; const peerStateHandler = e => { observedPeerEvents += e.type + (e.target === eventPc ? ':' : '?'); }; eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('connectionstatechange', peerStateHandler); eventPc.addEventListener('iceconnectionstatechange', peerStateHandler); eventPc.addIceCandidate(null); eventPc.removeEventListener('connectionstatechange', peerStateHandler); observedPeerEvents === 'iceconnectionstatechange:connectionstatechange:'").AsBoolean());
@@ -936,6 +937,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const captureVideo = document.createElement('video'); document.body.appendChild(captureVideo); navigator.mediaDevices.getUserMedia({ video: true }).then(stream => captureVideo.srcObject = stream); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("captureVideo.videoWidth === 640 && captureVideo.videoHeight === 360 && captureVideo.srcObject.getVideoTracks()[0].getSettings().width === 640 && captureVideo.srcObject.getVideoTracks()[0].getSettings().frameRate === 30 && captureVideo.srcObject.getVideoTracks()[0].getCapabilities().width.max === 640").AsBoolean());
+        Assert.True(allowed.Evaluate("const captureCanvas = document.createElement('canvas'); captureCanvas.width = 1; captureCanvas.height = 1; const captureContext = captureCanvas.getContext('2d'); captureContext.drawImage(captureVideo, 0, 0, 1, 1); const capturePixel = captureContext.getImageData(0, 0, 1, 1).data; capturePixel[2] > 0 && capturePixel[3] === 255").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.mediaDevices.removeEventListener('devicechange', deviceListener); true").AsBoolean());
         Assert.True(allowed.Evaluate("let invalidCaptureError = ''; navigator.mediaDevices.getUserMedia({ audio: 'default' }).catch(error => invalidCaptureError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();

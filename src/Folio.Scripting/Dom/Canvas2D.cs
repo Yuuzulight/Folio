@@ -62,6 +62,25 @@ internal sealed class MediaElementState : IImageHandle
         if (!value.IsObject || !Engine.TryGetArrayItems(Engine.GetProperty(value, "_tracks"), out var tracks))
             return;
         _captureVideo = tracks.Any(track => Engine.GetProperty(track, "kind").AsString() == "video");
+        if (_captureVideo)
+            _framePixels = CreateCaptureFrame();
+    }
+
+    private byte[] CreateCaptureFrame()
+    {
+        var width = Width;
+        var height = Height;
+        var pixels = new byte[Math.Min((long)width * height * 4, 16 * 1024 * 1024)];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var offset = (y * width + x) * 4;
+            pixels[offset] = (byte)(32 + (x * 160 / Math.Max(1, width - 1)));
+            pixels[offset + 1] = (byte)(96 + (y * 96 / Math.Max(1, height - 1)));
+            pixels[offset + 2] = 192;
+            pixels[offset + 3] = 255;
+        }
+        return pixels;
     }
     public int ReadyState => Enabled && Error is null ? 4 : 0;
     public int NetworkState => Enabled && Error is null ? 1 : 0;
