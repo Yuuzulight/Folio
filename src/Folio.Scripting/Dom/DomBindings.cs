@@ -51,6 +51,8 @@ public static class DomBindings
         ArgumentNullException.ThrowIfNull(document);
 
         var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles, mediaCaptureActivityChanged, iframeNavigationRequested);
+        if (eventLoop is not null)
+            eventLoop.MediaPlaybackTick = context.AdvanceMedia;
         context.ParentOptions = parentOptions;
         var blobSources = new Dictionary<string, string>(StringComparer.Ordinal);
         var blobStore = new HostObjectTemplate("BlobStore")

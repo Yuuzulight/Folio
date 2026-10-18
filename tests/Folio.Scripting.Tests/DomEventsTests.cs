@@ -1,5 +1,6 @@
 using Folio.Dom;
 using Folio.Html;
+using Folio;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 
@@ -50,6 +51,39 @@ public class DomEventsTests
              typeof window.addEventListener === 'function',
              new EventTarget() instanceof EventTarget,
              new Event('x') instanceof Event].join()"));
+    }
+
+    [Fact]
+    public void MediaPlaybackAdvancesOnRenderingClockAndEnds()
+    {
+        using var engine = new JintScriptEngine();
+        var clock = new VirtualEventLoopClock();
+        using var loop = new HtmlEventLoop(engine, clock);
+        var document = Document.Parse("<video id='v' data-duration='1'></video>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true }
+        });
+        DomBindings.Install(engine, document, eventLoop: loop);
+
+        Assert.True(engine.Evaluate(@"
+            const v = document.getElementById('v');
+            let updates = 0; let ended = 0;
+            v.addEventListener('timeupdate', () => updates++);
+            v.addEventListener('ended', () => ended++);
+            v.play(); true").AsBoolean());
+
+        clock.SetNow(0);
+        loop.UpdateTheRendering();
+        clock.SetNow(500);
+        loop.UpdateTheRendering();
+        Assert.Equal(0.5, engine.Evaluate("v.currentTime").AsNumber(), 5);
+        Assert.Equal(1, engine.Evaluate("updates").AsNumber());
+        Assert.True(engine.Evaluate("!v.paused && !v.ended").AsBoolean());
+
+        clock.SetNow(1000);
+        loop.UpdateTheRendering();
+        Assert.Equal(1, engine.Evaluate("v.currentTime").AsNumber(), 5);
+        Assert.True(engine.Evaluate("v.paused && v.ended && ended === 1").AsBoolean());
     }
 
     [Fact]

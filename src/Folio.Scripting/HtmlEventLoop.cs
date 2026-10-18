@@ -38,6 +38,9 @@ public sealed class HtmlEventLoop : IDisposable
     public IScriptEngine? Engine => _engine;
     public IRenderingStepsHooks RenderingHooks { get; set; }
 
+    /// <summary>Called once per rendering update so document-owned media can advance against the same clock.</summary>
+    internal Action<double>? MediaPlaybackTick { get; set; }
+
     /// <summary>Enqueues a task to the appropriate task queue.</summary>
     public void QueueTask(TaskSource source, Action action, string? description = null)
     {
@@ -204,6 +207,8 @@ public sealed class HtmlEventLoop : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var timestamp = _clock.NowMs;
+
+        MediaPlaybackTick?.Invoke(timestamp);
 
         RenderingHooks.RunResizeSteps();
         RenderingHooks.RunScrollSteps();

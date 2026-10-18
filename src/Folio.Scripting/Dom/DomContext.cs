@@ -13,6 +13,7 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, (double X, double Y)> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ElementNode, CanvasElementState> _canvases = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ElementNode, MediaElementState> _media = new(ReferenceEqualityComparer.Instance);
+    private double _lastMediaTick = double.NaN;
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private long _mediaBytesAllocated;
     private int _workerCount;
@@ -242,6 +243,21 @@ internal sealed class DomContext
         _media[element] = state;
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;
+    }
+
+    internal void AdvanceMedia(double timestampMs)
+    {
+        if (double.IsNaN(_lastMediaTick))
+        {
+            _lastMediaTick = timestampMs;
+            return;
+        }
+
+        var delta = Math.Max(0, timestampMs - _lastMediaTick) / 1000.0;
+        _lastMediaTick = timestampMs;
+        if (delta <= 0) return;
+        foreach (var media in _media.Values)
+            media.AdvancePlayback(delta);
     }
 
     /// <summary>Creates presentation state for media elements before the first paint, so native controls and cues render even when script never touches the element.</summary>

@@ -231,6 +231,29 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 
     public void Pause() { Paused = true; Dispatch(OnPause, "pause"); }
 
+    internal void AdvancePlayback(double seconds)
+    {
+        if (Paused || Ended || Duration <= 0 || seconds <= 0 || PlaybackRate <= 0) return;
+        var next = CurrentTime + seconds * PlaybackRate;
+        if (next >= Duration)
+        {
+            SetCurrentTime(Duration);
+            if (Loop && !Paused)
+            {
+                SetCurrentTime(0);
+                Dispatch(OnPlay, "play");
+                Dispatch(OnPlaying, "playing");
+            }
+            else
+            {
+                Paused = true;
+                Dispatch(OnEnded, "ended");
+            }
+            return;
+        }
+        SetCurrentTime(next);
+    }
+
     public void Load()
     {
         var previousDuration = Duration;
