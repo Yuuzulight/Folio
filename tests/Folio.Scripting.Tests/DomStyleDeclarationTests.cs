@@ -935,7 +935,7 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("deviceChanges === 2 && deviceEventTarget").AsBoolean());
         Assert.True(allowed.Evaluate("const captureVideo = document.createElement('video'); document.body.appendChild(captureVideo); navigator.mediaDevices.getUserMedia({ video: true }).then(stream => captureVideo.srcObject = stream); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
-        Assert.True(allowed.Evaluate("captureVideo.videoWidth === 640 && captureVideo.videoHeight === 360 && captureVideo.srcObject.getVideoTracks().length === 1").AsBoolean());
+        Assert.True(allowed.Evaluate("captureVideo.videoWidth === 640 && captureVideo.videoHeight === 360 && captureVideo.srcObject.getVideoTracks()[0].getSettings().width === 640 && captureVideo.srcObject.getVideoTracks()[0].getSettings().frameRate === 30").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.mediaDevices.removeEventListener('devicechange', deviceListener); true").AsBoolean());
         Assert.True(allowed.Evaluate("let invalidCaptureError = ''; navigator.mediaDevices.getUserMedia({ audio: 'default' }).catch(error => invalidCaptureError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
