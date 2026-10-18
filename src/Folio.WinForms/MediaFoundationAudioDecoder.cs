@@ -1,16 +1,18 @@
 using System.Runtime.InteropServices;
 using Folio.Hosting;
+using Folio.Imaging;
 
 namespace Folio.WinForms;
 
-/// <summary>Decodes audio through the Windows Media Foundation source reader.</summary>
+/// <summary>Decodes bounded audio and first-frame video samples through Media Foundation.</summary>
 /// <remarks>
-/// This adapter intentionally handles audio only. Video remains available through another
-/// <see cref="IMediaDecoder"/> supplied by the host until a native frame conversion path is added.
+/// Video decoding returns the first frame as Folio's RGBA image handle; playback remains bounded by the
+/// media resource limit and the host can use another decoder for streaming or unsupported formats.
 /// </remarks>
 public sealed class MediaFoundationAudioDecoder : IMediaDecoder
 {
     private const uint FirstAudioStream = 0xFFFFFFFD;
+    private const uint FirstVideoStream = 0xFFFFFFFC;
     private const uint SourceReaderfEndOfStream = 0x00000001;
     private const int MfVersion = 0x00020070;
     private const int MfStartupLite = 1;
@@ -19,13 +21,15 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
     private static readonly Guid MfMediaTypeAudio = new("73647561-0000-0010-8000-00AA00389B71");
     private static readonly Guid MfAudioFormatFloat = new("00000003-0000-0010-8000-00AA00389B71");
     private static readonly Guid MfAudioFormatPcm = new("00000001-0000-0010-8000-00AA00389B71");
+    private static readonly Guid MfVideoFormatArgb32 = new("00000016-0000-0010-8000-00AA00389B71");
     private static readonly Guid MfMtMajorType = new("48eba18e-f8c9-4687-bf11-0a74c9f96a8f");
     private static readonly Guid MfMtSubtype = new("f7e34c9a-42e8-4714-b74b-cb29d72c35e7");
+    private static readonly Guid MfMtFrameSize = new("1652C33D-D6B2-4012-B834-72030849A37D");
     private static int _startupCount;
 
     public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes)
     {
-        if (video || data.IsEmpty || maxOutputBytes <= 0 || !OperatingSystem.IsWindows())
+        if (data.IsEmpty || maxOutputBytes <= 0 || !OperatingSystem.IsWindows())
             return null;
 
         var outputLimit = Math.Min(Math.Min(maxOutputBytes, MaxSampleBytes), 64 * 1024 * 1024);
@@ -33,7 +37,7 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
         File.WriteAllBytes(path, data.ToArray());
         try
         {
-            return DecodeFile(path, outputLimit);
+            return video ? DecodeVideoFile(path, outputLimit) : DecodeAudioFile(path, outputLimit);
         }
         catch (COMException)
         {
@@ -49,7 +53,70 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
         }
     }
 
-    private static MediaDecodeResult? DecodeFile(string path, int outputLimit)
+    private static MediaDecodeResult? DecodeVideoFile(string path, int outputLimit)
+    {
+        Startup();
+        IMFSourceReader? reader = null;
+        IMFMediaType? mediaType = null;
+        try
+        {
+            HResult.ThrowIfFailed(MFCreateSourceReaderFromURL(path, IntPtr.Zero, out reader));
+            HResult.ThrowIfFailed(MFCreateMediaType(out mediaType));
+            HResult.ThrowIfFailed(mediaType.SetGUID(MfMtMajorType, new Guid("73646976-0000-0010-8000-00AA00389B71")));
+            HResult.ThrowIfFailed(mediaType.SetGUID(MfMtSubtype, MfVideoFormatArgb32));
+            HResult.ThrowIfFailed(reader.SetCurrentMediaType(FirstVideoStream, IntPtr.Zero, mediaType));
+            HResult.ThrowIfFailed(reader.GetCurrentMediaType(FirstVideoStream, out var currentType));
+            try
+            {
+                HResult.ThrowIfFailed(currentType.GetUINT64(MfMtFrameSize, out var packedSize));
+                var width = checked((int)(packedSize >> 32));
+                var height = checked((int)(packedSize & uint.MaxValue));
+                var byteCount = checked(width * height * 4);
+                if (width <= 0 || height <= 0 || byteCount > outputLimit || byteCount > int.MaxValue)
+                    return null;
+
+                HResult.ThrowIfFailed(reader.ReadSample(FirstVideoStream, 0, out _, out var flags, out var timestamp, out var sample));
+                if (sample is null)
+                    return null;
+                try
+                {
+                    HResult.ThrowIfFailed(sample.ConvertToContiguousBuffer(out var buffer));
+                    try
+                    {
+                        HResult.ThrowIfFailed(buffer.Lock(out var pointer, out _, out var length));
+                        try
+                        {
+                            if (length < byteCount)
+                                return null;
+                            var bgra = new byte[byteCount];
+                            Marshal.Copy(pointer, bgra, 0, bgra.Length);
+                            var rgba = new byte[bgra.Length];
+                            for (var i = 0; i < bgra.Length; i += 4)
+                            {
+                                rgba[i] = bgra[i + 2];
+                                rgba[i + 1] = bgra[i + 1];
+                                rgba[i + 2] = bgra[i];
+                                rgba[i + 3] = bgra[i + 3];
+                            }
+                            return new MediaDecodeResult(Math.Max(0.1, timestamp / 10_000_000d), new NativeImage(width, height, rgba), null);
+                        }
+                        finally { buffer.Unlock(); }
+                    }
+                    finally { Marshal.FinalReleaseComObject(buffer); }
+                }
+                finally { Marshal.FinalReleaseComObject(sample); }
+            }
+            finally { Marshal.FinalReleaseComObject(currentType); }
+        }
+        finally
+        {
+            if (mediaType is not null) Marshal.FinalReleaseComObject(mediaType);
+            if (reader is not null) Marshal.FinalReleaseComObject(reader);
+            Shutdown();
+        }
+    }
+
+    private static MediaDecodeResult? DecodeAudioFile(string path, int outputLimit)
     {
         Startup();
         IMFSourceReader? reader = null;
@@ -140,6 +207,11 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
             if (result < 0)
                 Marshal.ThrowExceptionForHR(result);
         }
+    }
+
+    private sealed record NativeImage(int Width, int Height, byte[] Data) : IImageHandle
+    {
+        ReadOnlyMemory<byte> IImageHandle.Pixels => Data;
     }
 
     [ComImport, Guid("70AE66F2-C809-4E4F-8915-BDCB406B7993"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
