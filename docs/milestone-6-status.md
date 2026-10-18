@@ -21,7 +21,9 @@ hosted Windows/Ubuntu CI matrix.
 
 Verified issue slices now closed in the tracker include dedicated workers (#539), WebAssembly streaming and its
 bounded compile cache (#544), WebAssembly limits and routing (#545), camera/microphone capture (#552), and WebRTC
-limits and allowlisted routing (#554), and iframe sandbox/origin/src loading (#548). The hosted matrix covers each of
-those capability rows on both supported CI platforms.
+limits and allowlisted routing (#554), iframe sandbox/origin/src loading (#548), and native media controls, captions,
+and text tracks (#536). The hosted matrix covers each of those capability rows on both supported CI platforms.
 
-Remaining work includes nested iframe layout/input/accessibility, media controls and cue painting, a GLSL/WebGL runtime and rasteriser, a Folio-owned WebAssembly engine, native media decoding/output, real WebRTC transport, and the remaining corpus and routing coverage. The current surfaces should not be read as milestone completion.
+Remaining work includes nested iframe layout/input/accessibility, a GLSL/WebGL runtime and rasteriser, a Folio-owned
+WebAssembly engine, native media decoding/output, real WebRTC transport, and the remaining corpus and routing
+coverage. The current surfaces should not be read as milestone completion.
