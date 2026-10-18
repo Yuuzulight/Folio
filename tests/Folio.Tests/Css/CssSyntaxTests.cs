@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Folio.Css;
+using Folio.Style;
 
 namespace Folio.Tests.Css;
 
@@ -42,6 +43,16 @@ public class CssSyntaxTests
         var (source, block) = CssParser.ParseBlockContents("color: red; ; bad; margin: 0 !important");
 
         Assert.Equal(["color: red", "margin: 0 !important"], block.Declarations.Select(d => DumpDeclaration(source, d)));
+    }
+
+    [Fact]
+    public void InvalidCustomPropertyTokenRangeDoesNotThrow()
+    {
+        var declaration = new Declaration("--broken", [new PreservedToken(new CssToken(CssTokenKind.Ident, 0, -1, "x")) { Start = 0, End = -1 }], false);
+
+        var result = Assert.Single(CascadeData.Parse("x", [declaration]));
+
+        Assert.Equal("", result.Custom.Text);
     }
 
     [Fact]

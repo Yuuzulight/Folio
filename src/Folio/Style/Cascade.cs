@@ -275,7 +275,14 @@ internal sealed class CascadeData(Origin origin, Func<string, Atom> intern, Medi
         {
             if (declaration.IsCustomProperty)
             {
-                var text = declaration.Value.Count == 0 ? "" : source[declaration.Value[0].Start..declaration.Value[^1].End];
+                var text = "";
+                if (declaration.Value.Count != 0)
+                {
+                    var start = declaration.Value[0].Start;
+                    var end = declaration.Value[^1].End;
+                    if (start >= 0 && start <= end && end <= source.Length)
+                        text = source[start..end];
+                }
                 var keyword = text.Trim().ToLowerInvariant() switch
                 {
                     "initial" => CssWideKeyword.Initial,
