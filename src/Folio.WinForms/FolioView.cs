@@ -293,6 +293,8 @@ public class FolioView : Control
             },
             IframeNavigationRequested = Options.IframeNavigationRequested,
             WebRtcAllowedOrigins = Options.WebRtcAllowedOrigins,
+            MediaAudioOutput = Options.MediaAudioOutput,
+            MediaDecoder = Options.MediaDecoder,
             Capabilities = Options.Capabilities,
             DiagramLibraryUrls = Options.DiagramLibraryUrls,
             Raster = Options.Raster ?? new Folio.Skia.SkiaRasterBackend(),
