@@ -692,6 +692,25 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void WebAssemblyExecutionIsCoveredByTheEngineWatchdog()
+    {
+        using var engine = new JintScriptEngine(new ScriptEngineOptions
+        {
+            Limits = new ScriptLimits { Timeout = TimeSpan.FromMilliseconds(100), MaxStatements = null, MaxRecursionDepth = null }
+        });
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = true }
+        }));
+
+        // The exported function calls itself forever. The content engine must interrupt it
+        // through the same watchdog used for ordinary script evaluation.
+        const string recursiveModule = "new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,16,0,11]));";
+        var error = Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate($"const loopModule = {recursiveModule} const loopInstance = new WebAssembly.Instance(loopModule, {{}}); loopInstance.exports.run()"));
+        Assert.Contains("call stack limit", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ServiceWorkerRegistrationIsCapabilityGated()
     {
         using var denied = new JintScriptEngine();
