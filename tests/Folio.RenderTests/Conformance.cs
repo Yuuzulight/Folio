@@ -79,7 +79,18 @@ public static class Conformance
         Fonts = TestRenderer.Options.Fonts,
         UserStyleSheet = $"*, *::before, *::after {{ font-family: {FontFamilies} !important; }}",
         Scripting = ScriptingPolicy.ContentProcess,
-        Capabilities = new FeatureCapabilities { Iframes = true },
+        // The conformance host exercises each stage-6 category with its deterministic fake/loopback services.
+        // Production hosts still grant these capabilities explicitly per artifact.
+        Capabilities = new FeatureCapabilities
+        {
+            Iframes = true,
+            WebGl = true,
+            Media = true,
+            Workers = true,
+            WebAssembly = true,
+            WebRtc = true,
+            ServiceWorkers = true,
+        },
         // Library scripts come from the pinned test cache: no run needs the network (issue #487).
         ResourceLoader = ConformanceCache.Loader,
     };

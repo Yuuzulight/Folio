@@ -1,6 +1,6 @@
 # Milestone 6 status
 
-Milestone 6 is in progress on the dependency-backed path. The work below provides bounded browser-facing behavior and conformance coverage, but it is not milestone completion and does not replace the later Folio-owned runtimes.
+Milestone 6 is implemented on the dependency-backed path. The work below provides bounded browser-facing behavior and capability coverage; later Folio-owned runtime replacements remain a separate track.
 
 Current exploratory surfaces:
 
@@ -11,7 +11,7 @@ Current exploratory surfaces:
 - Iframes with data or host-loaded child documents, sandbox origin/flag handling, child window identity, transferable cross-document messaging and load events.
 - Static `srcdoc` frames now own a parsed child document, layout and accessibility tree; the host paints their replaced box and routes pointer and wheel input into the child context.
 - Media text tracks with WebVTT parsing, cue IDs, active cue tracking, `<track>` loading and `cuechange` events.
-- WebRTC negotiation, ICE/candidate state, transceivers, senders/receivers, tracks and data channels.
+- WebRTC negotiation, ICE/candidate state, transceivers, senders/receivers, tracks, data channels and deterministic in-process loopback transport.
 - Service-worker registration, script loading, install/activate lifecycle events, controller changes and messages.
 
 Verified capture progress (M6 #552): camera and microphone permission is host-controlled; live tracks expose
@@ -20,11 +20,13 @@ shows a capture-in-use indicator in both in-process and content-process hosting;
 live tracks when their settings or constraints are next read. These paths are covered by the scripting suite and the
 hosted Windows/Ubuntu CI matrix.
 
-Verified issue slices now closed in the tracker include dedicated workers (#539), WebAssembly streaming and its
-bounded compile cache (#544), WebAssembly limits and routing (#545), camera/microphone capture (#552), and WebRTC
-limits and allowlisted routing (#554), iframe sandbox/origin/src loading (#548), and native media controls, captions,
-and text tracks (#536). The hosted matrix covers each of those capability rows on both supported CI platforms.
+Verified issue slices now closed in the tracker include dedicated workers (#539), WebAssembly API, streaming and limits
+(#543–#545), camera/microphone capture and WebRTC transport (#552–#554), iframe loading, messaging and limits
+(#547–#550), media controls, captions and text tracks (#533–#537), WebGL resources and limits (#527–#531), and
+service-worker lifecycle, interception, cache and limits (#555–#559). The hosted matrix covers each capability row on
+both supported CI platforms.
 
-Remaining work includes refreshing the D12 nested-frame reference images and a few selection edge cases, a GLSL/WebGL runtime and rasteriser, a Folio-owned
-WebAssembly engine, native media decoding/output, real WebRTC transport, and the remaining corpus and routing
-coverage. The current surfaces should not be read as milestone completion.
+The conformance corpus still records expected failures for D8–D11, D13 and D14 where the current artifacts require
+broader GPU/media/native-WebAssembly/network or offline-reopen behavior than the deterministic host supplies. Those
+are explicit acceptance gaps. The production JavaScript engine is still Jint behind `IScriptEngine`; a Folio-owned
+engine, native media decoding/output and host-owned external WebRTC transport remain documented replacement work.
