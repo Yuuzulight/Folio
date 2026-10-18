@@ -310,6 +310,7 @@ public class FolioView : Control
                     html,
                     script,
                     url = baseUri?.AbsoluteUri ?? "content",
+                    capabilities = Options.Capabilities,
                     framePath = _contentFramePath,
                     viewportWidth = Math.Max(1, ClientSize.Width),
                     viewportHeight = Math.Max(1, ClientSize.Height),
