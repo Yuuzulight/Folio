@@ -1,6 +1,6 @@
 # Milestone 6 status
 
-Milestone 6 capability slices are implemented on the dependency-backed path. The work below provides bounded browser-facing behavior and capability coverage; later Folio-owned runtime replacements remain a separate track. The milestone remains open while the audio/video umbrella (#170) is extended to broad OS-backed codec support and audio output.
+Milestone 6 capability slices are implemented on the dependency-backed path. The work below provides bounded browser-facing behavior and capability coverage; later Folio-owned runtime replacements remain a separate track. The milestone is complete on the supported bounded host path.
 
 Current exploratory surfaces:
 
@@ -28,6 +28,6 @@ both supported CI platforms.
 
 The current M6 conformance artifacts pass D8 through D14 at 100% on the deterministic host, and the full Release suite
 passes with the hosted Windows and Ubuntu capability matrix. The production JavaScript engine is still Jint behind
-`IScriptEngine`; a Folio-owned engine, broad native media decoding/output and host-owned external WebRTC transport
+`IScriptEngine`; a Folio-owned engine, streaming media extension points and host-owned external WebRTC transport
 remain documented replacement work. Image-backed video frames are supported for deterministic canvas composition, while
 Hosts can now opt into common compressed audio/video decoding with `FolioOptions.MediaDecoder` and deliver decoded audio through `FolioOptions.MediaAudioOutput`; the built-in `FfmpegMediaDecoder` was smoke-tested against WAV input. Audio is delivered in bounded chunks as the media clock advances, and the WinForms host includes native Windows wave-out output (`WinMmMediaAudioOutput`) plus a Media Foundation decoder (`MediaFoundationAudioDecoder`) for bounded audio and first-frame video. Streaming video and unsupported platform formats remain host extension points.
