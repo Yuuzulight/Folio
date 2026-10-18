@@ -5,7 +5,7 @@ Milestone 6 capability slices are implemented on the dependency-backed path. The
 Current exploratory surfaces:
 
 - WebGL resource state, limits, framebuffer/texture/query/sync operations and context loss.
-- Audio/video element state, resource-backed WAV/MPEG metadata, format-aware `canPlayType()`, device tracks and playback promises.
+- Audio/video element state, resource-backed WAV/MPEG metadata, host-owned WAV PCM output, format-aware `canPlayType()`, device tracks and playback promises.
 - Dedicated workers with isolated script engines, resource-backed classic/module/blob scripts, transferable message ports, message/error events and termination limits.
 - WebAssembly validation, imports/exports, bounded memory/tables/globals and a bounded i32 interpreter.
 - Iframes with data or host-loaded child documents, sandbox origin/flag handling, child window identity, transferable cross-document messaging and load events.
@@ -30,4 +30,4 @@ The current M6 conformance artifacts pass D8 through D14 at 100% on the determin
 passes with the hosted Windows and Ubuntu capability matrix. The production JavaScript engine is still Jint behind
 `IScriptEngine`; a Folio-owned engine, broad native media decoding/output and host-owned external WebRTC transport
 remain documented replacement work. Image-backed video frames are supported for deterministic canvas composition, while
-common audio/video codec playback remains the open part of #170.
+Common compressed audio/video codec playback remains the open part of #170; uncompressed WAV audio can now be delivered to a host-owned output through `FolioOptions.MediaAudioOutput`.
