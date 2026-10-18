@@ -3,12 +3,39 @@ using Folio.Hosting;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Resources;
 using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class WorkerEventLoopTests
 {
+    [Fact]
+    public async Task WorkerStartupDoesNotNeedAnAvailableThreadPoolThread()
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        start.ArgumentList.Add(typeof(WorkerEventLoopTests).Assembly.Location);
+        start.ArgumentList.Add("worker-thread-pool-probe");
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var errors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.True(process.ExitCode == 0, $"Worker startup probe exited {process.ExitCode}: {await output} {await errors}");
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
+    }
+
     [Fact]
     public void DisposingEngineWithoutRunnerReleasesItsWorkerEngine()
     {
@@ -57,6 +84,23 @@ public sealed class WorkerEventLoopTests
             Assert.Equal("micro", order);
         }
         finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
+    public void WorkerReplyWaitsUntilTheParentFinishesItsCurrentTask()
+    {
+        using var engine = CreateEngine(new FeatureCapabilities { Workers = true }, withEventLoop: true);
+        engine.Evaluate("""
+            const worker = new Worker('data:text/javascript,' + encodeURIComponent(
+                'onmessage = function() { postMessage("reply"); };'));
+            const order = ['before'];
+            worker.onmessage = () => order.push('message');
+            worker.postMessage(0);
+            order.push('after');
+            """);
+        Assert.Equal("before,after", engine.Evaluate("order.join(',')").AsString());
+        engine.RunEventLoopUntilIdle();
+        Assert.Equal("before,after,message", engine.Evaluate("order.join(',')").AsString());
     }
 
     [Fact]
@@ -166,17 +210,98 @@ public sealed class WorkerEventLoopTests
         using var engine = CreateEngine(new FeatureCapabilities { Workers = true }, workerTime: TimeSpan.FromMilliseconds(50));
         try
         {
-            var elapsed = System.Diagnostics.Stopwatch.StartNew();
             engine.Evaluate("""
                 const worker = new Worker('data:text/javascript,' + encodeURIComponent(
                     "onmessage = function() { setTimeout(function() { while (true) {} }, 0); }"));
-                worker.postMessage(0);
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
                 """);
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            engine.Evaluate("worker.postMessage(0)");
             elapsed.Stop();
             Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(1));
+            Assert.NotEmpty(engine.Evaluate("workerError").AsString()!);
             Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
         }
         finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
+    public async Task WorkerCommandTimeoutDoesNotEscapeIntoTheParentOrWaitForHostIo()
+    {
+        var loader = new PausingWorkerLoader();
+        var scenario = Task.Run(() =>
+        {
+            using var engine = CreateEngine(new FeatureCapabilities { Workers = true }, workerTime: TimeSpan.FromMilliseconds(200), resourceLoader: loader);
+            engine.Evaluate("""
+                const worker = new Worker('data:text/javascript,' + encodeURIComponent(
+                    'onmessage = function(event) { importScripts(event.data); };'));
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
+                worker.postMessage('https://parent.example/blocked.js');
+                """);
+            Assert.NotEmpty(engine.Evaluate("workerError").AsString()!);
+            Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
+            Assert.True(engine.TryGetHostTarget(engine.Evaluate("worker"), out var target));
+            return (Worker: Assert.IsType<WorkerState>(target), Error: engine.Evaluate("workerError").AsString());
+        }, TestContext.Current.CancellationToken);
+        try
+        {
+            await Task.WhenAny(loader.Requested.Task, scenario).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            if (!loader.Requested.Task.IsCompleted)
+                Assert.Fail($"The worker failed before requesting the resource: {(await scenario).Error}");
+            await loader.Requested.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var result = await scenario.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            Assert.True(SpinWait.SpinUntil(() => result.Worker.ResourcesReleased, TimeSpan.FromSeconds(2)));
+            Assert.Throws<ObjectDisposedException>(() => result.Worker.WorkerEngine!.Evaluate("1"));
+            Assert.False(loader.Response.Task.IsCompleted);
+        }
+        finally
+        {
+            loader.Response.TrySetResult(ResourceResponse.Loaded([], "application/javascript"));
+            await scenario.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+    }
+
+    private sealed class PausingWorkerLoader : IResourceLoader
+    {
+        internal readonly TaskCompletionSource Requested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource<ResourceResponse?> Response = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            Requested.TrySetResult();
+            return Response.Task;
+        }
+    }
+
+    [Fact]
+    public void ClassicWorkerImportsExecuteWhenCalledRatherThanDuringSourceRewriting()
+    {
+        var loader = new CountingImportLoader();
+        using var engine = CreateEngine(new FeatureCapabilities { Workers = true }, resourceLoader: loader);
+        engine.Evaluate("""
+            const worker = new Worker('data:text/javascript,' + encodeURIComponent(
+                'onmessage = function() { importScripts("https://parent.example/helper.js"); postMessage(importCount); };'));
+            let imported = 0;
+            worker.onmessage = event => imported = event.data;
+            """);
+        Assert.Equal(0, loader.Calls);
+        engine.Evaluate("worker.postMessage(0)");
+        Assert.Equal(1, engine.Evaluate("imported").AsNumber());
+        engine.Evaluate("worker.postMessage(0)");
+        Assert.Equal(2, engine.Evaluate("imported").AsNumber());
+        Assert.Equal(2, loader.Calls);
+    }
+
+    private sealed class CountingImportLoader : IResourceLoader
+    {
+        internal int Calls;
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            Assert.Equal("https://parent.example/helper.js", request.Url);
+            Interlocked.Increment(ref Calls);
+            return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("globalThis.importCount = (globalThis.importCount || 0) + 1;"), "application/javascript"));
+        }
     }
 
     [Fact]
@@ -270,7 +395,7 @@ public sealed class WorkerEventLoopTests
         Assert.Equal(0, engine.Evaluate("deliveries").AsNumber());
     }
 
-    private static JintScriptEngine CreateEngine(FeatureCapabilities capabilities, bool withEventLoop = false, TimeSpan? workerTime = null, int maxWorkers = 8)
+    private static JintScriptEngine CreateEngine(FeatureCapabilities capabilities, bool withEventLoop = false, TimeSpan? workerTime = null, int maxWorkers = 8, IResourceLoader? resourceLoader = null)
     {
         var engine = new JintScriptEngine();
         var loop = withEventLoop ? new HtmlEventLoop(engine) : null;
@@ -279,6 +404,7 @@ public sealed class WorkerEventLoopTests
             BaseUri = new Uri("https://parent.example/"),
             Capabilities = capabilities,
             Scripting = ScriptingPolicy.ContentProcess,
+            ResourceLoader = resourceLoader,
             Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = workerTime ?? ResourceLimits.Default.MaxWorkerExecutionTime, MaxWorkers = maxWorkers },
         });
         DomBindings.Install(engine, document, eventLoop: loop);

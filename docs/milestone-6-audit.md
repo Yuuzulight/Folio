@@ -280,7 +280,7 @@ Original acceptance:
 
 **Partial.** Evidence: `WorkerState.cs`.
 
-Workers now have a persistent owning thread and HTML event loop, timer/microtask globals, delayed parent-loop delivery and worker-owned teardown. Regressions exercise timer ordering, delayed messages, interruption and closure. Native second-engine validation and the fetch/crypto worker subset remain unproven.
+Workers now have a persistent owning thread and HTML event loop, timer/microtask globals, delayed parent-loop delivery and worker-owned teardown. Source initialization uses the worker execution queue directly rather than a separate shared-thread-pool task; an isolated single-thread-pool regression proves initialization completes before message delivery. Replies wait for the parent event-loop task rather than running inside postMessage. Classic importScripts calls execute at runtime with the correct bridge receiver rather than through source substitution. Module imports still use simplified preprocessing. Regressions exercise timer ordering, delayed messages, interruption and closure. Native second-engine validation and the fetch/crypto worker subset remain unproven.
 
 Original acceptance:
 
@@ -304,7 +304,7 @@ Original acceptance:
 
 **Unverified.** Evidence: `WorkerState.ExecuteWithWatchdog; engine limits tests`.
 
-Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, and exit before their engine is disposed. Eleven worker regressions pass with the test process restricted to one CPU core, including idle-worker contention, delayed delivery, busy-loop interruption and parent responsiveness. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
+Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, fail only the worker on timeout and exit before its engine is disposed. Runtime import waits use worker-owned cancellation and a load timeout. A paused-loader regression proves parent responsiveness and engine release while the host response remains pending; the worker message-queue lock is not held across script/host execution. Worker regressions also cover one-CPU contention, delayed delivery and busy-loop interruption. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
 
 Original acceptance:
 

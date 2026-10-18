@@ -12,6 +12,9 @@ internal sealed class WorkerState
     private readonly TimeSpan _workerExecutionTime;
     private readonly IReadOnlyDictionary<string, string>? _blobSources;
     private readonly object _workerGate = new();
+    private readonly object _loadGate = new();
+    private readonly CancellationTokenSource _workerLoads = new();
+    private bool _loadsDisposed;
     private readonly Queue<ClonePayload> _pendingParentMessages = new();
     private readonly Queue<Exception> _pendingParentCloneErrors = new();
     private readonly HtmlEventLoop? _parentEventLoop;
@@ -22,7 +25,6 @@ internal sealed class WorkerState
     private volatile bool _workerExecuting;
     private ScriptValue _onError = ScriptValue.Null;
     private bool _errorReported;
-    private Task? _startupTask;
     private Document? _workerDocument;
     private readonly HtmlEventLoop? _workerEventLoop;
     private readonly BlockingCollection<Action>? _workerCommands;
@@ -102,14 +104,14 @@ internal sealed class WorkerState
                             {
                                 var reference = argument.AsString() ?? string.Empty;
                                 var resolved = ResolveScriptUrl(ScriptUrl, reference);
-                                if (!TryReadScript(resolved, resourceLoader, out var imported, _blobSources))
+                                if (!TryReadScript(resolved, resourceLoader, out var imported, _blobSources, _workerLoads.Token))
                                     throw new InvalidOperationException($"Worker script could not load '{reference}'.");
                                 WorkerEngine.Evaluate(imported, resolved);
                             }
                             return ScriptValue.Undefined;
                         });
                     WorkerEngine.SetGlobalProperty("__folio_worker_imports", WorkerEngine.CreateHostObject(imports, this));
-                    WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(null, arguments); };", ScriptUrl);
+                    WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(__folio_worker_imports, arguments); };", ScriptUrl);
                     WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
                     WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
                 }, enforceWatchdog: false);
@@ -122,15 +124,14 @@ internal sealed class WorkerState
                 _workerCommands!.CompleteAdding();
                 return;
             }
-            if ((moduleWorker ? TryReadModuleScript(scriptUrl, resourceLoader, out var source, blobSources: _blobSources) : TryReadScriptWithImports(scriptUrl, resourceLoader, out source, blobSources: _blobSources)))
+            if ((moduleWorker ? TryReadModuleScript(scriptUrl, resourceLoader, out var source, blobSources: _blobSources) : TryReadScript(scriptUrl, resourceLoader, out source, blobSources: _blobSources)))
             {
-                _startupTask = Task.Run(() => RunOnWorker(() =>
+                try { RunOnWorker(() =>
                 {
                     try { WorkerEngine!.Evaluate(source, scriptUrl); }
                     catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
-                }));
-                try { _startupTask.Wait(_workerExecutionTime); }
-                catch (AggregateException) { }
+                }); }
+                catch (Exception error) { if (!_closedByWorker) FailWorkerCommand(error); }
                 if (_parentEventLoop is null)
                 {
                     DrainParentMessages();
@@ -153,6 +154,7 @@ internal sealed class WorkerState
     public int MaxMessageBytes { get; }
     private volatile bool _terminated;
     public bool Terminated => _terminated;
+    internal bool ResourcesReleased => Volatile.Read(ref _released);
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnMessageError { get; set; } = ScriptValue.Null;
     public ScriptValue OnError
@@ -177,12 +179,15 @@ internal sealed class WorkerState
     public void Terminate()
     {
         _parentDetached = true;
-        if (Terminated) return;
-        _terminated = true;
-        WorkerEngine?.Interrupt();
-        _workerCommands?.CompleteAdding();
-        try { _startupTask?.Wait(TimeSpan.FromMilliseconds(100)); }
-        catch (AggregateException) { }
+        if (!Terminated)
+        {
+            _terminated = true;
+            WorkerEngine?.Interrupt();
+            CancelWorkerLoads();
+            _workerCommands?.CompleteAdding();
+        }
+        // A closed/failed worker may still be running its final cleanup.
+        // Detaching its parent must wait for that cleanup too.
         if (_workerThread is { } thread && thread != Thread.CurrentThread)
             thread.Join(_workerExecutionTime + TimeSpan.FromMilliseconds(100));
         if (_workerThread is null)
@@ -193,6 +198,7 @@ internal sealed class WorkerState
         _closedByWorker = true;
         _terminated = true;
         WorkerEngine?.Interrupt();
+        CancelWorkerLoads();
         _workerCommands?.CompleteAdding();
     }
     private void RunWorkerLoop()
@@ -223,8 +229,9 @@ internal sealed class WorkerState
         while (!Terminated)
         {
             var started = Volatile.Read(ref _executionStartedTick);
-            if (_workerExecuting && started != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - started >= _workerExecutionTime.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
-                WorkerEngine?.Interrupt();
+            if (_workerExecuting && started != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - started >= _workerExecutionTime.TotalSeconds * System.Diagnostics.Stopwatch.Frequency
+                && Volatile.Read(ref _executionStartedTick) == started && _workerExecuting)
+                FailWorkerCommand(new ScriptLimitExceededException("Timeout", "Worker execution exceeded its time limit."));
             // Yield keeps a thread runnable on Windows and can consume a core
             // for every idle worker, starving its event loop under contention.
             // Sleep releases the processor while retaining a bounded check interval.
@@ -242,11 +249,16 @@ internal sealed class WorkerState
         WorkerEngine?.Dispose();
         _workerDocument?.Dispose();
         _workerDocument = null;
+        lock (_loadGate)
+        {
+            _loadsDisposed = true;
+            _workerLoads.Dispose();
+        }
         lock (_workerGate)
         {
             if (_released) return;
-            _released = true;
             _releaseWorker?.Invoke();
+            Volatile.Write(ref _released, true);
         }
     }
 
@@ -318,9 +330,16 @@ internal sealed class WorkerState
             var payload = PrepareClone(Engine, value);
             // RunOnWorker queues the command when the worker is already executing a
             // callback, so delivery cannot be stranded behind a busy event turn.
-            DeliverToWorker(payload);
-            DrainParentMessages();
-            DrainErrors();
+            try { DeliverToWorker(payload); }
+            catch (Exception error) when (error is TimeoutException or ScriptLimitExceededException or ScriptInterruptedException)
+            {
+                FailWorkerCommand(error);
+            }
+            if (_parentEventLoop is null)
+            {
+                DrainParentMessages();
+                DrainErrors();
+            }
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
             return true;
         }
@@ -337,20 +356,41 @@ internal sealed class WorkerState
     {
         RunOnWorker(() =>
         {
-            lock (_workerGate)
+            // Commands already execute serially on the worker owner thread.
+            // Holding the queue lock across script/host execution would prevent
+            // the parent from reporting a timed-out command until it returned.
+            if (Terminated) return;
+            try
             {
-                if (Terminated) return;
-                try
-                {
-                    var message = MaterializeClone(WorkerEngine!, payload);
-                    WorkerEngine!.SetGlobalProperty("__folio_worker_message_data", message);
-                    WorkerEngine!.SetGlobalProperty("__folio_worker_message_event", WorkerEngine!.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
-                    ExecuteWithWatchdog(() => WorkerEngine!.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
-                    WorkerEngine!.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
-                }
-                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
+                var message = MaterializeClone(WorkerEngine!, payload);
+                WorkerEngine!.SetGlobalProperty("__folio_worker_message_data", message);
+                WorkerEngine!.SetGlobalProperty("__folio_worker_message_event", WorkerEngine!.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
+                ExecuteWithWatchdog(() => WorkerEngine!.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
+                WorkerEngine!.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
             }
+            catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
         });
+    }
+
+    private void FailWorkerCommand(Exception error)
+    {
+        _scriptError = error;
+        _terminated = true;
+        WorkerEngine?.Interrupt();
+        CancelWorkerLoads();
+        _workerCommands?.CompleteAdding();
+        lock (_workerGate) _pendingErrors.Enqueue(error);
+        QueueParentTask(DrainErrors, "worker error");
+    }
+
+    private void CancelWorkerLoads()
+    {
+        lock (_loadGate)
+            if (!_loadsDisposed)
+            {
+                try { _workerLoads.Cancel(); }
+                catch (AggregateException) { } // A host cancellation callback cannot prevent worker shutdown.
+            }
     }
 
     private void DispatchToParent(ScriptValue value, ScriptValue transfer)
@@ -374,7 +414,7 @@ internal sealed class WorkerState
 
     private void QueueParentTask(Action action, string description)
     {
-        if (Terminated || _parentDetached || _parentEventLoop is null) return;
+        if (_parentDetached || _parentEventLoop is null) return;
         try { _parentEventLoop.QueueTask(TaskSource.Generic, action, description); }
         catch (ObjectDisposedException) { }
     }
@@ -602,7 +642,7 @@ internal sealed class WorkerState
         Engine.SetGlobalProperty("__folio_worker_error_event_target", ScriptValue.Undefined);
     }
 
-    private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source, IReadOnlyDictionary<string, string>? blobSources = null)
+    private static bool TryReadScript(string url, IResourceLoader? resourceLoader, out string source, IReadOnlyDictionary<string, string>? blobSources = null, CancellationToken cancellationToken = default)
     {
         source = string.Empty;
         if (blobSources is not null && blobSources.TryGetValue(url, out var blobSource)) { source = blobSource; return true; }
@@ -617,33 +657,10 @@ internal sealed class WorkerState
             return true;
         }
         if (resourceLoader is null || !Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
-        var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult();
+        var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), cancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).GetAwaiter().GetResult();
         if (response?.Data is not { } data) return false;
         source = System.Text.Encoding.UTF8.GetString(data);
-        return true;
-    }
-
-    private static bool TryReadScriptWithImports(string url, IResourceLoader? resourceLoader, out string source, HashSet<string>? seen = null, IReadOnlyDictionary<string, string>? blobSources = null)
-    {
-        source = string.Empty;
-        seen ??= new HashSet<string>(StringComparer.Ordinal);
-        if (!seen.Add(url) || !TryReadScript(url, resourceLoader, out source, blobSources)) return false;
-        const string marker = "importScripts";
-        for (var search = 0; ;)
-        {
-            var start = source.IndexOf(marker, search, StringComparison.Ordinal);
-            if (start < 0) break;
-            var open = source.IndexOf('(', start + marker.Length);
-            var quote = open >= 0 ? source.IndexOfAny(['\'', '\"'], open + 1) : -1;
-            var closeQuote = quote >= 0 ? source.IndexOf(source[quote], quote + 1) : -1;
-            var close = closeQuote >= 0 ? source.IndexOf(')', closeQuote + 1) : -1;
-            if (open < 0 || quote < 0 || closeQuote < 0 || close < 0) { search = start + marker.Length; continue; }
-            var reference = source[(quote + 1)..closeQuote];
-            var resolved = ResolveScriptUrl(url, reference);
-            if (!TryReadScriptWithImports(resolved, resourceLoader, out var imported, seen, blobSources)) return false;
-            source = source.Remove(start, close - start + 1).Insert(start, imported);
-            search = start + imported.Length;
-        }
         return true;
     }
 
