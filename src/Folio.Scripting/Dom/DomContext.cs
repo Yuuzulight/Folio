@@ -81,7 +81,7 @@ internal sealed class DomContext
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
         FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null)
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -102,6 +102,7 @@ internal sealed class DomContext
         MediaCapturePermission = mediaCapturePermission;
         MediaCaptureActivityChanged = mediaCaptureActivityChanged;
         MediaAudioOutput = mediaAudioOutput;
+        MediaDecoder = mediaDecoder;
         IframeNavigationRequested = iframeNavigationRequested;
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
@@ -135,6 +136,7 @@ internal sealed class DomContext
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; }
     public Action<bool>? MediaCaptureActivityChanged { get; }
     public IMediaAudioOutput? MediaAudioOutput { get; }
+    public IMediaDecoder? MediaDecoder { get; }
     public Action<Uri>? IframeNavigationRequested { get; }
     public IArtifactStorage? ArtifactStorage { get; }
     public string ArtifactId { get; }
@@ -235,7 +237,7 @@ internal sealed class DomContext
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
-        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput);
+        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes);
         if (_media.Count >= MaxMediaDecoders)
             state.RejectForBudget("Media decoder limit exceeded.");
         else if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)

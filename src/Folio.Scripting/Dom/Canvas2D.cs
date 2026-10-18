@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -25,15 +25,18 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         _resourceLoader = resourceLoader;
         _baseUri = baseUri;
         _audioOutput = audioOutput;
+        _decoder = decoder;
+        _maxMediaBytes = Math.Max(0, maxMediaBytes);
         element.MediaPresentation = this;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
-        _frameImage = element.LocalName == "video" && bytes is { Length: > 0 } ? ImageLoader.Decode(bytes) : null;
-        _audioFrame = element.LocalName == "audio" && bytes is { Length: > 0 } ? DecodeWav(bytes) : null;
+        var decoded = Decode(bytes, element.LocalName == "video");
+        _frameImage = decoded?.VideoFrame ?? (element.LocalName == "video" && bytes is { Length: > 0 } ? ImageLoader.Decode(bytes) : null);
+        _audioFrame = decoded?.Audio ?? (element.LocalName == "audio" && bytes is { Length: > 0 } ? DecodeWav(bytes) : null);
         var posterBytes = LoadSourceBytes(element.GetAttribute("poster"), resourceLoader, baseUri);
         Poster = posterBytes is null ? null : DecodePoster(posterBytes);
-        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
+        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : decoded?.Duration > 0 ? decoded.Duration : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
-        if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes) && _frameImage is null) Error = "Media resource is corrupt or truncated.";
+        if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes) && _frameImage is null && _audioFrame is null) Error = "Media resource is corrupt or truncated.";
         LoadTextTracks();
     }
 
@@ -47,6 +50,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150;
     private IImageHandle? _frameImage;
     private readonly IMediaAudioOutput? _audioOutput;
+    private readonly IMediaDecoder? _decoder;
+    private readonly int _maxMediaBytes;
     private MediaAudioFrame? _audioFrame;
     private bool _audioSubmitted;
     private byte[]? _framePixels;
@@ -273,10 +278,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (bytes is not null)
         {
             SourceBytes = bytes.LongLength;
-            _frameImage = Element.LocalName == "video" ? ImageLoader.Decode(bytes) : null;
-            _audioFrame = Element.LocalName == "audio" ? DecodeWav(bytes) : null;
-            Duration = ParseMediaDuration(bytes);
-            Error = LooksLikeMedia(bytes) || _frameImage is not null ? null : "Media resource is corrupt or truncated.";
+            var decoded = Decode(bytes, Element.LocalName == "video");
+            _frameImage = decoded?.VideoFrame ?? (Element.LocalName == "video" ? ImageLoader.Decode(bytes) : null);
+            _audioFrame = decoded?.Audio ?? (Element.LocalName == "audio" ? DecodeWav(bytes) : null);
+            Duration = decoded?.Duration > 0 ? decoded.Duration : ParseMediaDuration(bytes);
+            Error = LooksLikeMedia(bytes) || _frameImage is not null || _audioFrame is not null ? null : "Media resource is corrupt or truncated.";
         }
         else
         {
@@ -338,6 +344,13 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     {
         var wav = ParseWavDuration(bytes);
         return wav > 0 ? wav : ParseMpegDuration(bytes);
+    }
+
+    private MediaDecodeResult? Decode(byte[]? bytes, bool video)
+    {
+        if (_decoder is null || bytes is not { Length: > 0 } || bytes.Length > _maxMediaBytes) return null;
+        try { return _decoder.Decode(bytes, null, video, _maxMediaBytes); }
+        catch { return null; }
     }
 
     private static bool LooksLikeMedia(byte[] bytes) =>

@@ -90,6 +90,9 @@ public sealed class FolioOptions
     /// <summary>Optional host-owned audio output for decoded media frames.</summary>
     public IMediaAudioOutput? MediaAudioOutput { get; init; }
 
+    /// <summary>Optional host-owned decoder for compressed audio and video formats.</summary>
+    public IMediaDecoder? MediaDecoder { get; init; }
+
     /// <summary>Origins permitted for WebRTC ICE servers. An empty set permits loopback only.</summary>
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

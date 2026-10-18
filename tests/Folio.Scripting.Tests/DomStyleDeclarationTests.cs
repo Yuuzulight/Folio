@@ -171,6 +171,20 @@ public sealed class DomStyleDeclarationTests
         public void Submit(MediaAudioFrame frame) => Frames.Add(frame);
     }
 
+    private sealed class DecoderResourceLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Media
+                ? ResourceResponse.Loaded([1, 2, 3], "audio/mpeg")
+                : ResourceResponse.Refused("wrong resource kind"));
+    }
+
+    private sealed class FixedMediaDecoder : IMediaDecoder
+    {
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
+            video ? null : new MediaDecodeResult(0.25, null, new MediaAudioFrame(16000, 1, new float[] { 0.25f, -0.25f }));
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -441,6 +455,21 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(8000, audioOutput.Frames[0].SampleRate);
         Assert.Equal(1, audioOutput.Frames[0].Channels);
         Assert.Equal(8000, audioOutput.Frames[0].Samples.Length);
+
+        var compressedOutput = new CollectingAudioOutput();
+        using var compressedEngine = new JintScriptEngine();
+        DomBindings.Install(compressedEngine, Document.Parse("<audio id='a' src='/tone.mp3'></audio>", new FolioOptions
+        {
+            BaseUri = new Uri("https://media.example/"),
+            ResourceLoader = new DecoderResourceLoader(),
+            MediaDecoder = new FixedMediaDecoder(),
+            MediaAudioOutput = compressedOutput,
+            Capabilities = new FeatureCapabilities { Media = true }
+        }));
+        Assert.True(compressedEngine.Evaluate("const a = document.getElementById('a'); a.play(); a.duration === 0.25 && a.readyState === 4").AsBoolean());
+        Assert.Single(compressedOutput.Frames);
+        Assert.Equal(16000, compressedOutput.Frames[0].SampleRate);
+        Assert.Equal(0.25f, compressedOutput.Frames[0].Samples.Span[0]);
 
         using var mpeg = new JintScriptEngine();
         DomBindings.Install(mpeg, Document.Parse("<audio id='a' src='/tone.mp3'></audio>", new FolioOptions
