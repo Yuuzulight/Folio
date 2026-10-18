@@ -108,12 +108,14 @@ internal sealed class DomContext
         BaseUri = baseUri;
         RasterBackend = raster;
         _canvasStyles = canvasStyles;
+        ParentOptions = null;
 
         Templates = new DomNodeTemplates(this);
     }
 
     public IScriptEngine Engine { get; }
     public DocumentNode Document { get; }
+    internal FolioOptions? ParentOptions { get; set; }
     public ScriptWrapperCache WrapperCache { get; }
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
     public FeatureCapabilities Capabilities { get; private set; }
@@ -271,7 +273,7 @@ internal sealed class DomContext
         if (Capabilities.Iframes && _iframeCount >= MaxIframes)
             throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The iframe limit has been exceeded.");
         if (Capabilities.Iframes) _iframeCount++;
-        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri, IframeNavigationRequested);
+        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions);
     }
 
     public ScriptValue Wrap(Node? node)

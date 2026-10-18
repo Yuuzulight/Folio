@@ -1,1 +1,1 @@
-{ "expectedToFail": "Nested document execution and frame-targeted interactions are not enabled in the conformance host yet.", "viewport": 800, "prompt": "Sandboxed message widget with a nested document.", "interaction": ["frame #preview click p"], "features": ["script", "iframe", "srcdoc"] }
+{"viewport":800,"prompt":"Sandboxed message widget with a nested document.","interaction":["frame #preview click p"],"features":["script","iframe","srcdoc"]}

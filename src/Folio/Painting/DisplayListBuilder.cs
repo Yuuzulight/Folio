@@ -616,10 +616,15 @@ internal static class DisplayListBuilder
         {
             SetClip(box.Clip);
             var color = box.Box.Style.Inherited.Color;
-            var background = color.A > 0
-                ? new CssColor(color.R, color.G, color.B, 0.08f)
-                : new CssColor(0.92f, 0.92f, 0.92f, 1);
+            var background = box.Box.Style.Background.Color.A > 0
+                ? box.Box.Style.Background.Color
+                : color.A > 0
+                    ? new CssColor(color.R, color.G, color.B, 0.08f)
+                    : new CssColor(0.92f, 0.92f, 0.92f, 1);
+            var frameBorder = box.Box.Style.Border;
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
+            if (box.Box is ReplacedBox { Kind: ReplacedKind.Frame })
+                list.Items.Add(new DisplayItem(DisplayItemKind.Border, BorderBox(box), Border: frameBorder));
             if (replaced.Kind is not (ReplacedKind.Media or ReplacedKind.Frame) || replaced.Node is not Dom.ElementNode element)
             {
                 list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: "Embedded content unavailable"));
@@ -633,13 +638,14 @@ internal static class DisplayListBuilder
                 frame?.Render(box.Rect.Width, box.Rect.Height);
                 if (frame?.DisplayList is DisplayList child && child.Items.Count > 0)
                 {
-                    var frameRect = BorderBox(box);
+                    var frameRect = BorderBox(box).Inset(frameBorder.TopWidth, frameBorder.RightWidth,
+                        frameBorder.BottomWidth, frameBorder.LeftWidth);
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, frameRect));
                     list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(frameRect.Rect.X, frameRect.Rect.Y)));
                     list.Items.AddRange(child.Items);
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
                     list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
-                    if (!child.Items.Any(item => item.Text is { Length: > 0 }) && frame.FallbackText is { Length: > 0 } fallback)
+                    if (!child.Items.Any(item => item.Text is { Length: > 0 } || item.Glyphs is not null) && frame.FallbackText is { Length: > 0 } fallback)
                         list.Items.Add(new DisplayItem(DisplayItemKind.Label, frameRect, color, Text: fallback));
                     return;
                 }

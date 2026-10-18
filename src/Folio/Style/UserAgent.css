@@ -26,6 +26,7 @@ input[type=range i] { width: 129px; height: 20px; margin: 2px; vertical-align: m
 /* 15.3.2 The page */
 html, body { display: block; }
 body { margin: 8px; }
+iframe { display: inline-block; border: 2px solid gray; background-color: white; }
 
 /* 15.3.3 Flow content */
 address, blockquote, center, dialog, div, figure, figcaption, footer, form, header, hr, legend, listing, main, p,

@@ -8,7 +8,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class IframeState : IFramePresentation
 {
-    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null)
+    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null, FolioOptions? parentOptions = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -17,6 +17,7 @@ internal sealed class IframeState : IFramePresentation
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
         NavigationRequested = navigationRequested;
+        ParentOptions = parentOptions;
         element.FramePresentation = this;
         var sandbox = SandboxTokens;
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
@@ -36,6 +37,7 @@ internal sealed class IframeState : IFramePresentation
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }
     public Action<Uri>? NavigationRequested { get; }
+    public FolioOptions? ParentOptions { get; }
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoad { get; set; } = ScriptValue.Null;
@@ -138,7 +140,26 @@ internal sealed class IframeState : IFramePresentation
             if (response?.Data is not { } data) { DispatchError(); return; }
             html = System.Text.Encoding.UTF8.GetString(data);
         }
-        ChildRenderDocument = Document.Parse(html, new FolioOptions { BaseUri = BaseUri });
+        var parent = ParentOptions;
+        ChildRenderDocument = Document.Parse(html, parent is null ? new FolioOptions { BaseUri = BaseUri } : new FolioOptions
+        {
+            ArtifactId = parent.ArtifactId,
+            ArtifactStorage = parent.ArtifactStorage,
+            BaseUri = BaseUri,
+            Capabilities = parent.Capabilities,
+            ColorScheme = parent.ColorScheme,
+            Fonts = parent.Fonts,
+            IframeNavigationRequested = parent.IframeNavigationRequested,
+            Limits = parent.Limits,
+            MediaCaptureActivityChanged = parent.MediaCaptureActivityChanged,
+            MediaCapturePermission = parent.MediaCapturePermission,
+            Raster = parent.Raster,
+            ReducedMotion = parent.ReducedMotion,
+            ResourceLoader = parent.ResourceLoader,
+            UserStyleSheet = parent.UserStyleSheet,
+            WebRtcAllowedOrigins = parent.WebRtcAllowedOrigins,
+            CollectDiagnostics = parent.CollectDiagnostics,
+        });
         ChildDocument = ChildRenderDocument.Node;
         if (dispatchLoad)
             DispatchLoad();

@@ -36,7 +36,7 @@ public sealed class CanvasDisplayListTests
 
         var labels = displayList.Items.Where(item => item.Kind == DisplayItemKind.Label).ToArray();
         Assert.Equal(["Video unavailable", "Embedded content unavailable"], labels.Select(item => item.Text));
-        Assert.Equal([(120f, 60f), (80f, 40f)], labels.Select(item => (item.Shape.Rect.Width, item.Shape.Rect.Height)));
+        Assert.Equal([(120f, 60f), (84f, 44f)], labels.Select(item => (item.Shape.Rect.Width, item.Shape.Rect.Height)));
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class CanvasDisplayListTests
 
         var iframe = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "iframe");
         var bounds = document.GetElementBounds(iframe)!.Value;
-        Assert.Equal((300f, 150f), (bounds.Width, bounds.Height));
+        Assert.Equal((304f, 154f), (bounds.Width, bounds.Height));
     }
 
     [Theory]
