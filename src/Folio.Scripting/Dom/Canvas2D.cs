@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -27,16 +27,12 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         _audioOutput = audioOutput;
         _decoder = decoder;
         _maxMediaBytes = Math.Max(0, maxMediaBytes);
+        _budget = mediaBudget ?? new MediaResourceBudget(_maxMediaBytes, 1);
+        _capabilityDisabled = !enabled;
         element.MediaPresentation = this;
-        var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
-        var decoded = Decode(bytes, element.LocalName == "video");
-        _frameImage = decoded?.VideoFrame ?? (element.LocalName == "video" && bytes is { Length: > 0 } ? ImageLoader.Decode(bytes) : null);
-        _audioFrame = decoded?.Audio ?? (element.LocalName == "audio" && bytes is { Length: > 0 } ? DecodeWav(bytes) : null);
         var posterBytes = LoadSourceBytes(element.GetAttribute("poster"), resourceLoader, baseUri);
         Poster = posterBytes is null ? null : DecodePoster(posterBytes);
-        Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : decoded?.Duration > 0 ? decoded.Duration : ParseMediaDuration(bytes);
-        SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
-        if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes) && _frameImage is null && _audioFrame is null) Error = "Media resource is corrupt or truncated.";
+        LoadResource();
         LoadTextTracks();
     }
 
@@ -52,6 +48,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     private readonly IMediaAudioOutput? _audioOutput;
     private readonly IMediaDecoder? _decoder;
     private readonly int _maxMediaBytes;
+    private readonly MediaResourceBudget _budget;
+    private MediaResourceBudget.Lease? _reservation;
     private MediaAudioFrame? _audioFrame;
     private int _audioCursor;
     private byte[]? _framePixels;
@@ -169,6 +167,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     {
         Paused = true;
         AudioStop();
+        ReleaseResource();
     }
     private static int AudioPosition(MediaAudioFrame frame, double time)
     {
@@ -230,6 +229,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             _capabilityDisabled = true;
             Paused = true;
             AudioPause();
+            AudioFlush();
+            ReleaseResource();
             Error = "Media is disabled by the host.";
             Dispatch(OnError, "error");
         }
@@ -327,21 +328,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public void Load()
     {
         var previousDuration = Duration;
-        var bytes = LoadSourceBytes(Element.GetAttribute("src"), _resourceLoader, _baseUri);
-        if (bytes is not null)
-        {
-            SourceBytes = bytes.LongLength;
-            var decoded = Decode(bytes, Element.LocalName == "video");
-            _frameImage = decoded?.VideoFrame ?? (Element.LocalName == "video" ? ImageLoader.Decode(bytes) : null);
-            _audioFrame = decoded?.Audio ?? (Element.LocalName == "audio" ? DecodeWav(bytes) : null);
-            Duration = decoded?.Duration > 0 ? decoded.Duration : ParseMediaDuration(bytes);
-            Error = LooksLikeMedia(bytes) || _frameImage is not null || _audioFrame is not null ? null : "Media resource is corrupt or truncated.";
-        }
-        else
-        {
-            _frameImage = null;
-            _audioFrame = null;
-        }
+        LoadResource();
         _framePixels = null;
         _audioCursor = 0;
         AudioFlush();
@@ -400,11 +387,72 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         return wav > 0 ? wav : ParseMpegDuration(bytes);
     }
 
-    private MediaDecodeResult? Decode(byte[]? bytes, bool video)
+    private void ReleaseResource()
     {
-        if (_decoder is null || bytes is not { Length: > 0 } || bytes.Length > _maxMediaBytes) return null;
-        try { return _decoder.Decode(bytes, null, video, _maxMediaBytes); }
-        catch { return null; }
+        _reservation?.Dispose();
+        _reservation = null;
+        _frameImage = null;
+        _audioFrame = null;
+        _framePixels = null;
+        SourceBytes = 0;
+    }
+
+    private void LoadResource()
+    {
+        ReleaseResource();
+        Error = null;
+        Duration = double.TryParse(Element.GetAttribute("data-duration"), out var declaredDuration) ? Math.Max(0, declaredDuration) : 0;
+        if (!Enabled) { Error = "Media is disabled by the host."; return; }
+        _reservation = _budget.Acquire();
+        if (_reservation is null) { RejectForBudget("Media decoder limit exceeded."); return; }
+        var bytes = LoadSourceBytes(Element.GetAttribute("src"), _resourceLoader, _baseUri);
+        SourceBytes = bytes?.LongLength ?? (long.TryParse(Element.GetAttribute("data-size"), out var declaredSize) ? Math.Max(0, declaredSize) : 0);
+        if (!_reservation.Resize(SourceBytes)) { RejectResourceBudget(); return; }
+        if (bytes is not { Length: > 0 }) return;
+        var outputLimit = (int)Math.Max(0, Math.Min(_maxMediaBytes, _reservation.AvailableBytes - SourceBytes));
+        if (outputLimit == 0) { RejectResourceBudget(); return; }
+        var video = Element.LocalName == "video";
+        MediaDecodeResult? decoded = null;
+        if (_decoder is not null && outputLimit > 0)
+        {
+            try { decoded = _decoder.Decode(bytes, null, video, outputLimit); }
+            catch { Error = "Media decoder failed."; }
+        }
+        if (decoded is not null)
+        {
+            var frame = decoded.VideoFrame;
+            var audio = decoded.Audio;
+            // Check host output before retaining it or exposing it to canvas/audio.
+            if (frame is not null && (frame.Width <= 0 || frame.Height <= 0 || frame.Width > outputLimit / 4 / frame.Height))
+            { RejectResourceBudget(); return; }
+            var pixelBytes = frame is null ? 0 : (long)frame.Width * frame.Height * 4;
+            var audioBytes = audio is null ? 0 : (long)audio.Value.Samples.Length * sizeof(float);
+            if (pixelBytes < 0 || frame is not null && (frame.Width <= 0 || frame.Height <= 0 || frame.Pixels.Length != pixelBytes) ||
+                audio is { } pcm && (pcm.SampleRate <= 0 || pcm.Channels <= 0 || pcm.Samples.Length % pcm.Channels != 0) ||
+                pixelBytes > outputLimit || audioBytes > outputLimit - pixelBytes)
+            { RejectResourceBudget(); return; }
+            _frameImage = frame;
+            _audioFrame = audio;
+        }
+        else if (video)
+            _frameImage = PngDecoder.CanDecode(bytes) ? PngDecoder.Decode(bytes, outputLimit / 4)
+                : JpegDecoder.CanDecode(bytes) ? JpegDecoder.Decode(bytes, outputLimit / 4) : null;
+        else
+        {
+            _audioFrame = DecodeWav(bytes, outputLimit, out var exceedsBudget);
+            if (exceedsBudget) { RejectResourceBudget(); return; }
+        }
+        var allocated = SourceBytes + (_frameImage?.Pixels.Length ?? 0) + (long)(_audioFrame?.Samples.Length ?? 0) * sizeof(float);
+        if (!_reservation.Resize(allocated)) { RejectResourceBudget(); return; }
+        if (Duration <= 0) Duration = decoded?.Duration > 0 ? decoded.Duration : ParseMediaDuration(bytes);
+        if (!LooksLikeMedia(bytes) && _frameImage is null && _audioFrame is null) Error ??= "Media resource is corrupt or truncated.";
+        if (Error is not null) ReleaseResource();
+    }
+
+    private void RejectResourceBudget()
+    {
+        ReleaseResource();
+        RejectForBudget();
     }
 
     private void SubmitAudioThrough(double time)
@@ -502,14 +550,15 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         return sampleRate > 0 && blockAlign > 0 && dataLength > 0 ? (double)dataLength / (sampleRate * blockAlign) : 0;
     }
 
-    private static MediaAudioFrame? DecodeWav(byte[] bytes)
+    private static MediaAudioFrame? DecodeWav(byte[] bytes, int maxOutputBytes, out bool exceedsBudget)
     {
+        exceedsBudget = false;
         if (bytes.Length < 44 || !bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) || !bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8)) return null;
         var format = 0; var channels = 0; var sampleRate = 0; var bits = 0; var dataOffset = -1; var dataLength = 0;
         for (var offset = 12; offset + 8 <= bytes.Length;)
         {
             var chunkSize = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 4, 4));
-            if (chunkSize < 0 || offset + 8 + chunkSize > bytes.Length) return null;
+            if (chunkSize < 0 || (long)offset + 8 + chunkSize > bytes.Length) return null;
             if (bytes.AsSpan(offset, 4).SequenceEqual("fmt "u8) && chunkSize >= 16)
             {
                 format = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(offset + 8, 2));
@@ -524,7 +573,9 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             return null;
         var bytesPerSample = bits / 8;
         var sampleCount = dataLength / bytesPerSample;
-        if (sampleCount <= 0 || sampleCount > 16 * 1024 * 1024) return null;
+        if (sampleCount <= 0) return null;
+        if (sampleCount > Math.Min(16 * 1024 * 1024, maxOutputBytes / sizeof(float)))
+        { exceedsBudget = true; return null; }
         var samples = new float[sampleCount];
         for (var i = 0; i < sampleCount; i++)
         {

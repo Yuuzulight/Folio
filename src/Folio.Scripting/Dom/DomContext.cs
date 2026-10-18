@@ -15,7 +15,7 @@ internal sealed class DomContext
     private readonly Dictionary<ElementNode, MediaElementState> _media = new(ReferenceEqualityComparer.Instance);
     private double _lastMediaTick = double.NaN;
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
-    private long _mediaBytesAllocated;
+    private readonly MediaResourceBudget _mediaBudget;
     private int _workerCount;
     private int _iframeCount;
     private readonly List<WorkerState> _workers = [];
@@ -91,6 +91,7 @@ internal sealed class DomContext
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
+        _mediaBudget = new MediaResourceBudget(MaxMediaBytes, MaxMediaDecoders);
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
         MaxWorkers = Math.Max(0, maxWorkers);
         MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
@@ -158,7 +159,6 @@ internal sealed class DomContext
     {
         foreach (var media in _media.Values) media.StopPlayback();
         _media.Clear();
-        _mediaBytesAllocated = 0;
     }
 
     public void DisposeWorkers()
@@ -244,13 +244,7 @@ internal sealed class DomContext
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
-        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes);
-        if (_media.Count >= MaxMediaDecoders)
-            state.RejectForBudget("Media decoder limit exceeded.");
-        else if (state.SourceBytes > MaxMediaBytes - _mediaBytesAllocated)
-            state.RejectForBudget();
-        else
-            _mediaBytesAllocated += state.SourceBytes;
+        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget);
         _media[element] = state;
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;

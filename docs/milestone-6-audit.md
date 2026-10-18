@@ -250,7 +250,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `DomContext.GetMedia; MediaElementState constructor`.
 
-Decoder is created before the decoder-count budget is checked; decoded frame bytes are not the aggregate accounted size. Runtime switch and resource lifetime need verification.
+Decoder slots are now reserved before loading/decoding. Encoded sources and decoded frame/PCM memory share a document budget, and reload, disable and teardown release reservations. Regression tests cover disabled/over-count loading, aggregate decoded memory, reload recovery and built-in WAV expansion. Poster/capture accounting and the real process sandbox/classifier/conformance acceptance remain unproven.
 
 Original acceptance:
 
