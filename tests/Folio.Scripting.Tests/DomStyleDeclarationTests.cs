@@ -1067,16 +1067,23 @@ public sealed class DomStyleDeclarationTests
     public void MediaCaptureActivityNotifiesTheHostWhileTracksAreLive()
     {
         var activity = new List<bool>();
+        var permission = true;
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebRtc = true },
+            MediaCapturePermission = _ => permission,
             MediaCaptureActivityChanged = active => activity.Add(active)
         }));
 
         Assert.True(engine.Evaluate("let captureTrack; navigator.mediaDevices.getUserMedia({ video: true }).then(stream => captureTrack = stream.getVideoTracks()[0]); true").AsBoolean());
         engine.PerformMicrotaskCheckpoint();
         Assert.Equal([true], activity);
+        permission = false;
+        engine.Evaluate("captureTrack.getSettings(); true");
+        Assert.Equal([true, false], activity);
+        Assert.Equal("ended", engine.Evaluate("captureTrack.readyState").AsString());
+        permission = true;
         engine.Evaluate("captureTrack.stop(); true");
         Assert.Equal([true, false], activity);
     }
