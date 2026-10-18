@@ -154,6 +154,13 @@ internal sealed class DomContext
         lock (_workersGate) _workers.Add(worker);
     }
 
+    public void DisposeMedia()
+    {
+        foreach (var media in _media.Values) media.StopPlayback();
+        _media.Clear();
+        _mediaBytesAllocated = 0;
+    }
+
     public void DisposeWorkers()
     {
         WorkerState[] workers;

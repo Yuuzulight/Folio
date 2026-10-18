@@ -11,7 +11,7 @@ These adapters are explicitly host supplied through `FolioOptions.MediaDecoder` 
 ## Remaining acceptance work
 
 - WebGL resource state and limited triangle drawing exist, but GLSL validation/execution and a GPU backend do not.
-- Media still needs timed video frames, synchronized audio/video and content-process IPC, full mute/volume/seek behavior, and aggregate decoded-memory accounting.
+- Media still needs timed video frames, synchronized audio/video and content-process IPC, full state-machine/sound-grant behavior and aggregate decoded-memory accounting. Mute/volume, script seeking, replay, loop tails and binding teardown now have direct regression tests.
 - Workers use isolated engines, but their complete worker event-loop/global surface and zero-copy transfers are not established.
 - WebAssembly is a JavaScript interpreter on Jint, not the native engine required by the issues; its compilation cache is an in-page map.
 - Static iframe documents render, but the full scripted-child, capability inheritance and watchdog acceptance remains to be proven.
@@ -19,4 +19,4 @@ These adapters are explicitly host supplied through `FolioOptions.MediaDecoder` 
 - Service-worker handlers run in the page engine, document subresource interception is incomplete, and the conformance runner's `reopen offline` step does not recreate the document with an offline loader.
 - The capability matrix does not yet execute the complete real process sandbox suite once per feature.
 
-Existing Release tests and D8–D14 images are useful regression checks for the behavior they exercise. Passing them does not resolve missing backend or lifecycle requirements. Dependency-first delivery remains the plan; replacing mature dependencies with Folio-owned implementations is a later, separate track.
+Existing Release tests and D8â€“D14 images are useful regression checks for the behavior they exercise. Passing them does not resolve missing backend or lifecycle requirements. Dependency-first delivery remains the plan; replacing mature dependencies with Folio-owned implementations is a later, separate track.

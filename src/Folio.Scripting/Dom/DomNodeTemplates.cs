@@ -262,27 +262,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
             (target, _, value) => _context.GetMedia((ElementNode)target).SetSrcObject(value));
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
-            (target, _, value) =>
-            {
-                var state = _context.GetMedia((ElementNode)target);
-                var nextTime = Math.Max(0, WebIdlConversions.ToDouble(value));
-                state.CurrentTime = nextTime;
-                foreach (var track in state.TextTracks)
-                {
-                    var wasActive = track.ActiveCues.ToArray();
-                    track.CurrentTime = state.CurrentTime;
-                    var active = track.ActiveCues.ToArray();
-                    foreach (var cue in wasActive.Except(active))
-                        if (cue.OnExit.IsFunction)
-                            _context.Engine.Call(cue.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
-                    foreach (var cue in active.Except(wasActive))
-                        if (cue.OnEnter.IsFunction)
-                            _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
-                    if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
-                }
-                state.Dispatch(state.OnTimeUpdate, "timeupdate");
-                if (state.Duration > 0 && state.CurrentTime >= state.Duration && !state.Ended) { state.Ended = true; state.Dispatch(state.OnEnded, "ended"); }
-            });
+            (target, _, value) => _context.GetMedia((ElementNode)target).Seek(WebIdlConversions.ToDouble(value)));
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => { var element = (ElementNode)target; element.SetAttribute("src", WebIdlConversions.ToDOMString(value)); _context.GetMedia(element).Load(); });
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
@@ -292,19 +272,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
         t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));
         t.DefineProperty("volume", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Volume),
-            (target, _, value) =>
-            {
-                var state = _context.GetMedia((ElementNode)target);
-                var next = Math.Clamp(WebIdlConversions.ToDouble(value), 0, 1);
-                if (state.Volume != next) { state.Volume = next; state.Dispatch(state.OnVolumeChange, "volumechange"); }
-            });
+            (target, _, value) => _context.GetMedia((ElementNode)target).SetVolume(WebIdlConversions.ToDouble(value)));
         t.DefineProperty("muted", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Muted),
-            (target, _, value) =>
-            {
-                var state = _context.GetMedia((ElementNode)target);
-                var next = WebIdlConversions.ToBoolean(value);
-                if (state.Muted != next) { state.Muted = next; state.Dispatch(state.OnVolumeChange, "volumechange"); }
-            });
+            (target, _, value) => _context.GetMedia((ElementNode)target).SetMuted(WebIdlConversions.ToBoolean(value)));
         t.DefineProperty("autoplay", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Autoplay),
             (target, _, value) => _context.GetMedia((ElementNode)target).Autoplay = WebIdlConversions.ToBoolean(value));
         t.DefineProperty("loop", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Loop),
@@ -365,26 +335,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("pause", (target, _, _) => { _context.GetMedia((ElementNode)target).Pause(); return ScriptValue.Undefined; });
         t.DefineMethod("fastSeek", (target, _, args) =>
         {
-            if (args.Length > 0)
-            {
-                var state = _context.GetMedia((ElementNode)target);
-                state.Dispatch(ScriptValue.Null, "seeking");
-                state.CurrentTime = Math.Max(0, Math.Round(WebIdlConversions.ToDouble(args[0])));
-                foreach (var track in state.TextTracks)
-                {
-                    var wasActive = track.ActiveCues.ToArray();
-                    track.CurrentTime = state.CurrentTime;
-                    var active = track.ActiveCues.ToArray();
-                    foreach (var cue in wasActive.Except(active))
-                        if (cue.OnExit.IsFunction) _context.Engine.Call(cue.OnExit, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("exit"))]);
-                    foreach (var cue in active.Except(wasActive))
-                        if (cue.OnEnter.IsFunction) _context.Engine.Call(cue.OnEnter, ScriptValue.Undefined, [_context.Engine.CreateHostObject(MediaEventTemplate, new MediaEventState("enter"))]);
-                    if (!wasActive.SequenceEqual(active)) DispatchCueChange(track);
-                }
-                state.Ended = state.Duration > 0 && state.CurrentTime >= state.Duration;
-                state.Dispatch(state.OnTimeUpdate, "timeupdate");
-                state.Dispatch(ScriptValue.Null, "seeked");
-            }
+            if (args.Length > 0) _context.GetMedia((ElementNode)target).Seek(Math.Round(WebIdlConversions.ToDouble(args[0])));
             return ScriptValue.Undefined;
         });
         t.DefineMethod("setSinkId", (target, _, args) => _context.Engine.Evaluate("Promise.resolve()"));

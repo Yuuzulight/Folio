@@ -4,7 +4,7 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** milestones 1–5 are delivered on the dependency-backed path. Milestone 6 is in progress: capability gates, API surfaces and tests exist, but the [acceptance audit](docs/milestone-6-audit.md) identifies unfinished GPU/GLSL execution, media playback/IPC, native WebAssembly, capture/transport and service-worker isolation. Earlier Milestone 6 completion claims were premature.
+**Status:** milestones 1â€“5 are delivered on the dependency-backed path. Milestone 6 is in progress: capability gates, API surfaces and tests exist, but the [acceptance audit](docs/milestone-6-audit.md) identifies unfinished GPU/GLSL execution, media playback/IPC, native WebAssembly, capture/transport and service-worker isolation. Earlier Milestone 6 completion claims were premature.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.

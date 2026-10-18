@@ -56,7 +56,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     private int _audioCursor;
     private byte[]? _framePixels;
     public ReadOnlyMemory<byte> Pixels => _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
-    public double CurrentTime { get; set; }
+    public double CurrentTime { get; private set; }
     public double Duration { get; private set; }
     public bool Paused { get; set; } = true;
     public bool Ended { get; set; }
@@ -135,15 +135,52 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public List<MediaTextTrackState> TextTracks { get; } = [];
     public IReadOnlyList<IMediaCue> ActiveCues => TextTracks.SelectMany(track => track.ActiveCues).Cast<IMediaCue>().ToArray();
     public void TogglePlayPause() { if (Paused) Play(); else Pause(); }
-    public void SeekBy(double seconds) => SetCurrentTime(CurrentTime + seconds);
-    public void ToggleMute() { Muted = !Muted; Dispatch(OnVolumeChange, "volumechange"); }
-    public void SetVolume(double volume) { Volume = Math.Clamp(volume, 0, 1); Dispatch(OnVolumeChange, "volumechange"); }
+    public void SeekBy(double seconds) => Seek(CurrentTime + seconds);
+    public void ToggleMute() => SetMuted(!Muted);
+    public void SetMuted(bool muted)
+    {
+        if (Muted == muted) return;
+        Muted = muted;
+        AudioFlush();
+        Dispatch(OnVolumeChange, "volumechange");
+    }
+    public void SetVolume(double volume)
+    {
+        if (!double.IsFinite(volume)) throw WebIdlException.TypeError("The media volume must be finite.");
+        volume = Math.Clamp(volume, 0, 1);
+        if (Volume == volume) return;
+        Volume = volume;
+        AudioFlush();
+        Dispatch(OnVolumeChange, "volumechange");
+    }
+    public void Seek(double value)
+    {
+        if (!double.IsFinite(value)) throw WebIdlException.TypeError("The media position must be finite.");
+        value = Duration > 0 ? Math.Clamp(value, 0, Duration) : Math.Max(0, value);
+        AudioFlush();
+        if (_audioFrame is { } frame) _audioCursor = AudioPosition(frame, value);
+        Dispatch(ScriptValue.Null, "seeking");
+        var wasEnded = Ended;
+        SetCurrentTime(value);
+        if (Ended && !wasEnded) Dispatch(OnEnded, "ended");
+        Dispatch(ScriptValue.Null, "seeked");
+    }
+    internal void StopPlayback()
+    {
+        Paused = true;
+        AudioStop();
+    }
+    private static int AudioPosition(MediaAudioFrame frame, double time)
+    {
+        var requested = Math.Floor(Math.Max(0, time) * frame.SampleRate) * frame.Channels;
+        return requested >= frame.Samples.Length ? frame.Samples.Length : (int)requested;
+    }
     private void SetCurrentTime(double value)
     {
         var previousTime = CurrentTime;
         CurrentTime = Math.Max(0, value);
         if (CurrentTime < previousTime && _audioFrame is { } rewind)
-            _audioCursor = Math.Min(rewind.Samples.Length, (int)(CurrentTime * rewind.SampleRate) * rewind.Channels);
+            _audioCursor = AudioPosition(rewind, CurrentTime);
         foreach (var track in TextTracks)
         {
             var before = track.ActiveCues.ToArray();
@@ -238,9 +275,10 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     {
         if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return false; }
         if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
+        if (Ended) Seek(0);
         Paused = false;
         Ended = false;
-        if (Element.LocalName == "audio")
+        if (_audioFrame is not null)
         {
             AudioStart();
             SubmitAudioThrough(CurrentTime);
@@ -267,6 +305,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             SubmitAudioThrough(CurrentTime);
             if (Loop && !Paused)
             {
+                // Keep the completed iteration queued while scheduling the next one.
                 SetCurrentTime(0);
                 AudioStart();
                 SubmitAudioThrough(CurrentTime);
@@ -276,7 +315,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             else
             {
                 Paused = true;
-                AudioStop();
+                // The final queued PCM must drain. Stop/reset is reserved for teardown.
                 Dispatch(OnEnded, "ended");
             }
             return;
@@ -371,15 +410,21 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     private void SubmitAudioThrough(double time)
     {
         if (_audioOutput is null || _audioFrame is not { } frame || frame.SampleRate <= 0 || frame.Channels <= 0) return;
-        var requested = Math.Max(0, time) * frame.SampleRate * frame.Channels;
-        var target = requested >= frame.Samples.Length ? frame.Samples.Length : (int)requested;
+        var target = AudioPosition(frame, time);
         if (_audioCursor == 0 && target == 0)
             target = Math.Min(frame.Samples.Length, Math.Max(1, frame.Channels * Math.Max(1, frame.SampleRate / 50)));
+        if (Muted || Volume <= 0)
+        {
+            _audioCursor = target;
+            return;
+        }
         var chunkSamples = Math.Max(frame.Channels, frame.Channels * Math.Max(1, frame.SampleRate / 50));
         while (_audioCursor < target)
         {
             var length = Math.Min(chunkSamples, target - _audioCursor);
-            _audioOutput.Submit(new MediaAudioFrame(frame.SampleRate, frame.Channels, frame.Samples.Slice(_audioCursor, length).ToArray()));
+            var samples = frame.Samples.Slice(_audioCursor, length).ToArray();
+            if (Volume < 1) for (var i = 0; i < samples.Length; i++) samples[i] *= (float)Volume;
+            _audioOutput.Submit(new MediaAudioFrame(frame.SampleRate, frame.Channels, samples));
             _audioCursor += length;
         }
     }
