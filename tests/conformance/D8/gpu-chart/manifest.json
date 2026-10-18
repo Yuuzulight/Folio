@@ -1,6 +1,5 @@
 {
   "prompt": "Show a GPU-drawn line chart with three colored series and a legend.",
   "features": ["script", "webgl", "buffers", "textures"],
-  "viewport": 800,
-  "expectedToFail": "WebGL rendering is not enabled in the conformance host yet."
+  "viewport": 800
 }
