@@ -1,1 +1,1 @@
-{"expectedToFail":"Dedicated workers are not enabled in the conformance host yet.","viewport":800,"prompt":"Build a worker image filter that processes canvas pixels and reports completion.","features":["script","worker","dedicated-worker"]}
+{"viewport":800,"prompt":"Build a worker image filter that processes canvas pixels and reports completion.","features":["script","worker","dedicated-worker"]}
