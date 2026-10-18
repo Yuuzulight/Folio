@@ -33,8 +33,9 @@ internal sealed class MediaElementState : IImageHandle
     public IHostObjectTemplate EventTemplate { get; }
     public bool Enabled { get; private set; }
     public bool AllowSoundAutoplay { get; }
-    public int Width => int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 0;
-    public int Height => int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 0;
+    private bool _captureVideo;
+    public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 0;
+    public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 0;
     private byte[]? _framePixels;
     public ReadOnlyMemory<byte> Pixels => _framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)];
     public double CurrentTime { get; set; }
@@ -52,7 +53,16 @@ internal sealed class MediaElementState : IImageHandle
     public double PlaybackRate { get; set; } = 1;
     public double DefaultPlaybackRate { get; set; } = 1;
     public bool PreservesPitch { get; set; } = true;
-    public ScriptValue SrcObject { get; set; } = ScriptValue.Null;
+    public ScriptValue SrcObject { get; private set; } = ScriptValue.Null;
+    public void SetSrcObject(ScriptValue value)
+    {
+        SrcObject = value;
+        _captureVideo = false;
+        _framePixels = null;
+        if (!value.IsObject || !Engine.TryGetArrayItems(Engine.GetProperty(value, "_tracks"), out var tracks))
+            return;
+        _captureVideo = tracks.Any(track => Engine.GetProperty(track, "kind").AsString() == "video");
+    }
     public int ReadyState => Enabled && Error is null ? 4 : 0;
     public int NetworkState => Enabled && Error is null ? 1 : 0;
     public string? Error { get; set; }

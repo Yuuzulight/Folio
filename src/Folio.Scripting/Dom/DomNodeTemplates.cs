@@ -260,7 +260,7 @@ internal sealed class DomNodeTemplates
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
         t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
-            (target, _, value) => _context.GetMedia((ElementNode)target).SrcObject = value);
+            (target, _, value) => _context.GetMedia((ElementNode)target).SetSrcObject(value));
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
             (target, _, value) =>
             {
@@ -287,8 +287,8 @@ internal sealed class DomNodeTemplates
             (target, _, value) => { var element = (ElementNode)target; element.SetAttribute("src", WebIdlConversions.ToDOMString(value)); _context.GetMedia(element).Load(); });
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
-        t.DefineProperty("videoWidth", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-width")));
-        t.DefineProperty("videoHeight", (target, _) => ScriptValue.FromNumber(ReadMediaDimension((ElementNode)target, "data-height")));
+        t.DefineProperty("videoWidth", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Width));
+        t.DefineProperty("videoHeight", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Height));
         t.DefineProperty("paused", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Paused));
         t.DefineProperty("ended", (target, _) => ScriptValue.FromBoolean(_context.GetMedia((ElementNode)target).Ended));
         t.DefineProperty("volume", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Volume),
@@ -406,7 +406,6 @@ internal sealed class DomNodeTemplates
         });
         return t;
 
-        static int ReadMediaDimension(ElementNode element, string attribute) => int.TryParse(element.GetAttribute(attribute), out var value) ? Math.Max(0, value) : 0;
     }
 
     private void DispatchCueChange(MediaTextTrackState state)
