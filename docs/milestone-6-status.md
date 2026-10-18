@@ -1,6 +1,6 @@
 # Milestone 6 status
 
-Milestone 6 is implemented on the dependency-backed path. The work below provides bounded browser-facing behavior and capability coverage; later Folio-owned runtime replacements remain a separate track.
+Milestone 6 capability slices are implemented on the dependency-backed path. The work below provides bounded browser-facing behavior and capability coverage; later Folio-owned runtime replacements remain a separate track. The milestone remains open while the audio/video umbrella (#170) is extended to broad OS-backed codec support and audio output.
 
 Current exploratory surfaces:
 
@@ -26,7 +26,8 @@ Verified issue slices now closed in the tracker include dedicated workers (#539)
 service-worker lifecycle, interception, cache and limits (#555–#559). The hosted matrix covers each capability row on
 both supported CI platforms.
 
-The conformance corpus still records expected failures for D8–D11, D13 and D14 where the current artifacts require
-broader GPU/media/native-WebAssembly/network or offline-reopen behavior than the deterministic host supplies. Those
-are explicit acceptance gaps. The production JavaScript engine is still Jint behind `IScriptEngine`; a Folio-owned
-engine, native media decoding/output and host-owned external WebRTC transport remain documented replacement work.
+The current M6 conformance artifacts pass D8 through D14 at 100% on the deterministic host, and the full Release suite
+passes with the hosted Windows and Ubuntu capability matrix. The production JavaScript engine is still Jint behind
+`IScriptEngine`; a Folio-owned engine, broad native media decoding/output and host-owned external WebRTC transport
+remain documented replacement work. Image-backed video frames are supported for deterministic canvas composition, while
+common audio/video codec playback remains the open part of #170.
