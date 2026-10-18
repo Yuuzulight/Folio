@@ -565,6 +565,13 @@ public sealed class DomStyleDeclarationTests
         Assert.True(moduleWorker.Evaluate("const modular = new Worker('data:text/javascript,' + encodeURIComponent('export const answer = 42; onmessage = function() { postMessage(answer); };'), { type: 'module' }); let moduleAnswer = 0; modular.onmessage = e => moduleAnswer = e.data; modular.postMessage(1); moduleAnswer === 42").AsBoolean());
         Assert.ThrowsAny<Exception>(() => moduleWorker.Evaluate("new Worker('data:text/javascript,', { type: 'invalid' })"));
 
+        using var workerWasm = new JintScriptEngine();
+        DomBindings.Install(workerWasm, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true, WebAssembly = true }
+        }));
+        Assert.True(workerWasm.Evaluate("const wasmWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function() { const m = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,65,42,11])); postMessage(new WebAssembly.Instance(m, {}).exports.run()); };')); let workerWasmAnswer = 0; wasmWorker.onmessage = e => workerWasmAnswer = e.data; wasmWorker.postMessage(1); workerWasmAnswer === 42").AsBoolean());
+
         using var blobWorker = new JintScriptEngine();
         DomBindings.Install(blobWorker, Document.Parse("<html></html>", new FolioOptions
         {
@@ -727,6 +734,13 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(4, allowed.Evaluate("const floatGlobal = new WebAssembly.Global({ value: 'f64' }, '4'); floatGlobal.value").AsNumber());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Global({ value: 'invalid' }, 0)"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1, maximum: 2 }).grow(2)"));
+        using var memoryCapped = new JintScriptEngine();
+        DomBindings.Install(memoryCapped, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = true },
+            Limits = ResourceLimits.Default with { MaxWebAssemblyBytes = 65536 }
+        }));
+        Assert.True(memoryCapped.Evaluate("const bounded = new WebAssembly.Memory({ initial: 1, maximum: 1 }); let boundedTrap = false; try { bounded.grow(1); } catch (error) { boundedTrap = error.name === 'RangeError'; } boundedTrap && 2 + 2 === 4").AsBoolean());
     }
 
     [Fact]

@@ -181,7 +181,7 @@ public static class DomBindings
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
                 try
                 {
-                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources);
+                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWebAssemblyBytes, context.Capabilities, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources);
                     context.RegisterWorker(state);
                     var worker = engine.CreateHostObject(workerTemplate, state);
                     state.Source = worker;

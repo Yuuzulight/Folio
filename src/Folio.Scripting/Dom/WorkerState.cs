@@ -19,7 +19,8 @@ internal sealed class WorkerState
     private ScriptValue _onError = ScriptValue.Null;
     private bool _errorReported;
     private Task? _startupTask;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
+    private Document? _workerDocument;
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, FeatureCapabilities? capabilities = null, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -37,6 +38,17 @@ internal sealed class WorkerState
         if (WorkerEngine is not null) EnsureCloneHelpers(WorkerEngine);
         if (WorkerEngine is not null)
         {
+            if (capabilities?.WebAssembly == true)
+            {
+                _workerDocument = Document.Parse("<html></html>", new FolioOptions
+                {
+                    BaseUri = Uri.TryCreate(scriptUrl, UriKind.Absolute, out var workerBase) ? workerBase : null,
+                    Capabilities = capabilities,
+                    Limits = ResourceLimits.Default with { MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes), MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes), MaxWorkerExecutionTime = _workerExecutionTime },
+                    ResourceLoader = resourceLoader,
+                });
+                DomBindings.Install(WorkerEngine, _workerDocument);
+            }
             var bridge = new HostObjectTemplate("WorkerBridge")
                 .DefineMethod("close", (_, _, _) => { CloseFromWorker(); return ScriptValue.Undefined; })
                 .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined); } return ScriptValue.Undefined; });
@@ -118,6 +130,8 @@ internal sealed class WorkerState
         try { _startupTask?.Wait(TimeSpan.FromMilliseconds(100)); }
         catch (AggregateException) { }
         WorkerEngine?.Dispose();
+        _workerDocument?.Dispose();
+        _workerDocument = null;
         if (!_released) { _released = true; _releaseWorker?.Invoke(); }
     }
     private void CloseFromWorker()
@@ -129,6 +143,8 @@ internal sealed class WorkerState
         {
             while (_workerExecuting) Thread.Yield();
             WorkerEngine?.Dispose();
+            _workerDocument?.Dispose();
+            _workerDocument = null;
             lock (_workerGate)
             {
                 if (_released) return;
