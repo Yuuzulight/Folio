@@ -37,6 +37,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
 | Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
 | JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
+| WebRTC signalling and loopback transport | **Folio builds it** | Capability-gated offer/answer, ICE state, tracks and data channels; external ICE/peer transport remains a host-owned seam |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
 | JSX compilation | **Host** (Mana) | Done before content reaches Folio |
 | Per-artifact script storage | **Host** | Behind `IArtifactStorage`: local, isolated per artifact |
@@ -148,6 +149,15 @@ The engine runs only inside the sandboxed content process ([study](study/17-scri
 own parser, VM, and native hot-path compiler are built. The production target is
 zero external JavaScript-runtime dependencies; see
 [`native-engine-plan.md`](native-engine-plan.md).
+
+### WebRTC — Folio API and loopback transport
+
+The scripting layer owns the WebRTC object model and a deterministic in-process
+loopback transport used by tests and offline artifacts. `FolioOptions.WebRtcAllowedOrigins`
+limits ICE server URLs, and the capability is disabled by default. Real network
+transport is intentionally host-owned: a future transport adapter can route
+packets through the host the same way resource loads are routed, without giving
+the content process direct network access.
 
 ### Image codecs not built in-house
 
