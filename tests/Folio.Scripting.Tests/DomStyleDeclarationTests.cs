@@ -165,6 +165,12 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("wrong resource kind"));
     }
 
+    private sealed class CollectingAudioOutput : IMediaAudioOutput
+    {
+        public List<MediaAudioFrame> Frames { get; } = [];
+        public void Submit(MediaAudioFrame frame) => Frames.Add(frame);
+    }
+
     [Fact]
     public void InlineStyleIsLiveAndSupportsDeclarationOperations()
     {
@@ -420,6 +426,21 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Media = true }
         }));
         Assert.Equal(1, decoded.Evaluate("document.getElementById('a').duration").AsNumber());
+
+        var audioOutput = new CollectingAudioOutput();
+        using var outputEngine = new JintScriptEngine();
+        DomBindings.Install(outputEngine, Document.Parse("<audio id='a' src='/tone.wav'></audio>", new FolioOptions
+        {
+            BaseUri = new Uri("https://media.example/"),
+            ResourceLoader = new WavResourceLoader(),
+            MediaAudioOutput = audioOutput,
+            Capabilities = new FeatureCapabilities { Media = true }
+        }));
+        Assert.True(outputEngine.Evaluate("document.getElementById('a').play(); true").AsBoolean());
+        Assert.Single(audioOutput.Frames);
+        Assert.Equal(8000, audioOutput.Frames[0].SampleRate);
+        Assert.Equal(1, audioOutput.Frames[0].Channels);
+        Assert.Equal(8000, audioOutput.Frames[0].Samples.Length);
 
         using var mpeg = new JintScriptEngine();
         DomBindings.Install(mpeg, Document.Parse("<audio id='a' src='/tone.mp3'></audio>", new FolioOptions

@@ -87,6 +87,9 @@ public sealed class FolioOptions
     /// <summary>Called when capture becomes active or inactive so hosts can show an in-use indicator.</summary>
     public Action<bool>? MediaCaptureActivityChanged { get; init; }
 
+    /// <summary>Optional host-owned audio output for decoded media frames.</summary>
+    public IMediaAudioOutput? MediaAudioOutput { get; init; }
+
     /// <summary>Origins permitted for WebRTC ICE servers. An empty set permits loopback only.</summary>
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

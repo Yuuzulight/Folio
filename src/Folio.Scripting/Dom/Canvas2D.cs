@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -24,9 +24,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         Controls = element.GetAttribute("controls") is not null;
         _resourceLoader = resourceLoader;
         _baseUri = baseUri;
+        _audioOutput = audioOutput;
         element.MediaPresentation = this;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
         _frameImage = element.LocalName == "video" && bytes is { Length: > 0 } ? ImageLoader.Decode(bytes) : null;
+        _audioFrame = element.LocalName == "audio" && bytes is { Length: > 0 } ? DecodeWav(bytes) : null;
         var posterBytes = LoadSourceBytes(element.GetAttribute("poster"), resourceLoader, baseUri);
         Poster = posterBytes is null ? null : DecodePoster(posterBytes);
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
@@ -44,6 +46,9 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : _frameImage?.Width ?? 300;
     public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150;
     private IImageHandle? _frameImage;
+    private readonly IMediaAudioOutput? _audioOutput;
+    private MediaAudioFrame? _audioFrame;
+    private bool _audioSubmitted;
     private byte[]? _framePixels;
     public ReadOnlyMemory<byte> Pixels => _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
     public double CurrentTime { get; set; }
@@ -226,6 +231,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
         Paused = false;
         Ended = false;
+        if (Element.LocalName == "audio" && !_audioSubmitted && _audioFrame is { } frame)
+        {
+            _audioOutput?.Submit(frame);
+            _audioSubmitted = true;
+        }
         Dispatch(OnPlay, "play");
         Dispatch(OnPlaying, "playing");
         return true;
@@ -264,12 +274,17 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         {
             SourceBytes = bytes.LongLength;
             _frameImage = Element.LocalName == "video" ? ImageLoader.Decode(bytes) : null;
+            _audioFrame = Element.LocalName == "audio" ? DecodeWav(bytes) : null;
             Duration = ParseMediaDuration(bytes);
             Error = LooksLikeMedia(bytes) || _frameImage is not null ? null : "Media resource is corrupt or truncated.";
         }
         else
+        {
             _frameImage = null;
+            _audioFrame = null;
+        }
         _framePixels = null;
+        _audioSubmitted = false;
         CurrentTime = 0;
         Paused = true;
         Ended = false;
@@ -376,6 +391,52 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             offset += 8 + chunkSize + (chunkSize & 1);
         }
         return sampleRate > 0 && blockAlign > 0 && dataLength > 0 ? (double)dataLength / (sampleRate * blockAlign) : 0;
+    }
+
+    private static MediaAudioFrame? DecodeWav(byte[] bytes)
+    {
+        if (bytes.Length < 44 || !bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) || !bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8)) return null;
+        var format = 0; var channels = 0; var sampleRate = 0; var bits = 0; var dataOffset = -1; var dataLength = 0;
+        for (var offset = 12; offset + 8 <= bytes.Length;)
+        {
+            var chunkSize = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 4, 4));
+            if (chunkSize < 0 || offset + 8 + chunkSize > bytes.Length) return null;
+            if (bytes.AsSpan(offset, 4).SequenceEqual("fmt "u8) && chunkSize >= 16)
+            {
+                format = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(offset + 8, 2));
+                channels = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(offset + 10, 2));
+                sampleRate = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + 12, 4));
+                bits = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(offset + 22, 2));
+            }
+            else if (bytes.AsSpan(offset, 4).SequenceEqual("data"u8)) { dataOffset = offset + 8; dataLength = chunkSize; }
+            offset += 8 + chunkSize + (chunkSize & 1);
+        }
+        if (format is not (1 or 3) || channels is < 1 or > 8 || sampleRate is < 8000 or > 192000 || bits is not (8 or 16 or 24 or 32) || dataOffset < 0 || dataLength == 0)
+            return null;
+        var bytesPerSample = bits / 8;
+        var sampleCount = dataLength / bytesPerSample;
+        if (sampleCount <= 0 || sampleCount > 16 * 1024 * 1024) return null;
+        var samples = new float[sampleCount];
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var at = dataOffset + i * bytesPerSample;
+            samples[i] = format == 3 && bits == 32
+                ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at, 4)))
+                : bits switch
+                {
+                    8 => (bytes[at] - 128) / 128f,
+                    16 => BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(at, 2)) / 32768f,
+                    24 => ReadPcm24(bytes, at) / 8388608f,
+                    _ => BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at, 4)) / 2147483648f,
+                };
+        }
+        return new MediaAudioFrame(sampleRate, channels, samples);
+    }
+
+    private static int ReadPcm24(byte[] bytes, int offset)
+    {
+        var value = bytes[offset] | bytes[offset + 1] << 8 | bytes[offset + 2] << 16;
+        return (value & 0x800000) != 0 ? value | unchecked((int)0xFF000000) : value;
     }
 }
 
