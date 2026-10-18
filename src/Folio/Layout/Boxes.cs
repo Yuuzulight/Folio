@@ -104,7 +104,11 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
     public float Density { get; init; } = 1;
 
     /// <summary>The natural width and height in CSS pixels (https://www.w3.org/TR/css-images-3/#natural-dimensions), if any.</summary>
-    public (float Width, float Height)? NaturalSize => Image is { } image ? (image.Width / Density, image.Height / Density) : null;
+    public (float Width, float Height)? NaturalSize => Image is { } image
+        ? (image.Width / Density, image.Height / Density)
+        : Kind == ReplacedKind.Media && Node is ElementNode { MediaPresentation: { } media }
+            ? media.Poster is { } poster ? (poster.Width, poster.Height) : (300, 150)
+            : null;
 
     /// <summary>For an img showing an SVG image: the root svg element of its own, styled document.</summary>
     public Dom.ElementNode? SvgImage { get; init; }

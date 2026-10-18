@@ -621,6 +621,8 @@ internal static class DisplayListBuilder
                 : color.A > 0
                     ? new CssColor(color.R, color.G, color.B, 0.08f)
                     : new CssColor(0.92f, 0.92f, 0.92f, 1);
+            if (replaced.Kind == ReplacedKind.Media && replaced.Node is Dom.ElementNode { LocalName: "video", MediaPresentation: { Poster: null, Controls: true } })
+                background = new CssColor(0.2f, 0.2f, 0.2f, 1);
             var frameBorder = box.Box.Style.Border;
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
             if (box.Box is ReplacedBox { Kind: ReplacedKind.Frame })

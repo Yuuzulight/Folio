@@ -40,8 +40,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public bool Enabled { get; private set; }
     public bool AllowSoundAutoplay { get; }
     private bool _captureVideo;
-    public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 0;
-    public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 0;
+    public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 300;
+    public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 150;
     private byte[]? _framePixels;
     public ReadOnlyMemory<byte> Pixels => _framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)];
     public double CurrentTime { get; set; }
