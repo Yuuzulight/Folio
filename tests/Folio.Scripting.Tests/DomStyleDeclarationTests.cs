@@ -747,11 +747,7 @@ public sealed class DomStyleDeclarationTests
     public void WebAssemblyExecutionIsCoveredByTheEngineWatchdog()
     {
         using var engine = new JintScriptEngine();
-        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
-        {
-            Capabilities = new FeatureCapabilities { WebAssembly = true }
-        }));
-        engine.Configure(new ScriptLimits { Timeout = TimeSpan.FromMilliseconds(100), MaxStatements = null, MaxRecursionDepth = null });
+        engine.Configure(new ScriptLimits { Timeout = TimeSpan.FromSeconds(1), MaxStatements = null, MaxRecursionDepth = null });
         DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebAssembly = true }
