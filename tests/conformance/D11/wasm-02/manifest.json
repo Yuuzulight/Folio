@@ -1,1 +1,1 @@
-{ "expectedToFail": "The WebAssembly conformance host does not yet provide the full native WebAssembly runtime.", "viewport": 800, "prompt": "Wasm physics canvas using a small WebAssembly module.", "features": ["script", "webassembly", "canvas"] }
+{"viewport":800,"prompt":"Wasm physics canvas using a small WebAssembly module.","features":["script","webassembly","canvas"]}

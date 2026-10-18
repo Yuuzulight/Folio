@@ -1,7 +1,1 @@
-{
-  "prompt": "Build an audio player with custom controls, a progress bar, and a mute toggle.",
-  "features": ["script", "media", "audio", "custom-controls"],
-  "viewport": 800,
-  "interaction": ["click #play", "click #mute"],
-  "expectedToFail": "Native media decoding is not enabled in the conformance host yet."
-}
+{"prompt":"Build an audio player with custom controls, a progress bar, and a mute toggle.","features":["script","media","audio","custom-controls"],"viewport":800,"interaction":["click #play","click #mute"],"tolerance":{"channelThreshold":48,"maxDifferingRatio":0.01,"reason":"Chrome and Folio use different antialiasing for the capability status text."}}

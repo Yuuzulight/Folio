@@ -1,1 +1,1 @@
-{ "expectedToFail": "WebRTC host permissions and peer transport are not enabled in the conformance host yet.", "viewport": 800, "prompt": "Camera preview permission using a host-permitted peer.", "interaction": ["click #start"], "features": ["script", "webrtc", "media"] }
+{"viewport":800,"prompt":"Camera preview permission using a host-permitted peer.","interaction":["click #start"],"features":["script","webrtc","media"],"tolerance":{"channelThreshold":48,"maxDifferingRatio":0.01,"reason":"Chrome and Folio use different antialiasing for the capability status text."}}

@@ -1,6 +1,1 @@
-{
-  "prompt": "Build a WebGL shader playground with a gradient shader and a reset button.",
-  "features": ["script", "webgl2", "fragment-shader", "interaction"],
-  "viewport": 800,
-  "expectedToFail": "WebGL rendering is not enabled in the conformance host yet."
-}
+{"prompt":"Build a WebGL shader playground with a gradient shader and a reset button.","features":["script","webgl2","fragment-shader","interaction"],"viewport":800}

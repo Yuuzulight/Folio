@@ -1,1 +1,1 @@
-{ "expectedToFail": "WebRTC host permissions and peer transport are not enabled in the conformance host yet.", "viewport": 800, "prompt": "Data channel chat using a host-permitted peer.", "interaction": ["click #start"], "features": ["script", "webrtc", "media"] }
+{"viewport":800,"prompt":"Data channel chat using a host-permitted peer.","interaction":["click #start"],"features":["script","webrtc","media"]}

@@ -1,6 +1,1 @@
-{
-  "prompt": "Create a particle field animated with WebGL points and a pause control.",
-  "features": ["script", "webgl", "points", "request-animation-frame"],
-  "viewport": 800,
-  "expectedToFail": "WebGL rendering is not enabled in the conformance host yet."
-}
+{"prompt":"Create a particle field animated with WebGL points and a pause control.","features":["script","webgl","points","request-animation-frame"],"viewport":800}
