@@ -26,11 +26,12 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         _baseUri = baseUri;
         element.MediaPresentation = this;
         var bytes = LoadSourceBytes(element.GetAttribute("src"), resourceLoader, baseUri);
+        _frameImage = element.LocalName == "video" && bytes is { Length: > 0 } ? ImageLoader.Decode(bytes) : null;
         var posterBytes = LoadSourceBytes(element.GetAttribute("poster"), resourceLoader, baseUri);
         Poster = posterBytes is null ? null : DecodePoster(posterBytes);
         Duration = double.TryParse(element.GetAttribute("data-duration"), out var duration) ? Math.Max(0, duration) : ParseMediaDuration(bytes);
         SourceBytes = bytes?.LongLength ?? (long.TryParse(element.GetAttribute("data-size"), out var size) ? Math.Max(0, size) : 0);
-        if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes)) Error = "Media resource is corrupt or truncated.";
+        if (Enabled && bytes is { Length: > 0 } && !LooksLikeMedia(bytes) && _frameImage is null) Error = "Media resource is corrupt or truncated.";
         LoadTextTracks();
     }
 
@@ -40,10 +41,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     public bool Enabled { get; private set; }
     public bool AllowSoundAutoplay { get; }
     private bool _captureVideo;
-    public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : 300;
-    public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : 150;
+    public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : _frameImage?.Width ?? 300;
+    public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150;
+    private IImageHandle? _frameImage;
     private byte[]? _framePixels;
-    public ReadOnlyMemory<byte> Pixels => _framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)];
+    public ReadOnlyMemory<byte> Pixels => _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
     public double CurrentTime { get; set; }
     public double Duration { get; private set; }
     public bool Paused { get; set; } = true;
@@ -261,9 +263,13 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (bytes is not null)
         {
             SourceBytes = bytes.LongLength;
+            _frameImage = Element.LocalName == "video" ? ImageLoader.Decode(bytes) : null;
             Duration = ParseMediaDuration(bytes);
-            Error = LooksLikeMedia(bytes) ? null : "Media resource is corrupt or truncated.";
+            Error = LooksLikeMedia(bytes) || _frameImage is not null ? null : "Media resource is corrupt or truncated.";
         }
+        else
+            _frameImage = null;
+        _framePixels = null;
         CurrentTime = 0;
         Paused = true;
         Ended = false;

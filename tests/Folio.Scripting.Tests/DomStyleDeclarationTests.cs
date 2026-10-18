@@ -5,6 +5,8 @@ using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 using Folio.Scripting.Ipc;
 using Folio.Resources;
+using Folio.Imaging;
+using Folio.Skia;
 using System.Text;
 using System.Buffers.Binary;
 using System.Text.Json;
@@ -151,6 +153,16 @@ public sealed class DomStyleDeclarationTests
             }
             return bytes;
         }
+    }
+
+    private sealed class PngResourceLoader : IResourceLoader
+    {
+        private static readonly byte[] Png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==");
+
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Media
+                ? ResourceResponse.Loaded(Png, "image/png")
+                : ResourceResponse.Refused("wrong resource kind"));
     }
 
     [Fact]
@@ -422,6 +434,20 @@ public sealed class DomStyleDeclarationTests
         Assert.True(corrupt.Evaluate("const a = document.getElementById('a'); let errorType = ''; a.onerror = e => errorType = e.type; a.load(); a.error !== null && errorType === 'error'").AsBoolean());
         Assert.True(allowed.Evaluate("const audio = new Audio('/sound.ogg'); audio instanceof HTMLAudioElement && audio.src === '/sound.ogg'").AsBoolean());
         Assert.True(allowed.Evaluate("const stream = new MediaStream([]); v.srcObject = stream; v.srcObject === stream").AsBoolean());
+
+        using var imageVideo = new JintScriptEngine();
+        var imageVideoDocument = Document.Parse("<html><body><video id='v' src='/frame.png'></video></body></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://media.example/"),
+            ResourceLoader = new PngResourceLoader(),
+            Capabilities = new FeatureCapabilities { Media = true },
+            Raster = new SkiaRasterBackend()
+        });
+        DomBindings.Install(imageVideo, imageVideoDocument);
+        var imagePresentation = imageVideoDocument.GetElementById("v")!.Node.MediaPresentation;
+        Assert.NotNull(imagePresentation);
+        Assert.Equal(1, ((IImageHandle)imagePresentation!).Width);
+        Assert.Equal(4, ((IImageHandle)imagePresentation!).Pixels.Length);
 
         using var limited = new JintScriptEngine();
         DomBindings.Install(limited, Document.Parse("<video id='v' data-size='1024'></video>", new FolioOptions
