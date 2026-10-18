@@ -39,6 +39,18 @@ public sealed class CanvasDisplayListTests
         Assert.Equal([(120f, 60f), (80f, 40f)], labels.Select(item => (item.Shape.Rect.Width, item.Shape.Rect.Height)));
     }
 
+    [Fact]
+    public void AnIframeUsesTheDefaultReplacedElementSizeWhenUnspecified()
+    {
+        using var document = Document.Parse("<html><body style='margin:0'><iframe></iframe></body></html>");
+
+        document.Paint(800, 600);
+
+        var iframe = document.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "iframe");
+        var bounds = document.GetElementBounds(iframe)!.Value;
+        Assert.Equal((300f, 150f), (bounds.Width, bounds.Height));
+    }
+
     [Theory]
     [InlineData("<canvas></canvas>", 300, 150)]
     [InlineData("<canvas width='64'></canvas>", 64, 150)]

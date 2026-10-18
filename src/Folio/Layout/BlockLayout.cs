@@ -700,6 +700,12 @@ internal static class BlockLayout
             else
                 (nw, nh, ratio) = (13f, 13f, 1f);
         }
+        else if (box.Kind == ReplacedKind.Frame)
+        {
+            // An iframe has the standard replaced-element fallback dimensions when
+            // neither CSS size is specified (HTML §4.8.6).
+            (nw, nh, ratio) = (300f, 150f, 2f);
+        }
         else
             return null;
         var naturalWidth = nw ?? (nh is { } h0 && ratio is { } r0 ? h0 * r0 : ratio is not null && fillWidth is { } fill ? fill : 300);
