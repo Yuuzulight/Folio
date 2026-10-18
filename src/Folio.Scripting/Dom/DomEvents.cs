@@ -26,7 +26,7 @@ internal static class DomEvents
             });
 
         engine.SetGlobalProperty("__folio_events_host", engine.CreateHostObject(bridge, new object()));
-        engine.Evaluate(Source, "folio:events");
+        engine.EvaluateHostScript(Source, "folio:events");
         var sync = engine.Evaluate("globalThis.__folio_events_api.sync");
         var ensure = engine.Evaluate("globalThis.__folio_events_api.ensure");
         var dispatchHostEvent = engine.Evaluate("globalThis.__folio_events_api.dispatchHostEvent");

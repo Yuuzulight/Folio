@@ -43,7 +43,7 @@ internal static class CssomBindings
             .DefineMethod("setDisabled", (_, _, args) => { if (Sheet(registry, args) is { } sheet) registry.SetDisabled(sheet, args.Length > 1 && args[1].AsBoolean()); return ScriptValue.Undefined; })
             .DefineMethod("setMedia", (_, _, args) => { if (Sheet(registry, args) is { } sheet) registry.SetMedia(sheet, Text(args, 1)); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_cssom_host", engine.CreateHostObject(host, new object()));
-        engine.Evaluate(Source, "folio:cssom");
+        engine.EvaluateHostScript(Source, "folio:cssom");
         context.CssomStyleSheets = engine.GetGlobalProperty("__folio_cssom_styleSheets");
         context.CssomSheetOf = engine.GetGlobalProperty("__folio_cssom_sheetOf");
         engine.Evaluate("delete globalThis.__folio_cssom_host; delete globalThis.__folio_cssom_styleSheets; delete globalThis.__folio_cssom_sheetOf;");

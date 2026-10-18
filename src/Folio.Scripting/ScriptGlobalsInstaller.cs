@@ -157,7 +157,7 @@ public static class ScriptGlobalsInstaller
         engine.SetGlobalProperty("performance", engine.CreateHostObject(performanceTemplate, target));
 
         // Wire functions and clean up helper names
-        engine.Evaluate(@"
+        engine.EvaluateHostScript(@"
             (function() {
                 var _st = __folio_setTimeout_obj;
                 var _ct = __folio_clearTimeout_obj;
@@ -197,7 +197,7 @@ public static class ScriptGlobalsInstaller
                 delete globalThis.__folio_raf_obj;
                 delete globalThis.__folio_cancelRaf_obj;
             })();
-        ");
+        ", "folio:event-loop");
     }
 
     private static Action CreateTimerAction(

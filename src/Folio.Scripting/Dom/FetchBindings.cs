@@ -25,7 +25,7 @@ internal static class FetchBindings
             .DefineMethod("copy", (_, _, args) => ScriptValue.FromNumber(context.FetchBody(Handle(args)) is { } data ? context.StoreFetchBody(data) : 0))
             .DefineMethod("free", (_, _, args) => { context.FreeFetchBody(Handle(args)); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_fetch_host", engine.CreateHostObject(host, context));
-        engine.Evaluate(Source, "folio:fetch");
+        engine.EvaluateHostScript(Source, "folio:fetch");
         engine.Evaluate("delete globalThis.__folio_fetch_host");
     }
 

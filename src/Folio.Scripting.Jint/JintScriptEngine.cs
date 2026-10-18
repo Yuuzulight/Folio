@@ -5,6 +5,7 @@ using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Native.TypedArray;
 using Jint.Runtime;
+using Acornima.Ast;
 
 namespace Folio.Scripting.Jint;
 
@@ -12,8 +13,10 @@ namespace Folio.Scripting.Jint;
 /// Jint-backed implementation of <see cref="IScriptEngine"/> (study 17, dependencies.md).
 /// Provides sandboxed ECMAScript evaluation with time, statement, recursion, and memory limits.
 /// </summary>
-public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
+public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator
 {
+    private static readonly Dictionary<(string Source, string Url), Lazy<Prepared<Script>>> HostScripts = new();
+    private const int MaxPreparedHostScripts = 16;
     private Engine? _engine;
     private CancellationTokenSource _cts = new();
     private ScriptLimits _limits = ScriptLimits.Default;
@@ -53,6 +56,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             // Strict sandboxing: do NOT call AllowClr!
             cfg.CancellationToken(_cts.Token);
+            cfg.Constraints.StackOverflowGuard = true;
 
             if (_limits.Timeout is { } timeout)
                 cfg.TimeoutInterval(timeout);
@@ -85,7 +89,13 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
         return EvaluateOnCurrentThread(source, url);
     }
 
-    private ScriptValue EvaluateOnCurrentThread(string source, string url)
+    ScriptValue IHostScriptEvaluator.EvaluateHostScript(string source, string url)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return EvaluateOnCurrentThread(source, url, prepareHostScript: true);
+    }
+
+    private ScriptValue EvaluateOnCurrentThread(string source, string url, bool prepareHostScript = false)
     {
         var previousThread = Volatile.Read(ref _evaluationThreadId);
         if (previousThread == 0)
@@ -93,7 +103,22 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
         try
         {
             Interlocked.Increment(ref _evaluationDepth);
-            var result = _engine!.Evaluate(source, url);
+            Lazy<Prepared<Script>>? prepared = null;
+            // Only bounded, explicitly supplied host bootstrap scripts share parsed code.
+            // Artifact scripts retain the normal parsing and execution limits.
+            if (prepareHostScript && source.Length <= 128 * 1024)
+            {
+                lock (HostScripts)
+                {
+                    var key = (source, url);
+                    if (!HostScripts.TryGetValue(key, out prepared) && HostScripts.Count < MaxPreparedHostScripts)
+                    {
+                        prepared = new Lazy<Prepared<Script>>(() => Engine.PrepareScript(source, url));
+                        HostScripts.Add(key, prepared);
+                    }
+                }
+            }
+            var result = prepared is null ? _engine!.Evaluate(source, url) : _engine!.Evaluate(prepared.Value);
             return ToScriptValue(result);
         }
         catch (Exception ex)

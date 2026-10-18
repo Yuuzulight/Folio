@@ -305,7 +305,7 @@ public static class DomBindings
             });
         engine.SetGlobalProperty("__folio_media_activity", engine.CreateHostObject(mediaActivity, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
-        engine.Evaluate(@"
+        engine.EvaluateHostScript(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
@@ -834,7 +834,7 @@ public static class DomBindings
             globalThis.structuredClone = function(value) { return JSON.parse(JSON.stringify(value)); };
             globalThis.console = globalThis.console || {};
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
-        ");
+        ", "folio:dom-globals");
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
         FetchBindings.Install(engine, context);
@@ -898,7 +898,7 @@ public static class DomBindings
 
     private static void InstallDomException(IScriptEngine engine)
     {
-        engine.Evaluate(@"
+        engine.EvaluateHostScript(@"
             (function() {
                 if (typeof globalThis.DOMException === 'function') return;
 
@@ -957,12 +957,12 @@ public static class DomBindings
 
                 globalThis.DOMException = DOMException;
             })();
-        ");
+        ", "folio:dom-exception");
     }
 
     private static void InstallConstructors(IScriptEngine engine)
     {
-        engine.Evaluate(@"
+        engine.EvaluateHostScript(@"
             (function() {
                 function defClass(name, parent) {
                     const ctor = function() {
@@ -1094,7 +1094,7 @@ public static class DomBindings
                 globalThis.DOMMatrix = DOMMatrix;
                 globalThis.DOMMatrixReadOnly = DOMMatrix;
             })();
-        ");
+        ", "folio:dom-constructors");
     }
 }
 

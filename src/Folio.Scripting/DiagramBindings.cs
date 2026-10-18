@@ -14,7 +14,7 @@ internal static class DiagramBindings
                 return DiagramRenderer.TryRender(source, out var svg) ? ScriptValue.FromString(svg) : ScriptValue.Null;
             });
         engine.SetGlobalProperty("__folio_diagrams", engine.CreateHostObject(template, new object()));
-        engine.Evaluate(@"
+        engine.EvaluateHostScript(@"
             globalThis.mermaid = {
                 initialize: function() {},
                 run: function(options) {

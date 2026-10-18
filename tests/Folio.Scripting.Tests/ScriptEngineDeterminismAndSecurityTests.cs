@@ -5,6 +5,31 @@ namespace Folio.Scripting.Tests;
 public class ScriptEngineDeterminismAndSecurityTests
 {
     [Fact]
+    public void HostBootstrapCodeKeepsConcurrentEngineGlobalsSeparate()
+    {
+        Parallel.For(0, 8, index =>
+        {
+            using var engine = new JintScriptEngine();
+            engine.SetGlobalProperty("sentinel", ScriptValue.FromNumber(index));
+            var value = HostScriptEvaluator.EvaluateHostScript(engine, "function readSentinel() { return sentinel; } readSentinel();", "folio:test-bootstrap-isolation");
+            Assert.Equal(index, value.AsNumber());
+        });
+    }
+
+    [Fact]
+    public void NativeStackGuardMakesCustomInstanceOfRecursionCatchable()
+    {
+        using var engine = new JintScriptEngine();
+        engine.Configure(ScriptLimits.Default with { MaxRecursionDepth = null });
+        var name = engine.Evaluate("""
+            var recursive = { [Symbol.hasInstance](value) { return value instanceof recursive; } };
+            try { ({}) instanceof recursive; } catch (error) { error.name; }
+            """).AsString();
+        Assert.Equal("RangeError", name);
+        Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
+    }
+
+    [Fact]
     public void SeededRandomRepeatsAcrossRuns()
     {
         using var engine1 = new JintScriptEngine(new ScriptEngineOptions { RandomSeed = 42 });

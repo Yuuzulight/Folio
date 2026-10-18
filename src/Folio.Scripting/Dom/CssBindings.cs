@@ -16,7 +16,7 @@ internal static class CssBindings
             .DefineMethod("declaration", (_, _, args) =>
                 ScriptValue.FromBoolean(Conditions.SupportsDeclaration(args.Length > 0 ? args[0].AsString() ?? "" : "", args.Length > 1 ? args[1].AsString() ?? "" : "")));
         engine.SetGlobalProperty("__folio_css_host", engine.CreateHostObject(host, new object()));
-        engine.Evaluate(Source, "folio:css");
+        engine.EvaluateHostScript(Source, "folio:css");
         engine.Evaluate("delete globalThis.__folio_css_host");
     }
 

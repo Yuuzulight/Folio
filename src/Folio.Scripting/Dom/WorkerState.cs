@@ -473,7 +473,7 @@ internal sealed class WorkerState
         return clone;
     }
 
-    private static void EnsureCloneHelpers(IScriptEngine engine) => engine.Evaluate(StructuredCloneScript);
+    private static void EnsureCloneHelpers(IScriptEngine engine) => engine.EvaluateHostScript(StructuredCloneScript, "folio:structured-clone");
 
     private static bool TryGetPort(IScriptEngine engine, ScriptValue value, out MessagePortEndpoint port)
     {
