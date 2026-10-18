@@ -55,6 +55,15 @@ public class FolioView : Control
     private readonly System.Windows.Forms.Timer _frames = new();
     private readonly Stopwatch _timeline = new();
     private readonly ToolTip _toolTip = new();
+    private readonly Label _mediaCaptureIndicator = new()
+    {
+        AutoSize = true,
+        BackColor = Color.FromArgb(220, 30, 30, 30),
+        ForeColor = Color.White,
+        Padding = new Padding(6, 3, 6, 3),
+        Text = "Camera or microphone in use",
+        Visible = false,
+    };
     private FolioViewAccessibleObject? _accessibleObject;
     private ContentProcessClient? _contentProcess;
     private CanvasFrameStore? _contentFrameStore;
@@ -67,6 +76,8 @@ public class FolioView : Control
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         _scrollBar.ValueChanged += (_, _) => Invalidate();
         Controls.Add(_scrollBar);
+        Controls.Add(_mediaCaptureIndicator);
+        _mediaCaptureIndicator.BringToFront();
         _frames.Tick += (_, _) => NextFrame();
     }
 
@@ -154,6 +165,9 @@ public class FolioView : Control
 
     /// <summary>A form was submitted.</summary>
     public event EventHandler<FormSubmittedEventArgs>? FormSubmitted;
+
+    /// <summary>Raised when a document starts or stops using camera or microphone capture.</summary>
+    public event Action<bool>? MediaCaptureActivityChanged;
 
     /// <summary>Connects the control to a content process and displays a visible stopped notice if it is terminated.</summary>
     public void AttachContentProcess(ContentProcessClient client)
@@ -249,6 +263,18 @@ public class FolioView : Control
             BaseUri = baseUri ?? Options.BaseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion || SystemReducedMotion(),
             UserStyleSheet = Options.UserStyleSheet, Limits = Options.Limits, CollectDiagnostics = Options.CollectDiagnostics, Fonts = Options.Fonts,
             ResourceLoader = Options.ResourceLoader, Scripting = Options.Scripting, ContentProcessPath = Options.ContentProcessPath,
+            ArtifactId = Options.ArtifactId, ArtifactStorage = Options.ArtifactStorage,
+            MediaCapturePermission = Options.MediaCapturePermission,
+            MediaCaptureActivityChanged = active =>
+            {
+                _mediaCaptureIndicator.Visible = active;
+                _mediaCaptureIndicator.BringToFront();
+                MediaCaptureActivityChanged?.Invoke(active);
+                Options.MediaCaptureActivityChanged?.Invoke(active);
+            },
+            WebRtcAllowedOrigins = Options.WebRtcAllowedOrigins,
+            Capabilities = Options.Capabilities,
+            DiagramLibraryUrls = Options.DiagramLibraryUrls,
             Raster = Options.Raster ?? new Folio.Skia.SkiaRasterBackend(),
         };
         _document?.Dispose();
@@ -463,6 +489,9 @@ public class FolioView : Control
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
+        _mediaCaptureIndicator.Location = new Point(
+            Math.Max(0, ClientSize.Width - _mediaCaptureIndicator.Width - _scrollBar.Width - 8), 8);
+        _mediaCaptureIndicator.BringToFront();
         Invalidate();
     }
 
