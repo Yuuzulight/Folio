@@ -1062,6 +1062,24 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void MediaCaptureActivityNotifiesTheHostWhileTracksAreLive()
+    {
+        var activity = new List<bool>();
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = true },
+            MediaCaptureActivityChanged = active => activity.Add(active)
+        }));
+
+        Assert.True(engine.Evaluate("let captureTrack; navigator.mediaDevices.getUserMedia({ video: true }).then(stream => captureTrack = stream.getVideoTracks()[0]); true").AsBoolean());
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal([true], activity);
+        engine.Evaluate("captureTrack.stop(); true");
+        Assert.Equal([true, false], activity);
+    }
+
+    [Fact]
     public void IframeContentWindowMessagingIsCapabilityGated()
     {
         using var denied = new JintScriptEngine();

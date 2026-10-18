@@ -80,7 +80,7 @@ internal sealed class DomContext
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
         FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null)
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -99,6 +99,7 @@ internal sealed class DomContext
         MaxWebRtcConnections = Math.Max(0, maxWebRtcConnections);
         WebRtcAllowedOrigins = webRtcAllowedOrigins ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         MediaCapturePermission = mediaCapturePermission;
+        MediaCaptureActivityChanged = mediaCaptureActivityChanged;
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
@@ -127,6 +128,7 @@ internal sealed class DomContext
     public int MaxWebRtcConnections { get; }
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; }
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; }
+    public Action<bool>? MediaCaptureActivityChanged { get; }
     public IArtifactStorage? ArtifactStorage { get; }
     public string ArtifactId { get; }
     public bool TryAcquireWorker()
