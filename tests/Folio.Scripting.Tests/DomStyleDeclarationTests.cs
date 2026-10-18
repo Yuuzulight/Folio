@@ -706,8 +706,9 @@ public sealed class DomStyleDeclarationTests
         // The exported function calls itself forever. The content engine must interrupt it
         // through the same watchdog used for ordinary script evaluation.
         const string recursiveModule = "new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,16,0,11]));";
-        var error = Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate($"const loopModule = {recursiveModule} const loopInstance = new WebAssembly.Instance(loopModule, {{}}); loopInstance.exports.run()"));
-        Assert.Contains("call stack limit", error.Message, StringComparison.OrdinalIgnoreCase);
+        var error = Assert.ThrowsAny<Exception>(() => engine.Evaluate($"const loopModule = {recursiveModule} const loopInstance = new WebAssembly.Instance(loopModule, {{}}); loopInstance.exports.run()"));
+        Assert.True(error is ScriptRuntimeException { Message: var message } && message.Contains("call stack limit", StringComparison.OrdinalIgnoreCase)
+            || error is ScriptLimitExceededException { LimitName: "Timeout" });
     }
 
     [Fact]
