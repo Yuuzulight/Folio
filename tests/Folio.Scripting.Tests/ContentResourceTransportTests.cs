@@ -1,0 +1,213 @@
+using System.Text;
+using System.Text.Json;
+using Folio.Resources;
+using Folio.Scripting.Ipc;
+
+namespace Folio.Scripting.Tests;
+
+public sealed class ContentResourceTransportTests
+{
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"resource\"")]
+    public async Task ResourceRequestWithNonObjectPayloadIsRefused(string json)
+    {
+        var response = await RunRequest(json);
+
+        Assert.Equal(ContentMessageKind.ResourceResponse, response.Kind);
+        Assert.Equal(0, response.Payload.GetProperty("status").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("\"Script\"")]
+    [InlineData("999")]
+    public async Task ResourceRequestWithInvalidKindIsRefusedWithoutCallingLoader(string kind)
+    {
+        var loader = new CountingLoader();
+        var response = await RunRequest($"{{\"url\":\"https://example.test/app.js\",\"kind\":{kind}}}", loader);
+
+        Assert.Equal(0, response.Payload.GetProperty("status").GetInt32());
+        Assert.Equal(0, loader.Calls);
+    }
+
+    [Fact]
+    public async Task HeartbeatWaitsBehindSerializedLoadCallbackUntilItFinishes()
+    {
+        using var loadPayload = JsonDocument.Parse("{\"html\":\"<p>blocked</p>\"}");
+        using var heartbeatPayload = JsonDocument.Parse("{}");
+        var bytes = ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Load, 1, loadPayload.RootElement.Clone()))
+            .Concat(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Heartbeat, 2, heartbeatPayload.RootElement.Clone())))
+            .ToArray();
+        var input = new MemoryStream(bytes);
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.MessageReceived += async (message, cancellationToken) =>
+        {
+            if (message.Kind == ContentMessageKind.Load)
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            }
+        };
+
+        var run = session.RunAsync(TestContext.Current.CancellationToken).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        Assert.Equal(0, output.Length);
+        release.TrySetResult();
+        await run;
+
+        output.Position = 0;
+        var response = await ContentTransport.ReadAsync(output, TestContext.Current.CancellationToken);
+        Assert.Equal(ContentMessageKind.Heartbeat, response!.Kind);
+        Assert.Equal(2, response.Payload.GetProperty("acknowledged").GetInt64());
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"requestId\":\"1\"}")]
+    public async Task MalformedResourceResponseCompletesPendingRequestAndPreservesReaderError(string responseJson)
+    {
+        using var payload = JsonDocument.Parse(responseJson);
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.ResourceResponse, 17, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output);
+        var request = session.RequestResourceAsync(new ResourceRequest("https://example.test/app.js", ResourceKind.Script), TestContext.Current.CancellationToken);
+        await WaitForOutput(output);
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(async () => await session.RunAsync(TestContext.Current.CancellationToken));
+        var response = await request;
+
+        Assert.Contains("correlation", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(response.Succeeded);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"response\"")]
+    [InlineData("{\"requestId\":1}")]
+    [InlineData("{\"requestId\":1,\"status\":\"ok\"}")]
+    public async Task InvalidResourceResponseRootOrStatusCompletesPendingRequestAndFailsReader(string responseJson)
+    {
+        using var payload = JsonDocument.Parse(responseJson);
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.ResourceResponse, 17, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output);
+        var request = session.RequestResourceAsync(new ResourceRequest("https://example.test/app.js", ResourceKind.Script), TestContext.Current.CancellationToken);
+        await WaitForOutput(output);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await session.RunAsync(TestContext.Current.CancellationToken));
+        var response = await request;
+        Assert.False(response.Succeeded);
+    }
+
+    [Fact]
+    public async Task FailedResourceResponseCannotBecomeSuccessfulWithData()
+    {
+        using var payload = JsonDocument.Parse("{\"requestId\":1,\"status\":0,\"data\":\"aGVsbG8=\",\"contentType\":\"text/plain\"}");
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.ResourceResponse, 17, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output);
+        var request = session.RequestResourceAsync(new ResourceRequest("https://example.test/app.js", ResourceKind.Script), TestContext.Current.CancellationToken);
+        await WaitForOutput(output);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+
+        var response = await request;
+        Assert.False(response.Succeeded);
+        Assert.Null(response.Data);
+    }
+
+    [Fact]
+    public async Task OutOfOrderResponsesOnlyCompleteTheirCorrelatedRequests()
+    {
+        var input = new MemoryStream();
+        foreach (var (id, body) in new[] { (99L, "unrelated"), (2L, "second"), (1L, "first") })
+        {
+            using var payload = JsonSerializer.SerializeToDocument(new
+            {
+                requestId = id, status = 200, data = Encoding.UTF8.GetBytes(body), contentType = "text/plain"
+            });
+            await ContentTransport.WriteAsync(input, new ContentMessage(ContentMessageKind.ResourceResponse, id + 100, payload.RootElement.Clone()), TestContext.Current.CancellationToken);
+        }
+        input.Position = 0;
+        await using var session = new ContentHostSession(input, new MemoryStream());
+        var first = session.RequestResourceAsync(new ResourceRequest("https://example.test/first", ResourceKind.Fetch), TestContext.Current.CancellationToken);
+        var second = session.RequestResourceAsync(new ResourceRequest("https://example.test/second", ResourceKind.Fetch), TestContext.Current.CancellationToken);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("first", Encoding.UTF8.GetString((await first).Data!));
+        Assert.Equal("second", Encoding.UTF8.GetString((await second).Data!));
+    }
+
+    [Fact]
+    public async Task EndOfInputPreventsLaterResourceRequestFromWriting()
+    {
+        var input = new MemoryStream();
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+
+        var response = await session.RequestResourceAsync(new ResourceRequest("https://example.test/app.js", ResourceKind.Script), TestContext.Current.CancellationToken);
+
+        Assert.False(response.Succeeded);
+        Assert.Equal(0, output.Length);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task ResourceResponseBodyHonorsEightMiBBound(int extraBytes)
+    {
+        var data = new byte[ContentHostSession.MaxResourceResponseBytes + extraBytes];
+        using var payload = JsonSerializer.SerializeToDocument(new
+        {
+            requestId = 1L,
+            status = 200,
+            data,
+            contentType = "application/octet-stream"
+        });
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.ResourceResponse, 17, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output);
+        var request = session.RequestResourceAsync(new ResourceRequest("https://example.test/blob", ResourceKind.Fetch), TestContext.Current.CancellationToken);
+        await WaitForOutput(output);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+
+        var response = await request;
+        Assert.Equal(extraBytes == 0, response.Succeeded);
+        if (extraBytes == 0) Assert.Equal(data.Length, response.Data!.Length);
+        else Assert.Null(response.Data);
+    }
+
+    private static async Task<ContentMessage> RunRequest(string payloadJson, IResourceLoader? loader = null)
+    {
+        using var payload = JsonDocument.Parse(payloadJson);
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.ResourceRequest, 41, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output, resourceLoader: loader);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        output.Position = 0;
+        return (await ContentTransport.ReadAsync(output, TestContext.Current.CancellationToken))!;
+    }
+
+    private static async Task WaitForOutput(MemoryStream output)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (output.Length == 0 && DateTime.UtcNow < deadline)
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        Assert.True(output.Length > 0, "The resource request was not written before the test deadline.");
+    }
+
+    private sealed class CountingLoader : IResourceLoader
+    {
+        public int Calls { get; private set; }
+
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("loaded"), "text/plain"));
+        }
+    }
+}

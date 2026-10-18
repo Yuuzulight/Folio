@@ -528,7 +528,7 @@ Original acceptance:
 
 Cache.addAll delegates to Promise.all of individual add/put operations, so a later quota/fetch failure can leave earlier entries stored, violating the explicit atomicity acceptance. Request matching and quota accounting across persisted stores also remain unproven.
 
-The content-process load path does not forward artifact storage. Its resource broker refuses denied requests but drops allowed requests without invoking a host loader. In-process storage uses ambiguous colon-separated artifact keys and exposes a raw storage bridge to page scripts, bypassing Cache API quota checks. These integration and isolation gaps must be repaired before closure.
+The content-process load path does not forward artifact storage. Resource loading now uses correlated, bounded requests to the host's explicitly supplied loader, with an optional additional origin policy; real child-process tests exercise external scripts and fetches. This does not provide persistent storage. In-process storage still uses ambiguous colon-separated artifact keys and exposes a raw storage bridge to page scripts, bypassing Cache API quota checks. These storage and isolation gaps must be repaired before closure.
 
 Original acceptance:
 

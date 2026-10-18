@@ -10,6 +10,8 @@ These adapters are explicitly host supplied through `FolioOptions.MediaDecoder` 
 
 The Jint compatibility backend is now pinned to 4.17.0; direct owner-thread evaluation replaces the blocking-await/background-pump workaround. Native-engine requirements remain separate.
 
+The content process now loads external scripts and fetch resources through the host's configured `IResourceLoader`, preserving resource kind and integrity metadata. An optional `ContentResourcePolicy` adds restrictions; absent a loader, requests are refused. Replies are correlated and capped at 8 MiB of binary data, and queued commands share a 32 MiB limit. The reader can receive replies while document execution waits for them. Heartbeat acknowledgements are terminal and remain ordered behind document work, preserving the watchdog. HTML loads use the normal script runner once and create fresh document/engine state; navigator metadata installation preserves installed feature APIs. Real child-process regressions cover these paths. Persistent artifact storage and media adapters still lack process brokers; continuous event-loop/rendering and input delivery need separate end-to-end verification.
+
 ## Remaining acceptance work
 
 - WebGL resource state and limited triangle drawing exist, but GLSL validation/execution and a GPU backend do not.

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Folio.Resources;
 
 namespace Folio.Scripting.Ipc;
 
@@ -22,15 +23,15 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly Task _reader;
     private readonly Task _watchdog;
 
-    private ContentProcessClient(Process process, ContentProcessSupervisor supervisor, WindowsJobObject? job)
+    private ContentProcessClient(Process process, ContentProcessSupervisor supervisor, WindowsJobObject? job, IResourceLoader? resourceLoader, ContentResourcePolicy? resourcePolicy)
     {
         _process = process;
         _supervisor = supervisor;
         _job = job;
-        _session = new ContentHostSession(process.StandardOutput.BaseStream, process.StandardInput.BaseStream, supervisor);
-        _reader = _session.RunAsync(_shutdown.Token).AsTask();
-        _watchdog = WatchdogAsync(_shutdown.Token);
+        _session = new ContentHostSession(process.StandardOutput.BaseStream, process.StandardInput.BaseStream, supervisor, resourcePolicy, resourceLoader);
         _supervisor.Stopped += OnStopped;
+        _reader = ReadMessagesAsync();
+        _watchdog = WatchdogAsync(_shutdown.Token);
     }
 
     public Process Process => _process;
@@ -42,7 +43,16 @@ public sealed class ContentProcessClient : IAsyncDisposable
         remove => _session.MessageReceived -= value;
     }
 
-    public static ContentProcessClient Start(string executablePath, string? arguments = null, ContentProcessLimits? limits = null)
+    /// <summary>Starts a content process without a resource loader.</summary>
+    public static ContentProcessClient Start(string executablePath, string? arguments, ContentProcessLimits? limits) =>
+        Start(executablePath, arguments, limits, null, null);
+
+    /// <param name="executablePath">The content-host executable or assembly.</param>
+    /// <param name="arguments">Additional launch arguments.</param>
+    /// <param name="limits">Process memory and heartbeat limits.</param>
+    /// <param name="resourceLoader">The trusted host loader, which decides what resources are allowed. Without one, brokered resources are refused.</param>
+    /// <param name="resourcePolicy">An optional additional restriction applied before calling the loader.</param>
+    public static ContentProcessClient Start(string executablePath, string? arguments = null, ContentProcessLimits? limits = null, IResourceLoader? resourceLoader = null, ContentResourcePolicy? resourcePolicy = null)
     {
         if (string.IsNullOrWhiteSpace(executablePath)) throw new ArgumentException("An executable path is required.", nameof(executablePath));
         var (fileName, launchArguments) = Path.GetExtension(executablePath).Equals(".dll", StringComparison.OrdinalIgnoreCase)
@@ -61,7 +71,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         WindowsJobObject? job = null;
         try { job = WindowsJobObject.TryAttach(process, effectiveLimits.MemoryBytes); }
         catch { process.Kill(entireProcessTree: true); process.Dispose(); throw; }
-        var client = new ContentProcessClient(process, new ContentProcessSupervisor(effectiveLimits), job);
+        var client = new ContentProcessClient(process, new ContentProcessSupervisor(effectiveLimits), job, resourceLoader, resourcePolicy);
         process.Exited += (_, _) => client._supervisor.Stop("content process exited");
         return client;
     }
@@ -72,6 +82,21 @@ public sealed class ContentProcessClient : IAsyncDisposable
         _session.SendAsync(kind, payload, cancellationToken);
 
     public Task Completion => _reader;
+
+    private async Task ReadMessagesAsync()
+    {
+        try { await _session.RunAsync(_shutdown.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
+        catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException or ObjectDisposedException)
+        {
+            _supervisor.Stop("content process protocol failed");
+        }
+        finally
+        {
+            if (!_shutdown.IsCancellationRequested)
+                _supervisor.Stop("content process connection closed");
+        }
+    }
 
     private async Task WatchdogAsync(CancellationToken cancellationToken)
     {

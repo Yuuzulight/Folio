@@ -144,7 +144,16 @@ public sealed class ScriptRunner : IDisposable
             .DefineProperty("onLine", (_, _) => ScriptValue.FromBoolean(true));
 
         var navigatorObj = _engine.CreateHostObject(navigatorTemplate, new object());
-        _engine.SetGlobalProperty("navigator", navigatorObj);
+        _engine.SetGlobalProperty("__folio_navigator_metadata", navigatorObj);
+        _engine.Evaluate("""
+            (function(metadata) {
+                globalThis.navigator = globalThis.navigator || {};
+                ['userAgent', 'platform', 'language', 'languages', 'onLine'].forEach(function(key) {
+                    Object.defineProperty(navigator, key, { configurable: true, enumerable: true, get: function() { return metadata[key]; } });
+                });
+            })(__folio_navigator_metadata);
+            delete globalThis.__folio_navigator_metadata;
+            """);
 
     }
 

@@ -7,13 +7,28 @@ using Folio.Scripting.Dom;
 using Folio.Dom;
 using Folio.Html;
 using Folio.Skia;
+using Folio.Resources;
 
-using var engine = new JintScriptEngine();
+JintScriptEngine? engine = null;
+HtmlEventLoop? eventLoop = null;
+ScriptRunner? runner = null;
 Document? document = null;
 var capabilities = FeatureCapabilities.Default;
 var framePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
+var resourceLoader = new BrokerResourceLoader(session);
+void DisposeDocument()
+{
+    runner?.Dispose();
+    runner = null;
+    engine?.Dispose();
+    engine = null;
+    eventLoop?.Dispose();
+    eventLoop = null;
+    document?.Dispose();
+    document = null;
+}
 session.MessageReceived += async (message, cancellationToken) =>
 {
     if (message.Kind == ContentMessageKind.Hello)
@@ -27,6 +42,7 @@ session.MessageReceived += async (message, cancellationToken) =>
         if (message.TryGetCapabilities(out var updated))
         {
             capabilities = updated;
+            if (engine is not null) DomBindings.UpdateCapabilities(engine, updated);
             await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities }, cancellationToken);
         }
         return;
@@ -41,17 +57,27 @@ session.MessageReceived += async (message, cancellationToken) =>
             capabilities = loadedCapabilities;
         if (message.Payload.TryGetProperty("html", out var htmlElement))
         {
-            document?.Dispose();
-            document = Document.Parse(htmlElement.GetString() ?? "", new FolioOptions
+            DisposeDocument();
+            var options = new FolioOptions
             {
                 Scripting = ScriptingPolicy.ContentProcess,
                 Capabilities = capabilities,
+                BaseUri = Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null,
+                ResourceLoader = resourceLoader,
                 MediaCaptureActivityChanged = active => _ = session.SendAsync(ContentMessageKind.MediaCaptureActivity, new { active }, cancellationToken),
                 Raster = new SkiaRasterBackend()
-            });
-            DomBindings.Install(engine, document);
+            };
+            document = Document.Parse(htmlElement.GetString() ?? "", options);
+            engine = new JintScriptEngine();
+            eventLoop = new HtmlEventLoop(engine);
+            DomBindings.Install(engine, document, eventLoop: eventLoop);
+            ScriptGlobalsInstaller.Install(eventLoop, engine);
+            runner = new ScriptRunner(document, engine, eventLoop, options);
+            runner.Run();
         }
+        engine ??= new JintScriptEngine();
         var result = engine.Evaluate(script, url);
+        eventLoop?.SpinUntilIdle();
         var frame = document is null ? null : document.Paint(1280, 720).List;
         var canvasCommands = document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0;
         if (document is not null && canvasCommands > 0)
@@ -81,4 +107,11 @@ session.MessageReceived += async (message, cancellationToken) =>
     }
 };
 
-await session.RunAsync();
+try { await session.RunAsync(); }
+finally { DisposeDocument(); }
+
+sealed class BrokerResourceLoader(ContentHostSession session) : IResourceLoader
+{
+    public async Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+        await session.RequestResourceAsync(request, cancellationToken).ConfigureAwait(false);
+}

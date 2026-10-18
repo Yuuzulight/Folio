@@ -322,15 +322,12 @@ public class FolioView : Control
                 _ = _contentProcess.DisposeAsync();
             try
             {
-                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath));
-                var script = string.Join("\n", Regex.Matches(html, @"<script(?:\s[^>]*)?>(.*?)</script>", RegexOptions.IgnoreCase | RegexOptions.Singleline)
-                    .Select(match => match.Groups[1].Value));
+                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader));
                 var process = _contentProcess!;
                 _contentFramePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}-{Guid.NewGuid():N}.bin");
                 _ = process.SendAsync(ContentMessageKind.Load, new
                 {
                     html,
-                    script,
                     url = baseUri?.AbsoluteUri ?? "content",
                     capabilities = Options.Capabilities,
                     framePath = _contentFramePath,
