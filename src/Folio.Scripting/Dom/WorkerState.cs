@@ -62,8 +62,7 @@ internal sealed class WorkerState
             _watchdogThread = new Thread(RunWatchdog)
             {
                 IsBackground = true,
-                Name = "Folio worker watchdog",
-                Priority = ThreadPriority.AboveNormal
+                Name = "Folio worker watchdog"
             };
         }
         EnsureCloneHelpers(Engine);
@@ -223,14 +222,21 @@ internal sealed class WorkerState
     {
         while (!Terminated)
         {
-            if (_workerExecuting && _executionStartedTick != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - _executionStartedTick >= _workerExecutionTime.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
+            var started = Volatile.Read(ref _executionStartedTick);
+            if (_workerExecuting && started != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - started >= _workerExecutionTime.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
                 WorkerEngine?.Interrupt();
-            Thread.Yield();
+            // Yield keeps a thread runnable on Windows and can consume a core
+            // for every idle worker, starving its event loop under contention.
+            // Sleep releases the processor while retaining a bounded check interval.
+            Thread.Sleep(1);
         }
     }
 
     private void ReleaseWorkerResources()
     {
+        // The worker loop marks itself terminated before cleanup. Let the
+        // watchdog exit before disposing the engine it may still interrupt.
+        _watchdogThread?.Join();
         try { if (WorkerEngine is not null) DomBindings.Dispose(WorkerEngine); } catch { }
         _workerEventLoop?.Dispose();
         WorkerEngine?.Dispose();

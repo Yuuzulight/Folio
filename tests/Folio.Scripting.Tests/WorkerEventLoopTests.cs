@@ -87,6 +87,26 @@ public sealed class WorkerEventLoopTests
     }
 
     [Fact]
+    public void IdleWorkerWatchdogsDoNotStarveDelayedMessageDelivery()
+    {
+        using var engine = CreateEngine(new FeatureCapabilities { Workers = true }, withEventLoop: true);
+        engine.Evaluate("""
+            const idle = Array.from({ length: 7 }, () => new Worker('data:text/javascript,'));
+            const active = new Worker('data:text/javascript,' + encodeURIComponent(
+                "setTimeout(function() { postMessage('delivered'); }, 15);"));
+            let delivered = '';
+            active.onmessage = event => delivered = event.data;
+            """);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < deadline && engine.Evaluate("delivered").AsString() != "delivered")
+        {
+            engine.RunEventLoopUntilIdle();
+            Thread.Sleep(1);
+        }
+        Assert.Equal("delivered", engine.Evaluate("delivered").AsString());
+    }
+
+    [Fact]
     public void StartupWorkerMessageWaitsForParentHandlerRegistration()
     {
         using var engine = CreateEngine(new FeatureCapabilities { Workers = true }, withEventLoop: true);

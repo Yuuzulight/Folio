@@ -304,7 +304,7 @@ Original acceptance:
 
 **Unverified.** Evidence: `WorkerState.ExecuteWithWatchdog; engine limits tests`.
 
-Timeout and count controls exist. Aggregate memory caps, busy-loop survival and the per-capability real sandbox cases need direct evidence.
+Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, and exit before their engine is disposed. Eleven worker regressions pass with the test process restricted to one CPU core, including idle-worker contention, delayed delivery, busy-loop interruption and parent responsiveness. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
 
 Original acceptance:
 
@@ -527,6 +527,8 @@ Original acceptance:
 **Partial.** Evidence: `DomBindings.cs: Cache API; host ArtifactStorage`.
 
 Cache.addAll delegates to Promise.all of individual add/put operations, so a later quota/fetch failure can leave earlier entries stored, violating the explicit atomicity acceptance. Request matching and quota accounting across persisted stores also remain unproven.
+
+The content-process load path does not forward artifact storage. Its resource broker refuses denied requests but drops allowed requests without invoking a host loader. In-process storage uses ambiguous colon-separated artifact keys and exposes a raw storage bridge to page scripts, bypassing Cache API quota checks. These integration and isolation gaps must be repaired before closure.
 
 Original acceptance:
 
