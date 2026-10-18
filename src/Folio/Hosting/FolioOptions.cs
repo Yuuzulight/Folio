@@ -81,6 +81,9 @@ public sealed class FolioOptions
     /// <summary>Optional host permission callback for camera and microphone capture. Null preserves the capability-only path.</summary>
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; init; }
 
+    /// <summary>Called when an iframe requests navigation to a resolved document URI.</summary>
+    public Action<Uri>? IframeNavigationRequested { get; init; }
+
     /// <summary>Called when capture becomes active or inactive so hosts can show an in-use indicator.</summary>
     public Action<bool>? MediaCaptureActivityChanged { get; init; }
 

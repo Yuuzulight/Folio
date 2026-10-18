@@ -6,7 +6,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class IframeState
 {
-    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null)
+    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -14,6 +14,7 @@ internal sealed class IframeState
         Enabled = enabled;
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
+        NavigationRequested = navigationRequested;
         var sandbox = SandboxTokens;
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
         Origin = sameOrigin && Uri.TryCreate(ResolveSource(element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
@@ -31,6 +32,7 @@ internal sealed class IframeState
     private string[] SandboxTokens => (Element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
     public IResourceLoader? ResourceLoader { get; }
     public Uri? BaseUri { get; }
+    public Action<Uri>? NavigationRequested { get; }
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoad { get; set; } = ScriptValue.Null;
@@ -105,7 +107,9 @@ internal sealed class IframeState
         }
         else
         {
-            if (ResourceLoader is null || !Uri.TryCreate(source, UriKind.Absolute, out var uri)) { DispatchError(); return; }
+            if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) { DispatchError(); return; }
+            try { NavigationRequested?.Invoke(uri); } catch { }
+            if (ResourceLoader is null) { DispatchError(); return; }
             var response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document), CancellationToken.None).GetAwaiter().GetResult();
             if (response?.Data is not { } data) { DispatchError(); return; }
             html = System.Text.Encoding.UTF8.GetString(data);

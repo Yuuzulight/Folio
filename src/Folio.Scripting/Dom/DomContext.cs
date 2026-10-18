@@ -80,7 +80,7 @@ internal sealed class DomContext
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
         FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null)
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -100,6 +100,7 @@ internal sealed class DomContext
         WebRtcAllowedOrigins = webRtcAllowedOrigins ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         MediaCapturePermission = mediaCapturePermission;
         MediaCaptureActivityChanged = mediaCaptureActivityChanged;
+        IframeNavigationRequested = iframeNavigationRequested;
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
@@ -129,6 +130,7 @@ internal sealed class DomContext
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; }
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; }
     public Action<bool>? MediaCaptureActivityChanged { get; }
+    public Action<Uri>? IframeNavigationRequested { get; }
     public IArtifactStorage? ArtifactStorage { get; }
     public string ArtifactId { get; }
     public bool TryAcquireWorker()
@@ -245,7 +247,7 @@ internal sealed class DomContext
         if (Capabilities.Iframes && _iframeCount >= MaxIframes)
             throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The iframe limit has been exceeded.");
         if (Capabilities.Iframes) _iframeCount++;
-        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri);
+        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri, IframeNavigationRequested);
     }
 
     public ScriptValue Wrap(Node? node)

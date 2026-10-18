@@ -1142,13 +1142,16 @@ public sealed class DomStyleDeclarationTests
         Assert.True(sandboxed.Evaluate("dynamic.sandbox = ''; dynamic.src = 'https://other.example/app'; dynamic.contentWindow.origin === 'https://other.example'; dynamic.setAttribute('src', 'https://third.example/app'); dynamic.contentWindow.origin === 'https://third.example'").AsBoolean());
 
         using var remote = new JintScriptEngine();
+        var iframeNavigations = new List<Uri>();
         DomBindings.Install(remote, Document.Parse("<iframe id='f' src='/child.html'></iframe>", new FolioOptions
         {
             BaseUri = new Uri("https://child.example/"),
             ResourceLoader = new IframeResourceLoader(),
+            IframeNavigationRequested = uri => iframeNavigations.Add(uri),
             Capabilities = new FeatureCapabilities { Iframes = true }
         }));
         Assert.True(remote.Evaluate("document.getElementById('f').contentDocument.getElementById('remote').textContent === 'loaded'").AsBoolean());
+        Assert.Equal([new Uri("https://child.example/child.html")], iframeNavigations);
 
         using var crossOrigin = new JintScriptEngine();
         DomBindings.Install(crossOrigin, Document.Parse("<iframe id='f' src='https://other.example/child.html'></iframe>", new FolioOptions

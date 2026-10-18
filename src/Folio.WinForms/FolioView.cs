@@ -291,6 +291,7 @@ public class FolioView : Control
                 MediaCaptureActivityChanged?.Invoke(active);
                 Options.MediaCaptureActivityChanged?.Invoke(active);
             },
+            IframeNavigationRequested = Options.IframeNavigationRequested,
             WebRtcAllowedOrigins = Options.WebRtcAllowedOrigins,
             Capabilities = Options.Capabilities,
             DiagramLibraryUrls = Options.DiagramLibraryUrls,
