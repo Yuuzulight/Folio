@@ -19,4 +19,9 @@ shows a capture-in-use indicator in both in-process and content-process hosting;
 live tracks when their settings or constraints are next read. These paths are covered by the scripting suite and the
 hosted Windows/Ubuntu CI matrix.
 
+Verified issue slices now closed in the tracker include dedicated workers (#539), WebAssembly streaming and its
+bounded compile cache (#544), WebAssembly limits and routing (#545), camera/microphone capture (#552), and WebRTC
+limits and allowlisted routing (#554). The hosted matrix covers each of those capability rows on both supported CI
+platforms.
+
 Remaining work includes nested iframe layout/input/accessibility, media controls and cue painting, a GLSL/WebGL runtime and rasteriser, a Folio-owned WebAssembly engine, native media decoding/output, real WebRTC transport, and the remaining corpus and routing coverage. The current surfaces should not be read as milestone completion.
