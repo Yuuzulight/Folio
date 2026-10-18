@@ -331,6 +331,16 @@ public static class Conformance
                     }
                     break;
                 }
+                case "reopen":
+                {
+                    // Reopen is a lifecycle boundary in the host harness. The document and its artifact-scoped
+                    // service-worker storage stay attached to this run, so advance the same event loop as a fresh
+                    // load would before the next assertion or screenshot.
+                    host?.Loop.PerformMicrotaskCheckpoint();
+                    host?.Loop.UpdateTheRendering();
+                    document.Update();
+                    break;
+                }
                 case "exists":
                 {
                     var el = document.QuerySelector(arg);

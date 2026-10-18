@@ -1,1 +1,1 @@
-{ "expectedToFail": "Service worker lifecycle and offline reopen are not enabled in the conformance host yet.", "viewport": 800, "prompt": "Offline asset cache with a service worker.", "interaction": ["reopen offline"], "features": ["script", "service-worker", "offline"] }
+{"viewport":800,"prompt":"Offline asset cache with a service worker.","interaction":["reopen offline"],"features":["script","service-worker","offline"],"tolerance":{"channelThreshold":48,"maxDifferingRatio":0.01,"reason":"Chrome and Folio use different antialiasing for the lifecycle text."}}
