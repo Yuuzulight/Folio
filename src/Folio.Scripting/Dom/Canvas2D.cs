@@ -192,6 +192,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         {
             _capabilityDisabled = true;
             Paused = true;
+            AudioPause();
             Error = "Media is disabled by the host.";
             Dispatch(OnError, "error");
         }
@@ -239,13 +240,22 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
         Paused = false;
         Ended = false;
-        if (Element.LocalName == "audio") SubmitAudioThrough(CurrentTime);
+        if (Element.LocalName == "audio")
+        {
+            AudioStart();
+            SubmitAudioThrough(CurrentTime);
+        }
         Dispatch(OnPlay, "play");
         Dispatch(OnPlaying, "playing");
         return true;
     }
 
-    public void Pause() { Paused = true; Dispatch(OnPause, "pause"); }
+    public void Pause()
+    {
+        Paused = true;
+        AudioPause();
+        Dispatch(OnPause, "pause");
+    }
 
     internal void AdvancePlayback(double seconds)
     {
@@ -258,6 +268,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             if (Loop && !Paused)
             {
                 SetCurrentTime(0);
+                AudioStart();
                 SubmitAudioThrough(CurrentTime);
                 Dispatch(OnPlay, "play");
                 Dispatch(OnPlaying, "playing");
@@ -265,6 +276,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             else
             {
                 Paused = true;
+                AudioStop();
                 Dispatch(OnEnded, "ended");
             }
             return;
@@ -293,6 +305,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         }
         _framePixels = null;
         _audioCursor = 0;
+        AudioFlush();
         CurrentTime = 0;
         Paused = true;
         Ended = false;
@@ -369,6 +382,26 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             _audioOutput.Submit(new MediaAudioFrame(frame.SampleRate, frame.Channels, frame.Samples.Slice(_audioCursor, length).ToArray()));
             _audioCursor += length;
         }
+    }
+
+    private void AudioStart()
+    {
+        if (_audioOutput is IMediaAudioOutputLifecycle lifecycle) lifecycle.Start();
+    }
+
+    private void AudioPause()
+    {
+        if (_audioOutput is IMediaAudioOutputLifecycle lifecycle) lifecycle.Pause();
+    }
+
+    private void AudioFlush()
+    {
+        if (_audioOutput is IMediaAudioOutputLifecycle lifecycle) lifecycle.Flush();
+    }
+
+    private void AudioStop()
+    {
+        if (_audioOutput is IMediaAudioOutputLifecycle lifecycle) lifecycle.Stop();
     }
 
     private static bool LooksLikeMedia(byte[] bytes) =>

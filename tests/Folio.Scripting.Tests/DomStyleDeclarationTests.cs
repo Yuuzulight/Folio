@@ -165,10 +165,15 @@ public sealed class DomStyleDeclarationTests
                 : ResourceResponse.Refused("wrong resource kind"));
     }
 
-    private sealed class CollectingAudioOutput : IMediaAudioOutput
+    private sealed class CollectingAudioOutput : IMediaAudioOutput, IMediaAudioOutputLifecycle
     {
         public List<MediaAudioFrame> Frames { get; } = [];
+        public List<string> Lifecycle { get; } = [];
         public void Submit(MediaAudioFrame frame) => Frames.Add(frame);
+        public void Start() => Lifecycle.Add("start");
+        public void Pause() => Lifecycle.Add("pause");
+        public void Flush() => Lifecycle.Add("flush");
+        public void Stop() => Lifecycle.Add("stop");
     }
 
     private sealed class DecoderResourceLoader : IResourceLoader
@@ -457,11 +462,16 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(8000, audioOutput.Frames[0].SampleRate);
         Assert.Equal(1, audioOutput.Frames[0].Channels);
         Assert.Equal(160, audioOutput.Frames[0].Samples.Length);
+        Assert.Equal(["start"], audioOutput.Lifecycle);
         outputClock.SetNow(0);
         outputLoop.UpdateTheRendering();
         outputClock.SetNow(100);
         outputLoop.UpdateTheRendering();
         Assert.True(audioOutput.Frames.Count > 1);
+        Assert.True(outputEngine.Evaluate("document.getElementById('a').pause(); true").AsBoolean());
+        Assert.Equal("pause", audioOutput.Lifecycle[^1]);
+        Assert.True(outputEngine.Evaluate("document.getElementById('a').load(); true").AsBoolean());
+        Assert.Equal("flush", audioOutput.Lifecycle[^1]);
 
         var compressedOutput = new CollectingAudioOutput();
         using var compressedEngine = new JintScriptEngine();

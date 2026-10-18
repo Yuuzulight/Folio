@@ -11,6 +11,19 @@ public interface IMediaAudioOutput
     void Submit(MediaAudioFrame frame);
 }
 
+/// <summary>Optional lifecycle controls for a host-owned media audio device.</summary>
+/// <remarks>
+/// Implement this alongside <see cref="IMediaAudioOutput"/> when the output owns a
+/// real device. Folio keeps this separate so existing sample collectors remain valid.
+/// </remarks>
+public interface IMediaAudioOutputLifecycle
+{
+    void Start();
+    void Pause();
+    void Flush();
+    void Stop();
+}
+
 /// <summary>The result of decoding one bounded media resource.</summary>
 public sealed record MediaDecodeResult(double Duration, IImageHandle? VideoFrame, MediaAudioFrame? Audio);
 
