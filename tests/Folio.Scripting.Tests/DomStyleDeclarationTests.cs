@@ -943,6 +943,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("let missingDeviceError = ''; navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: 'missing-camera' } } }).catch(error => missingDeviceError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("OverconstrainedError", allowed.Evaluate("missingDeviceError").AsString());
+        Assert.True(allowed.Evaluate("let unsupportedSizeError = ''; navigator.mediaDevices.getUserMedia({ video: { width: { exact: 1280 } } }).catch(error => unsupportedSizeError = error.name); true").AsBoolean());
+        allowed.PerformMicrotaskCheckpoint();
+        Assert.Equal("OverconstrainedError", allowed.Evaluate("unsupportedSizeError").AsString());
         Assert.True(allowed.Evaluate("let emptyCaptureError = ''; navigator.mediaDevices.getUserMedia({ audio: false, video: false }).catch(error => emptyCaptureError = error.name); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("TypeError", allowed.Evaluate("emptyCaptureError").AsString());
