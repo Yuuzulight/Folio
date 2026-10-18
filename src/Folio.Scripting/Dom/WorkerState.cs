@@ -1,5 +1,7 @@
 using Folio.Resources;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using Folio.Scripting;
 
 namespace Folio.Scripting.Dom;
 
@@ -10,17 +12,25 @@ internal sealed class WorkerState
     private readonly TimeSpan _workerExecutionTime;
     private readonly IReadOnlyDictionary<string, string>? _blobSources;
     private readonly object _workerGate = new();
-    private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingMessages = new();
-    private readonly Queue<(ScriptValue Value, ScriptValue Transfer)> _pendingParentMessages = new();
+    private readonly Queue<ClonePayload> _pendingParentMessages = new();
+    private readonly Queue<Exception> _pendingParentCloneErrors = new();
+    private readonly HtmlEventLoop? _parentEventLoop;
     private readonly Queue<Exception> _pendingErrors = new();
     private bool _released;
     private volatile bool _closedByWorker;
+    private volatile bool _parentDetached;
     private volatile bool _workerExecuting;
     private ScriptValue _onError = ScriptValue.Null;
     private bool _errorReported;
     private Task? _startupTask;
     private Document? _workerDocument;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, FeatureCapabilities? capabilities = null, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null)
+    private readonly HtmlEventLoop? _workerEventLoop;
+    private readonly BlockingCollection<Action>? _workerCommands;
+    private Thread? _workerThread;
+    private int _workerThreadId;
+    private long _executionStartedTick;
+    private Thread? _watchdogThread;
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, FeatureCapabilities? capabilities = null, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null, HtmlEventLoop? parentEventLoop = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -32,59 +42,101 @@ internal sealed class WorkerState
         WorkerEngine = workerEngine;
         _releaseWorker = releaseWorker;
         _blobSources = blobSources;
+        _parentEventLoop = parentEventLoop;
         _workerExecutionTime = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime;
-        WorkerEngine?.Configure(new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes), Timeout = _workerExecutionTime });
-        EnsureCloneHelpers(Engine);
-        if (WorkerEngine is not null) EnsureCloneHelpers(WorkerEngine);
+        var workerLimits = new ScriptLimits { MemoryLimitBytes = Math.Max(1, maxWorkerMemoryBytes), Timeout = _workerExecutionTime };
         if (WorkerEngine is not null)
         {
-            if (capabilities?.WebAssembly == true)
+            _workerEventLoop = new HtmlEventLoop(WorkerEngine);
+            _workerEventLoop.UncaughtException += error =>
             {
-                _workerDocument = Document.Parse("<html></html>", new FolioOptions
+                lock (_workerGate) _pendingErrors.Enqueue(error);
+                QueueParentTask(DrainErrors, "worker error");
+            };
+            _workerCommands = new BlockingCollection<Action>();
+            _workerThread = new Thread(RunWorkerLoop)
+            {
+                IsBackground = true,
+                Name = "Folio worker event loop"
+            };
+            _watchdogThread = new Thread(RunWatchdog)
+            {
+                IsBackground = true,
+                Name = "Folio worker watchdog",
+                Priority = ThreadPriority.AboveNormal
+            };
+        }
+        EnsureCloneHelpers(Engine);
+        if (WorkerEngine is not null)
+        {
+            _workerThread!.Start();
+            _watchdogThread!.Start();
+            try
+            {
+                RunOnWorker(() =>
                 {
-                    BaseUri = Uri.TryCreate(scriptUrl, UriKind.Absolute, out var workerBase) ? workerBase : null,
-                    Capabilities = capabilities,
-                    Limits = ResourceLimits.Default with { MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes), MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes), MaxWorkerExecutionTime = _workerExecutionTime },
-                    ResourceLoader = resourceLoader,
-                });
-                DomBindings.Install(WorkerEngine, _workerDocument);
-            }
-            var bridge = new HostObjectTemplate("WorkerBridge")
-                .DefineMethod("close", (_, _, _) => { CloseFromWorker(); return ScriptValue.Undefined; })
-                .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined); } return ScriptValue.Undefined; });
-            WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
-            WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
-            WorkerEngine.Evaluate("globalThis.close = function() { return __folio_worker_bridge.close(); };", ScriptUrl);
-            var imports = new HostObjectTemplate("WorkerImports")
-                .DefineMethod("load", (_, _, args) =>
-                {
-                    foreach (var argument in args)
+                    WorkerEngine.Configure(workerLimits with { Timeout = TimeSpan.FromSeconds(5) });
+                    WorkerEngine.SetEventLoopPump(_workerEventLoop!.RunOneTurn);
+                    EnsureCloneHelpers(WorkerEngine);
+                    ScriptGlobalsInstaller.Install(_workerEventLoop!, WorkerEngine);
+                    if (capabilities?.WebAssembly == true)
                     {
-                        var reference = argument.AsString() ?? string.Empty;
-                        var resolved = ResolveScriptUrl(ScriptUrl, reference);
-                        if (!TryReadScript(resolved, resourceLoader, out var imported, _blobSources))
-                            throw new InvalidOperationException($"Worker script could not load '{reference}'.");
-                        WorkerEngine.Evaluate(imported, resolved);
+                        _workerDocument = Document.Parse("<html></html>", new FolioOptions
+                        {
+                            BaseUri = Uri.TryCreate(scriptUrl, UriKind.Absolute, out var workerBase) ? workerBase : null,
+                            Capabilities = capabilities,
+                            Limits = ResourceLimits.Default with { MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes), MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes), MaxWorkerExecutionTime = _workerExecutionTime },
+                            ResourceLoader = resourceLoader,
+                        });
+                        DomBindings.Install(WorkerEngine, _workerDocument);
                     }
-                    return ScriptValue.Undefined;
-                });
-            WorkerEngine.SetGlobalProperty("__folio_worker_imports", WorkerEngine.CreateHostObject(imports, this));
-            WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(null, arguments); };", ScriptUrl);
-            WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
-            WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
+                    var bridge = new HostObjectTemplate("WorkerBridge")
+                        .DefineMethod("close", (_, _, _) => { CloseFromWorker(); return ScriptValue.Undefined; })
+                        .DefineMethod("postMessage", (_, _, args) => { if (args.Length > 0) { if (args[0].IsFunction) throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a document."); DispatchToParent(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined); } return ScriptValue.Undefined; });
+                    WorkerEngine.SetGlobalProperty("__folio_worker_bridge", WorkerEngine.CreateHostObject(bridge, this));
+                    WorkerEngine.Evaluate("globalThis.postMessage = function(value) { return __folio_worker_bridge.postMessage(value); };", ScriptUrl);
+                    WorkerEngine.Evaluate("globalThis.close = function() { return __folio_worker_bridge.close(); };", ScriptUrl);
+                    var imports = new HostObjectTemplate("WorkerImports")
+                        .DefineMethod("load", (_, _, args) =>
+                        {
+                            foreach (var argument in args)
+                            {
+                                var reference = argument.AsString() ?? string.Empty;
+                                var resolved = ResolveScriptUrl(ScriptUrl, reference);
+                                if (!TryReadScript(resolved, resourceLoader, out var imported, _blobSources))
+                                    throw new InvalidOperationException($"Worker script could not load '{reference}'.");
+                                WorkerEngine.Evaluate(imported, resolved);
+                            }
+                            return ScriptValue.Undefined;
+                        });
+                    WorkerEngine.SetGlobalProperty("__folio_worker_imports", WorkerEngine.CreateHostObject(imports, this));
+                    WorkerEngine.Evaluate("globalThis.importScripts = function() { return __folio_worker_imports.load.apply(null, arguments); };", ScriptUrl);
+                    WorkerEngine.Evaluate("globalThis.__folio_worker_listeners = {}; globalThis.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; (globalThis.__folio_worker_listeners[type] || (globalThis.__folio_worker_listeners[type] = [])).push(handler); }; globalThis.removeEventListener = function(type, handler) { var list = globalThis.__folio_worker_listeners[type] || []; globalThis.__folio_worker_listeners[type] = list.filter(function(item) { return item !== handler; }); };", ScriptUrl);
+                    WorkerEngine.SetGlobalProperty("self", WorkerEngine.Evaluate("globalThis"));
+                }, enforceWatchdog: false);
+            }
+            catch (Exception error)
+            {
+                _scriptError = error;
+                lock (_workerGate) _pendingErrors.Enqueue(error);
+                _terminated = true;
+                _workerCommands!.CompleteAdding();
+                return;
+            }
             if ((moduleWorker ? TryReadModuleScript(scriptUrl, resourceLoader, out var source, blobSources: _blobSources) : TryReadScriptWithImports(scriptUrl, resourceLoader, out source, blobSources: _blobSources)))
             {
-                _startupTask = Task.Run(() =>
+                _startupTask = Task.Run(() => RunOnWorker(() =>
                 {
-                    _workerExecuting = true;
-                    try { ExecuteWithWatchdog(() => WorkerEngine.Evaluate(source, scriptUrl)); }
+                    try { WorkerEngine!.Evaluate(source, scriptUrl); }
                     catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
-                    finally { _workerExecuting = false; }
-                });
+                }));
                 try { _startupTask.Wait(_workerExecutionTime); }
                 catch (AggregateException) { }
-                DrainParentMessages();
-                DrainErrors();
+                if (_parentEventLoop is null)
+                {
+                    DrainParentMessages();
+                    DrainErrors();
+                }
             }
             else
             {
@@ -100,7 +152,8 @@ internal sealed class WorkerState
     public string Origin { get; }
     public bool Enabled { get; }
     public int MaxMessageBytes { get; }
-    public bool Terminated { get; private set; }
+    private volatile bool _terminated;
+    public bool Terminated => _terminated;
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnMessageError { get; set; } = ScriptValue.Null;
     public ScriptValue OnError
@@ -124,53 +177,129 @@ internal sealed class WorkerState
     }
     public void Terminate()
     {
+        _parentDetached = true;
         if (Terminated) return;
-        Terminated = true;
+        _terminated = true;
         WorkerEngine?.Interrupt();
+        _workerCommands?.CompleteAdding();
         try { _startupTask?.Wait(TimeSpan.FromMilliseconds(100)); }
         catch (AggregateException) { }
-        WorkerEngine?.Dispose();
-        _workerDocument?.Dispose();
-        _workerDocument = null;
-        if (!_released) { _released = true; _releaseWorker?.Invoke(); }
+        if (_workerThread is { } thread && thread != Thread.CurrentThread)
+            thread.Join(_workerExecutionTime + TimeSpan.FromMilliseconds(100));
+        if (_workerThread is null)
+            ReleaseWorkerResources();
     }
     private void CloseFromWorker()
     {
         _closedByWorker = true;
-        Terminated = true;
+        _terminated = true;
         WorkerEngine?.Interrupt();
-        _ = Task.Run(() =>
+        _workerCommands?.CompleteAdding();
+    }
+    private void RunWorkerLoop()
+    {
+        _workerThreadId = Environment.CurrentManagedThreadId;
+        try
         {
-            while (_workerExecuting) Thread.Yield();
-            WorkerEngine?.Dispose();
-            _workerDocument?.Dispose();
-            _workerDocument = null;
-            lock (_workerGate)
+            while (!Terminated)
             {
-                if (_released) return;
-                _released = true;
-                _releaseWorker?.Invoke();
+                try
+                {
+                    if (_workerCommands!.TryTake(out var command, TimeSpan.FromMilliseconds(1)))
+                        command();
+                    if (!Terminated && !_workerEventLoop!.IsIdle())
+                        ExecuteWithWatchdog(() => _workerEventLoop.RunOneTurn());
+                    else if (!Terminated)
+                        Thread.Sleep(1);
+                }
+                catch (InvalidOperationException) { break; }
+                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
             }
-        });
+        }
+        finally { _terminated = true; ReleaseWorkerResources(); }
+    }
+
+    private void RunWatchdog()
+    {
+        while (!Terminated)
+        {
+            if (_workerExecuting && _executionStartedTick != 0 && System.Diagnostics.Stopwatch.GetTimestamp() - _executionStartedTick >= _workerExecutionTime.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
+                WorkerEngine?.Interrupt();
+            Thread.Yield();
+        }
+    }
+
+    private void ReleaseWorkerResources()
+    {
+        try { if (WorkerEngine is not null) DomBindings.Dispose(WorkerEngine); } catch { }
+        _workerEventLoop?.Dispose();
+        WorkerEngine?.Dispose();
+        _workerDocument?.Dispose();
+        _workerDocument = null;
+        lock (_workerGate)
+        {
+            if (_released) return;
+            _released = true;
+            _releaseWorker?.Invoke();
+        }
+    }
+
+    private void RunOnWorker(Action action, bool enforceWatchdog = true)
+    {
+        if (WorkerEngine is null || Environment.CurrentManagedThreadId == _workerThreadId)
+        {
+            action();
+            return;
+        }
+
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? failure = null;
+        try
+        {
+            _workerCommands!.Add(() =>
+            {
+                try
+                {
+                    void ExecuteCommand()
+                    {
+                        action();
+                        if (!Terminated)
+                        {
+                            _workerEventLoop?.PerformMicrotaskCheckpoint();
+                            for (var turn = 0; turn < 1000 && _workerEventLoop is not null && !_workerEventLoop.IsIdle() && RunWorkerTurn(); turn++) { }
+                        }
+                    }
+                    if (enforceWatchdog) ExecuteWithWatchdog(ExecuteCommand);
+                    else ExecuteCommand();
+                }
+                catch (Exception error) { failure = error; }
+                finally { completed.TrySetResult(); }
+            });
+        }
+        catch (InvalidOperationException) { return; }
+        var waitTimeout = enforceWatchdog ? _workerExecutionTime + TimeSpan.FromMilliseconds(100) : TimeSpan.FromSeconds(30);
+        if (!completed.Task.Wait(waitTimeout))
+            throw new TimeoutException("The worker command exceeded its execution limit.");
+        if (failure is not null) throw failure;
+    }
+    private bool RunWorkerTurn()
+    {
+        var ran = false;
+        ExecuteWithWatchdog(() => ran = _workerEventLoop!.RunOneTurn());
+        return ran;
     }
     private void ExecuteWithWatchdog(Action action)
     {
-        using var completed = new ManualResetEventSlim(false);
-        var watchdog = new Thread(() =>
-        {
-            if (!completed.Wait(_workerExecutionTime) && !Terminated)
-                WorkerEngine?.Interrupt();
-        })
-        {
-            IsBackground = true,
-            Name = "Folio worker watchdog"
-        };
-        watchdog.Start();
+        var previousExecuting = _workerExecuting;
+        var previousTick = Volatile.Read(ref _executionStartedTick);
+        _workerExecuting = true;
+        if (previousTick == 0)
+            Volatile.Write(ref _executionStartedTick, System.Diagnostics.Stopwatch.GetTimestamp());
         try { action(); }
         finally
         {
-            completed.Set();
-            watchdog.Join(TimeSpan.FromMilliseconds(100));
+            _workerExecuting = previousExecuting;
+            Volatile.Write(ref _executionStartedTick, previousTick);
         }
     }
     public bool PostMessage(ScriptValue value, ScriptValue transfer = default)
@@ -179,43 +308,14 @@ internal sealed class WorkerState
         if (_scriptError is not null && !Terminated) { ReportError(_scriptError); return true; }
         if (WorkerEngine is not null && !Terminated)
         {
-            lock (_workerGate)
-            {
-                if (_workerExecuting)
-                {
-                    _pendingMessages.Enqueue((value, transfer));
-                    return true;
-                }
-            }
             var transferred = TransferList(Engine, transfer);
-            var message = CloneIntoWorker(value);
-            var workerTask = Task.Run(() =>
-            {
-                lock (_workerGate)
-                {
-                    if (Terminated) return;
-                    if (_workerExecuting)
-                    {
-                        _pendingMessages.Enqueue((value, transfer));
-                        return;
-                    }
-                    _workerExecuting = true;
-                    try
-                    {
-                        WorkerEngine.SetGlobalProperty("__folio_worker_message_data", message);
-                        WorkerEngine.SetGlobalProperty("__folio_worker_message_event", WorkerEngine.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
-                        ExecuteWithWatchdog(() => WorkerEngine.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
-                        WorkerEngine.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
-                    }
-                    catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
-                    finally { _workerExecuting = false; }
-                }
-            });
-            workerTask.GetAwaiter().GetResult();
+            var payload = PrepareClone(Engine, value);
+            // RunOnWorker queues the command when the worker is already executing a
+            // callback, so delivery cannot be stranded behind a busy event turn.
+            DeliverToWorker(payload);
             DrainParentMessages();
             DrainErrors();
             foreach (var item in transferred) Engine.TryDetachArrayBuffer(item);
-            DrainPendingMessages();
             return true;
         }
         if (Enabled && !Terminated && OnMessage.IsFunction)
@@ -227,43 +327,73 @@ internal sealed class WorkerState
         return true;
     }
 
-    private void DrainPendingMessages()
+    private void DeliverToWorker(ClonePayload payload)
     {
-        while (true)
+        RunOnWorker(() =>
         {
-            (ScriptValue Value, ScriptValue Transfer) next;
             lock (_workerGate)
             {
-                if (Terminated || _pendingMessages.Count == 0) return;
-                next = _pendingMessages.Dequeue();
+                if (Terminated) return;
+                try
+                {
+                    var message = MaterializeClone(WorkerEngine!, payload);
+                    WorkerEngine!.SetGlobalProperty("__folio_worker_message_data", message);
+                    WorkerEngine!.SetGlobalProperty("__folio_worker_message_event", WorkerEngine!.Evaluate("({ type: 'message', data: __folio_worker_message_data, target: self })", ScriptUrl));
+                    ExecuteWithWatchdog(() => WorkerEngine!.Evaluate("(function() { var event = __folio_worker_message_event; if (typeof onmessage === 'function') onmessage(event); var listeners = (__folio_worker_listeners.message || []).slice(); listeners.forEach(function(listener) { listener(event); }); })()", ScriptUrl));
+                    WorkerEngine!.SetGlobalProperty("__folio_worker_message_data", ScriptValue.Undefined);
+                }
+                catch (Exception error) { if (!_closedByWorker) { _scriptError = error; lock (_workerGate) _pendingErrors.Enqueue(error); } }
             }
-            PostMessage(next.Value, next.Transfer);
-        }
+        });
     }
 
     private void DispatchToParent(ScriptValue value, ScriptValue transfer)
     {
+        if (Terminated) return;
         if (value.IsString && (value.AsString()?.Length ?? 0) > MaxMessageBytes) return;
-        lock (_workerGate) _pendingParentMessages.Enqueue((value, transfer));
+        try
+        {
+            var transferred = TransferList(WorkerEngine!, transfer);
+            var payload = PrepareClone(WorkerEngine!, value);
+            foreach (var item in transferred) WorkerEngine!.TryDetachArrayBuffer(item);
+            lock (_workerGate) _pendingParentMessages.Enqueue(payload);
+            QueueParentTask(DrainParentMessages, "worker message");
+        }
+        catch (Exception error)
+        {
+            lock (_workerGate) _pendingParentCloneErrors.Enqueue(error);
+            QueueParentTask(DrainParentMessages, "worker message error");
+        }
+    }
+
+    private void QueueParentTask(Action action, string description)
+    {
+        if (Terminated || _parentDetached || _parentEventLoop is null) return;
+        try { _parentEventLoop.QueueTask(TaskSource.Generic, action, description); }
+        catch (ObjectDisposedException) { }
     }
 
     private void DrainParentMessages()
     {
-        while (true)
+        if (_parentDetached) return;
+        while (!_parentDetached)
         {
-            (ScriptValue Value, ScriptValue Transfer) next;
+            Exception? cloneError = null;
+            ClonePayload next = null!;
             lock (_workerGate)
             {
-                if (_pendingParentMessages.Count == 0) return;
-                next = _pendingParentMessages.Dequeue();
+                if (_pendingParentCloneErrors.Count > 0)
+                    cloneError = _pendingParentCloneErrors.Dequeue();
+                else if (_pendingParentMessages.Count > 0)
+                    next = _pendingParentMessages.Dequeue();
+                else
+                    return;
             }
-            var value = next.Value;
-            var transfer = next.Transfer;
-            IReadOnlyList<ScriptValue> transferred;
+            if (cloneError is not null) { DispatchMessageError(cloneError); continue; }
+            ScriptValue value;
             try
             {
-                transferred = TransferList(WorkerEngine!, transfer);
-                value = CloneIntoParent(value);
+                value = MaterializeClone(Engine, next);
             }
             catch (Exception error)
             {
@@ -273,13 +403,13 @@ internal sealed class WorkerState
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(value, Origin, Source));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         if (_listeners.TryGetValue("message", out var listeners)) foreach (var listener in listeners.ToArray()) if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
-        foreach (var item in transferred) WorkerEngine!.TryDetachArrayBuffer(item);
         }
     }
 
     private void DrainErrors()
     {
-        while (true)
+        if (_parentDetached) return;
+        while (!_parentDetached)
         {
             Exception error;
             lock (_workerGate)
@@ -302,34 +432,20 @@ internal sealed class WorkerState
         return items;
     }
 
-    private ScriptValue CloneIntoWorker(ScriptValue value)
+    private ClonePayload PrepareClone(IScriptEngine source, ScriptValue value)
     {
-        if (value.IsNullOrUndefined || !value.IsObject) return value;
-        if (TryGetPort(Engine, value, out var port))
-        {
-            var transferred = port.TransferTo(WorkerEngine!);
-            return WorkerEngine!.CreateHostObject(_messagePortTemplate, transferred);
-        }
-        var nestedPort = Engine.GetProperty(value, "port");
-        if (TryGetPort(Engine, nestedPort, out var nested))
-        {
-            var transferred = nested.TransferTo(WorkerEngine!);
-            WorkerEngine!.SetGlobalProperty("__folio_transferred_port", WorkerEngine.CreateHostObject(_messagePortTemplate, transferred));
-            var clone = WorkerEngine.Evaluate("({ port: __folio_transferred_port })", ScriptUrl);
-            WorkerEngine.SetGlobalProperty("__folio_transferred_port", ScriptValue.Undefined);
-            return clone;
-        }
-        if (Engine.TryGetArrayBufferBytes(value, out var buffer)) return WorkerEngine!.CreateArrayBuffer(buffer);
+        if (value.IsNullOrUndefined || !value.IsObject) return ClonePayload.MakePrimitive(value);
+        if (TryGetPort(source, value, out var port)) return ClonePayload.MakePort(port, nested: false);
+        var nestedPort = source.GetProperty(value, "port");
+        if (TryGetPort(source, nestedPort, out var nested)) return ClonePayload.MakePort(nested, nested: true);
+        if (source.TryGetArrayBufferBytes(value, out var buffer)) return ClonePayload.MakeBuffer(buffer);
         try
         {
-            Engine.SetGlobalProperty("__folio_clone_value", value);
-            var json = Engine.Evaluate("__folio_encode_clone(__folio_clone_value)").AsString();
-            Engine.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
+            source.SetGlobalProperty("__folio_clone_value", value);
+            var json = source.Evaluate("__folio_encode_clone(__folio_clone_value)").AsString();
+            source.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
             if (json is null) throw new InvalidOperationException("The value cannot be cloned.");
-            WorkerEngine!.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(json));
-            var clone = WorkerEngine.Evaluate("__folio_decode_clone(__folio_clone_json)");
-            WorkerEngine.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
-            return clone;
+            return ClonePayload.MakeJson(json);
         }
         catch (Exception error)
         {
@@ -337,39 +453,24 @@ internal sealed class WorkerState
         }
     }
 
-    private ScriptValue CloneIntoParent(ScriptValue value)
+    private ScriptValue MaterializeClone(IScriptEngine destination, ClonePayload payload)
     {
-        if (value.IsNullOrUndefined || !value.IsObject) return value;
-        if (TryGetPort(WorkerEngine!, value, out var port))
+        if (payload.Kind == ClonePayloadKind.Primitive) return payload.Value;
+        if (payload.Kind == ClonePayloadKind.Port)
         {
-            var transferred = port.TransferTo(Engine);
-            return Engine.CreateHostObject(_messagePortTemplate, transferred);
+            var transferred = payload.Port!.TransferTo(destination);
+            var portValue = destination.CreateHostObject(_messagePortTemplate, transferred);
+            if (!payload.NestedPort) return portValue;
+            destination.SetGlobalProperty("__folio_transferred_port", portValue);
+            var nested = destination.Evaluate("({ port: __folio_transferred_port })", ScriptUrl);
+            destination.SetGlobalProperty("__folio_transferred_port", ScriptValue.Undefined);
+            return nested;
         }
-        var nestedPort = WorkerEngine!.GetProperty(value, "port");
-        if (TryGetPort(WorkerEngine!, nestedPort, out var nested))
-        {
-            var transferred = nested.TransferTo(Engine);
-            Engine.SetGlobalProperty("__folio_transferred_port", Engine.CreateHostObject(_messagePortTemplate, transferred));
-            var clone = Engine.Evaluate("({ port: __folio_transferred_port })", ScriptUrl);
-            Engine.SetGlobalProperty("__folio_transferred_port", ScriptValue.Undefined);
-            return clone;
-        }
-        if (WorkerEngine!.TryGetArrayBufferBytes(value, out var buffer)) return Engine.CreateArrayBuffer(buffer);
-        try
-        {
-            WorkerEngine!.SetGlobalProperty("__folio_clone_value", value);
-            var json = WorkerEngine.Evaluate("__folio_encode_clone(__folio_clone_value)").AsString();
-            WorkerEngine.SetGlobalProperty("__folio_clone_value", ScriptValue.Undefined);
-            if (json is null) throw new InvalidOperationException("The value cannot be cloned.");
-            Engine.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(json));
-            var clone = Engine.Evaluate("__folio_decode_clone(__folio_clone_json)");
-            Engine.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
-            return clone;
-        }
-        catch (Exception error)
-        {
-            throw WebIdlException.DomException("DataCloneError", error.Message);
-        }
+        if (payload.Kind == ClonePayloadKind.Buffer) return destination.CreateArrayBuffer(payload.Buffer!);
+        destination.SetGlobalProperty("__folio_clone_json", ScriptValue.FromString(payload.Json!));
+        var clone = destination.Evaluate("__folio_decode_clone(__folio_clone_json)");
+        destination.SetGlobalProperty("__folio_clone_json", ScriptValue.Undefined);
+        return clone;
     }
 
     private static void EnsureCloneHelpers(IScriptEngine engine) => engine.Evaluate(StructuredCloneScript);
@@ -385,7 +486,33 @@ internal sealed class WorkerState
         return true;
     }
 
-    private const string StructuredCloneScript = """
+    private enum ClonePayloadKind { Primitive, Json, Buffer, Port }
+
+    private sealed class ClonePayload
+    {
+        private ClonePayload(ClonePayloadKind kind, ScriptValue value = default, string? json = null, byte[]? buffer = null, MessagePortEndpoint? port = null, bool nestedPort = false)
+        {
+            Kind = kind;
+            Value = value;
+            Json = json;
+            Buffer = buffer;
+            Port = port;
+            NestedPort = nestedPort;
+        }
+
+        public ClonePayloadKind Kind { get; }
+        public ScriptValue Value { get; }
+        public string? Json { get; }
+        public byte[]? Buffer { get; }
+        public MessagePortEndpoint? Port { get; }
+        public bool NestedPort { get; }
+        public static ClonePayload MakePrimitive(ScriptValue value) => new(ClonePayloadKind.Primitive, value: value);
+        public static ClonePayload MakeJson(string json) => new(ClonePayloadKind.Json, json: json);
+        public static ClonePayload MakeBuffer(byte[] buffer) => new(ClonePayloadKind.Buffer, buffer: buffer);
+        public static ClonePayload MakePort(MessagePortEndpoint port, bool nested) => new(ClonePayloadKind.Port, port: port, nestedPort: nested);
+    }
+
+    internal const string StructuredCloneScript = """
         (function() {
           if (globalThis.__folio_encode_clone) return;
           globalThis.__folio_encode_clone = function(root) {

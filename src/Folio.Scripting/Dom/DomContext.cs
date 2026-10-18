@@ -161,6 +161,13 @@ internal sealed class DomContext
         _media.Clear();
     }
 
+    public void DisposeIframes()
+    {
+        foreach (var frame in _iframes.Values) frame.Close();
+        _iframes.Clear();
+        _iframeCount = 0;
+    }
+
     public void DisposeWorkers()
     {
         WorkerState[] workers;
@@ -188,6 +195,13 @@ internal sealed class DomContext
         var wasWebGlEnabled = Capabilities.WebGl;
         var wasMediaEnabled = Capabilities.Media;
         Capabilities = capabilities;
+        _iframeCount = 0;
+        foreach (var frame in _iframes.Values)
+        {
+            var allowed = capabilities.Iframes && _iframeCount < MaxIframes;
+            if (allowed) _iframeCount++;
+            frame.UpdateCapabilities(allowed ? capabilities : capabilities with { Iframes = false });
+        }
         if (wasMediaEnabled != capabilities.Media)
             foreach (var media in _media.Values) media.SetCapability(capabilities.Media);
         if (wasWebGlEnabled == capabilities.WebGl) return;

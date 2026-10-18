@@ -397,7 +397,7 @@ internal sealed class DomNodeTemplates
             {
                 var state = (IframeState)target;
                 state.LoadInlineDocument();
-                if (state.Origin != state.ParentOrigin) return ScriptValue.Null;
+                if (!state.CanAccessDocument) return ScriptValue.Null;
                 return state.ChildDocument is { } child ? _context.Wrap(child) : ScriptValue.Null;
             })
             .DefineProperty("onmessage", (target, _) => ((IframeState)target).OnMessage, (target, _, value) => ((IframeState)target).OnMessage = value)
@@ -418,7 +418,7 @@ internal sealed class DomNodeTemplates
                 _context.GetIframe(element).Invalidate();
             });
         t.DefineProperty("allow", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("allow") ?? ""),
-            (target, _, value) => ((ElementNode)target).SetAttribute("allow", WebIdlConversions.ToDOMString(value)));
+            (target, _, value) => { var element = (ElementNode)target; element.SetAttribute("allow", WebIdlConversions.ToDOMString(value)); _context.GetIframe(element).Invalidate(); });
         t.DefineProperty("onload", (target, _) => _context.GetIframe((ElementNode)target).OnLoad,
             (target, _, value) => { var state = _context.GetIframe((ElementNode)target); state.ElementObject = _context.Wrap((ElementNode)target); state.OnLoad = value; });
         t.DefineProperty("onerror", (target, _) => _context.GetIframe((ElementNode)target).OnError,
@@ -436,7 +436,7 @@ internal sealed class DomNodeTemplates
             var state = _context.GetIframe((ElementNode)target);
             state.ElementObject = _context.Wrap((ElementNode)target);
             state.LoadInlineDocument();
-            if (state.Origin != state.ParentOrigin) return ScriptValue.Null;
+            if (!state.CanAccessDocument) return ScriptValue.Null;
             return state.ChildDocument is { } child ? _context.Wrap(child) : ScriptValue.Null;
         });
         return t;
@@ -1293,7 +1293,7 @@ internal sealed class DomNodeTemplates
             var val = WebIdlConversions.ToDOMString(args[1]);
             var element = (ElementNode)target;
             element.SetAttribute(name, val);
-            if (element.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase)))
+            if (element.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)))
                 _context.GetIframe(element).Invalidate();
             return ScriptValue.Undefined;
         });
@@ -1314,7 +1314,7 @@ internal sealed class DomNodeTemplates
                 var element = (ElementNode)target;
                 var oldValue = element.GetAttribute(name);
                 element.RemoveAttribute(name);
-                if (element.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase)) && oldValue is not null)
+                if (element.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)) && oldValue is not null)
                     _context.GetIframe(element).Invalidate();
             }
             return ScriptValue.Undefined;
@@ -1345,7 +1345,7 @@ internal sealed class DomNodeTemplates
                 {
                     el.SetAttribute(name, "");
                 }
-                if (el.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase)))
+                if (el.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)))
                     _context.GetIframe(el).Invalidate();
                 return ScriptValue.FromBoolean(true);
             }
@@ -1355,7 +1355,7 @@ internal sealed class DomNodeTemplates
                 {
                     el.RemoveAttribute(name);
                 }
-                if (el.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase)))
+                if (el.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)))
                     _context.GetIframe(el).Invalidate();
                 return ScriptValue.FromBoolean(false);
             }

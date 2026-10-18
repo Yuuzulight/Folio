@@ -67,6 +67,21 @@ public class FetchTests
     }
 
     [Fact]
+    public void AwaitedFetchBodiesKeepTheirScopeAcrossHostMicrotasks()
+    {
+        var log = Run("""
+            (async () => {
+                for (let index = 0; index < 12; index++) {
+                    await new Promise(resolve => queueMicrotask(resolve));
+                    const response = await fetch('data:,' + index);
+                    log.push(await response.text());
+                }
+            })()
+            """);
+        Assert.Equal(string.Join('|', Enumerable.Range(0, 12)), log);
+    }
+
+    [Fact]
     public void DataUrlsDecodeFromPercentEncodingAndBase64AndKeepTheirMimeParameters()
     {
         var log = Run(@"

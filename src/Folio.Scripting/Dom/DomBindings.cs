@@ -29,6 +29,8 @@ public static class DomBindings
     {
         ArgumentNullException.ThrowIfNull(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
+        Contexts.Remove(engine);
+        context.DisposeIframes();
         context.DisposeWorkers();
         context.DisposeMedia();
         engine.Evaluate("if (Array.isArray(__folio_webrtc_peers)) __folio_webrtc_peers.slice().forEach(function(peer) { if (peer && typeof peer.close === 'function') peer.close(); }); if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); }); if (__folio_capture_devices_granted && navigator.mediaDevices && typeof navigator.mediaDevices.dispatchEvent === 'function') navigator.mediaDevices.dispatchEvent({ type: 'devicechange', target: navigator.mediaDevices }); __folio_capture_devices_granted = false;");
@@ -184,7 +186,7 @@ public static class DomBindings
                 var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
                 try
                 {
-                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWebAssemblyBytes, context.Capabilities, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources);
+                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWebAssemblyBytes, context.Capabilities, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources, eventLoop);
                     context.RegisterWorker(state);
                     var worker = engine.CreateHostObject(workerTemplate, state);
                     state.Source = worker;

@@ -12,6 +12,10 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 - NativeMediaTests runs actual WAV/MP3/H.264 decoding on Windows; fake-driver tests exercise failures and queueing on every OS. A silent real-device test runs only when Windows has an output device.
 
+- Jint compatibility engine: 4.17.0 replaces the 4.1 blocking-await workaround. Evaluations, calls and checkpoints use one owner rather than competing evaluation/pump threads. This is separate from the native engine requirements.
+
+- Worker lifecycle, iframe isolated scripting/retirement and real conformance reopen now have direct regressions. None of these repairs by itself proves completion of the original umbrella issues.
+
 ## Original issue acceptance and current evidence
 
 ### #169 — WebGL (after milestone 5)
@@ -42,7 +46,7 @@ Native-engine execution/caching/routing requirement is unmet.
 
 **Unverified.** Evidence: `Iframe findings #547–#550`.
 
-Static children work; original full nested-context, sandbox, input and watchdog acceptance is not proven.
+Permitted child scripts now run in isolated contexts; original full messaging, sandbox forms, shared nested limits, input-boundary and process-watchdog acceptance is not proven.
 
 ### #174 — WebRTC (after milestone 5)
 
@@ -264,7 +268,7 @@ Original acceptance:
 
 **Partial.** Evidence: `tests/conformance/D10: 4 manifests`.
 
-Count is met. Full interactions and image-filter/module-worker workload coverage need verification.
+Artifact count is met, but all D10 manifests lack interactions. Image-filter/module-worker workloads also remain unproven.
 
 Original acceptance:
 
@@ -276,7 +280,7 @@ Original acceptance:
 
 **Partial.** Evidence: `WorkerState.cs`.
 
-Separate engines and Task.Run exist. Native second-engine validation and a persistent worker event loop/timers/fetch/crypto subset are not demonstrated.
+Workers now have a persistent owning thread and HTML event loop, timer/microtask globals, delayed parent-loop delivery and worker-owned teardown. Regressions exercise timer ordering, delayed messages, interruption and closure. Native second-engine validation and the fetch/crypto worker subset remain unproven.
 
 Original acceptance:
 
@@ -364,9 +368,9 @@ Original acceptance:
 
 ### #546 — Conformance: an iframes category
 
-**Partial.** Evidence: `tests/conformance/D12: 4 manifests; Conformance.cs frame selector branch`.
+**Incomplete.** Evidence: `tests/conformance/D12: 4 manifests; Conformance.cs frame selector branch`.
 
-Count and frame-selector support exist. Per-artifact interactions and full required nested behavior need verification.
+Live-child frame-selector support now works, but all four D12 pages contain the same inert child paragraph. Required sandbox-message, scrolling-preview and form workloads are absent.
 
 Original acceptance:
 
@@ -378,7 +382,7 @@ Original acceptance:
 
 **Partial.** Evidence: `IframeState.cs; static nested-document layout/input/accessibility tests`.
 
-Static nested rendering exists. Script-created child contexts, focus order and selection acceptance need a full mapping.
+Nested rendering now has isolated child script engines/event loops/runners, with navigation and parent-binding teardown. Regressions cover script execution and isolation, relative script locations, sandbox gating, capability revocation and child host-media cleanup. Full focus/selection and process-watchdog acceptance still need a complete mapping.
 
 Original acceptance:
 
@@ -392,7 +396,7 @@ Original acceptance:
 
 **Partial.** Evidence: `IframeState.cs; DomContext.GetIframe`.
 
-Sandbox/origin/count logic exists. Child options copy the parent capability set; allow inheritance and a shared nesting budget require verification.
+Empty sandbox flags block scripts and create an opaque origin; data-document origins are opaque. Child options inherit the host capabilities, resource loader and media adapters, and runtime revocation retires the child. Depth and local counts are bounded, but the aggregate nested-frame count is not shared. Child grants intersect the current host capabilities with explicit allow directives, including none/self/origin rejection tests. Form restrictions and the full Permissions Policy grammar remain unproven.
 
 Original acceptance:
 
@@ -428,9 +432,9 @@ Original acceptance:
 
 ### #551 — Conformance: a WebRTC category
 
-**Partial.** Evidence: `tests/conformance/D13: 4 manifests`.
+**Incomplete.** Evidence: `tests/conformance/D13: 4 manifests`.
 
-Count is met. Audio-level and video-call fixtures use synthetic API state, not a capture/transport backend.
+All four D13 pages only construct one RTCPeerConnection and append a ready label. Paired peers, data-channel exchange, fake capture/level-meter devices and video loopback workloads are absent.
 
 Original acceptance:
 
@@ -484,7 +488,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `Conformance.cs: reopen command; tests/conformance/D14: 3 manifests`.
 
-Reopen does not close/recreate the document or replace the loader with an offline loader; it advances the existing event loop.
+Reopen now disposes the old bindings, runner, event loop, engine and document, then creates a fresh load retaining only artifact storage and an offline artifact/pinned-cache loader. A regression proves different document/engine identities, invalidation of the old engine and storage survival. Frame interactions use the live rendered child. D14 still needs assertions proving real persisted service-worker interception after reopen; serving assets from the offline artifact loader alone is not that proof.
 
 Original acceptance:
 
@@ -522,7 +526,7 @@ Original acceptance:
 
 **Partial.** Evidence: `DomBindings.cs: Cache API; host ArtifactStorage`.
 
-Storage and quota paths exist. All method/request-matching/atomic-addAll acceptance cases still need verification.
+Cache.addAll delegates to Promise.all of individual add/put operations, so a later quota/fetch failure can leave earlier entries stored, violating the explicit atomicity acceptance. Request matching and quota accounting across persisted stores also remain unproven.
 
 Original acceptance:
 
@@ -534,7 +538,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `CapabilityMatrixTests service-worker row; DomBindings service-worker handlers`.
 
-In-page handlers cannot prove interrupting a hung service worker without stopping the page. Offline reopen is simulated.
+In-page handlers cannot prove interrupting a hung service worker without stopping the page. The harness now recreates the page offline, but independent service-worker interruption and real intercepted subresources remain unproven.
 
 Original acceptance:
 

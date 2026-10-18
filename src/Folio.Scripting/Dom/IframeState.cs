@@ -18,18 +18,54 @@ internal sealed class IframeState : IFramePresentation
         BaseUri = baseUri;
         NavigationRequested = navigationRequested;
         ParentOptions = parentOptions;
+        _capabilities = parentOptions?.Capabilities ?? FeatureCapabilities.Default;
         element.FramePresentation = this;
-        var sandbox = SandboxTokens;
-        var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
-        Origin = sameOrigin && Uri.TryCreate(ResolveSource(element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
+        UpdateOrigin();
     }
 
     public IScriptEngine Engine { get; }
     public IHostObjectTemplate MessageEventTemplate { get; }
     public ElementNode Element { get; }
-    public bool Enabled { get; }
-    public string Origin { get; private set; }
-    public string ParentOrigin => BaseUri?.GetLeftPart(UriPartial.Authority) ?? string.Empty;
+    public bool Enabled { get; private set; }
+    public string Origin { get; private set; } = "null";
+    public string ParentOrigin => NetworkOrigin(BaseUri);
+    private bool SameOriginAllowed => !HasSandbox || SandboxTokens.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
+    public bool CanAccessDocument => Enabled && SameOriginAllowed &&
+        (Element.GetAttribute("srcdoc") is not null || string.IsNullOrWhiteSpace(Element.GetAttribute("src")) || Origin != "null" && Origin == ParentOrigin);
+
+    private static string NetworkOrigin(Uri? uri) => uri is not null && uri.Scheme is "http" or "https" ? uri.GetLeftPart(UriPartial.Authority) : "null";
+    private void UpdateOrigin()
+    {
+        var source = Element.GetAttribute("src") ?? "";
+        var inherited = Element.GetAttribute("srcdoc") is not null || string.IsNullOrWhiteSpace(source);
+        Origin = !SameOriginAllowed ? "null" : inherited ? ParentOrigin :
+            Uri.TryCreate(ResolveSource(source), UriKind.Absolute, out var uri) ? NetworkOrigin(uri) : "null";
+    }
+    private FeatureCapabilities ChildCapabilities
+    {
+        get
+        {
+            var policies = (Element.GetAttribute("allow") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(policy => policy.Trim().Split([' ', '\t', '\n'], StringSplitOptions.RemoveEmptyEntries))
+                .Where(parts => parts.Length == 1 || parts.Length > 1 &&
+                    !parts.Skip(1).Contains("'none'", StringComparer.OrdinalIgnoreCase) &&
+                    parts.Skip(1).Any(origin => origin == "*" ||
+                        origin == "'self'" && Origin != "null" && Origin == ParentOrigin ||
+                        Uri.TryCreate(origin, UriKind.Absolute, out var allowed) && Origin != "null" && NetworkOrigin(allowed) == Origin))
+                .Select(parts => parts[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new FeatureCapabilities
+            {
+                WebGl = _capabilities.WebGl && policies.Contains("webgl"),
+                Media = _capabilities.Media && policies.Contains("media"),
+                AllowSoundAutoplay = _capabilities.AllowSoundAutoplay && policies.Contains("autoplay"),
+                Workers = _capabilities.Workers && policies.Contains("workers"),
+                WebAssembly = _capabilities.WebAssembly && policies.Contains("webassembly"),
+                Iframes = _capabilities.Iframes && policies.Contains("iframes"),
+                WebRtc = _capabilities.WebRtc && policies.Contains("webrtc"),
+                ServiceWorkers = _capabilities.ServiceWorkers && policies.Contains("service-workers"),
+            };
+        }
+    }
     public bool ScriptsAllowed => !HasSandbox || SandboxTokens.Contains("allow-scripts", StringComparer.OrdinalIgnoreCase);
     public bool FormsAllowed => !HasSandbox || SandboxTokens.Contains("allow-forms", StringComparer.OrdinalIgnoreCase);
     public bool HasSandbox => Element.GetAttribute("sandbox") is not null;
@@ -46,6 +82,10 @@ internal sealed class IframeState : IFramePresentation
     public ScriptValue Window { get; set; } = ScriptValue.Null;
     public DocumentNode? ChildDocument { get; private set; }
     private Document? ChildRenderDocument { get; set; }
+    private IScriptEngine? _childEngine;
+    private HtmlEventLoop? _childLoop;
+    private ScriptRunner? _childRunner;
+    private FeatureCapabilities _capabilities = FeatureCapabilities.Default;
     public DisplayList? FrameDisplayList { get; private set; }
     object? IFramePresentation.DisplayList => FrameDisplayList;
     object? IFramePresentation.Accessibility => ChildRenderDocument?.AccessibilityTree();
@@ -74,26 +114,60 @@ internal sealed class IframeState : IFramePresentation
 
     public void RemoveMessageListener(ScriptValue listener) => _messageListeners.Remove(listener);
 
-    public void Close() => Closed = true;
-
-    public void Invalidate()
+    public void Close()
     {
+        Closed = true;
+        RetireChild();
+        OnMessage = ScriptValue.Null;
+        _messageListeners.Clear();
+    }
+
+    internal void UpdateCapabilities(FeatureCapabilities capabilities)
+    {
+        _capabilities = capabilities;
+        if (Enabled != capabilities.Iframes)
+        {
+            Enabled = capabilities.Iframes;
+            Invalidate();
+        }
+        if (_childEngine is not null) DomBindings.UpdateCapabilities(_childEngine, ChildCapabilities);
+    }
+
+    private void RetireChild()
+    {
+        _childRunner?.Dispose();
+        _childRunner = null;
+        if (_childEngine is { } engine)
+        {
+            try { DomBindings.Dispose(engine); }
+            finally
+            {
+                _childLoop?.Dispose();
+                _childLoop = null;
+                engine.Dispose();
+                _childEngine = null;
+            }
+        }
         ChildDocument = null;
         ChildRenderDocument?.Dispose();
         ChildRenderDocument = null;
         FrameDisplayList = null;
+    }
+
+    public void Invalidate()
+    {
+        RetireChild();
+        OnMessage = ScriptValue.Null;
+        _messageListeners.Clear();
+        Closed = false;
         _loadedSource = null;
         _loadDispatched = false;
-        var sandbox = SandboxTokens;
-        var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
-        Origin = sameOrigin && Uri.TryCreate(ResolveSource(Element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri)
-            ? uri.GetLeftPart(UriPartial.Authority)
-            : "null";
+        UpdateOrigin();
     }
 
     public void LoadInlineDocument(bool dispatchLoad = true)
     {
-        if (!Enabled) return;
+        if (!Enabled || Closed) return;
         var inline = Element.GetAttribute("srcdoc");
         var source = ResolveSource(Element.GetAttribute("src") ?? string.Empty);
         var current = inline is not null ? "srcdoc:" + inline : "src:" + source;
@@ -103,16 +177,10 @@ internal sealed class IframeState : IFramePresentation
                 DispatchLoad();
             return;
         }
-        ChildDocument = null;
-        ChildRenderDocument?.Dispose();
-        ChildRenderDocument = null;
-        FrameDisplayList = null;
+        RetireChild();
         _loadedSource = current;
         _loadDispatched = false;
-        var sandbox = (Element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
-        var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
-        var originSource = inline is not null && BaseUri is not null ? BaseUri.AbsoluteUri : source;
-        Origin = sameOrigin && Uri.TryCreate(originSource, UriKind.Absolute, out var childUri) ? childUri.GetLeftPart(UriPartial.Authority) : "null";
+        UpdateOrigin();
         string html;
         if (inline is not null)
         {
@@ -141,26 +209,52 @@ internal sealed class IframeState : IFramePresentation
             html = System.Text.Encoding.UTF8.GetString(data);
         }
         var parent = ParentOptions;
-        ChildRenderDocument = Document.Parse(html, parent is null ? new FolioOptions { BaseUri = BaseUri } : new FolioOptions
+        var childBase = inline is not null ? BaseUri : Uri.TryCreate(source, UriKind.Absolute, out var resolvedBase) ? resolvedBase : BaseUri;
+        var options = parent is null ? new FolioOptions { BaseUri = childBase } : new FolioOptions
         {
             ArtifactId = parent.ArtifactId,
             ArtifactStorage = parent.ArtifactStorage,
-            BaseUri = BaseUri,
-            Capabilities = parent.Capabilities,
+            BaseUri = childBase,
+            Capabilities = ChildCapabilities,
             ColorScheme = parent.ColorScheme,
             Fonts = parent.Fonts,
             IframeNavigationRequested = parent.IframeNavigationRequested,
-            Limits = parent.Limits,
+            Limits = parent.Limits with { MaxIframes = Math.Max(0, parent.Limits.MaxIframes - 1) },
             MediaCaptureActivityChanged = parent.MediaCaptureActivityChanged,
             MediaCapturePermission = parent.MediaCapturePermission,
+            MediaDecoder = parent.MediaDecoder,
+            MediaAudioOutput = parent.MediaAudioOutput,
+            Scripting = ScriptsAllowed ? parent.Scripting : ScriptingPolicy.Disabled,
+            DiagramLibraryUrls = parent.DiagramLibraryUrls,
+            ContentProcessPath = parent.ContentProcessPath,
             Raster = parent.Raster,
             ReducedMotion = parent.ReducedMotion,
             ResourceLoader = parent.ResourceLoader,
             UserStyleSheet = parent.UserStyleSheet,
             WebRtcAllowedOrigins = parent.WebRtcAllowedOrigins,
             CollectDiagnostics = parent.CollectDiagnostics,
-        });
+        };
+        ChildRenderDocument = Document.Parse(html, options);
         ChildDocument = ChildRenderDocument.Node;
+        if (options.Scripting != ScriptingPolicy.Disabled && Engine is IScriptEngineFactory factory)
+        {
+            try
+            {
+                _childEngine = factory.CreateIsolated();
+                _childEngine.Configure(ScriptLimits.Default);
+                _childLoop = new HtmlEventLoop(_childEngine);
+                ScriptGlobalsInstaller.Install(_childLoop, _childEngine);
+                DomBindings.Install(_childEngine, ChildRenderDocument, eventLoop: _childLoop);
+                _childRunner = new ScriptRunner(ChildRenderDocument, _childEngine, _childLoop, options);
+                _childRunner.Run();
+            }
+            catch
+            {
+                RetireChild();
+                DispatchError();
+                return;
+            }
+        }
         if (dispatchLoad)
             DispatchLoad();
     }
@@ -188,7 +282,10 @@ internal sealed class IframeState : IFramePresentation
     {
         LoadInlineDocument(dispatchLoad: false);
         if (ChildRenderDocument is { } child)
+        {
+            _childLoop?.SpinUntilIdle();
             (FrameDisplayList, _) = child.Paint(Math.Max(1, width), Math.Max(1, height));
+        }
     }
 
     bool IFramePresentation.FocusFirst(bool reverse)

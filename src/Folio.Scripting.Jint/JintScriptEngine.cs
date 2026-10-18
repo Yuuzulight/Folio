@@ -1,6 +1,3 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Reflection;
 using Jint;
 using Jint.Native;
 using Jint.Native.Array;
@@ -25,11 +22,6 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
     private int _evaluationDepth;
     private int _evaluationThreadId;
     private Func<bool>? _eventLoopPump;
-    private readonly ConcurrentQueue<Action> _deferredCalls = new();
-    private static readonly MethodInfo AddToEventLoop = typeof(Engine).GetMethod("AddToEventLoop", BindingFlags.Instance | BindingFlags.NonPublic)
-        ?? throw new MissingMethodException(typeof(Engine).FullName, "AddToEventLoop");
-    private static readonly PropertyInfo? FunctionDeclarationProperty = typeof(Function).GetProperty("FunctionDeclaration", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-    private static readonly PropertyInfo? FunctionAsyncProperty = FunctionDeclarationProperty?.PropertyType.GetProperty("Async", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
     public JintScriptEngine() : this(ScriptEngineOptions.Default)
     {
@@ -90,44 +82,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
     public ScriptValue Evaluate(string source, string url = "eval")
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_eventLoopPump is not null && source.Contains("await", StringComparison.Ordinal)
-            && !source.Contains("addEventListener", StringComparison.Ordinal)
-            && Environment.CurrentManagedThreadId != Volatile.Read(ref _evaluationThreadId))
-            return EvaluateWithHostPump(source, url);
         return EvaluateOnCurrentThread(source, url);
-    }
-
-    private ScriptValue EvaluateWithHostPump(string source, string url)
-    {
-        if (Environment.CurrentManagedThreadId == Volatile.Read(ref _evaluationThreadId))
-            return EvaluateOnCurrentThread(source, url);
-
-        var result = new TaskCompletionSource<ScriptValue>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            Volatile.Write(ref _evaluationThreadId, Environment.CurrentManagedThreadId);
-            try { result.SetResult(EvaluateOnCurrentThread(source, url)); }
-            catch (Exception ex) { result.SetException(ex); }
-            finally
-            {
-                Volatile.Write(ref _evaluationThreadId, 0);
-            }
-        }) { IsBackground = true, Name = "Folio Jint evaluation" };
-        thread.Start();
-
-        // Give scripts that merely contain an async function body time to finish
-        // synchronously before pumping host tasks. Pumping too early can run a
-        // timer while Jint is still compiling the script.
-        var grace = Stopwatch.StartNew();
-        while (!result.Task.IsCompleted && grace.ElapsedMilliseconds < 5)
-            Thread.Yield();
-
-        while (!result.Task.IsCompleted)
-        {
-            if (!(_eventLoopPump?.Invoke() ?? false))
-                Thread.Yield();
-        }
-        return result.Task.GetAwaiter().GetResult();
     }
 
     private ScriptValue EvaluateOnCurrentThread(string source, string url)
@@ -157,16 +112,9 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         ArgumentNullException.ThrowIfNull(task);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Volatile.Read(ref _evaluationDepth) == 0 || Environment.CurrentManagedThreadId == Volatile.Read(ref _evaluationThreadId))
-        {
-            task();
-            return;
-        }
-
-        // Jint's internal event loop is the only safe place to touch an engine while
-        // Evaluate is suspended in an async function. AddToEventLoop marshals the
-        // host task back to that thread and lets the await continuation observe it.
-        AddToEventLoop.Invoke(_engine, [task]);
+        // The host event loop and this engine share an owning thread. Async
+        // functions return promises; their jobs run at the next checkpoint.
+        task();
     }
 
     public void SetEventLoopPump(Func<bool> pump)
@@ -179,51 +127,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
     public ScriptValue Call(ScriptValue function, ScriptValue thisValue, ReadOnlySpan<ScriptValue> args)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (function.Raw is object jsFunc && IsAsyncFunction(jsFunc))
-        {
-            if (Volatile.Read(ref _evaluationDepth) > 0)
-            {
-                // Event dispatch can call listeners while a script is on the engine
-                // stack. Defer async listeners until that stack unwinds; their return
-                // value is intentionally ignored by EventTarget dispatch.
-                var deferredArgs = args.ToArray();
-                _deferredCalls.Enqueue(() => Call(function, thisValue, deferredArgs));
-                return ScriptValue.Undefined;
-            }
-            if (_eventLoopPump is not null)
-                return CallWithHostPump(function, thisValue, args);
-        }
         return CallOnCurrentThread(function, thisValue, args);
-    }
-
-    private ScriptValue CallWithHostPump(ScriptValue function, ScriptValue thisValue, ReadOnlySpan<ScriptValue> args)
-    {
-        var copiedArgs = args.ToArray();
-        var result = new TaskCompletionSource<ScriptValue>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            Volatile.Write(ref _evaluationThreadId, Environment.CurrentManagedThreadId);
-            try { result.SetResult(CallOnCurrentThread(function, thisValue, copiedArgs)); }
-            catch (Exception ex) { result.SetException(ex); }
-            finally { Volatile.Write(ref _evaluationThreadId, 0); }
-        }) { IsBackground = true, Name = "Folio Jint callback" };
-        thread.Start();
-        while (!result.Task.IsCompleted)
-        {
-            if (!(_eventLoopPump?.Invoke() ?? false))
-                Thread.Yield();
-        }
-        return result.Task.GetAwaiter().GetResult();
-    }
-
-    private static bool IsAsyncFunction(object? function)
-    {
-        if (function is BindFunction bound)
-            return IsAsyncFunction(bound.BoundTargetFunction);
-        if (function is not Function jsFunction)
-            return false;
-        var declaration = FunctionDeclarationProperty?.GetValue(jsFunction);
-        return declaration is not null && FunctionAsyncProperty?.GetValue(declaration) is true;
     }
 
     private ScriptValue CallOnCurrentThread(ScriptValue function, ScriptValue thisValue, ReadOnlySpan<ScriptValue> args)
@@ -409,8 +313,6 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
         ObjectDisposedException.ThrowIf(_disposed, this);
         try
         {
-            while (_deferredCalls.TryDequeue(out var callback))
-                callback();
             _engine!.Advanced.ProcessTasks();
         }
         catch (Exception ex)
@@ -501,11 +403,18 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (_disposed)
             return;
-        _disposed = true;
-        _cts.Cancel();
-        _cts.Dispose();
-        _engine?.Dispose();
-        _engine = null;
+        try { Dom.DomBindings.Dispose(this); }
+        catch (ScriptInterruptedException) { }
+        catch (ScriptLimitExceededException) { }
+        catch (ScriptRuntimeException) { }
+        finally
+        {
+            _disposed = true;
+            _cts.Cancel();
+            _cts.Dispose();
+            _engine?.Dispose();
+            _engine = null;
+        }
     }
 
     private sealed class InjectedTimeSystem : ITimeSystem

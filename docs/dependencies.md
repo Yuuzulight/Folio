@@ -113,6 +113,9 @@ public interface ITextShaper
 
 ### JavaScript engine — Jint
 
+**M6 audit repair (2026-10-19):** upgraded the compatibility backend to Jint 4.17.0. Jint 4.1 blocked during pending `await`, and Folio's background evaluation/host-pump workaround could run continuations concurrently and corrupt lexical scope. The wrapper now evaluates and calls functions directly on the event-loop owner, with promise jobs drained at checkpoints. Awaited timer/fetch/microtask and worker lifecycle regressions cover this path. This repair does not satisfy M6's separate native-engine/WebAssembly requirements.
+
+
 **M5 decision (2026-10-16):** keep Jint as the dependency-backed engine behind `IScriptEngine` while scripted parity is completed. We are not selecting a native JIT binding for M5: it would add architecture-specific binaries and a second binding surface before the corpus demonstrates that Jint misses a required bar. The Folio-owned parser, VM, and optimizer remain the planned replacement after the dependency-backed path is complete.
 
 The decision was made against the options below. The current warm-process
@@ -123,7 +126,7 @@ has already been benchmarked.
 
 | Option | Current evidence | Decision |
 |---|---|---|
-| Jint 4.1 behind `IScriptEngine` | Existing scripting suite passes; the dependency-backed path is the only measured implementation today | Use for M5 parity and corpus growth |
+| Jint 4.17 behind `IScriptEngine` | Async setup returns promises; the host executes evaluations and promise jobs on one owning thread | Use for M5 parity and corpus growth |
 | Native JIT binding (V8 or equivalent) | Would require architecture-specific binaries, a second binding surface and a new sandbox audit before it could replace Jint | Do not add as an M5 dependency |
 | Folio-owned parser, VM and hot-path compiler | No implementation or measurements yet; the staged plan is documented in [`native-engine-plan.md`](native-engine-plan.md) | Build after the dependency-backed path, then measure against this baseline |
 | `IScriptEngine` compatibility seam | DOM bindings, limits, interrupts and microtask checkpoints are already independent of Jint | Keep as the cutover contract |

@@ -85,15 +85,13 @@ public sealed class HtmlEventLoop : IDisposable
 
                 if (microtask is not null)
                 {
-                    try
+                    void RunMicrotask()
                     {
-                        microtask();
+                        try { microtask(); }
+                        catch (Exception ex) { OnTaskException(ex); }
                     }
-                    catch (Exception ex)
-                    {
-                        // In browser spec, uncaught microtask errors report an error event/diagnostic
-                        OnTaskException(ex);
-                    }
+                    if (_engine is not null) _engine.RunHostTask(RunMicrotask);
+                    else RunMicrotask();
                     continue;
                 }
 

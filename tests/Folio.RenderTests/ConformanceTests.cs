@@ -121,9 +121,30 @@ public class ConformanceTests
     [Fact]
     public void InteractionScriptResolvesSrcdocFrameSelectors()
     {
-        using var doc = Document.Parse("<iframe id='preview' srcdoc='<p id=message>Nested text</p><button id=go>Go</button>'></iframe>");
-        var error = Conformance.RunScript(doc, ["frame #preview exists #message", "frame #preview text #message Nested text", "frame #preview click #go"], 800, 600);
-        Assert.Null(error);
+        const string html = "<iframe id='preview' srcdoc=\"<p id='message'>Nested text</p><button id='go' onclick='document.getElementById(&quot;message&quot;).textContent=&quot;Changed&quot;'>Go</button>\"></iframe>";
+        var options = new FolioOptions
+        {
+            Scripting = ScriptingPolicy.ContentProcess,
+            Capabilities = new FeatureCapabilities { Iframes = true },
+        };
+        using var doc = Document.Parse(html, options);
+        using var engine = new Folio.Scripting.Jint.JintScriptEngine();
+        using var loop = new Folio.Scripting.HtmlEventLoop(engine);
+        Folio.Scripting.Dom.DomBindings.Install(engine, doc, eventLoop: loop);
+        try
+        {
+            Folio.Scripting.ScriptGlobalsInstaller.Install(loop, engine);
+            using var runner = new Folio.Scripting.ScriptRunner(doc.Node, engine, loop, options);
+            runner.Run();
+
+            var error = Conformance.RunScript(doc, ["frame #preview exists #message", "frame #preview text #message Nested text", "frame #preview click #go", "frame #preview text #message Changed"], 800, 600);
+
+            Assert.Null(error);
+        }
+        finally
+        {
+            Folio.Scripting.Dom.DomBindings.Dispose(engine);
+        }
     }
 
     [Fact]
@@ -139,5 +160,32 @@ public class ConformanceTests
         var errMismatch = Conformance.RunScript(doc, ["text #box world"], 800, 600);
         Assert.NotNull(errMismatch);
         Assert.Contains("text mismatch", errMismatch);
+    }
+
+    [Fact]
+    public void ReopenCreatesANewOfflinePageAndRetiresThePreviousLoad()
+    {
+        var artifact = Conformance.Discover().Single(a => a.Id == "D14/sw-01");
+        const string html = "<p id=status>new offline load</p><script src='sw.js'></script><script>var worker = new Worker('data:text/javascript,' + encodeURIComponent(\"onmessage = function() { postMessage('worker started'); };\")); worker.onmessage = function(event) { document.getElementById('status').textContent = event.data; }; worker.postMessage(0);</script>";
+        using var lifecycle = Conformance.ArtifactLifecycle.Start(artifact, html, animationTime: 100);
+        var oldDocument = lifecycle.Document;
+        var oldEngine = Assert.IsType<Folio.Scripting.Jint.JintScriptEngine>(lifecycle.Host.Loop.Engine);
+
+        Assert.Equal("worker started", oldDocument.QuerySelector("#status")!.TextContent.Trim());
+
+        var persistentKey = artifact.Id + ":reopen-proof";
+        lifecycle.Storage.Write(persistentKey, "survives a new document");
+
+        lifecycle.Reopen();
+
+        var retired = Assert.Single(lifecycle.RetiredPages);
+        Assert.True(retired.IsDisposed);
+        Assert.Same(oldDocument, retired.Document);
+        Assert.NotSame(oldDocument, lifecycle.Document);
+        Assert.NotSame(oldEngine, lifecycle.Host.Loop.Engine);
+        Assert.Throws<ObjectDisposedException>(() => oldEngine.Evaluate("1"));
+        Assert.Equal("worker started", lifecycle.Document.QuerySelector("#status")!.TextContent.Trim());
+        Assert.Equal("survives a new document", lifecycle.Storage.Read(persistentKey));
+        Assert.Equal(2, lifecycle.OfflineRequests.Count(request => request.Url.EndsWith("/sw.js", StringComparison.Ordinal)));
     }
 }

@@ -6,6 +6,7 @@ using Folio.Skia;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Resources;
 
 namespace Folio.RenderTests;
 
@@ -152,24 +153,15 @@ public static class Conformance
         // where work can really be stopped.
         var render = Task.Run(() =>
         {
-            using var document = Document.Parse(html, Options);
+            using var lifecycle = ArtifactLifecycle.Start(artifact, html, manifest.AnimationTime ?? 100);
+            var document = lifecycle.Document;
             document.Paint(manifest.Viewport, reference?.Height ?? 600);
-            using var engine = new JintScriptEngine();
-            var clock = new VirtualEventLoopClock();
-            using var loop = new HtmlEventLoop(engine, clock);
-            DomBindings.Install(engine, document, eventLoop: loop);
-            ScriptGlobalsInstaller.Install(loop, engine);
-            using var runner = new ScriptRunner(document.Node, engine, loop, Options);
-            runner.Run();
-            loop.UpdateTheRendering();
-            clock.Advance(manifest.AnimationTime ?? 100);
-            loop.UpdateTheRendering();
             // The picture is the page as it loads, like the reference; the interaction script then runs against it as assertions.
             using var result = HeadlessRenderer.Render(document, request);
             var image = new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
             if (manifest.Interaction is { Length: > 0 } script)
             {
-                var scriptResult = RunScript(document, script, manifest.Viewport, reference?.Height, new ScriptHost(loop, clock));
+                var scriptResult = RunScriptCore(document, script, manifest.Viewport, reference?.Height, lifecycle.Host, lifecycle);
                 if (scriptResult is not null)
                     return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
             }
@@ -220,9 +212,16 @@ public static class Conformance
     /// <c>frame &lt;iframe-selector&gt; &lt;click|exists|text&gt; &lt;child-selector&gt; [&lt;expected&gt;]</c>.
     /// Returns null on success, or an error description string on failure.
     /// </summary>
-    public static string? RunScript(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight, ScriptHost? host = null)
+    public static string? RunScript(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight, ScriptHost? host = null) =>
+        RunScriptCore(document, script, viewportWidth, viewportHeight, host);
+
+    internal static string? RunScriptCore(Document document, IReadOnlyList<string> script, float viewportWidth, float? viewportHeight, ScriptHost? host = null,
+        ArtifactLifecycle? lifecycle = null)
     {
-        document.Paint(viewportWidth, viewportHeight ?? 600);
+        Document CurrentDocument() => lifecycle?.Document ?? document;
+        ScriptHost? CurrentHost() => lifecycle?.Host ?? host;
+
+        CurrentDocument().Paint(viewportWidth, viewportHeight ?? 600);
 
         for (var i = 0; i < script.Count; i++)
         {
@@ -252,11 +251,10 @@ public static class Conformance
                         childSelector = textParts[0];
                         expectedText = textParts[1];
                     }
-                    var frame = document.QuerySelector(frameParts[0]);
-                    var source = frame?.GetAttribute("srcdoc");
-                    if (source is null)
-                        return $"step {i + 1} ({line}): frame not found or has no srcdoc '{frameParts[0]}'";
-                    using var child = Document.Parse(source);
+                    var frame = CurrentDocument().QuerySelector(frameParts[0]);
+                    var child = LiveFrameDocument(frame);
+                    if (child is null)
+                        return $"step {i + 1} ({line}): frame not found or has no live child document '{frameParts[0]}'";
                     var childElement = child.QuerySelector(childSelector);
                     if (childElement is null)
                         return $"step {i + 1} ({line}): element not found in frame '{frameParts[2]}'";
@@ -272,7 +270,7 @@ public static class Conformance
                 }
                 case "click":
                 {
-                    var el = document.QuerySelector(arg);
+                    var el = CurrentDocument().QuerySelector(arg);
                     if (el is null)
                         return $"step {i + 1} ({line}): element not found '{arg}'";
                     el.Click();
@@ -280,13 +278,13 @@ public static class Conformance
                 }
                 case "hover":
                 {
-                    var el = document.QuerySelector(arg);
+                    var el = CurrentDocument().QuerySelector(arg);
                     if (el is null)
                         return $"step {i + 1} ({line}): element not found '{arg}'";
-                    var bounds = document.GetElementBounds(el.Node);
+                    var bounds = CurrentDocument().GetElementBounds(el.Node);
                     if (bounds is { } b)
-                        document.Input.HandlePointerMove(new PointerEvent(new System.Numerics.Vector2(b.X + b.Width / 2, b.Y + b.Height / 2)));
-                    document.Update();
+                        CurrentDocument().Input.HandlePointerMove(new PointerEvent(new System.Numerics.Vector2(b.X + b.Width / 2, b.Y + b.Height / 2)));
+                    CurrentDocument().Update();
                     break;
                 }
                 case "type":
@@ -294,17 +292,17 @@ public static class Conformance
                     var typeParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
                     if (typeParts.Length < 2)
                         return $"step {i + 1} ({line}): expected selector and text";
-                    var el = document.QuerySelector(typeParts[0]);
+                    var el = CurrentDocument().QuerySelector(typeParts[0]);
                     if (el is null)
                         return $"step {i + 1} ({line}): element not found '{typeParts[0]}'";
                     el.Focus();
-                    document.Input.HandleTextInput(new TextInputEvent(typeParts[1]));
+                    CurrentDocument().Input.HandleTextInput(new TextInputEvent(typeParts[1]));
                     break;
                 }
                 case "key":
                 {
-                    document.Input.HandleKeyDown(new KeyEvent(arg, arg, KeyModifiers.None));
-                    document.Input.HandleKeyUp(new KeyEvent(arg, arg, KeyModifiers.None));
+                    CurrentDocument().Input.HandleKeyDown(new KeyEvent(arg, arg, KeyModifiers.None));
+                    CurrentDocument().Input.HandleKeyUp(new KeyEvent(arg, arg, KeyModifiers.None));
                     break;
                 }
                 case "wheel":
@@ -312,12 +310,12 @@ public static class Conformance
                     var wheelParts = arg.Split(' ', 3, StringSplitOptions.TrimEntries);
                     if (wheelParts.Length < 3 || !float.TryParse(wheelParts[1], CultureInfo.InvariantCulture, out var dx) || !float.TryParse(wheelParts[2], CultureInfo.InvariantCulture, out var dy))
                         return $"step {i + 1} ({line}): expected selector, dx, and dy";
-                    var el = document.QuerySelector(wheelParts[0]);
+                    var el = CurrentDocument().QuerySelector(wheelParts[0]);
                     if (el is null)
                         return $"step {i + 1} ({line}): element not found '{wheelParts[0]}'";
-                    var bounds = document.GetElementBounds(el.Node);
+                    var bounds = CurrentDocument().GetElementBounds(el.Node);
                     var pos = bounds is { } b ? new System.Numerics.Vector2(b.X + b.Width / 2, b.Y + b.Height / 2) : System.Numerics.Vector2.Zero;
-                    document.Input.HandleWheel(new WheelEvent(pos, new System.Numerics.Vector2(dx, dy)));
+                    CurrentDocument().Input.HandleWheel(new WheelEvent(pos, new System.Numerics.Vector2(dx, dy)));
                     break;
                 }
                 case "wait":
@@ -326,25 +324,22 @@ public static class Conformance
                         return $"step {i + 1} ({line}): expected a non-negative millisecond duration";
                     for (var elapsed = 0; elapsed < milliseconds; elapsed += 16)
                     {
-                        host?.Clock.Advance(Math.Min(16, milliseconds - elapsed));
-                        host?.Loop.UpdateTheRendering();
-                        document.Update();
+                        CurrentHost()?.Clock.Advance(Math.Min(16, milliseconds - elapsed));
+                        CurrentHost()?.Loop.UpdateTheRendering();
+                        CurrentDocument().Update();
                     }
                     break;
                 }
                 case "reopen":
                 {
-                    // Reopen is a lifecycle boundary in the host harness. The document and its artifact-scoped
-                    // service-worker storage stay attached to this run, so advance the same event loop as a fresh
-                    // load would before the next assertion or screenshot.
-                    host?.Loop.PerformMicrotaskCheckpoint();
-                    host?.Loop.UpdateTheRendering();
-                    document.Update();
+                    if (lifecycle is null)
+                        return $"step {i + 1} ({line}): reopen needs an artifact lifecycle";
+                    lifecycle.Reopen();
                     break;
                 }
                 case "exists":
                 {
-                    var el = document.QuerySelector(arg);
+                    var el = CurrentDocument().QuerySelector(arg);
                     if (el is null)
                         return $"step {i + 1} ({line}): assertion failed, element does not exist '{arg}'";
                     break;
@@ -354,7 +349,7 @@ public static class Conformance
                     var textParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
                     if (textParts.Length < 2)
                         return $"step {i + 1} ({line}): expected selector and text";
-                    var el = document.QuerySelector(textParts[0]);
+                    var el = CurrentDocument().QuerySelector(textParts[0]);
                     if (el is null)
                         return $"step {i + 1} ({line}): element not found '{textParts[0]}'";
                     var actualText = el.TextContent.Trim();
@@ -369,12 +364,180 @@ public static class Conformance
             // What the page's scripts queued in answer runs before the next step: promise jobs, then the rendering steps.
             if (cmd is not ("wait" or "exists" or "text"))
             {
-                host?.Loop.PerformMicrotaskCheckpoint();
-                host?.Loop.UpdateTheRendering();
+                CurrentHost()?.Loop.PerformMicrotaskCheckpoint();
+                CurrentHost()?.Loop.UpdateTheRendering();
             }
         }
 
         return null;
+    }
+
+    // The conformance harness must operate the rendered child, not a new parse of srcdoc.
+    private static Document? LiveFrameDocument(Element? frame)
+        => frame?.Node.FramePresentation?.ChildDocument as Document;
+
+    /// <summary>
+    /// Owns one complete page load for an artifact. A reopen disposes every object tied to the old load before making
+    /// a new document and engine; only the host-owned artifact storage and offline resource loader survive.
+    /// </summary>
+    internal sealed class ArtifactLifecycle : IDisposable
+    {
+        private readonly ConformanceArtifact _artifact;
+        private readonly string _html;
+        private readonly double _animationTime;
+        private readonly MemoryArtifactStorage _storage = new();
+        private readonly OfflineArtifactLoader _loader;
+        private readonly Uri _baseUri;
+        private readonly List<ArtifactPage> _retired = [];
+        private ArtifactPage _current;
+
+        private ArtifactLifecycle(ConformanceArtifact artifact, string html, double animationTime)
+        {
+            _artifact = artifact;
+            _html = html;
+            _animationTime = animationTime;
+            _baseUri = new Uri($"https://conformance.invalid/{Uri.EscapeDataString(artifact.Id)}/");
+            _loader = new OfflineArtifactLoader(artifact.Folder, _baseUri);
+            _current = Load();
+        }
+
+        public Document Document => _current.Document;
+        public ScriptHost Host => _current.Host;
+        public IReadOnlyList<ArtifactPage> RetiredPages => _retired;
+        public IArtifactStorage Storage => _storage;
+        public IReadOnlyList<ResourceRequest> OfflineRequests => _loader.Requests;
+
+        internal static ArtifactLifecycle Start(ConformanceArtifact artifact, string html, double animationTime) =>
+            new(artifact, html, animationTime);
+
+        public void Reopen()
+        {
+            _current.Dispose();
+            _retired.Add(_current);
+            _current = Load();
+        }
+
+        public void Dispose() => _current.Dispose();
+
+        private ArtifactPage Load()
+        {
+            Document? document = null;
+            JintScriptEngine? engine = null;
+            HtmlEventLoop? loop = null;
+            ScriptRunner? runner = null;
+            try
+            {
+                var options = new FolioOptions
+                {
+                    Fonts = Options.Fonts,
+                    Raster = Options.Raster,
+                    UserStyleSheet = Options.UserStyleSheet,
+                    Scripting = Options.Scripting,
+                    Capabilities = Options.Capabilities,
+                    ArtifactId = _artifact.Id,
+                    ArtifactStorage = _storage,
+                    ResourceLoader = _loader,
+                    BaseUri = _baseUri,
+                };
+                document = Document.Parse(_html, options);
+                engine = new JintScriptEngine();
+                var clock = new VirtualEventLoopClock();
+                loop = new HtmlEventLoop(engine, clock);
+                DomBindings.Install(engine, document, eventLoop: loop);
+                ScriptGlobalsInstaller.Install(loop, engine);
+                runner = new ScriptRunner(document.Node, engine, loop, options);
+                runner.Run();
+                loop.PerformMicrotaskCheckpoint();
+                loop.UpdateTheRendering();
+                clock.Advance(_animationTime);
+                loop.UpdateTheRendering();
+                return new ArtifactPage(document, engine, loop, runner, new ScriptHost(loop, clock));
+            }
+            catch
+            {
+                runner?.Dispose();
+                if (engine is not null) DomBindings.Dispose(engine);
+                loop?.Dispose();
+                engine?.Dispose();
+                document?.Dispose();
+                throw;
+            }
+        }
+    }
+
+    /// <summary>One load retired by <see cref="ArtifactLifecycle.Reopen"/>. Kept for lifecycle assertions in this test harness.</summary>
+    internal sealed class ArtifactPage(Document document, JintScriptEngine engine, HtmlEventLoop loop, ScriptRunner runner, ScriptHost host) : IDisposable
+    {
+        public Document Document { get; } = document;
+        public JintScriptEngine Engine { get; } = engine;
+        public HtmlEventLoop Loop { get; } = loop;
+        public ScriptRunner Runner { get; } = runner;
+        public ScriptHost Host { get; } = host;
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose()
+        {
+            if (IsDisposed)
+                return;
+            IsDisposed = true;
+            Runner.Dispose();
+            DomBindings.Dispose(Engine);
+            Loop.Dispose();
+            Engine.Dispose();
+            Document.Dispose();
+        }
+    }
+
+    private sealed class MemoryArtifactStorage : IArtifactStorage
+    {
+        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+
+        public string? Read(string key) => _values.GetValueOrDefault(key);
+        public void Write(string key, string value) => _values[key] = value;
+        public void Delete(string key) => _values.Remove(key);
+        public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+    }
+
+    /// <summary>Serves the current artifact and the pinned library cache. Every other request is refused, including network requests.</summary>
+    private sealed class OfflineArtifactLoader(string folder, Uri baseUri) : IResourceLoader
+    {
+        private readonly string _folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+        private readonly List<ResourceRequest> _requests = [];
+
+        public IReadOnlyList<ResourceRequest> Requests => _requests;
+
+        public async Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            _requests.Add(request);
+            if (Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)
+                && uri.Scheme == baseUri.Scheme && uri.Host == baseUri.Host
+                && uri.AbsolutePath.StartsWith(baseUri.AbsolutePath, StringComparison.Ordinal))
+            {
+                var relative = Uri.UnescapeDataString(uri.AbsolutePath[baseUri.AbsolutePath.Length..]);
+                if (relative.Length == 0 || relative.Split('/').Any(part => part is "." or ".." || part.Contains(':')))
+                    return ResourceResponse.Refused("The artifact resource path is invalid.");
+                var file = Path.GetFullPath(Path.Combine(_folder, relative.Replace('/', Path.DirectorySeparatorChar)));
+                if (!file.StartsWith(_folder + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                    || !File.Exists(file))
+                    return ResourceResponse.Refused("The artifact resource is unavailable offline.");
+                return ResourceResponse.Loaded(await File.ReadAllBytesAsync(file, cancellationToken), ContentType(file));
+            }
+
+            var cached = await ConformanceCache.Loader.LoadAsync(request, cancellationToken);
+            return cached is { Succeeded: true }
+                ? cached
+                : ResourceResponse.Refused($"{request.Url} is unavailable to the offline conformance loader.");
+        }
+
+        private static string ContentType(string file) => Path.GetExtension(file).ToLowerInvariant() switch
+        {
+            ".js" or ".mjs" => "text/javascript",
+            ".css" => "text/css",
+            ".json" => "application/json",
+            ".html" => "text/html",
+            ".png" => "image/png",
+            _ => "application/octet-stream",
+        };
     }
 
     /// <summary>The page's script side of a run: the event loop and its virtual clock, so interaction steps can let timers and promise jobs run.</summary>

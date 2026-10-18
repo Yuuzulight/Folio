@@ -8,15 +8,17 @@ Native Windows adapters now have direct runtime regression checks. `MediaFoundat
 
 These adapters are explicitly host supplied through `FolioOptions.MediaDecoder` and `MediaAudioOutput`; `FolioView.LoadHtml` forwards them for in-process documents. Content-process decoder/output IPC is not wired. A single decoded thumbnail is not moving video playback.
 
+The Jint compatibility backend is now pinned to 4.17.0; direct owner-thread evaluation replaces the blocking-await/background-pump workaround. Native-engine requirements remain separate.
+
 ## Remaining acceptance work
 
 - WebGL resource state and limited triangle drawing exist, but GLSL validation/execution and a GPU backend do not.
 - Media still needs timed video frames, synchronized audio/video and content-process IPC, full state-machine/sound-grant behavior and full process-budget verification. Source bytes plus decoded pixels/PCM now share document reservations checked before decoder creation, including reload, capability revocation and teardown. Poster/capture allocations and actual sandbox enforcement still need coverage. Mute/volume, script seeking, replay, loop tails and binding teardown now have direct regression tests.
-- Workers use isolated engines, but their complete worker event-loop/global surface and zero-copy transfers are not established.
+- Workers now own persistent threads and event loops with timer/microtask globals and parent-loop delivery. Full worker-global coverage, native second-engine checks, aggregate memory enforcement and zero-copy transfers remain unproven.
 - WebAssembly is a JavaScript interpreter on Jint, not the native engine required by the issues; its compilation cache is an in-page map.
-- Static iframe documents render, but the full scripted-child, capability inheritance and watchdog acceptance remains to be proven.
+- Iframes now run permitted scripts in isolated child engines and retire them on navigation/revocation/parent teardown. Sandbox/origin and inherited host-adapter tests pass; actual cross-context messaging, shared nested-frame limits and process-watchdog acceptance remain incomplete.
 - Camera/microphone output is synthetic, and WebRTC is in-page loopback without a permitted device/network transport backend.
-- Service-worker handlers run in the page engine, document subresource interception is incomplete, and the conformance runner's `reopen offline` step does not recreate the document with an offline loader.
+- Service-worker handlers run in the page engine, document subresource interception is incomplete, and the conformance runner now recreates a fresh page with persisted storage and an offline artifact loader, but real service-worker interception across that reopen remains unproven.
 - The capability matrix does not yet execute the complete real process sandbox suite once per feature.
 
 Existing Release tests and D8–D14 images are useful regression checks for the behavior they exercise. Passing them does not resolve missing backend or lifecycle requirements. Dependency-first delivery remains the plan; replacing mature dependencies with Folio-owned implementations is a later, separate track.
