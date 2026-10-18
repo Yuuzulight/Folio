@@ -12,6 +12,7 @@ public enum ContentMessageKind
     Frame,
     Input,
     Diagnostic,
+    MediaCaptureActivity,
     Heartbeat,
     Shutdown,
     Capabilities,

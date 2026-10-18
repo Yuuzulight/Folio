@@ -186,6 +186,25 @@ public class FolioView : Control
 
     private ValueTask OnContentMessage(ContentMessage message, CancellationToken cancellationToken)
     {
+        if (message.Kind == ContentMessageKind.MediaCaptureActivity
+            && message.Payload.TryGetProperty("active", out var activeValue)
+            && activeValue.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+        {
+            var active = activeValue.GetBoolean();
+            void ApplyActivity()
+            {
+                _mediaCaptureIndicator.Visible = active;
+                _mediaCaptureIndicator.BringToFront();
+                MediaCaptureActivityChanged?.Invoke(active);
+                Options.MediaCaptureActivityChanged?.Invoke(active);
+            }
+            try
+            {
+                if (!IsDisposed && IsHandleCreated) BeginInvoke((Action)ApplyActivity);
+            }
+            catch (InvalidOperationException) { }
+            return ValueTask.CompletedTask;
+        }
         if (message.Kind != ContentMessageKind.Frame || !message.Payload.TryGetProperty("canvasFrame", out var frame))
             return ValueTask.CompletedTask;
         var path = frame.TryGetProperty("path", out var pathValue) ? pathValue.GetString() : null;

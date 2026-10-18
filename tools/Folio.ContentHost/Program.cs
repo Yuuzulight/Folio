@@ -46,6 +46,7 @@ session.MessageReceived += async (message, cancellationToken) =>
             {
                 Scripting = ScriptingPolicy.ContentProcess,
                 Capabilities = capabilities,
+                MediaCaptureActivityChanged = active => _ = session.SendAsync(ContentMessageKind.MediaCaptureActivity, new { active }, cancellationToken),
                 Raster = new SkiaRasterBackend()
             });
             DomBindings.Install(engine, document);
