@@ -250,6 +250,21 @@ internal sealed class DomContext
                 && ns == Namespaces.Html && name is ("video" or "audio"))
                 _ = GetMedia(element);
     }
+
+    internal void InitializeIframeElements()
+    {
+        var initialized = 0;
+        for (Node? node = Document; node is not null; node = node.NextInTree(Document))
+        {
+            if (node is ElementNode { Name.Namespace: var ns, LocalName: "iframe" } element && ns == Namespaces.Html)
+            {
+                if (initialized >= MaxIframes)
+                    break;
+                _ = GetIframe(element);
+                initialized++;
+            }
+        }
+    }
     public IframeState GetIframe(ElementNode element)
     {
         if (_iframes.TryGetValue(element, out var state)) return state;

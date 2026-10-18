@@ -633,7 +633,7 @@ public sealed class Document : IDisposable
         stack.Push(page);
         while (stack.TryPop(out var frag))
         {
-            if (frag.Box?.Node == element && frag.Kind == FragmentKind.Box)
+            if (frag.Box?.Node == element)
                 return frag;
             foreach (var child in frag.Children)
                 stack.Push(child.Fragment);
@@ -656,7 +656,7 @@ public sealed class Document : IDisposable
 
         bool WalkFragment(Fragment frag, float currentX, float currentY)
         {
-            if (frag.Box?.Node == element && frag.Kind == FragmentKind.Box)
+            if (frag.Box?.Node == element)
             {
                 found = new RectF(currentX, currentY, frag.Width, frag.Height);
                 return true;
@@ -998,6 +998,33 @@ public sealed class Document : IDisposable
     /// there, by hit testing in reverse paint order. Null outside every box or before painting.
     /// </summary>
     internal ElementNode? ElementAt(float x, float y) => HitAt(x, y)?.Node;
+
+    internal bool TryGetFrameAt(float x, float y, out Document? child, out Vector2 local)
+    {
+        child = null;
+        local = default;
+        var element = ElementAt(x, y);
+        if (element?.LocalName != "iframe")
+        {
+            for (Node? candidate = Node; candidate is not null; candidate = candidate.NextInTree(Node))
+            {
+                if (candidate is ElementNode iframe && iframe.LocalName == "iframe" && GetElementBounds(iframe) is { } candidateBounds
+                    && x >= candidateBounds.X && y >= candidateBounds.Y && x <= candidateBounds.Right && y <= candidateBounds.Bottom)
+                {
+                    element = iframe;
+                    break;
+                }
+            }
+        }
+        if (element?.LocalName != "iframe" || element.FramePresentation?.ChildDocument is not Document frame)
+            return false;
+        if (GetElementBounds(element) is not { } bounds || x < bounds.X || y < bounds.Y || x > bounds.Right || y > bounds.Bottom)
+            return false;
+        element.FramePresentation!.Render(bounds.Width, bounds.Height);
+        child = frame;
+        local = new Vector2(x - bounds.X, y - bounds.Y);
+        return true;
+    }
 
     /// <summary>
     /// Computes the CSS cursor keyword active at the given point (page coordinates in CSS pixels).

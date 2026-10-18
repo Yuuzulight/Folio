@@ -620,13 +620,37 @@ internal static class DisplayListBuilder
                 ? new CssColor(color.R, color.G, color.B, 0.08f)
                 : new CssColor(0.92f, 0.92f, 0.92f, 1);
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
-            if (replaced.Kind != ReplacedKind.Media || replaced.Node is not Dom.ElementNode element)
+            if (replaced.Kind is not (ReplacedKind.Media or ReplacedKind.Frame) || replaced.Node is not Dom.ElementNode element)
             {
                 list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: "Embedded content unavailable"));
                 return;
             }
 
             var media = element.MediaPresentation;
+            if (replaced.Kind == ReplacedKind.Frame)
+            {
+                var frame = element.FramePresentation;
+                frame?.Render(box.Rect.Width, box.Rect.Height);
+                if (frame?.DisplayList is DisplayList child && child.Items.Count > 0)
+                {
+                    var frameRect = BorderBox(box);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, frameRect));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.PushTransform, Transform: Matrix3x2.CreateTranslation(frameRect.Rect.X, frameRect.Rect.Y)));
+                    list.Items.AddRange(child.Items);
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
+                    if (!child.Items.Any(item => item.Text is { Length: > 0 }) && frame.FallbackText is { Length: > 0 } fallback)
+                        list.Items.Add(new DisplayItem(DisplayItemKind.Label, frameRect, color, Text: fallback));
+                    return;
+                }
+                if (frame?.FallbackText is { Length: > 0 } text)
+                {
+                    list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: text));
+                    return;
+                }
+                list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: "Embedded content unavailable"));
+                return;
+            }
             var label = element.LocalName == "audio" ? "Audio unavailable" : "Video unavailable";
             if (media is null)
             {
@@ -659,6 +683,7 @@ internal static class DisplayListBuilder
             var seconds = (int)Math.Round(value);
             return $"{seconds / 60}:{seconds % 60:00}";
         }
+
 
         private (int Start, int End)? GetSelectionTextRange(Fragment fragment)
         {

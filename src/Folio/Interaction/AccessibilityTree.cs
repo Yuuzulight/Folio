@@ -156,6 +156,24 @@ internal static class AccessibilityTree
             node.Bounds = boxes.TryGetValue(element, out var bounds) ? bounds : Union(node.Children.Select(c => c.Bounds));
             if (role is "video" or "audio" && element.GetAttribute("controls") is not null)
                 AddMediaControls(element, node);
+            if (role == "iframe" && element.FramePresentation is { } frame)
+            {
+                frame.Render(node.Bounds?.Width ?? 300, node.Bounds?.Height ?? 150);
+                if (frame.Accessibility is AccessibleNode child)
+                    foreach (var childNode in child.Children)
+                        AddFrameChild(childNode, node);
+            }
+        }
+
+        static void AddFrameChild(AccessibleNode child, AccessibleNode parent)
+        {
+            child.Parent = parent;
+            parent.Children.Add(child);
+            foreach (var nested in child.Children.ToArray())
+            {
+                child.Children.Remove(nested);
+                AddFrameChild(nested, child);
+            }
         }
 
         static void AddMediaControls(ElementNode element, AccessibleNode media)

@@ -66,6 +66,7 @@ public static class DomBindings
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
         context.InitializeMediaElements();
+        context.InitializeIframeElements();
 
         // 1. Install DOMException
         InstallDomException(engine);

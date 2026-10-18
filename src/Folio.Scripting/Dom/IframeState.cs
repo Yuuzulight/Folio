@@ -1,10 +1,12 @@
+using Folio;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Painting;
 using Folio.Resources;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed class IframeState
+internal sealed class IframeState : IFramePresentation
 {
     public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null)
     {
@@ -15,6 +17,7 @@ internal sealed class IframeState
         ResourceLoader = resourceLoader;
         BaseUri = baseUri;
         NavigationRequested = navigationRequested;
+        element.FramePresentation = this;
         var sandbox = SandboxTokens;
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
         Origin = sameOrigin && Uri.TryCreate(ResolveSource(element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : "null";
@@ -40,8 +43,16 @@ internal sealed class IframeState
     public ScriptValue ElementObject { get; set; } = ScriptValue.Null;
     public ScriptValue Window { get; set; } = ScriptValue.Null;
     public DocumentNode? ChildDocument { get; private set; }
+    private Document? ChildRenderDocument { get; set; }
+    public DisplayList? FrameDisplayList { get; private set; }
+    object? IFramePresentation.DisplayList => FrameDisplayList;
+    object? IFramePresentation.Accessibility => ChildRenderDocument?.AccessibilityTree();
+    object? IFramePresentation.ChildDocument => ChildRenderDocument;
+    bool IFramePresentation.HasFocusableContent => ChildRenderDocument?.Input.GetSequentialFocusableElements().Count > 0;
+    string? IFramePresentation.FallbackText => ChildRenderDocument?.AccessibilityTree() is { } tree ? string.Join(" ", Text(tree)) : null;
     private readonly List<ScriptValue> _messageListeners = [];
     private string? _loadedSource;
+    private bool _loadDispatched;
 
     private string ResolveSource(string source) => BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
 
@@ -66,7 +77,11 @@ internal sealed class IframeState
     public void Invalidate()
     {
         ChildDocument = null;
+        ChildRenderDocument?.Dispose();
+        ChildRenderDocument = null;
+        FrameDisplayList = null;
         _loadedSource = null;
+        _loadDispatched = false;
         var sandbox = SandboxTokens;
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
         Origin = sameOrigin && Uri.TryCreate(ResolveSource(Element.GetAttribute("src") ?? string.Empty), UriKind.Absolute, out var uri)
@@ -74,15 +89,24 @@ internal sealed class IframeState
             : "null";
     }
 
-    public void LoadInlineDocument()
+    public void LoadInlineDocument(bool dispatchLoad = true)
     {
         if (!Enabled) return;
         var inline = Element.GetAttribute("srcdoc");
         var source = ResolveSource(Element.GetAttribute("src") ?? string.Empty);
         var current = inline is not null ? "srcdoc:" + inline : "src:" + source;
-        if (ChildDocument is not null && _loadedSource == current) return;
+        if (ChildDocument is not null && _loadedSource == current)
+        {
+            if (dispatchLoad && !_loadDispatched)
+                DispatchLoad();
+            return;
+        }
         ChildDocument = null;
+        ChildRenderDocument?.Dispose();
+        ChildRenderDocument = null;
+        FrameDisplayList = null;
         _loadedSource = current;
+        _loadDispatched = false;
         var sandbox = (Element.GetAttribute("sandbox") ?? string.Empty).Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
         var sameOrigin = sandbox.Length == 0 || sandbox.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
         var originSource = inline is not null && BaseUri is not null ? BaseUri.AbsoluteUri : source;
@@ -114,7 +138,15 @@ internal sealed class IframeState
             if (response?.Data is not { } data) { DispatchError(); return; }
             html = System.Text.Encoding.UTF8.GetString(data);
         }
-        ChildDocument = TreeBuilder.Parse(html);
+        ChildRenderDocument = Document.Parse(html, new FolioOptions { BaseUri = BaseUri });
+        ChildDocument = ChildRenderDocument.Node;
+        if (dispatchLoad)
+            DispatchLoad();
+    }
+
+    private void DispatchLoad()
+    {
+        _loadDispatched = true;
         if (ElementObject.IsObject)
         {
             Engine.SetGlobalProperty("__folio_iframe_load_target", ElementObject);
@@ -129,6 +161,33 @@ internal sealed class IframeState
             Engine.SetGlobalProperty("__folio_iframe_load_target", ScriptValue.Undefined);
             Engine.Call(OnLoad, ScriptValue.Undefined, [eventValue]);
         }
+    }
+
+    public void Render(float width, float height)
+    {
+        LoadInlineDocument(dispatchLoad: false);
+        if (ChildRenderDocument is { } child)
+            (FrameDisplayList, _) = child.Paint(Math.Max(1, width), Math.Max(1, height));
+    }
+
+    bool IFramePresentation.FocusFirst(bool reverse)
+    {
+        if (ChildRenderDocument is not { } child)
+            return false;
+        var focusable = child.Input.GetSequentialFocusableElements();
+        if (focusable.Count == 0)
+            return false;
+        child.Input.Focus(focusable[reverse ? ^1 : 0], visible: true);
+        return true;
+    }
+
+    private static IEnumerable<string> Text(Interaction.AccessibleNode node)
+    {
+        if (node.Role is "text" or "button" or "link" or "heading")
+            yield return node.Name;
+        foreach (var child in node.Children)
+            foreach (var text in Text(child))
+                yield return text;
     }
 
     private void DispatchError()

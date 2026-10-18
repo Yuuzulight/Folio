@@ -9,6 +9,7 @@ Current exploratory surfaces:
 - Dedicated workers with isolated script engines, resource-backed classic/module/blob scripts, transferable message ports, message/error events and termination limits.
 - WebAssembly validation, imports/exports, bounded memory/tables/globals and a bounded i32 interpreter.
 - Iframes with data or host-loaded child documents, sandbox origin/flag handling, child window identity, transferable cross-document messaging and load events.
+- Static `srcdoc` frames now own a parsed child document, layout and accessibility tree; the host paints their replaced box and routes pointer and wheel input into the child context.
 - Media text tracks with WebVTT parsing, cue IDs, active cue tracking, `<track>` loading and `cuechange` events.
 - WebRTC negotiation, ICE/candidate state, transceivers, senders/receivers, tracks and data channels.
 - Service-worker registration, script loading, install/activate lifecycle events, controller changes and messages.
@@ -24,6 +25,6 @@ bounded compile cache (#544), WebAssembly limits and routing (#545), camera/micr
 limits and allowlisted routing (#554), iframe sandbox/origin/src loading (#548), and native media controls, captions,
 and text tracks (#536). The hosted matrix covers each of those capability rows on both supported CI platforms.
 
-Remaining work includes nested iframe layout/input/accessibility, a GLSL/WebGL runtime and rasteriser, a Folio-owned
+Remaining work includes broader nested-frame reftests and selection edge cases, a GLSL/WebGL runtime and rasteriser, a Folio-owned
 WebAssembly engine, native media decoding/output, real WebRTC transport, and the remaining corpus and routing
 coverage. The current surfaces should not be read as milestone completion.

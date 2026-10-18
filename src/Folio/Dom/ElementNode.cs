@@ -30,6 +30,9 @@ internal class ElementNode(DocumentNode ownerDocument, QualifiedName name) : Con
     /// <summary>Media state installed by the scripting layer for native controls and cue painting.</summary>
     public IMediaPresentation? MediaPresentation { get; internal set; }
 
+    /// <summary>Nested document state installed by the scripting layer.</summary>
+    internal IFramePresentation? FramePresentation { get; set; }
+
     /// <summary>The current form control value (separate from the 'value' content attribute).</summary>
     public string? Value { get; set; }
 

@@ -277,6 +277,11 @@ public sealed class InputRouter
     /// <summary>A pointer moved over the document.</summary>
     public void HandlePointerMove(PointerEvent e)
     {
+        if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
+        {
+            child!.Input.HandlePointerMove(e with { Position = local });
+            return;
+        }
         if (_scrollbarDrag is { } drag)
         {
             if (drag.IsThumb && drag.TrackLength > drag.ThumbLength && drag.MaxScroll > 0)
@@ -340,6 +345,11 @@ public sealed class InputRouter
     /// <summary>A pointer button was pressed down.</summary>
     public void HandlePointerDown(PointerEvent e)
     {
+        if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
+        {
+            child!.Input.HandlePointerDown(e with { Position = local });
+            return;
+        }
         // 1. Check if clicking on a scrollbar track or thumb of any scroll container under pointer
         if (e.Button == PointerButton.Primary && HitTestScrollbar(e.Position) is { } hitScrollbar)
         {
@@ -414,6 +424,11 @@ public sealed class InputRouter
     /// <summary>A pointer button was released.</summary>
     public void HandlePointerUp(PointerEvent e)
     {
+        if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
+        {
+            child!.Input.HandlePointerUp(e with { Position = local });
+            return;
+        }
         if (_scrollbarDrag is not null)
         {
             _scrollbarDrag = null;
@@ -501,6 +516,11 @@ public sealed class InputRouter
     /// <summary>Mouse wheel or touchpad scroll event.</summary>
     public void HandleWheel(WheelEvent e)
     {
+        if (_document.TryGetFrameAt(e.Position.X, e.Position.Y, out var child, out var local))
+        {
+            child!.Input.HandleWheel(e with { Position = local });
+            return;
+        }
         var hitTarget = _document.ElementAt(e.Position.X, e.Position.Y);
         hitTarget ??= _document.Node.DocumentElement;
 
@@ -883,7 +903,10 @@ public sealed class InputRouter
                 nextIndex = 0;
         }
 
-        Focus(elements[nextIndex], visible: true);
+        var next = elements[nextIndex];
+        Focus(next, visible: true);
+        if (next.LocalName == "iframe")
+            next.FramePresentation?.FocusFirst(reverse);
     }
 
     internal List<ElementNode> GetSequentialFocusableElements()
@@ -899,6 +922,11 @@ public sealed class InputRouter
 
             order++;
             var ti = GetTabIndex(el);
+            if (ti is null && el.LocalName == "iframe" && el.FramePresentation?.HasFocusableContent == true)
+            {
+                zero.Add(el);
+                continue;
+            }
             if (ti is null || ti.Value < 0)
                 continue;
 

@@ -1242,6 +1242,26 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void SrcdocFramesPaintAndJoinTheAccessibilityTree()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<html><body><iframe id='f' srcdoc='<html><body><button id=\"nested\">nested content</button></body></html>' style='width:240px;height:120px'></iframe></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        });
+        DomBindings.Install(engine, document);
+        var framePresentation = document.GetElementById("f")!.Node.FramePresentation;
+        Assert.NotNull(framePresentation);
+        framePresentation!.Render(240, 120);
+        Assert.NotNull(framePresentation.DisplayList);
+        Assert.NotNull(framePresentation.Accessibility);
+        Assert.Contains("nested content", ((Folio.Interaction.AccessibleNode)framePresentation.Accessibility!).Dump(), StringComparison.Ordinal);
+        document.Paint(320, 200);
+        Assert.Contains("nested content", document.AccessibilityTree()!.Dump(), StringComparison.Ordinal);
+        Assert.Contains(document.DisplayList!.Items, item => item.Text?.Contains("nested content", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public void CanvasImageDataArrayMutationsAreAppliedByPutImageData()
     {
         var document = Document.Parse("<canvas id='chart' width='1' height='1'></canvas>", new FolioOptions { Raster = new Folio.Skia.SkiaRasterBackend() });
