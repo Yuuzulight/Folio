@@ -1,6 +1,8 @@
-# Folio
+# Folio Artifacts
 
-A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
+A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#. The repository, NuGet packages and namespaces are named `Folio`.
+
+Folio Artifacts is an artifact-focused renderer, not a complete web browser. It renders and runs the HTML that AI assistants write (reports, tables, charts, small interactive pages) and has no address bar, tabs or logins. Anything it can't handle yet opens in the system browser.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
@@ -30,7 +32,7 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Done | 0 |
-| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Done on dependency-backed path | 1 |
+| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Done on dependency-backed path | 0 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 45 |
 | Optional: towards all-Folio: an in-house shaper, rasteriser and image decoders. Never a blocker for the milestones above. | Not started | 19 |
 
