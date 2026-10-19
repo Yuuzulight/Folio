@@ -8,12 +8,13 @@ public class ConformanceTests
         Conformance.Discover().Select(a => a.Id).ToList() is { Count: > 0 } ids ? new(ids) : new(None);
 
     /// <summary>
-    /// M1 acceptance criterion 3: every artifact, whatever it needs, renders without an exception, hang or limit hit.
+    /// Every artifact renders without an exception, hang or limit hit, and its interaction assertions succeed unless explicitly expected to fail.
+    /// Expected-failure marks must be removed when an artifact starts passing.
     /// Pass rates against the references are the report's job (<c>Folio.RenderTests conformance</c>), not a test's.
     /// </summary>
     [Theory]
     [MemberData(nameof(Artifacts))]
-    public void RendersWithoutCrashHangOrLimit(string id)
+    public void HasNoRuntimeOrStaleExpectationFailure(string id)
     {
         Assert.SkipWhen(id == None, "The conformance corpus is empty.");
 

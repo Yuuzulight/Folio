@@ -46,8 +46,9 @@ public sealed record ConformanceResult(ConformanceArtifact Artifact, Conformance
 {
     public bool Passed => Outcome is ConformanceOutcome.Pass or ConformanceOutcome.PassSecondary;
 
-    /// <summary>Crashes, hangs and limit hits fail M1 wherever they happen, whatever the category.</summary>
-    public bool Broke => Outcome is ConformanceOutcome.Crash or ConformanceOutcome.Hang or ConformanceOutcome.LimitHit;
+    /// <summary>Runtime failures and stale expected-failure marks fail in every category.</summary>
+    public bool Broke => Outcome is ConformanceOutcome.Crash or ConformanceOutcome.Hang or ConformanceOutcome.LimitHit
+        or ConformanceOutcome.ScriptFailed or ConformanceOutcome.UnexpectedPass;
 }
 
 /// <summary>

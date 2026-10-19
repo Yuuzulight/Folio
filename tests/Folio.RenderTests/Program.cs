@@ -138,7 +138,7 @@ public static class Program
     }
 
     // folio-test conformance [category|category/name]...: renders the corpus and prints pass rates per category (also to
-    // the GitHub Actions job summary). Fails only on a crash, hang or limit hit, which M1 allows nowhere.
+    // the GitHub Actions job summary). Fails on runtime/interaction failures and stale expected-failure marks.
     private static int ConformanceReport(string[] filters)
     {
         var results = Conformance.Discover()

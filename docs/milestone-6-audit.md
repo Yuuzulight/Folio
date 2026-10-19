@@ -104,7 +104,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `CapabilityMatrixTests.cs; .github/workflows/ci.yml`.
 
-Rows exist, but base matrix assertions instantiate supervisors with tiny limits. They do not launch the sandbox and exercise network/filesystem/process denial per capability.
+Rows exist, but base matrix assertions instantiate supervisors with tiny limits. They do not launch the sandbox and exercise network/filesystem/process denial per capability. The conformance harness now fails unexpected interaction assertion failures and stale expected-failure marks; real child-command regressions prove exit status, expected-failure handling and private-corpus isolation. This repairs failure accounting, not the missing per-feature sandbox suite.
 
 Original acceptance:
 

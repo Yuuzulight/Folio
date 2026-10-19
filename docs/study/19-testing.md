@@ -81,4 +81,6 @@ A corpus of real-world-style single-file HTML artifacts, like the ones AI assist
 
 **Regression check**: any change against `approved.png` beyond tolerance fails CI until approved.
 
+**Conformance failure accounting**: corpus tests and the report command fail on crashes, hangs, limit hits and unexpected interaction assertion failures. A stale `expectedToFail` mark also fails once the artifact matches its reference, requiring the mark to be removed. Explicitly expected failures remain visible as such; ordinary pixel mismatches and missing references remain report-only. Real command-level regressions exercise these outcomes in a temporary synthetic private corpus without changing the public references or the parent process environment. A successful command therefore does not establish visual parity.
+
 **Parity measure**: pass rate against `reference.png` per category, reported on every PR and tracked over time. Milestone exit criteria in the [roadmap](../roadmap.md) are stated as pass rates. An artifact that fails because of a known, deliberately unsupported feature stays in the corpus and counts as a failure; the number is meant to be honest.

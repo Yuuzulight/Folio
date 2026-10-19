@@ -24,6 +24,8 @@ Artifact routing now independently checks completed feature implementations and 
 
 The complete conformance report was also inspected separately from the test result. All 30 D8–D14 reference images pass, but the D1 team-directory example has a reproducible 3.2% pixel mismatch, mostly a three-pixel vertical shift, also reproduced in Windows CI. Nine D5 Chart.js examples remain explicit expected failures. The reporting command succeeds despite image mismatches, so its exit status alone does not establish visual parity. These failures have not been hidden by changing references or tolerances.
 
+Conformance failure accounting now makes unexpected interaction assertion failures and stale expected-failure marks fail both the corpus tests and report command. Four actual-command regressions cover failed assertions, explicit expected failures, valid assertions without references and stale marks with a matching synthetic reference. Both incorrect successful-exit behaviors were reproduced before their fixes. The stricter Release solution run passed 3,199 tests with one local symbolic-link privilege skip. Ordinary image mismatches remain report-only, and #526 remains open for its missing real per-feature sandbox cases.
+
 ## Remaining acceptance work
 
 - WebGL resource state and limited triangle drawing exist, but GLSL validation/execution and a GPU backend do not.
