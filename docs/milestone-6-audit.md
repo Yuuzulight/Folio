@@ -308,7 +308,7 @@ Original acceptance:
 
 **Unverified.** Evidence: `WorkerState.ExecuteWithWatchdog; engine limits tests`.
 
-Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, fail only the worker on timeout and exit before its engine is disposed. Runtime import waits use worker-owned cancellation and a load timeout. A paused-loader regression proves parent responsiveness and engine release while the host response remains pending; the worker message-queue lock is not held across script/host execution. Worker regressions also cover one-CPU contention, delayed delivery and busy-loop interruption. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
+Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, fail only the worker on timeout and exit before its engine is disposed. Runtime import waits use worker-owned cancellation and a load timeout. A paused-loader regression proves parent responsiveness and engine release while the host response remains pending; the worker message-queue lock is not held across script/host execution. Worker regressions also cover one-CPU contention, delayed delivery and busy-loop interruption. Retired Jint runtimes now release captured intrinsics, event-loop callbacks, clone helpers and exception identity mappings; terminated worker handles release their worker-global handles. Nine weak-reference regressions retain the outer engine, translated exception or worker handle while proving the old runtime is collectible, including parent reconfiguration. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
 
 Original acceptance:
 

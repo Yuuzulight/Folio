@@ -281,6 +281,10 @@ internal sealed class WorkerState
         try { if (WorkerEngine is not null) DomBindings.Dispose(WorkerEngine); } catch { }
         _workerEventLoop?.Dispose();
         WorkerEngine?.Dispose();
+        // The page may keep its Worker object after terminate(). These are
+        // handles into the worker VM, unlike the page-owned event listeners.
+        _workerScope = ScriptValue.Undefined;
+        _workerListenersSnapshot = ScriptValue.Undefined;
         _workerDocument?.Dispose();
         _workerDocument = null;
         lock (_loadGate)

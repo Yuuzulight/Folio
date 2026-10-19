@@ -17,8 +17,10 @@ namespace Folio.Scripting.Jint;
 public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
     private static readonly Dictionary<(string Source, string Url), Lazy<Prepared<Script>>> HostScripts = new();
-    private sealed record NativeScriptException(Engine Engine, JavaScriptException Exception);
-    private static readonly ConditionalWeakTable<ScriptRuntimeException, NativeScriptException> NativeExceptions = new();
+    private sealed record NativeScriptException(JavaScriptException Exception);
+    // A caller may retain a translated exception after its VM is gone. Its
+    // identity bridge must be owned by the VM, not by that external exception.
+    private static readonly ConditionalWeakTable<Engine, ConditionalWeakTable<ScriptRuntimeException, NativeScriptException>> NativeExceptions = new();
     private const int MaxPreparedHostScripts = 16;
     private Engine? _engine;
     private JsValue _arrayBufferDetachedGetter = JsValue.Undefined;
@@ -54,7 +56,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
 
     private void RebuildEngine()
     {
-        _engine?.Dispose();
+        RetireRealm();
         _cts.Dispose();
         _cts = new CancellationTokenSource();
 
@@ -437,7 +439,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
     {
         var translated = new ScriptRuntimeException(error.Message, error.JavaScriptStackTrace,
             error.Location.Start.Line, error.Location.Start.Column, error.Location.SourceFile);
-        NativeExceptions.Add(translated, new NativeScriptException(_engine!, error));
+        NativeExceptions.GetValue(_engine!, _ => new()).Add(translated, new NativeScriptException(error));
         return translated;
     }
 
@@ -445,7 +447,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
     // Restore its original JavaScript throw only when it belongs to this same engine.
     internal static bool TryGetOriginalException(Engine engine, ScriptRuntimeException error, out JavaScriptException original)
     {
-        if (NativeExceptions.TryGetValue(error, out var native) && ReferenceEquals(native.Engine, engine))
+        if (NativeExceptions.TryGetValue(engine, out var exceptions) && exceptions.TryGetValue(error, out var native))
         {
             original = native.Exception;
             return true;
@@ -494,17 +496,36 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
     {
         if (_disposed)
             return;
+        try { RetireRealm(); }
+        finally
+        {
+            _disposed = true;
+            _cts.Cancel();
+            _cts.Dispose();
+        }
+    }
+
+    private void RetireRealm()
+    {
+        if (_engine is null) return;
         try { Dom.DomBindings.Dispose(this); }
         catch (ScriptInterruptedException) { }
         catch (ScriptLimitExceededException) { }
         catch (ScriptRuntimeException) { }
         finally
         {
-            _disposed = true;
             _cts.Cancel();
-            _cts.Dispose();
-            _engine?.Dispose();
-            _engine = null;
+            Dom.StructuredCloneCodec.ResetHelpers(this);
+            NativeExceptions.Remove(_engine);
+            try { _engine.Dispose(); }
+            finally
+            {
+                _engine = null;
+                _arrayBufferDetachedGetter = JsValue.Undefined;
+                _arrayBufferTransfer = JsValue.Undefined;
+                _dataViewByteLengthGetter = JsValue.Undefined;
+                _eventLoopPump = null;
+            }
         }
     }
 
