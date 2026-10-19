@@ -101,7 +101,7 @@ internal sealed class IframeState : IFramePresentation
     public void PostMessage(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
     {
         if (!Enabled || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
-        var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window));
+        var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window, ports: StructuredCloneCodec.CreatePorts(Engine, [])));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         foreach (var listener in _messageListeners.ToArray())
             if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);

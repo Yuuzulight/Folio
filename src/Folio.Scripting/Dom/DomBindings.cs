@@ -28,6 +28,7 @@ public static class DomBindings
     public static bool Dispose(IScriptEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
+        MessagePortEndpoint.DisposeAll(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         Contexts.Remove(engine);
         context.DisposeIframes();
@@ -107,47 +108,8 @@ public static class DomBindings
             .DefineMethod("createPath", (_, _, args) => engine.CreateHostObject(context.Templates.Canvas.Path2D, context.Templates.Canvas.NewPath2D(args)))
             .DefineMethod("imageData", (_, _, args) => context.Templates.Canvas.ConstructImageData(args));
         engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
-        var messagePortTemplate = new HostObjectTemplate("MessagePort")
-            .DefineProperty("onmessage", (target, _) => ((MessagePortEndpoint)target).OnMessage,
-                (target, _, value) => ((MessagePortEndpoint)target).SetOnMessage(value))
-            .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((MessagePortEndpoint)target).Closed))
-            .DefineMethod("start", (target, _, _) => { ((MessagePortEndpoint)target).Start(); return ScriptValue.Undefined; })
-            .DefineMethod("close", (target, _, _) => { ((MessagePortEndpoint)target).Close(); return ScriptValue.Undefined; })
-            .DefineMethod("postMessage", (target, _, args) => { if (args.Length > 0) ((MessagePortEndpoint)target).PostMessage(args[0]); return ScriptValue.Undefined; });
-        var messagePortHost = new HostObjectTemplate("MessagePortHost")
-            .DefineMethod("create", (_, _, _) =>
-            {
-                var pair = MessagePortFactory.Create(context.Templates.MessageEventTemplate, messagePortTemplate, engine);
-                return engine.CreateArray([
-                    engine.CreateHostObject(messagePortTemplate, pair.First),
-                    engine.CreateHostObject(messagePortTemplate, pair.Second)
-                ]);
-            })
-            .DefineMethod("post", (_, _, args) =>
-            {
-                if (args.Length > 1 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
-                    endpoint.PostMessage(args[1]);
-                return ScriptValue.Undefined;
-            })
-            .DefineMethod("setHandler", (_, _, args) =>
-            {
-                if (args.Length > 1 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
-                    endpoint.SetOnMessage(args[1]);
-                return ScriptValue.Undefined;
-            })
-            .DefineMethod("start", (_, _, args) =>
-            {
-                if (args.Length > 0 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
-                    endpoint.Start();
-                return ScriptValue.Undefined;
-            })
-            .DefineMethod("close", (_, _, args) =>
-            {
-                if (args.Length > 0 && engine.TryGetHostTarget(args[0], out var target) && target is MessagePortEndpoint endpoint)
-                    endpoint.Close();
-                return ScriptValue.Undefined;
-            });
-        engine.SetGlobalProperty("__folio_message_port_host", engine.CreateHostObject(messagePortHost, context));
+        var messagePortTemplate = MessagePortBindings.Install(engine, context.Templates.MessageEventTemplate,
+            eventLoop, context.MaxWorkerMessageBytes, context.MaxWorkerMemoryBytes);
         var workerTemplate = new HostObjectTemplate("Worker")
             .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
             .DefineProperty("onmessageerror", (target, _) => ((WorkerState)target).OnMessageError, (target, _, value) => ((WorkerState)target).OnMessageError = value)
@@ -310,17 +272,6 @@ public static class DomBindings
                 globalThis.window = globalThis;
             }
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
-            (function() {
-                function Port(endpoint) { this._endpoint = endpoint; this._listeners = []; this._closed = false; this._onmessage = null; }
-                Object.defineProperty(Port.prototype, 'onmessage', { get: function() { return this._onmessage; }, set: function(value) { this._onmessage = value; if (this._endpoint) __folio_message_port_host.setHandler(this._endpoint, value); } });
-                Port.prototype.start = function() { if (this._endpoint) __folio_message_port_host.start(this._endpoint); };
-                Port.prototype.close = function() { this._closed = true; if (this._endpoint) __folio_message_port_host.close(this._endpoint); };
-                Port.prototype.addEventListener = function(type, handler) { if (type === 'message' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) { this._listeners.push(handler); if (this._endpoint) __folio_message_port_host.setHandler(this._endpoint, handler); } };
-                Port.prototype.removeEventListener = function(type, handler) { if (type === 'message') { var i = this._listeners.indexOf(handler); if (i >= 0) this._listeners.splice(i, 1); } };
-                Port.prototype.postMessage = function(data) { if (this._endpoint) { __folio_message_port_host.post(this._endpoint, data); return; } };
-                globalThis.MessagePort = Port;
-                globalThis.MessageChannel = function() { var pair = __folio_message_port_host.create(); this.port1 = new Port(pair[0]); this.port2 = new Port(pair[1]); };
-            })();
             globalThis.navigator = globalThis.navigator || {};
             var __folio_service_worker_registrations = [];
             globalThis.navigator.serviceWorker = {
@@ -831,7 +782,6 @@ public static class DomBindings
             TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
             globalThis.TextDecoder = function() {};
             TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
-            globalThis.structuredClone = function(value) { return JSON.parse(JSON.stringify(value)); };
             globalThis.console = globalThis.console || {};
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ", "folio:dom-globals");
@@ -896,7 +846,7 @@ public static class DomBindings
         return context.WrapperCache;
     }
 
-    private static void InstallDomException(IScriptEngine engine)
+    internal static void InstallDomException(IScriptEngine engine)
     {
         engine.EvaluateHostScript(@"
             (function() {
@@ -922,7 +872,8 @@ public static class DomBindings
                     NetworkError: 19,
                     AbortError: 20,
                     TimeoutError: 23,
-                    QuotaExceededError: 22
+                    QuotaExceededError: 22,
+                    DataCloneError: 25
                 };
 
                 class DOMException extends Error {

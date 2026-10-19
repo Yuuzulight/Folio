@@ -2,7 +2,7 @@
 
 Milestone 6 is **in progress**. The earlier completion announcement and issue closures did not establish the original acceptance criteria. See the [issue-by-issue audit](milestone-6-audit.md) for all 45 issues and their unresolved requirements.
 
-## Verified during the 2026-10-18 audit
+## Verified during the 2026-10-18/19 audit
 
 Native Windows adapters now have direct runtime regression checks. `MediaFoundationAudioDecoder` decodes WAV/MP3 audio and an H.264 video thumbnail with actual format metadata, end-of-stream handling, bounded output and native cleanup. `WinMmMediaAudioOutput` uses the correct pointer-sized header layout, bounds queued PCM and implements lifecycle commands. Tests exercise real system codecs, concurrent decoding, corrupt/truncated input, queue failures, and silent submission to a local output device where available. Windows CI runs codec checks; Linux runs portable fake-driver and layout checks and skips native-only cases.
 
@@ -11,6 +11,10 @@ These adapters are explicitly host supplied through `FolioOptions.MediaDecoder` 
 The Jint compatibility backend is now pinned to 4.17.0; direct owner-thread evaluation replaces the blocking-await/background-pump workaround. Native-engine requirements remain separate.
 
 The content process now loads external scripts and fetch resources through the host's configured `IResourceLoader`, preserving resource kind and integrity metadata. An optional `ContentResourcePolicy` adds restrictions; absent a loader, requests are refused. Replies are correlated and capped at 8 MiB of binary data, and queued commands share a 32 MiB limit. The reader can receive replies while document execution waits for them. Heartbeat acknowledgements are terminal and remain ordered behind document work, preserving the watchdog. HTML loads use the normal script runner once and create fresh document/engine state; navigator metadata installation preserves installed feature APIs. Real child-process regressions cover these paths. Persistent artifact storage and media adapters still lack process brokers; continuous event-loop/rendering and input delivery need separate end-to-end verification.
+
+Workers, MessagePorts and global `structuredClone` now use one graph codec rather than independent JSON implementations. Tests cover rich graphs and transferred views, sender detachment, receiving-engine port wrappers, moved mailboxes, worker-owned callback threads, private intrinsic capture, shared pending-message budgets, allocation refusal and subsequent recovery, independent listeners and deep teardown. The HTML port delivery and structured-data algorithms are the behavioral references ([messaging](https://html.spec.whatwg.org/multipage/web-messaging.html), [structured data](https://html.spec.whatwg.org/multipage/structured-data.html)). Buffer transport still copies through base64; this does not establish native zero-copy performance, the native second engine, iframe cross-context messaging or complete browser conformance. Issue #540 remains open.
+
+The 2026-10-19 messaging repair adds 36 regression cases. The final Release solution run passed 3,047 tests, with five environment-related skips and no failures. An isolated scripting run pinned to one CPU with four reported processors passed all 593 cases without changing execution or delivery deadlines. Three fresh reviews completed after the final correction. The event-allocation regression was also checked against disabled cleanup: it failed from retained mailbox storage, then passed with cleanup restored. These are regression results, not proof of the missing original M6 backends.
 
 ## Remaining acceptance work
 

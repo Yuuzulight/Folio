@@ -6,6 +6,7 @@ using Jint.Native.Object;
 using Jint.Native.TypedArray;
 using Jint.Runtime;
 using Acornima.Ast;
+using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Jint;
 
@@ -13,11 +14,16 @@ namespace Folio.Scripting.Jint;
 /// Jint-backed implementation of <see cref="IScriptEngine"/> (study 17, dependencies.md).
 /// Provides sandboxed ECMAScript evaluation with time, statement, recursion, and memory limits.
 /// </summary>
-public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator
+public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
     private static readonly Dictionary<(string Source, string Url), Lazy<Prepared<Script>>> HostScripts = new();
+    private sealed record NativeScriptException(Engine Engine, JavaScriptException Exception);
+    private static readonly ConditionalWeakTable<ScriptRuntimeException, NativeScriptException> NativeExceptions = new();
     private const int MaxPreparedHostScripts = 16;
     private Engine? _engine;
+    private JsValue _arrayBufferDetachedGetter = JsValue.Undefined;
+    private JsValue _arrayBufferTransfer = JsValue.Undefined;
+    private JsValue _dataViewByteLengthGetter = JsValue.Undefined;
     private CancellationTokenSource _cts = new();
     private ScriptLimits _limits = ScriptLimits.Default;
     private readonly ScriptEngineOptions _options;
@@ -73,6 +79,13 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
             if (_options.Clock is { } clock)
                 cfg.TimeSystem = new InjectedTimeSystem(clock);
         });
+
+        // Capture intrinsic operations before artifact code can replace globals,
+        // buffer methods, or the detached accessor.
+        var arrayBufferPrototype = _engine.Intrinsics.ArrayBuffer.Get("prototype").AsObject();
+        _arrayBufferDetachedGetter = arrayBufferPrototype.GetOwnProperty("detached").Get!;
+        _arrayBufferTransfer = arrayBufferPrototype.Get("transfer");
+        _dataViewByteLengthGetter = _engine.GetValue("DataView").Get("prototype").AsObject().GetOwnProperty("byteLength").Get!;
 
         // Seeded Math.random if specified
         if (_options.RandomSeed is { } seed)
@@ -235,28 +248,60 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
         return true;
     }
 
-    public bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes)
+    string IStructuredCloneEngine.ClassifyCloneObject(ScriptValue value)
     {
-        bytes = [];
-        if (value.IsNullOrUndefined || value.IsFunction) return false;
+        if (value.Raw is not ObjectInstance instance || !ReferenceEquals(instance.Engine, _engine)) return "unsupported";
+        return instance switch
+        {
+            JsArrayBuffer buffer when buffer.GetType() == typeof(JsArrayBuffer) => "buffer",
+            JsTypedArray => "typedarray",
+            JsDate => "date",
+            JsRegExp => "regexp",
+            JsMap => "map",
+            JsSet => "set",
+            JsError => "error",
+            ArrayInstance => "array",
+            _ when instance.GetType() == typeof(JsObject) || instance.GetType() == typeof(ObjectInstance) => "object",
+            _ => ClassifyCloneView(instance)
+        };
+    }
+
+    private string ClassifyCloneView(ObjectInstance instance)
+    {
         try
         {
-            SetGlobalProperty("__folio_array_buffer", value);
-            if (!string.Equals(Evaluate("Object.prototype.toString.call(__folio_array_buffer)").AsString(), "[object ArrayBuffer]", StringComparison.Ordinal))
-            {
-                SetGlobalProperty("__folio_array_buffer", ScriptValue.Undefined);
-                return false;
-            }
-            var array = Evaluate("Array.from(new Uint8Array(__folio_array_buffer))");
-            SetGlobalProperty("__folio_array_buffer", ScriptValue.Undefined);
-            if (!TryGetArrayItems(array, out var items)) return false;
-            bytes = items.Select(item => (byte)Math.Clamp(item.AsNumber(), 0, 255)).ToArray();
+            _engine!.Call(_dataViewByteLengthGetter, instance, []);
+            return "dataview";
+        }
+        catch (JavaScriptException) { return "unsupported"; }
+        catch (Exception error) { throw TranslateException(error); }
+    }
+
+    (string Source, string Flags) IStructuredCloneEngine.GetCloneRegExp(ScriptValue value) =>
+        value.Raw is JsRegExp expression && ReferenceEquals(expression.Engine, _engine)
+            ? (expression.Source, expression.Flags)
+            : throw new ArgumentException("The value is not a regular expression.", nameof(value));
+
+    public bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        bytes = [];
+        if (value.Raw is not JsArrayBuffer buffer || !ReferenceEquals(buffer.Engine, _engine)) return false;
+        try
+        {
+            if (_engine!.Call(_arrayBufferDetachedGetter, buffer, []).AsBoolean()) return false;
+            var view = _engine.Intrinsics.Uint8Array.Construct(buffer, null, null);
+            bytes = new byte[view.Length];
+            for (uint index = 0; index < view.Length; index++) bytes[index] = (byte)view[index].AsNumber();
             return true;
         }
-        catch
+        catch (JavaScriptException)
         {
-            SetGlobalProperty("__folio_array_buffer", ScriptValue.Undefined);
             return false;
+        }
+        catch (Exception error)
+        {
+            throw TranslateException(error);
         }
     }
 
@@ -268,17 +313,23 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
 
     public bool TryDetachArrayBuffer(ScriptValue value)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (value.Raw is not JsArrayBuffer buffer || !ReferenceEquals(buffer.Engine, _engine)) return false;
         try
         {
-            SetGlobalProperty("__folio_transfer_buffer", value);
-            Evaluate("__folio_transfer_buffer.transfer()");
-            SetGlobalProperty("__folio_transfer_buffer", ScriptValue.Undefined);
-            return true;
+            if (_engine!.Call(_arrayBufferDetachedGetter, buffer, []).AsBoolean()) return false;
+            // A zero-length transfer releases the sender's backing store without
+            // copying the bytes that the message codec already captured.
+            _engine.Call(_arrayBufferTransfer, buffer, [0]);
+            return _engine.Call(_arrayBufferDetachedGetter, buffer, []).AsBoolean();
         }
-        catch
+        catch (JavaScriptException)
         {
-            SetGlobalProperty("__folio_transfer_buffer", ScriptValue.Undefined);
             return false;
+        }
+        catch (Exception error)
+        {
+            throw TranslateException(error);
         }
     }
 
@@ -376,16 +427,31 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
             MemoryLimitExceededException =>
                 new ScriptLimitExceededException("Memory", "Script exceeded memory allocation limit."),
 
-            JavaScriptException jse =>
-                new ScriptRuntimeException(
-                    jse.Message,
-                    jse.JavaScriptStackTrace,
-                    jse.Location.Start.Line,
-                    jse.Location.Start.Column,
-                    jse.Location.SourceFile),
+            JavaScriptException jse => TranslateJavaScriptException(jse),
 
             _ => ex,
         };
+    }
+
+    private ScriptRuntimeException TranslateJavaScriptException(JavaScriptException error)
+    {
+        var translated = new ScriptRuntimeException(error.Message, error.JavaScriptStackTrace,
+            error.Location.Start.Line, error.Location.Start.Column, error.Location.SourceFile);
+        NativeExceptions.Add(translated, new NativeScriptException(_engine!, error));
+        return translated;
+    }
+
+    // A host callback can invoke script, for example while reading a clone getter.
+    // Restore its original JavaScript throw only when it belongs to this same engine.
+    internal static bool TryGetOriginalException(Engine engine, ScriptRuntimeException error, out JavaScriptException original)
+    {
+        if (NativeExceptions.TryGetValue(error, out var native) && ReferenceEquals(native.Engine, engine))
+        {
+            original = native.Exception;
+            return true;
+        }
+        original = null!;
+        return false;
     }
 
     internal static ScriptValue ToScriptValue(JsValue value)

@@ -96,6 +96,10 @@ internal sealed class JintHostObject : ObjectInstance
                 Template.NamedSetter(Target, JintScriptEngine.ToScriptValue(this), str, JintScriptEngine.ToScriptValue(value));
                 return true;
             }
+            catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+            {
+                throw original;
+            }
             catch (WebIdlException wie)
             {
                 throw CreateJavaScriptException(Engine, wie);
@@ -113,6 +117,10 @@ internal sealed class JintHostObject : ObjectInstance
             try
             {
                 return Template.NamedDeleter(Target, JintScriptEngine.ToScriptValue(this), str);
+            }
+            catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+            {
+                throw original;
             }
             catch (WebIdlException wie)
             {
@@ -183,6 +191,10 @@ internal sealed class JintHostObject : ObjectInstance
                             var result = getter(target, JintScriptEngine.ToScriptValue(thisObj));
                             return JintScriptEngine.ToJsValue(Engine, result);
                         }
+                        catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+                        {
+                            throw original;
+                        }
                         catch (WebIdlException wie)
                         {
                             throw CreateJavaScriptException(Engine, wie);
@@ -207,6 +219,10 @@ internal sealed class JintHostObject : ObjectInstance
                             {
                                 setter(target, JintScriptEngine.ToScriptValue(thisObj), argVal);
                                 return JsValue.Undefined;
+                            }
+                            catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+                            {
+                                throw original;
                             }
                             catch (WebIdlException wie)
                             {
@@ -243,6 +259,10 @@ internal sealed class JintHostObject : ObjectInstance
                         {
                             var result = callback(target, JintScriptEngine.ToScriptValue(thisObj), convertedArgs);
                             return JintScriptEngine.ToJsValue(Engine, result);
+                        }
+                        catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+                        {
+                            throw original;
                         }
                         catch (WebIdlException wie)
                         {

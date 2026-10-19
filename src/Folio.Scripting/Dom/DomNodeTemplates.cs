@@ -68,7 +68,8 @@ internal sealed class DomNodeTemplates
             .DefineProperty("origin", (target, _) => ScriptValue.FromString(((MessageEventState)target).Origin))
             .DefineProperty("source", (target, _) => ((MessageEventState)target).Source)
             .DefineProperty("type", (target, _) => ScriptValue.FromString(((MessageEventState)target).Type))
-            .DefineProperty("target", (target, _) => ((MessageEventState)target).Target);
+            .DefineProperty("target", (target, _) => ((MessageEventState)target).Target)
+            .DefineProperty("ports", (target, _) => ((MessageEventState)target).Ports);
         MediaEventTemplate = new HostObjectTemplate("Event")
             .DefineProperty("type", (target, _) => ScriptValue.FromString(((MediaEventState)target).Type));
 

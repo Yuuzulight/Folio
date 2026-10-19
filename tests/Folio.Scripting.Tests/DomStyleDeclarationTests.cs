@@ -585,7 +585,7 @@ public sealed class DomStyleDeclarationTests
         {
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
-        Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; let eventType = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === w && e.target === w; eventType = e.type; }; w.postMessage(42); seen === 42 && workerOrigin === 'https://worker.example' && sourceMatches && eventType === 'message'").AsBoolean());
+        Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; let eventType = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === null && e.target === w; eventType = e.type; }; w.postMessage(42); seen === 42 && workerOrigin === '' && sourceMatches && eventType === 'message'").AsBoolean());
         Assert.True(allowed.Evaluate("const isolated = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data + 1); };')); let isolatedSeen = 0; isolated.onmessage = e => isolatedSeen = e.data; isolated.postMessage(41); isolatedSeen === 42").AsBoolean());
         Assert.True(allowed.Evaluate("const queuedWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data === 1 ? \\\"first\\\" : \\\"second\\\"); };')); let queuedSeen = ''; queuedWorker.onmessage = e => { queuedSeen += e.data; if (e.data === 'first') queuedWorker.postMessage(2); }; queuedWorker.postMessage(1); queuedSeen === 'firstsecond'").AsBoolean());
         Assert.True(allowed.Evaluate("const cloneWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage({ nested: e.data.nested }); };')); let cloned = null; cloneWorker.onmessage = e => cloned = e.data; const original = { nested: 7 }; cloneWorker.postMessage(original); cloned.nested === 7 && cloned !== original").AsBoolean());
@@ -594,7 +594,17 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("const transferWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data.byteLength); };')); let transferredLength = 0; transferWorker.onmessage = e => transferredLength = e.data; const buffer = new ArrayBuffer(4); transferWorker.postMessage(buffer, [buffer]); transferredLength === 4 && buffer.byteLength === 0").AsBoolean());
         Assert.True(allowed.Evaluate("const portWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { e.data.postMessage(77); };')); const portChannel = new MessageChannel(); let portValue = 0; portChannel.port1.onmessage = e => portValue = e.data; portWorker.postMessage(portChannel.port2, [portChannel.port2]); portValue === 77").AsBoolean());
         Assert.True(allowed.Evaluate("const broken = new Worker('data:text/javascript,' + encodeURIComponent('throw new Error(\\\"boom\\\");')); let workerError = ''; let workerFile = ''; let workerLine = -1; let workerTarget = false; broken.onerror = e => { workerError = e.message; workerFile = e.filename; workerLine = e.lineno; workerTarget = e.target === broken; e.preventDefault(); }; broken.postMessage(1); workerError === 'boom' && workerFile === broken.scriptURL && workerLine === 0 && workerTarget").AsBoolean());
-        Assert.True(allowed.Evaluate("const messageErrorWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function() { postMessage(Symbol(\\\"bad\\\")); };')); let messageErrorType = ''; let messageErrorTarget = false; messageErrorWorker.onmessageerror = e => { messageErrorType = e.type; messageErrorTarget = e.target === messageErrorWorker; }; messageErrorWorker.postMessage(1); messageErrorType === 'messageerror' && messageErrorTarget").AsBoolean());
+        Assert.True(allowed.Evaluate("""
+            const undefinedWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function() { postMessage(undefined); };'));
+            let undefinedType = '', undefinedTarget = false, undefinedData = false;
+            undefinedWorker.onmessage = event => {
+                undefinedType = event.type;
+                undefinedTarget = event.target === undefinedWorker;
+                undefinedData = event.data === undefined;
+            };
+            undefinedWorker.postMessage(1);
+            undefinedType === 'message' && undefinedTarget && undefinedData;
+            """).AsBoolean());
         Assert.True(allowed.Evaluate("let listenerSeen = 0; const listener = e => listenerSeen = e.data; w.addEventListener('message', listener); w.postMessage(43); w.removeEventListener('message', listener); listenerSeen === 43").AsBoolean());
         Assert.Equal("https://worker.example/worker.js", allowed.Evaluate("w.scriptURL").AsString());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("w.terminate(); w.postMessage(7)"));
@@ -631,7 +641,7 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true },
             Limits = ResourceLimits.Default with { MaxWorkerMemoryBytes = 32 * 1024 }
         }));
-        Assert.True(memoryLimited.Evaluate("const constrained = new Worker('data:text/javascript,' + encodeURIComponent('const values = []; for (let i = 0; i < 100000; i++) values.push(i);')); let constrainedError = ''; constrained.onerror = e => constrainedError = e.message; constrained.postMessage(1); constrainedError.length > 0").AsBoolean());
+        Assert.True(memoryLimited.Evaluate("const constrained = new Worker('data:text/javascript,' + encodeURIComponent('const values = []; for (let i = 0; i < 100000; i++) values.push(i);')); let constrainedError = ''; constrained.onerror = e => constrainedError = e.message; constrainedError.length > 0 || (constrained.postMessage(1), constrainedError.length > 0)").AsBoolean());
 
         using var watchdog = new JintScriptEngine();
         DomBindings.Install(watchdog, Document.Parse("<html></html>", new FolioOptions

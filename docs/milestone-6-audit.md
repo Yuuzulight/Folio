@@ -1,4 +1,4 @@
-# Milestone 6 acceptance audit — 2026-10-18
+# Milestone 6 acceptance audit — 2026-10-19
 
 Milestone 6 is **not complete against its original issue scope**. Earlier closure and completion claims were premature. This audit retains the original requirements rather than defining completion as the existing bounded API surface.
 
@@ -290,9 +290,13 @@ Original acceptance:
 
 ### #540 — Workers: postMessage with structured clone and transferables
 
-**Incomplete.** Evidence: `WorkerState.CloneIntoWorker/CloneIntoParent`.
+**Incomplete.** Evidence: `StructuredCloneCodec.cs`, `MessagePortState.cs`, `MessagePortBindings.cs`, `WorkerState.cs`; `MessagePortTests`, `ArrayBufferAdapterTests`, `HostCallbackExceptionTests`.
 
-ArrayBuffers are copied into a new engine buffer; nested values serialize through JSON helpers. The required zero-copy 16 MB transfer benchmark is not satisfied.
+Workers, MessagePorts and global structuredClone now share an engine-neutral graph codec, with owner-thread materialization, cycles/aliases, sparse arrays, Map/Set, Date/RegExp/Error/BigInt and typed-buffer views. Transfers detach source buffers and move port mailboxes into new receiving-engine wrappers. Private captured intrinsics and native object-brand checks prevent artifact constructors/prototypes from defining the transport. Options dictionaries and iterable transfer lists work in both worker directions.
+
+Message delivery uses separate HTML tasks with microtask checkpoints. Listener removal and callback failures are independent of decode failures; receiver allocation refusal fires messageerror and permits subsequent delivery. Pending mailbox storage shares an engine budget with worker queues; reservation refusal precedes transfer commit. Shutdown drops queued commands and closes abandoned transferred channels, including deep transfer chains without host recursion. Direct regressions exercise worker-created ports transferred to the parent and surviving worker termination.
+
+ArrayBuffer bytes still copy through a base64 transport into a new engine buffer. The required zero-copy 16 MB transfer benchmark is not satisfied; this issue remains open. These tests establish the implemented Jint compatibility behavior, not the missing native second engine or complete Web-platform conformance.
 
 Original acceptance:
 
@@ -410,7 +414,7 @@ Original acceptance:
 
 **Partial.** Evidence: `IframeState.cs; WorkerState.cs; message port bindings`.
 
-Origin/port paths exist. A transferred port routed frame to worker and full source identity/order coverage remain unverified.
+Worker/port transfer paths now have direct regressions, but iframe PostMessage still needs actual child/parent context delivery. A port routed frame to worker and full frame source identity/order coverage remain unverified.
 
 Original acceptance:
 
