@@ -20,6 +20,10 @@ The 2026-10-20 Cache API repair adds a native transactional ledger with matching
 
 The subsequent engine/worker lifetime repair prevents disposed or reconfigured Jint wrappers, retained translated exceptions and terminated worker handles from retaining their old runtime. Nine collection regressions failed before the corresponding fixes and pass afterward. The Release solution run passed 3,107 tests with one local symbolic-link privilege skip. An isolated one-CPU run passed all 648 scripting tests with unchanged deadlines. Three fresh reviews completed after the final correction. These ownership checks do not establish aggregate memory limits or the missing native engine.
 
+Artifact routing now independently checks completed feature implementations and host permission. Production routes all seven incomplete M6 backends to the browser even with grants; SharedWorker remains unsupported separately. The change adds 88 routing cases, with three fresh code reviews and 3,195 passing Release tests plus one local symbolic-link privilege skip. This satisfies the routing acceptance of #524 while leaving the feature implementation issues open.
+
+The complete conformance report was also inspected separately from the test result. All 30 D8–D14 reference images pass, but the D1 team-directory example has a reproducible 3.2% pixel mismatch, mostly a three-pixel vertical shift, also reproduced in Windows CI. Nine D5 Chart.js examples remain explicit expected failures. The reporting command succeeds despite image mismatches, so its exit status alone does not establish visual parity. These failures have not been hidden by changing references or tolerances.
+
 ## Remaining acceptance work
 
 - WebGL resource state and limited triangle drawing exist, but GLSL validation/execution and a GPU backend do not.

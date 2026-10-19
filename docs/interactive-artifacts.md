@@ -21,6 +21,8 @@ host should classify an artifact first, enable the content process only for
 `ArtifactKind.Scripted`, and keep `ArtifactKind.NeedsBrowser` as its external
 browser fallback until Folio supports the required feature.
 
+Milestone-6 routing checks both implementation availability and the host grant. WebGL, media, dedicated workers, WebAssembly, iframes, WebRTC and service workers remain browser-routed while their original feature acceptance is incomplete, even when their capability is granted. Each feature has its own implementation entry; completing one cannot unlock another. SharedWorker has no implementation and always routes to the browser. The scan covers recognizable calls in script elements, event handlers and `javascript:` URLs, including common optional and literal-property access forms. It is a conservative source scan, not evaluation of dynamically constructed JavaScript; runtime capability checks remain necessary.
+
 The host owns approvals and presentation. Folio does not know about Mana,
 chat sessions, or user accounts.
 

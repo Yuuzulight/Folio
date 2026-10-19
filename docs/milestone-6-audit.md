@@ -76,9 +76,9 @@ Original acceptance:
 
 ### #524 — ArtifactClassifier: recognise the stage-6 features and route them by capability
 
-**Incomplete.** Evidence: `ArtifactClassifier.cs: WebAssembly and WebGl capability checks`.
+**Routing acceptance verified.** Evidence: `ArtifactClassifier.cs`, `StageSixRoutingTests.cs`, `ArtifactClassifierTests.cs`.
 
-Routing checks grants without proving a native WASM engine or a GPU/GLSL backend is available.
+Production availability is independent of host permission and remains disabled for all seven incomplete feature backends. Per-call internal test availability verifies every built/granted combination without a mutable global switch or public bypass. Reasons identify both incomplete support and missing permission independently. Event handlers, JavaScript links, optional calls and literal-property access share the feature scan; SharedWorker remains unsupported independently of dedicated workers. Eleven production regressions failed before the repair; the final change adds 88 cases, including every availability/grant combination and independent feature routing. Three fresh code reviews completed and the Release solution passed 3,195 tests with one local symbolic-link privilege skip. This verifies routing, not the backend requirements in the feature issues.
 
 Original acceptance:
 

@@ -33,6 +33,7 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <remarks>
 /// <para><see cref="ArtifactKind.NeedsBrowser"/> when any of these holds:</para>
 /// <list type="bullet">
+/// <item>a milestone-6 feature whose backend is incomplete or whose host capability is not granted;</item>
 /// <item>a resource the options' loader would refuse: stylesheets, images, scripts, <c>@import</c> and CSS
 ///   <c>url()</c>s other than <c>data:</c> URLs (the only loads the default options allow);</item>
 /// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
@@ -54,12 +55,28 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// </remarks>
 public static class ArtifactClassifier
 {
-    public static ArtifactClassification Classify(string html, FolioOptions? options = null)
+    [Flags]
+    internal enum ImplementedFeatures
+    {
+        None = 0, WebGl = 1, Media = 2, Workers = 4, WebAssembly = 8,
+        Iframes = 16, WebRtc = 32, ServiceWorkers = 64
+    }
+
+    // Flip each entry only after its original feature acceptance is established.
+    // Host permission alone cannot make a prototype backend complete.
+    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.None;
+
+    public static ArtifactClassification Classify(string html, FolioOptions? options = null) =>
+        Classify(html, options, ProductionFeatures);
+
+    // Per-call availability allows tests to exercise future implementations
+    // without mutable process-wide switches or granting a public bypass.
+    internal static ArtifactClassification Classify(string html, FolioOptions? options, ImplementedFeatures implemented)
     {
         ArgumentNullException.ThrowIfNull(html);
         options ??= new FolioOptions();
         using var document = Document.Parse(html, options);
-        var scan = new Scan(document, options);
+        var scan = new Scan(document, options, implemented);
         scan.Run();
 
         var kind = scan.Unsupported.Count > 0 ? ArtifactKind.NeedsBrowser
@@ -68,7 +85,7 @@ public static class ArtifactClassifier
         return new ArtifactClassification(kind, [.. scan.Unsupported, .. scan.Scripts]);
     }
 
-    private sealed class Scan(Document document, FolioOptions options)
+    private sealed class Scan(Document document, FolioOptions options, ImplementedFeatures implemented)
     {
         public readonly HashSet<string> Unsupported = [];
         public readonly HashSet<string> Scripts = [];
@@ -151,10 +168,16 @@ public static class ArtifactClassifier
             foreach (var (name, value) in element.Attributes)
             {
                 if (name.Length > 2 && name.StartsWith("on", StringComparison.Ordinal))
+                {
                     Scripts.Add($"runs scripts: an {name} attribute");
+                    ScriptSource(value);
+                }
                 else if (name is "href" or "src" or "action" or "formaction" or "xlink:href"
                          && value.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                {
                     Scripts.Add("runs scripts: a javascript: link");
+                    ScriptSource(value.Trim()["javascript:".Length..]);
+                }
             }
 
             if (element.GetAttribute("style") is { } style)
@@ -178,9 +201,9 @@ public static class ArtifactClassifier
             if (BoxOnlyElements.Contains(tag))
             {
                 if (tag is "video" or "audio")
-                    Require(options.Capabilities.Media, $"uses <{tag}>", "media");
+                    Require(ImplementedFeatures.Media, options.Capabilities.Media, $"uses <{tag}>", "media");
                 else if (tag is "iframe" or "frame" or "frameset")
-                    Require(options.Capabilities.Iframes, $"uses <{tag}>", "iframes");
+                    Require(ImplementedFeatures.Iframes, options.Capabilities.Iframes, $"uses <{tag}>", "iframes");
                 else
                     Unsupported.Add($"uses <{tag}>");
             }
@@ -252,25 +275,42 @@ public static class ArtifactClassifier
             // Whitespace and quote style do not change these API calls. Compacting first keeps this scan
             // conservative without attempting to parse arbitrary JavaScript.
             var compact = string.Concat(text.Where(character => !char.IsWhiteSpace(character)));
+            compact = compact.Replace("?.[", "[", StringComparison.Ordinal)
+                .Replace("?.(", "(", StringComparison.Ordinal).Replace("?.", ".", StringComparison.Ordinal);
+            // Literal property access is common in optional API detection. This
+            // remains a conservative source scan, not a JavaScript evaluator.
+            foreach (var property in (ReadOnlySpan<string>)["serviceWorker", "WebAssembly", "getUserMedia", "getContext", "Worker", "SharedWorker"])
+            {
+                compact = compact.Replace($"['{property}']", $".{property}", StringComparison.OrdinalIgnoreCase)
+                    .Replace($"[\"{property}\"]", $".{property}", StringComparison.OrdinalIgnoreCase);
+            }
             if (Contains(compact, "getContext('webgl") || Contains(compact, "getContext(\"webgl") || Contains(compact, "getContext(`webgl")
                 || Contains(compact, "getContext('experimental-webgl") || Contains(compact, "getContext(\"experimental-webgl") || Contains(compact, "getContext(`experimental-webgl"))
-                Require(options.Capabilities.WebGl, "uses WebGL", "WebGL");
+                Require(ImplementedFeatures.WebGl, options.Capabilities.WebGl, "uses WebGL", "WebGL");
             if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
                 Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
-            if (Contains(compact, "newWorker(") || Contains(compact, "newSharedWorker("))
-                Require(options.Capabilities.Workers, "uses workers", "workers");
-            if (Contains(compact, "WebAssembly."))
-                Require(options.Capabilities.WebAssembly, "uses WebAssembly", "WebAssembly");
+            if (Constructs(compact, "SharedWorker"))
+                Unsupported.Add("uses shared workers; SharedWorker is not implemented in Folio");
+            if (Constructs(compact, "Worker"))
+                Require(ImplementedFeatures.Workers, options.Capabilities.Workers, "uses workers", "workers");
+            if (Contains(compact, "WebAssembly.") || Contains(compact, "WebAssembly["))
+                Require(ImplementedFeatures.WebAssembly, options.Capabilities.WebAssembly, "uses WebAssembly", "WebAssembly");
             if (Contains(compact, "RTCPeerConnection") || Contains(compact, "getUserMedia("))
-                Require(options.Capabilities.WebRtc, "uses WebRTC", "WebRTC");
+                Require(ImplementedFeatures.WebRtc, options.Capabilities.WebRtc, "uses WebRTC", "WebRTC");
             if (Contains(compact, "navigator.serviceWorker") || Contains(compact, "serviceWorker.register("))
-                Require(options.Capabilities.ServiceWorkers, "uses service workers", "service workers");
+                Require(ImplementedFeatures.ServiceWorkers, options.Capabilities.ServiceWorkers, "uses service workers", "service workers");
         }
 
         private static bool Contains(string source, string value) => source.Contains(value, StringComparison.OrdinalIgnoreCase);
 
-        private void Require(bool granted, string feature, string capability)
+        private static bool Constructs(string source, string constructor) =>
+            Contains(source, $"new{constructor}(") || Contains(source, $"newwindow.{constructor}(")
+            || Contains(source, $"newglobalThis.{constructor}(") || Contains(source, $"newself.{constructor}(");
+
+        private void Require(ImplementedFeatures required, bool granted, string feature, string capability)
         {
+            if ((implemented & required) == 0)
+                Unsupported.Add($"{feature}; {capability} support is not yet complete in Folio");
             if (!granted)
                 Unsupported.Add($"{feature}; the host has not granted the {capability} capability");
         }

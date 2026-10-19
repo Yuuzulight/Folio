@@ -119,7 +119,7 @@ public class ArtifactClassifierTests
     }
 
     [Fact]
-    public void GrantedStageSixCapabilitiesAreNotRejectedByTheClassifier()
+    public void GrantedStageSixCapabilitiesDoNotReportMissingPermission()
     {
         var options = new FolioOptions
         {
