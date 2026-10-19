@@ -962,6 +962,7 @@ public sealed class DomStyleDeclarationTests
         {
             DomBindings.Install(persisted, Document.Parse("<html></html>", new FolioOptions
             {
+                BaseUri = new Uri("https://worker.example/"),
                 ArtifactId = "artifact-a",
                 ArtifactStorage = storage,
                 Capabilities = new FeatureCapabilities { ServiceWorkers = true }
@@ -973,6 +974,7 @@ public sealed class DomStyleDeclarationTests
         {
             DomBindings.Install(restored, Document.Parse("<html></html>", new FolioOptions
             {
+                BaseUri = new Uri("https://worker.example/"),
                 ArtifactId = "artifact-a",
                 ArtifactStorage = storage,
                 Capabilities = new FeatureCapabilities { ServiceWorkers = true }
@@ -985,6 +987,7 @@ public sealed class DomStyleDeclarationTests
         {
             DomBindings.Install(otherArtifact, Document.Parse("<html></html>", new FolioOptions
             {
+                BaseUri = new Uri("https://worker.example/"),
                 ArtifactId = "artifact-b",
                 ArtifactStorage = storage,
                 Capabilities = new FeatureCapabilities { ServiceWorkers = true }

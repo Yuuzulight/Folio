@@ -64,9 +64,13 @@ session.MessageReceived += async (message, cancellationToken) =>
                 Capabilities = capabilities,
                 BaseUri = Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null,
                 ResourceLoader = resourceLoader,
+                ArtifactId = message.Payload.TryGetProperty("artifactId", out var artifact) ? artifact.GetString() ?? "default" : "default",
+                ArtifactStorage = message.Payload.TryGetProperty("storageEnabled", out var storageEnabled) && storageEnabled.GetBoolean() ? new BrokerArtifactStorage(session) : null,
+                Limits = message.Payload.TryGetProperty("limits", out var resourceLimits) ? resourceLimits.Deserialize<ResourceLimits>() ?? ResourceLimits.Default : ResourceLimits.Default,
                 MediaCaptureActivityChanged = active => _ = session.SendAsync(ContentMessageKind.MediaCaptureActivity, new { active }, cancellationToken),
                 Raster = new SkiaRasterBackend()
             };
+            session.SetStorageLimit(options.Limits.MaxServiceWorkerCacheBytes);
             document = Document.Parse(htmlElement.GetString() ?? "", options);
             engine = new JintScriptEngine();
             eventLoop = new HtmlEventLoop(engine);

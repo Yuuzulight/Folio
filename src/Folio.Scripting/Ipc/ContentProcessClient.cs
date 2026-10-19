@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Folio.Resources;
 
 namespace Folio.Scripting.Ipc;
@@ -22,13 +24,18 @@ public sealed class ContentProcessClient : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Task _reader;
     private readonly Task _watchdog;
+    private readonly string _artifact;
+    private readonly ResourceLimits _documentLimits;
+    private readonly bool _storageEnabled;
 
-    private ContentProcessClient(Process process, ContentProcessSupervisor supervisor, WindowsJobObject? job, IResourceLoader? resourceLoader, ContentResourcePolicy? resourcePolicy)
+    private ContentProcessClient(Process process, ContentProcessSupervisor supervisor, WindowsJobObject? job, IResourceLoader? resourceLoader, ContentResourcePolicy? resourcePolicy, IArtifactStorage? storage, string artifact, ResourceLimits documentLimits)
     {
         _process = process;
         _supervisor = supervisor;
         _job = job;
+        _artifact = artifact; _documentLimits = documentLimits; _storageEnabled = storage is not null;
         _session = new ContentHostSession(process.StandardOutput.BaseStream, process.StandardInput.BaseStream, supervisor, resourcePolicy, resourceLoader);
+        if (storage is not null) _session.ConfigureStorage(storage, artifact, documentLimits.MaxServiceWorkerCacheBytes);
         _supervisor.Stopped += OnStopped;
         _reader = ReadMessagesAsync();
         _watchdog = WatchdogAsync(_shutdown.Token);
@@ -47,12 +54,19 @@ public sealed class ContentProcessClient : IAsyncDisposable
     public static ContentProcessClient Start(string executablePath, string? arguments, ContentProcessLimits? limits) =>
         Start(executablePath, arguments, limits, null, null);
 
+    /// <summary>Starts a content process with the original resource-broker API.</summary>
+    public static ContentProcessClient Start(string executablePath, string? arguments, ContentProcessLimits? limits, IResourceLoader? resourceLoader, ContentResourcePolicy? resourcePolicy) =>
+        Start(executablePath, arguments, limits, resourceLoader, resourcePolicy, null, "default", null);
+
     /// <param name="executablePath">The content-host executable or assembly.</param>
     /// <param name="arguments">Additional launch arguments.</param>
     /// <param name="limits">Process memory and heartbeat limits.</param>
     /// <param name="resourceLoader">The trusted host loader, which decides what resources are allowed. Without one, brokered resources are refused.</param>
     /// <param name="resourcePolicy">An optional additional restriction applied before calling the loader.</param>
-    public static ContentProcessClient Start(string executablePath, string? arguments = null, ContentProcessLimits? limits = null, IResourceLoader? resourceLoader = null, ContentResourcePolicy? resourcePolicy = null)
+    /// <param name="artifactStorage">Trusted persistent storage; the child can access only its artifact's cache and bounded registration metadata.</param>
+    /// <param name="artifactId">Host-owned artifact scope, fixed for this connection.</param>
+    /// <param name="documentLimits">Host-owned document limits, forwarded with each load.</param>
+    public static ContentProcessClient Start(string executablePath, string? arguments = null, ContentProcessLimits? limits = null, IResourceLoader? resourceLoader = null, ContentResourcePolicy? resourcePolicy = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", ResourceLimits? documentLimits = null)
     {
         if (string.IsNullOrWhiteSpace(executablePath)) throw new ArgumentException("An executable path is required.", nameof(executablePath));
         var (fileName, launchArguments) = Path.GetExtension(executablePath).Equals(".dll", StringComparison.OrdinalIgnoreCase)
@@ -71,15 +85,27 @@ public sealed class ContentProcessClient : IAsyncDisposable
         WindowsJobObject? job = null;
         try { job = WindowsJobObject.TryAttach(process, effectiveLimits.MemoryBytes); }
         catch { process.Kill(entireProcessTree: true); process.Dispose(); throw; }
-        var client = new ContentProcessClient(process, new ContentProcessSupervisor(effectiveLimits), job, resourceLoader, resourcePolicy);
+        var client = new ContentProcessClient(process, new ContentProcessSupervisor(effectiveLimits), job, resourceLoader, resourcePolicy, artifactStorage, string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId, documentLimits ?? ResourceLimits.Default);
         process.Exited += (_, _) => client._supervisor.Stop("content process exited");
         return client;
     }
 
     private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 
-    public ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default) =>
-        _session.SendAsync(kind, payload, cancellationToken);
+    public ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default)
+    {
+        if (kind == ContentMessageKind.Load)
+        {
+            var profile = JsonSerializer.SerializeToNode(payload) as JsonObject ?? throw new ArgumentException("Load payload must be an object.", nameof(payload));
+            profile["artifactId"] = _artifact;
+            profile["storageEnabled"] = _storageEnabled;
+            profile["limits"] = JsonSerializer.SerializeToNode(_documentLimits);
+            var url = profile["url"] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+            _session.SetStorageDocumentUri(Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ? baseUri : null);
+            payload = profile;
+        }
+        return _session.SendAsync(kind, payload, cancellationToken);
+    }
 
     public Task Completion => _reader;
 

@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 /// </summary>
 internal static class FetchBindings
 {
-    internal static void Install(IScriptEngine engine, DomContext context)
+    internal static ScriptValue Install(IScriptEngine engine, DomContext context)
     {
         var host = new HostObjectTemplate("FolioFetchHost")
             .DefineMethod("resolve", (_, _, args) =>
@@ -25,8 +25,9 @@ internal static class FetchBindings
             .DefineMethod("copy", (_, _, args) => ScriptValue.FromNumber(context.FetchBody(Handle(args)) is { } data ? context.StoreFetchBody(data) : 0))
             .DefineMethod("free", (_, _, args) => { context.FreeFetchBody(Handle(args)); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_fetch_host", engine.CreateHostObject(host, context));
-        engine.EvaluateHostScript(Source, "folio:fetch");
+        var cacheApi = engine.EvaluateHostScript(Source, "folio:fetch");
         engine.Evaluate("delete globalThis.__folio_fetch_host");
+        return cacheApi;
     }
 
     // The outcome as JSON: { ok, contentType, length, body } (body is a handle, 0 for a HEAD) or { ok: false, error }.
@@ -226,7 +227,7 @@ internal static class FetchBindings
                 if (s === undefined) throw new TypeError('Illegal invocation');
                 if (s.signal && s.signal.aborted) throw s.signal.reason;
                 if (s.used) throw new TypeError('Body has already been consumed.');
-                s.used = true;
+                s.used = s.id !== 0 && (s.id !== null || s.bytes !== null);
                 if (s.id !== null) {
                     const id = s.id;
                     s.id = null;
@@ -329,6 +330,83 @@ internal static class FetchBindings
 
             for (const [name, value] of Object.entries({ fetch, Headers, Request, Response }))
                 Object.defineProperty(global, name, { value, writable: true, configurable: true, enumerable: false });
+            // A private seam for Cache: metadata and body access use the actual
+            // Fetch states, never artifact-defined getters or public clone hooks.
+            const cacheApply = Reflect.apply, cacheGet = WeakMap.prototype.get, cacheSet = WeakMap.prototype.set;
+            const cacheMapEach = Map.prototype.forEach, cacheMapSet = Map.prototype.set;
+            const cacheJoin = Array.prototype.join, cacheKeys = Object.keys, cacheCreate = Object.create;
+            const CacheString = String, CacheUint8Array = Uint8Array;
+            const requestPrototype = Request.prototype, responsePrototype = Response.prototype, headersPrototype = Headers.prototype;
+            const NativeMap = Map;
+            function cacheRecord() { return cacheCreate(null); }
+            function cacheHeaders(headers) {
+                const map = cacheApply(cacheGet, headerState, [headers]), result = [];
+                cacheApply(cacheMapEach, map, [function(values, name) {
+                    result[result.length] = [name, cacheApply(cacheJoin, values, [', '])];
+                }]);
+                return result;
+            }
+            function cacheRequest(input) {
+                const existing = input !== null && (typeof input === 'object' || typeof input === 'function')
+                    ? cacheApply(cacheGet, requestState, [input]) : undefined;
+                const original = existing ? input : new Request(CacheString(input));
+                const value = cacheApply(cacheGet, requestState, [original]), result = cacheRecord();
+                result.url = value.url; result.method = value.method; result.headers = cacheHeaders(value.headers); result.signal = value.signal;
+                return result;
+            }
+            function restoreHeaders(values) {
+                const result = cacheCreate(headersPrototype), map = new NativeMap();
+                const names = cacheKeys(values);
+                for (let i = 0; i < names.length; i++) cacheApply(cacheMapSet, map, [names[i], [values[names[i]]]]);
+                cacheApply(cacheSet, headerState, [result, map]);
+                return result;
+            }
+            function restoreRequest(value, lower) {
+                const result = cacheCreate(requestPrototype), data = cacheRecord();
+                data.url = lower ? value.url : value.Url; data.method = lower ? value.method : value.Method;
+                if (lower) {
+                    const map = cacheCreate(null);
+                    for (let i = 0; i < value.headers.length; i++) map[value.headers[i][0]] = value.headers[i][1];
+                    data.headers = restoreHeaders(map);
+                } else data.headers = restoreHeaders(value.Headers);
+                data.signal = lower ? value.signal : null;
+                cacheApply(cacheSet, requestState, [result, data]);
+                return result;
+            }
+            function cacheResponse(request, response, fetchOnly) {
+                const s = response !== null && (typeof response === 'object' || typeof response === 'function')
+                    ? cacheApply(cacheGet, responseState, [response]) : undefined;
+                if (!s || s.used || s.status === 206 || (fetchOnly && (s.status < 200 || s.status > 299)))
+                    throw new TypeError('The response cannot be cached');
+                const headers = cacheHeaders(s.headers);
+                for (let i = 0; i < headers.length; i++)
+                    if (headers[i][0] === 'vary' && /(^|,)\s*\*\s*(,|$)/.test(headers[i][1]))
+                        throw new TypeError('A Vary:* response cannot be cached');
+                if (s.signal && s.signal.aborted) throw s.signal.reason;
+                const result = cacheRecord();
+                result.request = request; result.status = s.status; result.statusText = s.statusText;
+                result.headers = headers; result.url = s.url; result.type = s.type;
+                result.bodyNull = s.id === 0 || (s.id === null && s.bytes === null);
+                s.used = s.id !== 0 && (s.id !== null || s.bytes !== null);
+                if (s.id !== null) {
+                    const id = s.id; s.id = null;
+                    try { result.bytes = base64Decode(host.bytes(id)); } finally { host.free(id); }
+                } else result.bytes = s.bytes === null ? new CacheUint8Array(0) : s.bytes;
+                return result;
+            }
+            function restoreResponse(value) {
+                const result = cacheCreate(responsePrototype), data = cacheRecord();
+                data.status = value.Status; data.statusText = value.StatusText;
+                data.headers = restoreHeaders(value.Headers); data.bytes = value.BodyNull ? null : base64Decode(value.Bytes);
+                data.id = null; data.used = false; data.url = value.Url; data.type = value.Type; data.signal = null;
+                cacheApply(cacheSet, responseState, [result, data]);
+                return result;
+            }
+            const cacheApi = cacheRecord();
+            cacheApi.request = cacheRequest; cacheApi.response = cacheResponse; cacheApi.restore = restoreResponse;
+            cacheApi.restoreRequest = value => restoreRequest(value, false);
+            cacheApi.restoreRequestLower = value => restoreRequest(value, true);
+            return cacheApi;
         })(globalThis.__folio_fetch_host);
         """;
 }

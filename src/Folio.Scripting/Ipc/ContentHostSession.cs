@@ -8,7 +8,7 @@ using Folio.Resources;
 namespace Folio.Scripting.Ipc;
 
 /// <summary>Protocol session used by a content-host process or an in-process test transport.</summary>
-public sealed class ContentHostSession : IAsyncDisposable
+public sealed partial class ContentHostSession : IAsyncDisposable
 {
     private readonly Stream _input;
     private readonly Stream _output;
@@ -40,9 +40,31 @@ public sealed class ContentHostSession : IAsyncDisposable
 
     public async ValueTask RunAsync(CancellationToken cancellationToken = default)
     {
-        using var running = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var running = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _supervisor.CancellationToken);
         var messages = Channel.CreateBounded<(ContentMessage Message, int Bytes)>(64);
+        var storage = Channel.CreateBounded<(ContentMessage Message, int Bytes)>(16);
         long queuedBytes = 0;
+        Exception? dispatchError = null;
+        // Storage remains available even when a document or a host callback is
+        // waiting. The reader itself never calls user-provided storage code.
+        var storageDispatch = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var entry in storage.Reader.ReadAllAsync(running.Token).ConfigureAwait(false))
+                {
+                    Interlocked.Add(ref queuedBytes, -entry.Bytes);
+                    await DispatchStorageAsync(entry.Message, running.Token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception error)
+            {
+                if (error is not OperationCanceledException) Interlocked.Exchange(ref dispatchError, error);
+                else Interlocked.CompareExchange(ref dispatchError, error, null);
+                running.Cancel();
+                throw;
+            }
+        }, CancellationToken.None);
         // Keep reading correlated replies while a serialized document callback
         // synchronously waits for a host resource. No engine runs on this reader.
         var dispatch = Task.Run(async () =>
@@ -55,7 +77,13 @@ public sealed class ContentHostSession : IAsyncDisposable
                     await DispatchAsync(entry.Message, running.Token).ConfigureAwait(false);
                 }
             }
-            catch { running.Cancel(); throw; }
+            catch (Exception error)
+            {
+                if (error is not OperationCanceledException) Interlocked.Exchange(ref dispatchError, error);
+                else Interlocked.CompareExchange(ref dispatchError, error, null);
+                running.Cancel();
+                throw;
+            }
         }, CancellationToken.None);
         Exception? readerError = null;
         try
@@ -66,10 +94,12 @@ public sealed class ContentHostSession : IAsyncDisposable
                 if (message is null || message.Kind == ContentMessageKind.Shutdown) break;
                 _supervisor.Heartbeat();
                 if (message.Kind == ContentMessageKind.ResourceResponse) CompleteResource(message);
+                else if (message.Kind == ContentMessageKind.StorageResponse) CompleteStorage(message);
                 else
                 {
                     var bytes = Encoding.UTF8.GetByteCount(message.Payload.GetRawText()) + 256;
-                    if (Interlocked.Add(ref queuedBytes, bytes) > 32 * 1024 * 1024 || !messages.Writer.TryWrite((message, bytes)))
+                    var writer = message.Kind == ContentMessageKind.StorageRequest ? storage.Writer : messages.Writer;
+                    if (Interlocked.Add(ref queuedBytes, bytes) > 32 * 1024 * 1024 || !writer.TryWrite((message, bytes)))
                     {
                         Interlocked.Add(ref queuedBytes, -bytes);
                         throw new InvalidDataException("The content command queue is full.");
@@ -84,9 +114,13 @@ public sealed class ContentHostSession : IAsyncDisposable
             foreach (var request in _resourceRequests.Values)
                 request.TrySetResult(ResourceResponse.Refused("The content connection closed."));
             messages.Writer.TryComplete();
+            storage.Writer.TryComplete();
+            CloseStorageRequests();
         }
-        try { await dispatch.ConfigureAwait(false); }
+        try { await Task.WhenAll(dispatch, storageDispatch).ConfigureAwait(false); }
         catch when (readerError is not null) { } // Preserve the transport/protocol failure.
+        finally { DisposeStorage(); }
+        if (readerError is OperationCanceledException && dispatchError is not null) ExceptionDispatchInfo.Capture(dispatchError).Throw();
         if (readerError is not null) ExceptionDispatchInfo.Capture(readerError).Throw();
     }
 
@@ -199,6 +233,7 @@ public sealed class ContentHostSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _connectionClosed = true;
+        CloseStorageRequests();
         foreach (var request in _resourceRequests.Values)
             request.TrySetResult(ResourceResponse.Refused("The content connection closed."));
         _supervisor.Stop("content host session disposed");

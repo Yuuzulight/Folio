@@ -528,11 +528,13 @@ Original acceptance:
 
 ### #558 — Service workers: the Cache API with host storage limits
 
-**Partial.** Evidence: `DomBindings.cs: Cache API; host ArtifactStorage`.
+**Cache API repaired and regression-verified; issue retained open with its isolated-service-worker dependency.** Evidence: `CacheBindings.cs`, `CacheStorageState.cs`, `ContentCacheBroker.cs`, `ContentStorageTransport.cs`, `CacheApiTests`, and `ContentCacheTests`.
 
-Cache.addAll delegates to Promise.all of individual add/put operations, so a later quota/fetch failure can leave earlier entries stored, violating the explicit atomicity acceptance. Request matching and quota accounting across persisted stores also remain unproven.
+The native host owns the canonical per-artifact cache and quota ledger. All Cache/CacheStorage methods, request URL/method/search/Vary matching, independent binary responses and atomic addAll have direct regressions. A transaction is persisted with one atomic provider write before publishing memory; failure and quota tests establish rollback. Quota includes metadata, encoded bodies, unopened persisted caches and live retired handles. Private Fetch state and an inaccessible storage bridge prevent script-visible quota bypasses. Length-delimited artifact snapshot keys prevent colon/slash collisions.
 
-The content-process load path does not forward artifact storage. Resource loading now uses correlated, bounded requests to the host's explicitly supplied loader, with an optional additional origin policy; real child-process tests exercise external scripts and fetches. This does not provide persistent storage. In-process storage still uses ambiguous colon-separated artifact keys and exposes a raw storage bridge to page scripts, bypassing Cache API quota checks. These storage and isolation gaps must be repaired before closure.
+Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. Semantic storage operations reach the same canonical host state as in-process documents, preserving concurrent writes. Tests cover process restart without network, service-worker-originated cache writes, parent profile forgery, namespace isolation, failed writes, remote retired-handle collection, incomplete/corrupt uploads, connection closure, blocked host callbacks and terminal handling of uncertain commits. A 13 MiB binary payload exercises chunked requests and replies larger than the unchanged 16 MiB frame limit. Prototype cache entries migrate atomically, preserve backups on failure and fail closed when old Vary metadata cannot be recovered. See [storage configuration and limits](cache-api-storage.md).
+
+These checks verify Cache API storage; they do not establish the separate isolated service-worker engine, full subresource interception or the sandbox matrix required by #556/#557/#559. The issue remains open until that integration is established.
 
 Original acceptance:
 

@@ -31,6 +31,7 @@ public static class DomBindings
         MessagePortEndpoint.DisposeAll(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         Contexts.Remove(engine);
+        context.DisposeCacheStorage?.Invoke();
         context.DisposeIframes();
         context.DisposeWorkers();
         context.DisposeMedia();
@@ -274,7 +275,7 @@ public static class DomBindings
             globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
             globalThis.navigator = globalThis.navigator || {};
             var __folio_service_worker_registrations = [];
-            globalThis.navigator.serviceWorker = {
+            globalThis.navigator.serviceWorker = (function(registrationStorage) { return {
                 controller: null,
                 oncontrollerchange: null,
                 _listeners: [],
@@ -285,7 +286,6 @@ public static class DomBindings
                 register: function(scriptURL, options) {
                     if (!__folio_service_workers_enabled) return Promise.reject(new DOMException('Service workers are disabled by the host.', 'SecurityError'));
                     var url = String(scriptURL); var scope = (options && options.scope) || '/';
-                    var registrationStorage = globalThis.__folio_artifact_storage;
                     var registrationKey = 'service-worker-registration/' + encodeURIComponent(String(scope));
                     if (registrationStorage) { var persisted = registrationStorage.read(registrationKey); if (persisted) { try { var metadata = JSON.parse(persisted); if (metadata && metadata.scriptURL === url) url = String(metadata.scriptURL); } catch (_) { } } }
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scope === scope; });
@@ -316,48 +316,9 @@ public static class DomBindings
                 },
                 getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
-            };
+            }; })(globalThis.__folio_artifact_storage);
             globalThis.__folio_service_worker_shutdown = function() { __folio_service_worker_registrations.length = 0; if (navigator.serviceWorker) { navigator.serviceWorker.controller = null; navigator.serviceWorker.ready = Promise.resolve(undefined); } };
             if (!__folio_service_workers_enabled) delete globalThis.navigator.serviceWorker;
-            (function() {
-                var cacheStores = new Map(), cacheBytes = 0;
-                var storage = globalThis.__folio_artifact_storage;
-                function requestKey(request) { return request instanceof Request ? request.url : String(request); }
-                function entryKey(name, key) { return 'service-worker-cache/' + encodeURIComponent(name) + '/' + encodeURIComponent(key); }
-                function persistedCacheNames() {
-                    var names = [];
-                    if (!storage) return names;
-                    storage.keys('service-worker-cache/').forEach(function(key) {
-                        var marker = key.indexOf('service-worker-cache/') === 0 ? key.slice(21) : '';
-                        var slash = marker.indexOf('/');
-                        if (slash > 0) { var name = decodeURIComponent(marker.slice(0, slash)); if (names.indexOf(name) < 0) names.push(name); }
-                    });
-                    return names;
-                }
-                function loadCache(name) {
-                    var entries = new Map();
-                    if (!storage) return entries;
-                    var prefix = 'service-worker-cache/' + encodeURIComponent(name) + '/';
-                    storage.keys(prefix).forEach(function(key) {
-                        var serialized = storage.read(key); if (!serialized) return;
-                        try {
-                            var record = JSON.parse(serialized), bytes = new Uint8Array(record.bytes || []);
-                            var response = new Response(bytes, { status: record.status, statusText: record.statusText, headers: record.headers });
-                            entries.set(decodeURIComponent(key.slice(prefix.length)), { response: response, size: bytes.byteLength });
-                            cacheBytes += bytes.byteLength;
-                        } catch (_) { }
-                    });
-                    return entries;
-                }
-                function Cache(name) { this._name = String(name); if (!cacheStores.has(this._name)) cacheStores.set(this._name, loadCache(this._name)); this._entries = cacheStores.get(this._name); }
-                Cache.prototype.match = function(request) { var value = this._entries.get(requestKey(request)); return Promise.resolve(value ? value.response.clone() : undefined); };
-                Cache.prototype.put = function(request, response) { if (!(response instanceof Response)) return Promise.reject(new TypeError('Cache.put requires a Response.')); var key = requestKey(request), stored = response.clone(), measured = response.clone(), self = this; return measured.arrayBuffer().then(function(buffer) { var old = self._entries.get(key), oldSize = old ? old.size : 0, next = cacheBytes - oldSize + buffer.byteLength; if (next > Number(globalThis.__folio_service_worker_cache_bytes)) throw new DOMException('The Cache API storage quota has been exceeded.', 'QuotaExceededError'); self._entries.set(key, { response: stored, size: buffer.byteLength }); cacheBytes = next; if (storage) storage.write(entryKey(self._name, key), JSON.stringify({ bytes: Array.from(new Uint8Array(buffer)), status: stored.status, statusText: stored.statusText, headers: Array.from(stored.headers.entries()) })); }); };
-                Cache.prototype.delete = function(request) { var key = requestKey(request), value = this._entries.get(key); if (value) { cacheBytes -= value.size; this._entries.delete(key); if (storage) storage.delete(entryKey(this._name, key)); return Promise.resolve(true); } return Promise.resolve(false); };
-                Cache.prototype.keys = function() { return Promise.resolve(Array.from(this._entries.keys()).map(function(url) { return new Request(url); })); };
-                Cache.prototype.add = function(request) { var self = this; return fetch(request).then(function(response) { return self.put(request, response); }); };
-                Cache.prototype.addAll = function(requests) { var self = this; return Promise.all(Array.from(requests).map(function(request) { return self.add(request); })); };
-                globalThis.caches = { open: function(name) { return Promise.resolve(new Cache(String(name))); }, has: function(name) { var key = String(name); return Promise.resolve(cacheStores.has(key) || !!(storage && storage.keys('service-worker-cache/' + encodeURIComponent(key) + '/').length)); }, delete: function(name) { var key = String(name), store = cacheStores.get(key), persisted = storage ? storage.keys('service-worker-cache/' + encodeURIComponent(key) + '/') : []; if (!store && !persisted.length) return Promise.resolve(false); if (store) store.forEach(function(value, request) { cacheBytes -= value.size; }); if (storage) persisted.forEach(function(entry) { storage.delete(entry); }); cacheStores.delete(key); return Promise.resolve(true); }, keys: function() { var names = Array.from(cacheStores.keys()); persistedCacheNames().forEach(function(name) { if (names.indexOf(name) < 0) names.push(name); }); return Promise.resolve(names); } };
-            })();
             globalThis.__folio_capture_tracks = [];
             globalThis.__folio_capture_devices_granted = false;
             function __folio_recheck_capture_permission() {
@@ -787,7 +748,8 @@ public static class DomBindings
         ", "folio:dom-globals");
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
-        FetchBindings.Install(engine, context);
+        var cacheFetchApi = FetchBindings.Install(engine, context);
+        CacheBindings.Install(engine, context, cacheFetchApi);
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);

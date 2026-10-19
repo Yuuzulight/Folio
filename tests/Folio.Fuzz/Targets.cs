@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Folio.Css;
 using Folio.Diagrams;
 using Folio.Dom;
@@ -58,6 +59,7 @@ internal static class Targets
         new("webvtt", WebVtt, WebVttSeeds, ["WEBVTT", "NOTE", "--> ", "00:00.000", "align:start", "&amp;", "<b>", "\n\n"]),
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
+        new("cache-storage", CacheStorage, CacheStorageSeeds, ["Operation", "open", "put", "match", "delete", "release", "$last", "vary", "GET", "Headers", "null"]),
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -298,6 +300,56 @@ internal static class Targets
         using var capabilities = System.Text.Json.JsonDocument.Parse("{\"capabilities\":{\"webGl\":true,\"media\":true,\"workers\":true,\"webAssembly\":true,\"iframes\":true,\"webRtc\":true,\"serviceWorkers\":true}}");
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Load, 3, capabilities.RootElement.Clone()));
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Capabilities, 4, capabilities.RootElement.Clone()));
+        using var storageRequest = System.Text.Json.JsonDocument.Parse("{\"operation\":\"begin\",\"length\":1,\"hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}");
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.StorageRequest, 5, storageRequest.RootElement.Clone()));
+        using var storageResponse = System.Text.Json.JsonDocument.Parse("{\"requestId\":5,\"result\":{\"token\":\"a\"}}");
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.StorageResponse, 6, storageResponse.RootElement.Clone()));
+    }
+
+    private sealed class FuzzCacheStorage : IArtifactStorage
+    {
+        internal readonly Dictionary<string, string> Values = new(StringComparer.Ordinal);
+        public string? Read(string key) => Values.GetValueOrDefault(key);
+        public void Write(string key, string value) => Values[key] = value;
+        public void Delete(string key) => Values.Remove(key);
+        public IReadOnlyList<string> Keys(string prefix) => Values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+    }
+
+    private static void CacheStorage(byte[] data)
+    {
+        ContentCacheBroker.Request[]? requests;
+        try { requests = System.Text.Json.JsonSerializer.Deserialize<ContentCacheBroker.Request[]>(data); }
+        catch (System.Text.Json.JsonException) { return; }
+        if (requests is null || requests.Length > 64) return;
+        var storage = new FuzzCacheStorage();
+        using var broker = new ContentCacheBroker(storage, "fuzz", 16384);
+        string? last = null;
+        foreach (var request in requests)
+        {
+            if (request is null) continue;
+            var current = request.Handle == "$last" ? request with { Handle = last } : request;
+            var reply = System.Text.Json.JsonSerializer.Deserialize<ContentCacheBroker.Reply>(broker.Execute(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(current)))!;
+            if (current.Operation == "open" && reply.ErrorName is null) last = reply.Value.GetString();
+        }
+        foreach (var pair in storage.Values)
+        {
+            if (pair.Key == CacheStorageState.StorageKey("fuzz"))
+            {
+                if (Encoding.UTF8.GetByteCount(pair.Value) > 16384) throw new InvalidOperationException("Cache quota was bypassed.");
+            }
+            else if (!pair.Key.StartsWith("fuzz:service-worker-registration/", StringComparison.Ordinal))
+                throw new InvalidOperationException("A storage request escaped its artifact.");
+        }
+    }
+
+    private static IEnumerable<byte[]> CacheStorageSeeds()
+    {
+        const string context = "00000000000000000000000000000001";
+        var entry = new CacheStorageState.Entry(new("https://fuzz.example/data", "GET", []), 200, "OK", [], [0, 1, 255], false, "", "default");
+        ContentCacheBroker.Request[] sequence = [new("open", context, Name: "data"), new("put", context, "$last", Entries: [entry]),
+            new("match", context, "$last", RequestValue: entry.Request, Query: new(false, false, false)), new("delete", context, Name: "data"), new("releaseContext", context)];
+        yield return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(sequence);
+        yield return Encoding.UTF8.GetBytes("[null,{}, {\"Operation\":\"metadataWrite\",\"Context\":\"00000000000000000000000000000001\",\"Key\":\"other:service-worker-registration/x\",\"Value\":\"no\"}]");
     }
 
     // DOM invariant: parent, child and sibling links agree.

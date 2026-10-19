@@ -8,7 +8,10 @@ public interface IArtifactStorage
     /// <summary>Reads a value previously written for this artifact, or null when it is absent.</summary>
     string? Read(string key);
 
-    /// <summary>Writes or replaces a value for this artifact.</summary>
+    /// <summary>
+    /// Atomically writes or replaces one value. If this throws, the previous value must remain intact.
+    /// Folio commits a Cache API batch with one replacement before publishing its in-memory state.
+    /// </summary>
     void Write(string key, string value);
 
     /// <summary>Removes a value for this artifact.</summary>

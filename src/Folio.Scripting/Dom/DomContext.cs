@@ -180,6 +180,7 @@ internal sealed class DomContext
     }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
+    internal Action? DisposeCacheStorage { get; set; }
     public Uri? BaseUri { get; }
     public Folio.Painting.IRasterBackend? RasterBackend { get; }
     private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;

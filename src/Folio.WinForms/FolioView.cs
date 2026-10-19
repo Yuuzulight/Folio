@@ -322,7 +322,7 @@ public class FolioView : Control
                 _ = _contentProcess.DisposeAsync();
             try
             {
-                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader));
+                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits));
                 var process = _contentProcess!;
                 _contentFramePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}-{Guid.NewGuid():N}.bin");
                 _ = process.SendAsync(ContentMessageKind.Load, new

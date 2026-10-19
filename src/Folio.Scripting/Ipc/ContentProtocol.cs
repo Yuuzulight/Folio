@@ -16,6 +16,8 @@ public enum ContentMessageKind
     Heartbeat,
     Shutdown,
     Capabilities,
+    StorageRequest,
+    StorageResponse,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

@@ -8,6 +8,10 @@ using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Tests;
 
+// These tests deliberately use a 50 ms worker execution deadline. Concurrent
+// allocation-heavy fixtures can pause this VM's GC through the entire startup
+// window, testing startup termination instead of the intended timer callback.
+[Collection("Worker execution deadlines")]
 public sealed class WorkerEventLoopTests
 {
     [Fact]

@@ -42,7 +42,7 @@ public sealed record ResourceLimits
     public long MaxWorkerMemoryBytes { get; init; } = 64L * 1024 * 1024;
     /// <summary>Maximum time a worker evaluation may run before it is interrupted.</summary>
     public TimeSpan MaxWorkerExecutionTime { get; init; } = TimeSpan.FromSeconds(5);
-    /// <summary>Maximum bytes retained by the artifact's Cache API stores.</summary>
+    /// <summary>Maximum UTF-8 snapshot bytes retained by the artifact's Cache API, including metadata and encoded bodies. Live deleted-cache handles also count until collected.</summary>
     public long MaxServiceWorkerCacheBytes { get; init; } = 64L * 1024 * 1024;
     /// <summary>Maximum nested iframe contexts a document may create.</summary>
     public int MaxIframes { get; init; } = 16;

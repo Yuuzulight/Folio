@@ -66,7 +66,7 @@ public sealed class CapabilityMatrixTests
             BaseUri = new Uri("https://worker.example/"),
             ResourceLoader = new ServiceWorkerLoader(),
             Capabilities = new FeatureCapabilities { ServiceWorkers = true },
-            Limits = ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 8 }
+            Limits = ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 2048 }
         }));
         Assert.True(engine.Evaluate("navigator.serviceWorker.register('sw.js').then(() => caches.open('row').then(c => c.put('/x', new Response('12345678')))); true").AsBoolean());
         engine.PerformMicrotaskCheckpoint();
