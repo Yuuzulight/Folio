@@ -21,6 +21,17 @@ internal sealed class DomContext
     private readonly List<WorkerState> _workers = [];
     private readonly object _workersGate = new();
     private CssomRegistry? _cssom;
+    private readonly HashSet<string> _capabilityDenials = new(StringComparer.Ordinal);
+    internal bool ScriptFeaturesDisposed { get; set; }
+
+    internal bool CheckCapability(string feature, bool granted)
+    {
+        if (granted && !ScriptFeaturesDisposed) return true;
+        if (_capabilityDenials.Add(feature))
+            Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.CapabilityDenied, Severity.Warning,
+                $"{feature} is disabled by the host.", null, feature));
+        return false;
+    }
 
     /// <summary>The document's CSSOM sheets and rules.</summary>
     public CssomRegistry Cssom => _cssom ??= new CssomRegistry(this);

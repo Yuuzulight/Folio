@@ -64,7 +64,7 @@ Worker isolation, subresource interception and a real offline reopen test remain
 
 **Partial.** Evidence: `FolioOptions.cs, ContentMessages.cs, DomBindings.UpdateCapabilities`.
 
-Capability serialization exists. Sound/camera/microphone are not separate grants; per-feature diagnostic deduplication still needs verification.
+Capability serialization exists. The compatibility WebAssembly surface now checks current host permission through a private callback, including retained APIs, streaming continuations and reentrant imported calls. Real-process tests cover load/update/revoke/regrant and one denial diagnostic per document. Sound/camera/microphone are not separate grants; other features still need private permission state, revocation and diagnostic deduplication. These gaps keep #523 open.
 
 Original acceptance:
 

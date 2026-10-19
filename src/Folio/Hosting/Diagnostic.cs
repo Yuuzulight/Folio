@@ -19,6 +19,9 @@ public enum DiagnosticCode
 
     /// <summary>Folio selected a native implementation for a recognized library-backed feature.</summary>
     FeatureRouted,
+
+    /// <summary>A document tried to use a feature the host did not grant.</summary>
+    CapabilityDenied,
 }
 
 public enum Severity
