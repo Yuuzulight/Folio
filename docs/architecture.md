@@ -260,7 +260,7 @@ The full milestone list is in the [roadmap](roadmap.md). M1 is specified here be
 
 **CSS features M1 must support** (chosen from what AI-written artifacts use):
 
-- **Syntax and cascade**: full tokenizer and error recovery, nesting, `@media` (features listed in [study 03](study/03-css-parsing-and-selectors.md)), `@supports`, `@layer`, `@import`, `!important`, `initial`/`inherit`/`unset`/`revert`/`revert-layer`, the M1 selector set from study 03.
+- **Syntax and cascade**: full tokenizer and error recovery, nesting, `@media` (features listed in [study 03](study/03-css-parsing-and-selectors.md)), `@supports`, `@layer`, `@import`, `!important`, the `all` reset, `initial`/`inherit`/`unset`/`revert`/`revert-layer` (including variable fallbacks), the M1 selector set from study 03.
 - **Values**: `px em rem % vw vh vmin vmax dvh svh lvh ch ex pt`, `calc() min() max() clamp()`, `var()` with fallbacks, `@property` initial values, colours: named, hex (3/4/6/8), `rgb() hsl() hwb() lab() lch() oklab() oklch()`, `color-mix()`, `currentcolor`, `transparent`, `color-scheme`, `light-dark()`.
 - **Display and box model**: `display` (`block inline inline-block flow-root flex inline-flex grid inline-grid table*` family, `list-item`, `contents`, `none`), `box-sizing`, `width/height/min-*/max-*` including `min-content max-content fit-content`, `aspect-ratio`, `margin` (with `auto` centring), `padding`, `border-width/style/color` (all styles), `border-radius`, `outline`, `outline-offset`, `visibility`, `float`, `clear`.
 - **Flexbox**: every property and value in [study 07](study/07-layout-flexbox.md), `gap`.

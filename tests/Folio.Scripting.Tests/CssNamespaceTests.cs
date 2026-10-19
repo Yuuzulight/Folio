@@ -58,6 +58,13 @@ public class CssNamespaceTests
     [InlineData("color", "not-a-color", false)]
     [InlineData("--custom", "anything at all", true)]
     [InlineData("DISPLAY", "GRID", true)]
+    [InlineData("all", "initial", true)]
+    [InlineData("all", "inherit", true)]
+    [InlineData("all", "unset", true)]
+    [InlineData("all", "revert", true)]
+    [InlineData("all", "revert-layer", true)]
+    [InlineData("all", "red", false)]
+    [InlineData("all", "initial unset", false)]
     public void TwoArgumentsAnswerLikeADeclarationInAnAtSupportsRule(string property, string value, bool expected) =>
         Assert.Equal(expected ? "true" : "false", Eval($"String(CSS.supports('{property}', '{value}'))"));
 

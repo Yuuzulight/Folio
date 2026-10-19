@@ -39,9 +39,10 @@ internal static class Targets
         new("html", Html, () => Cases("Html", "Style"), ["<", ">", "</", "<!--", "-->", "<!DOCTYPE html>", "&amp;", "&#x", "<table>",
             "<tr>", "<td>", "<template>", "<svg>", "<math>", "<select>", "<option>", "<p>", "<b>", "<a>", "<style>", "</style>",
             "<script>", "<textarea>", "<frameset>", "<body>", "<html>", " style='", "=\"", "\0"]),
-        new("css", Css, () => Cases("Css", "Style").Append(UserAgentStyleSheet()), ["{", "}", "(", ")", "[", "]", ";", ":", ",",
+        new("css", Css, () => Cases("Css", "Style").Append(UserAgentStyleSheet()).Concat(CssResetSeeds()), ["{", "}", "(", ")", "[", "]", ";", ":", ",",
             "@media ", "@supports ", "@layer ", "@import ", "@property ", "@font-face", "!important", "var(--a)", "--a:", "calc(",
-            "url(", "\\", "/*", "*/", "\"", "'", "&", ":is(", ":not(", ":nth-child(", "::before", "attr(", "#", "."]),
+            "url(", "\\", "/*", "*/", "\"", "'", "&", ":is(", ":not(", ":nth-child(", "::before", "attr(", "#", ".",
+            "all:", "initial", "inherit", "unset", "revert", "revert-layer"]),
         new("png", data => PngDecoder.Decode(data, MaxPixels), () => Images("*.png"), []),
         new("jpeg", data => JpegDecoder.Decode(data, MaxPixels), () => Images("*.jpg"), []),
         new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
@@ -54,7 +55,8 @@ internal static class Targets
             "<pattern id=\"", " patternUnits=\"userSpaceOnUse\"", " patternTransform=\"", " href=\"#", " fill=\"url(#",
             "<foreignObject width=\"", "<div xmlns=\"http://www.w3.org/1999/xhtml\">"]),
         new("cssom", Cssom, CssomSeeds, ["{", "}", ";", ":", "@media ", "@supports ", "@import ", "@namespace ", "@keyframes ", "@layer ", "@container ",
-            "@font-face", "@property ", "@page ", "@charset ", "@starting-style", "!important", "&", "from", "to", "50%", "url(", "(", ")", "\"", "'", "\\", "/*", "*/"]),
+            "@font-face", "@property ", "@page ", "@charset ", "@starting-style", "!important", "&", "from", "to", "50%", "url(", "(", ")", "\"", "'", "\\", "/*", "*/",
+            "all:", "unset", "var(--x,revert-layer)"]),
         new("canvas", Canvas, CanvasSeeds, ["M", "L", "C", "Z", "a", "e", "red", "#", "rgb(", "hsl(", "blur(", "drop-shadow(", "px ", "serif", "bold ", "repeat", "evenodd", "lighter", "xor", "NaN", ",", "-", "e999"]),
         new("webvtt", WebVtt, WebVttSeeds, ["WEBVTT", "NOTE", "--> ", "00:00.000", "align:start", "&amp;", "<b>", "\n\n"]),
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
@@ -124,6 +126,17 @@ internal static class Targets
         StyleResolver.Resolve(TreeBuilder.Parse(StyledDocument), Media, userStyleSheet: css);
     }
 
+    private static IEnumerable<byte[]> CssResetSeeds() => new[]
+    {
+        "main { all: unset; display: block; color: green }",
+        "main { --x: 7px; all: var(--x) }",
+        "@layer a { main { color: red } } @layer b { main { all: var(--missing, revert-layer) } }",
+        "main { color: red; all: var(--missing, revert) }",
+        "@layer a { main { --x: blue } } @layer b { main { --x: var(--missing, revert-layer); --a: var(--x); color: var(--a) } }",
+        "main { --x: var(--a, revert-layer); --a: var(--x); all: var(--x, initial) }",
+        "@property --x { syntax: '*'; inherits: false } body { --x: blue } main { all: var(--x, initial) }"
+    }.Select(Encoding.UTF8.GetBytes);
+
     // CSSOM insertRule/appendRule/deleteRule with generated rule text (issue #499): a DOMException is the expected answer to a
     // bad rule; nothing else may escape, and a sheet never grows past its rule limit.
     private static void Cssom(byte[] data)
@@ -153,6 +166,7 @@ internal static class Targets
 
     private static IEnumerable<byte[]> CssomSeeds() => new[]
     {
+        "p { all: unset }", "@layer a { p { color: blue } } @layer b { p { all: var(--missing, revert-layer) } }",
         "p { color: red }", "@media (min-width: 1px) { p { top: 0 } }", "@import url(a.css);", "@namespace url(http://example.com);",
         "@keyframes x { 50% { top: 1px } }", "@layer a, b;", "@supports (display: grid) { a { b: c } }", "@font-face { font-family: F }",
         "a { & b { c: d } }", "50% { top: 1px }", "not a rule", "a { } b { }", "", "@charset \"utf-8\";",

@@ -427,7 +427,8 @@ internal static class Cascade
     /// <param name="parent">The parent's style, whose writing-mode and direction flow-relative properties follow unless the element sets its own.</param>
     public static (Dictionary<PropertyId, CssValue> Values, Dictionary<string, CustomProperties.Declared> Custom) Compute(
         List<RuleIndex<CascadeRule>.Entry> matched, List<CascadeDeclaration>? styleAttribute, int styleAttributeOrder, List<CascadeDeclaration>? hints,
-        IReadOnlyList<CascadeDeclaration>? animations = null, ComputedStyle? parent = null)
+        IReadOnlyList<CascadeDeclaration>? animations = null, ComputedStyle? parent = null,
+        IReadOnlyDictionary<string, RegisteredProperty>? registered = null)
     {
         var candidates = new List<Candidate>();
         // Presentational hints: author origin, zero specificity, before every author rule, below every author layer.
@@ -460,39 +461,110 @@ internal static class Cascade
         var custom = new Dictionary<string, CustomProperties.Declared>(StringComparer.Ordinal);
         // With flow-relative declarations, the rank each property won at, to settle each against its physical twin.
         var ranks = candidates.Exists(c => LogicalProperties.IsLogical(c.Declaration.Id)) ? new Dictionary<PropertyId, int>() : null;
-        Dictionary<object, Func<Candidate, bool>>? rollbacks = null; // only revert and revert-layer need them
-        for (var i = 0; i < candidates.Count; i++)
-        {
-            var c = candidates[i];
-            if ((c.Declaration.CustomName is { } n ? custom.ContainsKey(n) : values.ContainsKey(c.Declaration.Id))
-                || (rollbacks is not null && rollbacks.TryGetValue(KeyOf(c), out var skip) && skip(c)))
-                continue;
+        Dictionary<object, List<Func<Candidate, bool>>>? rollbacks = null; // only revert and revert-layer need them
+        var deferred = candidates.Exists(c => c.Declaration.Value is UnparsedValue
+            || c.Declaration.CustomName is not null && c.Declaration.Custom.Keyword is null);
+        Dictionary<string, CssWideValue?>? keywords = deferred ? new(StringComparer.Ordinal) : null;
+        Dictionary<string, (Candidate Candidate, int Index)>? selectedCustom = deferred ? new(StringComparer.Ordinal) : null;
+        Dictionary<string, CustomProperties.Declared>? customUpdates = deferred ? new(StringComparer.Ordinal) : null;
+        System.Collections.Immutable.ImmutableDictionary<string, string>? customValues = null;
 
-            var keyword = c.Declaration.CustomName is not null ? c.Declaration.Custom.Keyword : (c.Declaration.Value as CssWideValue)?.Keyword;
-            if (keyword == CssWideKeyword.RevertLayer && c.Layer.Length == 1)
-                keyword = CssWideKeyword.Revert; // outside any layer there is no layer to go back to
-            if (keyword == CssWideKeyword.Revert && c.Origin != Origin.UserAgent)
+        void AddRollback(Candidate candidate, Func<Candidate, bool> skip)
+        {
+            var key = KeyOf(candidate);
+            if ((rollbacks ??= []).TryGetValue(key, out var scopes)) scopes.Add(skip);
+            else rollbacks[key] = [skip];
+        }
+
+        bool RollsBack(Candidate candidate, CssWideKeyword? keyword, out CssWideKeyword? resolved)
+        {
+            if (keyword == CssWideKeyword.RevertLayer && candidate.Layer.Length == 1) keyword = CssWideKeyword.Revert;
+            resolved = keyword;
+            if (keyword == CssWideKeyword.Revert && candidate.Origin != Origin.UserAgent)
             {
-                // Roll back to the previous origin: ignore the rest of this origin, both importances.
-                var origin = c.Origin;
-                (rollbacks ??= [])[KeyOf(c)] = other => other.Origin == origin;
-                continue;
+                var origin = candidate.Origin;
+                AddRollback(candidate, other => other.Origin == origin);
+                return true;
             }
             if (keyword == CssWideKeyword.RevertLayer)
             {
-                // Roll back to the previous layer of the same origin and importance.
-                var (origin, important, layer) = (c.Origin, c.Declaration.Important, c.Layer);
-                (rollbacks ??= [])[KeyOf(c)] = other => other.Origin == origin && other.Declaration.Important == important && other.Layer.SequenceEqual(layer);
-                continue;
+                var (origin, important, layer) = (candidate.Origin, candidate.Declaration.Important, candidate.Layer);
+                AddRollback(candidate, other => other.Origin == origin && other.Declaration.Important == important && other.Layer.SequenceEqual(layer));
+                return true;
             }
+            if (keyword is CssWideKeyword.Revert or CssWideKeyword.RevertLayer) resolved = CssWideKeyword.Unset;
+            return false;
+        }
 
-            var resolved = keyword is CssWideKeyword.Revert or CssWideKeyword.RevertLayer ? CssWideKeyword.Unset : keyword;
-            if (c.Declaration.CustomName is { } customName)
-                custom[customName] = resolved is null ? c.Declaration.Custom : new CustomProperties.Declared(null, resolved);
-            else
+        CustomProperties.Declared RevertCustom(string name, CssWideKeyword keyword)
+        {
+            var (selected, index) = selectedCustom![name];
+            if (!RollsBack(selected, keyword, out var resolved))
+                return customUpdates![name] = new(null, resolved);
+            for (var i = index + 1; i < candidates.Count; i++)
             {
-                values[c.Declaration.Id] = resolved is { } k && k != keyword ? new CssWideValue(k) : c.Declaration.Value!;
-                ranks?.Add(c.Declaration.Id, i);
+                var next = candidates[i];
+                if (next.Declaration.CustomName != name
+                    || rollbacks!.TryGetValue(name, out var scopes) && scopes.Any(skip => skip(next))) continue;
+                if (RollsBack(next, next.Declaration.Custom.Keyword, out resolved)) continue;
+                selectedCustom[name] = (next, i);
+                return customUpdates![name] = resolved is null ? next.Declaration.Custom : new(null, resolved);
+            }
+            return customUpdates![name] = new(null, CssWideKeyword.Unset);
+        }
+        // Variable fallbacks can become revert/revert-layer. Resolve custom
+        // declarations first so those keywords enter the ordinary cascade while
+        // the earlier candidates needed for rollback still exist.
+        for (var phase = 0; phase <= (deferred ? 1 : 0); phase++)
+        {
+            if (deferred && phase == 1)
+            {
+                customValues = CustomProperties.Compute((parent ?? ComputedStyle.Initial).Custom, custom,
+                    registered ?? System.Collections.Immutable.ImmutableDictionary<string, RegisteredProperty>.Empty, RevertCustom);
+                // DFS reads a stable declaration snapshot. Publish the selected
+                // fallback declarations only once every dependency is resolved.
+                foreach (var (name, declaration) in customUpdates!) custom[name] = declaration;
+            }
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                if (deferred && (c.Declaration.CustomName is not null) != (phase == 0)) continue;
+                if ((c.Declaration.CustomName is { } n ? custom.ContainsKey(n) : values.ContainsKey(c.Declaration.Id))
+                    || (rollbacks is not null && rollbacks.TryGetValue(KeyOf(c), out var scopes) && scopes.Any(skip => skip(c))))
+                    continue;
+
+                var value = c.Declaration.Value;
+                if (value is UnparsedValue pending)
+                {
+                    // An all shorthand has hundreds of longhands. Substitute and
+                    // parse a shared deferred text once per element, not per row.
+                    if (!keywords!.TryGetValue(pending.Text, out var wide))
+                    {
+                        var text = CustomProperties.Substitute(pending.Text, name => customValues!.GetValueOrDefault(name));
+                        if (text is not null)
+                        {
+                            var (source, components) = CssParser.ParseComponentValues(text);
+                            wide = Properties.ParseWideKeyword(new ValueReader(source, components));
+                        }
+                        keywords[pending.Text] = wide;
+                    }
+                    if (wide is not null) value = wide;
+                    // all accepts only CSS-wide keywords. A non-keyword substituted
+                    // value is invalid at computed-value time for every longhand.
+                    else if (pending.Shorthand == "all") value = new CssWideValue(CssWideKeyword.Unset);
+                }
+                var keyword = c.Declaration.CustomName is not null ? c.Declaration.Custom.Keyword : (value as CssWideValue)?.Keyword;
+                if (RollsBack(c, keyword, out var resolved)) continue;
+                if (c.Declaration.CustomName is { } customName)
+                {
+                    custom[customName] = resolved is null ? c.Declaration.Custom : new CustomProperties.Declared(null, resolved);
+                    if (selectedCustom is not null) selectedCustom[customName] = (c, i);
+                }
+                else
+                {
+                    values[c.Declaration.Id] = resolved is { } k && k != keyword ? new CssWideValue(k) : value!;
+                    ranks?.Add(c.Declaration.Id, i);
+                }
             }
         }
         if (ranks is not null)

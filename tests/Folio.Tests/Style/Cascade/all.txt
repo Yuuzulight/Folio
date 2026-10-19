@@ -1,0 +1,125 @@
+=== all unset removes button defaults and inherits text properties
+<!DOCTYPE html><style>div { color: green; font-size: 20px } button { all: unset }</style><div><button id=a>x</button></div>
+---
+#a display: inline
+#a color: rgb(0, 128, 0)
+#a font-size: 20
+#a padding-left: 0px
+#a border-top-style: none
+#a text-align: start
+
+=== all initial resets inherited properties too
+<!DOCTYPE html><style>div { color: green; font-size: 20px } button { color: red; all: initial }</style><div><button id=a>x</button></div>
+---
+#a display: inline
+#a color: rgb(0, 0, 0)
+#a font-size: 16
+#a padding-left: 0px
+
+=== all inherit also inherits non inherited properties
+<!DOCTYPE html><style>div { color: green; padding-left: 9px; width: 80px } button { all: inherit }</style><div><button id=a>x</button></div>
+---
+#a display: block
+#a color: rgb(0, 128, 0)
+#a padding-left: 9px
+#a width: 80px
+
+=== all leaves direction unicode bidi and custom properties intact
+<!DOCTYPE html><style>button { direction: rtl; unicode-bidi: bidi-override; --keep: 7px; all: initial; margin-top: var(--keep) }</style><button id=a>x</button>
+---
+#a direction: rtl
+#a unicode-bidi: bidi-override
+#a --keep: 7px
+#a margin-top: 7px
+
+=== all obeys declaration order
+<!DOCTYPE html><button id=a style="color: red; all: unset; color: blue">x</button><button id=b style="color: red; all: initial">y</button>
+---
+#a color: rgb(0, 0, 255)
+#b color: rgb(0, 0, 0)
+
+=== all obeys importance
+<!DOCTYPE html><style>div { color: green } button { color: red !important; all: unset } #b { all: unset !important; color: blue }</style><div><button id=a>x</button><button id=b>y</button></div>
+---
+#a color: rgb(255, 0, 0)
+#b color: rgb(0, 128, 0)
+
+=== a custom property rollback resolves before its dependants
+<!DOCTYPE html><style>body { color: green } @layer base { button { --x: blue; color: red; padding-left: 9px } } @layer reset { button { --x: var(--missing, revert-layer); --a: var(--x); color: var(--a) } }</style><button id=a>x</button>
+---
+#a color: rgb(0, 0, 255)
+#a padding-left: 9px
+#a --x: blue
+
+=== a custom property initial fallback becomes missing before use
+<!DOCTYPE html><style>body { color: green; --x: blue } button { --x: var(--missing, initial); color: var(--x, red) }</style><button id=a>x</button>
+---
+#a color: rgb(255, 0, 0)
+#a --x: none
+
+=== a custom property inherit fallback resolves its parent value
+<!DOCTYPE html><style>body { color: green; --x: blue } button { --x: var(--missing, inherit); color: var(--x) }</style><button id=a>x</button>
+---
+#a color: rgb(0, 0, 255)
+#a --x: blue
+
+=== a custom property cycle cannot recover through rollback fallback
+<!DOCTYPE html><style>@layer base { button { --x: blue; color: red } } @layer reset { button { --x: var(--a, revert-layer); --a: var(--x); color: var(--x, orange) } }</style><button id=a>x</button>
+---
+#a color: rgb(255, 165, 0)
+#a --x: none
+
+=== all fallback uses the registered non inherited custom property
+<!DOCTYPE html><style>@property --fresh { syntax: "*"; inherits: false } body { color: green; --fresh: blue } button { all: var(--fresh, initial) }</style><button id=a>x</button>
+---
+#a color: rgb(0, 0, 0)
+#a padding-left: 0px
+
+=== all revert restores user agent button styling
+<!DOCTYPE html><style>button { display: block; color: red; padding-left: 19px; border-style: dashed; all: revert }</style><button id=a>x</button>
+---
+#a display: inline-block
+#a color: rgb(0, 0, 0)
+#a padding-left: 6px
+#a border-top-style: solid
+
+=== all revert layer restores earlier layer values
+<!DOCTYPE html><style>@layer base { button { color: red; padding-left: 9px } } @layer reset { button { color: blue; padding-left: 19px; all: revert-layer } }</style><button id=a>x</button>
+---
+#a color: rgb(255, 0, 0)
+#a padding-left: 9px
+
+=== all rejects ordinary values and compound keywords
+<!DOCTYPE html><button id=a style="color: red; padding-left: 9px; all: blue; all: 3px; all: none; all: initial unset">x</button>
+---
+#a color: rgb(255, 0, 0)
+#a padding-left: 9px
+
+=== all substitutes a css wide fallback
+<!DOCTYPE html><style>div { color: green } button { color: red; padding-left: 9px; all: var(--missing, initial) }</style><div><button id=a>x</button></div>
+---
+#a color: rgb(0, 0, 0)
+#a padding-left: 0px
+
+=== all rejects ordinary substituted values at computed value time
+<!DOCTYPE html><style>div { color: green } button { --reset: 7px; color: red; padding-left: 9px; all: var(--reset) }</style><div><button id=a>x</button></div>
+---
+#a color: rgb(0, 128, 0)
+#a padding-left: 0px
+
+=== all deferred revert layer restores the preceding layer
+<!DOCTYPE html><style>body { color: green } @layer base { button { color: red; padding-left: 9px } } @layer reset { button { all: var(--missing, revert-layer) } }</style><button id=a>x</button>
+---
+#a color: rgb(255, 0, 0)
+#a padding-left: 9px
+
+=== all deferred revert restores user agent values
+<!DOCTYPE html><style>body { color: green } button { color: red; padding-left: 19px; all: var(--missing, revert) }</style><button id=a>x</button>
+---
+#a color: rgb(0, 0, 0)
+#a padding-left: 6px
+
+=== a deferred longhand rollback restores the preceding layer
+<!DOCTYPE html><style>body { color: green } @layer base { button { color: red } } @layer reset { button { color: var(--missing, revert-layer) } }</style><button id=a>x</button>
+---
+#a color: rgb(255, 0, 0)

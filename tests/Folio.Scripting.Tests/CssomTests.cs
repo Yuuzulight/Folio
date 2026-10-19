@@ -51,6 +51,23 @@ public class CssomTests
     private static Page Open(string css, string body = "<p>text</p>", FakeLoader? loader = null, ScriptLimits? limits = null) =>
         new($"<!DOCTYPE html><html><head><style>{css}</style></head><body>{body}</body></html>", loader, limits);
 
+    [Fact]
+    public void AllResetFlowsThroughInlineAndRuleDeclarationsAndRestylesTheElement()
+    {
+        using var page = Open("body { color: green } button { color: red; padding-left: 9px }", "<button id=target>text</button>");
+        Assert.Equal(Red, page.Color("button"));
+        Assert.Equal("unset", page.Js("const button = document.getElementById('target'); button.style.setProperty('all', 'unset'); button.style.getPropertyValue('all')"));
+        Assert.Equal("rgb(0, 128, 0)", page.Color("button"));
+        Assert.Equal("0px", page.Js("getComputedStyle(button).paddingLeft"));
+        page.Js("button.style.all = 'initial'; 'ok'");
+        Assert.Equal("rgb(0, 0, 0)", page.Color("button"));
+        Assert.Equal("initial", page.Js("button.style.removeProperty('all')"));
+        Assert.Equal(Red, page.Color("button"));
+        page.Js("document.styleSheets[0].cssRules[1].style.all = 'unset'; 'ok'");
+        Assert.Equal("rgb(0, 128, 0)", page.Color("button"));
+        Assert.Equal("0px", page.Js("getComputedStyle(button).paddingLeft"));
+    }
+
     // --------------------------------------------------------------------------------------------- reading (#498)
 
     [Fact]

@@ -22,7 +22,8 @@ internal static class CustomProperties
     public static ImmutableDictionary<string, string> Compute(
         ImmutableDictionary<string, string> parent,
         IReadOnlyDictionary<string, Declared> declared,
-        IReadOnlyDictionary<string, RegisteredProperty> registered)
+        IReadOnlyDictionary<string, RegisteredProperty> registered,
+        Func<string, CssWideKeyword, Declared>? rollback = null)
     {
         var map = parent;
         foreach (var (name, registration) in registered)
@@ -38,15 +39,15 @@ internal static class CustomProperties
 
         // Declared values first (keywords resolved), then var() inside them, with cycle detection.
         var raw = new Dictionary<string, string?>(StringComparer.Ordinal);
+        string? DefaultValue(string name, CssWideKeyword keyword) => keyword switch
+        {
+            CssWideKeyword.Inherit => parent.GetValueOrDefault(name),
+            CssWideKeyword.Initial => registered.GetValueOrDefault(name)?.InitialValue,
+            _ => registered.GetValueOrDefault(name) is { Inherits: false } r ? r.InitialValue : parent.GetValueOrDefault(name),
+        };
         foreach (var (name, value) in declared)
         {
-            raw[name] = value.Keyword switch
-            {
-                null => value.Text,
-                CssWideKeyword.Inherit => parent.GetValueOrDefault(name),
-                CssWideKeyword.Initial => registered.GetValueOrDefault(name)?.InitialValue,
-                _ => registered.GetValueOrDefault(name) is { Inherits: false } r ? r.InitialValue : parent.GetValueOrDefault(name),
-            };
+            raw[name] = value.Keyword is { } keyword ? DefaultValue(name, keyword) : value.Text;
         }
 
         var resolved = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -69,6 +70,23 @@ internal static class CustomProperties
             }
             stack.Add(name);
             var value = text is null ? null : text.Contains("var(", StringComparison.OrdinalIgnoreCase) ? Substitute(text, Resolve) : text;
+            while (value is not null && !inCycle.Contains(name))
+            {
+                var (source, components) = CssParser.ParseComponentValues(value);
+                if (Properties.ParseWideKeyword(new ValueReader(source, components)) is not { } wide) break;
+                // A dependency must resolve its own CSS-wide fallback before a
+                // caller consumes its value. Never leak "initial" or "revert"
+                // as ordinary custom-property text to that caller.
+                var replacement = wide.Keyword is CssWideKeyword.Revert or CssWideKeyword.RevertLayer && rollback is not null
+                    ? rollback(name, wide.Keyword) : new Declared(null, wide.Keyword);
+                if (replacement.Keyword is { } keyword)
+                {
+                    value = DefaultValue(name, keyword);
+                    break;
+                }
+                text = replacement.Text;
+                value = text is null ? null : text.Contains("var(", StringComparison.OrdinalIgnoreCase) ? Substitute(text, Resolve) : text;
+            }
             stack.RemoveAt(stack.Count - 1);
             if (inCycle.Contains(name))
                 value = null;

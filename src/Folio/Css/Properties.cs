@@ -365,6 +365,10 @@ internal static class Properties
         Table = new Property?[Factories.Length];
         foreach (var (name, shorthand) in MaskProperties.Shorthands.Append(("mask-border", new Shorthand(BorderImageProperties.MaskBorderLonghands, BorderImageProperties.MaskBorderShorthand))).Concat(AnimationProperties.Shorthands).Concat(MulticolProperties.Shorthands).Concat(LogicalProperties.Shorthands))
             Shorthands[name] = shorthand;
+        // https://www.w3.org/TR/css-cascade-5/#all-shorthand
+        // Keep row creation lazy; this shorthand needs only the property IDs.
+        Shorthands["all"] = new(Enumerable.Range(0, Table.Length).Select(i => (PropertyId)i)
+            .Where(id => id is not (PropertyId.Direction or PropertyId.UnicodeBidi)).ToArray(), _ => null);
     }
 
     /// <summary>Every row, each made now if it was not yet (for tests and tools; documents use only the rows they ask for).</summary>
@@ -397,16 +401,8 @@ internal static class Properties
             return null;
 
         var reader = new ValueReader(source, declaration.Value);
-        if (reader.Keyword("initial", "inherit", "unset", "revert", "revert-layer") is { } wide && reader.AtEnd)
+        if (ParseWideKeyword(reader) is { } keyword)
         {
-            var keyword = new CssWideValue(wide switch
-            {
-                "initial" => CssWideKeyword.Initial,
-                "inherit" => CssWideKeyword.Inherit,
-                "unset" => CssWideKeyword.Unset,
-                "revert" => CssWideKeyword.Revert,
-                _ => CssWideKeyword.RevertLayer,
-            });
             return longhand is not null ? [(longhand.Id, keyword)] : shorthand!.Longhands.Select(id => (id, (CssValue)keyword)).ToList();
         }
 
@@ -424,6 +420,17 @@ internal static class Properties
         var expanded = shorthand!.Expand(reader);
         return expanded is not null && reader.AtEnd ? expanded : null;
     }
+
+    internal static CssWideValue? ParseWideKeyword(ValueReader reader) =>
+        reader.Keyword("initial", "inherit", "unset", "revert", "revert-layer") is { } wide && reader.AtEnd
+            ? new(wide switch
+            {
+                "initial" => CssWideKeyword.Initial,
+                "inherit" => CssWideKeyword.Inherit,
+                "unset" => CssWideKeyword.Unset,
+                "revert" => CssWideKeyword.Revert,
+                _ => CssWideKeyword.RevertLayer,
+            }) : null;
 
     /// <summary>Longhands a shorthand sets, or null for a name that is not a shorthand.</summary>
     public static IReadOnlyList<PropertyId>? LonghandsOf(string shorthand) => Shorthands.GetValueOrDefault(shorthand)?.Longhands;

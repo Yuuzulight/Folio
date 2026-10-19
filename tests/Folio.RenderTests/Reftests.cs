@@ -3,6 +3,7 @@ namespace Folio.RenderTests;
 public class Reftests
 {
     [Theory]
+    [InlineData("css-cascade/all-unset-001")]
     [InlineData("css-backgrounds/background-color-001")]
     [InlineData("css-images/linear-gradient-hard-stops-001")]
     [InlineData("css-backgrounds/box-shadow-001")]

@@ -2,6 +2,14 @@ namespace Folio.RenderTests;
 
 public class ConformanceTests
 {
+    [Fact]
+    public void SortableDirectoryMatchesItsReference()
+    {
+        var artifact = Conformance.Discover().Single(a => a.Id == "D1/sortable-filter-table");
+        var result = Conformance.Run(artifact);
+        Assert.True(result.Outcome == ConformanceOutcome.Pass, $"{result.Outcome}: {result.Detail}");
+    }
+
     private const string None = "(none)";
 
     public static TheoryData<string> Artifacts =>

@@ -239,7 +239,7 @@ internal static class StyleResolver
                 var sharable = inline is null && hints is null;
                 if (!sharable || shared.Find(item.Parent, _rootFontSize, _matched) is not { } style)
                 {
-                    var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, hints, parent: item.Parent);
+                    var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, hints, parent: item.Parent, registered: _registered);
                     style = StyleBuilder.Compute(values, Context(item.Parent, custom), _groups);
                     // Animations at the document time: each keyframe's declarations join the cascade's animation origin and
                     // the values are interpolated between them.
@@ -248,7 +248,7 @@ internal static class StyleResolver
                         var (parent, rules, elementInline, elementHints) = (item.Parent, _matched.ToList(), inline, hints);
                         var animated = new AnimatedElement(element, style, parent, _keyframes, declarations =>
                         {
-                            var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent);
+                            var (keyed, keyedCustom) = Cascade.Compute(rules, elementInline, int.MaxValue, elementHints, declarations, parent, _registered);
                             return StyleBuilder.Compute(keyed, Context(parent, keyedCustom), _groups);
                         }, _registered);
                         Animations.Add(animated);
@@ -293,7 +293,7 @@ internal static class StyleResolver
             Cascade.Match(element, _origins, _walkContext, pe, _pseudoMatched);
             if (!always && _pseudoMatched.Count == 0)
                 return null;
-            var (pseudoValues, pseudoCustom) = Cascade.Compute(_pseudoMatched, null, 0, null, parent: style);
+            var (pseudoValues, pseudoCustom) = Cascade.Compute(_pseudoMatched, null, 0, null, parent: style, registered: _registered);
             if (pe == PseudoElement.FirstLetter)
                 pseudoValues = FirstLetterProperties(pseudoValues);
             else if (pe == PseudoElement.Selection)
@@ -305,7 +305,7 @@ internal static class StyleResolver
             var (originating, rules) = (style, _pseudoMatched.ToList());
             var animated = new AnimatedElement(element, pseudoStyle, originating, _keyframes, declarations =>
             {
-                var (keyed, keyedCustom) = Cascade.Compute(rules, null, 0, null, declarations, originating);
+                var (keyed, keyedCustom) = Cascade.Compute(rules, null, 0, null, declarations, originating, _registered);
                 return StyleBuilder.Compute(keyed, Context(originating, keyedCustom), _groups);
             }) { PseudoElement = pe };
             Animations.Add(animated);
@@ -322,7 +322,7 @@ internal static class StyleResolver
             }
             _matched.Clear();
             Cascade.Match(element, _origins, _context, PseudoElement.None, _matched);
-            var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element), parent: parent);
+            var (values, custom) = Cascade.Compute(_matched, inline, int.MaxValue, PresentationalHints.For(element), parent: parent, registered: _registered);
             return StyleBuilder.Compute(values, Context(parent, custom), _groups);
         }
 
@@ -330,7 +330,7 @@ internal static class StyleResolver
         {
             _matched.Clear();
             Cascade.Match(element, _origins, _context, PseudoElement.FirstLetter, _matched);
-            var (values, custom) = Cascade.Compute(_matched, null, 0, null, parent: parent);
+            var (values, custom) = Cascade.Compute(_matched, null, 0, null, parent: parent, registered: _registered);
             return StyleBuilder.Compute(FirstLetterProperties(values), Context(parent, custom), _groups);
         }
 
