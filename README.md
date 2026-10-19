@@ -1,10 +1,12 @@
-# Folio
+# Folio Artifacts
 
-A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
+A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#. The repository, NuGet packages and namespaces are named `Folio`.
+
+Folio Artifacts is an artifact-focused renderer, not a complete web browser. It renders and runs the HTML that AI assistants write (reports, tables, charts, small interactive pages) and has no address bar, tabs or logins. Anything it can't handle yet opens in the system browser.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** milestones 1–5 are delivered on the dependency-backed path. Milestone 6 is in progress: capability gates, API surfaces and tests exist, but the [acceptance audit](docs/milestone-6-audit.md) identifies unfinished GPU/GLSL execution, media playback/IPC, native WebAssembly, capture/transport and service-worker isolation. Earlier Milestone 6 completion claims were premature.
+**Status:** milestones 0–3 are delivered. Milestone 4 is in progress, with 28 open issues: an audit of those issues against the code on 20 October 2026 found none ready to close. A JavaScript engine, a DOM subset and a content process exist, but several pieces are shims or stubs: resize and intersection observers never fire their callbacks, element geometry, scrolling and `matchMedia` are partial, form submission and validation, `URL` and `console` are simplified, there is no OS-level sandbox token, and the hostile-artifact suite and scripted benchmarks are not written. Earlier claims that milestone 4 was done were premature. Milestone 5 is marked delivered on the dependency-backed path, but it builds on milestone 4 and has not been re-audited. Milestone 6 is in progress: capability gates, API surfaces and tests exist, but the [acceptance audit](docs/milestone-6-audit.md) identifies unfinished GPU/GLSL execution, media playback/IPC, native WebAssembly, capture/transport and service-worker isolation. Earlier Milestone 6 completion claims were premature.
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
@@ -29,8 +31,8 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana | 0 |
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
-| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Done | 0 |
-| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Done on dependency-backed path | 1 |
+| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress | 28 |
+| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Marked done on dependency-backed path; not re-audited | 0 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 45 |
 | Optional: towards all-Folio: an in-house shaper, rasteriser and image decoders. Never a blocker for the milestones above. | Not started | 19 |
 
