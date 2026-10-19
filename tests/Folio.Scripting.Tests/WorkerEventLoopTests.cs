@@ -77,6 +77,8 @@ public sealed class WorkerEventLoopTests
                 const worker = new Worker('data:text/javascript,' + encodeURIComponent(
                     "onmessage = function() { var order = []; queueMicrotask(function() { order.push('micro'); }); setTimeout(function() { postMessage(order.join(',')); }, 0); }"));
                 let result = '';
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
                 worker.onmessage = event => result = event.data;
                 worker.postMessage(0);
                 result;
@@ -113,6 +115,8 @@ public sealed class WorkerEventLoopTests
                 const worker = new Worker('data:text/javascript,' + encodeURIComponent(
                     "onmessage = function() { setTimeout(function() { postMessage('delayed'); }, 15); }"));
                 let result = '';
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
                 worker.onmessage = event => result = event.data;
                 worker.postMessage(0);
                 result;
@@ -125,7 +129,7 @@ public sealed class WorkerEventLoopTests
                 engine.RunEventLoopUntilIdle();
                 Thread.Yield();
             }
-            Assert.Equal("delayed", engine.Evaluate("result").AsString());
+            Assert.True(engine.Evaluate("result").AsString() == "delayed", WorkerDiagnostic(engine, "worker"));
         }
         finally { DomBindings.Dispose(engine); }
     }
@@ -139,6 +143,8 @@ public sealed class WorkerEventLoopTests
             const active = new Worker('data:text/javascript,' + encodeURIComponent(
                 "setTimeout(function() { postMessage('delivered'); }, 15);"));
             let delivered = '';
+            let workerError = '';
+            active.onerror = event => workerError = event.message;
             active.onmessage = event => delivered = event.data;
             """);
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
@@ -147,7 +153,7 @@ public sealed class WorkerEventLoopTests
             engine.RunEventLoopUntilIdle();
             Thread.Sleep(1);
         }
-        Assert.Equal("delivered", engine.Evaluate("delivered").AsString());
+        Assert.True(engine.Evaluate("delivered").AsString() == "delivered", WorkerDiagnostic(engine, "active"));
     }
 
     [Fact]
@@ -159,6 +165,8 @@ public sealed class WorkerEventLoopTests
             engine.Evaluate("""
                 const worker = new Worker('data:text/javascript,' + encodeURIComponent("postMessage('ready');"));
                 let result = '';
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
                 worker.onmessage = event => result = event.data;
                 """);
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
@@ -182,6 +190,8 @@ public sealed class WorkerEventLoopTests
                 const worker = new Worker('data:text/javascript,' + encodeURIComponent(
                     "setTimeout(function() { postMessage('started'); var end = Date.now() + 500; while (Date.now() < end) {} }, 100); onmessage = function(e) { if (e.data === 'queued') postMessage('reply'); };"));
                 let started = false;
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
                 let reply = false;
                 worker.onmessage = event => { if (event.data === 'started') started = true; if (event.data === 'reply') reply = true; };
                 """);
@@ -191,7 +201,7 @@ public sealed class WorkerEventLoopTests
                 engine.RunEventLoopUntilIdle();
                 Thread.Yield();
             }
-            Assert.True(engine.Evaluate("started").AsBoolean());
+            Assert.True(engine.Evaluate("started").AsBoolean(), WorkerDiagnostic(engine, "worker"));
             engine.Evaluate("worker.postMessage('queued')");
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
             while (DateTime.UtcNow < deadline && !engine.Evaluate("reply").AsBoolean())
@@ -314,6 +324,8 @@ public sealed class WorkerEventLoopTests
                 const worker = new Worker('data:text/javascript,' + encodeURIComponent(
                     "setTimeout(function() { postMessage('started'); while (true) {} }, 100);"));
                 let started = false;
+                let workerError = '';
+                worker.onerror = event => workerError = event.message;
                 worker.onmessage = event => started = event.data === 'started';
                 """);
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
@@ -322,7 +334,7 @@ public sealed class WorkerEventLoopTests
                 engine.RunEventLoopUntilIdle();
                 Thread.Yield();
             }
-            Assert.True(engine.Evaluate("started").AsBoolean());
+            Assert.True(engine.Evaluate("started").AsBoolean(), WorkerDiagnostic(engine, "worker"));
             var elapsed = System.Diagnostics.Stopwatch.StartNew();
             engine.Evaluate("worker.terminate()");
             elapsed.Stop();
@@ -393,6 +405,13 @@ public sealed class WorkerEventLoopTests
         Assert.True(DomBindings.Dispose(engine));
         engine.RunEventLoopUntilIdle();
         Assert.Equal(0, engine.Evaluate("deliveries").AsNumber());
+    }
+
+    private static string WorkerDiagnostic(JintScriptEngine engine, string name)
+    {
+        Assert.True(engine.TryGetHostTarget(engine.Evaluate(name), out var target));
+        var worker = Assert.IsType<WorkerState>(target);
+        return $"Worker error: {engine.Evaluate("workerError").AsString()}; terminated: {worker.Terminated}; released: {worker.ResourcesReleased}";
     }
 
     private static JintScriptEngine CreateEngine(FeatureCapabilities capabilities, bool withEventLoop = false, TimeSpan? workerTime = null, int maxWorkers = 8, IResourceLoader? resourceLoader = null)

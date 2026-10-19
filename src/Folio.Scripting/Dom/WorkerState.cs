@@ -210,11 +210,15 @@ internal sealed class WorkerState
             {
                 try
                 {
-                    if (_workerCommands!.TryTake(out var command, TimeSpan.FromMilliseconds(1)))
-                        command();
+                    // A timed BlockingCollection take can remain in its semaphore
+                    // wait under contention, preventing overdue timers from running.
+                    // Poll commands without blocking, then give the timer loop its turn.
+                    var ranCommand = _workerCommands!.TryTake(out var command);
+                    if (ranCommand) command!();
+                    var ranTurn = false;
                     if (!Terminated && !_workerEventLoop!.IsIdle())
-                        ExecuteWithWatchdog(() => _workerEventLoop.RunOneTurn());
-                    else if (!Terminated)
+                        ExecuteWithWatchdog(() => ranTurn = _workerEventLoop.RunOneTurn());
+                    if (!Terminated && !ranCommand && !ranTurn)
                         Thread.Sleep(1);
                 }
                 catch (InvalidOperationException) { break; }
