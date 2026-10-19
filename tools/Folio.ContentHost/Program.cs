@@ -13,6 +13,7 @@ JintScriptEngine? engine = null;
 HtmlEventLoop? eventLoop = null;
 ScriptRunner? runner = null;
 Document? document = null;
+var taskDiagnostics = new List<string>();
 var capabilities = FeatureCapabilities.Default;
 var framePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
@@ -74,12 +75,17 @@ session.MessageReceived += async (message, cancellationToken) =>
             document = Document.Parse(htmlElement.GetString() ?? "", options);
             engine = new JintScriptEngine();
             eventLoop = new HtmlEventLoop(engine);
+            taskDiagnostics.Clear();
+            eventLoop.UncaughtException += error => taskDiagnostics.Add(error.GetType().Name + ": " + error.Message);
             DomBindings.Install(engine, document, eventLoop: eventLoop);
             ScriptGlobalsInstaller.Install(eventLoop, engine);
             runner = new ScriptRunner(document, engine, eventLoop, options);
             runner.Run();
         }
         engine ??= new JintScriptEngine();
+        // Observe the document after runnable jobs, not a snapshot taken before
+        // its final promise reactions. The requested script still runs once.
+        eventLoop?.SpinUntilIdle();
         var result = engine.Evaluate(script, url);
         eventLoop?.SpinUntilIdle();
         var frame = document is null ? null : document.Paint(1280, 720).List;
@@ -95,6 +101,7 @@ session.MessageReceived += async (message, cancellationToken) =>
             value = result.ToString(),
             displayItems = frame?.Items.Count ?? 0,
             canvasCommands,
+            diagnostics = runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(taskDiagnostics).ToArray() ?? taskDiagnostics.ToArray(),
             canvasFrame = new { path = framePath, width = frameStore.Width, height = frameStore.Height, stride = frameStore.Stride, sequence = frameStore.Sequence }
         }, cancellationToken);
     }

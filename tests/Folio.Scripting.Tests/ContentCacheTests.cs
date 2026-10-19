@@ -8,8 +8,31 @@ using Folio.Resources;
 
 namespace Folio.Scripting.Tests;
 
+// Round-trip deadlines include the parent process. The large-payload/forced-GC
+// cases must not pause unrelated fixtures through a child's script deadline.
+[Collection("Content process round trips")]
 public sealed class ContentCacheTests
 {
+    [Fact]
+    public async Task FrameCarriesDocumentTaskFailuresInsteadOfSilentlyHidingThem()
+    {
+        await using var client = Client(new Storage());
+        var completed = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.MessageReceived += (message, _) =>
+        {
+            if (message.Kind == ContentMessageKind.Frame) completed.TrySetResult(message);
+            return ValueTask.CompletedTask;
+        };
+        await client.SendAsync(ContentMessageKind.Load, new
+        {
+            html = "<script>queueMicrotask(() => { throw new Error('reported-task-failure'); });</script>",
+            script = "42", url = "https://cache.example/"
+        }, TestContext.Current.CancellationToken);
+        var frame = await completed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        Assert.Equal("42", frame.Payload.GetProperty("value").GetString());
+        Assert.Contains(frame.Payload.GetProperty("diagnostics").EnumerateArray(), diagnostic => diagnostic.GetString()!.Contains("reported-task-failure", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ServiceWorkerCacheWritesReachTheHostAndSurviveProcessRestart()
     {
@@ -151,6 +174,7 @@ public sealed class ContentCacheTests
         // dispatchers before or after they finish draining the empty queues.
         try { await reader.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken); }
         catch (OperationCanceledException) when (!TestContext.Current.CancellationToken.IsCancellationRequested && pair.Child.IsConnectionClosed) { }
+        catch (IOException) when (pair.Child.IsConnectionClosed) { } // Unix pipes may report reset rather than EOF.
         Assert.True(pair.Child.IsConnectionClosed);
         await Assert.ThrowsAsync<IOException>(async () => await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         pair.HostDisposed = true;
@@ -300,7 +324,9 @@ public sealed class ContentCacheTests
             await client.SendAsync(ContentMessageKind.Load, new { html = "<script>var result = 'unfinished'; (async () => {" + script + "})().catch(e => result = e.name + ':' + e.message);</script>", script = "result", url = "https://cache.example/", artifactId = "forged", storageEnabled = false, limits = new { MaxServiceWorkerCacheBytes = long.MaxValue }, capabilities = new FeatureCapabilities { ServiceWorkers = serviceWorkers } }, TestContext.Current.CancellationToken);
             var message = await completed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Assert.True(message.Kind == ContentMessageKind.Frame, message.Payload.ToString());
-            return message.Payload.GetProperty("value").GetString()!;
+            var value = message.Payload.GetProperty("value").GetString()!;
+            Assert.True(value != "unfinished", "The document promise did not settle: " + message.Payload);
+            return value;
         }
         finally { client.MessageReceived -= Handler; }
     }
