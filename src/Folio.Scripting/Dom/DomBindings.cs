@@ -12,7 +12,6 @@ public static class DomBindings
 {
     private static readonly ConditionalWeakTable<IScriptEngine, DomContext> Contexts = new();
 
-    private static string ArtifactKey(DomContext context, string key) => context.ArtifactId + ":" + key;
 
     /// <summary>Changes host-granted capabilities for an installed document and applies WebGL loss/restore semantics.</summary>
     public static bool UpdateCapabilities(IScriptEngine engine, FeatureCapabilities capabilities)
@@ -31,14 +30,29 @@ public static class DomBindings
         MessagePortEndpoint.DisposeAll(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         Contexts.Remove(engine);
-        context.ScriptFeaturesDisposed = true;
-        context.DisposeCacheStorage?.Invoke();
-        context.DisposeIframes();
-        context.DisposeWorkers();
-        context.DisposeMedia();
-        engine.Evaluate("if (Array.isArray(__folio_webrtc_peers)) __folio_webrtc_peers.slice().forEach(function(peer) { if (peer && typeof peer.close === 'function') peer.close(); }); if (Array.isArray(__folio_capture_tracks)) __folio_capture_tracks.slice().forEach(function(track) { if (track && typeof track.stop === 'function') track.stop(); }); if (__folio_capture_devices_granted && navigator.mediaDevices && typeof navigator.mediaDevices.dispatchEvent === 'function') navigator.mediaDevices.dispatchEvent({ type: 'devicechange', target: navigator.mediaDevices }); __folio_capture_devices_granted = false;");
-        engine.Evaluate("if (typeof __folio_service_worker_shutdown === 'function') __folio_service_worker_shutdown();");
+        RetireFeatures(context);
         return true;
+    }
+
+    private static void RetireFeatures(DomContext context)
+    {
+        context.ScriptFeaturesDisposed = true;
+        context.Document.EventDispatcher = null;
+        Action[] retire =
+        [
+            () => context.DisposeCacheStorage?.Invoke(), context.LoseCanvasContexts, context.DisposeIframes,
+            context.DisposeWorkers, context.DisposeMedia,
+            () => context.CaptureState?.Dispose(), () => context.WebRtcState?.Dispose(),
+            () => context.ServiceWorkerState?.Dispose()
+        ];
+        foreach (var cleanup in retire)
+        {
+            try { cleanup(); }
+            catch (Exception error)
+            {
+                try { context.OwnerEventLoop?.ReportException(error); } catch { }
+            }
+        }
     }
 
     public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
@@ -55,12 +69,18 @@ public static class DomBindings
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
+        if (Contexts.TryGetValue(engine, out var previousContext))
+        {
+            RetireFeatures(previousContext);
+        }
 
         var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles, mediaCaptureActivityChanged, iframeNavigationRequested, mediaAudioOutput, mediaDecoder);
         if (eventLoop is not null)
             eventLoop.MediaPlaybackTick = context.AdvanceMedia;
         context.ParentOptions = parentOptions;
         context.OwnerEventLoop = eventLoop;
+        try
+        {
         var blobSources = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         var blobStore = new HostObjectTemplate("BlobStore")
             .DefineMethod("create", (_, _, args) =>
@@ -73,11 +93,6 @@ public static class DomBindings
             })
             .DefineMethod("revoke", (_, _, args) => { if (args.Length > 0) blobSources.TryRemove(args[0].AsString() ?? "", out _); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_blob_store", engine.CreateHostObject(blobStore, context));
-        if (Contexts.TryGetValue(engine, out var previousContext))
-        {
-            previousContext.ScriptFeaturesDisposed = true;
-            previousContext.DisposeWorkers();
-        }
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
         context.InitializeMediaElements();
@@ -120,198 +135,12 @@ public static class DomBindings
             eventLoop, context.MaxWorkerMessageBytes, context.MaxWorkerMemoryBytes);
         WorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
             resourceLoader, baseUri, blobSources, eventLoop);
-        engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
-        engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
-        var serviceWorkerLoader = new HostObjectTemplate("ServiceWorkerLoader")
-            .DefineMethod("load", (_, _, args) =>
-            {
-                if (resourceLoader is null || args.Length == 0) return ScriptValue.Null;
-                var url = WebIdlConversions.ToDOMString(args[0]);
-                if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolved)) url = resolved.AbsoluteUri;
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return ScriptValue.Null;
-                var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Script), CancellationToken.None).GetAwaiter().GetResult();
-                return response?.Data is { } data ? ScriptValue.FromString(System.Text.Encoding.UTF8.GetString(data)) : ScriptValue.Null;
-            });
-        engine.SetGlobalProperty("__folio_service_worker_loader", engine.CreateHostObject(serviceWorkerLoader, context));
-        var serviceWorkerValidator = new HostObjectTemplate("ServiceWorkerValidator")
-            .DefineMethod("check", (_, _, args) =>
-            {
-                if (args.Length < 2 || !args[0].IsString) return ScriptValue.FromBoolean(true);
-                if (engine is not IScriptEngineFactory factory) return ScriptValue.FromBoolean(true);
-                using var isolated = factory.CreateIsolated();
-                isolated.Configure(new ScriptLimits { Timeout = context.MaxWorkerExecutionTime });
-                try
-                {
-                    isolated.Evaluate("globalThis.self = { addEventListener: function() {}, removeEventListener: function() {}, skipWaiting: function() { return Promise.resolve(); }, clients: { claim: function() { return Promise.resolve(); } }, importScripts: function() {} };", args[1].AsString() ?? "service-worker");
-                    isolated.Evaluate("(function(self) { with (self) { " + args[0].AsString() + " } })(self);", args[1].AsString() ?? "service-worker");
-                    return ScriptValue.FromBoolean(true);
-                }
-                catch (ScriptLimitExceededException)
-                {
-                    return ScriptValue.FromBoolean(false);
-                }
-                catch (ScriptInterruptedException)
-                {
-                    return ScriptValue.FromBoolean(false);
-                }
-                catch (Exception error) when (error.Message.Contains("timed", StringComparison.OrdinalIgnoreCase)
-                    || error.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase)
-                    || error.Message.Contains("limit", StringComparison.OrdinalIgnoreCase))
-                {
-                    return ScriptValue.FromBoolean(false);
-                }
-                catch
-                {
-                    return ScriptValue.FromBoolean(true);
-                }
-            });
-        engine.SetGlobalProperty("__folio_service_worker_validator", engine.CreateHostObject(serviceWorkerValidator, context));
-        if (context.ArtifactStorage is not null)
-        {
-            var artifactStorageTemplate = new HostObjectTemplate("ArtifactStorage")
-                .DefineMethod("read", (_, _, args) =>
-                {
-                    if (args.Length == 0) return ScriptValue.Null;
-                    var value = context.ArtifactStorage.Read(ArtifactKey(context, args[0].AsString() ?? ""));
-                    return value is null ? ScriptValue.Null : ScriptValue.FromString(value);
-                })
-                .DefineMethod("write", (_, _, args) =>
-                {
-                    if (args.Length > 1) context.ArtifactStorage.Write(ArtifactKey(context, args[0].AsString() ?? ""), args[1].AsString() ?? "");
-                    return ScriptValue.Undefined;
-                })
-                .DefineMethod("delete", (_, _, args) =>
-                {
-                    if (args.Length > 0) context.ArtifactStorage.Delete(ArtifactKey(context, args[0].AsString() ?? ""));
-                    return ScriptValue.Undefined;
-                })
-                .DefineMethod("keys", (_, _, args) =>
-                {
-                    var prefix = args.Length > 0 ? args[0].AsString() ?? "" : "";
-                    var scoped = ArtifactKey(context, prefix);
-                    var keys = context.ArtifactStorage.Keys(scoped)
-                        .Where(key => key.StartsWith(scoped, StringComparison.Ordinal))
-                        .Select(key => ScriptValue.FromString(key[(context.ArtifactId.Length + 1)..]))
-                        .ToArray();
-                    return engine.CreateArray(keys);
-                });
-            engine.SetGlobalProperty("__folio_artifact_storage", engine.CreateHostObject(artifactStorageTemplate, context));
-        }
-        engine.SetGlobalProperty("__folio_service_worker_cache_bytes", ScriptValue.FromNumber(context.MaxServiceWorkerCacheBytes));
-        engine.SetGlobalProperty("__folio_webrtc_max_connections", ScriptValue.FromNumber(context.MaxWebRtcConnections));
-        engine.SetGlobalProperty("__folio_webrtc_allowed_origins", engine.CreateArray(context.WebRtcAllowedOrigins.Select(ScriptValue.FromString).ToArray()));
-        var mediaPermission = new HostObjectTemplate("MediaPermission")
-            .DefineMethod("check", (_, _, args) =>
-            {
-                if (context.MediaCapturePermission is null) return ScriptValue.FromBoolean(true);
-                var audio = args.Length > 0 && args[0].AsBoolean();
-                var video = args.Length > 1 && args[1].AsBoolean();
-                try { return ScriptValue.FromBoolean(context.MediaCapturePermission(new MediaCaptureRequest(audio, video))); }
-                catch { return ScriptValue.FromBoolean(false); }
-            });
-        engine.SetGlobalProperty("__folio_media_permission", engine.CreateHostObject(mediaPermission, context));
-        var mediaActivity = new HostObjectTemplate("MediaCaptureActivity")
-            .DefineMethod("changed", (_, _, args) =>
-            {
-                try { context.MediaCaptureActivityChanged?.Invoke(args.Length > 0 && args[0].AsBoolean()); }
-                catch { }
-                return ScriptValue.Undefined;
-            });
-        engine.SetGlobalProperty("__folio_media_activity", engine.CreateHostObject(mediaActivity, context));
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.EvaluateHostScript(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
             globalThis.navigator = globalThis.navigator || {};
-            var __folio_service_worker_registrations = [];
-            globalThis.navigator.serviceWorker = (function(registrationStorage) { return {
-                controller: null,
-                oncontrollerchange: null,
-                _listeners: [],
-                addEventListener: function(type, handler) { if (type === 'controllerchange' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) this._listeners.push(handler); },
-                removeEventListener: function(type, handler) { if (type === 'controllerchange') { var i = this._listeners.indexOf(handler); if (i >= 0) this._listeners.splice(i, 1); } },
-                dispatchEvent: function(event) { if (event.type === 'controllerchange') { if (this.oncontrollerchange) this.oncontrollerchange(event); this._listeners.slice().forEach(function(handler) { handler(event); }); } return true; },
-                ready: Promise.resolve({ scope: '/', active: null }),
-                register: function(scriptURL, options) {
-                    if (!__folio_service_workers_enabled) return Promise.reject(new DOMException('Service workers are disabled by the host.', 'SecurityError'));
-                    var url = String(scriptURL); var scope = (options && options.scope) || '/';
-                    var registrationKey = 'service-worker-registration/' + encodeURIComponent(String(scope));
-                    if (registrationStorage) { var persisted = registrationStorage.read(registrationKey); if (persisted) { try { var metadata = JSON.parse(persisted); if (metadata && metadata.scriptURL === url) url = String(metadata.scriptURL); } catch (_) { } } }
-                    var existing = __folio_service_worker_registrations.find(function(r) { return r.scope === scope; });
-                    if (existing) { if (existing.scriptURL !== url && typeof existing._setScriptUrl === 'function') existing._setScriptUrl(url); return Promise.resolve(existing); }
-                    var workerListeners = [];
-                    var workerScript = __folio_service_worker_loader.load(url);
-                    var workerSelfListeners = [], workerFetchListeners = [], workerLifecycleListeners = { install: [], activate: [] };
-                    var workerSelf = { onmessage: null, skipWaiting: function() { return Promise.resolve(); }, clients: { claim: function() { navigator.serviceWorker.controller = worker; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); return Promise.resolve(); } }, importScripts: function() { for (var i = 0; i < arguments.length; i++) { var reference = String(arguments[i]); var resolved = reference; try { resolved = new URL(reference, url).href; } catch (_) { } var imported = __folio_service_worker_loader.load(resolved); if (imported === null || imported === undefined) throw new Error('Service worker script could not load ' + reference); new Function('self', 'with (self) { ' + imported + ' }')(workerSelf); } }, addEventListener: function(type, handler) { if (typeof handler !== 'function') return; if (type === 'message') workerSelfListeners.push(handler); else if (type === 'fetch') workerFetchListeners.push(handler); else if (workerLifecycleListeners[type]) workerLifecycleListeners[type].push(handler); }, removeEventListener: function(type, handler) { if (type === 'message') workerSelfListeners = workerSelfListeners.filter(function(item) { return item !== handler; }); else if (type === 'fetch') workerFetchListeners = workerFetchListeners.filter(function(item) { return item !== handler; }); else if (workerLifecycleListeners[type]) workerLifecycleListeners[type] = workerLifecycleListeners[type].filter(function(item) { return item !== handler; }); }, postMessage: function(data) { var event = { type: 'message', data: data, target: worker, source: null, origin: '' }; if (worker.onmessage) worker.onmessage(event); workerListeners.slice().forEach(function(handler) { handler(event); }); } };
-                    var scopePath = String(scope); if (scopePath.length === 0 || scopePath.charAt(0) !== '/') scopePath = '/' + scopePath; if (scopePath.charAt(scopePath.length - 1) !== '/') scopePath += '/';
-                    var worker = { scriptURL: url, state: 'installing', onstatechange: null, onmessage: null, _self: workerSelf,
-                        addEventListener: function(type, handler) { if (type === 'message' && typeof handler === 'function' && workerListeners.indexOf(handler) < 0) workerListeners.push(handler); },
-                        removeEventListener: function(type, handler) { if (type === 'message') { var index = workerListeners.indexOf(handler); if (index >= 0) workerListeners.splice(index, 1); } },
-                        postMessage: function(data) { var event = { type: 'message', data: data, target: workerSelf, source: null, origin: '' }; var handled = !!workerSelf.onmessage || workerSelfListeners.length > 0; if (workerSelf.onmessage) workerSelf.onmessage(event); workerSelfListeners.slice().forEach(function(handler) { handler(event); }); if (!handled) { if (worker.onmessage) worker.onmessage({ type: 'message', data: data, target: worker, source: null, origin: '' }); workerListeners.slice().forEach(function(handler) { handler({ type: 'message', data: data, target: worker, source: null, origin: '' }); }); } },
-                        _dispatchFetch: function(request) { return new Promise(function(resolve, reject) { var requestPath = ''; try { requestPath = new URL(request.url).pathname; } catch (_) { requestPath = String(request.url); } if (requestPath.indexOf(scopePath) !== 0) { resolve(null); return; } var settled = false; var event = { type: 'fetch', request: request, target: workerSelf, respondWith: function(value) { if (settled) return; settled = true; Promise.resolve(value).then(resolve, reject); } }; try { if (typeof workerSelf.onfetch === 'function') workerSelf.onfetch(event); workerFetchListeners.slice().forEach(function(handler) { handler(event); }); if (!settled) resolve(null); } catch (error) { reject(error); } }); }
-                    };
-                    if (workerScript !== null && workerScript !== undefined) { if (!__folio_service_worker_validator.check(workerScript, url)) return Promise.reject(new DOMException('Service worker execution exceeded the host limit.', 'TimeoutError')); new Function('self', 'with (self) { ' + workerScript + ' }')(workerSelf); }
-                    var installEvent = { type: 'install', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.oninstall) workerSelf.oninstall(installEvent); workerLifecycleListeners.install.slice().forEach(function(handler) { handler(installEvent); });
-                    var activateEvent = { type: 'activate', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.onactivate) workerSelf.onactivate(activateEvent); workerLifecycleListeners.activate.slice().forEach(function(handler) { handler(activateEvent); });
-                    worker.state = 'activated'; if (worker.onstatechange) worker.onstatechange({ type: 'statechange', target: worker });
-                    var registrationListeners = [];
-                    var registration = { scope: scope, scriptURL: url, _setScriptUrl: function(next) { url = String(next); registration.scriptURL = url; if (registrationStorage) registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url })); }, active: worker, installing: null, waiting: null, onupdatefound: null,
-                        addEventListener: function(type, handler) { if (type === 'updatefound' && typeof handler === 'function' && registrationListeners.indexOf(handler) < 0) registrationListeners.push(handler); },
-                        removeEventListener: function(type, handler) { if (type === 'updatefound') { var index = registrationListeners.indexOf(handler); if (index >= 0) registrationListeners.splice(index, 1); } },
-                        update: function() { var latest = __folio_service_worker_loader.load(url); var event = { type: 'updatefound', target: registration }; if (registration.onupdatefound) registration.onupdatefound(event); registrationListeners.slice().forEach(function(handler) { handler(event); }); if (latest === workerScript) return Promise.resolve(registration); if (latest === null || latest === undefined) return Promise.reject(new TypeError('Service worker script could not be loaded.')); workerScript = latest; worker.state = 'installing'; registration.installing = worker; if (worker.onstatechange) worker.onstatechange({ type: 'statechange', target: worker }); workerSelfListeners = []; workerFetchListeners = []; workerLifecycleListeners = { install: [], activate: [] }; workerSelf.onmessage = null; workerSelf.onfetch = null; workerSelf.oninstall = null; workerSelf.onactivate = null; if (!__folio_service_worker_validator.check(workerScript, url)) return Promise.reject(new DOMException('Service worker execution exceeded the host limit.', 'TimeoutError')); new Function('self', 'with (self) { ' + workerScript + ' }')(workerSelf); var installEvent = { type: 'install', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.oninstall) workerSelf.oninstall(installEvent); workerLifecycleListeners.install.slice().forEach(function(handler) { handler(installEvent); }); var activateEvent = { type: 'activate', target: workerSelf, waitUntil: function(promise) { return Promise.resolve(promise); } }; if (workerSelf.onactivate) workerSelf.onactivate(activateEvent); workerLifecycleListeners.activate.slice().forEach(function(handler) { handler(activateEvent); }); worker.state = 'activated'; registration.installing = null; registration.active = worker; if (worker.onstatechange) worker.onstatechange({ type: 'statechange', target: worker }); navigator.serviceWorker.controller = worker; return Promise.resolve(registration); },
-                        unregister: function() { var i = __folio_service_worker_registrations.indexOf(registration); if (i >= 0) __folio_service_worker_registrations.splice(i, 1); if (registrationStorage) registrationStorage.delete(registrationKey); if (navigator.serviceWorker.controller === worker) { navigator.serviceWorker.controller = null; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); } return Promise.resolve(true); } };
-                    if (registrationStorage) registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url }));
-                    __folio_service_worker_registrations.push(registration); navigator.serviceWorker.controller = worker; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration);
-                },
-                getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
-                getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
-            }; })(globalThis.__folio_artifact_storage);
-            globalThis.__folio_service_worker_shutdown = function() { __folio_service_worker_registrations.length = 0; if (navigator.serviceWorker) { navigator.serviceWorker.controller = null; navigator.serviceWorker.ready = Promise.resolve(undefined); } };
-            if (!__folio_service_workers_enabled) delete globalThis.navigator.serviceWorker;
-            globalThis.__folio_capture_tracks = [];
-            globalThis.__folio_capture_devices_granted = false;
-            function __folio_recheck_capture_permission() {
-                var live = __folio_capture_tracks.filter(function(track) { return track && track.readyState === 'live'; });
-                if (!live.length) return;
-                var audio = live.some(function(track) { return track.kind === 'audio'; });
-                var video = live.some(function(track) { return track.kind === 'video'; });
-                if (!__folio_media_permission.check(audio, video))
-                    live.forEach(function(track) { track.stop(); });
-            }
-            function __folio_update_capture_activity() {
-                var active = __folio_capture_tracks.some(function(track) { return track && track.readyState === 'live'; });
-                if (__folio_media_activity && typeof __folio_media_activity.changed === 'function') __folio_media_activity.changed(active);
-            }
-            function __folio_capture_constraint_error(kind, constraint) {
-                if (!constraint || typeof constraint !== 'object') return null;
-                var caps = kind === 'video' ? { width: 640, height: 360, frameRate: 30 } : { sampleRate: 48000, channelCount: 2 };
-                for (var name in caps) {
-                    var value = constraint[name]; if (value === undefined) continue;
-                    var exact = typeof value === 'number' ? value : value && typeof value === 'object' ? value.exact : undefined;
-                    var min = value && typeof value === 'object' ? value.min : undefined;
-                    var max = value && typeof value === 'object' ? value.max : undefined;
-                    if (exact !== undefined && (typeof exact !== 'number' || !isFinite(exact) || exact < 1 || exact > caps[name])) return name;
-                    if (min !== undefined && (typeof min !== 'number' || !isFinite(min) || min < 1 || min > caps[name])) return name;
-                    if (max !== undefined && (typeof max !== 'number' || !isFinite(max) || max < 1)) return name;
-                }
-                return null;
-            }
-            globalThis.navigator.mediaDevices = {
-                getUserMedia: function(constraints) {
-                    if (!__folio_webrtc_enabled) return Promise.reject(new DOMException('Media devices are disabled by the host.', 'NotAllowedError'));
-                    constraints = constraints || {}; if (constraints.audio !== undefined && constraints.audio !== false && constraints.audio !== true && (typeof constraints.audio !== 'object' || constraints.audio === null)) return Promise.reject(new TypeError('The audio constraint must be a boolean or object.')); if (constraints.video !== undefined && constraints.video !== false && constraints.video !== true && (typeof constraints.video !== 'object' || constraints.video === null)) return Promise.reject(new TypeError('The video constraint must be a boolean or object.')); if (!constraints.audio && !constraints.video) return Promise.reject(new TypeError('getUserMedia requires an audio or video constraint.')); var audioDevice = constraints.audio && typeof constraints.audio === 'object' ? constraints.audio.deviceId : undefined; var videoDevice = constraints.video && typeof constraints.video === 'object' ? constraints.video.deviceId : undefined; var audioExact = audioDevice && typeof audioDevice === 'object' ? audioDevice.exact : audioDevice; var videoExact = videoDevice && typeof videoDevice === 'object' ? videoDevice.exact : videoDevice; if (audioExact !== undefined && String(audioExact) !== 'folio-audio') return Promise.reject(new DOMException('The requested audio device is not available.', 'OverconstrainedError')); if (videoExact !== undefined && String(videoExact) !== 'folio-video') return Promise.reject(new DOMException('The requested video device is not available.', 'OverconstrainedError')); var audioConstraintError = __folio_capture_constraint_error('audio', constraints.audio), videoConstraintError = __folio_capture_constraint_error('video', constraints.video); if (audioConstraintError || videoConstraintError) return Promise.reject(new DOMException('The requested media constraint is not supported.', 'OverconstrainedError')); if (!__folio_media_permission.check(!!constraints.audio, !!constraints.video)) return Promise.reject(new DOMException('The host denied camera or microphone capture.', 'NotAllowedError')); var tracks = [];
-                    var hadCaptureDevices = __folio_capture_devices_granted; __folio_capture_devices_granted = true; if (!hadCaptureDevices) navigator.mediaDevices.dispatchEvent({ type: 'devicechange', target: navigator.mediaDevices });
-                    if (constraints.audio) { var audioTrack = new MediaStreamTrack('audio'); audioTrack.applyConstraints(typeof constraints.audio === 'object' ? constraints.audio : {}); __folio_capture_tracks.push(audioTrack); tracks.push(audioTrack); }
-                    if (constraints.video) { var videoTrack = new MediaStreamTrack('video'); videoTrack.applyConstraints(typeof constraints.video === 'object' ? constraints.video : {}); __folio_capture_tracks.push(videoTrack); tracks.push(videoTrack); }
-                    __folio_update_capture_activity();
-                    return Promise.resolve(new MediaStream(tracks));
-                },
-                ondevicechange: null, _listeners: [], addEventListener: function(type, handler) { if (type === 'devicechange' && typeof handler === 'function' && this._listeners.indexOf(handler) < 0) this._listeners.push(handler); }, removeEventListener: function(type, handler) { if (type === 'devicechange') { var i = this._listeners.indexOf(handler); if (i >= 0) this._listeners.splice(i, 1); } }, dispatchEvent: function(event) { if (event.type === 'devicechange') { if (this.ondevicechange) this.ondevicechange(event); this._listeners.slice().forEach(function(handler) { handler(event); }); } return true; },
-                enumerateDevices: function() { return Promise.resolve(__folio_webrtc_enabled && __folio_capture_devices_granted ? [{ deviceId: 'folio-audio', kind: 'audioinput', label: 'Folio audio' }, { deviceId: 'folio-video', kind: 'videoinput', label: 'Folio video' }] : []); },
-                getSupportedConstraints: function() { return { audio: true, video: true, deviceId: true, groupId: true, width: true, height: true, aspectRatio: true, frameRate: true, facingMode: true, sampleRate: true, sampleSize: true, echoCancellation: true, autoGainControl: true, noiseSuppression: true, channelCount: true, latency: true, resizeMode: true, pan: true, tilt: true, zoom: true, torch: true, focusMode: true, whiteBalanceMode: true, exposureMode: true, exposureCompensation: true, colorTemperature: true, iso: true, brightness: true, contrast: true, saturation: true, sharpness: true, focusDistance: true }; }
-            };
-            globalThis.MediaStreamTrack = function(kind) { this.id = 'track-' + Math.random().toString(16).slice(2); this.kind = String(kind || ''); this.enabled = true; this.contentHint = ''; this._muted = false; this._constraints = {}; this.readyState = 'live'; this.onended = null; this.onmute = null; this.onunmute = null; this._listeners = {}; this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); }; this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }; this._dispatch = function(type) { var event = { type: type, target: this, track: this }; var handler = type === 'ended' ? this.onended : type === 'mute' ? this.onmute : this.onunmute; if (handler) handler(event); (this._listeners[type] || []).slice().forEach(function(listener) { listener(event); }); }; Object.defineProperty(this, 'muted', { get: function() { return this._muted; }, set: function(next) { next = !!next; if (next !== this._muted) { this._muted = next; this._dispatch(next ? 'mute' : 'unmute'); } } }); this.stop = function() { if (this.readyState !== 'ended') { this.readyState = 'ended'; this._dispatch('ended'); if (__folio_capture_tracks.indexOf(this) >= 0) __folio_update_capture_activity(); } }; this.clone = function() { var copy = new MediaStreamTrack(this.kind); copy.enabled = this.enabled; copy.contentHint = this.contentHint; copy._muted = this._muted; copy._constraints = Object.assign({}, this._constraints); return copy; }; this.applyConstraints = function(constraints) { __folio_recheck_capture_permission(); if (this.readyState === 'ended') return Promise.reject(new DOMException('Track has ended.', 'InvalidStateError')); if (constraints !== undefined && constraints !== null && typeof constraints !== 'object') return Promise.reject(new TypeError('Track constraints must be an object.')); var names = ['width', 'height', 'frameRate', 'sampleRate', 'channelCount']; for (var i = 0; i < names.length; i++) { var value = constraints && constraints[names[i]]; if (value && typeof value === 'object') { var bounds = ['min', 'max', 'exact']; for (var j = 0; j < bounds.length; j++) { var bound = value[bounds[j]]; if (bound !== undefined && (typeof bound !== 'number' || !isFinite(bound) || bound < 0)) return Promise.reject(new DOMException('The requested track constraint is invalid.', 'OverconstrainedError')); } } } this._constraints = constraints || {}; return Promise.resolve(); }; this.getConstraints = function() { return this._constraints; }; this.getSettings = function() { __folio_recheck_capture_permission(); var settings = { deviceId: this.id, kind: this.kind }; if (this.kind === 'video') { settings.width = 640; settings.height = 360; settings.frameRate = 30; } else if (this.kind === 'audio') { settings.sampleRate = 48000; settings.channelCount = 2; } var names = ['width', 'height', 'frameRate', 'facingMode', 'sampleRate', 'channelCount']; for (var i = 0; i < names.length; i++) { var value = this._constraints[names[i]]; if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') settings[names[i]] = value; else if (value && typeof value === 'object' && value.exact !== undefined) settings[names[i]] = value.exact; } return settings; }; this.getCapabilities = function() { return this.kind === 'video' ? { deviceId: [], kind: this.kind, width: { min: 1, max: 640 }, height: { min: 1, max: 360 }, frameRate: { min: 1, max: 30 } } : this.kind === 'audio' ? { deviceId: [], kind: this.kind, sampleRate: { min: 8000, max: 48000 }, channelCount: { min: 1, max: 2 } } : { deviceId: [], kind: this.kind }; }; };
             globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks && typeof tracks.getTracks === 'function' ? tracks.getTracks() : (tracks ? tracks.slice() : []); this.onaddtrack = null; this.onremovetrack = null; this._listeners = {}; this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); }; this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }; this._dispatch = function(event) { var handler = event.type === 'addtrack' ? this.onaddtrack : this.onremovetrack; if (handler) handler(event); (this._listeners[event.type] || []).slice().forEach(function(listener) { listener(event); }); }; };
             Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
             MediaStream.prototype.getTracks = function() { return this._tracks.slice(); };
@@ -320,77 +149,6 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
-            var __folio_webrtc_peer_count = 0, __folio_webrtc_peers = [];
-            function __folio_validate_webrtc_configuration(configuration) {
-                configuration = configuration || {};
-                var iceTransportPolicy = configuration.iceTransportPolicy === undefined ? 'all' : String(configuration.iceTransportPolicy);
-                var bundlePolicy = configuration.bundlePolicy === undefined ? 'balanced' : String(configuration.bundlePolicy);
-                var rtcpMuxPolicy = configuration.rtcpMuxPolicy === undefined ? 'require' : String(configuration.rtcpMuxPolicy);
-                if (iceTransportPolicy !== 'all' && iceTransportPolicy !== 'relay') throw new TypeError('Invalid iceTransportPolicy.');
-                if (bundlePolicy !== 'balanced' && bundlePolicy !== 'max-compat' && bundlePolicy !== 'max-bundle') throw new TypeError('Invalid bundlePolicy.');
-                if (rtcpMuxPolicy !== 'require' && rtcpMuxPolicy !== 'negotiate') throw new TypeError('Invalid rtcpMuxPolicy.');
-                var iceServers = configuration.iceServers || [];
-                for (var serverIndex = 0; serverIndex < iceServers.length; serverIndex++) {
-                    var server = iceServers[serverIndex] || {}, urls = server.urls === undefined ? [] : (Array.isArray(server.urls) ? server.urls : [server.urls]);
-                    for (var urlIndex = 0; urlIndex < urls.length; urlIndex++) {
-                        var endpoint = String(urls[urlIndex]), origin = '';
-                        try { var parsed = new URL(endpoint); origin = parsed.origin === 'null' ? endpoint.replace(/\/$/, '') : parsed.origin; }
-                        catch (_) { throw new DOMException('The WebRTC server URL is invalid or not allowed.', 'SecurityError'); }
-                        if (__folio_webrtc_allowed_origins.indexOf(origin) < 0 && __folio_webrtc_allowed_origins.indexOf(endpoint) < 0)
-                            throw new DOMException('The WebRTC server origin is not allowed by the host.', 'SecurityError');
-                    }
-                }
-                return configuration;
-            }
-            globalThis.RTCPeerConnection = function(configuration) {
-                if (!__folio_webrtc_enabled) throw new DOMException('WebRTC is disabled by the host.', 'NotSupportedError');
-                configuration = __folio_validate_webrtc_configuration(configuration);
-                if (__folio_webrtc_peer_count >= Number(__folio_webrtc_max_connections)) throw new DOMException('The WebRTC peer connection limit has been exceeded.', 'QuotaExceededError');
-                __folio_webrtc_peer_count++; __folio_webrtc_peers.push(this);
-                this.configuration = configuration; this.connectionState = 'new'; this.iceConnectionState = 'new'; this.iceGatheringState = 'new'; this.signalingState = 'stable'; this.onconnectionstatechange = null; this.onsignalingstatechange = null; this.onicegatheringstatechange = null; this.oniceconnectionstatechange = null; this.onicecandidate = null; this.ontrack = null; this.onnegotiationneeded = null; this._listeners = {};
-                this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); };
-                this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); };
-                this._dispatch = function(type, event) { event = event || {}; if (event.type === undefined) event.type = type; if (event.target === undefined) event.target = this; var handler = this['on' + type]; if (typeof handler === 'function') handler(event); (this._listeners[type] || []).slice().forEach(function(listener) { listener.call(this, event); }, this); };
-                this.localDescription = null; this.remoteDescription = null; this._senders = []; this._transceivers = []; this._dataChannels = []; this._peer = null; this.ondatachannel = null; this._folioReleased = false;
-            };
-            globalThis.RTCRtpSender = function() {};
-            globalThis.RTCRtpReceiver = function() {};
-            var __folio_audio_codecs = [{ mimeType: 'audio/opus', clockRate: 48000, channels: 2 }];
-            var __folio_video_codecs = [{ mimeType: 'video/VP8', clockRate: 90000 }, { mimeType: 'video/H264', clockRate: 90000 }];
-            RTCRtpSender.getCapabilities = function(kind) { var normalizedKind = String(kind); if (normalizedKind !== 'audio' && normalizedKind !== 'video') return null; return { codecs: (normalizedKind === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
-            RTCRtpReceiver.getCapabilities = function(kind) { var normalizedKind = String(kind); if (normalizedKind !== 'audio' && normalizedKind !== 'video') return null; return { codecs: (normalizedKind === 'video' ? __folio_video_codecs : __folio_audio_codecs).slice() }; };
-            globalThis.RTCIceCandidate = function(init) { init = init || {}; this.candidate = String(init.candidate || ''); this.sdpMid = init.sdpMid === undefined ? null : init.sdpMid; this.sdpMLineIndex = init.sdpMLineIndex === undefined ? null : init.sdpMLineIndex; this.usernameFragment = init.usernameFragment === undefined ? null : init.usernameFragment; };
-            globalThis.RTCSessionDescription = function(init) { init = init || {}; this.type = String(init.type || ''); this.sdp = String(init.sdp || ''); };
-            RTCIceCandidate.prototype.toJSON = function() { return { candidate: this.candidate, sdpMid: this.sdpMid, sdpMLineIndex: this.sdpMLineIndex, usernameFragment: this.usernameFragment }; };
-            RTCSessionDescription.prototype.toJSON = function() { return { type: this.type, sdp: this.sdp }; };
-            RTCPeerConnection.prototype.createOffer = function() { return Promise.resolve(new RTCSessionDescription({ type: 'offer', sdp: '' })); };
-            RTCPeerConnection.prototype.createAnswer = function() { return Promise.resolve(new RTCSessionDescription({ type: 'answer', sdp: '' })); };
-            RTCPeerConnection.prototype.setLocalDescription = function(description) { if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); this.localDescription = description; if (this.localDescription.type === 'offer') { this.signalingState = 'have-local-offer'; this._dispatch('signalingstatechange', {}); } this.iceGatheringState = 'complete'; this._dispatch('icegatheringstatechange', {}); this._dispatch('icecandidate', { candidate: null }); return Promise.resolve(); };
-            RTCPeerConnection.prototype.setRemoteDescription = function(description) { if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (!description || (description.type !== 'offer' && description.type !== 'answer' && description.type !== 'rollback')) return Promise.reject(new TypeError('The session description type is invalid.')); this.remoteDescription = description; if (this.remoteDescription.type === 'answer') { this.signalingState = 'stable'; this._dispatch('signalingstatechange', {}); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); var peer = null; for (var peerIndex = 0; peerIndex < __folio_webrtc_peers.length; peerIndex++) { var candidate = __folio_webrtc_peers[peerIndex]; if (candidate !== this && candidate.connectionState !== 'closed' && ((this.localDescription && this.localDescription.type === 'offer' && candidate.remoteDescription && candidate.remoteDescription.type === 'offer') || (this.remoteDescription && this.remoteDescription.type === 'offer' && candidate.localDescription && candidate.localDescription.type === 'offer'))) { peer = candidate; break; } } if (peer) { this._peer = peer; peer._peer = this; peer._dataChannels.forEach(function(channel) { if (channel._remote) return; channel._remote = __folio_make_remote_channel(this, channel); }, this); peer._senders.forEach(function(sender) { if (sender.track && this.ontrack) this._dispatch('track', { type: 'track', target: this, track: sender.track, transceiver: null, streams: [new MediaStream([sender.track])] }); }, this); } if (this.ontrack) this._transceivers.forEach(function(transceiver) { if (transceiver.stopped) return; var track = transceiver.receiver.track; this._dispatch('track', { type: 'track', target: this, track: track, transceiver: transceiver, streams: [new MediaStream([track])] }); }, this); } return Promise.resolve(); };
-            RTCPeerConnection.prototype.addIceCandidate = function(candidate) { if (this.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); if (candidate !== null && candidate !== undefined && typeof candidate !== 'string' && (!candidate || candidate.candidate === undefined || typeof candidate.candidate !== 'string')) return Promise.reject(new TypeError('The ICE candidate is invalid.')); this.iceConnectionState = 'connected'; this._dispatch('iceconnectionstatechange', {}); if (this.connectionState === 'new') { this.connectionState = 'connected'; this._dispatch('connectionstatechange', {}); } return Promise.resolve(); };
-            RTCPeerConnection.prototype.addTrack = function(track) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); if (!track || typeof track !== 'object' || (track.kind !== 'audio' && track.kind !== 'video')) throw new TypeError('The track is invalid.'); for (var i = 0; i < this._senders.length; i++) if (this._senders[i].track === track) throw new DOMException('The track is already attached to this connection.', 'InvalidAccessError'); var connection = this; var sender = { track: track, _parameters: { encodings: [] }, replaceTrack: function(next) { if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); sender.track = next; return Promise.resolve(); }, getParameters: function() { return sender._parameters; }, setParameters: function(parameters) { sender._parameters = parameters || { encodings: [] }; return Promise.resolve(sender._parameters); } }; this._senders.push(sender); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); if (this._peer && typeof this._peer.ontrack === 'function') this._peer._dispatch('track', { type: 'track', target: this._peer, track: track, transceiver: null, streams: [new MediaStream([track])] }); return sender; };
-            RTCPeerConnection.prototype.getSenders = function() { return this._senders.slice(); };
-            RTCPeerConnection.prototype.removeTrack = function(sender) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); var index = this._senders.indexOf(sender); if (index < 0) throw new TypeError('The sender does not belong to this connection.'); if (sender.track !== null) { sender.track = null; this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); } };
-            RTCPeerConnection.prototype.getReceivers = function() { return this._transceivers.map(function(transceiver) { return transceiver.receiver; }); };
-            RTCPeerConnection.prototype.addTransceiver = function(kindOrTrack, init) { var connection = this; var kind = typeof kindOrTrack === 'string' ? kindOrTrack : (kindOrTrack && kindOrTrack.kind) || ''; if (kind !== 'audio' && kind !== 'video') throw new TypeError('The transceiver kind must be audio or video.'); if (typeof kindOrTrack === 'object' && (!kindOrTrack || kindOrTrack.kind !== kind)) throw new TypeError('The transceiver track is invalid.'); init = init || {}; var direction = init.direction === undefined ? 'sendrecv' : String(init.direction); if (direction !== 'sendrecv' && direction !== 'sendonly' && direction !== 'recvonly' && direction !== 'inactive') throw new TypeError('The transceiver direction is invalid.'); var transceiver = { mid: null, kind: String(kind), sender: { track: typeof kindOrTrack === 'object' ? kindOrTrack : null, _parameters: { encodings: [] } }, receiver: { track: new MediaStreamTrack(kind) }, direction: direction, currentDirection: null, stopped: false, _codecs: [], stop: function() { transceiver.stopped = true; transceiver.direction = 'inactive'; transceiver.currentDirection = null; }, setCodecPreferences: function(codecs) { if (!Array.isArray(codecs)) throw new TypeError('The codec preferences must be an array.'); for (var i = 0; i < codecs.length; i++) { var mimeType = codecs[i] && codecs[i].mimeType; if (typeof mimeType !== 'string' || mimeType.toLowerCase().indexOf(kind + '/') !== 0) throw new TypeError('The codec preference does not match the transceiver kind.'); } transceiver._codecs = codecs.slice(); }, get codecPreferences() { return transceiver._codecs.slice(); } }; transceiver.sender.replaceTrack = function(next) { if (connection.connectionState === 'closed') return Promise.reject(new DOMException('The connection is closed.', 'InvalidStateError')); transceiver.sender.track = next; return Promise.resolve(); }; transceiver.sender.getParameters = function() { return transceiver.sender._parameters; }; transceiver.sender.setParameters = function(parameters) { transceiver.sender._parameters = parameters || { encodings: [] }; return Promise.resolve(transceiver.sender._parameters); }; connection._transceivers.push(transceiver); this._dispatch('negotiationneeded', { type: 'negotiationneeded', target: this }); return transceiver; };
-            RTCPeerConnection.prototype.getTransceivers = function() { return this._transceivers.slice(); };
-            RTCPeerConnection.prototype.getConfiguration = function() { return this.configuration; };
-            RTCPeerConnection.prototype.setConfiguration = function(configuration) { if (this.connectionState === 'closed') throw new DOMException('The connection is closed.', 'InvalidStateError'); this.configuration = __folio_validate_webrtc_configuration(configuration); };
-            RTCPeerConnection.prototype.getStats = function() { var report = new Map(); report.set('pc', { type: 'peer-connection', id: 'pc', connectionState: this.connectionState, iceConnectionState: this.iceConnectionState, signalingState: this.signalingState }); report.set('data-channels', { type: 'data-channel', id: 'data-channels', dataChannelsOpened: this._dataChannels.length, dataChannelsClosed: this._dataChannels.filter(function(channel) { return channel.readyState === 'closed'; }).length }); this._senders.forEach(function(sender, index) { report.set('outbound-' + index, { type: 'outbound-rtp', id: 'outbound-' + index, kind: sender.track && sender.track.kind ? sender.track.kind : '' }); }); this._transceivers.forEach(function(transceiver, index) { report.set('inbound-' + index, { type: 'inbound-rtp', id: 'inbound-' + index, kind: transceiver.receiver && transceiver.receiver.track ? transceiver.receiver.track.kind : transceiver.kind }); }); return Promise.resolve(report); };
-            RTCPeerConnection.prototype.restartIce = function() { this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; this._dispatch('icegatheringstatechange', {}); this._dispatch('iceconnectionstatechange', {}); };
-            function __folio_make_remote_channel(peer, source) { var remote = { label: source.label, protocol: source.protocol, id: source.id, negotiated: source.negotiated, readyState: 'open', bufferedAmount: 0, bufferedAmountLowThreshold: 0, binaryType: source.binaryType, ordered: source.ordered, maxPacketLifeTime: source.maxPacketLifeTime, maxRetransmits: source.maxRetransmits, onmessage: null, onopen: null, onclose: null, onerror: null, _listeners: {}, _source: source, addEventListener: function(type, handler) { if (typeof handler === 'function') { var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); } }, removeEventListener: function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }, _dispatch: function(event) { (remote._listeners[event.type] || []).slice().forEach(function(handler) { handler.call(remote, event); }); }, _deliver: function(data) { var event = { type: 'message', target: remote, data: data }; if (remote.onmessage) remote.onmessage(event); remote._dispatch(event); }, send: function(data) { if (remote.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); source._deliver(data); }, close: function() { if (remote.readyState !== 'closed') { remote.readyState = 'closed'; source.readyState = 'closed'; var event = { type: 'close', target: remote }; if (remote.onclose) remote.onclose(event); remote._dispatch(event); } } }; return remote; }
-            RTCPeerConnection.prototype.createDataChannel = function(label, options) {
-                options = options || {}; var channelLabel = String(label || ''); var protocol = options.protocol === undefined ? '' : String(options.protocol); var negotiated = options.negotiated === true; var channelId = options.id === undefined ? null : Number(options.id); var lifetime = options.maxPacketLifeTime === undefined ? null : Number(options.maxPacketLifeTime); var retransmits = options.maxRetransmits === undefined ? null : Number(options.maxRetransmits); if (channelLabel.length > 65535 || protocol.length > 65535) throw new TypeError('Data channel label and protocol must be at most 65535 bytes.'); if (options.maxPacketLifeTime !== undefined && options.maxRetransmits !== undefined) throw new TypeError('maxPacketLifeTime and maxRetransmits are mutually exclusive.'); if (lifetime !== null && (!Number.isInteger(lifetime) || lifetime < 0 || lifetime > 65535) || retransmits !== null && (!Number.isInteger(retransmits) || retransmits < 0 || retransmits > 65535)) throw new TypeError('Data channel retransmission limits must be integers from 0 through 65535.'); if (channelId !== null && (!Number.isInteger(channelId) || channelId < 0 || channelId > 65534)) throw new TypeError('Data channel id must be an integer from 0 through 65534.'); if (negotiated && channelId === null) throw new TypeError('Negotiated data channels require an id.'); var listeners = {}; var channel = { label: channelLabel, protocol: protocol, id: channelId, negotiated: negotiated, readyState: 'open', bufferedAmount: 0, bufferedAmountLowThreshold: 0, binaryType: 'blob', ordered: options.ordered !== false, maxPacketLifeTime: lifetime, maxRetransmits: retransmits, onmessage: null, _onopen: null, onclose: null, onerror: null, onbufferedamountlow: null,
-                    addEventListener: function(type, handler) { if (typeof handler === 'function') { var list = listeners[type] || (listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); } },
-                    removeEventListener: function(type, handler) { var list = listeners[type] || []; listeners[type] = list.filter(function(item) { return item !== handler; }); },
-                    _dispatch: function(event) { (listeners[event.type] || []).slice().forEach(function(handler) { handler.call(channel, event); }); },
-                    _deliver: function(data) { var event = { type: 'message', target: channel, data: data }; if (channel.onmessage) channel.onmessage(event); channel._dispatch(event); },
-                    send: function(data) { if (channel.readyState !== 'open') throw new DOMException('Data channel is closed.', 'InvalidStateError'); var wasAboveThreshold = channel.bufferedAmount > channel.bufferedAmountLowThreshold; channel.bufferedAmount = 0; if (wasAboveThreshold && channel.onbufferedamountlow) channel.onbufferedamountlow({ type: 'bufferedamountlow', target: channel }); if (wasAboveThreshold) channel._dispatch({ type: 'bufferedamountlow', target: channel }); if (channel._remote) channel._remote._deliver(data); else channel._deliver(data); },
-                    close: function() { if (channel.readyState !== 'closed') { channel.readyState = 'closed'; var event = { type: 'close', target: channel }; if (channel.onclose) channel.onclose(event); channel._dispatch(event); } } };
-                Object.defineProperty(channel, 'onopen', { get: function() { return channel._onopen; }, set: function(handler) { channel._onopen = handler; if (typeof handler === 'function') handler({ type: 'open', target: channel }); } });
-                this._dataChannels.push(channel); if (this._peer) { channel._remote = __folio_make_remote_channel(this, channel); if (typeof this._peer.ondatachannel === 'function') this._peer.ondatachannel({ type: 'datachannel', target: this._peer, channel: channel._remote }); } return channel;
-            };
-            RTCPeerConnection.prototype.close = function() { if (this._folioReleased) return; this._folioReleased = true; __folio_webrtc_peer_count--; this._dataChannels.slice().forEach(function(channel) { channel.close(); }); this.connectionState = 'closed'; this._dispatch('connectionstatechange', {}); };
             globalThis.innerWidth = 800;
             globalThis.innerHeight = 600;
             globalThis.devicePixelRatio = 1;
@@ -526,6 +284,9 @@ public static class DomBindings
             globalThis.console = globalThis.console || {};
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ", "folio:dom-globals");
+        context.CaptureState = CaptureBindingState.Install(engine, context);
+        context.WebRtcState = WebRtcBindingState.Install(engine, context);
+        context.ServiceWorkerState = ServiceWorkerBindings.Install(engine, context, resourceLoader, baseUri, context.ArtifactStorage);
         WebAssemblyBindings.Install(engine, context);
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
@@ -587,6 +348,13 @@ public static class DomBindings
         };
 
         return context.WrapperCache;
+        }
+        catch
+        {
+            RetireFeatures(context);
+            Contexts.Remove(engine);
+            throw;
+        }
     }
 
     internal static void InstallDomException(IScriptEngine engine)

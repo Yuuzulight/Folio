@@ -298,7 +298,8 @@ internal static class Targets
 
     private static void Ipc(byte[] data)
     {
-        ContentProtocol.TryDecode(data, out _);
+        if (ContentProtocol.TryDecode(data, out var message) && message is not null)
+            message.TryGetCapabilities(out _);
         if (data.Length >= 12)
             CanvasFrameStore.IsValidDescriptor(BitConverter.ToInt32(data, 0), BitConverter.ToInt32(data, 4), BitConverter.ToInt32(data, 8));
         var reader = new ContentProtocolReader();
@@ -311,7 +312,7 @@ internal static class Targets
         using var payload = System.Text.Json.JsonDocument.Parse("{}");
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Hello, 1, payload.RootElement.Clone()));
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Heartbeat, 2, payload.RootElement.Clone()));
-        using var capabilities = System.Text.Json.JsonDocument.Parse("{\"capabilities\":{\"webGl\":true,\"media\":true,\"workers\":true,\"webAssembly\":true,\"iframes\":true,\"webRtc\":true,\"serviceWorkers\":true}}");
+        using var capabilities = System.Text.Json.JsonDocument.Parse("{\"capabilities\":{\"webGl\":true,\"media\":true,\"sound\":true,\"camera\":true,\"microphone\":true,\"allowSoundAutoplay\":true,\"workers\":true,\"webAssembly\":true,\"iframes\":true,\"webRtc\":true,\"serviceWorkers\":true}}");
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Load, 3, capabilities.RootElement.Clone()));
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Capabilities, 4, capabilities.RootElement.Clone()));
         using var storageRequest = System.Text.Json.JsonDocument.Parse("{\"operation\":\"begin\",\"length\":1,\"hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}");

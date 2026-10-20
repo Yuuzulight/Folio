@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -28,6 +28,9 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         _decoder = decoder;
         _maxMediaBytes = Math.Max(0, maxMediaBytes);
         _budget = mediaBudget ?? new MediaResourceBudget(_maxMediaBytes, 1);
+        _soundEnabled = soundEnabled;
+        _checkSoundPermission = checkSoundPermission;
+        _checkMediaPermission = checkMediaPermission;
         _capabilityDisabled = !enabled;
         element.MediaPresentation = this;
         var posterBytes = LoadSourceBytes(element.GetAttribute("poster"), resourceLoader, baseUri);
@@ -49,6 +52,10 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     private readonly IMediaDecoder? _decoder;
     private readonly int _maxMediaBytes;
     private readonly MediaResourceBudget _budget;
+    private volatile bool _soundEnabled;
+    private readonly Func<bool>? _checkSoundPermission;
+    private readonly Func<bool>? _checkMediaPermission;
+    private bool _soundPlaybackAuthorized;
     private MediaResourceBudget.Lease? _reservation;
     private MediaAudioFrame? _audioFrame;
     private int _audioCursor;
@@ -241,6 +248,19 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             Load();
         }
     }
+    /// <summary>Updates the host's independent sound permission without changing decoded media or playback time.</summary>
+    public void SetSoundCapability(bool enabled)
+    {
+        var wasEnabled = _soundEnabled;
+        _soundEnabled = enabled;
+        if (wasEnabled && !enabled)
+        {
+            _soundPlaybackAuthorized = false;
+            AudioPause();
+            AudioFlush();
+            AudioStop();
+        }
+    }
     public ScriptValue OnLoadedMetadata { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoadedData { get; set; } = ScriptValue.Null;
     public ScriptValue OnCanPlay { get; set; } = ScriptValue.Null;
@@ -274,10 +294,12 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 
     public bool Play(bool autoplay = false)
     {
-        if (!Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return false; }
+        var permitted = _checkMediaPermission?.Invoke() ?? Enabled;
+        if (!permitted || !Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return false; }
         if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
         if (Ended) Seek(0);
         Paused = false;
+        _soundPlaybackAuthorized = _audioFrame is not null && !Muted && Volume > 0 ? SoundPermissionGranted() : _soundEnabled;
         Ended = false;
         if (_audioFrame is not null)
         {
@@ -402,7 +424,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
         ReleaseResource();
         Error = null;
         Duration = double.TryParse(Element.GetAttribute("data-duration"), out var declaredDuration) ? Math.Max(0, declaredDuration) : 0;
-        if (!Enabled) { Error = "Media is disabled by the host."; return; }
+        if (!Enabled || _checkMediaPermission is not null && !_checkMediaPermission()) { Error = "Media is disabled by the host."; return; }
         _reservation = _budget.Acquire();
         if (_reservation is null) { RejectForBudget("Media decoder limit exceeded."); return; }
         var bytes = LoadSourceBytes(Element.GetAttribute("src"), _resourceLoader, _baseUri);
@@ -466,9 +488,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
             _audioCursor = target;
             return;
         }
+        if (!SoundPermissionGranted() || !_soundPlaybackAuthorized) { _audioCursor = target; return; }
         var chunkSamples = Math.Max(frame.Channels, frame.Channels * Math.Max(1, frame.SampleRate / 50));
         while (_audioCursor < target)
         {
+            if (!SoundPermissionGranted() || !_soundPlaybackAuthorized) { _audioCursor = target; return; }
             var length = Math.Min(chunkSamples, target - _audioCursor);
             var samples = frame.Samples.Slice(_audioCursor, length).ToArray();
             if (Volume < 1) for (var i = 0; i < samples.Length; i++) samples[i] *= (float)Volume;
@@ -479,6 +503,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
 
     private void AudioStart()
     {
+        if (Muted || Volume <= 0) return;
+        if (!SoundPermissionGranted() || !_soundPlaybackAuthorized) return;
         if (_audioOutput is IMediaAudioOutputLifecycle lifecycle) lifecycle.Start();
     }
 
@@ -495,6 +521,25 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation
     private void AudioStop()
     {
         if (_audioOutput is IMediaAudioOutputLifecycle lifecycle) lifecycle.Stop();
+    }
+
+    private bool SoundPermissionGranted()
+    {
+        var granted = _soundEnabled;
+        try
+        {
+            if (_checkSoundPermission is not null) granted = _checkSoundPermission() && _soundEnabled;
+        }
+        catch { granted = false; }
+        if (granted) return true;
+        if (_soundPlaybackAuthorized)
+        {
+            _soundPlaybackAuthorized = false;
+            AudioPause();
+            AudioFlush();
+            AudioStop();
+        }
+        return false;
     }
 
     private static bool LooksLikeMedia(byte[] bytes) =>

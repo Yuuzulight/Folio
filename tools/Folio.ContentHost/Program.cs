@@ -40,12 +40,10 @@ session.MessageReceived += async (message, cancellationToken) =>
 
     if (message.Kind == ContentMessageKind.Capabilities)
     {
-        if (message.TryGetCapabilities(out var updated))
-        {
-            capabilities = updated;
-            if (engine is not null) DomBindings.UpdateCapabilities(engine, updated);
-            await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities }, cancellationToken);
-        }
+        var accepted = message.TryGetCapabilities(out var updated);
+        capabilities = accepted ? updated : FeatureCapabilities.Default;
+        if (engine is not null) DomBindings.UpdateCapabilities(engine, capabilities);
+        await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities, accepted }, cancellationToken);
         return;
     }
 
@@ -54,9 +52,16 @@ session.MessageReceived += async (message, cancellationToken) =>
     var url = message.Payload.TryGetProperty("url", out var location) ? location.GetString() ?? "content" : "content";
     try
     {
-        if (message.TryGetCapabilities(out var loadedCapabilities))
-            capabilities = loadedCapabilities;
-        if (message.Payload.TryGetProperty("html", out var htmlElement))
+        var replacesDocument = message.Payload.TryGetProperty("html", out var htmlElement);
+        // Grants belong to one artifact. Omitted grants on a new document must not
+        // inherit the previous artifact; script-only observation keeps its grants.
+        if (replacesDocument || message.Payload.EnumerateObject().Any(property => property.Name.Equals("capabilities", StringComparison.OrdinalIgnoreCase)))
+        {
+            capabilities = message.TryGetCapabilities(out var loadedCapabilities)
+                ? loadedCapabilities : FeatureCapabilities.Default;
+            if (!replacesDocument && engine is not null) DomBindings.UpdateCapabilities(engine, capabilities);
+        }
+        if (replacesDocument)
         {
             DisposeDocument();
             var options = new FolioOptions

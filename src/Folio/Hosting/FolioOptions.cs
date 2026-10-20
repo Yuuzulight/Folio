@@ -60,6 +60,12 @@ public sealed record FeatureCapabilities
 
     public bool WebGl { get; init; }
     public bool Media { get; init; }
+    /// <summary>Allows audible media output. Autoplay additionally requires <see cref="AllowSoundAutoplay"/>.</summary>
+    public bool Sound { get; init; }
+    /// <summary>Allows camera capture requests, separately from peer connections.</summary>
+    public bool Camera { get; init; }
+    /// <summary>Allows microphone capture requests, separately from peer connections.</summary>
+    public bool Microphone { get; init; }
     /// <summary>Allows audible media to begin from an autoplay attribute without a user gesture.</summary>
     public bool AllowSoundAutoplay { get; init; }
     public bool Workers { get; init; }

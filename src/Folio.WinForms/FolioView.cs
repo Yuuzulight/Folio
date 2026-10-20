@@ -70,6 +70,10 @@ public class FolioView : Control
     private Bitmap? _contentBitmap;
     private string? _contentFramePath;
     private string? _scriptStoppedReason;
+    private FeatureCapabilities _capabilities = FeatureCapabilities.Default;
+    private readonly object _contentStateGate = new();
+    private ContentCommandQueue _contentCommands = new();
+    private long _contentGeneration;
 
     public FolioView()
     {
@@ -94,6 +98,10 @@ public class FolioView : Control
     /// <summary>The options new documents are parsed with.</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public FolioOptions Options { get; set; } = new();
+
+    /// <summary>The capabilities currently requested for this view's content artifact.</summary>
+    [Browsable(false)]
+    public FeatureCapabilities Capabilities { get { lock (_contentStateGate) return _capabilities; } }
 
     /// <summary>The document shown, or null before <see cref="LoadHtml"/>.</summary>
     [Browsable(false)]
@@ -178,10 +186,42 @@ public class FolioView : Control
             _contentProcess.ScriptStopped -= OnScriptStopped;
             _contentProcess.MessageReceived -= OnContentMessage;
         }
-        _contentProcess = client;
+        lock (_contentStateGate)
+        {
+            _contentProcess = client;
+            _contentGeneration++;
+            _contentCommands = new();
+        }
         _contentProcess.ScriptStopped += OnScriptStopped;
         _contentProcess.MessageReceived += OnContentMessage;
         _scriptStoppedReason = null;
+    }
+
+    /// <summary>Changes capabilities on the live content artifact without reloading it.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when no content process is attached.</exception>
+    public ValueTask UpdateCapabilitiesAsync(FeatureCapabilities capabilities, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        lock (_contentStateGate)
+        {
+            var process = _contentProcess ?? throw new InvalidOperationException("A content process is required for live capability updates.");
+            var generation = _contentGeneration;
+            return new ValueTask(_contentCommands.Enqueue(async () =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ValueTask pending;
+                lock (_contentStateGate)
+                {
+                    if (!ReferenceEquals(_contentProcess, process) || _contentGeneration != generation)
+                        throw new InvalidOperationException("The content document changed before its capability update was sent.");
+                    pending = process.UpdateCapabilitiesAsync(capabilities, cancellationToken);
+                }
+                await pending.ConfigureAwait(false);
+                lock (_contentStateGate)
+                    if (ReferenceEquals(_contentProcess, process) && _contentGeneration == generation)
+                        _capabilities = capabilities;
+            }));
+        }
     }
 
     private ValueTask OnContentMessage(ContentMessage message, CancellationToken cancellationToken)
@@ -222,6 +262,37 @@ public class FolioView : Control
         }
         catch (InvalidOperationException) { }
         return ValueTask.CompletedTask;
+    }
+
+    private void QueueContentLoad(ContentProcessClient process, object payload)
+    {
+        Task pending;
+        long generation;
+        lock (_contentStateGate)
+        {
+            generation = _contentGeneration;
+            pending = _contentCommands.Enqueue(() =>
+            {
+                lock (_contentStateGate)
+                {
+                    if (!ReferenceEquals(_contentProcess, process) || _contentGeneration != generation)
+                        return ValueTask.CompletedTask;
+                    return process.SendAsync(ContentMessageKind.Load, payload);
+                }
+            });
+        }
+        _ = ObserveAsync();
+        async Task ObserveAsync()
+        {
+            try { await pending.ConfigureAwait(false); }
+            catch (Exception error)
+            {
+                bool current;
+                lock (_contentStateGate)
+                    current = ReferenceEquals(_contentProcess, process) && _contentGeneration == generation;
+                if (current) OnScriptStopped(this, new ContentProcessStoppedEventArgs($"unable to load content document: {error.Message}"));
+            }
+        }
     }
 
     private void ApplyContentFrame(string path, int width, int height, int stride)
@@ -277,6 +348,11 @@ public class FolioView : Control
     public void LoadHtml(string html, Uri? baseUri = null)
     {
         ArgumentNullException.ThrowIfNull(html);
+        lock (_contentStateGate)
+        {
+            _capabilities = Options.Capabilities;
+            _contentGeneration++;
+        }
         var options = new FolioOptions
         {
             BaseUri = baseUri ?? Options.BaseUri, ColorScheme = Options.ColorScheme, ReducedMotion = Options.ReducedMotion || SystemReducedMotion(),
@@ -325,7 +401,7 @@ public class FolioView : Control
                 AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits));
                 var process = _contentProcess!;
                 _contentFramePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}-{Guid.NewGuid():N}.bin");
-                _ = process.SendAsync(ContentMessageKind.Load, new
+                QueueContentLoad(process, new
                 {
                     html,
                     url = baseUri?.AbsoluteUri ?? "content",
@@ -789,11 +865,14 @@ public class FolioView : Control
             _document?.Dispose();
             _contentBitmap?.Dispose();
             _contentFrameStore?.Dispose();
-            if (_contentProcess is not null)
+            ContentProcessClient? process;
+            lock (_contentStateGate)
             {
-                _contentProcess.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                process = _contentProcess;
                 _contentProcess = null;
+                _contentGeneration++;
             }
+            process?.DisposeAsync().AsTask().GetAwaiter().GetResult();
             if (_contentFramePath is { } framePath)
             {
                 try { File.Delete(framePath); } catch { }

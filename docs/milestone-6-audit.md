@@ -62,9 +62,9 @@ Worker isolation, subresource interception and a real offline reopen test remain
 
 ### #523 — Hosting: feature capabilities the host grants
 
-**Partial.** Evidence: `FolioOptions.cs, ContentMessages.cs, DomBindings.UpdateCapabilities`.
+**Capability acceptance verified locally.** Evidence: `FolioOptions.cs`, `ContentMessages.cs`, `DomBindings.UpdateCapabilities`, the capability regression suites and actual content-process tests.
 
-Capability serialization exists. The compatibility WebAssembly surface now checks current host permission through a private callback, including retained APIs, streaming continuations and reentrant imported calls. Real-process tests cover load/update/revoke/regrant and one denial diagnostic per document. Sound/camera/microphone are not separate grants; other features still need private permission state, revocation and diagnostic deduplication. These gaps keep #523 open.
+All ten grants are independent and default to denied, including sound, camera and microphone. Native permission checks and retained-handle retirement cover the implemented compatibility surfaces. Ten cases verify one denial diagnostic per feature despite repeated calls. Real-process tests cover load grants, dedicated runtime updates, retained WebAssembly state, revoke/regrant, malformed updates and fresh-document isolation. IPC parsing rejects duplicate capability fields and wrappers; the fuzz target parses capability payloads. The WinForms host orders loads and updates and rejects stale artifact updates. This verifies the hosting capability contract; the unfinished feature backends and the full process sandbox matrix remain separate requirements.
 
 Original acceptance:
 

@@ -23,6 +23,17 @@ internal sealed class DomContext : IFetchContext
     private CssomRegistry? _cssom;
     private readonly HashSet<string> _capabilityDenials = new(StringComparer.Ordinal);
     internal volatile bool ScriptFeaturesDisposed;
+    internal CaptureBindingState? CaptureState { get; set; }
+    internal WebRtcBindingState? WebRtcState { get; set; }
+    internal ServiceWorkerCapabilityAuthority? ServiceWorkerState { get; set; }
+    internal void LoseCanvasContexts()
+    {
+        foreach (var canvas in _canvases.Values.ToArray())
+        {
+            try { canvas.WebGlContext?.Lose(); }
+            catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
+        }
+    }
     private int _ownerThread = Environment.CurrentManagedThreadId;
     internal void EnterDocumentTurn(IScriptEngine engine)
     {
@@ -294,6 +305,9 @@ internal sealed class DomContext : IFetchContext
         // Joining a worker must not hold the registration lock.
         if (!capabilities.Workers)
             foreach (var worker in workers) worker.Terminate();
+        CaptureState?.UpdateCapabilities();
+        WebRtcState?.UpdateCapabilities();
+        ServiceWorkerState?.UpdateCapabilities(capabilities.ServiceWorkers);
         _iframeCount = 0;
         foreach (var frame in _iframes.Values)
         {
@@ -303,14 +317,19 @@ internal sealed class DomContext : IFetchContext
         }
         if (wasMediaEnabled != capabilities.Media)
             foreach (var media in _media.Values) media.SetCapability(capabilities.Media);
+        foreach (var media in _media.Values) media.SetSoundCapability(capabilities.Sound);
         if (wasWebGlEnabled == capabilities.WebGl) return;
         foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
         {
             if (canvas.CanvasSurface is not CanvasElementState state) continue;
             if (state.WebGlContext is { } context)
             {
-                if (capabilities.WebGl) context.Restore();
-                else context.Lose();
+                try
+                {
+                    if (Capabilities.WebGl && !ScriptFeaturesDisposed) context.Restore();
+                    else context.Lose();
+                }
+                catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
             }
         }
     }
@@ -357,7 +376,9 @@ internal sealed class DomContext : IFetchContext
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
-        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget);
+        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget,
+            soundEnabled: Capabilities.Sound, checkSoundPermission: () => CheckCapability("Sound", Capabilities.Sound),
+            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media));
         _media[element] = state;
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;
@@ -407,7 +428,8 @@ internal sealed class DomContext : IFetchContext
         if (Capabilities.Iframes && _iframeCount >= MaxIframes)
             throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The iframe limit has been exceeded.");
         if (Capabilities.Iframes) _iframeCount++;
-        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions);
+        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes && !ScriptFeaturesDisposed, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions,
+            checkPermission: () => CheckCapability("Iframes", Capabilities.Iframes));
     }
 
     public ScriptValue Wrap(Node? node)

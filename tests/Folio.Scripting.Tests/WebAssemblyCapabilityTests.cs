@@ -66,7 +66,7 @@ public sealed class WebAssemblyCapabilityTests
         // That failure must not leave the old document's granted facade usable.
         Assert.Throws<ScriptRuntimeException>(() => DomBindings.Install(engine, replacement));
         AssertDenied(engine, "new retained.Memory({initial:1})");
-        DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { WebAssembly = true });
+        Assert.False(DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { WebAssembly = true }));
         AssertDenied(engine, "new retained.Memory({initial:1})");
     }
 

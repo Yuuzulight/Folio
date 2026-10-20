@@ -107,6 +107,14 @@ public sealed class ContentProcessClient : IAsyncDisposable
         return _session.SendAsync(kind, payload, cancellationToken);
     }
 
+    /// <summary>Requests a capability update for the already loaded artifact without sending another load.</summary>
+    /// <remarks>Completion means the request was written to the transport. The content host's applied response is delivered through <see cref="MessageReceived"/>.</remarks>
+    public ValueTask UpdateCapabilitiesAsync(FeatureCapabilities capabilities, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        return SendAsync(ContentMessageKind.Capabilities, new { capabilities }, cancellationToken);
+    }
+
     public Task Completion => _reader;
 
     private async Task ReadMessagesAsync()

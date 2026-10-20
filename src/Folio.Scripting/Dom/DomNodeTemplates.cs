@@ -154,7 +154,7 @@ internal sealed class DomNodeTemplates
         WebGlRenderingContextTemplate = CreateWebGlRenderingContextTemplate();
         WebGlLoseContextTemplate = new HostObjectTemplate("WEBGLLoseContext")
             .DefineMethod("loseContext", (target, _, _) => { ((WebGlContextState)target).Lose(); return ScriptValue.Undefined; })
-            .DefineMethod("restoreContext", (target, _, _) => { ((WebGlContextState)target).Restore(); return ScriptValue.Undefined; });
+            .DefineMethod("restoreContext", (target, _, _) => { if (_context.CheckCapability("WebGL", _context.Capabilities.WebGl)) ((WebGlContextState)target).Restore(); return ScriptValue.Undefined; });
     }
 
     public HostObjectTemplate NodeTemplate { get; }
@@ -230,7 +230,7 @@ internal sealed class DomNodeTemplates
                 // The same object every time, so contexts compare equal.
                 return _context.WrapperCache.GetOrCreate(_context.Engine, Canvas.Context, canvas);
             }
-            if ((string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal)) && _context.Capabilities.WebGl && canvas.Context2D is null)
+            if ((string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal)) && _context.CheckCapability("WebGL", _context.Capabilities.WebGl) && canvas.Context2D is null)
                 return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes));
             return ScriptValue.Null;
         });
@@ -426,6 +426,7 @@ internal sealed class DomNodeTemplates
             (target, _, value) => { var state = _context.GetIframe((ElementNode)target); state.ElementObject = _context.Wrap((ElementNode)target); state.OnError = value; });
         t.DefineProperty("contentWindow", (target, _) =>
         {
+            _context.CheckCapability("Iframes", _context.Capabilities.Iframes);
             var state = _context.GetIframe((ElementNode)target);
             state.ElementObject = _context.Wrap((ElementNode)target);
             if (!state.Window.IsObject)
@@ -434,6 +435,7 @@ internal sealed class DomNodeTemplates
         });
         t.DefineProperty("contentDocument", (target, _) =>
         {
+            _context.CheckCapability("Iframes", _context.Capabilities.Iframes);
             var state = _context.GetIframe((ElementNode)target);
             state.ElementObject = _context.Wrap((ElementNode)target);
             state.LoadInlineDocument();
@@ -865,6 +867,20 @@ internal sealed class DomNodeTemplates
             args.Length > 0 && string.Equals(WebIdlConversions.ToDOMString(args[0]), "WEBGL_lose_context", StringComparison.OrdinalIgnoreCase)
                 ? _context.Engine.CreateHostObject(WebGlLoseContextTemplate, target)
                 : ScriptValue.Null);
+        // Retained contexts must consult the host after creation too. In a lost
+        // context, resource and draw operations are inert until an allowed restore.
+        foreach (var name in t.MethodNames.ToArray())
+        {
+            if (name is "getError" or "isContextLost") continue;
+            if (!t.TryGetMethod(name, out var callback)) continue;
+            t.DefineMethod(name, (target, receiver, args) =>
+            {
+                if (!_context.CheckCapability("WebGL", _context.Capabilities.WebGl) || ((WebGlContextState)target).Lost)
+                    return name.StartsWith("get", StringComparison.Ordinal) || name.StartsWith("create", StringComparison.Ordinal)
+                        ? ScriptValue.Null : ScriptValue.Undefined;
+                return callback(target, receiver, args);
+            });
+        }
         return t;
 
         static uint ReadCanvasDimension(CanvasElementState canvas, string name, uint fallback) =>

@@ -8,7 +8,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class IframeState : IFramePresentation
 {
-    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null, FolioOptions? parentOptions = null)
+    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null, FolioOptions? parentOptions = null, Func<bool>? checkPermission = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -18,6 +18,7 @@ internal sealed class IframeState : IFramePresentation
         BaseUri = baseUri;
         NavigationRequested = navigationRequested;
         ParentOptions = parentOptions;
+        _checkPermission = checkPermission;
         _capabilities = parentOptions?.Capabilities ?? FeatureCapabilities.Default;
         element.FramePresentation = this;
         UpdateOrigin();
@@ -27,10 +28,12 @@ internal sealed class IframeState : IFramePresentation
     public IHostObjectTemplate MessageEventTemplate { get; }
     public ElementNode Element { get; }
     public bool Enabled { get; private set; }
+    private readonly Func<bool>? _checkPermission;
+    private bool PermissionGranted => Enabled && (_checkPermission?.Invoke() ?? true);
     public string Origin { get; private set; } = "null";
     public string ParentOrigin => NetworkOrigin(BaseUri);
     private bool SameOriginAllowed => !HasSandbox || SandboxTokens.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
-    public bool CanAccessDocument => Enabled && SameOriginAllowed &&
+    public bool CanAccessDocument => !Closed && PermissionGranted && SameOriginAllowed &&
         (Element.GetAttribute("srcdoc") is not null || string.IsNullOrWhiteSpace(Element.GetAttribute("src")) || Origin != "null" && Origin == ParentOrigin);
 
     private static string NetworkOrigin(Uri? uri) => uri is not null && uri.Scheme is "http" or "https" ? uri.GetLeftPart(UriPartial.Authority) : "null";
@@ -57,6 +60,9 @@ internal sealed class IframeState : IFramePresentation
             {
                 WebGl = _capabilities.WebGl && policies.Contains("webgl"),
                 Media = _capabilities.Media && policies.Contains("media"),
+                Sound = _capabilities.Sound && policies.Contains("sound"),
+                Camera = _capabilities.Camera && policies.Contains("camera"),
+                Microphone = _capabilities.Microphone && policies.Contains("microphone"),
                 AllowSoundAutoplay = _capabilities.AllowSoundAutoplay && policies.Contains("autoplay"),
                 Workers = _capabilities.Workers && policies.Contains("workers"),
                 WebAssembly = _capabilities.WebAssembly && policies.Contains("webassembly"),
@@ -100,7 +106,7 @@ internal sealed class IframeState : IFramePresentation
 
     public void PostMessage(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
     {
-        if (!Enabled || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
+        if (!PermissionGranted || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window, ports: StructuredCloneCodec.CreatePorts(Engine, [])));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         foreach (var listener in _messageListeners.ToArray())
@@ -167,7 +173,7 @@ internal sealed class IframeState : IFramePresentation
 
     public void LoadInlineDocument(bool dispatchLoad = true)
     {
-        if (!Enabled || Closed) return;
+        if (!PermissionGranted || Closed) return;
         var inline = Element.GetAttribute("srcdoc");
         var source = ResolveSource(Element.GetAttribute("src") ?? string.Empty);
         var current = inline is not null ? "srcdoc:" + inline : "src:" + source;

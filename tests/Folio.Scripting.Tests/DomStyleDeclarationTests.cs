@@ -466,7 +466,7 @@ public sealed class DomStyleDeclarationTests
             BaseUri = new Uri("https://media.example/"),
             ResourceLoader = new WavResourceLoader(),
             MediaAudioOutput = audioOutput,
-            Capabilities = new FeatureCapabilities { Media = true }
+            Capabilities = new FeatureCapabilities { Media = true, Sound = true }
         }), eventLoop: outputLoop);
         Assert.True(outputEngine.Evaluate("document.getElementById('a').play(); true").AsBoolean());
         Assert.Single(audioOutput.Frames);
@@ -492,7 +492,7 @@ public sealed class DomStyleDeclarationTests
             ResourceLoader = new DecoderResourceLoader(),
             MediaDecoder = new FixedMediaDecoder(),
             MediaAudioOutput = compressedOutput,
-            Capabilities = new FeatureCapabilities { Media = true }
+            Capabilities = new FeatureCapabilities { Media = true, Sound = true }
         }));
         Assert.True(compressedEngine.Evaluate("const a = document.getElementById('a'); a.play(); a.duration === 0.25 && a.readyState === 4").AsBoolean());
         Assert.Single(compressedOutput.Frames);
@@ -902,9 +902,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(allowed.Evaluate("registration.active.scriptURL === '/sw.js' && registration.active.state === 'activated'; registration.active.postMessage('ping'); true").AsBoolean());
         Assert.True(allowed.Evaluate("let workerMessage = ''; const workerListener = e => workerMessage = e.data; registration.active.addEventListener('message', workerListener); registration.active.postMessage('pong'); registration.active.removeEventListener('message', workerListener); workerMessage === 'pong'").AsBoolean());
         Assert.True(allowed.Evaluate("navigator.serviceWorker.controller === registration.active").AsBoolean());
-        Assert.True(allowed.Evaluate("let controllerChanges = 0; let listenerChanges = 0; navigator.serviceWorker.oncontrollerchange = e => { if (e.type === 'controllerchange' && e.target === navigator.serviceWorker) controllerChanges++; }; const listener = e => listenerChanges++; navigator.serviceWorker.addEventListener('controllerchange', listener); registration.unregister(); navigator.serviceWorker.removeEventListener('controllerchange', listener); controllerChanges === 1 && listenerChanges === 1 && navigator.serviceWorker.controller === null").AsBoolean());
         Assert.True(allowed.Evaluate("let updateFound = false; registration.onupdatefound = e => updateFound = e.type === 'updatefound' && e.target === registration; registration.update(); updateFound").AsBoolean());
         Assert.True(allowed.Evaluate("let updateEvents = 0; const updateListener = e => { if (e.type === 'updatefound' && e.target === registration) updateEvents++; }; registration.addEventListener('updatefound', updateListener); registration.update(); registration.removeEventListener('updatefound', updateListener); updateEvents === 1").AsBoolean());
+        Assert.True(allowed.Evaluate("let controllerChanges = 0; let listenerChanges = 0; navigator.serviceWorker.oncontrollerchange = e => { if (e.type === 'controllerchange' && e.target === navigator.serviceWorker) controllerChanges++; }; const listener = e => listenerChanges++; navigator.serviceWorker.addEventListener('controllerchange', listener); registration.unregister(); navigator.serviceWorker.removeEventListener('controllerchange', listener); controllerChanges === 1 && listenerChanges === 1 && navigator.serviceWorker.controller === null").AsBoolean());
         allowed.Evaluate("let readyScope = ''; navigator.serviceWorker.ready.then(r => readyScope = r.scope);");
         allowed.PerformMicrotaskCheckpoint();
         Assert.Equal("/", allowed.Evaluate("readyScope").AsString());
@@ -1109,7 +1109,7 @@ public sealed class DomStyleDeclarationTests
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { WebRtc = true },
+            Capabilities = new FeatureCapabilities { WebRtc = true, Camera = true, Microphone = true },
             Raster = new Folio.Skia.SkiaRasterBackend()
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); let iceEvents = 0; let stateEvents = 0; let candidates = 0; pc.onicegatheringstatechange = () => iceEvents++; pc.onicecandidate = e => candidates++; pc.onconnectionstatechange = () => stateEvents++; pc.createOffer().then(x => x.type === 'offer' && x instanceof RTCSessionDescription)").IsObject);
@@ -1161,22 +1161,22 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(routing, Document.Parse("<html></html>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebRtc = true },
-            WebRtcAllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "https://stun.example", "stun:stun.example" }
+            WebRtcAllowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "turn:turn.example", "stun:stun.example" }
         }));
         Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceServers: [{ urls: 'https://blocked.example' }] })"));
-        Assert.True(routing.Evaluate("const routedPeer = new RTCPeerConnection({ iceServers: [{ urls: 'https://stun.example' }] }); routedPeer.getConfiguration().iceServers.length === 1").AsBoolean());
+        Assert.True(routing.Evaluate("const routedPeer = new RTCPeerConnection({ iceServers: [{ urls: 'turn:turn.example' }] }); routedPeer.getConfiguration().iceServers.length === 1").AsBoolean());
         Assert.True(routing.Evaluate("const stunPeer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.example' }] }); stunPeer.getConfiguration().iceServers.length === 1").AsBoolean());
         Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceServers: [{ urls: 'not a url' }] })"));
         Assert.ThrowsAny<Exception>(() => routing.Evaluate("new RTCPeerConnection({ iceTransportPolicy: 'invalid' })"));
         Assert.True(routing.Evaluate("const policyPeer = new RTCPeerConnection({ iceTransportPolicy: 'relay', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'negotiate' }); policyPeer.getConfiguration().iceTransportPolicy === 'relay' && policyPeer.getConfiguration().bundlePolicy === 'max-bundle' && policyPeer.getConfiguration().rtcpMuxPolicy === 'negotiate'").AsBoolean());
         Assert.ThrowsAny<Exception>(() => routing.Evaluate("routedPeer.setConfiguration({ iceServers: [{ urls: 'https://blocked.example' }] })"));
-        Assert.True(routing.Evaluate("routedPeer.setConfiguration({ iceServers: [{ urls: 'https://stun.example' }] }); routedPeer.getConfiguration().iceServers[0].urls === 'https://stun.example'").AsBoolean());
+        Assert.True(routing.Evaluate("routedPeer.setConfiguration({ iceServers: [{ urls: 'turn:turn.example' }] }); routedPeer.getConfiguration().iceServers[0].urls === 'turn:turn.example'").AsBoolean());
         routing.Evaluate("routedPeer.close();");
         routing.Evaluate("stunPeer.close();");
         using var permissionDenied = new JintScriptEngine();
         DomBindings.Install(permissionDenied, Document.Parse("<html></html>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { WebRtc = true },
+            Capabilities = new FeatureCapabilities { WebRtc = true, Camera = true, Microphone = true },
             MediaCapturePermission = request => request.Audio && !request.Video
         }));
         Assert.True(permissionDenied.Evaluate("let cameraDenied = ''; navigator.mediaDevices.getUserMedia({ video: true }).catch(error => cameraDenied = error.name); true").AsBoolean());
@@ -1188,14 +1188,14 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal("live", permissionDenied.Evaluate("capturedTrack.readyState").AsString());
         Assert.True(DomBindings.Dispose(permissionDenied));
         Assert.Equal("ended", permissionDenied.Evaluate("capturedTrack.readyState").AsString());
-        Assert.True(allowed.Evaluate("const track = new MediaStreamTrack('audio'); const stream = new MediaStream([track]); const copied = new MediaStream(stream); let changes = ''; stream.onaddtrack = e => changes += e.type + e.track.kind; stream.onremovetrack = e => changes += e.type === 'removetrack' ? '-' : '?'; track.onmute = e => changes += e.type[0]; track.onunmute = e => changes += e.type[0]; track.onended = e => changes += e.type[0]; const second = new MediaStreamTrack('video'); stream.addTrack(second); stream.removeTrack(second); track.muted = true; track.muted = false; track.enabled = false; track.contentHint = 'speech'; stream.getAudioTracks().length === 1 && copied.getTracks().length === 1 && stream.active; track.applyConstraints({ width: 640 }); const clone = track.clone(); track.getConstraints().width === 640 && track.getSettings().kind === 'audio' && track.getSettings().width === 640 && track.getCapabilities().kind === 'audio'; track.stop(); let rejected = false; track.applyConstraints({ width: 320 }).catch(() => rejected = true); clone.readyState === 'live' && !clone.enabled && clone.contentHint === 'speech' && clone.getConstraints().width === 640 && track.readyState === 'ended' && stream.id.length > 0 && changes === 'addtrackvideo-mue'").AsBoolean());
-        Assert.True(allowed.Evaluate("const eventTrack = new MediaStreamTrack('audio'); let trackEvents = ''; const onTrackEvent = e => trackEvents += e.type; eventTrack.addEventListener('mute', onTrackEvent); eventTrack.addEventListener('mute', onTrackEvent); eventTrack.addEventListener('unmute', onTrackEvent); eventTrack.addEventListener('ended', onTrackEvent); eventTrack.muted = true; eventTrack.muted = false; eventTrack.stop(); eventTrack.removeEventListener('ended', onTrackEvent); trackEvents === 'muteunmuteended'").AsBoolean());
+        Assert.True(allowed.Evaluate("const track = new MediaStreamTrack('audio'); const stream = new MediaStream([track]); const copied = new MediaStream(stream); let changes = ''; stream.onaddtrack = e => changes += e.type + e.track.kind; stream.onremovetrack = e => changes += e.type === 'removetrack' ? '-' : '?'; track.onmute = e => changes += e.type[0]; track.onunmute = e => changes += e.type[0]; track.onended = e => changes += e.type[0]; const second = new MediaStreamTrack('video'); stream.addTrack(second); stream.removeTrack(second); track.muted = true; track.muted = false; track.enabled = false; track.contentHint = 'speech'; stream.getAudioTracks().length === 1 && copied.getTracks().length === 1 && stream.active; track.applyConstraints({ width: 640 }); const clone = track.clone(); track.getConstraints().width === 640 && track.getSettings().kind === 'audio' && track.getSettings().width === 640 && track.getCapabilities().kind === 'audio'; track.stop(); let rejected = false; track.applyConstraints({ width: 320 }).catch(() => rejected = true); clone.readyState === 'live' && !clone.enabled && clone.contentHint === 'speech' && clone.getConstraints().width === 640 && track.readyState === 'ended' && stream.id.length > 0 && changes === 'addtrackvideo-mu'").AsBoolean());
+        Assert.True(allowed.Evaluate("const eventTrack = new MediaStreamTrack('audio'); let trackEvents = ''; const onTrackEvent = e => trackEvents += e.type; eventTrack.addEventListener('mute', onTrackEvent); eventTrack.addEventListener('mute', onTrackEvent); eventTrack.addEventListener('unmute', onTrackEvent); eventTrack.addEventListener('ended', onTrackEvent); eventTrack.muted = true; eventTrack.muted = false; eventTrack.stop(); eventTrack.removeEventListener('ended', onTrackEvent); trackEvents === 'muteunmute'").AsBoolean());
         Assert.True(allowed.Evaluate("const observedStream = new MediaStream(); const observedTrack = new MediaStreamTrack('video'); let streamEvents = ''; const onStreamEvent = e => streamEvents += e.type; observedStream.addEventListener('addtrack', onStreamEvent); observedStream.addEventListener('addtrack', onStreamEvent); observedStream.addEventListener('removetrack', onStreamEvent); observedStream.addTrack(observedTrack); observedStream.getTrackById(observedTrack.id) === observedTrack; observedStream.removeTrack(observedTrack); observedStream.getTrackById(observedTrack.id) === null && streamEvents === 'addtrackremovetrack'").AsBoolean());
         Assert.True(allowed.Evaluate("const constrained = new MediaStreamTrack('video'); let invalidType = false; constrained.applyConstraints('bad').catch(error => invalidType = error.name === 'TypeError'); let invalidRange = false; constrained.applyConstraints({ width: { exact: -1 } }).catch(error => invalidRange = error.name === 'OverconstrainedError'); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("invalidType && invalidRange").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
-        Assert.True(allowed.Evaluate("rejected").AsBoolean());
+        Assert.False(allowed.Evaluate("rejected").AsBoolean());
         Assert.True(allowed.Evaluate("let localDescriptionRejected = false; pc.setLocalDescription({ type: 'invalid' }).catch(error => localDescriptionRejected = error.name === 'TypeError'); true").AsBoolean());
         allowed.PerformMicrotaskCheckpoint();
         Assert.True(allowed.Evaluate("localDescriptionRejected").AsBoolean());
@@ -1265,7 +1265,7 @@ public sealed class DomStyleDeclarationTests
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { WebRtc = true },
+            Capabilities = new FeatureCapabilities { Camera = true },
             MediaCapturePermission = _ => permission,
             MediaCaptureActivityChanged = active => activity.Add(active)
         }));

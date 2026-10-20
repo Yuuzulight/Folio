@@ -109,7 +109,7 @@ public sealed class MediaPlaybackTests
             var tag = video ? "video" : "audio";
             _document = Document.Parse($"<{tag} id='clip' src='data:application/octet-stream;base64,AQID'></{tag}>", new FolioOptions
             {
-                Capabilities = new FeatureCapabilities { Media = true },
+                Capabilities = new FeatureCapabilities { Media = true, Sound = true },
                 MediaDecoder = new Decoder(), MediaAudioOutput = Output
             });
             DomBindings.Install(Engine, _document, eventLoop: _loop);

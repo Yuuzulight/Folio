@@ -20,14 +20,47 @@ public sealed record ContentInputEvent(
 
 public static class ContentMessagePayloads
 {
+    private static readonly HashSet<string> KnownCapabilityNames = typeof(FeatureCapabilities).GetProperties()
+        .Where(property => property.PropertyType == typeof(bool))
+        .Select(property => property.Name)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     public static bool TryGetCapabilities(this ContentMessage message, out FeatureCapabilities capabilities)
     {
         capabilities = FeatureCapabilities.Default;
-        if (message.Kind is not (ContentMessageKind.Load or ContentMessageKind.Capabilities)
-            || !message.Payload.TryGetProperty("capabilities", out var value)) return false;
-        capabilities = JsonSerializer.Deserialize<FeatureCapabilities>(value.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))
-            ?? FeatureCapabilities.Default;
-        return true;
+        try
+        {
+            if (message.Kind is not (ContentMessageKind.Load or ContentMessageKind.Capabilities)
+                || message.Payload.ValueKind != JsonValueKind.Object) return false;
+            JsonElement value = default;
+            var wrapperFound = false;
+            foreach (var property in message.Payload.EnumerateObject())
+            {
+                if (!property.Name.Equals("capabilities", StringComparison.OrdinalIgnoreCase)) continue;
+                if (wrapperFound) return false;
+                wrapperFound = true;
+                value = property.Value;
+            }
+            if (!wrapperFound || value.ValueKind != JsonValueKind.Object) return false;
+
+            // A malformed known field must fail closed. Unknown fields are deliberately ignored so
+            // newer senders cannot grant an unrecognised capability to an older host.
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in value.EnumerateObject())
+            {
+                if (!seen.Add(property.Name)) return false;
+                if (KnownCapabilityNames.Contains(property.Name)
+                    && property.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+            }
+
+            capabilities = JsonSerializer.Deserialize<FeatureCapabilities>(value.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? FeatureCapabilities.Default;
+            return true;
+        }
+        catch (JsonException) { capabilities = FeatureCapabilities.Default; return false; }
+        catch (InvalidOperationException) { capabilities = FeatureCapabilities.Default; return false; }
+        catch (NotSupportedException) { capabilities = FeatureCapabilities.Default; return false; }
     }
 
     public static bool TryGetDisplayList(this ContentMessage message, out DisplayListFrame? frame)
