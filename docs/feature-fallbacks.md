@@ -24,6 +24,8 @@ dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll -class 
 dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll approve feature-fallback
 ```
 
+The Windows and Linux Skia font backends produce different glyph coverage pixels even with the same bundled font. Each has separately reviewed exact-pixel references, selected explicitly by the test fixture; tolerances remain zero and Windows references are preserved.
+
 Programmatic reference approval accepts only the fixture's registered case names. It does not approve arbitrary images without a corresponding page or registered fixture.
 
 This presentation contract does not establish a native GPU/shader backend, timed video playback, real capture or network transport. The synthetic-stream recovery fixtures exercise the existing compatibility API and do not prove camera or microphone capture. Poster/capture memory accounting remains open under #537. Those original Milestone 6 implementation requirements remain separate, and incomplete feature implementations continue to route to the browser.

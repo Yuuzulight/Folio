@@ -32,11 +32,9 @@ public sealed class FeatureFallbackRenderTests
     }
 
     public static IReadOnlySet<string> GoldenNames { get; } =
-        new HashSet<string>(Reasons.SelectMany(reason => new[]
-        {
-            $"feature-fallback/{reason.ToString().ToLowerInvariant()}-light",
-            $"feature-fallback/{reason.ToString().ToLowerInvariant()}-dark",
-        }), StringComparer.Ordinal);
+        new HashSet<string>(Reasons.SelectMany(reason => new[] { "", "-linux" }
+            .SelectMany(platform => new[] { "light", "dark" }.Select(scheme =>
+                $"feature-fallback/{reason.ToString().ToLowerInvariant()}{platform}-{scheme}"))), StringComparer.Ordinal);
 
     [Theory]
     [MemberData(nameof(FallbackCases))]
@@ -54,7 +52,10 @@ public sealed class FeatureFallbackRenderTests
         using var result = HeadlessRenderer.Render(document, new RenderRequest(360, 120));
         Assert.Equal((360, 120), (result.Width, result.Height));
         Assert.Equal(scheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White, Pixel(result, 359, 119));
-        var golden = $"feature-fallback/{reasonName.ToLowerInvariant()}-{scheme.ToString().ToLowerInvariant()}";
+        // Skia's glyph rasterization differs across the Windows and Linux font backends.
+        // Each platform retains reviewed exact-pixel references; geometry and label assertions are shared.
+        var platform = OperatingSystem.IsLinux() ? "-linux" : "";
+        var golden = $"feature-fallback/{reasonName.ToLowerInvariant()}{platform}-{scheme.ToString().ToLowerInvariant()}";
         var actual = new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
         Assert.Null(GoldenSuite.Repo.Check(golden, actual));
     }
