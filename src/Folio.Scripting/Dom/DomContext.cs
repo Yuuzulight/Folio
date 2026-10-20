@@ -7,7 +7,7 @@ namespace Folio.Scripting.Dom;
 /// <summary>
 /// Context bridging Folio's DOM nodes with the host script engine and wrapper cache (study 02, study 17, #451).
 /// </summary>
-internal sealed class DomContext
+internal sealed class DomContext : IFetchContext
 {
     private readonly Dictionary<string, IHostObjectTemplate> _htmlElementTemplates = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ElementNode, (double X, double Y)> _scrollOffsets = new(ReferenceEqualityComparer.Instance);
@@ -22,11 +22,76 @@ internal sealed class DomContext
     private readonly object _workersGate = new();
     private CssomRegistry? _cssom;
     private readonly HashSet<string> _capabilityDenials = new(StringComparer.Ordinal);
-    internal bool ScriptFeaturesDisposed { get; set; }
+    internal volatile bool ScriptFeaturesDisposed;
+    private int _ownerThread = Environment.CurrentManagedThreadId;
+    internal void EnterDocumentTurn(IScriptEngine engine)
+    {
+        // The content transport serializes document turns, but async dispatch
+        // may resume the next turn on a different physical thread.
+        if (ReferenceEquals(engine, Engine)) Volatile.Write(ref _ownerThread, Environment.CurrentManagedThreadId);
+    }
+    internal HtmlEventLoop? OwnerEventLoop { get; set; }
+    private readonly object _workerDiagnosticsGate = new();
+    private readonly Queue<(Diagnostic Diagnostic, ScriptMessageBudget.Reservation Reservation)> _workerDiagnostics = new();
+
+    internal void ReportWorkerDiagnostic(Diagnostic diagnostic)
+    {
+        if (ScriptFeaturesDisposed) return;
+        if (Environment.CurrentManagedThreadId == Volatile.Read(ref _ownerThread))
+        {
+            if (diagnostic.Code == DiagnosticCode.CapabilityDenied) CheckCapability(diagnostic.Feature!, false);
+            else Document.DiagnosticSink?.Invoke(diagnostic);
+            return;
+        }
+        bool schedule;
+        lock (_workerDiagnosticsGate)
+        {
+            if (ScriptFeaturesDisposed || _workerDiagnostics.Count >= 64) return;
+            var message = diagnostic.Message.Length > 4096 ? diagnostic.Message[..4096] : diagnostic.Message;
+            ScriptMessageBudget.Reservation reservation;
+            try { reservation = ScriptMessageBudget.For(Engine, MaxWorkerMemoryBytes).Reserve(System.Text.Encoding.UTF8.GetByteCount(message) + 64); }
+            catch (WebIdlException) { return; }
+            schedule = _workerDiagnostics.Count == 0;
+            _workerDiagnostics.Enqueue((diagnostic with { Message = message }, reservation));
+        }
+        if (schedule && OwnerEventLoop is { } loop)
+        {
+            try { loop.QueueTask(TaskSource.Generic, () => { EnterDocumentTurn(Engine); DrainWorkerDiagnostics(); }, "worker diagnostics"); }
+            catch (ObjectDisposedException) { ClearWorkerDiagnostics(); }
+        }
+    }
+
+    internal void DrainWorkerDiagnostics()
+    {
+        if (Environment.CurrentManagedThreadId != Volatile.Read(ref _ownerThread)) return;
+        while (true)
+        {
+            (Diagnostic Diagnostic, ScriptMessageBudget.Reservation Reservation) next;
+            lock (_workerDiagnosticsGate)
+            {
+                if (_workerDiagnostics.Count == 0) return;
+                next = _workerDiagnostics.Dequeue();
+            }
+            using (next.Reservation)
+                if (!ScriptFeaturesDisposed) ReportWorkerDiagnostic(next.Diagnostic);
+        }
+    }
+
+    private void ClearWorkerDiagnostics()
+    {
+        lock (_workerDiagnosticsGate)
+            while (_workerDiagnostics.TryDequeue(out var message)) message.Reservation.Dispose();
+    }
 
     internal bool CheckCapability(string feature, bool granted)
     {
         if (granted && !ScriptFeaturesDisposed) return true;
+        if (Environment.CurrentManagedThreadId != Volatile.Read(ref _ownerThread))
+        {
+            ReportWorkerDiagnostic(new Diagnostic(DiagnosticCode.CapabilityDenied, Severity.Warning,
+                $"{feature} is disabled by the host.", null, feature));
+            return false;
+        }
         if (_capabilityDenials.Add(feature))
             Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.CapabilityDenied, Severity.Warning,
                 $"{feature} is disabled by the host.", null, feature));
@@ -133,7 +198,8 @@ internal sealed class DomContext
     internal FolioOptions? ParentOptions { get; set; }
     public ScriptWrapperCache WrapperCache { get; }
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
-    public FeatureCapabilities Capabilities { get; private set; }
+    private volatile FeatureCapabilities _capabilities = FeatureCapabilities.Default;
+    public FeatureCapabilities Capabilities { get => _capabilities; private set => _capabilities = value; }
     public int MaxGpuBytes { get; }
     public int MaxMediaBytes { get; }
     public int MaxMediaDecoders { get; }
@@ -161,9 +227,20 @@ internal sealed class DomContext
         return false;
     }
     public void ReleaseWorker() { if (Interlocked.Decrement(ref _workerCount) < 0) Interlocked.Exchange(ref _workerCount, 0); }
+    internal void UnregisterWorker(WorkerState worker)
+    {
+        lock (_workersGate) _workers.Remove(worker);
+    }
     public void RegisterWorker(WorkerState worker)
     {
-        lock (_workersGate) _workers.Add(worker);
+        FeatureCapabilities capabilities;
+        lock (_workersGate)
+        {
+            capabilities = ScriptFeaturesDisposed ? FeatureCapabilities.Default : Capabilities;
+            worker.PublishCapabilities(capabilities);
+            _workers.Add(worker);
+        }
+        if (!capabilities.Workers) worker.Terminate();
     }
 
     public void DisposeMedia()
@@ -188,6 +265,7 @@ internal sealed class DomContext
             _workers.Clear();
         }
         foreach (var worker in workers) worker.Terminate();
+        ClearWorkerDiagnostics();
     }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
@@ -206,7 +284,16 @@ internal sealed class DomContext
         ArgumentNullException.ThrowIfNull(capabilities);
         var wasWebGlEnabled = Capabilities.WebGl;
         var wasMediaEnabled = Capabilities.Media;
-        Capabilities = capabilities;
+        WorkerState[] workers;
+        lock (_workersGate)
+        {
+            Capabilities = capabilities;
+            workers = _workers.ToArray();
+            foreach (var worker in workers) worker.PublishCapabilities(capabilities);
+        }
+        // Joining a worker must not hold the registration lock.
+        if (!capabilities.Workers)
+            foreach (var worker in workers) worker.Terminate();
         _iframeCount = 0;
         foreach (var frame in _iframes.Values)
         {

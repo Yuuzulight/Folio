@@ -3,13 +3,15 @@ namespace Folio.Scripting.Dom;
 /// <summary>Private permission and quota boundary for the compatibility WebAssembly interpreter.</summary>
 internal static class WebAssemblyBindings
 {
-    internal static void Install(IScriptEngine engine, DomContext context)
+    internal static void Install(IScriptEngine engine, DomContext context) =>
+        Install(engine, () => context.CheckCapability("WebAssembly", context.Capabilities.WebAssembly), context.MaxWebAssemblyBytes);
+
+    internal static void Install(IScriptEngine engine, Func<bool> enabled, int maxBytes)
     {
         var host = new HostObjectTemplate("WebAssemblyHost")
-            .DefineMethod("enabled", (_, _, _) => ScriptValue.FromBoolean(
-                context.CheckCapability("WebAssembly", context.Capabilities.WebAssembly)))
-            .DefineProperty("maxBytes", (_, _) => ScriptValue.FromNumber(context.MaxWebAssemblyBytes));
-        engine.SetGlobalProperty("__folio_wasm_host", engine.CreateHostObject(host, context));
+            .DefineMethod("enabled", (_, _, _) => ScriptValue.FromBoolean(enabled()))
+            .DefineProperty("maxBytes", (_, _) => ScriptValue.FromNumber(Math.Max(0, maxBytes)));
+        engine.SetGlobalProperty("__folio_wasm_host", engine.CreateHostObject(host, enabled));
         engine.EvaluateHostScript(Source, "folio:webassembly");
     }
 

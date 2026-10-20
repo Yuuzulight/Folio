@@ -167,6 +167,9 @@ internal sealed class JintHostObject : ObjectInstance
 
     private void InstallTemplate(IHostObjectTemplate template)
     {
+        // Engine call caches may retain a method after its receiver is gone.
+        // Bind the realm, not this host wrapper; the receiver comes from thisObj.
+        var engine = Engine;
         // First install prototype template members if any
         if (template.PrototypeTemplate is { } proto)
         {
@@ -179,25 +182,25 @@ internal sealed class JintHostObject : ObjectInstance
             if (template.TryGetProperty(propName, out var getter, out var setter))
             {
                 var jsGetter = new ClrFunction(
-                    Engine,
+                    engine,
                     $"get {propName}",
                     (thisObj, args) =>
                     {
                         var target = (thisObj as JintHostObject)?.Target;
                         if (target is null)
-                            throw new JavaScriptException(Engine.Intrinsics.TypeError, "Illegal invocation");
+                            throw new JavaScriptException(engine.Intrinsics.TypeError, "Illegal invocation");
                         try
                         {
                             var result = getter(target, JintScriptEngine.ToScriptValue(thisObj));
-                            return JintScriptEngine.ToJsValue(Engine, result);
+                            return JintScriptEngine.ToJsValue(engine, result);
                         }
-                        catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+                        catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(engine, error, out var original))
                         {
                             throw original;
                         }
                         catch (WebIdlException wie)
                         {
-                            throw CreateJavaScriptException(Engine, wie);
+                            throw CreateJavaScriptException(engine, wie);
                         }
                     },
                     0,
@@ -207,26 +210,26 @@ internal sealed class JintHostObject : ObjectInstance
                 if (setter is not null)
                 {
                     jsSetter = new ClrFunction(
-                        Engine,
+                        engine,
                         $"set {propName}",
                         (thisObj, args) =>
                         {
                             var target = (thisObj as JintHostObject)?.Target;
                             if (target is null)
-                                throw new JavaScriptException(Engine.Intrinsics.TypeError, "Illegal invocation");
+                                throw new JavaScriptException(engine.Intrinsics.TypeError, "Illegal invocation");
                             var argVal = args.Length > 0 ? JintScriptEngine.ToScriptValue(args[0]) : ScriptValue.Undefined;
                             try
                             {
                                 setter(target, JintScriptEngine.ToScriptValue(thisObj), argVal);
                                 return JsValue.Undefined;
                             }
-                            catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+                            catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(engine, error, out var original))
                             {
                                 throw original;
                             }
                             catch (WebIdlException wie)
                             {
-                                throw CreateJavaScriptException(Engine, wie);
+                                throw CreateJavaScriptException(engine, wie);
                             }
                         },
                         1,
@@ -243,13 +246,13 @@ internal sealed class JintHostObject : ObjectInstance
             if (template.TryGetMethod(methodName, out var callback))
             {
                 var jsMethod = new ClrFunction(
-                    Engine,
+                    engine,
                     methodName,
                     (thisObj, args) =>
                     {
                         var target = (thisObj as JintHostObject)?.Target;
                         if (target is null)
-                            throw new JavaScriptException(Engine.Intrinsics.TypeError, "Illegal invocation");
+                            throw new JavaScriptException(engine.Intrinsics.TypeError, "Illegal invocation");
 
                         var convertedArgs = new ScriptValue[args.Length];
                         for (var i = 0; i < args.Length; i++)
@@ -258,15 +261,15 @@ internal sealed class JintHostObject : ObjectInstance
                         try
                         {
                             var result = callback(target, JintScriptEngine.ToScriptValue(thisObj), convertedArgs);
-                            return JintScriptEngine.ToJsValue(Engine, result);
+                            return JintScriptEngine.ToJsValue(engine, result);
                         }
-                        catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(Engine, error, out var original))
+                        catch (ScriptRuntimeException error) when (JintScriptEngine.TryGetOriginalException(engine, error, out var original))
                         {
                             throw original;
                         }
                         catch (WebIdlException wie)
                         {
-                            throw CreateJavaScriptException(Engine, wie);
+                            throw CreateJavaScriptException(engine, wie);
                         }
                     },
                     0,

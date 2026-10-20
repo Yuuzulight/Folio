@@ -22,6 +22,9 @@ public enum DiagnosticCode
 
     /// <summary>A document tried to use a feature the host did not grant.</summary>
     CapabilityDenied,
+
+    /// <summary>A worker wrote a message through its console.</summary>
+    ScriptConsole,
 }
 
 public enum Severity

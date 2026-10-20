@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 /// </summary>
 internal static class FetchBindings
 {
-    internal static ScriptValue Install(IScriptEngine engine, DomContext context)
+    internal static ScriptValue Install(IScriptEngine engine, IFetchContext context)
     {
         var host = new HostObjectTemplate("FolioFetchHost")
             .DefineMethod("resolve", (_, _, args) =>
@@ -31,7 +31,7 @@ internal static class FetchBindings
     }
 
     // The outcome as JSON: { ok, contentType, length, body } (body is a handle, 0 for a HEAD) or { ok: false, error }.
-    private static string Load(DomContext context, string url, bool head)
+    private static string Load(IFetchContext context, string url, bool head)
     {
         var (outcome, error) = context.Fetch(url);
         if (outcome is not { } response)

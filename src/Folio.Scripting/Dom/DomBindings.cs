@@ -60,7 +60,8 @@ public static class DomBindings
         if (eventLoop is not null)
             eventLoop.MediaPlaybackTick = context.AdvanceMedia;
         context.ParentOptions = parentOptions;
-        var blobSources = new Dictionary<string, string>(StringComparer.Ordinal);
+        context.OwnerEventLoop = eventLoop;
+        var blobSources = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         var blobStore = new HostObjectTemplate("BlobStore")
             .DefineMethod("create", (_, _, args) =>
             {
@@ -70,10 +71,13 @@ public static class DomBindings
                 blobSources[url] = source;
                 return ScriptValue.FromString(url);
             })
-            .DefineMethod("revoke", (_, _, args) => { if (args.Length > 0) blobSources.Remove(args[0].AsString() ?? ""); return ScriptValue.Undefined; });
+            .DefineMethod("revoke", (_, _, args) => { if (args.Length > 0) blobSources.TryRemove(args[0].AsString() ?? "", out _); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_blob_store", engine.CreateHostObject(blobStore, context));
         if (Contexts.TryGetValue(engine, out var previousContext))
+        {
             previousContext.ScriptFeaturesDisposed = true;
+            previousContext.DisposeWorkers();
+        }
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
         context.InitializeMediaElements();
@@ -114,58 +118,8 @@ public static class DomBindings
         engine.SetGlobalProperty("__folio_canvas_host", engine.CreateHostObject(canvasHost, context));
         var messagePortTemplate = MessagePortBindings.Install(engine, context.Templates.MessageEventTemplate,
             eventLoop, context.MaxWorkerMessageBytes, context.MaxWorkerMemoryBytes);
-        var workerTemplate = new HostObjectTemplate("Worker")
-            .DefineProperty("onmessage", (target, _) => ((WorkerState)target).OnMessage, (target, _, value) => ((WorkerState)target).OnMessage = value)
-            .DefineProperty("onmessageerror", (target, _) => ((WorkerState)target).OnMessageError, (target, _, value) => ((WorkerState)target).OnMessageError = value)
-            .DefineProperty("onerror", (target, _) => ((WorkerState)target).OnError, (target, _, value) => ((WorkerState)target).OnError = value)
-            .DefineProperty("scriptURL", (target, _) => ScriptValue.FromString(((WorkerState)target).ScriptUrl))
-            .DefineMethod("addEventListener", (target, _, args) => { if (args.Length > 1) ((WorkerState)target).AddEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; })
-            .DefineMethod("removeEventListener", (target, _, args) => { if (args.Length > 1) ((WorkerState)target).RemoveEventListener(WebIdlConversions.ToDOMString(args[0]), args[1]); return ScriptValue.Undefined; })
-            .DefineMethod("postMessage", (target, _, args) =>
-            {
-                if (((WorkerState)target).Terminated)
-                    throw WebIdlException.DomException(DomExceptionNames.InvalidStateError, "The worker has been terminated.");
-                if (args.Length > 0 && args[0].IsFunction)
-                    throw WebIdlException.DomException("DataCloneError", "Functions cannot be cloned into a worker.");
-                if (args.Length > 0 && !((WorkerState)target).PostMessage(args[0], args.Length > 1 ? args[1] : ScriptValue.Undefined))
-                    throw WebIdlException.DomException("DataCloneError", "The worker message exceeds the host limit.");
-                return ScriptValue.Undefined;
-            })
-            .DefineMethod("terminate", (target, _, _) => { ((WorkerState)target).Terminate(); return ScriptValue.Undefined; });
-        var workerHost = new HostObjectTemplate("WorkerHost")
-            .DefineMethod("create", (_, _, args) =>
-            {
-                if (!context.Capabilities.Workers)
-                    throw WebIdlException.DomException(DomExceptionNames.NotSupportedError, "Workers are disabled by the host.");
-                if (!context.TryAcquireWorker())
-                    throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The worker limit has been exceeded.");
-                var url = args.Length > 0 ? WebIdlConversions.ToDOMString(args[0]) : "";
-                var workerType = args.Length > 1 && args[1].IsObject ? engine.GetProperty(args[1], "type").AsString() ?? "classic" : "classic";
-                if (!string.Equals(workerType, "classic", StringComparison.OrdinalIgnoreCase) && !string.Equals(workerType, "module", StringComparison.OrdinalIgnoreCase))
-                {
-                    context.ReleaseWorker();
-                    throw WebIdlException.TypeError("Worker options.type must be 'classic' or 'module'.");
-                }
-                var moduleWorker = string.Equals(workerType, "module", StringComparison.OrdinalIgnoreCase);
-                if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolvedWorkerUrl)) url = resolvedWorkerUrl.AbsoluteUri;
-                var canLoadWorkerScript = url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase) || resourceLoader is not null;
-                var isolatedEngine = canLoadWorkerScript ? (engine as IScriptEngineFactory)?.CreateIsolated() : null;
-                try
-                {
-                    var state = new WorkerState(engine, context.Templates.MessageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes, isolatedEngine, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWebAssemblyBytes, context.Capabilities, context.MaxWorkerExecutionTime, context.ReleaseWorker, moduleWorker, blobSources, eventLoop);
-                    context.RegisterWorker(state);
-                    var worker = engine.CreateHostObject(workerTemplate, state);
-                    state.Source = worker;
-                    return worker;
-                }
-                catch
-                {
-                    context.ReleaseWorker();
-                    isolatedEngine?.Dispose();
-                    throw;
-                }
-            });
-        engine.SetGlobalProperty("__folio_worker_host", engine.CreateHostObject(workerHost, context));
+        WorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
+            resourceLoader, baseUri, blobSources, eventLoop);
         engine.SetGlobalProperty("__folio_service_workers_enabled", ScriptValue.FromBoolean(context.Capabilities.ServiceWorkers));
         engine.SetGlobalProperty("__folio_webrtc_enabled", ScriptValue.FromBoolean(context.Capabilities.WebRtc));
         var serviceWorkerLoader = new HostObjectTemplate("ServiceWorkerLoader")
@@ -269,7 +223,6 @@ public static class DomBindings
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
             }
-            globalThis.Worker = function(scriptURL, options) { return __folio_worker_host.create(scriptURL, options); };
             globalThis.navigator = globalThis.navigator || {};
             var __folio_service_worker_registrations = [];
             globalThis.navigator.serviceWorker = (function(registrationStorage) { return {

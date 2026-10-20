@@ -5,6 +5,87 @@ namespace Folio.Scripting.Tests;
 [Collection("Content process round trips")]
 public sealed class WebAssemblyContentProcessTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RealContentProcessRunsNestedBlobWorkersAndTheirPlatformApis(bool wasm)
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
+        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        await using var client = ContentProcessClient.Start(host,
+            limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+            documentLimits: ResourceLimits.Default with { MaxWorkers = 2 });
+        const string nested = "onmessage=()=>{var bytes=new Uint8Array(8),identity=crypto.getRandomValues(bytes)===bytes;var target=new EventTarget(),abort=new AbortController(),count=0;target.addEventListener('x',()=>count++,{signal:abort.signal});target.dispatchEvent(new Event('x'));abort.abort();target.dispatchEvent(new Event('x'));console.warn('nested console');fetch('data:text/plain,%E2%98%83').then(r=>r.text()).then(text=>postMessage(new TextDecoder().decode(new TextEncoder().encode(text))+':'+identity+':'+count+':'+typeof document+':'+typeof window));};";
+        var source = "var nested=new Worker(URL.createObjectURL(new Blob([" + System.Text.Json.JsonSerializer.Serialize(nested) + "])));nested.onmessage=e=>postMessage(e.data);onmessage=()=>nested.postMessage(0);";
+        var create = "var responses=[];var worker=new Worker('data:text/javascript,'+encodeURIComponent(" + System.Text.Json.JsonSerializer.Serialize(source) + "));worker.onmessage=e=>responses.push(String(e.data));";
+        var grants = new FeatureCapabilities { Workers = true, WebAssembly = wasm };
+        await Exchange(client, ContentMessageKind.Load, new { html = "<script>" + create + "</script>", script = "'ready'", capabilities = grants });
+        async Task Probe()
+        {
+            await Exchange(client, ContentMessageKind.Load, new { script = "worker.postMessage(0);'sent';" });
+            var result = await Exchange(client, ContentMessageKind.Load, new { script = "responses[responses.length-1]" });
+            Assert.Equal("☃:true:1:undefined:undefined", Value(result));
+            Assert.Contains(result.Payload.GetProperty("diagnostics").EnumerateArray(), d => d.GetString()!.StartsWith("Worker (blob:folio-", StringComparison.Ordinal) && d.GetString()!.EndsWith(": nested console", StringComparison.Ordinal));
+        }
+        await Probe();
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = FeatureCapabilities.Default });
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = grants });
+        await Exchange(client, ContentMessageKind.Load, new { script = create });
+        await Probe();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RealContentProcessWorkerCanFetchWithoutWindowBindings(bool wasm)
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
+        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        await using var client = ContentProcessClient.Start(host,
+            limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)));
+        const string source = "onmessage=()=>fetch('data:text/plain,%E2%98%83').then(r=>r.text()).then(text=>postMessage(text+':'+typeof document+':'+typeof window));";
+        var create = "var responses=[];var worker=new Worker('data:text/javascript,'+encodeURIComponent(" + System.Text.Json.JsonSerializer.Serialize(source) + "));worker.onmessage=e=>responses.push(String(e.data));";
+        await Exchange(client, ContentMessageKind.Load, new { html = "<script>" + create + "</script>", script = "'ready'", capabilities = new FeatureCapabilities { Workers = true, WebAssembly = wasm } });
+        await Exchange(client, ContentMessageKind.Load, new { script = "worker.postMessage(0);'sent';" });
+        Assert.Equal("☃:undefined:undefined", Value(await Exchange(client, ContentMessageKind.Load, new { script = "responses[responses.length-1]" })));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RealContentProcessPropagatesGrantsToExistingWorkersAndReleasesRevokedWorkers(bool initiallyGranted)
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
+        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        await using var client = ContentProcessClient.Start(host,
+            limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+            documentLimits: ResourceLimits.Default with { MaxWebAssemblyBytes = 65536, MaxWorkers = 1 });
+        static FeatureCapabilities Grants(bool wasm) => new() { Workers = true, WebAssembly = wasm };
+        const string workerSource = "var retained=typeof WebAssembly==='undefined'?null:WebAssembly; onmessage=()=>{try{postMessage(new retained.Memory({initial:1}).buffer.byteLength);}catch(error){postMessage(error.name);}};";
+        var create = "var responses=[];var worker=new Worker('data:text/javascript,'+encodeURIComponent(" + System.Text.Json.JsonSerializer.Serialize(workerSource) + "));worker.onmessage=e=>responses.push(String(e.data));";
+        await Exchange(client, ContentMessageKind.Load, new { html = "<script>" + create + "</script>", script = "'ready'", capabilities = Grants(initiallyGranted) });
+        async Task<string?> Probe()
+        {
+            await Exchange(client, ContentMessageKind.Load, new { script = "worker.postMessage(0);'sent';" });
+            return Value(await Exchange(client, ContentMessageKind.Load, new { script = "responses[responses.length-1]" }));
+        }
+        Assert.Equal(initiallyGranted ? "65536" : "NotSupportedError", await Probe());
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = Grants(true) });
+        Assert.Equal("65536", await Probe());
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = Grants(false) });
+        Assert.Equal("NotSupportedError", await Probe());
+        var report = await Exchange(client, ContentMessageKind.Load, new { script = "'diagnostics'" });
+        Assert.Single(report.Payload.GetProperty("diagnostics").EnumerateArray(),
+            item => item.GetString()!.Contains("WebAssembly is disabled by the host.", StringComparison.Ordinal));
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = Grants(true) });
+        Assert.Equal("65536", await Probe());
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = FeatureCapabilities.Default });
+        await Exchange(client, ContentMessageKind.Capabilities, new { capabilities = Grants(true) });
+        var fresh = "worker=new Worker('data:text/javascript,'+encodeURIComponent(\"onmessage=()=>postMessage('fresh');\"));worker.onmessage=e=>responses.push(e.data);'created';";
+        Assert.Equal("created", Value(await Exchange(client, ContentMessageKind.Load, new { script = fresh })));
+        Assert.Equal("fresh", await Probe());
+    }
+
     [Fact]
     public async Task RealContentProcessAppliesGrantsRevocationAndRegrantToRetainedApi()
     {

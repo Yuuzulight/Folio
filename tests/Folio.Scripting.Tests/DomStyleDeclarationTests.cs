@@ -15,6 +15,17 @@ namespace Folio.Scripting.Tests;
 
 public sealed class DomStyleDeclarationTests
 {
+    private sealed class EchoWorkerResourceLoader : IResourceLoader
+    {
+        public List<ResourceRequest> Requests { get; } = [];
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            lock (Requests) Requests.Add(request);
+            return Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script && request.Url == "https://worker.example/worker.js"
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("onmessage=e=>postMessage(e.data);"), "application/javascript")
+                : null);
+        }
+    }
     private sealed class ArtifactMemoryStorage : IArtifactStorage
     {
         private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
@@ -580,12 +591,15 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(denied, Document.Parse("<html></html>"));
         Assert.ThrowsAny<Exception>(() => denied.Evaluate("new Worker('data:text/javascript,')"));
 
+        var workerLoader = new EchoWorkerResourceLoader();
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { Workers = true }
+            Capabilities = new FeatureCapabilities { Workers = true },
+            ResourceLoader = workerLoader
         }));
         Assert.True(allowed.Evaluate("const w = new Worker('https://worker.example/worker.js'); let seen = 0; let workerOrigin = ''; let sourceMatches = false; let eventType = ''; w.onmessage = e => { seen = e.data; workerOrigin = e.origin; sourceMatches = e.source === null && e.target === w; eventType = e.type; }; w.postMessage(42); seen === 42 && workerOrigin === '' && sourceMatches && eventType === 'message'").AsBoolean());
+        Assert.Equal(new ResourceRequest("https://worker.example/worker.js", ResourceKind.Script), Assert.Single(workerLoader.Requests));
         Assert.True(allowed.Evaluate("const isolated = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data + 1); };')); let isolatedSeen = 0; isolated.onmessage = e => isolatedSeen = e.data; isolated.postMessage(41); isolatedSeen === 42").AsBoolean());
         Assert.True(allowed.Evaluate("const queuedWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data === 1 ? \\\"first\\\" : \\\"second\\\"); };')); let queuedSeen = ''; queuedWorker.onmessage = e => { queuedSeen += e.data; if (e.data === 'first') queuedWorker.postMessage(2); }; queuedWorker.postMessage(1); queuedSeen === 'firstsecond'").AsBoolean());
         Assert.True(allowed.Evaluate("const cloneWorker = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage({ nested: e.data.nested }); };')); let cloned = null; cloneWorker.onmessage = e => cloned = e.data; const original = { nested: 7 }; cloneWorker.postMessage(original); cloned.nested === 7 && cloned !== original").AsBoolean());

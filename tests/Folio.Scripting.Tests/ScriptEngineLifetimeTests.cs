@@ -11,6 +11,59 @@ public sealed class EngineLifetimeCollection;
 [Collection("Engine lifetime")]
 public sealed class ScriptEngineLifetimeTests
 {
+    [Fact]
+    public void LiveDocumentDoesNotKeepIndividuallyTerminatedWorkersInItsRegistry()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<p>worker registry</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        DomBindings.Install(engine, document);
+        var retired = RetireWorkerHandle(engine);
+        AssertCollected(retired);
+        GC.KeepAlive(document);
+        GC.KeepAlive(engine);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference RetireWorkerHandle(JintScriptEngine engine)
+    {
+        var wrapper = engine.Evaluate("new Worker('data:text/javascript,')");
+        Assert.True(engine.TryGetHostTarget(wrapper, out var target));
+        var worker = Assert.IsType<WorkerState>(target);
+        worker.Terminate();
+        Assert.True(worker.ResourcesReleased);
+        engine.Evaluate("0");
+        return new WeakReference(worker);
+    }
+
+    [Fact]
+    public void LiveParentWorkerDoesNotRetainIndividuallyTerminatedChildren()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<p>nested worker registry</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        DomBindings.Install(engine, document);
+        var retired = RetireNestedWorkerHandle(engine);
+        try { AssertCollected(retired); }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference RetireNestedWorkerHandle(JintScriptEngine engine)
+    {
+        const string source = "var nested=new Worker('data:text/javascript,');onmessage=()=>{nested.terminate();nested=null;postMessage('dropped');};";
+        engine.Evaluate("var parentWorker=new Worker('data:text/javascript,'+encodeURIComponent(" + System.Text.Json.JsonSerializer.Serialize(source) + "));var result='';parentWorker.onmessage=e=>result=e.data;");
+        Assert.True(engine.TryGetHostTarget(engine.GetGlobalProperty("parentWorker"), out var target));
+        var parent = Assert.IsType<WorkerState>(target);
+        // Controlled startup is finished and both workers are idle; this reads
+        // an existing plain global without running artifact code on this thread.
+        Assert.True(parent.WorkerEngine!.TryGetHostTarget(parent.WorkerEngine.GetGlobalProperty("nested"), out var childTarget));
+        var child = Assert.IsType<WorkerState>(childTarget);
+        var marker = new WeakReference(child);
+        engine.Evaluate("parentWorker.postMessage(0);");
+        Assert.Equal("dropped", engine.Evaluate("result").AsString());
+        Assert.True(child.ResourcesReleased);
+        return marker;
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
@@ -46,11 +99,13 @@ public sealed class ScriptEngineLifetimeTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void KeepingATerminatedWorkerHandleDoesNotRetainItsWorkerRealm(bool reconfigureParent)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void KeepingATerminatedWorkerHandleDoesNotRetainItsWorkerRealm(bool reconfigureParent, bool wasm)
     {
-        var retired = RetireWorker(reconfigureParent);
+        var retired = RetireWorker(reconfigureParent, wasm);
         try
         {
             Assert.True(retired.Worker.Terminated);
@@ -65,10 +120,10 @@ public sealed class ScriptEngineLifetimeTests
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static (JintScriptEngine Parent, Document Document, WorkerState Worker, WeakReference Realm) RetireWorker(bool reconfigureParent)
+    private static (JintScriptEngine Parent, Document Document, WorkerState Worker, WeakReference Realm) RetireWorker(bool reconfigureParent, bool wasm)
     {
         var parent = new JintScriptEngine();
-        var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        var document = Document.Parse("<html></html>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true, WebAssembly = wasm } });
         DomBindings.Install(parent, document);
         var value = parent.Evaluate("new Worker('data:text/javascript,')");
         Assert.True(parent.TryGetHostTarget(value, out var target));

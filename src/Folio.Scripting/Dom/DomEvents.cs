@@ -11,11 +11,12 @@ namespace Folio.Scripting.Dom;
 /// </remarks>
 internal static class DomEvents
 {
-    internal static (EventHandlerAttributes Handlers, ScriptValue DispatchHostEvent) Install(IScriptEngine engine, HtmlEventLoop? eventLoop)
+    internal static (EventHandlerAttributes Handlers, ScriptValue DispatchHostEvent) Install(IScriptEngine engine, HtmlEventLoop? eventLoop, bool workerScope = false)
     {
         ArgumentNullException.ThrowIfNull(engine);
 
         var bridge = new HostObjectTemplate("FolioEventsHost")
+            .DefineProperty("workerScope", (_, _) => ScriptValue.FromBoolean(workerScope))
             .DefineMethod("now", (_, _, _) => ScriptValue.FromNumber(eventLoop?.Clock.NowMs ?? 0))
             .DefineMethod("report", (_, _, args) =>
             {
@@ -187,6 +188,25 @@ internal static class DomEvents
                 get error() { return stateOf(this).error; }
             }
             tag(ErrorEvent, 'ErrorEvent');
+
+            class MessageEvent extends Event {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'MessageEvent', 'MessageEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'MessageEvent'), state = eventState.get(this);
+                    state.data = dict.data === undefined ? null : dict.data;
+                    state.origin = dict.origin === undefined ? '' : String(dict.origin);
+                    state.lastEventId = dict.lastEventId === undefined ? '' : String(dict.lastEventId);
+                    state.source = dict.source === undefined ? null : dict.source;
+                    state.ports = Object.freeze(Array.from(dict.ports === undefined ? [] : dict.ports));
+                }
+                get data() { return stateOf(this).data; }
+                get origin() { return stateOf(this).origin; }
+                get lastEventId() { return stateOf(this).lastEventId; }
+                get source() { return stateOf(this).source; }
+                get ports() { return stateOf(this).ports; }
+            }
+            tag(MessageEvent, 'MessageEvent');
 
             // ------------------------------------------------------------------ UIEvent & derived
 
@@ -970,7 +990,9 @@ internal static class DomEvents
             defineHandlerAccessors(global.SVGElement && global.SVGElement.prototype, GLOBAL_HANDLER_NAMES);
             defineHandlerAccessors(global.Document && global.Document.prototype, GLOBAL_HANDLER_NAMES.concat(DOCUMENT_HANDLER_NAMES));
             defineHandlerAccessors(global.HTMLBodyElement && global.HTMLBodyElement.prototype, WINDOW_HANDLER_NAMES);
-            defineHandlerAccessors(global, GLOBAL_HANDLER_NAMES.concat(WINDOW_HANDLER_NAMES));
+            defineHandlerAccessors(global, host.workerScope
+                ? ['error', 'languagechange', 'message', 'messageerror', 'offline', 'online', 'rejectionhandled', 'unhandledrejection', 'securitypolicyviolation']
+                : GLOBAL_HANDLER_NAMES.concat(WINDOW_HANDLER_NAMES));
 
             // The window: a plain EventTarget whose methods are installed directly on the global object.
             for (const method of ['addEventListener', 'removeEventListener', 'dispatchEvent']) {
@@ -1047,6 +1069,7 @@ internal static class DomEvents
             }
 
             function createHostEvent(type, a) {
+                if (type === 'message' || type === 'messageerror') return new MessageEvent(type, a);
                 // a is array or object
                 const dict = Array.isArray(a) ? {
                     bubbles: !!a[0],
@@ -1211,14 +1234,17 @@ internal static class DomEvents
             defineGlobal('Event', Event);
             defineGlobal('CustomEvent', CustomEvent);
             defineGlobal('ErrorEvent', ErrorEvent);
-            defineGlobal('UIEvent', UIEvent);
-            defineGlobal('MouseEvent', MouseEvent);
-            defineGlobal('PointerEvent', PointerEvent);
-            defineGlobal('WheelEvent', WheelEvent);
-            defineGlobal('KeyboardEvent', KeyboardEvent);
-            defineGlobal('InputEvent', InputEvent);
-            defineGlobal('FocusEvent', FocusEvent);
-            defineGlobal('CompositionEvent', CompositionEvent);
+            if (host.workerScope) defineGlobal('MessageEvent', MessageEvent);
+            if (!host.workerScope) {
+                defineGlobal('UIEvent', UIEvent);
+                defineGlobal('MouseEvent', MouseEvent);
+                defineGlobal('PointerEvent', PointerEvent);
+                defineGlobal('WheelEvent', WheelEvent);
+                defineGlobal('KeyboardEvent', KeyboardEvent);
+                defineGlobal('InputEvent', InputEvent);
+                defineGlobal('FocusEvent', FocusEvent);
+                defineGlobal('CompositionEvent', CompositionEvent);
+            }
             defineGlobal('EventTarget', EventTarget);
             defineGlobal('AbortSignal', AbortSignal);
             defineGlobal('AbortController', AbortController);
