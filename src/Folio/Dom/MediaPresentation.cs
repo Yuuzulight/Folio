@@ -24,6 +24,12 @@ public interface IMediaPoster
     ReadOnlyMemory<byte> Pixels { get; }
 }
 
+/// <summary>A current decoded video frame, separate from the poster retained on failure.</summary>
+internal interface IMediaFrameSource
+{
+    IMediaPoster? CurrentFrame { get; }
+}
+
 public interface IMediaCue
 {
     string Text { get; }

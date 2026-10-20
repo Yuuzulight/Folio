@@ -23,6 +23,8 @@ public sealed class Document : IDisposable
     {
         Node = node;
         Options = options;
+        node.SetFeatureAvailability(options.Capabilities.WebGl, options.Capabilities.Media, options.Capabilities.Sound, options.Capabilities.Iframes);
+        node.PrefersDarkColorScheme = options.ColorScheme == ColorScheme.Dark;
         _diagnostics = diagnostics;
     }
 
@@ -161,6 +163,16 @@ public sealed class Document : IDisposable
         new(DiagnosticCode.LimitExceeded, Severity.Warning, message, at, null);
 
     private FontCollection? _fonts;
+    private Hosting.CanvasStyleEngine? _labelText;
+
+    private IReadOnlyList<GlyphRun> ShapeFallbackLabel(string label, RectF bounds)
+    {
+        if (_labelText?.Resolve("12px sans-serif") is not { } style) return [];
+        var text = _labelText.Layout(label, style, false);
+        var origin = new Vector2(bounds.X + 4, bounds.Y + Math.Min(bounds.Height - 3, text.Ascent + 3));
+        return text.Runs.Select(run => new GlyphRun(run.Font, run.Size, run.Glyphs,
+            run.Origins.Select(p => p + origin).ToArray())).ToArray();
+    }
 
     // Canvas text, shaped with this document's fonts (and web fonts) by the raster backend's shaper.
     private Hosting.CanvasStyleEngine? _canvasText;
@@ -755,7 +767,7 @@ public sealed class Document : IDisposable
         {
             _scrollOffsets[element] = new Vector2(clampedX, clampedY);
             if (_frame is { } frame && _images is not null)
-                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
+                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
         }
 
         return new Vector2(consumedX, consumedY);
@@ -796,7 +808,7 @@ public sealed class Document : IDisposable
         {
             _scrollOffsets[element.Node] = clamped;
             if (_frame is { } frame && _images is not null)
-                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection);
+                DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
         }
     }
 
@@ -1168,6 +1180,7 @@ public sealed class Document : IDisposable
         _lastPaint = (viewportWidth, viewportHeight, deviceScale, shaper, animationTime);
         var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
+        _labelText = new Hosting.CanvasStyleEngine(_fonts, shaper);
         var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
         var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         if (!_webFontsLoaded)
@@ -1194,7 +1207,7 @@ public sealed class Document : IDisposable
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         if (animationTime.HasValue)
             AdvanceSmoothScrolls(animationTime.Value);
-        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(animationTime ?? 0));
+        DisplayList = DisplayListBuilder.Build(page, _images, deviceScale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(animationTime ?? 0), ShapeFallbackLabel);
         return (DisplayList, height);
     }
 
@@ -1202,7 +1215,7 @@ public sealed class Document : IDisposable
     internal void RepaintDisplayList()
     {
         if (_frame is { } frame && _images is not null)
-            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(0));
+            DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(0), ShapeFallbackLabel);
     }
 
     private void AdvanceSmoothScrolls(double time)
@@ -1280,7 +1293,7 @@ public sealed class Document : IDisposable
             }
         }
         AdvanceSmoothScrolls(time);
-        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(time));
+        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(time), ShapeFallbackLabel);
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
@@ -1452,7 +1465,7 @@ public sealed class Document : IDisposable
             }
             else
             {
-                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets, _inputRouter?.Selection);
+                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
                 return Damage.Paint;
             }
         }
@@ -1482,7 +1495,7 @@ public sealed class Document : IDisposable
             _page = page;
             LayoutCount++;
             _frame = (root, page, l.Scale);
-            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale, _scrollOffsets, _inputRouter?.Selection);
+            DisplayList = DisplayListBuilder.Build(page, _images, l.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
             return Damage.Boxes;
         }
 

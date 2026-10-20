@@ -88,9 +88,9 @@ Original acceptance:
 
 ### #525 — Rendering: a clear fallback when a feature is off
 
-**Unverified.** Evidence: `DisplayListBuilder.cs; AccessibilityTreeTests.cs`.
+**Locally verified.** Evidence: `FeatureFallback.cs; DisplayListBuilder.cs; FeatureFallbackTests.cs; FeatureFallbackRenderTests.cs; FeatureFallbackPipelineTests.cs; FeatureFallbackLifecycleTests.cs; FeatureFallbackContentProcessTests.cs`.
 
-Fallback rendering exists. Each required failure reason, both colour schemes, layout invariance and runtime failure paths require dedicated evidence.
+Painting and accessibility share typed failure state. Eighteen reviewed exact-pixel goldens cover all nine reasons in light and dark. Bounds checks and a pixel reftest cover layout preservation; accessibility tests cover the missing feature/reason and authored names. PNG/SVG poster tests, native binding recovery and a real content-process pixel round trip exercise failure and recovery. Normal empty canvases/frames and allowed no-source media players remain valid. Three restarting reviews completed after the final correction; the Release solution passed 3,478 tests with one local symbolic-link privilege skip, and an isolated one-CPU run passed all 867 scripting cases with unchanged deadlines. See [feature failure presentation](feature-fallbacks.md). This verifies #525's presentation contract, not the unfinished native backends or #537's poster/capture memory accounting.
 
 Original acceptance:
 
@@ -255,6 +255,8 @@ Original acceptance:
 **Incomplete.** Evidence: `DomContext.GetMedia; MediaElementState constructor`.
 
 Decoder slots are now reserved before loading/decoding. Encoded sources and decoded frame/PCM memory share a document budget, and reload, disable and teardown release reservations. Regression tests cover disabled/over-count loading, aggregate decoded memory, reload recovery and built-in WAV expansion. Poster/capture accounting and the real process sandbox/classifier/conformance acceptance remain unproven.
+
+The fallback review also confirmed an existing poster-accounting gap: the scripting poster decoder can allocate an SVG-sized bitmap outside the shared media ledger, and the static image path can retain a second decoded poster. This remains part of #537; fallback presentation tests do not prove aggregate media-memory enforcement.
 
 Original acceptance:
 

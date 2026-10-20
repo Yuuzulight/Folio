@@ -85,6 +85,16 @@ public sealed class GoldenSuiteTests : IDisposable
     }
 
     [Fact]
+    public void ProgrammaticApprovalOnlyIncludesRegisteredCases()
+    {
+        _suite.Check("area/registered", Solid(2, 2, 1, 2, 3));
+        _suite.Check("area/unregistered", Solid(2, 2, 4, 5, 6));
+        Assert.Equal(["area/registered"], _suite.Approve("area", new HashSet<string> { "area/registered" }));
+        Assert.True(File.Exists(Output("area/unregistered", ".actual.png")));
+        Assert.False(File.Exists(Path.Combine(_suite.Root, "area/unregistered.png")));
+    }
+
+    [Fact]
     public void IdenticalImagePassesWithoutOutput()
     {
         _suite.Check("area/page", WithChangedPixels(0, 0));

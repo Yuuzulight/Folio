@@ -285,6 +285,7 @@ internal static class AccessibilityTree
             "p" => "paragraph",
             "img" when element.GetAttribute("alt") is "" => null,
             "img" => "image",
+            "canvas" when FeatureFallbacks.For(element) is not null => "image",
             "input" => Attr(element, "type") switch
             {
                 "checkbox" => "checkbox",
@@ -304,7 +305,7 @@ internal static class AccessibilityTree
             "meter" => "meter",
             "video" => "video",
             "audio" => "audio",
-            "iframe" or "frame" or "frameset" => "iframe",
+            "iframe" or "frame" or "frameset" or "embed" or "object" => "iframe",
             _ => null,
         };
     }
@@ -324,15 +325,11 @@ internal static class AccessibilityTree
     private static string NameOf(ElementNode element, string role)
     {
         var name = Collapse(Name(element, role, referenced: false, recursing: false, [element]));
+        if (FeatureFallbacks.For(element) is { } failure)
+            return string.IsNullOrEmpty(name) ? failure.Label : $"{name}. {failure.Label}";
         if (!string.IsNullOrEmpty(name))
             return name;
-        return role switch
-        {
-            "video" => "Video unavailable",
-            "audio" => "Audio unavailable",
-            "iframe" => "Embedded content unavailable",
-            _ => name ?? "",
-        };
+        return name ?? "";
     }
 
     // https://www.w3.org/TR/accname-1.2/#computation-steps, steps 2B to 2I (2A, skipping hidden nodes, is the callers').

@@ -37,6 +37,7 @@ public static class DomBindings
     private static void RetireFeatures(DomContext context)
     {
         context.ScriptFeaturesDisposed = true;
+        context.Document.SetFeatureAvailability(false, false, false, false);
         context.Document.EventDispatcher = null;
         Action[] retire =
         [

@@ -100,12 +100,16 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
     /// <summary>For images: the decoded image, or null when it could not be loaded or decoded.</summary>
     public Imaging.DecodedImage? Image { get; init; }
 
+    /// <summary>The video's independently loaded poster, including secure static SVG images.</summary>
+    public object? Poster { get; init; }
+
     /// <summary>Image pixels per CSS pixel, from the chosen srcset candidate.</summary>
     public float Density { get; init; } = 1;
 
     /// <summary>The natural width and height in CSS pixels (https://www.w3.org/TR/css-images-3/#natural-dimensions), if any.</summary>
     public (float Width, float Height)? NaturalSize => Image is { } image
         ? (image.Width / Density, image.Height / Density)
+        : Poster is Imaging.DecodedImage posterImage ? (posterImage.Width, posterImage.Height)
         : Kind == ReplacedKind.Media && Node is ElementNode { MediaPresentation: { } media }
             ? media.Poster is { } poster ? (poster.Width, poster.Height) : (300, 150)
             : null;
@@ -114,7 +118,7 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
     public Dom.ElementNode? SvgImage { get; init; }
 
     /// <summary>The svg element this box draws: its own (inline SVG) or its image's.</summary>
-    public Dom.ElementNode? SvgRoot => SvgImage ?? (Kind == ReplacedKind.Svg ? Node as Dom.ElementNode : null);
+    public Dom.ElementNode? SvgRoot => SvgImage ?? Poster as Dom.ElementNode ?? (Kind == ReplacedKind.Svg ? Node as Dom.ElementNode : null);
 
     /// <summary>For SVG (inline or an image): the natural width, height and aspect ratio, each only when the svg element has one.</summary>
     public (float? Width, float? Height, float? Ratio)? SvgNatural { get; init; }

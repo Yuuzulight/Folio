@@ -394,9 +394,11 @@ public sealed class DomStyleDeclarationTests
         Assert.True(denied.Evaluate("const v = document.getElementById('v'); v.paused && v.readyState === 0 && v.canPlayType('video/mp4') === ''").AsBoolean());
 
         using var allowed = new JintScriptEngine();
-        var allowedDocument = Document.Parse("<video id='v' controls data-duration='12' data-width='640' data-height='360'></video>", new FolioOptions
+        var allowedDocument = Document.Parse("<video id='v' src='/clip.mp4' controls data-duration='12' data-width='640' data-height='360'></video>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { Media = true }
+            Capabilities = new FeatureCapabilities { Media = true },
+            BaseUri = new Uri("https://media.example/"),
+            ResourceLoader = new PngResourceLoader()
         });
         DomBindings.Install(allowed, allowedDocument);
         Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; let eventType = ''; v.onloadedmetadata = e => { events += 'm'; eventType = e.type; }; v.onplay = e => { events += 'p'; eventType = e.type; }; v.onpause = e => { events += 's'; eventType = e.type; }; v.onended = e => { events += 'e'; eventType = e.type; }; let lifecycle = ''; ['loadstart','loadeddata','canplay','canplaythrough'].forEach(type => v.addEventListener(type, () => lifecycle += type[0])); v.load(); v.paused && v instanceof HTMLMediaElement && v instanceof HTMLVideoElement && v.duration === 12 && v.readyState === 4 && events === 'm' && eventType === 'loadedmetadata' && lifecycle === 'llcc'").AsBoolean());
@@ -528,25 +530,28 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(4, ((IImageHandle)imagePresentation!).Pixels.Length);
 
         using var limited = new JintScriptEngine();
-        DomBindings.Install(limited, Document.Parse("<video id='v' data-size='1024'></video>", new FolioOptions
+        DomBindings.Install(limited, Document.Parse("<video id='v' src='https://media.example/clip'></video>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Media = true },
-            Limits = ResourceLimits.Default with { MaxMediaBytes = 128 }
+            ResourceLoader = new PngResourceLoader(),
+            Limits = ResourceLimits.Default with { MaxMediaBytes = 64 }
         }));
         Assert.True(limited.Evaluate("const v = document.getElementById('v'); v.readyState === 0 && v.error !== null; v.play(); v.paused").AsBoolean());
 
         using var aggregate = new JintScriptEngine();
-        DomBindings.Install(aggregate, Document.Parse("<video id='a' data-size='80'></video><video id='b' data-size='80'></video>", new FolioOptions
+        DomBindings.Install(aggregate, Document.Parse("<video id='a' src='https://media.example/a'></video><video id='b' src='https://media.example/b'></video>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Media = true },
+            ResourceLoader = new PngResourceLoader(),
             Limits = ResourceLimits.Default with { MaxMediaBytes = 128 }
         }));
         Assert.True(aggregate.Evaluate("const a = document.getElementById('a'); const b = document.getElementById('b'); a.error === null && b.error !== null").AsBoolean());
 
         using var decoderLimited = new JintScriptEngine();
-        DomBindings.Install(decoderLimited, Document.Parse("<video id='a'></video><video id='b'></video>", new FolioOptions
+        DomBindings.Install(decoderLimited, Document.Parse("<video id='a' src='https://media.example/a'></video><video id='b' src='https://media.example/b'></video>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { Media = true },
+            ResourceLoader = new PngResourceLoader(),
             Limits = ResourceLimits.Default with { MaxMediaDecoders = 1 }
         }));
         Assert.True(decoderLimited.Evaluate("document.getElementById('a').readyState === 4 && document.getElementById('b').error === 'Media decoder limit exceeded.'").AsBoolean());
@@ -569,9 +574,10 @@ public sealed class DomStyleDeclarationTests
     public void MediaControlsAndCuesArePainted()
     {
         using var engine = new JintScriptEngine();
-        var document = Document.Parse("<video id='v' controls data-duration='12' style='width:320px;height:180px'></video>", new FolioOptions
+        var document = Document.Parse("<video id='v' src='https://media.example/clip' controls data-duration='12' style='width:320px;height:180px'></video>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { Media = true }
+            Capabilities = new FeatureCapabilities { Media = true },
+            ResourceLoader = new PngResourceLoader()
         });
         DomBindings.Install(engine, document);
         Assert.True(engine.Evaluate("const v = document.getElementById('v'); const t = v.addTextTrack('captions'); t.mode = 'showing'; t.addCue(0, 10, 'On-screen caption'); v.currentTime = 1; true").AsBoolean());
@@ -1109,7 +1115,7 @@ public sealed class DomStyleDeclarationTests
         using var allowed = new JintScriptEngine();
         DomBindings.Install(allowed, Document.Parse("<html></html>", new FolioOptions
         {
-            Capabilities = new FeatureCapabilities { WebRtc = true, Camera = true, Microphone = true },
+            Capabilities = new FeatureCapabilities { WebRtc = true, Camera = true, Microphone = true, Media = true },
             Raster = new Folio.Skia.SkiaRasterBackend()
         }));
         Assert.True(allowed.Evaluate("const pc = new RTCPeerConnection(); let iceEvents = 0; let stateEvents = 0; let candidates = 0; pc.onicegatheringstatechange = () => iceEvents++; pc.onicecandidate = e => candidates++; pc.onconnectionstatechange = () => stateEvents++; pc.createOffer().then(x => x.type === 'offer' && x instanceof RTCSessionDescription)").IsObject);

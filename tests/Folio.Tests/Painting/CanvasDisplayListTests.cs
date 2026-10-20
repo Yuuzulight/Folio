@@ -35,8 +35,8 @@ public sealed class CanvasDisplayListTests
         var (displayList, _) = document.Paint(400, 200);
 
         var labels = displayList.Items.Where(item => item.Kind == DisplayItemKind.Label).ToArray();
-        Assert.Equal(["Video unavailable", "Embedded content unavailable"], labels.Select(item => item.Text));
-        Assert.Equal([(120f, 60f), (84f, 44f)], labels.Select(item => (item.Shape.Rect.Width, item.Shape.Rect.Height)));
+        Assert.Equal(["Video unavailable: not allowed", "Frame unavailable: not allowed"], labels.Select(item => item.Text));
+        Assert.Equal([(120f, 28f), (84f, 28f)], labels.Select(item => (item.Shape.Rect.Width, item.Shape.Rect.Height)));
     }
 
     [Fact]

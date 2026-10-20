@@ -25,6 +25,14 @@ internal sealed class DocumentNode : ContainerNode
 
     public DocumentMode Mode { get; set; }
 
+    internal bool WebGlAllowed { get; private set; }
+    internal bool MediaAllowed { get; private set; }
+    internal bool SoundAllowed { get; private set; }
+    internal bool IframesAllowed { get; private set; }
+    internal void SetFeatureAvailability(bool webGl, bool media, bool sound, bool iframes) =>
+        (WebGlAllowed, MediaAllowed, SoundAllowed, IframesAllowed) = (webGl, media, sound, iframes);
+    internal bool PrefersDarkColorScheme { get; set; }
+
     /// <summary>The document's readiness state (HTML §7.4: "loading", "interactive", "complete").</summary>
     public string ReadyState { get; set; } = "loading";
 

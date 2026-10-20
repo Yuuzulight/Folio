@@ -220,11 +220,14 @@ internal sealed class BoxTreeBuilder
         {
             var (source, density) = kind == ReplacedKind.Image ? ImageSource(element, _deviceScale) : (null, 1);
             var image = source is null ? null : _images?.LoadAny(source);
-            var svg = kind == ReplacedKind.Svg ? element : image as ElementNode;
+            var poster = kind == ReplacedKind.Media && element.LocalName == "video" && element.GetAttribute("poster") is { Length: > 0 } posterSource
+                ? _images?.LoadAny(posterSource, "video poster") : null;
+            var svg = kind == ReplacedKind.Svg ? element : (image ?? poster) as ElementNode;
             var box = new ReplacedBox(style, element, kind)
             {
                 IsAtomicInline = IsInlineLevel(display),
                 Image = image as Imaging.DecodedImage,
+                Poster = poster,
                 SvgImage = image as ElementNode,
                 Density = density,
                 SvgNatural = svg is null ? null : Svg.SvgRenderTree.NaturalSize(svg, style.Font.Size),

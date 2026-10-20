@@ -24,7 +24,7 @@ internal static class DisplayListBuilder
     /// <param name="caret">The active text control caret, if any, to paint.</param>
     public static DisplayList Build(Fragment initialContainingBlock, Imaging.ImageLoader? images = null, float deviceScale = 1,
                                     IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Selection? selection = null,
-                                    CaretInfo? caret = null)
+                                    CaretInfo? caret = null, Func<string, RectF, IReadOnlyList<GlyphRun>>? labels = null)
     {
         var list = new DisplayList();
         if (StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { Owner: { } rootBox } rootContext)
@@ -38,7 +38,7 @@ internal static class DisplayListBuilder
         if (canvasColor.A > 0)
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, new RoundedRect(canvas, default), canvasColor));
 
-        var emitter = new Emitter(list, canvasBox, images, selection, caret);
+        var emitter = new Emitter(list, canvasBox, images, selection, caret, labels);
         // Its images are placed as for the root element and painted over the whole canvas.
         if (canvasBox is not null)
             emitter.PaintBackgroundImages(canvasBox.Style, rootBox, BorderBox(rootBox), new RoundedRect(canvas, default));
@@ -63,7 +63,8 @@ internal static class DisplayListBuilder
         return body is null ? (root, rootColor) : (body, body.Style.Background.Color.Resolve(body.Style.Inherited.Color));
     }
 
-    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images, Selection? selection = null, CaretInfo? caret = null) : IPaintVisitor
+    private sealed class Emitter(DisplayList list, Box? canvasBox, Imaging.ImageLoader? images, Selection? selection = null, CaretInfo? caret = null,
+        Func<string, RectF, IReadOnlyList<GlyphRun>>? labels = null) : IPaintVisitor
     {
         private readonly List<ClipNode> _open = [];
         private int _floor; // clips below this index belong to an enclosing opacity layer and stay open
@@ -528,10 +529,10 @@ internal static class DisplayListBuilder
                     PaintFormControl(box, formControlBox);
                 else if (IsDropDown(box.Box))
                     PaintDropDownArrow(box);
-                else if (box.Fragment.Svg is { } svg)
-                    PaintSvg(box, svg);
                 else if (box.Box is ReplacedBox { Kind: ReplacedKind.Media or ReplacedKind.Frame } replaced)
                     PaintFeatureFallback(box, replaced);
+                else if (box.Fragment.Svg is { } svg)
+                    PaintSvg(box, svg);
                 else
                     PaintImage(box);
                 return;
@@ -614,6 +615,16 @@ internal static class DisplayListBuilder
 
         private void PaintFeatureFallback(PaintBox box, ReplacedBox replaced)
         {
+            if (box.Box.Style.Inherited.Visibility != Visibility.Visible || replaced.Node is not ElementNode element)
+                return;
+            // Frame loading can discover a permanent failure, so read the state after rendering.
+            if (replaced.Kind == ReplacedKind.Frame)
+                element.FramePresentation?.Render(box.Rect.Width, box.Rect.Height);
+            if (FeatureFallbacks.For(element) is { } failure)
+            {
+                PaintFailure(box, failure, () => PaintPoster(box, replaced, element));
+                return;
+            }
             SetClip(box.Clip);
             var color = box.Box.Style.Inherited.Color;
             var background = box.Box.Style.Background.Color.A > 0
@@ -627,7 +638,7 @@ internal static class DisplayListBuilder
             list.Items.Add(new DisplayItem(DisplayItemKind.Fill, BorderBox(box), background));
             if (box.Box is ReplacedBox { Kind: ReplacedKind.Frame })
                 list.Items.Add(new DisplayItem(DisplayItemKind.Border, BorderBox(box), Border: frameBorder));
-            if (replaced.Kind is not (ReplacedKind.Media or ReplacedKind.Frame) || replaced.Node is not Dom.ElementNode element)
+            if (replaced.Kind is not (ReplacedKind.Media or ReplacedKind.Frame))
             {
                 list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: "Embedded content unavailable"));
                 return;
@@ -637,7 +648,6 @@ internal static class DisplayListBuilder
             if (replaced.Kind == ReplacedKind.Frame)
             {
                 var frame = element.FramePresentation;
-                frame?.Render(box.Rect.Width, box.Rect.Height);
                 if (frame?.DisplayList is DisplayList child && child.Items.Count > 0)
                 {
                     var frameRect = BorderBox(box).Inset(frameBorder.TopWidth, frameBorder.RightWidth,
@@ -656,18 +666,20 @@ internal static class DisplayListBuilder
                     list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: text));
                     return;
                 }
-                list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: "Embedded content unavailable"));
+                // A successfully loaded, empty document is allowed to paint no content.
                 return;
             }
-            var label = element.LocalName == "audio" ? "Audio unavailable" : "Video unavailable";
             if (media is null)
             {
-                list.Items.Add(new DisplayItem(DisplayItemKind.Label, BorderBox(box), color, Text: label));
+                // An allowed player without a source is idle, not a failed resource.
+                PaintPoster(box, replaced, element);
                 return;
             }
 
-            if (media.Poster is { } poster)
-                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: new MediaPosterHandle(poster), Sampling: ImageSampling.Smooth));
+            if (element.LocalName == "video" && media is IMediaFrameSource { CurrentFrame: { } currentFrame })
+                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: new MediaPosterHandle(currentFrame), Sampling: ImageSampling.Smooth));
+            else
+                PaintPoster(box, replaced, element);
 
             if (media.ActiveCues.Count > 0 && element.LocalName == "video")
             {
@@ -686,6 +698,46 @@ internal static class DisplayListBuilder
             var mute = media.Muted || media.Volume <= 0 ? "🔇" : "🔊";
             var time = $"{FormatTime(media.CurrentTime)} / {FormatTime(media.Duration)}";
             list.Items.Add(new DisplayItem(DisplayItemKind.Label, new RoundedRect(controlsRect, default), new CssColor(1, 1, 1, 1), Text: $"{play}   {time}   {mute}"));
+        }
+
+        private void PaintPoster(PaintBox box, ReplacedBox replaced, ElementNode element)
+        {
+            if (element.LocalName != "video") return;
+            if (box.Fragment.Svg is { } svg)
+                PaintSvg(box, svg);
+            else if (replaced.Poster is Imaging.DecodedImage image)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: image, Sampling: ImageSampling.Smooth));
+            else if (element.MediaPresentation?.Poster is { } poster)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: new MediaPosterHandle(poster), Sampling: ImageSampling.Smooth));
+        }
+
+        private void PaintFailure(PaintBox box, FeatureFallback failure, Action? poster = null)
+        {
+            SetClip(box.Clip);
+            var area = BorderBox(box);
+            var dark = box.Box.Node?.OwnerDocument.PrefersDarkColorScheme == true;
+            var background = dark ? new CssColor(.13f, .15f, .18f, 1) : new CssColor(.93f, .94f, .96f, 1);
+            var foreground = dark ? new CssColor(.94f, .95f, .97f, 1) : new CssColor(.12f, .14f, .18f, 1);
+            list.Items.Add(new DisplayItem(DisplayItemKind.Fill, area, background));
+            list.Items.Add(new DisplayItem(DisplayItemKind.PushClip, area));
+            poster?.Invoke();
+            // Keep the poster visible, with an opaque strip that keeps the reason legible over any image.
+            var labelArea = poster is null ? area : new RoundedRect(new RectF(area.Rect.X, area.Rect.Y,
+                area.Rect.Width, Math.Min(28, area.Rect.Height)), default);
+            if (poster is not null)
+                list.Items.Add(new DisplayItem(DisplayItemKind.Fill, labelArea, background));
+            var runs = labels?.Invoke(failure.Label, labelArea.Rect);
+            if (runs is { Count: > 0 })
+            {
+                for (var i = 0; i < runs.Count; i++)
+                {
+                    list.Items.Add(new DisplayItem(i == 0 ? DisplayItemKind.Label : DisplayItemKind.Glyphs,
+                        labelArea, foreground, Glyphs: runs[i], Text: i == 0 ? failure.Label : null));
+                }
+            }
+            else
+                list.Items.Add(new DisplayItem(DisplayItemKind.Label, labelArea, foreground, Text: failure.Label));
+            list.Items.Add(new DisplayItem(DisplayItemKind.Pop));
         }
 
         private static string FormatTime(double value)
@@ -1421,6 +1473,13 @@ internal static class DisplayListBuilder
         {
             var replaced = (ReplacedBox)box.Box;
             var style = replaced.Style;
+            if (style.Inherited.Visibility != Visibility.Visible) return;
+            if (replaced.Kind == ReplacedKind.Canvas &&
+                replaced.Node is ElementNode element && FeatureFallbacks.For(element) is { } failure)
+            {
+                PaintFailure(box, failure);
+                return;
+            }
             // A canvas draws its bitmap, a pixel for a natural CSS pixel, as an image does.
             Imaging.IImageHandle? image = replaced.Image;
             var naturalSize = replaced.NaturalSize;

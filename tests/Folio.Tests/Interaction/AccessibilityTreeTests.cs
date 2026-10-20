@@ -86,7 +86,7 @@ public class AccessibilityTreeTests
     {
         var tree = Tree("<video style='width:120px;height:60px'></video><audio></audio><iframe></iframe>");
 
-        Assert.Equal(["Video unavailable", "Audio unavailable", "Embedded content unavailable"],
+        Assert.Equal(["Video unavailable: not allowed", "Audio unavailable: not allowed", "Frame unavailable: not allowed"],
             tree.Children.Where(node => node.Role is "video" or "audio" or "iframe").Select(node => node.Name));
     }
 

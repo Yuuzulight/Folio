@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Numerics;
 using Folio.Dom;
 using Folio.Imaging;
-using Folio.Imaging;
 using Folio.Painting;
 
 namespace Folio.Scripting.Dom;
@@ -11,7 +10,7 @@ namespace Folio.Scripting.Dom;
 /// What a canvas element owns on the scripting side: its bitmap, and the context drawing on it. The display list paints
 /// the bitmap through <see cref="ICanvasSurface"/>.
 /// </summary>
-internal sealed class CanvasElementState : ICanvasSurface
+internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSource
 {
     private readonly IRasterBackend? _backend;
     private readonly Hosting.CanvasStyleEngine? _styles;
@@ -19,6 +18,8 @@ internal sealed class CanvasElementState : ICanvasSurface
     private IImageHandle? _snapshot;
     private long _snapshotVersion = -1;
     private long _touches;
+    private bool _attemptedWebGl;
+    private FeatureFallback? _fallback;
 
     public CanvasElementState(ElementNode element, IRasterBackend? backend, Hosting.CanvasStyleEngine? styles)
     {
@@ -34,6 +35,27 @@ internal sealed class CanvasElementState : ICanvasSurface
 
     public WebGlContextState? WebGlContext { get; set; }
 
+    public FeatureFallback? Fallback => _attemptedWebGl && !Element.OwnerDocument.WebGlAllowed
+        ? new(FallbackFeature.WebGl, FallbackReason.HostDenied) : _fallback;
+
+    internal void AttemptWebGl() => _attemptedWebGl = true;
+    internal void MarkWebGlDenied() { _attemptedWebGl = true; _fallback = new(FallbackFeature.WebGl, FallbackReason.HostDenied); }
+    internal void MarkGraphicsUnavailable()
+    {
+        if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.GraphicsUnavailable);
+    }
+    internal void MarkContextLost()
+    {
+        if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
+    }
+    internal void MarkHostDenied() { if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.HostDenied); }
+    internal void ClearFallback()
+    {
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable or FallbackReason.ResourceLimit })
+            _fallback = null;
+    }
+    internal void ProbeGraphics() { _ = Surface(); }
+
     public int Width => Side("width", 300);
 
     public int Height => Side("height", 150);
@@ -45,7 +67,25 @@ internal sealed class CanvasElementState : ICanvasSurface
     public bool SizeAllowed => ImageLimits.Allows(Width, Height, ImageLimits.MaxPixels);
 
     /// <summary>The element's bitmap, made on first use; null when there is no backend or the size is not allowed or zero.</summary>
-    public IRasterSurface? Surface() => _surface ??= SizeAllowed ? _backend?.CreateSurface(Width, Height) : null;
+    public IRasterSurface? Surface()
+    {
+        if (_surface is not null) return _surface;
+        if (!SizeAllowed)
+        {
+            if (_attemptedWebGl && Width > 0 && Height > 0) _fallback = new(FallbackFeature.WebGl, FallbackReason.ResourceLimit);
+            return null;
+        }
+        if (_backend is null)
+        {
+            MarkGraphicsUnavailable();
+            return null;
+        }
+        try { _surface = _backend.CreateSurface(Width, Height); }
+        catch { _surface = null; }
+        if (_surface is null) MarkGraphicsUnavailable();
+        else if (_fallback is { Reason: FallbackReason.GraphicsUnavailable or FallbackReason.ResourceLimit }) _fallback = null;
+        return _surface;
+    }
 
     /// <summary>Marks the bitmap changed by something other than the 2D context.</summary>
     public void Touch() => _touches++;
@@ -57,6 +97,8 @@ internal sealed class CanvasElementState : ICanvasSurface
             return Sync();
         if (WebGlContext is not null || Surface() is not { } surface)
             return null;
+        _attemptedWebGl = false;
+        _fallback = null;
         return Context2D = new Canvas2DContext(surface, alpha, currentColor, _styles);
     }
 
@@ -78,6 +120,8 @@ internal sealed class CanvasElementState : ICanvasSurface
         _snapshot = null;
         _snapshotVersion = -1;
         Context2D?.Reattach(Surface() ?? NullRasterSurface.Instance);
+        if (WebGlContext is { Lost: false } && Element.OwnerDocument.WebGlAllowed)
+            ProbeGraphics();
     }
 
     public IImageHandle? Snapshot()

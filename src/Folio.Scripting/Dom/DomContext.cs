@@ -175,6 +175,7 @@ internal sealed class DomContext : IFetchContext
         WrapperCache = wrapperCache ?? new ScriptWrapperCache();
         Layout = layout;
         Capabilities = capabilities ?? FeatureCapabilities.Default;
+        Document.SetFeatureAvailability(Capabilities.WebGl, Capabilities.Media, Capabilities.Sound, Capabilities.Iframes);
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
@@ -299,6 +300,7 @@ internal sealed class DomContext : IFetchContext
         lock (_workersGate)
         {
             Capabilities = capabilities;
+            Document.SetFeatureAvailability(capabilities.WebGl, capabilities.Media, capabilities.Sound, capabilities.Iframes);
             workers = _workers.ToArray();
             foreach (var worker in workers) worker.PublishCapabilities(capabilities);
         }
@@ -327,7 +329,7 @@ internal sealed class DomContext : IFetchContext
                 try
                 {
                     if (Capabilities.WebGl && !ScriptFeaturesDisposed) context.Restore();
-                    else context.Lose();
+                    else { state.MarkHostDenied(); context.Lose(); }
                 }
                 catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
             }
@@ -376,10 +378,17 @@ internal sealed class DomContext : IFetchContext
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
+        if (ScriptFeaturesDisposed)
+        {
+            var retired = new MediaElementState(Engine, Templates.MediaEventTemplate, element, enabled: false, deferLoad: true);
+            retired.StopPlayback();
+            return retired;
+        }
         var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget,
             soundEnabled: Capabilities.Sound, checkSoundPermission: () => CheckCapability("Sound", Capabilities.Sound),
-            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media));
+            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media), deferLoad: true);
         _media[element] = state;
+        state.Initialize();
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
         return state;
     }

@@ -230,8 +230,21 @@ internal sealed class DomNodeTemplates
                 // The same object every time, so contexts compare equal.
                 return _context.WrapperCache.GetOrCreate(_context.Engine, Canvas.Context, canvas);
             }
-            if ((string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal)) && _context.CheckCapability("WebGL", _context.Capabilities.WebGl) && canvas.Context2D is null)
+            if (string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal))
+            {
+                if (canvas.Context2D is not null) return ScriptValue.Null;
+                canvas.AttemptWebGl();
+                if (!_context.CheckCapability("WebGL", _context.Capabilities.WebGl))
+                {
+                    canvas.MarkWebGlDenied();
+                    return ScriptValue.Null;
+                }
+                canvas.ProbeGraphics();
+                if (canvas.WebGlContext is { } existing)
+                    return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, existing);
+                canvas.ClearFallback();
                 return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes));
+            }
             return ScriptValue.Null;
         });
         t.DefineMethod("toDataURL", (target, _, args) =>
@@ -254,9 +267,25 @@ internal sealed class DomNodeTemplates
         return t;
     }
 
+    private void MediaAttributeChanged(ElementNode element, string name)
+    {
+        if (element.Name.Namespace != Namespaces.Html || element.LocalName is not ("audio" or "video")) return;
+        if (name.Equals("src", StringComparison.OrdinalIgnoreCase)) _context.GetMedia(element).Load();
+        else if (name.Equals("poster", StringComparison.OrdinalIgnoreCase)) _context.GetMedia(element).RefreshPoster();
+    }
+
+    private static string AttributeName(ElementNode element, string name) => element.Name.Namespace != Namespaces.Html ? name
+        : string.Create(name.Length, name, static (result, source) =>
+        {
+            for (var i = 0; i < source.Length; i++) result[i] = source[i] is >= 'A' and <= 'Z' ? (char)(source[i] + ('a' - 'A')) : source[i];
+        });
+
     private HostObjectTemplate CreateHtmlMediaElementTemplate(IHostObjectTemplate htmlElementProto, string interfaceName = "HTMLMediaElement")
     {
         var t = new HostObjectTemplate(interfaceName, htmlElementProto);
+        if (interfaceName == "HTMLVideoElement")
+            t.DefineProperty("poster", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("poster") ?? ""),
+                (target, _, value) => { var element = (ElementNode)target; element.SetAttribute("poster", WebIdlConversions.ToDOMString(value)); _context.GetMedia(element).RefreshPoster(); });
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
         t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
@@ -1297,7 +1326,7 @@ internal sealed class DomNodeTemplates
         {
             if (args.Length == 0)
                 throw WebIdlException.TypeError("getAttribute requires 1 argument.");
-            var name = WebIdlConversions.ToDOMString(args[0]);
+            var name = AttributeName((ElementNode)target, WebIdlConversions.ToDOMString(args[0]));
             var val = ((ElementNode)target).GetAttribute(name);
             return val is null ? ScriptValue.Null : ScriptValue.FromString(val);
         });
@@ -1306,12 +1335,13 @@ internal sealed class DomNodeTemplates
         {
             if (args.Length < 2)
                 throw WebIdlException.TypeError("setAttribute requires 2 arguments.");
-            var name = WebIdlConversions.ToDOMString(args[0]);
+            var name = AttributeName((ElementNode)target, WebIdlConversions.ToDOMString(args[0]));
             var val = WebIdlConversions.ToDOMString(args[1]);
             var element = (ElementNode)target;
             element.SetAttribute(name, val);
             if (element.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)))
                 _context.GetIframe(element).Invalidate();
+            MediaAttributeChanged(element, name);
             return ScriptValue.Undefined;
         });
 
@@ -1319,7 +1349,7 @@ internal sealed class DomNodeTemplates
         {
             if (args.Length == 0)
                 return ScriptValue.FromBoolean(false);
-            var name = WebIdlConversions.ToDOMString(args[0]);
+            var name = AttributeName((ElementNode)target, WebIdlConversions.ToDOMString(args[0]));
             return ScriptValue.FromBoolean(((ElementNode)target).GetAttribute(name) is not null);
         });
 
@@ -1327,12 +1357,13 @@ internal sealed class DomNodeTemplates
         {
             if (args.Length > 0)
             {
-                var name = WebIdlConversions.ToDOMString(args[0]);
+                var name = AttributeName((ElementNode)target, WebIdlConversions.ToDOMString(args[0]));
                 var element = (ElementNode)target;
                 var oldValue = element.GetAttribute(name);
                 element.RemoveAttribute(name);
                 if (element.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)) && oldValue is not null)
                     _context.GetIframe(element).Invalidate();
+                if (oldValue is not null) MediaAttributeChanged(element, name);
             }
             return ScriptValue.Undefined;
         });
@@ -1343,7 +1374,7 @@ internal sealed class DomNodeTemplates
                 throw WebIdlException.TypeError("Failed to execute 'toggleAttribute' on 'Element': 1 argument required.");
 
             var el = (ElementNode)target;
-            var name = WebIdlConversions.ToDOMString(args[0]);
+            var name = AttributeName((ElementNode)target, WebIdlConversions.ToDOMString(args[0]));
             var has = el.GetAttribute(name) is not null;
 
             bool shouldHave;
@@ -1364,6 +1395,7 @@ internal sealed class DomNodeTemplates
                 }
                 if (el.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)))
                     _context.GetIframe(el).Invalidate();
+                if (!has) MediaAttributeChanged(el, name);
                 return ScriptValue.FromBoolean(true);
             }
             else
@@ -1374,6 +1406,7 @@ internal sealed class DomNodeTemplates
                 }
                 if (el.LocalName == "iframe" && (string.Equals(name, "sandbox", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "src", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "srcdoc", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "allow", StringComparison.OrdinalIgnoreCase)))
                     _context.GetIframe(el).Invalidate();
+                if (has) MediaAttributeChanged(el, name);
                 return ScriptValue.FromBoolean(false);
             }
         });

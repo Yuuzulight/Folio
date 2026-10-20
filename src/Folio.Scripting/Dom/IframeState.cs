@@ -6,7 +6,7 @@ using Folio.Resources;
 
 namespace Folio.Scripting.Dom;
 
-internal sealed class IframeState : IFramePresentation
+internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
 {
     public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null, FolioOptions? parentOptions = null, Func<bool>? checkPermission = null)
     {
@@ -101,8 +101,13 @@ internal sealed class IframeState : IFramePresentation
     private readonly List<ScriptValue> _messageListeners = [];
     private string? _loadedSource;
     private bool _loadDispatched;
+    private long _loadGeneration;
+    private FeatureFallback? _fallback;
+    public FeatureFallback? Fallback => Closed ? new(FallbackFeature.Iframes, FallbackReason.Closed) :
+        !PermissionGranted ? new(FallbackFeature.Iframes, FallbackReason.HostDenied) : _fallback;
 
-    private string ResolveSource(string source) => BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
+    private string ResolveSource(string source) => string.IsNullOrWhiteSpace(source) ? "about:blank"
+        : BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
 
     public void PostMessage(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
     {
@@ -122,10 +127,12 @@ internal sealed class IframeState : IFramePresentation
 
     public void Close()
     {
+        _loadGeneration++;
         Closed = true;
-        RetireChild();
+        _fallback = new(FallbackFeature.Iframes, FallbackReason.Closed);
         OnMessage = ScriptValue.Null;
         _messageListeners.Clear();
+        RetireChild();
     }
 
     internal void UpdateCapabilities(FeatureCapabilities capabilities)
@@ -141,49 +148,63 @@ internal sealed class IframeState : IFramePresentation
 
     private void RetireChild()
     {
-        _childRunner?.Dispose();
+        var runner = _childRunner;
+        var engine = _childEngine;
+        var loop = _childLoop;
+        var document = ChildRenderDocument;
         _childRunner = null;
-        if (_childEngine is { } engine)
-        {
-            try { DomBindings.Dispose(engine); }
-            finally
-            {
-                _childLoop?.Dispose();
-                _childLoop = null;
-                engine.Dispose();
-                _childEngine = null;
-            }
-        }
+        _childEngine = null;
+        _childLoop = null;
         ChildDocument = null;
-        ChildRenderDocument?.Dispose();
         ChildRenderDocument = null;
         FrameDisplayList = null;
+        Exception? failure = null;
+        Action[] cleanup = [() => runner?.Dispose(), () => { if (engine is not null) DomBindings.Dispose(engine); },
+            () => loop?.Dispose(), () => engine?.Dispose(), () => document?.Dispose()];
+        foreach (var release in cleanup)
+            try { release(); } catch (Exception error) { failure ??= error; }
+        if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     public void Invalidate()
     {
-        RetireChild();
+        _loadGeneration++;
         OnMessage = ScriptValue.Null;
         _messageListeners.Clear();
         Closed = false;
         _loadedSource = null;
         _loadDispatched = false;
         UpdateOrigin();
+        _fallback = null;
+        RetireChild();
     }
 
     public void LoadInlineDocument(bool dispatchLoad = true)
     {
-        if (!PermissionGranted || Closed) return;
+        if (Closed) { _fallback = new(FallbackFeature.Iframes, FallbackReason.Closed); return; }
+        if (!PermissionGranted) { _fallback = new(FallbackFeature.Iframes, FallbackReason.HostDenied); return; }
         var inline = Element.GetAttribute("srcdoc");
         var source = ResolveSource(Element.GetAttribute("src") ?? string.Empty);
         var current = inline is not null ? "srcdoc:" + inline : "src:" + source;
+        if (_loadedSource == current && _fallback is not null && ChildDocument is null)
+            return;
         if (ChildDocument is not null && _loadedSource == current)
         {
             if (dispatchLoad && !_loadDispatched)
                 DispatchLoad();
             return;
         }
+        var generation = ++_loadGeneration;
+        bool IsCurrent() => generation == _loadGeneration && !Closed && PermissionGranted &&
+            (Element.GetAttribute("srcdoc") is { } latestInline ? "srcdoc:" + latestInline : "src:" + ResolveSource(Element.GetAttribute("src") ?? "")) == current;
+        void Fail(FallbackReason reason)
+        {
+            if (!IsCurrent()) return;
+            _fallback = new(FallbackFeature.Iframes, reason);
+            DispatchError();
+        }
         RetireChild();
+        if (!IsCurrent()) return;
         _loadedSource = current;
         _loadDispatched = false;
         UpdateOrigin();
@@ -192,10 +213,15 @@ internal sealed class IframeState : IFramePresentation
         {
             html = inline;
         }
+        else if (string.IsNullOrWhiteSpace(source) || source.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+        {
+            // An iframe with no src is an inherited, valid empty document.
+            html = "";
+        }
         else if (source.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
         {
             var comma = source.IndexOf(',');
-            if (comma < 0) { DispatchError(); return; }
+            if (comma < 0) { Fail(FallbackReason.SourceRefused); return; }
             var payload = source[(comma + 1)..];
             try
             {
@@ -203,15 +229,19 @@ internal sealed class IframeState : IFramePresentation
                     ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload))
                     : Uri.UnescapeDataString(payload);
             }
-            catch (FormatException) { DispatchError(); return; }
+            catch (FormatException) { Fail(FallbackReason.SourceRefused); return; }
         }
         else
         {
-            if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) { DispatchError(); return; }
+            if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) { Fail(FallbackReason.SourceRefused); return; }
             try { NavigationRequested?.Invoke(uri); } catch { }
-            if (ResourceLoader is null) { DispatchError(); return; }
-            var response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document), CancellationToken.None).GetAwaiter().GetResult();
-            if (response?.Data is not { } data) { DispatchError(); return; }
+            if (!IsCurrent()) return;
+            if (ResourceLoader is null) { Fail(FallbackReason.SourceUnavailable); return; }
+            ResourceResponse? response;
+            try { response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document), CancellationToken.None).GetAwaiter().GetResult(); }
+            catch { Fail(FallbackReason.SourceUnavailable); return; }
+            if (!IsCurrent()) return;
+            if (response?.Data is not { } data) { Fail(FallbackReason.SourceUnavailable); return; }
             html = System.Text.Encoding.UTF8.GetString(data);
         }
         var parent = ParentOptions;
@@ -240,27 +270,60 @@ internal sealed class IframeState : IFramePresentation
             WebRtcAllowedOrigins = parent.WebRtcAllowedOrigins,
             CollectDiagnostics = parent.CollectDiagnostics,
         };
-        ChildRenderDocument = Document.Parse(html, options);
+        Document childDocument;
+        try { childDocument = Document.Parse(html, options); }
+        catch { Fail(FallbackReason.DecodeFailed); return; }
+        if (!IsCurrent()) { childDocument.Dispose(); return; }
+        ChildRenderDocument = childDocument;
         ChildDocument = ChildRenderDocument.Node;
-        if (options.Scripting != ScriptingPolicy.Disabled && Engine is IScriptEngineFactory factory)
+        IScriptEngine? childEngine = null;
+        HtmlEventLoop? childLoop = null;
+        ScriptRunner? childRunner = null;
+        var committed = false;
+        var failed = false;
+        try
         {
-            try
+            if (options.Scripting != ScriptingPolicy.Disabled && Engine is IScriptEngineFactory factory)
             {
-                _childEngine = factory.CreateIsolated();
-                _childEngine.Configure(ScriptLimits.Default);
-                _childLoop = new HtmlEventLoop(_childEngine);
-                ScriptGlobalsInstaller.Install(_childLoop, _childEngine);
-                DomBindings.Install(_childEngine, ChildRenderDocument, eventLoop: _childLoop);
-                _childRunner = new ScriptRunner(ChildRenderDocument, _childEngine, _childLoop, options);
-                _childRunner.Run();
+                childEngine = factory.CreateIsolated();
+                if (!IsCurrent()) return;
+                _childEngine = childEngine;
+                childEngine.Configure(ScriptLimits.Default);
+                if (!IsCurrent()) return;
+                childLoop = new HtmlEventLoop(childEngine);
+                _childLoop = childLoop;
+                ScriptGlobalsInstaller.Install(childLoop, childEngine);
+                DomBindings.Install(childEngine, childDocument, eventLoop: childLoop);
+                if (!IsCurrent()) return;
+                childRunner = new ScriptRunner(childDocument, childEngine, childLoop, options);
+                _childRunner = childRunner;
+                childRunner.Run();
             }
-            catch
+            committed = IsCurrent();
+        }
+        catch { failed = IsCurrent(); }
+        finally
+        {
+            if (!committed)
             {
-                RetireChild();
-                DispatchError();
-                return;
+                // Reentrant navigation may already own newer fields. Retire only this startup's resources.
+                if (ReferenceEquals(_childEngine, childEngine)) _childEngine = null;
+                if (ReferenceEquals(_childLoop, childLoop)) _childLoop = null;
+                if (ReferenceEquals(_childRunner, childRunner)) _childRunner = null;
+                if (ReferenceEquals(ChildRenderDocument, childDocument))
+                {
+                    ChildRenderDocument = null;
+                    ChildDocument = null;
+                    FrameDisplayList = null;
+                }
+                Action[] cleanup = [() => childRunner?.Dispose(), () => { if (childEngine is not null) DomBindings.Dispose(childEngine); },
+                    () => childLoop?.Dispose(), () => childEngine?.Dispose(), childDocument.Dispose];
+                foreach (var release in cleanup)
+                    try { release(); } catch { }
             }
         }
+        if (!committed) { if (failed) Fail(FallbackReason.DecodeFailed); return; }
+        _fallback = null;
         if (dispatchLoad)
             DispatchLoad();
     }

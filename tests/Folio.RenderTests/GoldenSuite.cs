@@ -80,10 +80,10 @@ public sealed class GoldenSuite(string root, string output)
 
     /// <summary>
     /// Copies the actual images of a test (<c>area/name</c>) or a whole area over their goldens and clears
-    /// that output. Only pages that exist under the golden root are approved.
+    /// that output. Only pages that exist under the golden root or explicitly registered programmatic fixtures are approved.
     /// </summary>
     /// <returns>The approved test names.</returns>
-    public IReadOnlyList<string> Approve(string target)
+    public IReadOnlyList<string> Approve(string target, IReadOnlySet<string>? programmaticTests = null)
     {
         target = target.Replace('\\', '/').Trim('/');
         var single = Path.Combine(output, target + ".actual.png");
@@ -96,7 +96,7 @@ public sealed class GoldenSuite(string root, string output)
         foreach (var actual in actuals.Order())
         {
             var test = Path.GetRelativePath(output, actual)[..^".actual.png".Length].Replace('\\', '/');
-            if (!File.Exists(Path.Combine(root, test + ".html")))
+            if (!File.Exists(Path.Combine(root, test + ".html")) && programmaticTests?.Contains(test) != true)
                 continue;
 
             File.Copy(actual, Path.Combine(root, test + ".png"), overwrite: true);
