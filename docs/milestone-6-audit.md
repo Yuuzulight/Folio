@@ -102,9 +102,11 @@ Original acceptance:
 
 ### #526 — Tests: sandbox, memory-cap and watchdog suites with each capability on
 
-**Incomplete.** Evidence: `CapabilityMatrixTests.cs; .github/workflows/ci.yml`.
+**Base acceptance verified locally.** Evidence: `WindowsContentLauncher.cs; WindowsJobObject.cs; WindowsSandboxTests.cs; ContentProcessWatchdogTests.cs; PreHandleContentLifecycleTests.cs; ContentProcessOwnershipTests.cs; ContentProcessClientCleanupTests.cs; .github/workflows/ci.yml`. Issue closure is gated on successful CI for the exact pushed commit.
 
-Rows exist, but base matrix assertions instantiate supervisors with tiny limits. They do not launch the sandbox and exercise network/filesystem/process denial per capability. The conformance harness now fails unexpected interaction assertion failures and stale expected-failure marks; real child-command regressions prove exit status, expected-failure handling and private-corpus isolation. This repairs failure accounting, not the missing per-feature sandbox suite.
+All twelve Windows rows passed locally: denied, each of the ten independent grants and all granted. Every row boots the actual shared content runtime inside an AppContainer and checks the native token and job configuration, host-file read/write denial, blocked sockets against a known reachable listener, child-process denial, hard memory termination, watchdog termination with a retained frame and rejection of a forged frame path. Each row also runs actual ContentHost/WinForms checks for applied capabilities, retained pixels and a visible stopped notice, pre-handle delivery, process replacement and static-mode retirement. A separate real-process regression proves cleanup despite a faulting host callback. Three restarting reviews completed after the final source correction with unchanged hashes. See [the sandbox contract](content-process-sandbox.md).
+
+The original issue explicitly allows the base suite until a feature's closing issue adds its extra cases. Native GPU/shader, real media/capture/transport, native WebAssembly and isolated service-worker acceptance remain in those open issues. Sound output through process IPC is not implemented or claimed by this matrix. The non-Windows launch path does not yet provide equivalent OS containment.
 
 Original acceptance:
 

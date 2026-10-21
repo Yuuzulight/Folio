@@ -1,6 +1,6 @@
 namespace Folio.Scripting.Ipc;
 
-public sealed record ContentProcessLimits(long MemoryBytes = 256L * 1024 * 1024, TimeSpan? HeartbeatTimeout = null)
+public sealed record ContentProcessLimits(long MemoryBytes = 256L * 1024 * 1024, TimeSpan? HeartbeatTimeout = null, int CpuRatePercent = 25)
 {
     public TimeSpan EffectiveHeartbeatTimeout => HeartbeatTimeout ?? TimeSpan.FromSeconds(5);
 }

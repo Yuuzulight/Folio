@@ -9,12 +9,14 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Folio.ContentHost/Folio.ContentHost.csproj" />
+    <Project Path="tools/Folio.SandboxProbe/Folio.SandboxProbe.csproj" />
     <Project Path="tools/Folio.Gen/Folio.Gen.csproj" />
     <Project Path="tools/Folio.RefCapture/Folio.RefCapture.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Folio.Tests/Folio.Tests.csproj" />
     <Project Path="tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj" />
+    <Project Path="tests/Folio.WinForms.Tests/Folio.WinForms.Tests.csproj" />
     <Project Path="tests/Folio.RenderTests/Folio.RenderTests.csproj" />
     <Project Path="tests/Folio.Fuzz/Folio.Fuzz.csproj" />
     <Project Path="tests/Folio.Benchmarks/Folio.Benchmarks.csproj" />

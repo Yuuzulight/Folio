@@ -10,6 +10,27 @@ namespace Folio.Scripting.Tests;
 
 public sealed class CapabilityMatrixTests
 {
+    internal static FeatureCapabilities CapabilitiesFor(string row) => row switch
+    {
+        "webgl" => new FeatureCapabilities { WebGl = true },
+        "media" => new FeatureCapabilities { Media = true },
+        "sound" => new FeatureCapabilities { Sound = true },
+        "camera" => new FeatureCapabilities { Camera = true },
+        "microphone" => new FeatureCapabilities { Microphone = true },
+        "workers" => new FeatureCapabilities { Workers = true },
+        "webassembly" => new FeatureCapabilities { WebAssembly = true },
+        "iframes" => new FeatureCapabilities { Iframes = true },
+        "webrtc" => new FeatureCapabilities { WebRtc = true },
+        "service-workers" => new FeatureCapabilities { ServiceWorkers = true },
+        "all" => new FeatureCapabilities
+        {
+            WebGl = true, Media = true, Sound = true, Camera = true, Microphone = true,
+            Workers = true, WebAssembly = true, Iframes = true, WebRtc = true, ServiceWorkers = true
+        },
+        "none" => FeatureCapabilities.Default,
+        _ => throw new InvalidOperationException($"Unknown capability matrix row '{row}'.")
+    };
+
     private sealed class ServiceWorkerLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -22,36 +43,20 @@ public sealed class CapabilityMatrixTests
     public void CapabilityRowEnablesOnlyTheRequestedFeatureAndKeepsLimitsActive()
     {
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
-        var capabilities = row switch
-        {
-            "webgl" => new FeatureCapabilities { WebGl = true },
-            "media" => new FeatureCapabilities { Media = true },
-            "workers" => new FeatureCapabilities { Workers = true },
-            "webassembly" => new FeatureCapabilities { WebAssembly = true },
-            "iframes" => new FeatureCapabilities { Iframes = true },
-            "webrtc" => new FeatureCapabilities { WebRtc = true },
-            "service-workers" => new FeatureCapabilities { ServiceWorkers = true },
-            "all" => new FeatureCapabilities
-            {
-                WebGl = true, Media = true, Workers = true, WebAssembly = true,
-                Iframes = true, WebRtc = true, ServiceWorkers = true
-            },
-            "none" => FeatureCapabilities.Default,
-            _ => throw new InvalidOperationException($"Unknown capability matrix row '{row}'.")
-        };
+        var capabilities = CapabilitiesFor(row);
 
         Assert.Equal(row, Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none");
         Assert.False(new ContentProcessSupervisor(new ContentProcessLimits(MemoryBytes: 1)).CheckMemory(2));
         Assert.False(new ContentProcessSupervisor(new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromMilliseconds(-1))).CheckHeartbeat());
+        var enabled = new[] { capabilities.WebGl, capabilities.Media, capabilities.Sound, capabilities.Camera,
+            capabilities.Microphone, capabilities.Workers, capabilities.WebAssembly, capabilities.Iframes,
+            capabilities.WebRtc, capabilities.ServiceWorkers };
         if (row == "all")
-            Assert.True(capabilities.WebGl && capabilities.Media && capabilities.Workers && capabilities.WebAssembly
-                && capabilities.Iframes && capabilities.WebRtc && capabilities.ServiceWorkers);
+            Assert.All(enabled, Assert.True);
         else if (row != "none")
-            Assert.Equal(1, new[] { capabilities.WebGl, capabilities.Media, capabilities.Workers, capabilities.WebAssembly,
-                capabilities.Iframes, capabilities.WebRtc, capabilities.ServiceWorkers }.Count(value => value));
+            Assert.Equal(1, enabled.Count(value => value));
         else
-            Assert.Equal(0, new[] { capabilities.WebGl, capabilities.Media, capabilities.Workers, capabilities.WebAssembly,
-                capabilities.Iframes, capabilities.WebRtc, capabilities.ServiceWorkers }.Count(value => value));
+            Assert.Equal(0, enabled.Count(value => value));
     }
 
     [Fact]
@@ -97,11 +102,6 @@ public sealed class CapabilityMatrixTests
         Assert.ThrowsAny<Exception>(() => engine.Evaluate("document.getElementById('two').contentWindow"));
 
         static FeatureCapabilities capabilitiesFor(string capabilityRow) => capabilityRow == "all"
-            ? new FeatureCapabilities
-            {
-                WebGl = true, Media = true, Workers = true, WebAssembly = true,
-                Iframes = true, WebRtc = true, ServiceWorkers = true
-            }
-            : new FeatureCapabilities { Iframes = true };
+            ? CapabilitiesFor("all") : new FeatureCapabilities { Iframes = true };
     }
 }

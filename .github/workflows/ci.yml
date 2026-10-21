@@ -123,7 +123,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        capability: [none, webgl, media, workers, webassembly, iframes, webrtc, service-workers, all]
+        capability: [none, webgl, media, sound, camera, microphone, workers, webassembly, iframes, webrtc, service-workers, all]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -134,4 +134,8 @@ jobs:
       - name: Run sandbox and limits suite (${{ matrix.capability }})
         env:
           FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
-        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class CapabilityMatrixTests
+        run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*CapabilityMatrixTests' -class '*WindowsSandboxTests'
+      - name: Verify frame retention, stopped notice and view lifecycle (${{ matrix.capability }})
+        env:
+          FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
+        run: dotnet tests/Folio.WinForms.Tests/bin/Release/net10.0-windows/Folio.WinForms.Tests.dll

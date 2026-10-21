@@ -66,10 +66,14 @@ public class FolioView : Control
     };
     private FolioViewAccessibleObject? _accessibleObject;
     private ContentProcessClient? _contentProcess;
+    private Func<ContentMessage, CancellationToken, ValueTask>? _contentMessageHandler;
     private CanvasFrameStore? _contentFrameStore;
     private Bitmap? _contentBitmap;
     private string? _contentFramePath;
     private string? _scriptStoppedReason;
+    private (ContentProcessClient Client, long Generation, int Width, int Height, int Stride)? _pendingContentFrame;
+    private (object? Sender, long Generation, string Reason)? _pendingScriptStopped;
+    private (ContentProcessClient Client, long Generation, bool Active)? _pendingMediaActivity;
     private FeatureCapabilities _capabilities = FeatureCapabilities.Default;
     private readonly object _contentStateGate = new();
     private ContentCommandQueue _contentCommands = new();
@@ -181,20 +185,67 @@ public class FolioView : Control
     public void AttachContentProcess(ContentProcessClient client)
     {
         ArgumentNullException.ThrowIfNull(client);
-        if (_contentProcess is not null)
-        {
-            _contentProcess.ScriptStopped -= OnScriptStopped;
-            _contentProcess.MessageReceived -= OnContentMessage;
-        }
+        lock (_contentStateGate)
+            if (ReferenceEquals(_contentProcess, client))
+                return;
+        var previous = RetireAttachedContentProcess(clearFrame: false);
+        if (previous is not null && !ReferenceEquals(previous, client))
+            DisposeRetiredContentProcess(previous);
         lock (_contentStateGate)
         {
             _contentProcess = client;
             _contentGeneration++;
             _contentCommands = new();
+            _pendingContentFrame = null;
+            _pendingScriptStopped = null;
+            _pendingMediaActivity = null;
         }
         _contentProcess.ScriptStopped += OnScriptStopped;
-        _contentProcess.MessageReceived += OnContentMessage;
+        var generation = _contentGeneration;
+        _contentMessageHandler = (message, token) => OnContentMessage(client, generation, message, token);
+        _contentProcess.MessageReceived += _contentMessageHandler;
         _scriptStoppedReason = null;
+    }
+
+    private ContentProcessClient? RetireAttachedContentProcess(bool clearFrame)
+    {
+        ContentProcessClient? previous;
+        if (_contentProcess is { } attached)
+        {
+            attached.ScriptStopped -= OnScriptStopped;
+            if (_contentMessageHandler is { } previousHandler)
+                attached.MessageReceived -= previousHandler;
+        }
+        lock (_contentStateGate)
+        {
+            previous = _contentProcess;
+            _contentProcess = null;
+            _contentMessageHandler = null;
+            _contentGeneration++;
+            _contentCommands = new();
+            _pendingContentFrame = null;
+            _pendingScriptStopped = null;
+            _pendingMediaActivity = null;
+            if (clearFrame)
+            {
+                _contentBitmap?.Dispose();
+                _contentBitmap = null;
+                _scriptStoppedReason = null;
+            }
+            _contentFrameStore?.Dispose();
+            _contentFrameStore = null;
+            _contentFramePath = null;
+        }
+        return previous;
+    }
+
+    private static void DisposeRetiredContentProcess(ContentProcessClient process) =>
+        process.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        FlushPendingContent();
     }
 
     /// <summary>Changes capabilities on the live content artifact without reloading it.</summary>
@@ -224,44 +275,79 @@ public class FolioView : Control
         }
     }
 
-    private ValueTask OnContentMessage(ContentMessage message, CancellationToken cancellationToken)
+    private bool IsCurrentContentProcess(ContentProcessClient client, long generation)
     {
+        lock (_contentStateGate)
+            return ReferenceEquals(client, _contentProcess) && generation == _contentGeneration;
+    }
+
+    private ValueTask OnContentMessage(ContentProcessClient client, long generation, ContentMessage message, CancellationToken cancellationToken)
+    {
+        if (!IsCurrentContentProcess(client, generation)) return ValueTask.CompletedTask;
         if (message.Kind == ContentMessageKind.MediaCaptureActivity
             && message.Payload.TryGetProperty("active", out var activeValue)
             && activeValue.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
         {
             var active = activeValue.GetBoolean();
-            void ApplyActivity()
+            lock (_contentStateGate)
             {
-                _mediaCaptureIndicator.Visible = active;
-                _mediaCaptureIndicator.BringToFront();
-                MediaCaptureActivityChanged?.Invoke(active);
-                Options.MediaCaptureActivityChanged?.Invoke(active);
+                if (!IsCurrentContentProcess(client, generation)) return ValueTask.CompletedTask;
+                _pendingMediaActivity = (client, generation, active);
+                if (!IsHandleCreated) return ValueTask.CompletedTask;
             }
-            try
-            {
-                if (!IsDisposed && IsHandleCreated) BeginInvoke((Action)ApplyActivity);
-            }
-            catch (InvalidOperationException) { }
+            PostPendingContent();
             return ValueTask.CompletedTask;
         }
         if (message.Kind != ContentMessageKind.Frame || !message.Payload.TryGetProperty("canvasFrame", out var frame))
             return ValueTask.CompletedTask;
         var path = frame.TryGetProperty("path", out var pathValue) ? pathValue.GetString() : null;
-        if (string.IsNullOrWhiteSpace(path)
+        if (!string.Equals(path, client.FramePath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
             || !frame.TryGetProperty("width", out var widthValue) || !widthValue.TryGetInt32(out var width)
             || !frame.TryGetProperty("height", out var heightValue) || !heightValue.TryGetInt32(out var height)
             || !frame.TryGetProperty("stride", out var strideValue) || !strideValue.TryGetInt32(out var stride))
             return ValueTask.CompletedTask;
 
-        void Apply() => ApplyContentFrame(path!, width, height, stride);
-        try
+        lock (_contentStateGate)
         {
-            if (!IsDisposed && IsHandleCreated)
-                BeginInvoke((Action)Apply);
+            if (!IsCurrentContentProcess(client, generation)) return ValueTask.CompletedTask;
+            _pendingContentFrame = (client, generation, width, height, stride);
+            if (!IsHandleCreated) return ValueTask.CompletedTask;
         }
-        catch (InvalidOperationException) { }
+        PostPendingContent();
         return ValueTask.CompletedTask;
+    }
+
+    private void PostPendingContent()
+    {
+        try { if (!IsDisposed && IsHandleCreated) BeginInvoke((Action)FlushPendingContent); }
+        catch (InvalidOperationException) { }
+    }
+
+    private void FlushPendingContent()
+    {
+        (ContentProcessClient Client, long Generation, int Width, int Height, int Stride)? frame;
+        (object? Sender, long Generation, string Reason)? stopped;
+        (ContentProcessClient Client, long Generation, bool Active)? activity;
+        lock (_contentStateGate)
+        {
+            frame = _pendingContentFrame;
+            stopped = _pendingScriptStopped;
+            activity = _pendingMediaActivity;
+            _pendingContentFrame = null;
+            _pendingScriptStopped = null;
+            _pendingMediaActivity = null;
+        }
+        if (frame is { } pendingFrame && IsCurrentContentProcess(pendingFrame.Client, pendingFrame.Generation))
+            ApplyContentFrame(pendingFrame.Client.FramePath, pendingFrame.Width, pendingFrame.Height, pendingFrame.Stride);
+        if (stopped is { } pendingStopped)
+            ApplyScriptStopped(pendingStopped.Sender, pendingStopped.Generation, pendingStopped.Reason);
+        if (activity is { } pendingActivity && IsCurrentContentProcess(pendingActivity.Client, pendingActivity.Generation))
+        {
+            _mediaCaptureIndicator.Visible = pendingActivity.Active;
+            _mediaCaptureIndicator.BringToFront();
+            MediaCaptureActivityChanged?.Invoke(pendingActivity.Active);
+            Options.MediaCaptureActivityChanged?.Invoke(pendingActivity.Active);
+        }
     }
 
     private void QueueContentLoad(ContentProcessClient process, object payload)
@@ -340,9 +426,32 @@ public class FolioView : Control
 
     private void OnScriptStopped(object? sender, ContentProcessStoppedEventArgs e)
     {
-        _scriptStoppedReason = e.Reason;
-        ScriptStopped?.Invoke(this, new ScriptStoppedEventArgs(e.Reason));
-        if (!IsDisposed) Invalidate();
+        var generation = _contentGeneration;
+        lock (_contentStateGate)
+        {
+            if (generation != _contentGeneration || sender is ContentProcessClient current && !ReferenceEquals(current, _contentProcess)) return;
+            _pendingScriptStopped = (sender, generation, e.Reason);
+            if (!IsHandleCreated) return;
+        }
+        PostPendingContent();
+    }
+
+    private void ApplyScriptStopped(object? sender, long generation, string reason)
+    {
+        void Apply()
+        {
+            if (IsDisposed || generation != _contentGeneration ||
+                sender is ContentProcessClient client && !ReferenceEquals(client, _contentProcess)) return;
+            _scriptStoppedReason = reason;
+            ScriptStopped?.Invoke(this, new ScriptStoppedEventArgs(reason));
+            Invalidate();
+        }
+        try
+        {
+            if (IsHandleCreated && InvokeRequired) BeginInvoke((Action)Apply);
+            else Apply();
+        }
+        catch (InvalidOperationException) { }
     }
 
     public void LoadHtml(string html, Uri? baseUri = null)
@@ -394,13 +503,14 @@ public class FolioView : Control
             _contentFrameStore?.Dispose();
             _contentFrameStore = null;
             _contentFramePath = null;
-            if (_contentProcess is not null)
-                _ = _contentProcess.DisposeAsync();
+            var previous = RetireAttachedContentProcess(clearFrame: true);
+            if (previous is not null)
+                DisposeRetiredContentProcess(previous);
             try
             {
                 AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits));
                 var process = _contentProcess!;
-                _contentFramePath = Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}-{Guid.NewGuid():N}.bin");
+                _contentFramePath = process.FramePath;
                 QueueContentLoad(process, new
                 {
                     html,
@@ -415,6 +525,12 @@ public class FolioView : Control
             {
                 OnScriptStopped(this, new ContentProcessStoppedEventArgs($"unable to start content process: {exception.Message}"));
             }
+        }
+        else
+        {
+            var previous = RetireAttachedContentProcess(clearFrame: true);
+            if (previous is not null)
+                DisposeRetiredContentProcess(previous);
         }
         _laidOutWidth = -1;
         _scrollBar.Value = 0;
@@ -543,11 +659,15 @@ public class FolioView : Control
         if (_contentBitmap is not null)
         {
             e.Graphics.DrawImageUnscaled(_contentBitmap, 0, 0);
+            PaintScriptStoppedNotice(e.Graphics);
             Rendered?.Invoke(this, EventArgs.Empty);
             return;
         }
         if (_document is null)
+        {
+            PaintScriptStoppedNotice(e.Graphics);
             return;
+        }
         try
         {
             if (IsShown)
@@ -567,19 +687,24 @@ public class FolioView : Control
             }
             using var image = new Bitmap(width, height, bitmap.RowBytes, PixelFormat.Format32bppPArgb, bitmap.GetPixels());
             e.Graphics.DrawImageUnscaled(image, 0, 0);
-            if (_scriptStoppedReason is { } reason)
-            {
-                using var brush = new SolidBrush(Color.FromArgb(235, Color.White));
-                e.Graphics.FillRectangle(brush, 12, 12, Math.Min(width - 24, 520), 44);
-                using var textBrush = new SolidBrush(Color.DarkRed);
-                e.Graphics.DrawString($"Script stopped: {reason}", Font, textBrush, 20, 25);
-            }
+            PaintScriptStoppedNotice(e.Graphics);
             Rendered?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             RenderFailed?.Invoke(this, new RenderFailedEventArgs(ex));
         }
+    }
+
+    private void PaintScriptStoppedNotice(Graphics graphics)
+    {
+        if (_scriptStoppedReason is not { } reason || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        var left = Math.Min(12, ClientSize.Width - 1);
+        var top = Math.Min(12, ClientSize.Height - 1);
+        using var brush = new SolidBrush(Color.FromArgb(235, Color.White));
+        graphics.FillRectangle(brush, left, top, Math.Min(ClientSize.Width - left, 520), Math.Min(ClientSize.Height - top, 44));
+        using var textBrush = new SolidBrush(Color.DarkRed);
+        graphics.DrawString($"Script stopped: {reason}", Font, textBrush, left + 8, top + 13);
     }
 
     protected override void OnResize(EventArgs e)
@@ -860,24 +985,24 @@ public class FolioView : Control
     {
         if (disposing)
         {
-            _frames.Dispose();
-            _toolTip.Dispose();
-            _document?.Dispose();
-            _contentBitmap?.Dispose();
-            _contentFrameStore?.Dispose();
             ContentProcessClient? process;
-            lock (_contentStateGate)
+            try
             {
-                process = _contentProcess;
-                _contentProcess = null;
-                _contentGeneration++;
+                process = RetireAttachedContentProcess(clearFrame: true);
+                if (process is not null)
+                    DisposeRetiredContentProcess(process);
             }
-            process?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            if (_contentFramePath is { } framePath)
+            finally
             {
-                try { File.Delete(framePath); } catch { }
-                _contentFramePath = null;
+                try
+                {
+                    _frames.Dispose();
+                    _toolTip.Dispose();
+                    _document?.Dispose();
+                }
+                finally { base.Dispose(disposing); }
             }
+            return;
         }
         base.Dispose(disposing);
     }
