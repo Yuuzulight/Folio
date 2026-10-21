@@ -4,6 +4,7 @@ using Folio.Html;
 using Folio.Resources;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
+using Folio.Scripting.Gpu;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Jint;
 using Folio.Skia;
@@ -33,6 +34,35 @@ public sealed class ContentDocumentRuntime : IDisposable
     public FeatureCapabilities Capabilities { get; private set; } = FeatureCapabilities.Default;
     public Document? Document => _document;
     public JintScriptEngine? Engine => _engine;
+
+    /// <summary>Trusted host probe: clears a document canvas through the native GPU bridge and republishes the normal page frame.</summary>
+    public ContentGpuProbeResult ClearNativeCanvas(string canvasId, float red, float green, float blue, float alpha)
+    {
+        if (_engine is null || _document is null)
+            return new(false, "No document is loaded.", null, null, null, null, null, null, null, null, null, null);
+        var canvas = _document.Node.Descendants.OfType<ElementNode>()
+            .FirstOrDefault(element => element.LocalName.Equals("canvas", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(element.GetAttribute("id"), canvasId, StringComparison.Ordinal));
+        if (canvas is null)
+            return new(false, $"Canvas '{canvasId}' was not found.", null, null, null, null, null, null, null, null, null, null);
+        var succeeded = DomBindings.TryClearNativeCanvas(_engine, canvas, red, green, blue, alpha, out var failure);
+        PublishCurrentFrame();
+        var memory = WindowsGpuMemory.Sample();
+        var metricsAvailable = DomBindings.TryGetGpuMetrics(_engine, out var reserved, out var peak, out var renderer);
+        var fallback = canvas.CanvasSurface as IFeatureFallbackSource;
+        var fallbackFeature = fallback?.Fallback?.Feature.ToString();
+        var fallbackReason = fallback?.Fallback?.Reason.ToString();
+        return new(succeeded, failure?.Message, failure?.Kind.ToString(), metricsAvailable ? renderer : null,
+            metricsAvailable ? reserved : null, metricsAvailable ? peak : null,
+            memory?.LocalBytes, memory?.NonLocalBytes, memory?.Adapters, memory?.Source, fallbackFeature, fallbackReason);
+    }
+
+    public void PublishCurrentFrame()
+    {
+        if (_document is null) return;
+        using var rendered = HeadlessRenderer.Render(_document, new RenderRequest(1280, 720));
+        _frameStore.Publish(rendered.Pixels);
+    }
 
     public bool ApplyCapabilities(ContentMessage message)
     {
@@ -73,6 +103,13 @@ public sealed class ContentDocumentRuntime : IDisposable
             _eventLoop = new HtmlEventLoop(_engine);
             _taskDiagnostics.Clear();
             _eventLoop.UncaughtException += error => _taskDiagnostics.Add(error.GetType().Name + ": " + error.Message);
+            if (message.Payload.TryGetProperty("missingNativeLibrary", out var missingNative)
+                && missingNative.ValueKind == JsonValueKind.True)
+            {
+                var missingPath = Path.Combine(Path.GetTempPath(), $"folio-angle-missing-{Guid.NewGuid():N}.dll");
+                DomBindings.ConfigureGpuFactory(_engine,
+                    maxBytes => AngleGpuBackend.TryCreate(missingPath, maxBytes, GpuRendererPreference.HardwareThenWarp));
+            }
             DomBindings.Install(_engine, _document, eventLoop: _eventLoop);
             ScriptGlobalsInstaller.Install(_eventLoop, _engine);
             _runner = new ScriptRunner(_document, _engine, _eventLoop, options);
@@ -86,8 +123,7 @@ public sealed class ContentDocumentRuntime : IDisposable
         var canvasCommands = _document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0;
         if (_document is not null && canvasCommands > 0)
         {
-            using var rendered = HeadlessRenderer.Render(_document, new RenderRequest(1280, 720));
-            _frameStore.Publish(rendered.Pixels);
+            PublishCurrentFrame();
         }
         return Task.FromResult(new ContentDocumentResult(result.ToString(), frame?.Items.Count ?? 0, canvasCommands,
             _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray()));
@@ -114,3 +150,17 @@ public sealed class ContentDocumentRuntime : IDisposable
 }
 
 public sealed record ContentDocumentResult(string Value, int DisplayItems, int CanvasCommands, string[] Diagnostics);
+
+public sealed record ContentGpuProbeResult(
+    bool Succeeded,
+    string? FailureMessage,
+    string? FailureKind,
+    string? RendererIdentity,
+    long? ReservedBytes,
+    long? PeakReservedBytes,
+    long? NativeLocalBytes,
+    long? NativeNonLocalBytes,
+    int? NativeAdapterCount,
+    string? NativeMemorySource,
+    string? FallbackFeature,
+    string? FallbackReason);

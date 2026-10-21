@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Folio.Dom;
 using Folio.Resources;
+using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
 
@@ -26,6 +27,10 @@ internal sealed class DomContext : IFetchContext
     internal CaptureBindingState? CaptureState { get; set; }
     internal WebRtcBindingState? WebRtcState { get; set; }
     internal ServiceWorkerCapabilityAuthority? ServiceWorkerState { get; set; }
+    private GpuDocumentBridge? _gpu;
+    private GpuFailure? _gpuCreationFailure;
+    private readonly Func<long, GpuDeviceResult>? _gpuFactory;
+    internal GpuDocumentBridge? Gpu => _gpu;
     internal void LoseCanvasContexts()
     {
         foreach (var canvas in _canvases.Values.ToArray())
@@ -168,7 +173,7 @@ internal sealed class DomContext : IFetchContext
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
         FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null)
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null, Func<long, GpuDeviceResult>? gpuFactory = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -177,6 +182,7 @@ internal sealed class DomContext : IFetchContext
         Capabilities = capabilities ?? FeatureCapabilities.Default;
         Document.SetFeatureAvailability(Capabilities.WebGl, Capabilities.Media, Capabilities.Sound, Capabilities.Iframes);
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
+        _gpuFactory = gpuFactory;
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
         _mediaBudget = new MediaResourceBudget(MaxMediaBytes, MaxMediaDecoders);
@@ -260,6 +266,7 @@ internal sealed class DomContext : IFetchContext
         foreach (var media in _media.Values) media.StopPlayback();
         _media.Clear();
     }
+    internal void DisposeGpu() { _gpu?.Dispose(); _gpu = null; _gpuCreationFailure = null; }
 
     public void DisposeIframes()
     {
@@ -321,6 +328,7 @@ internal sealed class DomContext : IFetchContext
             foreach (var media in _media.Values) media.SetCapability(capabilities.Media);
         foreach (var media in _media.Values) media.SetSoundCapability(capabilities.Sound);
         if (wasWebGlEnabled == capabilities.WebGl) return;
+        if (wasWebGlEnabled && !capabilities.WebGl) DisposeGpu();
         foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
         {
             if (canvas.CanvasSurface is not CanvasElementState state) continue;
@@ -348,6 +356,35 @@ internal sealed class DomContext : IFetchContext
 
     public CanvasElementState GetCanvas(ElementNode element) =>
         _canvases.TryGetValue(element, out var state) ? state : (_canvases[element] = new CanvasElementState(element, RasterBackend, _canvasStyles?.Invoke()));
+
+    /// <summary>Internal host validation hook: clears a real native offscreen surface and publishes its readback through the normal canvas paint path.</summary>
+    internal bool TryClearNativeCanvas(ElementNode element, float red, float green, float blue, float alpha, out GpuFailure? failure)
+    {
+        if (ScriptFeaturesDisposed || !ReferenceEquals(element.OwnerDocument, Document) || !string.Equals(element.LocalName, "canvas", StringComparison.OrdinalIgnoreCase))
+        {
+            failure = new(GpuFailureKind.Unavailable, "The element is not a live canvas in this document.");
+            return false;
+        }
+        if (!Capabilities.WebGl || !Document.WebGlAllowed)
+        {
+            failure = new(GpuFailureKind.Unavailable, "Native canvas GPU access is denied for this document.");
+            var denied = GetCanvas(element);
+            denied.MarkWebGlDenied();
+            return false;
+        }
+        if (_gpu is null && _gpuCreationFailure is null)
+            _gpu = GpuDocumentBridge.TryCreate(MaxGpuBytes, out _gpuCreationFailure, _gpuFactory);
+        var canvas = GetCanvas(element);
+        if (_gpu is null)
+        {
+            failure = _gpuCreationFailure ?? new(GpuFailureKind.Unavailable, "The document has no native GPU device.");
+            canvas.MarkGpuFailure(failure);
+            return false;
+        }
+        var ok = _gpu.TryClear(canvas, red, green, blue, alpha, out failure);
+        if (!ok && failure is not null) canvas.MarkGpuFailure(failure);
+        return ok;
+    }
 
     /// <summary>The pixels an <c>img</c> element shows, decoded from its <c>src</c> (a data: URL, or what the host's loader gives); null while it has none.</summary>
     public Folio.Imaging.IImageHandle? ImageOf(ElementNode image)

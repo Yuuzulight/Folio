@@ -47,11 +47,14 @@ Folio renders content written by a language model. It must be treated as untrust
 | `@import` depth | 4 |
 | Image dimensions (checked from the header before allocating) | 16,384 px per side, 64 megapixels |
 | Total decoded image memory per document | 64 MB (least recently painted images evicted and re-decoded on demand) |
+| GPU resource reservations per document (`MaxGpuBytes`) | 64 MiB across offscreen surfaces, buffers, textures and renderbuffers; refused before native allocation |
 | Font file size (after WOFF/WOFF2 decoding) | 20 MB |
 | Total loaded bytes per document | 64 MB |
 | SVG `use` expansion | 10,000 elements |
 | Per-artifact script storage (`localStorage`, M4) | 5 MB |
 | Time per `Update()` | 2 s, checked cooperatively inside parsing, style and layout loops |
+
+GPU reservations account for owned resource storage. Driver and context overhead are separate: the Windows content-process GPU benchmark reports DXGI local and non-local process usage alongside reservations. The reservation limit does not cap driver overhead.
 
 - **Untrusted binary formats** (PNG, JPEG, fonts, WOFF/WOFF2, SVG/XML) are parsed with bounds-checked readers and fuzzed continuously ([testing](19-testing.md)).
 - **No telemetry**, no background requests, no persistent state unless the host provides a cache folder.

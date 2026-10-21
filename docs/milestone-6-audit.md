@@ -128,9 +128,9 @@ Original acceptance:
 
 ### #528 — WebGL: GPU surface in the content process, frames to the host, and the GPU budget
 
-**Incomplete.** Evidence: `Canvas2D.cs: WebGlContextState.DrawTriangles`.
+**Windows acceptance verified locally; exact-commit CI pending.** Evidence: `AngleGpuBackend.cs`, `GpuDocumentBridge.cs`, `GpuSurfaceTests.cs`, `GpuProcessBenchmark.cs`.
 
-Draws paths through ICanvas; no GPU device/translation-layer backend is wired. GPU process-memory benchmark acceptance is not established.
+The trusted clear-colour path creates a native ANGLE D3D11 device inside the Windows AppContainer, publishes pixels through the host-owned frame store and composes at the canvas box in display-list order. Tests check surrounding content, an overlapping sibling, aggregate reservations, refusal before raster allocation, actual missing-library fallback, revocation and retained-handle disposal. The benchmark records DXGI local/nonlocal content-process usage separately from resource reservations. Windows CI runs the benchmark; non-Windows native graphics remains unavailable. The WebGL scripting API and shader/draw requirements remain separate in #529–#531.
 
 Original acceptance:
 

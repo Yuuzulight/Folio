@@ -2,6 +2,7 @@ using Folio;
 using Folio.Dom;
 using Folio.Resources;
 using System.Runtime.CompilerServices;
+using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
 
@@ -11,6 +12,23 @@ namespace Folio.Scripting.Dom;
 public static class DomBindings
 {
     private static readonly ConditionalWeakTable<IScriptEngine, DomContext> Contexts = new();
+    private static readonly ConditionalWeakTable<IScriptEngine, FactoryHolder> GpuFactories = new();
+
+    private sealed class FactoryHolder(Func<long, GpuDeviceResult> factory)
+    {
+        internal Func<long, GpuDeviceResult> Factory { get; } = factory;
+    }
+
+    /// <summary>Configures a trusted GPU factory before document installation; never exposed to page script.</summary>
+    internal static bool ConfigureGpuFactory(IScriptEngine engine, Func<long, GpuDeviceResult> factory)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        ArgumentNullException.ThrowIfNull(factory);
+        if (Contexts.TryGetValue(engine, out _)) return false;
+        GpuFactories.Remove(engine);
+        GpuFactories.Add(engine, new FactoryHolder(factory));
+        return true;
+    }
 
 
     /// <summary>Changes host-granted capabilities for an installed document and applies WebGL loss/restore semantics.</summary>
@@ -23,6 +41,35 @@ public static class DomBindings
         return true;
     }
 
+    /// <summary>Trusted host hook used by conformance probes; this is intentionally not installed on the page global.</summary>
+    internal static bool TryClearNativeCanvas(IScriptEngine engine, ElementNode element, float red, float green, float blue, float alpha, out GpuFailure? failure)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        ArgumentNullException.ThrowIfNull(element);
+        if (!Contexts.TryGetValue(engine, out var context))
+        {
+            failure = new(GpuFailureKind.Unavailable, "No document GPU context is installed.");
+            return false;
+        }
+        return context.TryClearNativeCanvas(element, red, green, blue, alpha, out failure);
+    }
+
+    /// <summary>Trusted diagnostics for native GPU conformance probes; no page-facing API.</summary>
+    internal static bool TryGetGpuMetrics(IScriptEngine engine, out long reservedBytes, out long peakReservedBytes, out string renderer)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        if (!Contexts.TryGetValue(engine, out var context) || context.Gpu is not { } gpu)
+        {
+            reservedBytes = peakReservedBytes = 0;
+            renderer = "";
+            return false;
+        }
+        reservedBytes = gpu.ReservedBytes;
+        peakReservedBytes = gpu.PeakReservedBytes;
+        renderer = gpu.RendererIdentity;
+        return true;
+    }
+
     /// <summary>Stops background work owned by the document before its content process closes.</summary>
     public static bool Dispose(IScriptEngine engine)
     {
@@ -30,6 +77,7 @@ public static class DomBindings
         MessagePortEndpoint.DisposeAll(engine);
         if (!Contexts.TryGetValue(engine, out var context)) return false;
         Contexts.Remove(engine);
+        GpuFactories.Remove(engine);
         RetireFeatures(context);
         return true;
     }
@@ -44,7 +92,7 @@ public static class DomBindings
             () => context.DisposeCacheStorage?.Invoke(), context.LoseCanvasContexts, context.DisposeIframes,
             context.DisposeWorkers, context.DisposeMedia,
             () => context.CaptureState?.Dispose(), () => context.WebRtcState?.Dispose(),
-            () => context.ServiceWorkerState?.Dispose()
+            () => context.ServiceWorkerState?.Dispose(), context.DisposeGpu
         ];
         foreach (var cleanup in retire)
         {
@@ -75,7 +123,8 @@ public static class DomBindings
             RetireFeatures(previousContext);
         }
 
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles, mediaCaptureActivityChanged, iframeNavigationRequested, mediaAudioOutput, mediaDecoder);
+        var gpuFactory = GpuFactories.TryGetValue(engine, out var configuredFactory) ? configuredFactory.Factory : null;
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles, mediaCaptureActivityChanged, iframeNavigationRequested, mediaAudioOutput, mediaDecoder, gpuFactory);
         if (eventLoop is not null)
             eventLoop.MediaPlaybackTick = context.AdvanceMedia;
         context.ParentOptions = parentOptions;

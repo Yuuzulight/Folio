@@ -19,6 +19,8 @@ public static class Program
             return Bench(rest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 20);
         if (args is ["cold"])
             return Cold();
+        if (args is ["gpu"])
+            return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
         if (args is ["gc", .. var gcRest])
             return Gc(gcRest is [var n] ? Math.Max(3, int.Parse(n, CultureInfo.InvariantCulture)) : 7);
 

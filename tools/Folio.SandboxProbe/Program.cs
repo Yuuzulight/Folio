@@ -30,6 +30,25 @@ session.MessageReceived += async (message, cancellationToken) =>
             PublishFrame();
             await Reply(message, new { probe, ready = true }, cancellationToken);
             break;
+        case "gpu":
+            var canvasId = message.Payload.TryGetProperty("canvasId", out var canvasValue)
+                ? canvasValue.GetString() ?? "gpu-canvas" : "gpu-canvas";
+            var red = ReadColor(message.Payload, "red", 1);
+            var green = ReadColor(message.Payload, "green", 0);
+            var blue = ReadColor(message.Payload, "blue", 0);
+            var alpha = ReadColor(message.Payload, "alpha", 1);
+            var gpu = runtime.ClearNativeCanvas(canvasId, red, green, blue, alpha);
+            await Reply(message, new
+            {
+                probe,
+                gpu = new { succeeded = gpu.Succeeded, failureMessage = gpu.FailureMessage, failureKind = gpu.FailureKind,
+                    rendererIdentity = gpu.RendererIdentity, reservedBytes = gpu.ReservedBytes, peakReservedBytes = gpu.PeakReservedBytes,
+                    nativeLocalBytes = gpu.NativeLocalBytes, nativeNonLocalBytes = gpu.NativeNonLocalBytes,
+                    nativeAdapterCount = gpu.NativeAdapterCount, nativeMemorySource = gpu.NativeMemorySource,
+                    fallbackFeature = gpu.FallbackFeature, fallbackReason = gpu.FallbackReason },
+                runtime = runtimeResult is null ? null : new { value = runtimeResult.Value }
+            }, cancellationToken);
+            break;
         case "forge":
             await ForgeFrame(message, cancellationToken);
             break;
@@ -68,6 +87,9 @@ void PublishFrame()
     }
     frameStore.Publish(pixels);
 }
+
+static float ReadColor(JsonElement payload, string name, float fallback) =>
+    payload.TryGetProperty(name, out var value) && value.TryGetSingle(out var result) ? result : fallback;
 
 async ValueTask Reply(ContentMessage message, object payload, CancellationToken cancellationToken)
 {

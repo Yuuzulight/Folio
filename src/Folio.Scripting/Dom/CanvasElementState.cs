@@ -3,6 +3,7 @@ using System.Numerics;
 using Folio.Dom;
 using Folio.Imaging;
 using Folio.Painting;
+using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
 
@@ -19,6 +20,7 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     private long _snapshotVersion = -1;
     private long _touches;
     private bool _attemptedWebGl;
+    private bool _nativeFrame;
     private FeatureFallback? _fallback;
 
     public CanvasElementState(ElementNode element, IRasterBackend? backend, Hosting.CanvasStyleEngine? styles)
@@ -44,6 +46,11 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     {
         if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.GraphicsUnavailable);
     }
+    internal void MarkGpuFailure(GpuFailure failure)
+    {
+        _attemptedWebGl = true;
+        _fallback = new(FallbackFeature.WebGl, failure.Kind == GpuFailureKind.BudgetExceeded ? FallbackReason.ResourceLimit : FallbackReason.GraphicsUnavailable);
+    }
     internal void MarkContextLost()
     {
         if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
@@ -55,7 +62,15 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
             _fallback = null;
     }
     internal void ProbeGraphics() { _ = Surface(); }
-
+    internal Action? NativeSurfaceInvalidated { get; set; }
+    /// <summary>Publishes a successful native readback and clears a prior transient GPU fallback.</summary>
+    internal void MarkNativeFrame()
+    {
+        _nativeFrame = true;
+        _attemptedWebGl = true;
+        _fallback = null;
+    }
+    internal void ClearNativeFrame() { _nativeFrame = false; NativeSurfaceInvalidated?.Invoke(); NativeSurfaceInvalidated = null; }
     public int Width => Side("width", 300);
 
     public int Height => Side("height", 150);
@@ -115,6 +130,7 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     /// <summary>Setting width or height, even to the same value, empties the bitmap and resets the context.</summary>
     public void Restart()
     {
+        ClearNativeFrame();
         _surface?.Dispose();
         _surface = null;
         _snapshot = null;
@@ -126,9 +142,9 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
 
     public IImageHandle? Snapshot()
     {
-        if (Context2D is null && WebGlContext is null)
+        if (Context2D is null && WebGlContext is null && !_nativeFrame)
             return null;
-        Sync();
+        if (Context2D is not null) Sync();
         if (_surface is null)
             return null;
         var version = (Context2D?.Version ?? 0) + _touches;

@@ -80,6 +80,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll bench
 
+      - name: Sandboxed GPU memory
+        if: matrix.os == 'windows-latest'
+        run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll gpu
+
       # Actual, expected and diff images of every failing or changed image test.
       - name: Upload image test output
         id: render-output

@@ -25,6 +25,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | GIF, WebP, BMP, ICO decoders | **Dependency for now**: SkiaSharp codecs | Behind `IImageDecoder` |
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
 | 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
+| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
 | Glyph rasterisation (outlines, hinting, colour glyph formats) | **Dependency for now**: SkiaSharp | Glyphs drawn by id through `ICanvas` |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |
@@ -110,6 +111,16 @@ public interface ITextShaper
 ```
 
 `ShaperRouter` asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` (in `Folio.Skia`). A configuration switch forces all text through one shaper for differential testing.
+
+### ANGLE — native GPU surfaces and shader translation
+
+For #528, the selected Windows dependency is `Avalonia.Angle.Windows.Natives` **2.1.27548.20260419**, a native-only ANGLE distribution with no managed framework dependencies. Its `av_libglesv2.dll` assets cover Windows x64, ARM64 and x86. The [package metadata](https://www.nuget.org/packages/Avalonia.Angle.Windows.Natives/2.1.27548.20260419) identifies the Avalonia-maintained [ANGLE fork](https://github.com/AvaloniaUI/angle) and its BSD-style license; the package includes `LICENSE`. The restored package SHA-256 is `76d67901097e9173d155efc4c2b7d2c8e3122f2c2e0415028eb0c88478a386f9`.
+
+Folio owns the device/surface/resource interfaces, permission and lifetime checks, resource reservations, canvas composition and process transport. ANGLE supplies native EGL/GLES and the shader translator. The first backend requests D3D11 hardware, then explicitly identified WARP when hardware creation fails. WARP is a native software driver; it is not hardware performance evidence. Failed native creation produces the graphics fallback rather than using Folio's existing CPU triangle approximation. The non-Windows path currently reports native GPU unavailability.
+
+Resource reservations and peak reservations are distinct from native OS process usage. Windows metrics use [`IDXGIAdapter3.QueryVideoMemoryInfo`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_4/nf-dxgi1_4-idxgiadapter3-queryvideomemoryinfo), with local/nonlocal bytes and measurement coverage reported separately; unavailable counters remain unknown. The benchmark's `gpu` command samples the sandboxed content process. The [native surface pipe](native-gpu-surfaces.md) has local sandbox/readback/budget evidence; this does not establish the full WebGL API, GLSL/draw conformance, loss/restoration or performance requirements in #529–#531.
+
+This follows the dependency-first plan. Replacing ANGLE later would require a Folio-owned shader translator and native graphics backend behind the same interfaces; it is not part of this implementation.
 
 ### JavaScript engine — Jint
 

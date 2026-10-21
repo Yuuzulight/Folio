@@ -4,6 +4,7 @@ using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Tests;
 
+[Collection("Content process round trips")]
 public sealed class WindowsSandboxTests
 {
     [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]

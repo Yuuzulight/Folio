@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Folio.Scripting.Tests" />
     <InternalsVisibleTo Include="Folio.Scripting.Jint" />
     <InternalsVisibleTo Include="Folio.ContentHost" />
