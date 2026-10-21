@@ -65,7 +65,9 @@ jobs:
             grep "  $f\$" <<< "$sums"
           done | sha256sum -c -
 
-      - run: dotnet test --solution Folio.slnx -c Release --no-build
+      # Keep unrelated test executables from starving a real content process's
+      # watchdog during cold startup on a small runner.
+      - run: dotnet test --solution Folio.slnx -c Release --no-build --max-parallel-test-modules 1
 
       # Pass rates per conformance category, also on the run's summary page. Runtime/interaction failures and stale
       # expected-failure marks fail both the tests and report command; ordinary image mismatches remain report-only.

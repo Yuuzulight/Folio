@@ -24,13 +24,17 @@ public sealed class ContentProcessOwnershipTests
         var firstCompletion = first.Completion;
         var firstFramePath = first.FramePath;
         view.AttachContentProcess(first);
-        var second = StartClient();
-        var secondFramePath = second.FramePath;
+        ContentProcessClient? second = null;
+        string? secondFramePath = null;
+        var secondAttached = false;
         try
         {
             await WaitForFrameAsync(first);
             await WaitForBlueAsync(view);
+            second = StartClient();
+            secondFramePath = second.FramePath;
             view.AttachContentProcess(second);
+            secondAttached = true;
             Assert.True(firstCompletion.IsCompleted, "Replacing the attached process did not retire the previous client.");
             Assert.False(File.Exists(firstFramePath), "The retired client's frame mapping was not cleaned up.");
             Assert.True(File.Exists(secondFramePath), "The replacement client's frame mapping was not retained.");
@@ -40,8 +44,14 @@ public sealed class ContentProcessOwnershipTests
         }
         finally
         {
-            view.Dispose();
-            Assert.False(File.Exists(secondFramePath), "Disposing the view did not clean up the owned replacement client.");
+            try { view.Dispose(); }
+            finally
+            {
+                if (second is not null && !secondAttached)
+                    await second.DisposeAsync();
+                if (secondFramePath is not null)
+                    Assert.False(File.Exists(secondFramePath), "The replacement client's frame mapping was not cleaned up.");
+            }
         }
     });
 
@@ -132,8 +142,11 @@ public sealed class ContentProcessOwnershipTests
     private static async Task WaitForFrameAsync(ContentProcessClient client)
     {
         var frame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask OnMessage(ContentMessage message, CancellationToken _) { if (message.Kind == ContentMessageKind.Frame) frame.TrySetResult(); return ValueTask.CompletedTask; }
+        void OnStopped(object? _, ContentProcessStoppedEventArgs args) => stopped.TrySetResult(args.Reason);
         client.MessageReceived += OnMessage;
+        client.ScriptStopped += OnStopped;
         try
         {
             await client.SendAsync(ContentMessageKind.Load, new
@@ -145,9 +158,26 @@ public sealed class ContentProcessOwnershipTests
                 viewportWidth = 220,
                 viewportHeight = 80,
             });
-            await frame.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Task completed;
+            try { completed = await Task.WhenAny(frame.Task, stopped.Task).WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException($"Timed out waiting for a content frame; exited={HasExited(client)}; supervisorStopped={client.Supervisor.IsStopped}", error);
+            }
+            if (completed == stopped.Task)
+                throw new InvalidOperationException($"Content process stopped before publishing a frame: {stopped.Task.Result}; exited={HasExited(client)}; supervisorStopped={client.Supervisor.IsStopped}");
         }
-        finally { client.MessageReceived -= OnMessage; }
+        finally
+        {
+            client.MessageReceived -= OnMessage;
+            client.ScriptStopped -= OnStopped;
+        }
+    }
+
+    private static bool HasExited(ContentProcessClient client)
+    {
+        try { return client.Process.HasExited; }
+        catch (InvalidOperationException) { return true; }
     }
 
     private static async Task WaitForBlueAsync(Control view)

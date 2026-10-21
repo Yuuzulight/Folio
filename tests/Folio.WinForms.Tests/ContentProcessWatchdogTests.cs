@@ -41,6 +41,9 @@ public sealed class ContentProcessWatchdogTests
         try
         {
             client.MessageReceived += OnMessage;
+            var clientStopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnClientStopped(object? _, ContentProcessStoppedEventArgs args) => clientStopped.TrySetResult(args.Reason);
+            client.ScriptStopped += OnClientStopped;
             try
             {
                 await client.SendAsync(ContentMessageKind.Load, new
@@ -51,7 +54,16 @@ public sealed class ContentProcessWatchdogTests
                     capabilities,
                     framePath = client.FramePath, viewportWidth = 220, viewportHeight = 80
                 });
-                var probeMessage = await probe.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                ContentMessage probeMessage;
+                Task completed;
+                try { completed = await Task.WhenAny(probe.Task, clientStopped.Task).WaitAsync(TimeSpan.FromSeconds(15)); }
+                catch (TimeoutException error)
+                {
+                    throw new TimeoutException($"Capability matrix row '{row}' timed out waiting for its first frame; exited={HasExited(client)}; supervisorStopped={client.Supervisor.IsStopped}", error);
+                }
+                if (completed == clientStopped.Task)
+                    throw new InvalidOperationException($"Capability matrix row '{row}' content process stopped before its first frame: {clientStopped.Task.Result}; exited={HasExited(client)}; supervisorStopped={client.Supervisor.IsStopped}");
+                probeMessage = await probe.Task;
                 Assert.Equal(capabilities, probeMessage.Payload.GetProperty("appliedCapabilities").Deserialize<FeatureCapabilities>());
                 var expected = $"row:{row}:webgl={Bool(capabilities.WebGl)}:workers={Bool(capabilities.Workers)}:wasm={Bool(capabilities.WebAssembly)}:iframe={Bool(capabilities.Iframes)}:rtc={Bool(capabilities.WebRtc)}:media={Bool(capabilities.Media)}";
                 var observed = probeMessage.Payload.GetProperty("value").GetString()!;
@@ -61,7 +73,11 @@ public sealed class ContentProcessWatchdogTests
                 Assert.Contains($":microphoneDenied={Bool(!capabilities.Microphone)}", observed, StringComparison.Ordinal);
                 Assert.Contains($":serviceWorkers={Bool(capabilities.ServiceWorkers)}", observed, StringComparison.Ordinal);
             }
-            finally { client.MessageReceived -= OnMessage; }
+            finally
+            {
+                client.ScriptStopped -= OnClientStopped;
+                client.MessageReceived -= OnMessage;
+            }
             await WaitForBlueAsync(view);
             using var before = Capture(view);
             Assert.True(IsBlue(before.GetPixel(100, 70)), "The initial content frame was not painted by the control.");
@@ -171,6 +187,12 @@ public sealed class ContentProcessWatchdogTests
     }
 
     private static bool IsBlue(Color color) => color.B > 180 && color.R < 40 && color.G < 40;
+
+    private static bool HasExited(ContentProcessClient client)
+    {
+        try { return client.Process.HasExited; }
+        catch (InvalidOperationException) { return true; }
+    }
 
     private static bool HasStoppedNotice(Bitmap bitmap)
     {
