@@ -204,26 +204,11 @@ replacement is complete only when it matches the existing backend on conformance
 goldens, fuzzing, performance, and failure behavior.
 
 1. **Extend the in-house shaper** script by script: Hebrew (marks), then Arabic (joining forms, mark positioning, contextual lookups), then Indic and South-East Asian scripts (reordering). *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
-   - *Implementation*: Folio.Typography.ComplexShaper provides in-house shaping for:
-     - Arabic cursive joining (Unicode Presentation Forms-B mapping) and Tashkeel transparent marks.
-     - Hebrew consonants with zero-advance combining Niqqud marks.
-     - Indic (Devanagari): consonant clusters, virama conjuncts, nuqta, and graphical pre-base matra I (U+093F) reordering before the consonant cluster.
-     - South-East Asian (Thai): base consonants, zero-advance upper/lower vowels, and tone mark vertical stacking offsets.
+   - *Status (audited 2026-10-23)*: `Folio.Typography.ComplexShaper` maps Arabic letters to their presentation forms, gives Hebrew marks zero advance, reorders only the Devanagari pre-base vowel sign (U+093F) and gives Thai marks zero advance. It reads no GSUB or GPOS table, so conjuncts, reph, half forms, contextual lookups and mark attachment are not done, and its output is not yet compared with HarfBuzz per script. It is reachable only through `SoftwareRasterBackend.TextShaper` (canvas text), not from HTML layout. This item is open.
 2. **Folio's own rasteriser** behind IRasterBackend: scanline coverage rasteriser with SIMD (Vector256), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from glyf/CFF/CFF2 outlines plus colour formats (COLR, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
-   - *Implementation*: Folio.Painting.SoftwareRasterBackend provides an in-house pure-software scanline rasterizer implementing IRasterBackend, IRasterSurface, and ICanvas with transforms, clipping, fills, strokes, bilinear image sampling, linear gradient multi-stop color interpolation with spread modes (Pad, Repeat, Reflect), and elliptical rounded rectangle corner clipping (CornerRadii).
+   - *Status (audited 2026-10-23)*: `Folio.Painting.SoftwareRasterBackend` implements `IRasterBackend` for rectangles, rounded rectangles, images and alpha blending. Paths are approximated by their bounding box, strokes by an enlarged box, clip paths by their bounds, glyphs by solid squares, and layers by Save/Restore. `FolioView` and the content host use the Skia backend; this one is not used by the product. This item is open.
 3. **In-house GIF and WebP decoders**. *Good enough*: fuzzed, conformance images unchanged.
-   - *Implementation*: Folio.Imaging.GifDecoder (GIF87a/GIF89a, LZW decompressor, graphic control extension, 4-pass interlacing) and Folio.Imaging.WebpDecoder (RIFF container, VP8 keyframes, VP8L lossless format, VP8X extended chunks) wired directly into Folio.Imaging.ImageLoader.
+   - *Status (audited 2026-10-23)*: `Folio.Imaging.GifDecoder` (GIF87a/GIF89a, LZW, interlacing, transparency) decodes a still image identically to an independent decoder. Tests for interlaced, transparent, multi-frame and truncated files and a fuzz target are still to be added (#576). `Folio.Imaging.WebpDecoder` reads the RIFF container only; the `VP8L` and `VP8` bitstreams are not decoded, so a WebP file yields no image rather than a wrong one (#577, #578).
 4. **JavaScript engine**: planned removal of the temporary Jint dependency after
    the Folio-owned engine passes the full scripting and conformance suites.
-   - *Implementation*: Folio.Scripting.Native implements the Folio-owned native JavaScript engine:
-     - Lexer & Parser: NativeTokenizer and NativeParser (ECMAScript syntax including switch/case/default, do-while, or, if, ternary, closures, template strings).
-     - AST: NativeAst explicit record hierarchy.
-     - Compiler & Bytecode: NativeBytecodeCompiler and BytecodeChunk instruction set.
-     - Stack VM & Runtime Values: NativeVirtualMachine and NativeValue with call frames, execution limits, microtask queue, and watchdog interruption.
-     - Monomorphic Inline Caches (MIC): PropertyInlineCache caching object version and slot values for fast-path property resolution.
-     - Standard Globals & Built-ins: Math, console, Date, JSON, queueMicrotask, Object (keys, alues, entries, ssign, hasOwnProperty), Promise (
-esolve, 
-eject, microtask chaining), Array.prototype (push, pop, shift, unshift, slice, join, indexOf, includes, orEach, map, ilter, 
-educe), and String.prototype (charAt, charCodeAt, slice, substring, indexOf, includes, startsWith, endsWith, split, 
-eplace, 	oLowerCase, 	oUpperCase, 	rim, string indexing).
-     - Engine Interface: NativeScriptEngine implementing IScriptEngine and IScriptEngineFactory.
+   - *Status (audited 2026-10-23)*: `Folio.Scripting.Native` has a tokenizer, parser, bytecode compiler and stack VM for a small subset of the language: functions, closures, objects, arrays, loops, switch, simple try/catch, basic Promise and a few built-ins. It lacks classes, destructuring, spread, template-literal interpolation, regular expressions, `for...of`/`for...in`, default parameters, async functions, generators, `Map`/`Set`, `JSON`, accessors and more; postfix `++` on members and per-iteration `let` bindings are wrong. On a 40-case battery of ordinary scripts it passes 4 and the Jint backend passes all 40. It is not wired into the content host, and no suite runs the DOM bindings or the conformance corpus on it. Jint stays the engine.

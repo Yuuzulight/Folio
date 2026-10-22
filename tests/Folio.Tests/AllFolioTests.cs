@@ -78,27 +78,17 @@ public class AllFolioTests
     }
 
     [Fact]
-    public void WebpDecoder_DecodesVp8LossyHeader()
+    public void WebpDecoder_ReturnsNoImageForBitstreamsItCannotDecodeYet()
     {
-        // Minimal VP8 RIFF chunk with 10x10 dimensions
+        // A VP8 key frame header with made-up payload bytes: the old code returned these bytes as grey pixels.
         byte[] webpData = [
-            0x52, 0x49, 0x46, 0x46,             // RIFF
-            0x1E, 0x00, 0x00, 0x00,             // Size = 30
-            0x57, 0x45, 0x42, 0x50,             // WEBP
-            0x56, 0x50, 0x38, 0x20,             // "VP8 "
-            0x12, 0x00, 0x00, 0x00,             // Chunk size = 18
-            0x00, 0x00, 0x00,                   // Frame tag (keyframe)
-            0x9D, 0x01, 0x2A,                   // Start code
-            0x0A, 0x00,                         // Width = 10
-            0x0A, 0x00,                         // Height = 10
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80 // Data
+            0x52, 0x49, 0x46, 0x46, 0x1E, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+            0x56, 0x50, 0x38, 0x20, 0x12, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x9D, 0x01, 0x2A, 0x0A, 0x00, 0x0A, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
         ];
 
-        var decoded = WebpDecoder.Decode(webpData);
-        Assert.NotNull(decoded);
-        Assert.Equal(10, decoded.Width);
-        Assert.Equal(10, decoded.Height);
-        Assert.Equal(10 * 10 * 4, decoded.Pixels.Length);
+        Assert.Null(WebpDecoder.Decode(webpData));
     }
 
     [Fact]

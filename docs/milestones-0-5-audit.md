@@ -228,8 +228,8 @@ The following table provides the mapping from the original milestone issues to c
 With Milestones 0 through 5 accepted on their documented architectures and Milestone 6 verified on its capability-gated native surfaces, the subsequent tracks advance Folio toward complete independence:
 
 1. **Track 2: Folio-Owned Native JavaScript Engine (`docs/native-engine-plan.md`)**:
-   - Implementation of the Folio-owned AST, parser, bytecode compiler, and virtual machine to eliminate the temporary Jint 4.17.0 compatibility dependency.
+   - The Folio-owned AST, parser, bytecode compiler and virtual machine to eliminate the temporary Jint 4.17.0 compatibility dependency (open: a small subset today; see `docs/native-engine-plan.md`).
 2. **Track 3: "Towards all-Folio" In-House Dependencies (`docs/dependencies.md`)**:
-   - Complex script shaping (Hebrew mark positioning, Arabic joining forms) in `Folio.Typography`.
-   - In-house image decoders (GIF, WebP) in `Folio.Imaging`.
-   - Software rasterization backend behind `IRasterBackend` and `ICanvas`.
+   - Complex script shaping in `Folio.Typography` (open: no GSUB/GPOS yet; see the status in `docs/dependencies.md`).
+   - In-house image decoders in `Folio.Imaging` (GIF decodes a still image; WebP is not decoded yet: #577, #578).
+   - Software rasterization backend behind `IRasterBackend` and `ICanvas` (open: paths, strokes, clips, glyphs and layers are approximated).

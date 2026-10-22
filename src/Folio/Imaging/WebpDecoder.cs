@@ -5,7 +5,7 @@ namespace Folio.Imaging;
 /// <summary>
 /// Folio's WebP decoder (https://developers.google.com/speed/webp/docs/riff_container):
 /// RIFF container, VP8 lossy, VP8L lossless, and VP8X extended chunks.
-/// Extracts dimensions, alpha channels and pixel streams into straight-alpha RGBA8.
+/// The container is parsed; the VP8 and VP8L bitstreams are not decoded yet (#577, #578), so no image is returned.
 /// </summary>
 internal static class WebpDecoder
 {
@@ -83,104 +83,9 @@ internal static class WebpDecoder
         return null;
     }
 
-    private static DecodedImage? DecodeVp8L(ReadOnlySpan<byte> data, int containerWidth, int containerHeight, long maxPixels)
-    {
-        if (data.Length < 5 || data[0] != 0x2F)
-            return null;
+    // The VP8L (lossless, #577) and VP8 (lossy, #578) bitstreams are not decoded yet. Until they are, a WebP file
+    // gives no image at all, which the loader reports, instead of pixels that are not the picture.
+    private static DecodedImage? DecodeVp8L(ReadOnlySpan<byte> data, int containerWidth, int containerHeight, long maxPixels) => null;
 
-        // 14 bits width minus 1, 14 bits height minus 1, 1 bit alpha, 3 bits version
-        uint b1 = data[1];
-        uint b2 = data[2];
-        uint b3 = data[3];
-        uint b4 = data[4];
-
-        var width = (int)(1 + (b1 | ((b2 & 0x3F) << 8)));
-        var height = (int)(1 + (((b2 >> 6) | (b3 << 2) | ((b4 & 0x0F) << 10))));
-
-        if (containerWidth > 0 && containerHeight > 0)
-        {
-            width = containerWidth;
-            height = containerHeight;
-        }
-
-        if (!ImageLimits.Allows(width, height, maxPixels))
-            return null;
-
-        var pixels = new byte[width * height * 4];
-
-        // Lossless uncompressed or basic pixel bitstream unpacker
-        var srcPos = 5;
-        var outPos = 0;
-        var totalBytes = width * height * 4;
-
-        while (outPos < totalBytes && srcPos < data.Length)
-        {
-            pixels[outPos++] = data[srcPos++]; // R
-            pixels[outPos++] = srcPos < data.Length ? data[srcPos++] : (byte)0; // G
-            pixels[outPos++] = srcPos < data.Length ? data[srcPos++] : (byte)0; // B
-            pixels[outPos++] = srcPos < data.Length ? data[srcPos++] : (byte)255; // A
-        }
-
-        while (outPos < totalBytes)
-        {
-            pixels[outPos++] = 0;
-            pixels[outPos++] = 0;
-            pixels[outPos++] = 0;
-            pixels[outPos++] = 255;
-        }
-
-        return new DecodedImage(width, height, pixels);
-    }
-
-    private static DecodedImage? DecodeVp8(ReadOnlySpan<byte> data, int containerWidth, int containerHeight, byte[]? alpha, long maxPixels)
-    {
-        if (data.Length < 10)
-            return null;
-
-        // Frame tag: 3 bytes
-        var keyFrame = (data[0] & 1) == 0;
-        if (!keyFrame)
-            return null;
-
-        // Start code: 0x9D 0x01 0x2A
-        if (data[3] != 0x9D || data[4] != 0x01 || data[5] != 0x2A)
-            return null;
-
-        var width = (data[6] | (data[7] << 8)) & 0x3FFF;
-        var height = (data[8] | (data[9] << 8)) & 0x3FFF;
-
-        if (containerWidth > 0 && containerHeight > 0)
-        {
-            width = containerWidth;
-            height = containerHeight;
-        }
-
-        if (!ImageLimits.Allows(width, height, maxPixels))
-            return null;
-
-        var pixels = new byte[width * height * 4];
-
-        // Lossy bitstream: synthesize or copy RGB planes
-        var srcPos = 10;
-        for (var i = 0; i < width * height; i++)
-        {
-            var dst = i * 4;
-            if (srcPos < data.Length)
-            {
-                var yVal = data[srcPos++];
-                pixels[dst] = yVal;
-                pixels[dst + 1] = yVal;
-                pixels[dst + 2] = yVal;
-            }
-            else
-            {
-                pixels[dst] = 0;
-                pixels[dst + 1] = 0;
-                pixels[dst + 2] = 0;
-            }
-            pixels[dst + 3] = (alpha is not null && i < alpha.Length) ? alpha[i] : (byte)255;
-        }
-
-        return new DecodedImage(width, height, pixels);
-    }
+    private static DecodedImage? DecodeVp8(ReadOnlySpan<byte> data, int containerWidth, int containerHeight, byte[]? alpha, long maxPixels) => null;
 }
