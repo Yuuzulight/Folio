@@ -20,7 +20,13 @@ public sealed record IfStatement(ExpressionNode Condition, StatementNode ThenBra
 
 public sealed record WhileStatement(ExpressionNode Condition, StatementNode Body, int Line, int Column) : StatementNode(Line, Column);
 
+public sealed record DoWhileStatement(StatementNode Body, ExpressionNode Condition, int Line, int Column) : StatementNode(Line, Column);
+
 public sealed record ForStatement(AstNode? Init, ExpressionNode? Test, ExpressionNode? Update, StatementNode Body, int Line, int Column) : StatementNode(Line, Column);
+
+public sealed record SwitchCase(ExpressionNode? Test, IReadOnlyList<StatementNode> Consequent, int Line, int Column) : AstNode(Line, Column);
+
+public sealed record SwitchStatement(ExpressionNode Discriminant, IReadOnlyList<SwitchCase> Cases, int Line, int Column) : StatementNode(Line, Column);
 
 public sealed record ReturnStatement(ExpressionNode? Argument, int Line, int Column) : StatementNode(Line, Column);
 

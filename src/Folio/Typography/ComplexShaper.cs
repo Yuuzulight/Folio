@@ -41,6 +41,14 @@ public sealed class ComplexShaper : ITextShaper
         {
             ShapeHebrew(runes, face, scale, glyphs, clusters, advances, offsets);
         }
+        else if (IsDevanagari(runes))
+        {
+            ShapeDevanagari(runes, face, scale, glyphs, clusters, advances, offsets);
+        }
+        else if (IsThai(runes))
+        {
+            ShapeThai(runes, face, scale, glyphs, clusters, advances, offsets);
+        }
         else
         {
             // Fallback simple 1:1 mapping
@@ -253,6 +261,128 @@ public sealed class ComplexShaper : ITextShaper
             {
                 advances.Add(face.Advance(glyph) * scale);
                 offsets.Add(Vector2.Zero);
+            }
+        }
+    }
+
+    private static bool IsDevanagari(List<(Rune Rune, int Index)> runes)
+    {
+        foreach (var (r, _) in runes)
+        {
+            if (r.Value is >= 0x0900 and <= 0x097F)
+                return true;
+        }
+        return false;
+    }
+
+    private static void ShapeDevanagari(
+        List<(Rune Rune, int Index)> runes, FontFace face, float scale,
+        List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
+    {
+        var reordered = new List<(Rune Rune, int Index)>(runes.Count);
+
+        for (var i = 0; i < runes.Count;)
+        {
+            var clusterStart = i;
+            var isConsonant = IsDevanagariConsonant(runes[i].Rune.Value);
+
+            if (isConsonant)
+            {
+                var clusterEnd = i + 1;
+                while (clusterEnd + 1 < runes.Count &&
+                       runes[clusterEnd].Rune.Value == 0x094D /* Virama */ &&
+                       IsDevanagariConsonant(runes[clusterEnd + 1].Rune.Value))
+                {
+                    clusterEnd += 2;
+                }
+
+                if (clusterEnd < runes.Count && runes[clusterEnd].Rune.Value == 0x093F)
+                {
+                    reordered.Add((runes[clusterEnd].Rune, runes[clusterStart].Index));
+                    for (var k = clusterStart; k < clusterEnd; k++)
+                        reordered.Add(runes[k]);
+                    i = clusterEnd + 1;
+                    continue;
+                }
+            }
+
+            reordered.Add(runes[i]);
+            i++;
+        }
+
+        for (var i = 0; i < reordered.Count; i++)
+        {
+            var (rune, cluster) = reordered[i];
+            var code = rune.Value;
+            var glyph = face.GlyphFor(code);
+            glyphs.Add(glyph);
+            clusters.Add(cluster);
+
+            var cat = Rune.GetUnicodeCategory(rune);
+            if (code == 0x094D || code == 0x093C || cat == UnicodeCategory.NonSpacingMark)
+            {
+                advances.Add(0f);
+                offsets.Add(Vector2.Zero);
+            }
+            else
+            {
+                advances.Add(face.Advance(glyph) * scale);
+                offsets.Add(Vector2.Zero);
+            }
+        }
+    }
+
+    private static bool IsDevanagariConsonant(int code) =>
+        code is >= 0x0915 and <= 0x0939 or >= 0x0958 and <= 0x095F;
+
+    private static bool IsThai(List<(Rune Rune, int Index)> runes)
+    {
+        foreach (var (r, _) in runes)
+        {
+            if (r.Value is >= 0x0E00 and <= 0x0E7F)
+                return true;
+        }
+        return false;
+    }
+
+    private static void ShapeThai(
+        List<(Rune Rune, int Index)> runes, FontFace face, float scale,
+        List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
+    {
+        var hasPrecedingUpperVowel = false;
+
+        for (var i = 0; i < runes.Count; i++)
+        {
+            var (rune, cluster) = runes[i];
+            var code = rune.Value;
+            var glyph = face.GlyphFor(code);
+            glyphs.Add(glyph);
+            clusters.Add(cluster);
+
+            if (code is >= 0x0E48 and <= 0x0E4B)
+            {
+                advances.Add(0f);
+                var yOffset = hasPrecedingUpperVowel ? -face.UnitsPerEm * 0.15f * scale : 0f;
+                offsets.Add(new Vector2(0, yOffset));
+                hasPrecedingUpperVowel = false;
+            }
+            else if (code is 0x0E31 or (>= 0x0E34 and <= 0x0E37) or 0x0E47 or (>= 0x0E4C and <= 0x0E4E))
+            {
+                advances.Add(0f);
+                offsets.Add(Vector2.Zero);
+                hasPrecedingUpperVowel = true;
+            }
+            else if (code is 0x0E38 or 0x0E39 or 0x0E3A)
+            {
+                advances.Add(0f);
+                offsets.Add(Vector2.Zero);
+                hasPrecedingUpperVowel = false;
+            }
+            else
+            {
+                advances.Add(face.Advance(glyph) * scale);
+                offsets.Add(Vector2.Zero);
+                hasPrecedingUpperVowel = false;
             }
         }
     }

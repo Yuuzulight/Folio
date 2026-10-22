@@ -1,16 +1,30 @@
 namespace Folio.Scripting.Native;
 
+public sealed class PropertyInlineCache
+{
+    public NativeObject? CachedTarget;
+    public int CachedVersion;
+    public NativeValue CachedValue;
+}
+
 public sealed class BytecodeChunk
 {
     public List<Instruction> Instructions { get; } = [];
     public List<NativeValue> Constants { get; } = [];
     public List<BytecodeChunk> Functions { get; } = [];
     public List<string> ParameterNames { get; } = [];
+    public List<PropertyInlineCache> InlineCaches { get; } = [];
 
     public int AddConstant(NativeValue value)
     {
         Constants.Add(value);
         return Constants.Count - 1;
+    }
+
+    public int AddInlineCache()
+    {
+        InlineCaches.Add(new PropertyInlineCache());
+        return InlineCaches.Count - 1;
     }
 
     public int Emit(OpCode op, int operand = 0, string? str = null)
@@ -120,6 +134,7 @@ public sealed class NativeBytecodeCompiler
                         _chunk.Emit(OpCode.PushUndefined);
                     }
                     _chunk.Emit(OpCode.StoreGlobal, str: decl.Name);
+                    _chunk.Emit(OpCode.Pop);
                 }
                 break;
 
@@ -152,6 +167,72 @@ public sealed class NativeBytecodeCompiler
                 CompileStatement(whileStmt.Body);
                 _chunk.Emit(OpCode.Jump, loopStart);
                 _chunk.PatchJump(loopExit, _chunk.Instructions.Count);
+                break;
+
+            case DoWhileStatement doWhile:
+                var doStart = _chunk.Instructions.Count;
+                CompileStatement(doWhile.Body);
+                CompileExpression(doWhile.Condition);
+                _chunk.Emit(OpCode.JumpIfTrue, doStart);
+                break;
+
+            case SwitchStatement sw:
+                CompileExpression(sw.Discriminant);
+                var endJumps = new List<int>();
+                int defaultCaseIdx = -1;
+                var caseTestJumps = new List<(int JumpMatch, int CaseIndex)>();
+                var caseBodyStarts = new int[sw.Cases.Count];
+
+                // 1. Evaluate tests in sequence
+                for (var i = 0; i < sw.Cases.Count; i++)
+                {
+                    var c = sw.Cases[i];
+                    if (c.Test is not null)
+                    {
+                        _chunk.Emit(OpCode.Dup);
+                        CompileExpression(c.Test);
+                        _chunk.Emit(OpCode.StrictEq);
+                        var jFalse = _chunk.Emit(OpCode.JumpIfFalse);
+                        var jMatch = _chunk.Emit(OpCode.Jump);
+                        caseTestJumps.Add((jMatch, i));
+                        _chunk.PatchJump(jFalse, _chunk.Instructions.Count);
+                    }
+                    else
+                    {
+                        defaultCaseIdx = i;
+                    }
+                }
+
+                // If no case matched, jump to default or end
+                var noMatchJump = _chunk.Emit(OpCode.Jump);
+
+                // 2. Emit case bodies
+                for (var i = 0; i < sw.Cases.Count; i++)
+                {
+                    caseBodyStarts[i] = _chunk.Instructions.Count;
+                    var c = sw.Cases[i];
+                    foreach (var caseStmt in c.Consequent)
+                    {
+                        if (caseStmt is BreakStatement)
+                            endJumps.Add(_chunk.Emit(OpCode.Jump));
+                        else
+                            CompileStatement(caseStmt);
+                    }
+                }
+
+                // 3. Patch match jumps
+                foreach (var (jMatch, idx) in caseTestJumps)
+                    _chunk.PatchJump(jMatch, caseBodyStarts[idx]);
+
+                if (defaultCaseIdx != -1)
+                    _chunk.PatchJump(noMatchJump, caseBodyStarts[defaultCaseIdx]);
+                else
+                    _chunk.PatchJump(noMatchJump, _chunk.Instructions.Count);
+
+                _chunk.Emit(OpCode.Pop); // pop discriminant
+                var switchEnd = _chunk.Instructions.Count;
+                foreach (var j in endJumps)
+                    _chunk.PatchJump(j, switchEnd);
                 break;
 
             case ForStatement forStmt:
@@ -268,11 +349,6 @@ public sealed class NativeBytecodeCompiler
                         _chunk.Emit(OpCode.Add);
                         if (un.Operand is IdentifierExpression idIncr)
                         {
-                            if (!un.IsPrefix)
-                            {
-                                // postfix: we'd push original then store, simplified here to prefix for basic flow
-                            }
-                            _chunk.Emit(OpCode.Dup);
                             _chunk.Emit(OpCode.StoreGlobal, str: idIncr.Name);
                         }
                         break;
@@ -281,7 +357,6 @@ public sealed class NativeBytecodeCompiler
                         _chunk.Emit(OpCode.Sub);
                         if (un.Operand is IdentifierExpression idDecr)
                         {
-                            _chunk.Emit(OpCode.Dup);
                             _chunk.Emit(OpCode.StoreGlobal, str: idDecr.Name);
                         }
                         break;
@@ -310,21 +385,37 @@ public sealed class NativeBytecodeCompiler
                 break;
 
             case AssignmentExpression assign:
-                CompileExpression(assign.Value);
                 if (assign.Target is IdentifierExpression targetId)
                 {
-                    _chunk.Emit(OpCode.Dup);
+                    if (assign.Operator != "=")
+                    {
+                        _chunk.Emit(OpCode.LoadGlobal, str: targetId.Name);
+                        CompileExpression(assign.Value);
+                        switch (assign.Operator)
+                        {
+                            case "+=": _chunk.Emit(OpCode.Add); break;
+                            case "-=": _chunk.Emit(OpCode.Sub); break;
+                            case "*=": _chunk.Emit(OpCode.Mul); break;
+                            case "/=": _chunk.Emit(OpCode.Div); break;
+                        }
+                    }
+                    else
+                    {
+                        CompileExpression(assign.Value);
+                    }
                     _chunk.Emit(OpCode.StoreGlobal, str: targetId.Name);
                 }
                 else if (assign.Target is MemberExpression member)
                 {
                     if (!member.Computed && member.Property is LiteralExpression propLit && propLit.Value is string propName)
                     {
+                        CompileExpression(assign.Value);
                         CompileExpression(member.Object);
                         _chunk.Emit(OpCode.StoreProperty, str: propName);
                     }
                     else
                     {
+                        CompileExpression(assign.Value);
                         CompileExpression(member.Object);
                         CompileExpression(member.Property);
                         _chunk.Emit(OpCode.StoreElement);
@@ -346,7 +437,8 @@ public sealed class NativeBytecodeCompiler
                 CompileExpression(member.Object);
                 if (!member.Computed && member.Property is LiteralExpression memLit && memLit.Value is string propStr)
                 {
-                    _chunk.Emit(OpCode.LoadProperty, str: propStr);
+                    var cacheIdx = _chunk.AddInlineCache();
+                    _chunk.Emit(OpCode.LoadProperty, cacheIdx, str: propStr);
                 }
                 else
                 {

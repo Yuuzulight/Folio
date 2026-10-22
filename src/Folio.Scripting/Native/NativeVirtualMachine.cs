@@ -24,6 +24,10 @@ internal sealed class CallFrame
 
 public sealed class NativeVirtualMachine
 {
+    public static readonly NativeObject ObjectPrototype = CreateObjectPrototype();
+    public static readonly NativeObject ArrayPrototype = CreateArrayPrototype(ObjectPrototype);
+    public static readonly NativeObject StringPrototype = CreateStringPrototype(ObjectPrototype);
+
     private readonly List<NativeValue> _stack = [];
     private readonly List<CallFrame> _frames = [];
     private readonly LexicalEnvironment _globalEnv = new();
@@ -142,6 +146,309 @@ public sealed class NativeVirtualMachine
             }
             return NativeValue.Undefined;
         })));
+
+        // 6. Object
+        var objectCtor = new NativeObject();
+        objectCtor.Set("keys", NativeValue.FromFunction(new NativeFunction("keys", (_, _, args) =>
+        {
+            if (args.Length == 0 || !args[0].IsObject) return NativeValue.FromArray(new NativeArray());
+            var keys = args[0].AsObject().Keys.Select(NativeValue.FromString);
+            return NativeValue.FromArray(new NativeArray(keys));
+        })));
+        objectCtor.Set("values", NativeValue.FromFunction(new NativeFunction("values", (_, _, args) =>
+        {
+            if (args.Length == 0 || !args[0].IsObject) return NativeValue.FromArray(new NativeArray());
+            var obj = args[0].AsObject();
+            var vals = obj.Keys.Select(k => obj.Get(k));
+            return NativeValue.FromArray(new NativeArray(vals));
+        })));
+        objectCtor.Set("entries", NativeValue.FromFunction(new NativeFunction("entries", (_, _, args) =>
+        {
+            if (args.Length == 0 || !args[0].IsObject) return NativeValue.FromArray(new NativeArray());
+            var obj = args[0].AsObject();
+            var entries = obj.Keys.Select(k => (NativeValue)NativeValue.FromArray(new NativeArray([NativeValue.FromString(k), obj.Get(k)])));
+            return NativeValue.FromArray(new NativeArray(entries));
+        })));
+        objectCtor.Set("assign", NativeValue.FromFunction(new NativeFunction("assign", (_, _, args) =>
+        {
+            if (args.Length == 0) return NativeValue.Undefined;
+            var target = args[0];
+            if (!target.IsObject) return target;
+            var targetObj = target.AsObject();
+            for (var i = 1; i < args.Length; i++)
+            {
+                if (args[i].IsObject)
+                {
+                    var src = args[i].AsObject();
+                    foreach (var k in src.Keys) targetObj.Set(k, src.Get(k));
+                }
+            }
+            return target;
+        })));
+        _globalEnv.Declare("Object", NativeValue.FromObject(objectCtor));
+
+        // 7. Promise
+        var promiseCtor = new NativeObject();
+        promiseCtor.Set("resolve", NativeValue.FromFunction(new NativeFunction("resolve", (_, _, args) =>
+        {
+            var resVal = args.Length > 0 ? args[0] : NativeValue.Undefined;
+            var pObj = new NativeObject();
+            pObj.Set("then", NativeValue.FromFunction(new NativeFunction("then", (vm, _, thenArgs) =>
+            {
+                if (thenArgs.Length > 0 && thenArgs[0].IsFunction)
+                {
+                    var callback = thenArgs[0].AsFunction();
+                    vm.EnqueueMicrotask(() => vm.CallFunction(callback, NativeValue.Undefined, [resVal]));
+                }
+                return NativeValue.FromObject(pObj);
+            })));
+            pObj.Set("catch", NativeValue.FromFunction(new NativeFunction("catch", (_, _, _) => NativeValue.FromObject(pObj))));
+            return NativeValue.FromObject(pObj);
+        })));
+        promiseCtor.Set("reject", NativeValue.FromFunction(new NativeFunction("reject", (_, _, args) =>
+        {
+            var errVal = args.Length > 0 ? args[0] : NativeValue.Undefined;
+            var pObj = new NativeObject();
+            pObj.Set("then", NativeValue.FromFunction(new NativeFunction("then", (_, _, _) => NativeValue.FromObject(pObj))));
+            pObj.Set("catch", NativeValue.FromFunction(new NativeFunction("catch", (vm, _, catchArgs) =>
+            {
+                if (catchArgs.Length > 0 && catchArgs[0].IsFunction)
+                {
+                    var callback = catchArgs[0].AsFunction();
+                    vm.EnqueueMicrotask(() => vm.CallFunction(callback, NativeValue.Undefined, [errVal]));
+                }
+                return NativeValue.FromObject(pObj);
+            })));
+            return NativeValue.FromObject(pObj);
+        })));
+        _globalEnv.Declare("Promise", NativeValue.FromObject(promiseCtor));
+    }
+
+    private static NativeObject CreateObjectPrototype()
+    {
+        var proto = new NativeObject();
+        proto.Set("hasOwnProperty", NativeValue.FromFunction(new NativeFunction("hasOwnProperty", (_, thisVal, args) =>
+        {
+            if (args.Length == 0 || !thisVal.IsObject) return NativeValue.False;
+            return NativeValue.FromBoolean(thisVal.AsObject().Keys.Contains(args[0].AsString()));
+        })));
+        return proto;
+    }
+
+    private static NativeObject CreateArrayPrototype(NativeObject parentProto)
+    {
+        var proto = new NativeObject { Prototype = parentProto };
+        proto.Set("push", NativeValue.FromFunction(new NativeFunction("push", (_, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            for (var i = 0; i < args.Length; i++) arr.Elements.Add(args[i]);
+            return NativeValue.FromNumber(arr.Elements.Count);
+        })));
+        proto.Set("pop", NativeValue.FromFunction(new NativeFunction("pop", (_, thisVal, _) =>
+        {
+            var arr = thisVal.AsArray();
+            if (arr.Elements.Count == 0) return NativeValue.Undefined;
+            var last = arr.Elements[^1];
+            arr.Elements.RemoveAt(arr.Elements.Count - 1);
+            return last;
+        })));
+        proto.Set("shift", NativeValue.FromFunction(new NativeFunction("shift", (_, thisVal, _) =>
+        {
+            var arr = thisVal.AsArray();
+            if (arr.Elements.Count == 0) return NativeValue.Undefined;
+            var first = arr.Elements[0];
+            arr.Elements.RemoveAt(0);
+            return first;
+        })));
+        proto.Set("unshift", NativeValue.FromFunction(new NativeFunction("unshift", (_, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            for (var i = args.Length - 1; i >= 0; i--) arr.Elements.Insert(0, args[i]);
+            return NativeValue.FromNumber(arr.Elements.Count);
+        })));
+        proto.Set("slice", NativeValue.FromFunction(new NativeFunction("slice", (_, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            int start = args.Length > 0 ? (int)args[0].AsNumber() : 0;
+            int end = args.Length > 1 ? (int)args[1].AsNumber() : arr.Elements.Count;
+            if (start < 0) start = Math.Max(0, arr.Elements.Count + start);
+            if (end < 0) end = Math.Max(0, arr.Elements.Count + end);
+            start = Math.Clamp(start, 0, arr.Elements.Count);
+            end = Math.Clamp(end, start, arr.Elements.Count);
+            var res = new NativeArray(end - start);
+            for (var i = start; i < end; i++) res.Elements.Add(arr.Elements[i]);
+            return NativeValue.FromArray(res);
+        })));
+        proto.Set("join", NativeValue.FromFunction(new NativeFunction("join", (_, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            var sep = args.Length > 0 ? args[0].AsString() : ",";
+            return NativeValue.FromString(string.Join(sep, arr.Elements.Select(e => e.ToString())));
+        })));
+        proto.Set("indexOf", NativeValue.FromFunction(new NativeFunction("indexOf", (_, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            if (args.Length == 0) return NativeValue.FromNumber(-1);
+            var target = args[0];
+            for (var i = 0; i < arr.Elements.Count; i++)
+                if (NativeValue.StrictEqual(arr.Elements[i], target).AsBoolean()) return NativeValue.FromNumber(i);
+            return NativeValue.FromNumber(-1);
+        })));
+        proto.Set("includes", NativeValue.FromFunction(new NativeFunction("includes", (_, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            if (args.Length == 0) return NativeValue.False;
+            var target = args[0];
+            for (var i = 0; i < arr.Elements.Count; i++)
+                if (NativeValue.StrictEqual(arr.Elements[i], target).AsBoolean()) return NativeValue.True;
+            return NativeValue.False;
+        })));
+        proto.Set("forEach", NativeValue.FromFunction(new NativeFunction("forEach", (vm, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            if (args.Length > 0 && args[0].IsFunction)
+            {
+                var fn = args[0].AsFunction();
+                for (var i = 0; i < arr.Elements.Count; i++)
+                    vm.CallFunction(fn, NativeValue.Undefined, [arr.Elements[i], NativeValue.FromNumber(i), thisVal]);
+            }
+            return NativeValue.Undefined;
+        })));
+        proto.Set("map", NativeValue.FromFunction(new NativeFunction("map", (vm, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            var res = new NativeArray(arr.Elements.Count);
+            if (args.Length > 0 && args[0].IsFunction)
+            {
+                var fn = args[0].AsFunction();
+                for (var i = 0; i < arr.Elements.Count; i++)
+                    res.Elements.Add(vm.CallFunction(fn, NativeValue.Undefined, [arr.Elements[i], NativeValue.FromNumber(i), thisVal]));
+            }
+            return NativeValue.FromArray(res);
+        })));
+        proto.Set("filter", NativeValue.FromFunction(new NativeFunction("filter", (vm, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            var res = new NativeArray();
+            if (args.Length > 0 && args[0].IsFunction)
+            {
+                var fn = args[0].AsFunction();
+                for (var i = 0; i < arr.Elements.Count; i++)
+                {
+                    var keep = vm.CallFunction(fn, NativeValue.Undefined, [arr.Elements[i], NativeValue.FromNumber(i), thisVal]);
+                    if (keep.IsTruthy()) res.Elements.Add(arr.Elements[i]);
+                }
+            }
+            return NativeValue.FromArray(res);
+        })));
+        proto.Set("reduce", NativeValue.FromFunction(new NativeFunction("reduce", (vm, thisVal, args) =>
+        {
+            var arr = thisVal.AsArray();
+            if (args.Length == 0 || !args[0].IsFunction) return NativeValue.Undefined;
+            var fn = args[0].AsFunction();
+            int startIdx = 0;
+            NativeValue acc;
+            if (args.Length > 1)
+            {
+                acc = args[1];
+            }
+            else
+            {
+                if (arr.Elements.Count == 0) throw new ScriptRuntimeException("Reduce of empty array with no initial value");
+                acc = arr.Elements[0];
+                startIdx = 1;
+            }
+            for (var i = startIdx; i < arr.Elements.Count; i++)
+                acc = vm.CallFunction(fn, NativeValue.Undefined, [acc, arr.Elements[i], NativeValue.FromNumber(i), thisVal]);
+            return acc;
+        })));
+        return proto;
+    }
+
+    private static NativeObject CreateStringPrototype(NativeObject parentProto)
+    {
+        var proto = new NativeObject { Prototype = parentProto };
+        proto.Set("charAt", NativeValue.FromFunction(new NativeFunction("charAt", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var idx = args.Length > 0 ? (int)args[0].AsNumber() : 0;
+            return idx >= 0 && idx < str.Length ? NativeValue.FromString(str[idx].ToString()) : NativeValue.FromString("");
+        })));
+        proto.Set("charCodeAt", NativeValue.FromFunction(new NativeFunction("charCodeAt", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var idx = args.Length > 0 ? (int)args[0].AsNumber() : 0;
+            return idx >= 0 && idx < str.Length ? NativeValue.FromNumber(str[idx]) : NativeValue.FromNumber(double.NaN);
+        })));
+        proto.Set("slice", NativeValue.FromFunction(new NativeFunction("slice", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            int start = args.Length > 0 ? (int)args[0].AsNumber() : 0;
+            int end = args.Length > 1 ? (int)args[1].AsNumber() : str.Length;
+            if (start < 0) start = Math.Max(0, str.Length + start);
+            if (end < 0) end = Math.Max(0, str.Length + end);
+            start = Math.Clamp(start, 0, str.Length);
+            end = Math.Clamp(end, start, str.Length);
+            return NativeValue.FromString(str[start..end]);
+        })));
+        proto.Set("substring", NativeValue.FromFunction(new NativeFunction("substring", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            int start = args.Length > 0 ? (int)args[0].AsNumber() : 0;
+            int end = args.Length > 1 ? (int)args[1].AsNumber() : str.Length;
+            start = Math.Clamp(start, 0, str.Length);
+            end = Math.Clamp(end, 0, str.Length);
+            if (start > end) (start, end) = (end, start);
+            return NativeValue.FromString(str[start..end]);
+        })));
+        proto.Set("indexOf", NativeValue.FromFunction(new NativeFunction("indexOf", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var search = args.Length > 0 ? args[0].AsString() : "";
+            var from = args.Length > 1 ? (int)args[1].AsNumber() : 0;
+            return NativeValue.FromNumber(str.IndexOf(search, Math.Clamp(from, 0, str.Length), StringComparison.Ordinal));
+        })));
+        proto.Set("includes", NativeValue.FromFunction(new NativeFunction("includes", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var search = args.Length > 0 ? args[0].AsString() : "";
+            return NativeValue.FromBoolean(str.Contains(search, StringComparison.Ordinal));
+        })));
+        proto.Set("startsWith", NativeValue.FromFunction(new NativeFunction("startsWith", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var search = args.Length > 0 ? args[0].AsString() : "";
+            return NativeValue.FromBoolean(str.StartsWith(search, StringComparison.Ordinal));
+        })));
+        proto.Set("endsWith", NativeValue.FromFunction(new NativeFunction("endsWith", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var search = args.Length > 0 ? args[0].AsString() : "";
+            return NativeValue.FromBoolean(str.EndsWith(search, StringComparison.Ordinal));
+        })));
+        proto.Set("split", NativeValue.FromFunction(new NativeFunction("split", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var sep = args.Length > 0 ? args[0].AsString() : "";
+            var parts = sep.Length == 0 ? str.Select(c => c.ToString()).ToArray() : str.Split(sep);
+            var arr = new NativeArray(parts.Length);
+            foreach (var p in parts) arr.Elements.Add(NativeValue.FromString(p));
+            return NativeValue.FromArray(arr);
+        })));
+        proto.Set("replace", NativeValue.FromFunction(new NativeFunction("replace", (_, thisVal, args) =>
+        {
+            var str = thisVal.AsString();
+            var target = args.Length > 0 ? args[0].AsString() : "";
+            var replacement = args.Length > 1 ? args[1].AsString() : "";
+            var idx = str.IndexOf(target, StringComparison.Ordinal);
+            if (idx >= 0)
+                return NativeValue.FromString(str[..idx] + replacement + str[(idx + target.Length)..]);
+            return NativeValue.FromString(str);
+        })));
+        proto.Set("toLowerCase", NativeValue.FromFunction(new NativeFunction("toLowerCase", (_, thisVal, _) => NativeValue.FromString(thisVal.AsString().ToLowerInvariant()))));
+        proto.Set("toUpperCase", NativeValue.FromFunction(new NativeFunction("toUpperCase", (_, thisVal, _) => NativeValue.FromString(thisVal.AsString().ToUpperInvariant()))));
+        proto.Set("trim", NativeValue.FromFunction(new NativeFunction("trim", (_, thisVal, _) => NativeValue.FromString(thisVal.AsString().Trim()))));
+        return proto;
     }
 
     public NativeValue Execute(BytecodeChunk chunk)
@@ -259,7 +566,33 @@ public sealed class NativeVirtualMachine
                     if (target.IsObject)
                     {
                         var obj = target.AsObject();
-                        Push(obj.Get(propName));
+                        var cacheIdx = instr.Operand;
+                        if (cacheIdx >= 0 && cacheIdx < frame.Chunk.InlineCaches.Count)
+                        {
+                            var ic = frame.Chunk.InlineCaches[cacheIdx];
+                            if (ReferenceEquals(ic.CachedTarget, obj) && ic.CachedVersion == obj.Version)
+                            {
+                                Push(ic.CachedValue);
+                                break;
+                            }
+                            var val = obj.Get(propName);
+                            ic.CachedTarget = obj;
+                            ic.CachedVersion = obj.Version;
+                            ic.CachedValue = val;
+                            Push(val);
+                        }
+                        else
+                        {
+                            Push(obj.Get(propName));
+                        }
+                    }
+                    else if (target.IsString)
+                    {
+                        var str = target.AsString();
+                        if (propName == "length")
+                            Push(NativeValue.FromNumber(str.Length));
+                        else
+                            Push(StringPrototype.Get(propName));
                     }
                     else
                     {
@@ -276,6 +609,12 @@ public sealed class NativeVirtualMachine
                     {
                         var obj = target.AsObject();
                         var method = obj.Get(propName);
+                        Push(method);
+                        Push(target); // thisVal
+                    }
+                    else if (target.IsString)
+                    {
+                        var method = StringPrototype.Get(propName);
                         Push(method);
                         Push(target); // thisVal
                     }
@@ -322,6 +661,12 @@ public sealed class NativeVirtualMachine
                         var arr = target.AsArray();
                         var idx = (int)key.AsNumber();
                         Push(idx >= 0 && idx < arr.Elements.Count ? arr.Elements[idx] : NativeValue.Undefined);
+                    }
+                    else if (target.IsString && key.IsNumber)
+                    {
+                        var str = target.AsString();
+                        var idx = (int)key.AsNumber();
+                        Push(idx >= 0 && idx < str.Length ? NativeValue.FromString(str[idx].ToString()) : NativeValue.Undefined);
                     }
                     else if (target.IsObject)
                     {

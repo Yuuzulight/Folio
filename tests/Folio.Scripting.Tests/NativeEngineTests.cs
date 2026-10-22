@@ -211,4 +211,134 @@ queueMicrotask(function() { flag = 42; });
         Assert.True(engine.TryGetArrayBufferBytes(buffer, out var detachedBytes));
         Assert.Empty(detachedBytes);
     }
+
+    [Fact]
+    public void Engine_EvaluatesSwitchStatements()
+    {
+        using var engine = new NativeScriptEngine();
+        var res1 = engine.Evaluate(@"
+function getTier(score) {
+    let tier = 'none';
+    switch (score) {
+        case 100:
+            tier = 'perfect';
+            break;
+        case 90:
+            tier = 'excellent';
+            break;
+        default:
+            tier = 'pass';
+            break;
+    }
+    return tier;
+}
+getTier(90);");
+        Assert.Equal("excellent", res1.AsString());
+
+        var res2 = engine.Evaluate("getTier(100);");
+        Assert.Equal("perfect", res2.AsString());
+
+        var res3 = engine.Evaluate("getTier(50);");
+        Assert.Equal("pass", res3.AsString());
+    }
+
+    [Fact]
+    public void Engine_EvaluatesDoWhileLoops()
+    {
+        using var engine = new NativeScriptEngine();
+        var res = engine.Evaluate(@"
+let count = 0;
+let val = 1;
+do {
+    val *= 2;
+    count++;
+} while (count < 4);
+val;");
+        Assert.Equal(16.0, res.AsNumber());
+    }
+
+    [Fact]
+    public void Engine_SupportsArrayBuiltInMethods()
+    {
+        using var engine = new NativeScriptEngine();
+        var resPush = engine.Evaluate(@"
+let list = [1, 2];
+list.push(3, 4);
+list.join('-');");
+        Assert.Equal("1-2-3-4", resPush.AsString());
+
+        var resMap = engine.Evaluate(@"
+let nums = [1, 2, 3];
+nums.map(function(x) { return x * 10; }).join(',');");
+        Assert.Equal("10,20,30", resMap.AsString());
+
+        var resFilter = engine.Evaluate(@"
+let items = [5, 10, 15, 20];
+items.filter(function(x) { return x > 10; }).join(',');");
+        Assert.Equal("15,20", resFilter.AsString());
+
+        var resReduce = engine.Evaluate(@"
+[1, 2, 3, 4].reduce(function(acc, x) { return acc + x; }, 0);");
+        Assert.Equal(10.0, resReduce.AsNumber());
+
+        var resIndex = engine.Evaluate("[10, 20, 30].indexOf(20);");
+        Assert.Equal(1.0, resIndex.AsNumber());
+    }
+
+    [Fact]
+    public void Engine_SupportsStringBuiltInMethods()
+    {
+        using var engine = new NativeScriptEngine();
+        var resUpper = engine.Evaluate("'hello folio'.toUpperCase();");
+        Assert.Equal("HELLO FOLIO", resUpper.AsString());
+
+        var resSplit = engine.Evaluate("'apple,banana,orange'.split(',')[1];");
+        Assert.Equal("banana", resSplit.AsString());
+
+        var resSlice = engine.Evaluate("'abcdef'.slice(1, 4);");
+        Assert.Equal("bcd", resSlice.AsString());
+
+        var resIndex = engine.Evaluate("'folio engine'[6];");
+        Assert.Equal("e", resIndex.AsString());
+    }
+
+    [Fact]
+    public void Engine_SupportsObjectAndPromiseGlobals()
+    {
+        using var engine = new NativeScriptEngine();
+        var resKeys = engine.Evaluate(@"
+let obj = { a: 1, b: 2 };
+Object.keys(obj).join(',');");
+        Assert.Equal("a,b", resKeys.AsString());
+
+        var resAssign = engine.Evaluate(@"
+let target = { x: 1 };
+Object.assign(target, { y: 2 }, { z: 3 });
+target.x + target.y + target.z;");
+        Assert.Equal(6.0, resAssign.AsNumber());
+
+        engine.Evaluate(@"
+var asyncResult = 0;
+Promise.resolve(99).then(function(val) { asyncResult = val; });
+");
+        Assert.Equal(0.0, engine.GetGlobalProperty("asyncResult").AsNumber());
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal(99.0, engine.GetGlobalProperty("asyncResult").AsNumber());
+    }
+
+    [Fact]
+    public void Engine_VerifiesInlineCachingOnPropertyAccess()
+    {
+        using var engine = new NativeScriptEngine();
+        var res = engine.Evaluate(@"
+function getVal(o) { return o.score; }
+let o1 = { score: 10 };
+let o2 = { score: 20 };
+let sum = 0;
+for (let i = 0; i < 100; i++) {
+    sum += getVal(o1) + getVal(o2);
+}
+sum;");
+        Assert.Equal(3000.0, res.AsNumber());
+    }
 }

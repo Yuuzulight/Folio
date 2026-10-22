@@ -42,8 +42,12 @@ public sealed class NativeParser
             return ParseIfStatement();
         if (Match(NativeTokenType.While))
             return ParseWhileStatement();
+        if (Match(NativeTokenType.Do))
+            return ParseDoWhileStatement();
         if (Match(NativeTokenType.For))
             return ParseForStatement();
+        if (Match(NativeTokenType.Switch))
+            return ParseSwitchStatement();
         if (Match(NativeTokenType.Return))
             return ParseReturnStatement();
         if (Match(NativeTokenType.Break))
@@ -129,6 +133,67 @@ public sealed class NativeParser
         Consume(NativeTokenType.CloseParen, "Expected ')' after while condition.");
         var body = ParseStatement();
         return new WhileStatement(cond, body, line, col);
+    }
+
+    private DoWhileStatement ParseDoWhileStatement()
+    {
+        var line = Previous().Line;
+        var col = Previous().Column;
+        var body = ParseStatement();
+        Consume(NativeTokenType.While, "Expected 'while' after 'do' body.");
+        Consume(NativeTokenType.OpenParen, "Expected '(' after 'while'.");
+        var cond = ParseExpression();
+        Consume(NativeTokenType.CloseParen, "Expected ')' after condition.");
+        Match(NativeTokenType.Semicolon);
+        return new DoWhileStatement(body, cond, line, col);
+    }
+
+    private SwitchStatement ParseSwitchStatement()
+    {
+        var line = Previous().Line;
+        var col = Previous().Column;
+        Consume(NativeTokenType.OpenParen, "Expected '(' after 'switch'.");
+        var discriminant = ParseExpression();
+        Consume(NativeTokenType.CloseParen, "Expected ')' after switch value.");
+        Consume(NativeTokenType.OpenBrace, "Expected '{' before switch cases.");
+
+        var cases = new List<SwitchCase>();
+        while (!Check(NativeTokenType.CloseBrace) && !IsAtEnd())
+        {
+            if (Match(NativeTokenType.Case))
+            {
+                var caseLine = Previous().Line;
+                var caseCol = Previous().Column;
+                var test = ParseExpression();
+                Consume(NativeTokenType.Colon, "Expected ':' after case value.");
+                var stmts = new List<StatementNode>();
+                while (!Check(NativeTokenType.Case) && !Check(NativeTokenType.Default) && !Check(NativeTokenType.CloseBrace) && !IsAtEnd())
+                {
+                    if (Match(NativeTokenType.Semicolon)) continue;
+                    stmts.Add(ParseStatement());
+                }
+                cases.Add(new SwitchCase(test, stmts, caseLine, caseCol));
+            }
+            else if (Match(NativeTokenType.Default))
+            {
+                var defLine = Previous().Line;
+                var defCol = Previous().Column;
+                Consume(NativeTokenType.Colon, "Expected ':' after 'default'.");
+                var stmts = new List<StatementNode>();
+                while (!Check(NativeTokenType.Case) && !Check(NativeTokenType.Default) && !Check(NativeTokenType.CloseBrace) && !IsAtEnd())
+                {
+                    if (Match(NativeTokenType.Semicolon)) continue;
+                    stmts.Add(ParseStatement());
+                }
+                cases.Add(new SwitchCase(null, stmts, defLine, defCol));
+            }
+            else
+            {
+                break;
+            }
+        }
+        Consume(NativeTokenType.CloseBrace, "Expected '}' after switch.");
+        return new SwitchStatement(discriminant, cases, line, col);
     }
 
     private ForStatement ParseForStatement()

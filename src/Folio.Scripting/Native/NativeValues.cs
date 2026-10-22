@@ -176,7 +176,14 @@ public class NativeObject
 {
     private readonly Dictionary<string, NativeValue> _properties = new(StringComparer.Ordinal);
 
+    public int Version { get; private set; } = 1;
+
     public NativeObject? Prototype { get; set; }
+
+    public NativeObject()
+    {
+        Prototype = NativeVirtualMachine.ObjectPrototype;
+    }
 
     public virtual NativeValue Get(string name)
     {
@@ -188,9 +195,15 @@ public class NativeObject
     public virtual void Set(string name, NativeValue value)
     {
         _properties[name] = value;
+        Version++;
     }
 
-    public virtual bool Delete(string name) => _properties.Remove(name);
+    public virtual bool Delete(string name)
+    {
+        var removed = _properties.Remove(name);
+        if (removed) Version++;
+        return removed;
+    }
 
     public virtual bool Has(string name) => _properties.ContainsKey(name) || Prototype?.Has(name) == true;
 
@@ -203,11 +216,13 @@ public sealed class NativeArray : NativeObject
 
     public NativeArray(int capacity = 0)
     {
+        Prototype = NativeVirtualMachine.ArrayPrototype;
         Elements = new List<NativeValue>(capacity);
     }
 
     public NativeArray(IEnumerable<NativeValue> elements)
     {
+        Prototype = NativeVirtualMachine.ArrayPrototype;
         Elements = new List<NativeValue>(elements);
     }
 

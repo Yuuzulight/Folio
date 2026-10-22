@@ -169,7 +169,66 @@ public sealed class SoftwareCanvas : ICanvas
 
     public void FillRoundedRect(in RoundedRect rect, in Paint paint)
     {
-        FillRect(rect.Rect, paint);
+        if (rect.Radii.IsZero)
+        {
+            FillRect(rect.Rect, paint);
+            return;
+        }
+
+        var minX = Math.Max(0, (int)Math.Max(_currentClip.X, Math.Floor(rect.Rect.X)));
+        var maxX = Math.Min(_width, (int)Math.Min(_currentClip.Right, Math.Ceiling(rect.Rect.Right)));
+        var minY = Math.Max(0, (int)Math.Max(_currentClip.Y, Math.Floor(rect.Rect.Y)));
+        var maxY = Math.Min(_height, (int)Math.Min(_currentClip.Bottom, Math.Ceiling(rect.Rect.Bottom)));
+
+        var tl = rect.Radii.TopLeft;
+        var tr = rect.Radii.TopRight;
+        var br = rect.Radii.BottomRight;
+        var bl = rect.Radii.BottomLeft;
+
+        var isGradient = paint.Gradient is not null;
+        var (solidR, solidG, solidB, solidA) = isGradient ? default : EvaluatePaintColor(paint, 0, 0);
+
+        for (var y = minY; y < maxY; y++)
+        {
+            for (var x = minX; x < maxX; x++)
+            {
+                if (tl.X > 0 && tl.Y > 0 && x < rect.Rect.X + tl.X && y < rect.Rect.Y + tl.Y)
+                {
+                    var nx = (x - (rect.Rect.X + tl.X)) / tl.X;
+                    var ny = (y - (rect.Rect.Y + tl.Y)) / tl.Y;
+                    if (nx * nx + ny * ny > 1f) continue;
+                }
+                else if (tr.X > 0 && tr.Y > 0 && x > rect.Rect.Right - tr.X && y < rect.Rect.Y + tr.Y)
+                {
+                    var nx = (x - (rect.Rect.Right - tr.X)) / tr.X;
+                    var ny = (y - (rect.Rect.Y + tr.Y)) / tr.Y;
+                    if (nx * nx + ny * ny > 1f) continue;
+                }
+                else if (br.X > 0 && br.Y > 0 && x > rect.Rect.Right - br.X && y > rect.Rect.Bottom - br.Y)
+                {
+                    var nx = (x - (rect.Rect.Right - br.X)) / br.X;
+                    var ny = (y - (rect.Rect.Bottom - br.Y)) / br.Y;
+                    if (nx * nx + ny * ny > 1f) continue;
+                }
+                else if (bl.X > 0 && bl.Y > 0 && x < rect.Rect.X + bl.X && y > rect.Rect.Bottom - bl.Y)
+                {
+                    var nx = (x - (rect.Rect.X + bl.X)) / bl.X;
+                    var ny = (y - (rect.Rect.Bottom - bl.Y)) / bl.Y;
+                    if (nx * nx + ny * ny > 1f) continue;
+                }
+
+                var idx = (y * _width + x) * 4;
+                if (isGradient)
+                {
+                    var (r, g, b, a) = EvaluatePaintColor(paint, x, y);
+                    BlendPixel(idx, r, g, b, a);
+                }
+                else
+                {
+                    BlendPixel(idx, solidR, solidG, solidB, solidA);
+                }
+            }
+        }
     }
 
     public void FillRect(in RectF rect, in Paint paint)
@@ -179,20 +238,100 @@ public sealed class SoftwareCanvas : ICanvas
         var minY = Math.Max(0, (int)Math.Max(_currentClip.Y, Math.Floor(rect.Y)));
         var maxY = Math.Min(_height, (int)Math.Min(_currentClip.Bottom, Math.Ceiling(rect.Bottom)));
 
-        var c = paint.Color;
-        var srcR = (byte)Math.Clamp((int)(c.R * 255), 0, 255);
-        var srcG = (byte)Math.Clamp((int)(c.G * 255), 0, 255);
-        var srcB = (byte)Math.Clamp((int)(c.B * 255), 0, 255);
-        var srcA = (byte)Math.Clamp((int)(c.A * 255), 0, 255);
+        var isGradient = paint.Gradient is not null;
+        var (solidR, solidG, solidB, solidA) = isGradient ? default : EvaluatePaintColor(paint, 0, 0);
 
         for (var y = minY; y < maxY; y++)
         {
             for (var x = minX; x < maxX; x++)
             {
                 var idx = (y * _width + x) * 4;
-                BlendPixel(idx, srcR, srcG, srcB, srcA);
+                if (isGradient)
+                {
+                    var (r, g, b, a) = EvaluatePaintColor(paint, x, y);
+                    BlendPixel(idx, r, g, b, a);
+                }
+                else
+                {
+                    BlendPixel(idx, solidR, solidG, solidB, solidA);
+                }
             }
         }
+    }
+
+    private static (byte R, byte G, byte B, byte A) EvaluatePaintColor(in Paint paint, int x, int y)
+    {
+        if (paint.Gradient is { } grad && grad.Stops.Count > 0)
+        {
+            float t = 0f;
+            if (grad.Kind == GradientKind.Linear)
+            {
+                var dx = grad.End.X - grad.Start.X;
+                var dy = grad.End.Y - grad.Start.Y;
+                var lenSq = dx * dx + dy * dy;
+                if (lenSq > 1e-6f)
+                    t = ((x - grad.Start.X) * dx + (y - grad.Start.Y) * dy) / lenSq;
+            }
+            else if (grad.Kind == GradientKind.Radial)
+            {
+                var dx = (x - grad.Center.X) / Math.Max(1e-3f, grad.Radii.X);
+                var dy = (y - grad.Center.Y) / Math.Max(1e-3f, grad.Radii.Y);
+                t = MathF.Sqrt(dx * dx + dy * dy);
+            }
+
+            switch (grad.Spread)
+            {
+                case GradientSpread.Repeat:
+                    t = t - MathF.Floor(t);
+                    break;
+                case GradientSpread.Reflect:
+                    var intPart = (int)MathF.Floor(t);
+                    var frac = t - intPart;
+                    t = (intPart % 2 == 0) ? frac : (1f - frac);
+                    break;
+                default: // Pad
+                    t = Math.Clamp(t, 0f, 1f);
+                    break;
+            }
+
+            var c = InterpolateStops(grad.Stops, t);
+            return ((byte)Math.Clamp((int)(c.R * 255), 0, 255),
+                    (byte)Math.Clamp((int)(c.G * 255), 0, 255),
+                    (byte)Math.Clamp((int)(c.B * 255), 0, 255),
+                    (byte)Math.Clamp((int)(c.A * 255), 0, 255));
+        }
+
+        var col = paint.Color;
+        return ((byte)Math.Clamp((int)(col.R * 255), 0, 255),
+                (byte)Math.Clamp((int)(col.G * 255), 0, 255),
+                (byte)Math.Clamp((int)(col.B * 255), 0, 255),
+                (byte)Math.Clamp((int)(col.A * 255), 0, 255));
+    }
+
+    private static Rgba InterpolateStops(IReadOnlyList<GradientStop> stops, float t)
+    {
+        if (stops.Count == 1 || t <= stops[0].Offset)
+            return stops[0].Color;
+        if (t >= stops[^1].Offset)
+            return stops[^1].Color;
+
+        for (var i = 0; i < stops.Count - 1; i++)
+        {
+            if (t >= stops[i].Offset && t <= stops[i + 1].Offset)
+            {
+                var span = stops[i + 1].Offset - stops[i].Offset;
+                var f = span > 1e-6f ? (t - stops[i].Offset) / span : 0f;
+                var c1 = stops[i].Color;
+                var c2 = stops[i + 1].Color;
+                return new Rgba(
+                    c1.R + (c2.R - c1.R) * f,
+                    c1.G + (c2.G - c1.G) * f,
+                    c1.B + (c2.B - c1.B) * f,
+                    c1.A + (c2.A - c1.A) * f);
+            }
+        }
+
+        return stops[^1].Color;
     }
 
     public void FillPath(PathData path, FillRule rule, in Paint paint)

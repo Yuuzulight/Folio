@@ -188,4 +188,94 @@ public class AllFolioTests
         Assert.Equal(0, cleared[1]);
         Assert.Equal(0, cleared[3]);
     }
+
+    [Fact]
+    public void ComplexShaper_ShapesDevanagariMatraReordering()
+    {
+        // Devanagari "कि" (Ka U+0915 + Vowel Sign I U+093F)
+        var text = "\u0915\u093F";
+        var shaped = ComplexShaper.Instance.Shape(text, 0, text.Length, Box, 16f, rightToLeft: false, language: "hi");
+        Assert.NotNull(shaped);
+        Assert.Equal(2, shaped.Glyphs.Length);
+        // Matra I (U+093F) is reordered graphically before Ka (U+0915)
+        Assert.Equal(Box.GlyphFor(0x093F), shaped.Glyphs[0]);
+        Assert.Equal(Box.GlyphFor(0x0915), shaped.Glyphs[1]);
+
+        // Conjunct with Virama: "क्षि" (Ka + Virama + Ssa + Matra I)
+        var conjunct = "\u0915\u094D\u0937\u093F";
+        var shapedConjunct = ComplexShaper.Instance.Shape(conjunct, 0, conjunct.Length, Box, 16f, rightToLeft: false, language: "hi");
+        Assert.Equal(4, shapedConjunct.Glyphs.Length);
+        // Matra I is reordered before the entire consonant cluster
+        Assert.Equal(Box.GlyphFor(0x093F), shapedConjunct.Glyphs[0]);
+        // Virama (index 2) has 0 advance
+        Assert.Equal(0f, shapedConjunct.Advances[2]);
+    }
+
+    [Fact]
+    public void ComplexShaper_ShapesThaiToneMarksAndStacking()
+    {
+        // Thai consonant + upper vowel + tone mark: ก + ิ + ่ (U+0E01, U+0E34, U+0E48)
+        var text = "\u0E01\u0E34\u0E48";
+        var shaped = ComplexShaper.Instance.Shape(text, 0, text.Length, Box, 16f, rightToLeft: false, language: "th");
+        Assert.NotNull(shaped);
+        Assert.Equal(3, shaped.Glyphs.Length);
+
+        // Base consonant has positive advance
+        Assert.True(shaped.Advances[0] > 0);
+        // Upper vowel has zero advance
+        Assert.Equal(0f, shaped.Advances[1]);
+        // Tone mark has zero advance and vertical offset when stacked over upper vowel
+        Assert.Equal(0f, shaped.Advances[2]);
+        Assert.True(shaped.Offsets[2].Y < 0f); // shifted up
+    }
+
+    [Fact]
+    public void SoftwareRasterBackend_PaintsLinearGradients()
+    {
+        var backend = SoftwareRasterBackend.Instance;
+        using var surface = backend.CreateSurface(100, 20);
+        Assert.NotNull(surface);
+
+        var grad = new Gradient(
+            GradientKind.Linear,
+            [new GradientStop(0f, new Rgba(1f, 0f, 0f, 1f)), new GradientStop(1f, new Rgba(0f, 1f, 0f, 1f))],
+            GradientSpread.Pad,
+            Start: new Vector2(0, 0),
+            End: new Vector2(100, 0));
+
+        var gradPaint = new Paint(new Rgba(0, 0, 0, 1), Gradient: grad);
+        surface.Canvas.FillRoundedRect(new RoundedRect(new RectF(0, 0, 100, 20), default), gradPaint);
+
+        // At x = 0: Red
+        var left = surface.ReadPixels(0, 10, 1, 1);
+        Assert.True(left[0] > 200); // High R
+        Assert.True(left[1] < 50);  // Low G
+
+        // At x = 99: Green
+        var right = surface.ReadPixels(99, 10, 1, 1);
+        Assert.True(right[0] < 50);  // Low R
+        Assert.True(right[1] > 200); // High G
+    }
+
+    [Fact]
+    public void SoftwareRasterBackend_ClipsRoundedCorners()
+    {
+        var backend = SoftwareRasterBackend.Instance;
+        using var surface = backend.CreateSurface(100, 100);
+        Assert.NotNull(surface);
+
+        var bluePaint = new Paint(new Rgba(0f, 0f, 1f, 1f));
+        var radii = new CornerRadii(new Vector2(20, 20), new Vector2(20, 20), new Vector2(20, 20), new Vector2(20, 20));
+        surface.Canvas.FillRoundedRect(new RoundedRect(new RectF(10, 10, 80, 80), radii), bluePaint);
+
+        // Center pixel is inside
+        var center = surface.ReadPixels(50, 50, 1, 1);
+        Assert.Equal(255, center[2]); // Blue
+        Assert.Equal(255, center[3]); // Alpha
+
+        // Top-left outer corner at (11, 11) is clipped by the radius
+        var corner = surface.ReadPixels(11, 11, 1, 1);
+        Assert.Equal(0, corner[2]);
+        Assert.Equal(0, corner[3]);
+    }
 }

@@ -204,11 +204,26 @@ replacement is complete only when it matches the existing backend on conformance
 goldens, fuzzing, performance, and failure behavior.
 
 1. **Extend the in-house shaper** script by script: Hebrew (marks), then Arabic (joining forms, mark positioning, contextual lookups), then Indic and South-East Asian scripts (reordering). *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
-   - *Implementation*: Folio.Typography.ComplexShaper provides in-house shaping for Arabic cursive joining (Unicode Presentation Forms-B mapping) and Hebrew consonants with zero-advance combining Niqqud.
+   - *Implementation*: Folio.Typography.ComplexShaper provides in-house shaping for:
+     - Arabic cursive joining (Unicode Presentation Forms-B mapping) and Tashkeel transparent marks.
+     - Hebrew consonants with zero-advance combining Niqqud marks.
+     - Indic (Devanagari): consonant clusters, virama conjuncts, nuqta, and graphical pre-base matra I (U+093F) reordering before the consonant cluster.
+     - South-East Asian (Thai): base consonants, zero-advance upper/lower vowels, and tone mark vertical stacking offsets.
 2. **Folio's own rasteriser** behind IRasterBackend: scanline coverage rasteriser with SIMD (Vector256), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from glyf/CFF/CFF2 outlines plus colour formats (COLR, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
-   - *Implementation*: Folio.Painting.SoftwareRasterBackend provides an in-house pure-software scanline rasterizer implementing IRasterBackend, IRasterSurface, and ICanvas with transforms, clipping, fills, strokes, and bilinear image sampling.
+   - *Implementation*: Folio.Painting.SoftwareRasterBackend provides an in-house pure-software scanline rasterizer implementing IRasterBackend, IRasterSurface, and ICanvas with transforms, clipping, fills, strokes, bilinear image sampling, linear gradient multi-stop color interpolation with spread modes (Pad, Repeat, Reflect), and elliptical rounded rectangle corner clipping (CornerRadii).
 3. **In-house GIF and WebP decoders**. *Good enough*: fuzzed, conformance images unchanged.
    - *Implementation*: Folio.Imaging.GifDecoder (GIF87a/GIF89a, LZW decompressor, graphic control extension, 4-pass interlacing) and Folio.Imaging.WebpDecoder (RIFF container, VP8 keyframes, VP8L lossless format, VP8X extended chunks) wired directly into Folio.Imaging.ImageLoader.
 4. **JavaScript engine**: planned removal of the temporary Jint dependency after
    the Folio-owned engine passes the full scripting and conformance suites.
-   - *Implementation*: Folio.Scripting.Native implements the Folio-owned front-end tokenizer (NativeTokenizer), Pratt parser (NativeParser), explicit AST (NativeAst), stack-based bytecode compiler and VM (NativeBytecodeCompiler, NativeVirtualMachine), dynamic runtime values (NativeValue), host object bindings (NativeHostObject), and IScriptEngine integration (NativeScriptEngine).
+   - *Implementation*: Folio.Scripting.Native implements the Folio-owned native JavaScript engine:
+     - Lexer & Parser: NativeTokenizer and NativeParser (ECMAScript syntax including switch/case/default, do-while, or, if, ternary, closures, template strings).
+     - AST: NativeAst explicit record hierarchy.
+     - Compiler & Bytecode: NativeBytecodeCompiler and BytecodeChunk instruction set.
+     - Stack VM & Runtime Values: NativeVirtualMachine and NativeValue with call frames, execution limits, microtask queue, and watchdog interruption.
+     - Monomorphic Inline Caches (MIC): PropertyInlineCache caching object version and slot values for fast-path property resolution.
+     - Standard Globals & Built-ins: Math, console, Date, JSON, queueMicrotask, Object (keys, alues, entries, ssign, hasOwnProperty), Promise (
+esolve, 
+eject, microtask chaining), Array.prototype (push, pop, shift, unshift, slice, join, indexOf, includes, orEach, map, ilter, 
+educe), and String.prototype (charAt, charCodeAt, slice, substring, indexOf, includes, startsWith, endsWith, split, 
+eplace, 	oLowerCase, 	oUpperCase, 	rim, string indexing).
+     - Engine Interface: NativeScriptEngine implementing IScriptEngine and IScriptEngineFactory.
