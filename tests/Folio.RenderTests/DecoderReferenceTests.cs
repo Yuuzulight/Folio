@@ -3,13 +3,13 @@ using SkiaSharp;
 
 namespace Folio.RenderTests;
 
-/// <summary>Folio's own PNG, JPEG and GIF decoders against SkiaSharp's codecs, over the images in tests/images.</summary>
+/// <summary>Folio's own PNG, JPEG, GIF and WebP decoders against SkiaSharp's codecs, over the images in tests/images.</summary>
 public class DecoderReferenceTests
 {
     private static readonly string Folder = Path.Combine(RepoPaths.Tests, "images");
 
     public static TheoryData<string> Images =>
-        new(Directory.GetFiles(Folder).Where(f => f.EndsWith(".png") || f.EndsWith(".jpg") || (f.EndsWith(".gif") && !f.Contains("truncated"))).Select(f => Path.GetFileName(f)));
+        new(Directory.GetFiles(Folder).Where(f => f.EndsWith(".png") || f.EndsWith(".jpg") || (f.EndsWith(".gif") && !f.Contains("truncated")) || f.EndsWith(".webp")).Select(f => Path.GetFileName(f)));
 
     [Theory]
     [MemberData(nameof(Images))]
@@ -17,7 +17,7 @@ public class DecoderReferenceTests
     {
         var bytes = File.ReadAllBytes(Path.Combine(Folder, name));
         var png = name.EndsWith(".png");
-        var actual = png ? PngDecoder.Decode(bytes) : name.EndsWith(".gif") ? GifDecoder.Decode(bytes) : JpegDecoder.Decode(bytes);
+        var actual = png ? PngDecoder.Decode(bytes) : name.EndsWith(".gif") ? GifDecoder.Decode(bytes) : name.EndsWith(".webp") ? WebpDecoder.Decode(bytes) : JpegDecoder.Decode(bytes);
         Assert.NotNull(actual);
 
         var size = SKBitmap.DecodeBounds(bytes);
@@ -29,7 +29,7 @@ public class DecoderReferenceTests
         for (var i = 0; i < reference.Length; i++)
             worst = Math.Max(worst, Math.Abs(reference[i] - actual.Pixels[i]));
 
-        // PNG and GIF are lossless. JPEG decoders may differ by rounding in the inverse DCT, upsampling and colour conversion.
+        // PNG, GIF and lossless WebP are lossless. JPEG decoders may differ by rounding in the inverse DCT, upsampling and colour conversion.
         Assert.InRange(worst, 0, name.EndsWith(".jpg") ? 3 : 0);
     }
 }

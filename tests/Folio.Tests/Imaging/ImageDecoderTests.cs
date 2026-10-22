@@ -12,6 +12,46 @@ public class ImageDecoderTests
     private static int FrameHeader(byte[] jpeg) => jpeg.AsSpan().IndexOf([(byte)0xFF, (byte)0xC0]);
 
     [Fact]
+    public void RefusesAWebpOverTheSizeLimitsFromTheHeader()
+    {
+        Assert.NotNull(WebpDecoder.Decode(Image("lossless-one-pixel.webp"), maxPixels: 1));
+        Assert.Null(WebpDecoder.Decode(Image("lossless-two-colours-37x29.webp"), maxPixels: 37 * 29 - 1));
+        Assert.NotNull(WebpDecoder.Decode(Image("lossless-two-colours-37x29.webp"), maxPixels: 37 * 29));
+    }
+
+    [Theory]
+    [InlineData("lossless-sixteen-colours-40x30.webp")]
+    [InlineData("lossless-blocks-96x64.webp")]
+    [InlineData("lossless-alpha-gradient-50x40.webp")]
+    [InlineData("lossless-animated-64x48.webp")]
+    public void NoTruncatedWebpThrowsAndAnyImageItGivesIsTheDeclaredSize(string name)
+    {
+        var webp = Image(name);
+        var full = WebpDecoder.Decode(webp)!;
+        for (var length = 0; length < webp.Length; length++)
+        {
+            var decoded = WebpDecoder.Decode(webp.AsSpan(0, length));
+            if (decoded is not null)
+                Assert.Equal((full.Width, full.Height), (decoded.Width, decoded.Height));
+        }
+    }
+
+    [Fact]
+    public void ALosslessWebpWithABitFlippedIsNeverLargerThanItsHeaderSays()
+    {
+        var original = Image("lossless-test-pattern-300x200.webp");
+        var random = new Random(5);
+        for (var run = 0; run < 300; run++)
+        {
+            var webp = (byte[])original.Clone();
+            webp[random.Next(20, webp.Length)] ^= (byte)(1 << random.Next(8));
+            var decoded = WebpDecoder.Decode(webp);
+            if (decoded is not null)
+                Assert.Equal(decoded.Width * decoded.Height * 4, decoded.Pixels.Length);
+        }
+    }
+
+    [Fact]
     public void RefusesAGifFrameOverTheSizeLimit()
     {
         var gif = Image("one-pixel.gif");
