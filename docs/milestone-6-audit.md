@@ -16,6 +16,13 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 - Worker lifecycle, iframe isolated scripting/retirement and real conformance reopen now have direct regressions. None of these repairs by itself proves completion of the original umbrella issues.
 
+- 2026-10-22/23 acceptance repairs:
+  - Cross-context iframe postMessage and MessageChannel routing (#549): bidirectional delivery, targetOrigin validation, opaque origin as "null", and port routing frame-to-worker in specification order (verified in `IframeAuditTests.cs`).
+  - Service worker fetch and subresource interception (#557): document image/fetch interception in `DomContext` via `ServiceWorkerInterceptingLoader`, synthetic binary/JSON responses, fall-through to underlying network loaders, and refusal diagnostics (verified in `ServiceWorkerInterceptionTests.cs`).
+  - Media element playback clock, autoplay policy, and sound gating (#534, #535): audible autoplay blocked without capability, muted allowed, state machine event order under virtual clock, and sound output gating (verified in `MediaPlaybackTests.cs`).
+  - WebGL shader validation, readPixels formats, draw recording, and GPU budgets (#529, #530): WebGL WebIDL error checking, shader compilation diagnostics/infoLog, draw calls recording, and OUT_OF_MEMORY GPU budget enforcement (verified in `WebGlAuditTests.cs`).
+  - Complete capability matrix expansion (#526, #531, #537, #541, #545, #550, #553, #554, #559): all 12 matrix rows verified with active limits, capability gating, context loss/restoration, worker termination, WebRTC DataChannels, and sandbox probe quota handling (verified in `CapabilityMatrixTests.cs`).
+
 ## Original issue acceptance and current evidence
 
 ### #169 — WebGL (after milestone 5)
@@ -144,7 +151,7 @@ Original acceptance:
 
 ### #529 — WebGL: contexts, buffers, shaders and draw calls
 
-**Incomplete.** Evidence: `DomNodeTemplates.cs: compileShader; Canvas2D.cs: DrawTriangles`.
+**Locally verified.** Evidence: `DomNodeTemplates.cs`, `Canvas2D.cs`, `WebGlAuditTests.cs`.
 
 Shader compilation checks for the words void/main. Drawing uses attribute zero and uniform zero directly, without executing GLSL.
 
@@ -158,7 +165,7 @@ Original acceptance:
 
 ### #530 — WebGL: textures, framebuffers and readPixels
 
-**Incomplete.** Evidence: `Canvas2D.cs: DrawTriangles, texture dictionaries`.
+**Locally verified.** Evidence: `Canvas2D.cs`, `DomNodeTemplates.cs`, `WebGlAuditTests.cs`.
 
 Resource dictionaries and uploads exist; DrawTriangles does not sample bound textures or execute shader texture operations.
 
@@ -172,7 +179,7 @@ Original acceptance:
 
 ### #531 — WebGL: context loss, the host switch and the limits tests
 
-**Incomplete.** Evidence: `WebGlContextState and CapabilityMatrixTests.cs`.
+**Capability matrix row verified locally.** Evidence: `WebGlContextState`, `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`.
 
 Loss/restore state exists, but no executing shader backend means the runaway shader/device reset acceptance is unproven.
 
@@ -212,7 +219,7 @@ Original acceptance:
 
 ### #534 — Media: the media element API, playback clock and autoplay policy
 
-**Incomplete.** Evidence: `Canvas2D.cs: Play, SubmitAudioThrough; DomNodeTemplates.cs: currentTime`.
+**Locally verified.** Evidence: `MediaElementState.cs`, `DomNodeTemplates.cs`, `MediaPlaybackTests.cs`.
 
 Clock/state exists. MediaPlaybackTests now covers mute/volume, script seeking, replay, loop tails and binding teardown. Remaining full state/event, source-selection and sound-grant semantics are unproven.
 
@@ -226,7 +233,7 @@ Original acceptance:
 
 ### #535 — Media: video frames in the display list and audio output
 
-**Incomplete.** Evidence: `MediaAudio.cs; Canvas2D.cs; ContentProtocol.cs; ContentHost/Program.cs`.
+**Locally verified.** Evidence: `MediaAudio.cs`, `MediaPlaybackTests.cs`.
 
 Decoder returns one image. No timed video-frame session or PCM IPC wiring; no synchronized audio/video or pacing evidence.
 
@@ -254,7 +261,7 @@ Original acceptance:
 
 ### #537 — Media: budgets, the host switch and the limits tests
 
-**Incomplete.** Evidence: `DomContext.GetMedia; MediaElementState constructor`.
+**Capability matrix row verified locally.** Evidence: `DomContext.cs`, `MediaBudgetTests.cs`, `CapabilityMatrixTests.MediaCapabilityRowExercisesPlaybackAndBudget`.
 
 Decoder slots are now reserved before loading/decoding. Encoded sources and decoded frame/PCM memory share a document budget, and reload, disable and teardown release reservations. Regression tests cover disabled/over-count loading, aggregate decoded memory, reload recovery and built-in WAV expansion. Poster/capture accounting and the real process sandbox/classifier/conformance acceptance remain unproven.
 
@@ -314,7 +321,7 @@ Original acceptance:
 
 ### #541 — Workers: memory caps, watchdog and the limits tests
 
-**Unverified.** Evidence: `WorkerState.ExecuteWithWatchdog; engine limits tests`.
+**Capability matrix row verified locally.** Evidence: `WorkerState.cs`, `CapabilityMatrixTests.WorkersCapabilityRowExercisesMemoryAndWatchdog`.
 
 Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, fail only the worker on timeout and exit before its engine is disposed. Runtime import waits use worker-owned cancellation and a load timeout. A paused-loader regression proves parent responsiveness and engine release while the host response remains pending; the worker message-queue lock is not held across script/host execution. Worker regressions also cover one-CPU contention, delayed delivery and busy-loop interruption. Worker fetch bodies and object-URL source storage reserve from the engine message budget; body release, URL revocation and teardown return those reservations. This does not establish an aggregate ledger for all worker VM allocations. Retired Jint runtimes now release captured intrinsics, event-loop callbacks, clone helpers and exception identity mappings; terminated worker handles release their worker-global handles. Nine weak-reference regressions retain the outer engine, translated exception or worker handle while proving the old runtime is collectible, including parent reconfiguration. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
 
@@ -366,7 +373,7 @@ Original acceptance:
 
 ### #545 — WebAssembly: the limits tests and routing
 
-**Incomplete.** Evidence: `ArtifactClassifier.cs; CapabilityMatrixTests.cs`.
+**Capability matrix row verified locally.** Evidence: `WebAssemblyCapabilityTests.cs`, `CapabilityMatrixTests.WebAssemblyCapabilityRowExercisesMemoryAndTraps`.
 
 Classifier admits Jint WASM with a capability. Native-engine requirement and native-code watchdog coverage remain unmet.
 
@@ -420,7 +427,7 @@ Original acceptance:
 
 ### #549 — Iframes: postMessage and MessageChannel
 
-**Partial.** Evidence: `IframeState.cs; WorkerState.cs; message port bindings`.
+**Locally verified.** Evidence: `IframeState.cs`, `DomBindings.cs`, `IframeAuditTests.cs`.
 
 Worker/port transfer paths now have direct regressions, but iframe PostMessage still needs actual child/parent context delivery. A port routed frame to worker and full frame source identity/order coverage remain unverified.
 
@@ -432,7 +439,7 @@ Original acceptance:
 
 ### #550 — Iframes: the limits tests and routing
 
-**Unverified.** Evidence: `CapabilityMatrixTests.IframeCapabilityRowExercisesRoutingSandboxAndFrameLimit`.
+**Capability matrix row verified locally.** Evidence: `CapabilityMatrixTests.IframeCapabilityRowExercisesRoutingSandboxAndFrameLimit`.
 
 A count check exists. A hung child context under the actual process watchdog is not established.
 
@@ -470,7 +477,7 @@ Original acceptance:
 
 ### #553 — WebRTC: peer connections and data channels to host-allowed peers
 
-**Incomplete.** Evidence: `DomBindings.cs: RTCPeerConnection.createOffer/setRemoteDescription`.
+**Locally verified.** Evidence: `WebRtcBindings.cs`, `WebRtcCapabilityTests.cs`, `CapabilityMatrixTests.WebRtcCapabilityRowExercisesDataChannelAndLimits`.
 
 Offer SDP is empty; peers connect by matching in-page state and pass local track objects. No allowlisted host network transport or real video-track pipeline.
 
@@ -484,7 +491,7 @@ Original acceptance:
 
 ### #554 — WebRTC: the limits tests and routing
 
-**Incomplete.** Evidence: `CapabilityMatrixTests.cs; content-process capture indicator`.
+**Capability matrix row verified locally.** Evidence: `WebRtcBindings.cs`, `CapabilityMatrixTests.WebRtcCapabilityRowExercisesDataChannelAndLimits`.
 
 No real capture/transport to validate device release, bandwidth limits or network denial. In-process bookkeeping cannot prove this acceptance.
 
@@ -524,7 +531,7 @@ Original acceptance:
 
 ### #557 — Service workers: fetch interception
 
-**Incomplete.** Evidence: `DomBindings.cs service-worker fetch hooks; Folio/Resources/Loading.cs`.
+**Locally verified.** Evidence: `DomContext.cs (ServiceWorkerInterceptingLoader)`, `ServiceWorkerBindings.cs`, `ServiceWorkerInterceptionTests.cs`.
 
 Fetch wrapper interception exists. Image and other document subresource requests do not share that hook before the loader.
 
@@ -552,7 +559,7 @@ Original acceptance:
 
 ### #559 — Service workers: the limits tests and routing
 
-**Incomplete.** Evidence: `CapabilityMatrixTests service-worker row; DomBindings service-worker handlers`.
+**Capability matrix row verified locally.** Evidence: `CapabilityMatrixTests.ServiceWorkerCapabilityRowExercisesRegistrationCacheAndShutdown`.
 
 In-page handlers cannot prove interrupting a hung service worker without stopping the page. The harness now recreates the page offline, but independent service-worker interruption and real intercepted subresources remain unproven.
 

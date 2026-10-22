@@ -82,7 +82,7 @@ public sealed class CanvasDisplayListTests
 
         public int Height { get; } = height;
 
-        public ReadOnlyMemory<byte> Pixels_ => new byte[width * height * 4];
+        public ReadOnlyMemory<byte> Pixels_ => new byte[Width * Height * 4];
 
         ReadOnlyMemory<byte> IImageHandle.Pixels => Pixels_;
     }
