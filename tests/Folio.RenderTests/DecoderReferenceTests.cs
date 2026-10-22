@@ -29,7 +29,7 @@ public class DecoderReferenceTests
         for (var i = 0; i < reference.Length; i++)
             worst = Math.Max(worst, Math.Abs(reference[i] - actual.Pixels[i]));
 
-        // PNG, GIF and lossless WebP are lossless. JPEG decoders may differ by rounding in the inverse DCT, upsampling and colour conversion.
-        Assert.InRange(worst, 0, name.EndsWith(".jpg") ? 3 : 0);
+        // PNG, GIF and lossless WebP are lossless. A lossy WebP is equal today; one step is allowed for the codec's rounding. JPEG decoders may differ by rounding in the inverse DCT, upsampling and colour conversion.
+        Assert.InRange(worst, 0, name.EndsWith(".jpg") ? 3 : name.StartsWith("lossy-") ? 1 : 0);
     }
 }

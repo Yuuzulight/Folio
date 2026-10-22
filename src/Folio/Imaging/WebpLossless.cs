@@ -52,6 +52,23 @@ internal static class WebpLossless
         }
     }
 
+    /// <summary>Decodes a VP8L stream that has no header, its size known from elsewhere (the alpha plane of a lossy file).</summary>
+    public static uint[]? DecodeHeaderless(ReadOnlySpan<byte> data, int width, int height, long maxPixels)
+    {
+        try
+        {
+            if (!ImageLimits.Allows(width, height, maxPixels))
+                return null;
+            var decoder = new Decoder(new BitReader(data));
+            var argb = decoder.DecodeMain(width, height);
+            return argb is null || decoder.Bits.Overrun ? null : argb;
+        }
+        catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
+        {
+            return null;
+        }
+    }
+
     private sealed class BitReader(ReadOnlySpan<byte> source)
     {
         private readonly byte[] _data = source.ToArray();

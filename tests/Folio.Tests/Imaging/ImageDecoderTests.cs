@@ -24,6 +24,9 @@ public class ImageDecoderTests
     [InlineData("lossless-blocks-96x64.webp")]
     [InlineData("lossless-alpha-gradient-50x40.webp")]
     [InlineData("lossless-animated-64x48.webp")]
+    [InlineData("lossy-alpha-33x21.webp")]
+    [InlineData("lossy-four-partitions-33x21.webp")]
+    [InlineData("lossy-bars-320x180.webp")]
     public void NoTruncatedWebpThrowsAndAnyImageItGivesIsTheDeclaredSize(string name)
     {
         var webp = Image(name);
@@ -34,6 +37,31 @@ public class ImageDecoderTests
             if (decoded is not null)
                 Assert.Equal((full.Width, full.Height), (decoded.Width, decoded.Height));
         }
+    }
+
+    [Theory]
+    [InlineData("lossy-bars-320x180.webp")]
+    [InlineData("lossy-alpha-64x48.webp")]
+    [InlineData("lossy-eight-partitions-64x48.webp")]
+    public void ALossyWebpWithABitFlippedIsNeverLargerThanItsHeaderSays(string name)
+    {
+        var original = Image(name);
+        var random = new Random(11);
+        for (var run = 0; run < 300; run++)
+        {
+            var webp = (byte[])original.Clone();
+            webp[random.Next(20, webp.Length)] ^= (byte)(1 << random.Next(8));
+            var decoded = WebpDecoder.Decode(webp);
+            if (decoded is not null)
+                Assert.Equal(decoded.Width * decoded.Height * 4, decoded.Pixels.Length);
+        }
+    }
+
+    [Fact]
+    public void ALossyWebpOverTheSizeLimitIsRefusedFromItsHeader()
+    {
+        Assert.NotNull(WebpDecoder.Decode(Image("lossy-33x33.webp"), maxPixels: 33 * 33));
+        Assert.Null(WebpDecoder.Decode(Image("lossy-33x33.webp"), maxPixels: 33 * 33 - 1));
     }
 
     [Fact]
