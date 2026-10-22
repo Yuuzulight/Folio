@@ -103,6 +103,10 @@ internal static class GifDecoder
                 var imgPacked = data[pos + 8];
                 pos += 9;
 
+                // The frame's own size comes from the file too: checked before the index buffer is allocated.
+                if (!ImageLimits.Allows(imgWidth, imgHeight, maxPixels))
+                    return null;
+
                 var hasLct = (imgPacked & 0x80) != 0;
                 var isInterlaced = (imgPacked & 0x40) != 0;
                 var lctSize = 1 << ((imgPacked & 0x07) + 1);
