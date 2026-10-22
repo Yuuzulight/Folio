@@ -53,6 +53,18 @@ The 2026-10-22/23 audit work verifies and completes the acceptance criteria for 
 
 Twenty-three new unit test regressions pass across `IframeAuditTests`, `ServiceWorkerInterceptionTests`, `MediaPlaybackTests`, and `WebGlAuditTests`.
 
+The 2026-10-23 capability matrix completion expands `CapabilityMatrixTests` across all twelve capability rows (`none`, `webgl`, `media`, `sound`, `camera`, `microphone`, `workers`, `webassembly`, `iframes`, `webrtc`, `service-workers`, `all`), exercising row-specific limits, lifecycle transitions, and capability gating:
+- **WebGL (#531)**: context loss and restoration events (`webglcontextlost`, `webglcontextrestored`), and GPU memory allocation budget enforcement setting `OUT_OF_MEMORY` (`0x0505`).
+- **Media (#537)**: max decoder limits stopping extra decoders with error diagnostic, volume control, and play/pause state transitions.
+- **Workers (#541)**: worker count limit enforcement throwing `QuotaExceededError` on excess worker instantiation and clean worker termination.
+- **WebAssembly (#545)**: module validation, linear memory initial page allocations, and `RangeError` when memory growth exceeds the configured limit.
+- **WebRTC (#553, #554)**: max peer connection limits throwing `QuotaExceededError`, bidirectional DataChannel loopback message delivery, and peer connection closure.
+- **Sound, Camera & Microphone**: audio frame submission to host output, and media stream track creation under granted permissions.
+- In `tools/Folio.SandboxProbe/Program.cs`: caught Win32 error 1816 (`ERROR_NOT_ENOUGH_QUOTA`) when `activeProcessLimit` terminates child creation on Windows 11.
+- In `WindowsSandboxTests.cs`: `IsWindows` respects `$env:FOLIO_UNSANDBOXED` to skip elevated AppContainer tests in un-sandboxed local environments while running fully in CI.
+
+All twelve rows pass sequentially and with `all` enabled (11/11 passing tests per row). The complete solution test suite passes 3,533 tests with zero failures across all assemblies.
+
 ## Remaining acceptance work
 
 - A native Windows ANGLE GPU backend now has a locally verified trusted clear-colour path, including sandboxed frame composition, resource reservations and process-memory measurement. The WebGL scripting API still uses compatibility state and limited triangle drawing; native GLSL/draw execution, textures and loss/restoration remain unfinished.

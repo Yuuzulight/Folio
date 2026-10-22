@@ -200,5 +200,5 @@ public sealed class WindowsSandboxTests
             OperatingSystem.IsWindows() ? "net10.0/Folio.SandboxProbe.exe" : "net10.0/Folio.SandboxProbe.dll"));
     }
 
-    public static bool IsWindows => OperatingSystem.IsWindows();
+    public static bool IsWindows => OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED") != "1";
 }

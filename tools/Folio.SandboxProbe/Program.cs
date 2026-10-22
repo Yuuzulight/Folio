@@ -176,7 +176,7 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
             childDenied = false;
         }
     }
-    catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode is 5 or 367)
+    catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode is 5 or 367 or 1816)
     {
         childDenied = true;
     }
