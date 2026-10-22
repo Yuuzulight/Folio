@@ -1,6 +1,6 @@
 # Milestone 6 status
 
-After the current Milestone 6 wiring and end-to-end verification goal is complete, the requested follow-on work is an acceptance audit of milestones 0–5 against their original requirements, implementation and runtime evidence. Existing completion labels alone do not prove acceptance.
+The acceptance audit of Milestones 0–5 against their original requirements, implementation architecture, and runtime evidence is complete: see [Milestones 0–5 acceptance audit](milestones-0-5-audit.md). Existing completion labels alone do not prove acceptance; the audit documents the verified runtime proofs.
 
 Milestone 6 is **in progress**. The earlier completion announcement and issue closures did not establish the original acceptance criteria. See the [issue-by-issue audit](milestone-6-audit.md) for all 45 original issues and their remaining requirements.
 

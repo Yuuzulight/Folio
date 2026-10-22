@@ -1,6 +1,6 @@
 # Roadmap
 
-Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`.
+Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`. The verified acceptance baseline for Milestones 0 through 5 is documented in the [Milestones 0–5 acceptance audit](milestones-0-5-audit.md).
 
 ## 0. Study and architecture
 
