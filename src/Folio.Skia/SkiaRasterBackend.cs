@@ -76,7 +76,7 @@ internal sealed class SkiaRasterSurface : IRasterSurface
         canvas.ResetMatrix();
         canvas.ClipRect(SKRect.Create(0, 0, Width, Height));
         using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-        canvas.DrawImage(image, x, y, paint);
+        canvas.DrawImage(image, x, y, SKSamplingOptions.Default, paint);
         canvas.Restore();
     }
 

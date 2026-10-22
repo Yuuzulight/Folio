@@ -96,7 +96,7 @@ public sealed class SkiaCanvas(SKCanvas canvas, bool subpixelText = false) : ICa
             return;
         using var skPaint = Fill(paint);
         using var font = new SKFont(SKTypeface.Default, Math.Clamp(bounds.Height * 0.28f, 8, 14));
-        canvas.DrawText(text, bounds.X + 4, bounds.Y + Math.Min(bounds.Height - 3, font.Size), font, skPaint);
+        canvas.DrawText(text, bounds.X + 4, bounds.Y + Math.Min(bounds.Height - 3, font.Size), SKTextAlign.Left, font, skPaint);
     }
 
     public void StrokeGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Stroke stroke, in Paint paint)
