@@ -51,6 +51,8 @@ internal sealed class ImageLoader(ResourceLoader loader, string? baseUrl, Action
     public static DecodedImage? Decode(ReadOnlySpan<byte> data) =>
         PngDecoder.CanDecode(data) ? PngDecoder.Decode(data)
         : JpegDecoder.CanDecode(data) ? JpegDecoder.Decode(data)
+        : GifDecoder.CanDecode(data) ? GifDecoder.Decode(data)
+        : WebpDecoder.CanDecode(data) ? WebpDecoder.Decode(data)
         : null;
 
     /// <summary>
