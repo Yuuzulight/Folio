@@ -109,13 +109,75 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
     private string ResolveSource(string source) => string.IsNullOrWhiteSpace(source) ? "about:blank"
         : BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
 
+    private static bool OriginMatches(string targetOrigin, string expectedOrigin)
+    {
+        if (targetOrigin == "*") return true;
+        if (expectedOrigin == "null") return false;
+        return string.Equals(targetOrigin.TrimEnd('/'), expectedOrigin.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+    }
+
     public void PostMessage(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
     {
-        if (!PermissionGranted || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
-        var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window, ports: StructuredCloneCodec.CreatePorts(Engine, [])));
-        if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
-        foreach (var listener in _messageListeners.ToArray())
-            if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+        if (!PermissionGranted || Closed) return;
+        if (_childEngine is null) LoadInlineDocument();
+        if (!OriginMatches(targetOrigin, Origin)) return;
+
+        var maxBytes = ParentOptions?.Limits.MaxWorkerMessageBytes ?? 1024 * 1024;
+        var senderOrigin = ParentOrigin;
+
+        if (_childEngine is not null)
+        {
+            var normalizedTransfer = StructuredCloneCodec.NormalizeTransfer(Engine, transfer, postMessage: true);
+            var prepared = StructuredCloneCodec.Prepare(Engine, data, normalizedTransfer, maxBytes, MessagePortEndpoint.TryGetPort);
+            var payload = prepared.Commit();
+
+            var decoded = StructuredCloneCodec.Decode(_childEngine, payload,
+                (port, dest) => port.ClaimTransfer(dest, _childLoop, maxBytes).GetWrapper());
+            var childPorts = StructuredCloneCodec.CreatePorts(_childEngine, decoded.Ports);
+
+            var parentProxy = _childEngine.GetGlobalProperty("parent");
+            var dispatcher = _childEngine.Evaluate("(function(data, origin, source, ports) { if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof MessageEvent === 'function') { window.dispatchEvent(new MessageEvent('message', { data: data, origin: origin, source: source, ports: ports })); } })");
+            _childEngine.Call(dispatcher, ScriptValue.Undefined, [decoded.Value, ScriptValue.FromString(senderOrigin), parentProxy.IsObject ? parentProxy : ScriptValue.Null, childPorts]);
+            _childLoop?.PerformMicrotaskCheckpoint();
+        }
+
+        if (OnMessage.IsFunction || _messageListeners.Count > 0)
+        {
+            var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window, ports: StructuredCloneCodec.CreatePorts(Engine, [])));
+            if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
+            foreach (var listener in _messageListeners.ToArray())
+                if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+        }
+    }
+
+    internal void PostMessageToParent(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
+    {
+        if (!PermissionGranted || Closed) return;
+        if (!OriginMatches(targetOrigin, ParentOrigin)) return;
+
+        var maxBytes = ParentOptions?.Limits.MaxWorkerMessageBytes ?? 1024 * 1024;
+        var senderOrigin = Origin;
+
+        IReadOnlyList<ScriptValue> transferredPorts = [];
+        ScriptValue clonedData = data;
+
+        if (_childEngine is not null)
+        {
+            var normalizedTransfer = StructuredCloneCodec.NormalizeTransfer(_childEngine, transfer, postMessage: true);
+            var prepared = StructuredCloneCodec.Prepare(_childEngine, data, normalizedTransfer, maxBytes, MessagePortEndpoint.TryGetPort);
+            var payload = prepared.Commit();
+
+            var decoded = StructuredCloneCodec.Decode(Engine, payload,
+                (port, dest) => port.ClaimTransfer(dest, null, maxBytes).GetWrapper());
+            clonedData = decoded.Value;
+            transferredPorts = decoded.Ports;
+        }
+
+        var portsArray = StructuredCloneCodec.CreatePorts(Engine, transferredPorts);
+        var sourceProxy = Window.IsObject ? Window : Engine.CreateHostObject(MessageEventTemplate, this);
+
+        var dispatcher = Engine.Evaluate("(function(data, origin, source, ports) { if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof MessageEvent === 'function') { window.dispatchEvent(new MessageEvent('message', { data: data, origin: origin, source: source, ports: ports })); } })");
+        Engine.Call(dispatcher, ScriptValue.Undefined, [clonedData, ScriptValue.FromString(senderOrigin), sourceProxy, portsArray]);
     }
 
     public void AddMessageListener(ScriptValue listener)
@@ -297,6 +359,29 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 if (!IsCurrent()) return;
                 childRunner = new ScriptRunner(childDocument, childEngine, childLoop, options);
                 _childRunner = childRunner;
+
+                var parentWindowTemplate = new HostObjectTemplate("WindowProxy")
+                    .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((IframeState)target).Closed))
+                    .DefineProperty("origin", (target, _) => ScriptValue.FromString(((IframeState)target).ParentOrigin))
+                    .DefineMethod("postMessage", (target, _, args) =>
+                    {
+                        if (args.Length > 0)
+                        {
+                            var data = args[0];
+                            var targetOrigin = args.Length > 1 ? WebIdlConversions.ToDOMString(args[1]) : "*";
+                            var transfer = args.Length > 2 ? args[2] : ScriptValue.Undefined;
+                            ((IframeState)target).PostMessageToParent(data, targetOrigin, transfer);
+                        }
+                        return ScriptValue.Undefined;
+                    });
+                var parentProxy = childEngine.CreateHostObject(parentWindowTemplate, this);
+                childEngine.SetGlobalProperty("__folio_parent_window", parentProxy);
+                childEngine.EvaluateHostScript("""
+                    globalThis.parent = __folio_parent_window;
+                    globalThis.top = __folio_parent_window;
+                    delete globalThis.__folio_parent_window;
+                """, "folio:iframe-parent");
+
                 childRunner.Run();
             }
             committed = IsCurrent();
@@ -346,6 +431,8 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             Engine.Call(OnLoad, ScriptValue.Undefined, [eventValue]);
         }
     }
+
+    internal void PumpChildLoop() => _childLoop?.SpinUntilIdle();
 
     public void Render(float width, float height)
     {

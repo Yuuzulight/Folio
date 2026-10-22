@@ -2902,6 +2902,20 @@ internal sealed class DomNodeTemplates
                 ((ElementNode)target).SetAttribute("height", num.ToString());
             });
 
+        t.DefineProperty("naturalWidth", (target, _) =>
+        {
+            var el = (ElementNode)target;
+            var img = _context.ImageOf(el);
+            return ScriptValue.FromNumber(img?.Width ?? 0);
+        });
+
+        t.DefineProperty("naturalHeight", (target, _) =>
+        {
+            var el = (ElementNode)target;
+            var img = _context.ImageOf(el);
+            return ScriptValue.FromNumber(img?.Height ?? 0);
+        });
+
         return t;
     }
 

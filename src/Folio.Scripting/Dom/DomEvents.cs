@@ -1234,7 +1234,7 @@ internal static class DomEvents
             defineGlobal('Event', Event);
             defineGlobal('CustomEvent', CustomEvent);
             defineGlobal('ErrorEvent', ErrorEvent);
-            if (host.workerScope) defineGlobal('MessageEvent', MessageEvent);
+            defineGlobal('MessageEvent', MessageEvent);
             if (!host.workerScope) {
                 defineGlobal('UIEvent', UIEvent);
                 defineGlobal('MouseEvent', MouseEvent);

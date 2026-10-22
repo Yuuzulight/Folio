@@ -71,6 +71,16 @@ public static class DomBindings
     }
 
     /// <summary>Stops background work owned by the document before its content process closes.</summary>
+    internal static void PumpIframes(IScriptEngine engine)
+    {
+        if (Contexts.TryGetValue(engine, out var context)) context.PumpIframes();
+    }
+
+    internal static Folio.Imaging.IImageHandle? GetImageOf(IScriptEngine engine, ElementNode element)
+    {
+        return Contexts.TryGetValue(engine, out var context) ? context.ImageOf(element) : null;
+    }
+
     public static bool Dispose(IScriptEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -189,6 +199,36 @@ public static class DomBindings
         engine.EvaluateHostScript(@"
             if (typeof window === 'undefined') {
                 globalThis.window = globalThis;
+            }
+            if (typeof parent === 'undefined') {
+                globalThis.parent = globalThis;
+            }
+            if (typeof top === 'undefined') {
+                globalThis.top = globalThis;
+            }
+            if (typeof self === 'undefined') {
+                globalThis.self = globalThis;
+            }
+            if (typeof globalThis.postMessage !== 'function') {
+                globalThis.postMessage = function(data, targetOrigin, transfer) {
+                    var origin = (globalThis.location && globalThis.location.origin) || 'null';
+                    if (targetOrigin && targetOrigin !== '*' && targetOrigin !== origin) return;
+                    var event = new MessageEvent('message', {
+                        data: data,
+                        origin: origin,
+                        source: globalThis,
+                        ports: transfer && Array.isArray(transfer) ? transfer : []
+                    });
+                    globalThis.dispatchEvent(event);
+                };
+            }
+            if (typeof globalThis.Image === 'undefined') {
+                globalThis.Image = function(width, height) {
+                    var img = document.createElement('img');
+                    if (width !== undefined) img.width = width;
+                    if (height !== undefined) img.height = height;
+                    return img;
+                };
             }
             globalThis.navigator = globalThis.navigator || {};
             globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks && typeof tracks.getTracks === 'function' ? tracks.getTracks() : (tracks ? tracks.slice() : []); this.onaddtrack = null; this.onremovetrack = null; this._listeners = {}; this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); }; this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }; this._dispatch = function(event) { var handler = event.type === 'addtrack' ? this.onaddtrack : this.onremovetrack; if (handler) handler(event); (this._listeners[event.type] || []).slice().forEach(function(listener) { listener(event); }); }; };

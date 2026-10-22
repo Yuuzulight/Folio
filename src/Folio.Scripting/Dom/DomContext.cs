@@ -202,7 +202,7 @@ internal sealed class DomContext : IFetchContext
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
-        ResourceLoader = resourceLoader;
+        _rawResourceLoader = resourceLoader;
         BaseUri = baseUri;
         RasterBackend = raster;
         _canvasStyles = canvasStyles;
@@ -287,7 +287,79 @@ internal sealed class DomContext : IFetchContext
         ClearWorkerDiagnostics();
     }
     public int MaxWebAssemblyBytes { get; }
-    public IResourceLoader? ResourceLoader { get; }
+    private readonly IResourceLoader? _rawResourceLoader;
+    private IResourceLoader? _effectiveResourceLoader;
+    public IResourceLoader? ResourceLoader => _effectiveResourceLoader ??=
+        _rawResourceLoader is null && !Capabilities.ServiceWorkers
+            ? _rawResourceLoader
+            : new ServiceWorkerInterceptingLoader(this, _rawResourceLoader);
+
+    internal ResourceResponse? InterceptSubresource(ResourceRequest request)
+    {
+        if (!Capabilities.ServiceWorkers || ScriptFeaturesDisposed) return null;
+
+        var urlVal = ScriptValue.FromString(request.Url);
+        Engine.SetGlobalProperty("__folio_sw_req_url", urlVal);
+        try
+        {
+            var outcome = Engine.EvaluateHostScript("""
+                (function() {
+                    var controller = globalThis.navigator && globalThis.navigator.serviceWorker && globalThis.navigator.serviceWorker.controller;
+                    if (!controller || typeof controller._dispatchFetch !== 'function') return null;
+                    var req = null;
+                    try { req = new Request(__folio_sw_req_url); } catch (_) { return null; }
+                    var result = { handled: false, error: null, contentType: null, buffer: null };
+                    try {
+                        var p = controller._dispatchFetch(req);
+                        p.then(function(res) {
+                            if (res instanceof Response) {
+                                result.handled = true;
+                                result.contentType = res.headers ? res.headers.get('content-type') : null;
+                                return res.arrayBuffer().then(function(buf) {
+                                    result.buffer = buf;
+                                });
+                            }
+                        }).catch(function(err) {
+                            result.handled = true;
+                            result.error = String(err && err.message || err);
+                        });
+                    } catch (e) {
+                        result.handled = true;
+                        result.error = String(e && e.message || e);
+                    }
+                    return result;
+                })()
+            """, "folio:sw-subresource-dispatch");
+
+            if (outcome.IsNullOrUndefined) return null;
+
+            Engine.PerformMicrotaskCheckpoint();
+            Engine.PerformMicrotaskCheckpoint();
+
+            var handled = Engine.GetProperty(outcome, "handled").AsBoolean();
+            if (!handled) return null;
+
+            var error = Engine.GetProperty(outcome, "error").AsString();
+            if (!string.IsNullOrEmpty(error))
+                return ResourceResponse.Refused(error);
+
+            var bufferVal = Engine.GetProperty(outcome, "buffer");
+            var contentType = Engine.GetProperty(outcome, "contentType").AsString();
+
+            if (Engine.TryGetArrayBufferBytes(bufferVal, out var bytes))
+                return ResourceResponse.Loaded(bytes, contentType);
+
+            return ResourceResponse.Loaded([], contentType);
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            Engine.SetGlobalProperty("__folio_sw_req_url", ScriptValue.Undefined);
+        }
+    }
     internal Action? DisposeCacheStorage { get; set; }
     public Uri? BaseUri { get; }
     public Folio.Painting.IRasterBackend? RasterBackend { get; }
@@ -468,6 +540,11 @@ internal sealed class DomContext : IFetchContext
             }
         }
     }
+    internal void PumpIframes()
+    {
+        foreach (var frame in _iframes.Values) frame.PumpChildLoop();
+    }
+
     public IframeState GetIframe(ElementNode element)
     {
         if (_iframes.TryGetValue(element, out var state)) return state;
@@ -670,4 +747,16 @@ internal sealed class LiveNodeList
 internal sealed class LiveHtmlCollection(ContainerNode container)
 {
     public ContainerNode Container { get; } = container;
+}
+internal sealed class ServiceWorkerInterceptingLoader(DomContext context, IResourceLoader? inner) : IResourceLoader
+{
+    public async Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+    {
+        var intercepted = context.InterceptSubresource(request);
+        if (intercepted is not null)
+            return intercepted;
+        if (inner is not null)
+            return await inner.LoadAsync(request, cancellationToken);
+        return null;
+    }
 }

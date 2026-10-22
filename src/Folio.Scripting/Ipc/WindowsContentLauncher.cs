@@ -45,6 +45,18 @@ internal static class WindowsContentLauncher
     internal static WindowsContentLaunch Start(string executablePath, string? arguments, ContentProcessLimits limits, string framePath)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        if (Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED") == "1")
+        {
+            var targetExe = ResolveExecutable(executablePath);
+            var isDll = Path.GetExtension(targetExe).Equals(".dll", StringComparison.OrdinalIgnoreCase);
+            var (fn, args) = isDll ? (ResolveDotnet(), $"{Quote(targetExe)}{(string.IsNullOrWhiteSpace(arguments) ? "" : $" {arguments}")}") : (targetExe, arguments ?? "");
+            var psi = new ProcessStartInfo(fn, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.Environment["FOLIO_CONTENT_FRAME_PATH"] = framePath;
+            var proc = Process.Start(psi) ?? throw new InvalidOperationException("Unable to start the content process.");
+            WindowsJobObject? j = null;
+            try { j = WindowsJobObject.Attach(proc, limits); } catch { }
+            return new WindowsContentLaunch { Process = proc, Input = proc.StandardInput.BaseStream, Output = proc.StandardOutput.BaseStream, Error = proc.StandardError.BaseStream, Job = j, Security = new FallbackDisposable() };
+        }
         var executable = ResolveExecutable(executablePath);
         var isAssembly = Path.GetExtension(executable).Equals(".dll", StringComparison.OrdinalIgnoreCase);
         var isDotnet = Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
@@ -187,6 +199,7 @@ internal static class WindowsContentLauncher
         if (!CreatePipe(out var read, out var write, ref security, 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe failed.");
         child = read; parent = write; return parent;
     }
+    private sealed class FallbackDisposable : IDisposable { public void Dispose() { } }
     private static void SetInherit(SafeFileHandle handle, bool inherit) { if (!SetHandleInformation(handle, HandleFlagInherit, inherit ? HandleFlagInherit : 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "SetHandleInformation failed."); }
 
     private const uint ExtendedStartup = 0x00080000, Suspended = 0x00000004, UnicodeEnvironment = 0x00000400, NoWindow = 0x08000000, UseStdHandles = 0x100;
