@@ -12,6 +12,29 @@ public class ImageDecoderTests
     private static int FrameHeader(byte[] jpeg) => jpeg.AsSpan().IndexOf([(byte)0xFF, (byte)0xC0]);
 
     [Fact]
+    public void RefusesAGifFrameOverTheSizeLimit()
+    {
+        var gif = Image("one-pixel.gif");
+        var descriptor = 13 + 3 * (1 << ((gif[10] & 7) + 1));
+        Assert.Equal(0x2C, gif[descriptor]);
+        BinaryPrimitives.WriteUInt16LittleEndian(gif.AsSpan(descriptor + 5), 65535);
+        BinaryPrimitives.WriteUInt16LittleEndian(gif.AsSpan(descriptor + 7), 65535);
+        Assert.Null(GifDecoder.Decode(gif));
+    }
+
+    [Fact]
+    public void NoTruncatedGifThrowsAndAnyImageItGivesIsTheCanvasSize()
+    {
+        var gif = Image("interlaced-local-13x11.gif");
+        for (var length = 0; length < gif.Length; length++)
+        {
+            var decoded = GifDecoder.Decode(gif.AsSpan(0, length));
+            if (decoded is not null)
+                Assert.Equal(13 * 11 * 4, decoded.Pixels.Length);
+        }
+    }
+
+    [Fact]
     public void RefusesPngsOverTheSizeLimitsFromTheHeader()
     {
         var png = Image("rgb-8.png");
