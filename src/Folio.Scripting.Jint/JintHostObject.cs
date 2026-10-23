@@ -165,6 +165,9 @@ internal sealed class JintHostObject : ObjectInstance
         return keys;
     }
 
+    // An object with named properties (a Storage, a dataset, an HTMLCollection) lists its names when enumerated, not its members.
+    private static bool HasNamedProperties(IHostObjectTemplate template) => template.DynamicPropertyEnumerator is not null;
+
     private void InstallTemplate(IHostObjectTemplate template)
     {
         // Engine call caches may retain a method after its receiver is gone.
@@ -236,7 +239,7 @@ internal sealed class JintHostObject : ObjectInstance
                         PropertyFlag.Configurable);
                 }
 
-                FastSetProperty(propName, new GetSetPropertyDescriptor(jsGetter, jsSetter, enumerable: true, configurable: true));
+                FastSetProperty(propName, new GetSetPropertyDescriptor(jsGetter, jsSetter, enumerable: !HasNamedProperties(template), configurable: true));
             }
         }
 
@@ -275,7 +278,7 @@ internal sealed class JintHostObject : ObjectInstance
                     0,
                     PropertyFlag.Configurable);
 
-                FastSetProperty(methodName, new PropertyDescriptor(jsMethod, writable: true, enumerable: true, configurable: true));
+                FastSetProperty(methodName, new PropertyDescriptor(jsMethod, writable: true, enumerable: !HasNamedProperties(template), configurable: true));
             }
         }
     }
