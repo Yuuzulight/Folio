@@ -21,6 +21,8 @@ public static class Program
             return Cold();
         if (args is ["gpu"])
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
+        if (args is ["scripted", .. var sRest])
+            return ScriptedProcessBenchmark.RunAsync(sRest).GetAwaiter().GetResult();
         if (args is ["gc", .. var gcRest])
             return Gc(gcRest is [var n] ? Math.Max(3, int.Parse(n, CultureInfo.InvariantCulture)) : 7);
 
