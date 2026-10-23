@@ -1167,6 +1167,8 @@ public sealed partial class Document : IDisposable
         _frame = (root, page, deviceScale);
         Node.StructureMutated = false;
         Node.StyleMutated = false;
+        Node.SheetsMutated = false;
+        Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         if (animationTime.HasValue)
@@ -1287,17 +1289,20 @@ public sealed partial class Document : IDisposable
     /// </summary>
     internal Damage Update()
     {
+        UpdatesRun++;
         if (_lastPaint is not { } last || _images is null)
             throw new InvalidOperationException("The document has not been painted yet.");
 
-        if (Node.StructureMutated)
+        if (Node.StructureMutated || Node.SheetsMutated)
         {
+            var sheetsMutated = Node.SheetsMutated;
             Node.StructureMutated = false;
+            Node.SheetsMutated = false;
+            Node.StyleMutated = false;
+            Node.StyleRoots.Clear();
             // A style or link element came, went or changed its text: the styles are resolved again before the boxes are built.
-            if (Node.SheetsMutated)
+            if (sheetsMutated)
             {
-                Node.SheetsMutated = false;
-                Node.StyleMutated = false;
                 var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
                 _fonts ??= FontCollection.For(Options.Fonts);
                 var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);

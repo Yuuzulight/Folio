@@ -101,6 +101,9 @@ public sealed partial class Document
         return false;
     }
 
+    /// <summary>How many times the styles and boxes were brought up to date; a read with nothing changed since the last one adds none.</summary>
+    internal int UpdatesRun { get; private set; }
+
     /// <summary>A script that reads geometry sees the layout its own changes make: the styles and boxes are brought up to date when something changed since.</summary>
     private void FlushLayout()
     {
@@ -240,7 +243,7 @@ public sealed partial class Document
 
     /// <summary>
     /// An element's box sizes for a ResizeObserver: border box, and content box with the padding that separates them; null when it has
-    /// no box. Percentage padding resolves against the box's own width.
+    /// no box. Percentage padding resolves against the containing block's width.
     /// </summary>
     internal (float BorderWidth, float BorderHeight, float ContentWidth, float ContentHeight, float PaddingLeft, float PaddingTop)? ObservedSizes(ElementNode element)
     {
@@ -251,7 +254,8 @@ public sealed partial class Document
             return (w, h, w, h, 0, 0);
         var border = style.Border;
         var spacing = style.Spacing;
-        var (pl, pr, pt, pb) = (spacing.PaddingLeft.Resolve(w), spacing.PaddingRight.Resolve(w), spacing.PaddingTop.Resolve(w), spacing.PaddingBottom.Resolve(w));
+        var cb = ContainingSize(element, horizontal: true);
+        var (pl, pr, pt, pb) = (spacing.PaddingLeft.Resolve(cb), spacing.PaddingRight.Resolve(cb), spacing.PaddingTop.Resolve(cb), spacing.PaddingBottom.Resolve(cb));
         return (w, h, Math.Max(0, w - border.LeftWidth - border.RightWidth - pl - pr), Math.Max(0, h - border.TopWidth - border.BottomWidth - pt - pb), pl, pt);
     }
 

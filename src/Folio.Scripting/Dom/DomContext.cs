@@ -715,8 +715,23 @@ internal sealed class DomContext : IFetchContext
         return WrapperCache.GetOrCreate(Engine, Templates.StyleDeclarationTemplate, new LiveStyleDeclaration(element));
     }
 
-    public ScriptValue WrapComputedStyle(ElementNode element) =>
-        WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(element));
+    /// <summary>The declaration <c>getComputedStyle(element, pseudo)</c> returns; a pseudo-element selector that names nothing gives one that is empty.</summary>
+    public ScriptValue WrapComputedStyle(ElementNode element, string? pseudoSelector = null)
+    {
+        var pseudo = pseudoSelector?.TrimStart(':').ToLowerInvariant() switch
+        {
+            null or "" => Folio.Css.PseudoElement.None,
+            "before" => Folio.Css.PseudoElement.Before,
+            "after" => Folio.Css.PseudoElement.After,
+            "marker" => Folio.Css.PseudoElement.Marker,
+            "first-letter" => Folio.Css.PseudoElement.FirstLetter,
+            "selection" => Folio.Css.PseudoElement.Selection,
+            _ => (Folio.Css.PseudoElement?)null,
+        };
+        // An unknown pseudo-element is nothing to resolve: a declaration of an element that is not in any document.
+        var target = pseudo is null ? Document.CreateElement(Namespaces.Html, "span") : element;
+        return WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(target, this, pseudo ?? Folio.Css.PseudoElement.None));
+    }
 
     public ScriptValue WrapRect(DomRect rect) =>
         WrapperCache.GetOrCreate(Engine, Templates.DomRectTemplate, rect);
