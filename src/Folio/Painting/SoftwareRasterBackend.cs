@@ -1,13 +1,15 @@
-using System.Numerics;
+using System.IO.Compression;
 using Folio.Imaging;
+using Folio.Painting.Software;
 using Folio.Typography;
 
 namespace Folio.Painting;
 
 /// <summary>
-/// Folio's own in-house software raster backend behind <see cref="IRasterBackend"/>
-/// (docs/dependencies.md, Towards all-Folio): scanline pixel buffer with clipping,
-/// transforms, geometric fills, and alpha blending.
+/// Folio's own raster backend behind <see cref="IRasterBackend"/> (docs/dependencies.md, "Towards all-Folio"): antialiased
+/// paths, strokes, clips, gradients, image fills, text from glyph outlines, layers, blend modes and filter effects, drawn on
+/// a bitmap in Folio's own code. The product still draws with the Skia backend until this one is checked against it
+/// on the conformance corpus.
 /// </summary>
 public sealed class SoftwareRasterBackend : IRasterBackend
 {
@@ -25,43 +27,47 @@ public sealed class SoftwareRasterBackend : IRasterBackend
 
 public sealed class SoftwareRasterSurface : IRasterSurface
 {
-    private readonly int _width;
-    private readonly int _height;
-    private readonly byte[] _pixels; // RGBA8 straight alpha
+    private readonly PixelSurface _pixels;
     private readonly SoftwareCanvas _canvas;
 
     public SoftwareRasterSurface(int width, int height)
     {
-        _width = width;
-        _height = height;
-        _pixels = new byte[width * height * 4];
-        _canvas = new SoftwareCanvas(width, height, _pixels);
+        _pixels = new PixelSurface(width, height);
+        _canvas = new SoftwareCanvas(_pixels);
     }
 
-    public int Width => _width;
-    public int Height => _height;
+    public int Width => _pixels.Width;
+
+    public int Height => _pixels.Height;
+
     public ICanvas Canvas => _canvas;
+
+    /// <summary>The bitmap as it is held: premultiplied RGBA, row-major.</summary>
+    internal byte[] PremultipliedPixels => _pixels.Data;
 
     public byte[] ReadPixels(int x, int y, int width, int height)
     {
-        var result = new byte[width * height * 4];
+        var result = new byte[checked(Math.Max(width, 0) * Math.Max(height, 0) * 4)];
         for (var row = 0; row < height; row++)
         {
-            var srcY = y + row;
-            if (srcY < 0 || srcY >= _height) continue;
-
-            for (var col = 0; col < width; col++)
+            var sy = y + row;
+            if (sy < 0 || sy >= Height)
+                continue;
+            for (var column = 0; column < width; column++)
             {
-                var srcX = x + col;
-                if (srcX < 0 || srcX >= _width) continue;
-
-                var srcIdx = (srcY * _width + srcX) * 4;
-                var dstIdx = (row * width + col) * 4;
-
-                result[dstIdx] = _pixels[srcIdx];
-                result[dstIdx + 1] = _pixels[srcIdx + 1];
-                result[dstIdx + 2] = _pixels[srcIdx + 2];
-                result[dstIdx + 3] = _pixels[srcIdx + 3];
+                var sx = x + column;
+                if (sx < 0 || sx >= Width)
+                    continue;
+                var from = (sy * Width + sx) * 4;
+                var to = (row * width + column) * 4;
+                var a = _pixels.Data[from + 3];
+                if (a == 0)
+                    continue;
+                // Premultiplied to straight alpha.
+                result[to] = (byte)Math.Min(255, (_pixels.Data[from] * 255 + a / 2) / a);
+                result[to + 1] = (byte)Math.Min(255, (_pixels.Data[from + 1] * 255 + a / 2) / a);
+                result[to + 2] = (byte)Math.Min(255, (_pixels.Data[from + 2] * 255 + a / 2) / a);
+                result[to + 3] = a;
             }
         }
         return result;
@@ -71,405 +77,84 @@ public sealed class SoftwareRasterSurface : IRasterSurface
     {
         for (var row = 0; row < height; row++)
         {
-            var dstY = y + row;
-            if (dstY < 0 || dstY >= _height) continue;
-
-            for (var col = 0; col < width; col++)
+            var dy = y + row;
+            if (dy < 0 || dy >= Height)
+                continue;
+            for (var column = 0; column < width; column++)
             {
-                var dstX = x + col;
-                if (dstX < 0 || dstX >= _width) continue;
-
-                var srcIdx = (row * width + col) * 4;
-                if (srcIdx + 3 >= rgba.Length) break;
-                var dstIdx = (dstY * _width + dstX) * 4;
-
-                _pixels[dstIdx] = rgba[srcIdx];
-                _pixels[dstIdx + 1] = rgba[srcIdx + 1];
-                _pixels[dstIdx + 2] = rgba[srcIdx + 2];
-                _pixels[dstIdx + 3] = rgba[srcIdx + 3];
+                var dx = x + column;
+                if (dx < 0 || dx >= Width)
+                    continue;
+                var from = (row * width + column) * 4;
+                if (from + 3 >= rgba.Length)
+                    return;
+                var to = (dy * Width + dx) * 4;
+                var a = rgba[from + 3];
+                _pixels.Data[to] = (byte)((rgba[from] * a + 127) / 255);
+                _pixels.Data[to + 1] = (byte)((rgba[from + 1] * a + 127) / 255);
+                _pixels.Data[to + 2] = (byte)((rgba[from + 2] * a + 127) / 255);
+                _pixels.Data[to + 3] = a;
             }
         }
     }
 
-    public byte[]? Encode(string mimeType, double quality) => null;
+    public byte[]? Encode(string mimeType, double quality) => mimeType == "image/png" ? Png(ReadPixels(0, 0, Width, Height), Width, Height) : null;
 
-    public IImageHandle Snapshot() => new DecodedImage(_width, _height, (byte[])_pixels.Clone());
+    public IImageHandle Snapshot() => new DecodedImage(Width, Height, ReadPixels(0, 0, Width, Height));
 
-    public void Dispose() { }
-}
-
-public sealed class SoftwareCanvas : ICanvas
-{
-    private readonly int _width;
-    private readonly int _height;
-    private readonly byte[] _pixels;
-
-    private readonly Stack<(Matrix3x2 Matrix, RectF Clip)> _stateStack = new();
-    private Matrix3x2 _currentMatrix = Matrix3x2.Identity;
-    private RectF _currentClip;
-
-    public SoftwareCanvas(int width, int height, byte[] pixels)
+    public void Dispose()
     {
-        _width = width;
-        _height = height;
-        _pixels = pixels;
-        _currentClip = new RectF(0, 0, width, height);
     }
 
-    public void Save()
+    // An RGBA8 PNG: unfiltered rows in one zlib stream (https://www.w3.org/TR/png/).
+    private static byte[] Png(byte[] rgba, int width, int height)
     {
-        _stateStack.Push((_currentMatrix, _currentClip));
-    }
-
-    public void Restore()
-    {
-        if (_stateStack.Count > 0)
+        using var output = new MemoryStream();
+        output.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        void Chunk(string type, byte[] data)
         {
-            var (m, c) = _stateStack.Pop();
-            _currentMatrix = m;
-            _currentClip = c;
+            var length = new byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
+            output.Write(length);
+            var body = new byte[4 + data.Length];
+            System.Text.Encoding.ASCII.GetBytes(type).CopyTo(body, 0);
+            data.CopyTo(body, 4);
+            output.Write(body);
+            var crc = new byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32(body));
+            output.Write(crc);
         }
-    }
 
-    public void Transform(in Matrix3x2 matrix)
-    {
-        _currentMatrix = matrix * _currentMatrix;
-    }
+        var header = new byte[13];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(header, (uint)width);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4), (uint)height);
+        header[8] = 8;
+        header[9] = 6; // RGBA
+        Chunk("IHDR", header);
 
-    public void ClipRoundedRect(in RoundedRect rect)
-    {
-        _currentClip = Intersect(_currentClip, rect.Rect);
-    }
-
-    public void ClipPath(PathData path, FillRule rule)
-    {
-        var bounds = ComputePathBounds(path);
-        _currentClip = Intersect(_currentClip, bounds);
-    }
-
-    public void ClearRect(in RectF rect)
-    {
-        var minX = Math.Max(0, (int)Math.Floor(rect.X));
-        var maxX = Math.Min(_width, (int)Math.Ceiling(rect.Right));
-        var minY = Math.Max(0, (int)Math.Floor(rect.Y));
-        var maxY = Math.Min(_height, (int)Math.Ceiling(rect.Bottom));
-
-        for (var y = minY; y < maxY; y++)
+        using var raw = new MemoryStream();
+        using (var zlib = new ZLibStream(raw, CompressionLevel.Optimal, leaveOpen: true))
         {
-            for (var x = minX; x < maxX; x++)
+            for (var y = 0; y < height; y++)
             {
-                var idx = (y * _width + x) * 4;
-                _pixels[idx] = 0;
-                _pixels[idx + 1] = 0;
-                _pixels[idx + 2] = 0;
-                _pixels[idx + 3] = 0;
+                zlib.WriteByte(0);
+                zlib.Write(rgba, y * width * 4, width * 4);
             }
         }
+        Chunk("IDAT", raw.ToArray());
+        Chunk("IEND", []);
+        return output.ToArray();
     }
 
-    public void FillRoundedRect(in RoundedRect rect, in Paint paint)
+    private static uint Crc32(byte[] data)
     {
-        if (rect.Radii.IsZero)
+        var crc = 0xFFFFFFFFu;
+        foreach (var b in data)
         {
-            FillRect(rect.Rect, paint);
-            return;
+            crc ^= b;
+            for (var k = 0; k < 8; k++)
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
         }
-
-        var minX = Math.Max(0, (int)Math.Max(_currentClip.X, Math.Floor(rect.Rect.X)));
-        var maxX = Math.Min(_width, (int)Math.Min(_currentClip.Right, Math.Ceiling(rect.Rect.Right)));
-        var minY = Math.Max(0, (int)Math.Max(_currentClip.Y, Math.Floor(rect.Rect.Y)));
-        var maxY = Math.Min(_height, (int)Math.Min(_currentClip.Bottom, Math.Ceiling(rect.Rect.Bottom)));
-
-        var tl = rect.Radii.TopLeft;
-        var tr = rect.Radii.TopRight;
-        var br = rect.Radii.BottomRight;
-        var bl = rect.Radii.BottomLeft;
-
-        var isGradient = paint.Gradient is not null;
-        var (solidR, solidG, solidB, solidA) = isGradient ? default : EvaluatePaintColor(paint, 0, 0);
-
-        for (var y = minY; y < maxY; y++)
-        {
-            for (var x = minX; x < maxX; x++)
-            {
-                if (tl.X > 0 && tl.Y > 0 && x < rect.Rect.X + tl.X && y < rect.Rect.Y + tl.Y)
-                {
-                    var nx = (x - (rect.Rect.X + tl.X)) / tl.X;
-                    var ny = (y - (rect.Rect.Y + tl.Y)) / tl.Y;
-                    if (nx * nx + ny * ny > 1f) continue;
-                }
-                else if (tr.X > 0 && tr.Y > 0 && x > rect.Rect.Right - tr.X && y < rect.Rect.Y + tr.Y)
-                {
-                    var nx = (x - (rect.Rect.Right - tr.X)) / tr.X;
-                    var ny = (y - (rect.Rect.Y + tr.Y)) / tr.Y;
-                    if (nx * nx + ny * ny > 1f) continue;
-                }
-                else if (br.X > 0 && br.Y > 0 && x > rect.Rect.Right - br.X && y > rect.Rect.Bottom - br.Y)
-                {
-                    var nx = (x - (rect.Rect.Right - br.X)) / br.X;
-                    var ny = (y - (rect.Rect.Bottom - br.Y)) / br.Y;
-                    if (nx * nx + ny * ny > 1f) continue;
-                }
-                else if (bl.X > 0 && bl.Y > 0 && x < rect.Rect.X + bl.X && y > rect.Rect.Bottom - bl.Y)
-                {
-                    var nx = (x - (rect.Rect.X + bl.X)) / bl.X;
-                    var ny = (y - (rect.Rect.Bottom - bl.Y)) / bl.Y;
-                    if (nx * nx + ny * ny > 1f) continue;
-                }
-
-                var idx = (y * _width + x) * 4;
-                if (isGradient)
-                {
-                    var (r, g, b, a) = EvaluatePaintColor(paint, x, y);
-                    BlendPixel(idx, r, g, b, a);
-                }
-                else
-                {
-                    BlendPixel(idx, solidR, solidG, solidB, solidA);
-                }
-            }
-        }
-    }
-
-    public void FillRect(in RectF rect, in Paint paint)
-    {
-        var minX = Math.Max(0, (int)Math.Max(_currentClip.X, Math.Floor(rect.X)));
-        var maxX = Math.Min(_width, (int)Math.Min(_currentClip.Right, Math.Ceiling(rect.Right)));
-        var minY = Math.Max(0, (int)Math.Max(_currentClip.Y, Math.Floor(rect.Y)));
-        var maxY = Math.Min(_height, (int)Math.Min(_currentClip.Bottom, Math.Ceiling(rect.Bottom)));
-
-        var isGradient = paint.Gradient is not null;
-        var (solidR, solidG, solidB, solidA) = isGradient ? default : EvaluatePaintColor(paint, 0, 0);
-
-        for (var y = minY; y < maxY; y++)
-        {
-            for (var x = minX; x < maxX; x++)
-            {
-                var idx = (y * _width + x) * 4;
-                if (isGradient)
-                {
-                    var (r, g, b, a) = EvaluatePaintColor(paint, x, y);
-                    BlendPixel(idx, r, g, b, a);
-                }
-                else
-                {
-                    BlendPixel(idx, solidR, solidG, solidB, solidA);
-                }
-            }
-        }
-    }
-
-    private static (byte R, byte G, byte B, byte A) EvaluatePaintColor(in Paint paint, int x, int y)
-    {
-        if (paint.Gradient is { } grad && grad.Stops.Count > 0)
-        {
-            float t = 0f;
-            if (grad.Kind == GradientKind.Linear)
-            {
-                var dx = grad.End.X - grad.Start.X;
-                var dy = grad.End.Y - grad.Start.Y;
-                var lenSq = dx * dx + dy * dy;
-                if (lenSq > 1e-6f)
-                    t = ((x - grad.Start.X) * dx + (y - grad.Start.Y) * dy) / lenSq;
-            }
-            else if (grad.Kind == GradientKind.Radial)
-            {
-                var dx = (x - grad.Center.X) / Math.Max(1e-3f, grad.Radii.X);
-                var dy = (y - grad.Center.Y) / Math.Max(1e-3f, grad.Radii.Y);
-                t = MathF.Sqrt(dx * dx + dy * dy);
-            }
-
-            switch (grad.Spread)
-            {
-                case GradientSpread.Repeat:
-                    t = t - MathF.Floor(t);
-                    break;
-                case GradientSpread.Reflect:
-                    var intPart = (int)MathF.Floor(t);
-                    var frac = t - intPart;
-                    t = (intPart % 2 == 0) ? frac : (1f - frac);
-                    break;
-                default: // Pad
-                    t = Math.Clamp(t, 0f, 1f);
-                    break;
-            }
-
-            var c = InterpolateStops(grad.Stops, t);
-            return ((byte)Math.Clamp((int)(c.R * 255), 0, 255),
-                    (byte)Math.Clamp((int)(c.G * 255), 0, 255),
-                    (byte)Math.Clamp((int)(c.B * 255), 0, 255),
-                    (byte)Math.Clamp((int)(c.A * 255), 0, 255));
-        }
-
-        var col = paint.Color;
-        return ((byte)Math.Clamp((int)(col.R * 255), 0, 255),
-                (byte)Math.Clamp((int)(col.G * 255), 0, 255),
-                (byte)Math.Clamp((int)(col.B * 255), 0, 255),
-                (byte)Math.Clamp((int)(col.A * 255), 0, 255));
-    }
-
-    private static Rgba InterpolateStops(IReadOnlyList<GradientStop> stops, float t)
-    {
-        if (stops.Count == 1 || t <= stops[0].Offset)
-            return stops[0].Color;
-        if (t >= stops[^1].Offset)
-            return stops[^1].Color;
-
-        for (var i = 0; i < stops.Count - 1; i++)
-        {
-            if (t >= stops[i].Offset && t <= stops[i + 1].Offset)
-            {
-                var span = stops[i + 1].Offset - stops[i].Offset;
-                var f = span > 1e-6f ? (t - stops[i].Offset) / span : 0f;
-                var c1 = stops[i].Color;
-                var c2 = stops[i + 1].Color;
-                return new Rgba(
-                    c1.R + (c2.R - c1.R) * f,
-                    c1.G + (c2.G - c1.G) * f,
-                    c1.B + (c2.B - c1.B) * f,
-                    c1.A + (c2.A - c1.A) * f);
-            }
-        }
-
-        return stops[^1].Color;
-    }
-
-    public void FillPath(PathData path, FillRule rule, in Paint paint)
-    {
-        FillRect(ComputePathBounds(path), paint);
-    }
-
-    public void StrokePath(PathData path, in Stroke stroke, in Paint paint)
-    {
-        var bounds = ComputePathBounds(path);
-        var expanded = new RectF(bounds.X - stroke.Width, bounds.Y - stroke.Width, bounds.Width + 2 * stroke.Width, bounds.Height + 2 * stroke.Width);
-        FillRect(expanded, paint);
-    }
-
-    public void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
-    {
-        var c = paint.Color;
-        var r = (byte)Math.Clamp((int)(c.R * 255), 0, 255);
-        var g = (byte)Math.Clamp((int)(c.G * 255), 0, 255);
-        var b = (byte)Math.Clamp((int)(c.B * 255), 0, 255);
-        var a = (byte)Math.Clamp((int)(c.A * 255), 0, 255);
-
-        for (var i = 0; i < origins.Length; i++)
-        {
-            var origin = origins[i];
-            var minX = Math.Max(0, (int)origin.X);
-            var maxX = Math.Min(_width, (int)(origin.X + size));
-            var minY = Math.Max(0, (int)(origin.Y - size));
-            var maxY = Math.Min(_height, (int)origin.Y);
-
-            for (var y = minY; y < maxY; y++)
-            {
-                for (var x = minX; x < maxX; x++)
-                {
-                    var idx = (y * _width + x) * 4;
-                    BlendPixel(idx, r, g, b, a);
-                }
-            }
-        }
-    }
-
-    public void DrawImage(IImageHandle image, in RectF destination, ImageSampling sampling)
-    {
-        if (image is not DecodedImage decoded) return;
-
-        var minX = Math.Max(0, (int)Math.Max(_currentClip.X, Math.Floor(destination.X)));
-        var maxX = Math.Min(_width, (int)Math.Min(_currentClip.Right, Math.Ceiling(destination.Right)));
-        var minY = Math.Max(0, (int)Math.Max(_currentClip.Y, Math.Floor(destination.Y)));
-        var maxY = Math.Min(_height, (int)Math.Min(_currentClip.Bottom, Math.Ceiling(destination.Bottom)));
-
-        var srcPixels = decoded.Pixels;
-        var srcW = decoded.Width;
-        var srcH = decoded.Height;
-
-        for (var y = minY; y < maxY; y++)
-        {
-            var v = (float)(y - destination.Y) / destination.Height;
-            var srcY = Math.Clamp((int)(v * srcH), 0, srcH - 1);
-
-            for (var x = minX; x < maxX; x++)
-            {
-                var u = (float)(x - destination.X) / destination.Width;
-                var srcX = Math.Clamp((int)(u * srcW), 0, srcW - 1);
-
-                var srcIdx = (srcY * srcW + srcX) * 4;
-                var dstIdx = (y * _width + x) * 4;
-
-                var sr = srcPixels[srcIdx];
-                var sg = srcPixels[srcIdx + 1];
-                var sb = srcPixels[srcIdx + 2];
-                var sa = srcPixels[srcIdx + 3];
-
-                BlendPixel(dstIdx, sr, sg, sb, sa);
-            }
-        }
-    }
-
-    private void BlendPixel(int dstIdx, byte sr, byte sg, byte sb, byte sa)
-    {
-        if (sa == 0) return;
-        if (sa == 255)
-        {
-            _pixels[dstIdx] = sr;
-            _pixels[dstIdx + 1] = sg;
-            _pixels[dstIdx + 2] = sb;
-            _pixels[dstIdx + 3] = 255;
-            return;
-        }
-
-        var alpha = sa / 255f;
-        var invAlpha = 1f - alpha;
-
-        _pixels[dstIdx] = (byte)(sr * alpha + _pixels[dstIdx] * invAlpha);
-        _pixels[dstIdx + 1] = (byte)(sg * alpha + _pixels[dstIdx + 1] * invAlpha);
-        _pixels[dstIdx + 2] = (byte)(sb * alpha + _pixels[dstIdx + 2] * invAlpha);
-        _pixels[dstIdx + 3] = (byte)Math.Min(255, _pixels[dstIdx + 3] + sa);
-    }
-
-    public void PushLayer(in LayerOptions options) { Save(); }
-    public void PopLayer() { Restore(); }
-
-    private static RectF Intersect(in RectF a, in RectF b)
-    {
-        var left = Math.Max(a.X, b.X);
-        var top = Math.Max(a.Y, b.Y);
-        var right = Math.Min(a.Right, b.Right);
-        var bottom = Math.Min(a.Bottom, b.Bottom);
-        return right > left && bottom > top ? new RectF(left, top, right - left, bottom - top) : new RectF(0, 0, 0, 0);
-    }
-
-    private static RectF ComputePathBounds(PathData path)
-    {
-        float minX = float.MaxValue, minY = float.MaxValue;
-        float maxX = float.MinValue, maxY = float.MinValue;
-
-        foreach (var cmd in path.Commands)
-        {
-            switch (cmd.Verb)
-            {
-                case PathVerb.MoveTo:
-                case PathVerb.LineTo:
-                    minX = Math.Min(minX, cmd.P1.X);
-                    minY = Math.Min(minY, cmd.P1.Y);
-                    maxX = Math.Max(maxX, cmd.P1.X);
-                    maxY = Math.Max(maxY, cmd.P1.Y);
-                    break;
-                case PathVerb.CubicTo:
-                    minX = Math.Min(minX, Math.Min(cmd.P1.X, Math.Min(cmd.P2.X, cmd.P3.X)));
-                    minY = Math.Min(minY, Math.Min(cmd.P1.Y, Math.Min(cmd.P2.Y, cmd.P3.Y)));
-                    maxX = Math.Max(maxX, Math.Max(cmd.P1.X, Math.Max(cmd.P2.X, cmd.P3.X)));
-                    maxY = Math.Max(maxY, Math.Max(cmd.P1.Y, Math.Max(cmd.P2.Y, cmd.P3.Y)));
-                    break;
-            }
-        }
-
-        if (minX > maxX || minY > maxY)
-            return new RectF(0, 0, 0, 0);
-
-        return new RectF(minX, minY, maxX - minX, maxY - minY);
+        return ~crc;
     }
 }
