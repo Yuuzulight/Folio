@@ -404,7 +404,7 @@ internal static class DisplayListCodec
 
             // 1. Read Font Table
             var fontCount = reader.ReadInt32();
-            if (fontCount < 0 || fontCount > 100_000) return false;
+            if (fontCount < 0 || (stream.Length - stream.Position) / 5 < fontCount) return false;
             var fontsInFrame = new Dictionary<int, IFontHandle>();
             for (var i = 0; i < fontCount; i++)
             {
@@ -418,7 +418,7 @@ internal static class DisplayListCodec
                     if (hasData)
                     {
                         var dataLen = reader.ReadInt32();
-                        if (dataLen < 0 || dataLen > 64 * 1024 * 1024) return false;
+                        if (dataLen < 0 || (stream.Length - stream.Position) < dataLen) return false;
                         var fontBytes = reader.ReadBytes(dataLen);
                         var handle = (IFontHandle?)FontFace.Parse(fontBytes, faceIndex)
                             ?? new EmbeddedFontHandle(fontBytes, faceIndex);
@@ -462,7 +462,7 @@ internal static class DisplayListCodec
 
             // 2. Read Image Table
             var imageCount = reader.ReadInt32();
-            if (imageCount < 0 || imageCount > 100_000) return false;
+            if (imageCount < 0 || (stream.Length - stream.Position) / 13 < imageCount) return false;
             var imagesInFrame = new List<IImageHandle>(imageCount);
             for (var i = 0; i < imageCount; i++)
             {
@@ -473,7 +473,7 @@ internal static class DisplayListCodec
                 if (hasPixels)
                 {
                     var pixelLen = reader.ReadInt32();
-                    if (pixelLen < 0 || pixelLen > 128 * 1024 * 1024) return false;
+                    if (pixelLen < 0 || (stream.Length - stream.Position) < pixelLen) return false;
                     var pixels = reader.ReadBytes(pixelLen);
                     var img = new DecodedImage(width, height, pixels);
                     context.IdToImage[id] = img;
@@ -490,7 +490,7 @@ internal static class DisplayListCodec
 
             // 3. Read Border Table
             var borderCount = reader.ReadInt32();
-            if (borderCount < 0 || borderCount > 100_000) return false;
+            if (borderCount < 0 || (stream.Length - stream.Position) / 64 < borderCount) return false;
             var borders = new List<BorderGroup>(borderCount);
             for (var i = 0; i < borderCount; i++)
             {
@@ -503,11 +503,12 @@ internal static class DisplayListCodec
 
             // 4. Read Path Table
             var pathCount = reader.ReadInt32();
-            if (pathCount < 0 || pathCount > 100_000) return false;
+            if (pathCount < 0 || (stream.Length - stream.Position) / 4 < pathCount) return false;
             var paths = new List<PathData>(pathCount);
             for (var i = 0; i < pathCount; i++)
             {
                 var cmdCount = reader.ReadInt32();
+                if (cmdCount < 0 || (stream.Length - stream.Position) / 25 < cmdCount) return false;
                 var path = new PathData(cmdCount);
                 for (var c = 0; c < cmdCount; c++)
                 {
@@ -528,13 +529,14 @@ internal static class DisplayListCodec
 
             // 5. Read Gradient Table
             var gradCount = reader.ReadInt32();
-            if (gradCount < 0 || gradCount > 100_000) return false;
+            if (gradCount < 0 || (stream.Length - stream.Position) / 30 < gradCount) return false;
             var gradients = new List<Gradient>(gradCount);
             for (var i = 0; i < gradCount; i++)
             {
                 var kind = (GradientKind)reader.ReadByte();
                 var spread = (GradientSpread)reader.ReadByte();
                 var stopCount = reader.ReadInt32();
+                if (stopCount < 0 || (stream.Length - stream.Position) / 20 < stopCount) return false;
                 var stops = new List<GradientStop>(stopCount);
                 for (var s = 0; s < stopCount; s++)
                 {
@@ -556,11 +558,12 @@ internal static class DisplayListCodec
 
             // 6. Read Filter Table
             var filterListCount = reader.ReadInt32();
-            if (filterListCount < 0 || filterListCount > 100_000) return false;
+            if (filterListCount < 0 || (stream.Length - stream.Position) / 4 < filterListCount) return false;
             var filterListsRead = new List<IReadOnlyList<Filter>>(filterListCount);
             for (var i = 0; i < filterListCount; i++)
             {
                 var fCount = reader.ReadInt32();
+                if (fCount < 0 || (stream.Length - stream.Position) / 24 < fCount) return false;
                 var fl = new List<Filter>(fCount);
                 for (var f = 0; f < fCount; f++)
                 {
@@ -580,6 +583,7 @@ internal static class DisplayListCodec
                     if (reader.ReadBoolean())
                     {
                         var mCount = reader.ReadInt32();
+                        if (mCount < 0 || mCount > 64 || (stream.Length - stream.Position) / 4 < mCount) return false;
                         matrix = new float[mCount];
                         for (var mi = 0; mi < mCount; mi++) matrix[mi] = reader.ReadSingle();
                     }
@@ -600,6 +604,7 @@ internal static class DisplayListCodec
                     if (reader.ReadBoolean())
                     {
                         var cCount = reader.ReadInt32();
+                        if (cCount < 0 || cCount > 64 || (stream.Length - stream.Position) / 4 < cCount) return false;
                         coeff = new float[cCount];
                         for (var ci = 0; ci < cCount; ci++) coeff[ci] = reader.ReadSingle();
                     }
@@ -623,25 +628,27 @@ internal static class DisplayListCodec
 
             // 7. Read Glyph Runs
             var grCount = reader.ReadInt32();
-            if (grCount < 0 || grCount > 100_000) return false;
+            if (grCount < 0 || (stream.Length - stream.Position) / 16 < grCount) return false;
             var runs = new List<GlyphRun>(grCount);
             for (var i = 0; i < grCount; i++)
             {
                 var fId = reader.ReadInt32();
                 var size = reader.ReadSingle();
                 var gLen = reader.ReadInt32();
+                if (gLen < 0 || (stream.Length - stream.Position) / 2 < gLen) return false;
                 var glyphArr = new ushort[gLen];
                 for (var g = 0; g < gLen; g++) glyphArr[g] = reader.ReadUInt16();
                 var oLen = reader.ReadInt32();
+                if (oLen < 0 || (stream.Length - stream.Position) / 8 < oLen) return false;
                 var originArr = new Vector2[oLen];
                 for (var o = 0; o < oLen; o++) originArr[o] = new Vector2(reader.ReadSingle(), reader.ReadSingle());
-                var font = fontsInFrame.TryGetValue(fId, out var fHandle) ? fHandle : context.IdToFont[fId];
+                var font = fontsInFrame.TryGetValue(fId, out var fHandle) ? fHandle : (context.IdToFont.TryGetValue(fId, out var cachedFont) ? cachedFont : new EmbeddedFontHandle(Array.Empty<byte>(), 0));
                 runs.Add(new GlyphRun(font, size, glyphArr, originArr));
             }
 
             // 8. Read Items
             var itemCount = reader.ReadInt32();
-            if (itemCount < 0 || itemCount > 1_000_000) return false;
+            if (itemCount < 0 || (stream.Length - stream.Position) / 50 < itemCount) return false;
             var result = new DisplayList();
             for (var i = 0; i < itemCount; i++)
             {
@@ -717,6 +724,7 @@ internal static class DisplayListCodec
                     if (reader.ReadBoolean())
                     {
                         var dLen = reader.ReadInt32();
+                        if (dLen < 0 || dLen > 64 || (stream.Length - stream.Position) / 4 < dLen) return false;
                         dashes = new float[dLen];
                         for (var d = 0; d < dLen; d++) dashes[d] = reader.ReadSingle();
                     }
