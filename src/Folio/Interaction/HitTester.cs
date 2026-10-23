@@ -45,9 +45,24 @@ internal static class HitTester
         return snapped is not null ? hit with { Position = snapped } : hit;
     }
 
+    /// <summary>Every element under a point, topmost first (https://www.w3.org/TR/cssom-view-1/#dom-document-elementsfrompoint).</summary>
+    public static List<ElementNode> HitAll(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
+    {
+        if (PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { } root)
+            return [];
+        var visitor = new Visitor(point) { CollectAll = true };
+        PaintOrderWalker.Walk(root, visitor, frontToBack: true);
+        return visitor.All;
+    }
+
     private sealed class Visitor(Vector2 point) : IPaintVisitor
     {
         public HitResult? Result { get; private set; }
+
+        /// <summary>Keep going after the first hit, collecting every element in <see cref="All"/>.</summary>
+        public bool CollectAll { get; init; }
+
+        public List<ElementNode> All { get; } = [];
 
         // The point in the current context's coordinates, and the clip its owner sits under: the clips from there up
         // were tested outside the context's transform, so its boxes test only the ones below.
@@ -57,7 +72,7 @@ internal static class HitTester
 
         public bool BeginContext(Context context)
         {
-            if (Result is not null)
+            if (Result is not null && !CollectAll)
                 return false;
             var owner = context.Real ? context.Owner : null;
             var transform = owner is { Box.IsTransformed: true } ? PaintOrderWalker.Transform(owner) : (Matrix4x4?)null;
@@ -103,7 +118,7 @@ internal static class HitTester
 
         private void Test(PaintBox box, RoundedRect shape, ComputedStyle style, Box? inline = null)
         {
-            if (Result is not null || style.Inherited.Visibility != Visibility.Visible || style.Ui.PointerEvents == PointerEvents.None
+            if ((Result is not null && !CollectAll) || style.Inherited.Visibility != Visibility.Visible || style.Ui.PointerEvents == PointerEvents.None
                 || !Contains(shape, _point) || !InClips(box.Clip))
                 return;
             // An anonymous box belongs to the element its nearest named ancestor box is for.
@@ -111,6 +126,12 @@ internal static class HitTester
             {
                 if (owner.Node is ElementNode element)
                 {
+                    if (CollectAll)
+                    {
+                        if (!All.Contains(element))
+                            All.Add(element);
+                        return;
+                    }
                     var local = _point - new Vector2(box.X, box.Y);
                     TextPosition? position = null;
                     if (box.Fragment.Kind == FragmentKind.Text && box.Fragment.Text is { } textRun)
