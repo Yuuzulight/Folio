@@ -263,7 +263,7 @@ public sealed class ContentProcessWatchdogTests
         view.RenderFailed += OnRenderFailed;
 
         var client = ContentProcessClient.Start(host,
-            limits: new ContentProcessLimits(MemoryBytes: 70L * 1024 * 1024, HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+            limits: new ContentProcessLimits(MemoryBytes: 128L * 1024 * 1024, HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             resourceLoader: new CapabilityResourceLoader());
         try
         {
@@ -284,8 +284,8 @@ public sealed class ContentProcessWatchdogTests
 
                 await client.SendAsync(ContentMessageKind.Load, new
                 {
-                    html = "<script>var s='abcdefghijklmnopqrstuvwxyz0123456789'.repeat(10000);var a=[];for(var i=0;i<500;i++)a.push(s+i);while(true){}</script>",
-                    script = "var s='abcdefghijklmnopqrstuvwxyz0123456789'.repeat(10000);var a=[];for(var i=0;i<500;i++)a.push(s+i);while(true){}",
+                    html = "<script>var a=[];for(var i=0;i<20;i++){a.push(new Uint8Array(10*1024*1024).fill(1));}while(true){}</script>",
+                    script = "var a=[];for(var i=0;i<20;i++){a.push(new Uint8Array(10*1024*1024).fill(1));}while(true){}",
                     capabilities = FeatureCapabilities.Default,
                     scriptLimits = new ScriptLimits { MaxStatements = null, Timeout = null, MemoryLimitBytes = null },
                     framePath = client.FramePath, viewportWidth = 220, viewportHeight = 80
