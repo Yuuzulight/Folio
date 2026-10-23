@@ -201,6 +201,7 @@ public static class DomBindings
         StorageBindings.Install(engine, artifactStorage, artifactId);
         FormBindings.InstallFormData(engine, context);
         CssomViewBindings.InstallWindow(engine, context);
+        CssomViewBindings.InstallObservers(engine, context);
         if (eventLoop is not null)
             eventLoop.RenderingHooks = new DomRenderingHooks(context);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
@@ -247,26 +248,6 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
-            globalThis.ResizeObserver = function(callback) {
-                if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
-                this._callback = callback;
-                this._targets = [];
-            };
-            ResizeObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
-            ResizeObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
-            ResizeObserver.prototype.disconnect = function() { this._targets.length = 0; };
-            globalThis.IntersectionObserver = function(callback, options) {
-                if (typeof callback !== 'function') throw new TypeError('IntersectionObserver callback must be callable');
-                this._callback = callback;
-                this.root = options && options.root || null;
-                this.rootMargin = options && options.rootMargin || '0px';
-                this.thresholds = options && options.threshold !== undefined ? [].concat(options.threshold) : [0];
-                this._targets = [];
-            };
-            IntersectionObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
-            IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
-            IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
-            IntersectionObserver.prototype.takeRecords = function() { return []; };
             {
                 const resolved = Promise.resolve();
                 const then = Promise.prototype.then;

@@ -101,6 +101,13 @@ public sealed partial class Document
         return false;
     }
 
+    /// <summary>A script that reads geometry sees the layout its own changes make: the styles and boxes are brought up to date when something changed since.</summary>
+    private void FlushLayout()
+    {
+        if (Node.StructureMutated || Node.SheetsMutated || Node.StyleMutated || Node.StyleRoots.Count > 0)
+            UpdateIfPainted();
+    }
+
     /// <summary>
     /// The rectangles of an element's boxes in viewport coordinates, as <c>getClientRects()</c> lists them: its border box if it
     /// has one, else (an inline element) one per line the element's text and inline-level children are on. Empty for an element
@@ -108,6 +115,7 @@ public sealed partial class Document
     /// </summary>
     internal IReadOnlyList<RectF> ClientRects(ElementNode element)
     {
+        FlushLayout();
         var shift = ViewportScroll;
         if (element == Node.DocumentElement && _page is { } icb)
             return [new RectF(0, 0, icb.Width, icb.Height)];
@@ -160,6 +168,7 @@ public sealed partial class Document
     /// <summary>An element's border box laid out, before transforms, and its border widths: <c>offsetWidth</c> and <c>clientLeft</c>.</summary>
     internal (RectF Rect, float BorderLeft, float BorderTop)? LayoutBox(ElementNode element)
     {
+        FlushLayout();
         if (element == Node.DocumentElement && _page is { } icb)
             return (new RectF(0, 0, icb.Width, icb.Height), 0, 0);
         foreach (var placed in PlaceFragments(scrolled: false))
@@ -227,5 +236,70 @@ public sealed partial class Document
         if (Node.DocumentElement is { } root && !hits.Contains(root))
             hits.Add(root);
         return hits;
+    }
+
+    /// <summary>
+    /// An element's box sizes for a ResizeObserver: border box, and content box with the padding that separates them; null when it has
+    /// no box. Percentage padding resolves against the box's own width.
+    /// </summary>
+    internal (float BorderWidth, float BorderHeight, float ContentWidth, float ContentHeight, float PaddingLeft, float PaddingTop)? ObservedSizes(ElementNode element)
+    {
+        if (LayoutBox(element) is not { } own)
+            return null;
+        var (w, h) = (own.Rect.Width, own.Rect.Height);
+        if (FindFragment(element)?.Box?.Style is not { } style)
+            return (w, h, w, h, 0, 0);
+        var border = style.Border;
+        var spacing = style.Spacing;
+        var (pl, pr, pt, pb) = (spacing.PaddingLeft.Resolve(w), spacing.PaddingRight.Resolve(w), spacing.PaddingTop.Resolve(w), spacing.PaddingBottom.Resolve(w));
+        return (w, h, Math.Max(0, w - border.LeftWidth - border.RightWidth - pl - pr), Math.Max(0, h - border.TopWidth - border.BottomWidth - pt - pb), pl, pt);
+    }
+
+    /// <summary>How many elements are above one: the order ResizeObserver delivers in.</summary>
+    internal static int TreeDepth(ElementNode element)
+    {
+        var depth = 0;
+        for (var cursor = element.Parent; cursor is not null; cursor = cursor.Parent)
+            depth++;
+        return depth;
+    }
+
+    /// <summary>
+    /// Where an IntersectionObserver's target meets its root (https://www.w3.org/TR/intersection-observer/#compute-the-intersection), in
+    /// viewport coordinates: the target's rectangle, the part of it every clipping ancestor and the root's own rectangle (grown by the
+    /// margin) leave, and the root's rectangle; the intersection is null when they do not even touch. Null when the target has no box.
+    /// </summary>
+    internal (RectF Target, RectF? Intersection, RectF Root)? Intersect(ElementNode target, ElementNode? root, float marginTop, float marginRight, float marginBottom, float marginLeft)
+    {
+        if (ClientBoundingRect(target) is not { } box)
+            return null;
+        RectF rootRect;
+        if (root is null)
+            rootRect = Viewport is { } v ? new RectF(0, 0, v.Width, v.Height) : new RectF(0, 0, 0, 0);
+        else if (ClientBoundingRect(root) is { } rb && FindFragment(root)?.Box?.Style is { } rs)
+            rootRect = new RectF(rb.X + rs.Border.LeftWidth, rb.Y + rs.Border.TopWidth, Math.Max(0, rb.Width - rs.Border.LeftWidth - rs.Border.RightWidth), Math.Max(0, rb.Height - rs.Border.TopWidth - rs.Border.BottomWidth));
+        else
+            return null;
+        RectF? clip = box;
+        for (var cursor = target.Parent as ElementNode; cursor is not null && clip is not null; cursor = cursor.Parent as ElementNode)
+        {
+            if (cursor == root)
+                break;
+            if (FindFragment(cursor)?.Box?.Style is not { } style || (style.Box.OverflowX == Overflow.Visible && style.Box.OverflowY == Overflow.Visible) || ClientBoundingRect(cursor) is not { } ab)
+                continue;
+            var padding = new RectF(ab.X + style.Border.LeftWidth, ab.Y + style.Border.TopWidth, Math.Max(0, ab.Width - style.Border.LeftWidth - style.Border.RightWidth), Math.Max(0, ab.Height - style.Border.TopWidth - style.Border.BottomWidth));
+            clip = Meet(clip.Value, padding);
+        }
+        var grown = new RectF(rootRect.X - marginLeft, rootRect.Y - marginTop, rootRect.Width + marginLeft + marginRight, rootRect.Height + marginTop + marginBottom);
+        if (clip is not null)
+            clip = Meet(clip.Value, grown);
+        return (box, clip, grown);
+
+        // The overlap of two rectangles, which may be a line or a point; null when they are apart.
+        static RectF? Meet(RectF a, RectF b)
+        {
+            var (l, t, r, bt) = (Math.Max(a.X, b.X), Math.Max(a.Y, b.Y), Math.Min(a.Right, b.Right), Math.Min(a.Bottom, b.Bottom));
+            return r < l || bt < t ? null : new RectF(l, t, r - l, bt - t);
+        }
     }
 }

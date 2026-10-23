@@ -489,6 +489,17 @@ internal sealed class DomContext : IFetchContext
             _windowScroll = (Math.Max(0, x), Math.Max(0, y));
     }
 
+    /// <summary>The script function that runs the observer steps of the rendering update (ResizeObserver, IntersectionObserver).</summary>
+    public ScriptValue ObserverStepHandler { get; set; } = ScriptValue.Undefined;
+
+    public void CallObserverStep(string step)
+    {
+        if (ObserverStepHandler.IsUndefined || ScriptFeaturesDisposed)
+            return;
+        try { Engine.Call(ObserverStepHandler, ScriptValue.Undefined, [ScriptValue.FromString(step)]); }
+        catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
+    }
+
     /// <summary>The script function that carries out the window's rendering steps (resize event, media query changes).</summary>
     public ScriptValue RenderStepHandler { get; set; } = ScriptValue.Undefined;
 
