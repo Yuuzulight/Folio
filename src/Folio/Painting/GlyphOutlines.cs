@@ -1,7 +1,7 @@
 using System.Numerics;
-using Folio.Painting;
+using Folio.Typography;
 
-namespace Folio.Typography;
+namespace Folio.Painting;
 
 /// <summary>
 /// Glyph outlines in font units (y up) as paths of lines and cubic curves: TrueType <c>glyf</c> outlines, with composite
@@ -342,7 +342,6 @@ internal static class GlyphOutlines
         private readonly Index _charStrings;
         private readonly Index _globalSubrs;
         private readonly Index[] _localSubrs;
-        private readonly byte[]? _fdSelect; // per glyph, for CID-keyed fonts
         private readonly int _fdSelectFormat;
         private readonly int _fdSelectOffset;
 

@@ -110,7 +110,7 @@ public class GlyphOutlineTests
         foreach (var glyph in Glyphs(face))
         {
             using var expected = font.GetGlyphPath(glyph);
-            var actual = face.Outline(glyph);
+            var actual = GlyphOutlines.Get(face, glyph);
             var skiaEmpty = expected is null || expected.IsEmpty;
             var folioEmpty = actual is null || actual.Commands.Count == 0;
             if (skiaEmpty || folioEmpty)
@@ -168,7 +168,7 @@ public class GlyphOutlineTests
             parsed++;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             for (var g = 0; g < Math.Min(face.GlyphCount, 60); g++)
-                face.Outline((ushort)(g * 7 % Math.Max(1, face.GlyphCount)));
+                GlyphOutlines.Get(face, (ushort)(g * 7 % Math.Max(1, face.GlyphCount)));
             Assert.True(clock.ElapsedMilliseconds < 3000, $"{name}: outlines took {clock.ElapsedMilliseconds} ms");
         }
         Assert.True(parsed > 10);

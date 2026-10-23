@@ -275,8 +275,6 @@ internal sealed class FontFace : IFontHandle
     /// <summary>A table's bytes, for the readers of outlines and layout tables that live beside this class.</summary>
     internal FontData? RawTable(string tag) => TryTable(tag);
 
-    /// <summary>The outline of a glyph in font units (y up) as lines and cubic curves, or null when the font has none for it.</summary>
-    public Painting.PathData? Outline(ushort glyph) => GlyphOutlines.Get(this, glyph);
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx: the last advance repeats for the remaining glyphs.
     private static ushort[] ReadAdvances(FontData hmtx, int metricCount, int glyphCount)
