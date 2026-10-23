@@ -39,8 +39,8 @@ public sealed class WorkerPlatformContractTests
     {
         using var engine = new JintScriptEngine();
         WorkerPlatformBindings.Install(engine);
-        Assert.Equal("TypeError", engine.Evaluate("try { crypto.getRandomValues(new Float32Array(1)); 'ok'; } catch (e) { e.name; }").AsString());
-        Assert.Equal("TypeError", engine.Evaluate("try { const fake={byteLength:1,byteOffset:0,buffer:new ArrayBuffer(1)}; Object.setPrototypeOf(fake, Uint8Array.prototype); crypto.getRandomValues(fake); 'ok'; } catch (e) { e.name; }").AsString());
+        Assert.Equal("TypeMismatchError", engine.Evaluate("try { crypto.getRandomValues(new Float32Array(1)); 'ok'; } catch (e) { e.name; }").AsString());
+        Assert.Equal("TypeMismatchError", engine.Evaluate("try { const fake={byteLength:1,byteOffset:0,buffer:new ArrayBuffer(1)}; Object.setPrototypeOf(fake, Uint8Array.prototype); crypto.getRandomValues(fake); 'ok'; } catch (e) { e.name; }").AsString());
         Assert.Equal("ok", engine.Evaluate("(() => { const x=new Uint8Array(4); Object.defineProperty(Uint8Array.prototype,'byteOffset',{configurable:true,get:()=>999}); try { crypto.getRandomValues(x); return 'ok'; } finally { delete Uint8Array.prototype.byteOffset; } })()").AsString());
     }
 

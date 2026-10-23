@@ -50,6 +50,25 @@ internal sealed class DomContext : IFetchContext
     private readonly object _workerDiagnosticsGate = new();
     private readonly Queue<(Diagnostic Diagnostic, ScriptMessageBudget.Reservation Reservation)> _workerDiagnostics = new();
 
+    private const int MaxConsoleMessages = 1000;
+    private int _consoleMessages;
+
+    /// <summary>A console message as a diagnostic; after <see cref="MaxConsoleMessages"/> of them one warning says the rest are dropped.</summary>
+    internal void ReportConsole(string level, string text, int line, int column)
+    {
+        if (_consoleMessages > MaxConsoleMessages)
+            return;
+        if (++_consoleMessages > MaxConsoleMessages)
+        {
+            Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptConsole, Severity.Warning,
+                $"The document wrote more than {MaxConsoleMessages} console messages; the rest were dropped.", null, "console"));
+            return;
+        }
+        Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptConsole,
+            level == "error" ? Severity.Error : level == "warn" ? Severity.Warning : Severity.Info, text,
+            line > 0 ? new SourceLocation(line, Math.Max(column, 1)) : null, "console"));
+    }
+
     internal void ReportWorkerDiagnostic(Diagnostic diagnostic)
     {
         if (ScriptFeaturesDisposed) return;
