@@ -1,4 +1,5 @@
 using Folio.Html;
+using Folio.Typography;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 
@@ -7,11 +8,25 @@ namespace Folio.Scripting.Tests;
 /// <summary>Forms and their controls (#466, #467): the selection API, <c>click()</c> and activation, constraint validation, submission, <c>FormData</c>.</summary>
 public class FormApiTests
 {
+    private static string FontsFolder()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, "tests", "fonts")))
+                return Path.Combine(dir.FullName, "tests", "fonts");
+        }
+        throw new DirectoryNotFoundException("tests/fonts");
+    }
+
     private sealed class Page : IDisposable
     {
-        public Page(string body)
+        public Page(string body, bool fonts = false)
         {
-            Document = Document.Parse("<!DOCTYPE html><body>" + body, new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+            Document = Document.Parse("<!DOCTYPE html><body>" + body, new FolioOptions
+            {
+                Scripting = ScriptingPolicy.ContentProcess,
+                Fonts = fonts ? new FontSettings { Source = new FontFolderSource(FontsFolder()), GenericFamilies = new[] { "serif", "sans-serif", "monospace", "system-ui" }.ToDictionary(g => g, _ => (IReadOnlyList<string>)["Folio Box"], StringComparer.OrdinalIgnoreCase) } : FontSettings.Default,
+            });
             Document.Input.FormSubmitted += (_, e) => Submitted.Add(e);
             Engine = new JintScriptEngine();
             DomBindings.Install(Engine, Document);
@@ -60,6 +75,24 @@ public class FormApiTests
         // What the script selected is what the document selects.
         page.Run("i.focus(); i.setSelectionRange(1, 4);");
         Assert.Equal("bcd", page.Document.Input.SelectedText);
+    }
+
+    [Fact]
+    public void TheSelectionApiMovesTheHighlightAndTheCaretInTheDisplayList()
+    {
+        using var page = new Page("<input id=i value=abcdef>", fonts: true);
+        page.Document.Paint(800, 600, 1, new Folio.Skia.HarfBuzzShaper(), null);
+        static string Fills(Document document) =>
+            string.Join("|", document.DisplayList!.Items.Where(item => item.Kind == Folio.Painting.DisplayItemKind.Fill).Select(item => $"{item.Shape.Rect.X:0.##},{item.Shape.Rect.Width:0.##}"));
+        page.Run("el('i').focus(); el('i').setSelectionRange(1, 4);");
+        var highlighted = Fills(page.Document);
+        page.Run("el('i').setSelectionRange(2, 2);");
+        var caret = Fills(page.Document);
+        Assert.NotEqual(highlighted, caret);
+        page.Run("el('i').setSelectionRange(1, 4);");
+        Assert.Equal(highlighted, Fills(page.Document)); // the same selection draws the same picture
+        page.Run("el('i').select();");
+        Assert.NotEqual(highlighted, Fills(page.Document));
     }
 
     [Fact]
