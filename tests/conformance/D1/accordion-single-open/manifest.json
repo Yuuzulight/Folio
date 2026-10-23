@@ -1,0 +1,24 @@
+{
+  "prompt": "Build a product features accordion where expanding one section collapses the others. Include smooth chevron indicators, accessible aria-expanded attributes, and keyboard Enter/Space toggling.",
+  "features": [
+    "script",
+    "dom-events",
+    "aria",
+    "hidden-attribute",
+    "keyboard",
+    "transitions",
+    "flex",
+    "custom-properties"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #faq-acc",
+    "exists button[aria-controls='sec-1']",
+    "click button[aria-controls='sec-2']",
+    "exists #sec-2:not([hidden])",
+    "exists #sec-1[hidden]",
+    "click button[aria-controls='sec-3']",
+    "exists #sec-3:not([hidden])",
+    "exists #sec-2[hidden]"
+  ]
+}
