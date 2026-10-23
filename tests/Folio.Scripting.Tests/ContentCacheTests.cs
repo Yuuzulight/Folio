@@ -45,6 +45,21 @@ public sealed class ContentCacheTests
     }
 
     [Fact]
+    public async Task LocalStorageOfAContentProcessSurvivesRestartsStaysWithinItsArtifactAndKeepsItsQuota()
+    {
+        var storage = new Storage();
+        await using (var first = Client(storage, "artifact-a"))
+            Assert.Equal("1", await Load(first, "localStorage.setItem('theme', 'dark'); result = String(localStorage.length);"));
+        await using (var again = Client(storage, "artifact-a"))
+            Assert.Equal("dark", await Load(again, "result = localStorage.getItem('theme');"));
+        await using (var other = Client(storage, "artifact-b"))
+            Assert.Equal("null", await Load(other, "result = String(localStorage.getItem('theme'));"));
+        await using (var big = Client(storage, "artifact-a"))
+            Assert.Equal("QuotaExceededError", await Load(big, "try { localStorage.setItem('big', 'x'.repeat(5 * 1024 * 1024)); result = 'stored'; } catch (e) { result = e.name; }"));
+        Assert.DoesNotContain(storage.Values.Keys, key => key.Contains("big"));
+    }
+
+    [Fact]
     public async Task CollectedRemoteHandlesReleaseRetiredQuotaWithoutAnotherCallFromTheirDocument()
     {
         await using var pair = await Pair.Create();

@@ -197,6 +197,7 @@ public static class DomBindings
             resourceLoader, baseUri, blobSources, eventLoop);
         UrlBindings.Install(engine);
         PlatformBindings.Install(engine, context.ReportConsole);
+        StorageBindings.Install(engine, artifactStorage, artifactId);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.EvaluateHostScript(@"
             if (typeof window === 'undefined') {
@@ -335,20 +336,6 @@ public static class DomBindings
             FormData.prototype.entries = function() { return this._entries[Symbol.iterator](); };
             FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
             FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
-            function makeStorage() {
-                const data = Object.create(null);
-                const storage = {
-                    get length() { return Object.keys(data).length; },
-                    key: function(index) { return Object.keys(data)[index] ?? null; },
-                    getItem: function(key) { key = String(key); return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
-                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; },
-                    removeItem: function(key) { delete data[String(key)]; },
-                    clear: function() { for (const key of Object.keys(data)) delete data[key]; }
-                };
-                return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
-            }
-            globalThis.localStorage = makeStorage();
-            globalThis.sessionStorage = makeStorage();
             globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
             Blob.prototype.text = function() { return Promise.resolve(this._text); };
             Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
