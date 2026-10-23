@@ -200,6 +200,9 @@ public static class DomBindings
         PlatformBindings.Install(engine, context.ReportConsole);
         StorageBindings.Install(engine, artifactStorage, artifactId);
         FormBindings.InstallFormData(engine, context);
+        CssomViewBindings.InstallWindow(engine, context);
+        if (eventLoop is not null)
+            eventLoop.RenderingHooks = new DomRenderingHooks(context);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.EvaluateHostScript(@"
             if (typeof window === 'undefined') {
@@ -244,32 +247,6 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
-            globalThis.innerWidth = 800;
-            globalThis.innerHeight = 600;
-            globalThis.devicePixelRatio = 1;
-            globalThis.scrollX = 0;
-            globalThis.scrollY = 0;
-            Object.defineProperty(globalThis, 'pageXOffset', { get: function() { return globalThis.scrollX; } });
-            Object.defineProperty(globalThis, 'pageYOffset', { get: function() { return globalThis.scrollY; } });
-            globalThis.scrollTo = function(x, y) { globalThis.scrollX = Number(x) || 0; globalThis.scrollY = Number(y) || 0; };
-            globalThis.scrollBy = function(x, y) { globalThis.scrollX += Number(x) || 0; globalThis.scrollY += Number(y) || 0; };
-            globalThis.matchMedia = function(query) {
-                query = String(query);
-                const min = /min-width\s*:\s*(\d+)px/.exec(query);
-                const max = /max-width\s*:\s*(\d+)px/.exec(query);
-                const matches = (!min || globalThis.innerWidth >= Number(min[1])) && (!max || globalThis.innerWidth <= Number(max[1]));
-                const listeners = [];
-                return {
-                    media: query,
-                    matches: matches,
-                    onchange: null,
-                    addListener: function(fn) { if (typeof fn === 'function') listeners.push(fn); },
-                    removeListener: function(fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); },
-                    addEventListener: function(type, fn) { if (type === 'change') this.addListener(fn); },
-                    removeEventListener: function(type, fn) { if (type === 'change') this.removeListener(fn); },
-                    dispatchEvent: function() { return true; }
-                };
-            };
             globalThis.ResizeObserver = function(callback) {
                 if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
                 this._callback = callback;

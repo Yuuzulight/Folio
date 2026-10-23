@@ -15,7 +15,7 @@ namespace Folio;
 /// A parsed HTML document, or a standalone SVG document when the text is one (an <c>svg</c> root element declared
 /// as XML or in the SVG namespace), parsed as XML (docs/architecture.md, public API sketch).
 /// </summary>
-public sealed class Document : IDisposable
+public sealed partial class Document : IDisposable
 {
     private readonly List<Diagnostic> _diagnostics;
 
@@ -729,7 +729,7 @@ public sealed class Document : IDisposable
 
         if (clampedX != current.X || clampedY != current.Y)
         {
-            _scrollOffsets[element] = new Vector2(clampedX, clampedY);
+            SetScrollOffset(element, new Vector2(clampedX, clampedY));
             if (_frame is { } frame && _images is not null)
                 DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
         }
@@ -770,7 +770,7 @@ public sealed class Document : IDisposable
         }
         else
         {
-            _scrollOffsets[element.Node] = clamped;
+            SetScrollOffset(element.Node, clamped);
             if (_frame is { } frame && _images is not null)
                 DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
         }
@@ -1193,17 +1193,17 @@ public sealed class Document : IDisposable
             var t = anim.Duration > 0 ? (time - anim.StartTime) / anim.Duration : 1.0;
             if (t >= 1.0)
             {
-                _scrollOffsets[node] = anim.Target;
+                SetScrollOffset(node, anim.Target);
                 completed.Add(node);
             }
             else if (t <= 0.0)
             {
-                _scrollOffsets[node] = anim.Start;
+                SetScrollOffset(node, anim.Start);
             }
             else
             {
                 var progress = (float)Easing.Ease.Apply(t);
-                _scrollOffsets[node] = Vector2.Lerp(anim.Start, anim.Target, progress);
+                SetScrollOffset(node, Vector2.Lerp(anim.Start, anim.Target, progress));
             }
         }
 

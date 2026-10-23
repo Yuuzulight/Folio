@@ -88,6 +88,9 @@ internal sealed class DomNodeTemplates
             FormBindings.DefineControlMembers(control, _context, ValidityStateTemplate);
         FormBindings.DefineTextControlMembers(HtmlInputElementTemplate, _context);
         FormBindings.DefineTextControlMembers(HtmlTextAreaElementTemplate, _context);
+        CssomViewBindings.DefineElementMembers(ElementTemplate, _context);
+        CssomViewBindings.DefineHtmlElementMembers(HtmlElementTemplate, _context);
+        CssomViewBindings.DefineDocumentMembers(DocumentTemplate, _context);
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);

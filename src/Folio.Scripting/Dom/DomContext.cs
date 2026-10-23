@@ -464,8 +464,45 @@ internal sealed class DomContext : IFetchContext
         }
     }
 
-    public (double X, double Y) GetScroll(ElementNode element) => _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
-    public void SetScroll(ElementNode element, double x, double y) => _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
+    public (double X, double Y) GetScroll(ElementNode element) =>
+        HostDocument is { } host ? (host.GetScrollLeft(element), host.GetScrollTop(element)) : _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
+
+    /// <summary>Scrolls an element, clamped to its range by the layout; without a host document, to the nearest non-negative position.</summary>
+    public void SetScroll(ElementNode element, double x, double y, string? behavior = null)
+    {
+        if (HostDocument is { } host)
+            host.ScrollToNode(element, (float)x, (float)y, behavior);
+        else
+            _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
+    }
+
+    private (double X, double Y) _windowScroll;
+
+    /// <summary>Where the window is scrolled, with no host document to ask.</summary>
+    public (double X, double Y) WindowScroll => _windowScroll;
+
+    public void ScrollWindow(double x, double y, string? behavior)
+    {
+        if (HostDocument is { } host && Document.DocumentElement is { } root)
+            host.ScrollToNode(root, (float)x, (float)y, behavior);
+        else
+            _windowScroll = (Math.Max(0, x), Math.Max(0, y));
+    }
+
+    /// <summary>The script function that carries out the window's rendering steps (resize event, media query changes).</summary>
+    public ScriptValue RenderStepHandler { get; set; } = ScriptValue.Undefined;
+
+    public void CallRenderStep(string step)
+    {
+        if (RenderStepHandler.IsUndefined || ScriptFeaturesDisposed)
+            return;
+        try { Engine.Call(RenderStepHandler, ScriptValue.Undefined, [ScriptValue.FromString(step)]); }
+        catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
+    }
+
+    /// <summary>Dispatches a trusted event to a node's listeners.</summary>
+    public bool FireEvent(Node target, string type, bool bubbles, bool cancelable) =>
+        Document.EventDispatcher is not { } dispatch || dispatch(target, type, new EventDispatchArgs { Bubbles = bubbles, Cancelable = cancelable, Composed = false });
 
     private MutationObserverRegistry? _mutationObservers;
 
