@@ -65,6 +65,33 @@ jobs:
             grep "  $f\$" <<< "$sums"
           done | sha256sum -c -
 
+      # URL parser and setter test data from web-platform-tests at a pinned revision, cached per revision and checksum
+      # file. Each file is checked against tools/Folio.Gen/wpt-url.sha256 whether it came from the cache or the download.
+      - name: Cache URL test files
+        uses: actions/cache@v4
+        with:
+          path: .cache/wpt-url
+          key: wpt-url-514913ff14fde47147cc4fa84444d86dc8bc3112-${{ hashFiles('tools/Folio.Gen/wpt-url.sha256') }}
+
+      - name: Fetch URL test files
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=514913ff14fde47147cc4fa84444d86dc8bc3112
+          dir=".cache/wpt-url/$revision"
+          files="urltestdata.json urltestdata-javascript-only.json setters_tests.json toascii.json"
+          for f in $files; do
+            if [ ! -f "$dir/$f" ]; then
+              mkdir -p "$dir"
+              curl -fsSL --retry 3 -o "$dir/$f" "https://raw.githubusercontent.com/web-platform-tests/wpt/$revision/url/resources/$f"
+            fi
+          done
+          sums="$(tr -d '\r' < tools/Folio.Gen/wpt-url.sha256)"
+          cd "$dir"
+          for f in $files; do
+            grep "  $f\$" <<< "$sums"
+          done | sha256sum -c -
+
       # Keep unrelated test executables from starving a real content process's
       # watchdog during cold startup on a small runner.
       - run: dotnet test --solution Folio.slnx -c Release --no-build --max-parallel-test-modules 1

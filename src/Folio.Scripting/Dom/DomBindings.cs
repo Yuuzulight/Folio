@@ -195,6 +195,7 @@ public static class DomBindings
             eventLoop, context.MaxWorkerMessageBytes, context.MaxWorkerMemoryBytes);
         WorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
             resourceLoader, baseUri, blobSources, eventLoop);
+        UrlBindings.Install(engine);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.EvaluateHostScript(@"
             if (typeof window === 'undefined') {
@@ -347,20 +348,9 @@ public static class DomBindings
             }
             globalThis.localStorage = makeStorage();
             globalThis.sessionStorage = makeStorage();
-            globalThis.URLSearchParams = function(init) {
-                this._pairs = [];
-                if (typeof init === 'string') for (const part of init.replace(/^\?/, '').split('&')) if (part) { const i = part.indexOf('='); this.append(decodeURIComponent(i < 0 ? part : part.slice(0, i)), decodeURIComponent(i < 0 ? '' : part.slice(i + 1))); }
-            };
-            URLSearchParams.prototype.append = function(k,v) { this._pairs.push([String(k), String(v)]); };
-            URLSearchParams.prototype.set = function(k,v) { this.delete(k); this.append(k,v); };
-            URLSearchParams.prototype.get = function(k) { const p = this._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
-            URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
-            URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
-            URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
             globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
             Blob.prototype.text = function() { return Promise.resolve(this._text); };
             Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
-            globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); this.protocol = match && match[1] ? match[1] + ':' : ''; this.host = match && match[2] ? match[2] : ''; this.origin = this.protocol && this.host ? this.protocol + '//' + this.host : ''; this.pathname = match && match[3] ? match[3] : '/'; this.search = match && match[4] ? match[4] : ''; this.hash = match && match[5] ? match[5] : ''; this.href = this.origin + this.pathname + this.search + this.hash; this.searchParams = new URLSearchParams(this.search); };
             URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
             URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
             globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
