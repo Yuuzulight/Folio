@@ -17,19 +17,29 @@ internal sealed class StorageArea
     private readonly IArtifactStorage? _host;
     private readonly string _prefix;
     private long _size;
+    private bool _loaded;
+
+    /// <summary>The namespace of an area's keys in the host storage; the length-delimited artifact id cannot collide with another artifact's.</summary>
+    internal static string Prefix(string artifact, string area) =>
+        "folio/" + area + "-v1/" + artifact.Length.ToString(CultureInfo.InvariantCulture) + ":" + artifact + "/";
 
     internal StorageArea(IArtifactStorage? host, string artifact, string area)
     {
         _host = host;
-        // A length-delimited namespace cannot collide with another artifact's id.
-        _prefix = "folio/" + area + "-v1/" + artifact.Length.ToString(CultureInfo.InvariantCulture) + ":" + artifact + "/";
-        if (host is null)
+        _prefix = Prefix(artifact, area);
+        _loaded = host is null;
+    }
+
+    // The host is asked on first use, so a document that never touches storage never depends on it.
+    private void Load()
+    {
+        if (_loaded)
             return;
         try
         {
-            foreach (var stored in host.Keys(_prefix))
+            foreach (var stored in _host!.Keys(_prefix))
             {
-                if (!stored.StartsWith(_prefix, StringComparison.Ordinal) || host.Read(stored) is not { } value)
+                if (!stored.StartsWith(_prefix, StringComparison.Ordinal) || _host.Read(stored) is not { } value)
                     continue;
                 var key = Uri.UnescapeDataString(stored[_prefix.Length..]);
                 _items.Add(new(key, value));
@@ -38,24 +48,47 @@ internal sealed class StorageArea
         }
         catch (Exception)
         {
-            throw WebIdlException.DomException("UnknownError", "The host could not read web storage.");
+            _items.Clear();
+            _size = 0;
+            throw WebIdlException.DomException("SecurityError", "The host could not read web storage.");
+        }
+        _loaded = true;
+    }
+
+    internal int Length
+    {
+        get
+        {
+            Load();
+            return _items.Count;
         }
     }
 
-    internal int Length => _items.Count;
+    internal string? Key(int index)
+    {
+        Load();
+        return index >= 0 && index < _items.Count ? _items[index].Key : null;
+    }
 
-    internal string? Key(int index) => index >= 0 && index < _items.Count ? _items[index].Key : null;
-
-    internal IEnumerable<string> Keys => _items.Select(i => i.Key);
+    internal IEnumerable<string> Keys
+    {
+        get
+        {
+            Load();
+            return _items.Select(i => i.Key).ToList();
+        }
+    }
 
     internal string? Get(string key)
     {
+        Load();
         var at = IndexOf(key);
         return at < 0 ? null : _items[at].Value;
     }
 
     internal void Set(string key, string value)
     {
+        Load();
         var at = IndexOf(key);
         if (at >= 0 && _items[at].Value == value)
             return;
@@ -72,6 +105,7 @@ internal sealed class StorageArea
 
     internal void Remove(string key)
     {
+        Load();
         var at = IndexOf(key);
         if (at < 0)
             return;
@@ -82,6 +116,7 @@ internal sealed class StorageArea
 
     internal void Clear()
     {
+        Load();
         if (_items.Count == 0)
             return;
         var keys = _items.Select(i => i.Key).ToList();
