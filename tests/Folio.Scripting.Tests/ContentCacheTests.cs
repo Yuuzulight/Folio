@@ -326,7 +326,7 @@ public sealed class ContentCacheTests
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
         var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
-        return ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+        return ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15), CpuRatePercent: 100),
             artifactStorage: storage, artifactId: artifact, documentLimits: ResourceLimits.Default with { MaxServiceWorkerCacheBytes = quota }, resourceLoader: loader);
     }
     private static async Task<string> Load(ContentProcessClient client, string script, bool serviceWorkers = false)
@@ -336,7 +336,7 @@ public sealed class ContentCacheTests
         client.MessageReceived += Handler;
         try
         {
-            await client.SendAsync(ContentMessageKind.Load, new { html = "<script>var result = 'unfinished'; (async () => {" + script + "})().catch(e => result = e.name + ':' + e.message);</script>", script = "result", url = "https://cache.example/", artifactId = "forged", storageEnabled = false, limits = new { MaxServiceWorkerCacheBytes = long.MaxValue }, capabilities = new FeatureCapabilities { ServiceWorkers = serviceWorkers } }, TestContext.Current.CancellationToken);
+            await client.SendAsync(ContentMessageKind.Load, new { html = "<script>var result = 'unfinished'; (async () => {" + script + "})().catch(e => result = e.name + ':' + e.message);</script>", script = "result", url = "https://cache.example/", artifactId = "forged", storageEnabled = false, limits = new { MaxServiceWorkerCacheBytes = long.MaxValue }, scriptLimits = new ScriptLimits { Timeout = TimeSpan.FromSeconds(15) }, capabilities = new FeatureCapabilities { ServiceWorkers = serviceWorkers } }, TestContext.Current.CancellationToken);
             var message = await completed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Assert.True(message.Kind == ContentMessageKind.Frame, message.Payload.ToString());
             var value = message.Payload.GetProperty("value").GetString()!;

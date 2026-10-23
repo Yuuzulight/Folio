@@ -99,7 +99,10 @@ public sealed class ContentDocumentRuntime : IDisposable
             };
             _session.SetStorageLimit(options.Limits.MaxServiceWorkerCacheBytes);
             _document = Document.Parse(htmlElement.GetString() ?? "", options);
-            _engine = new JintScriptEngine();
+            var scriptLimits = message.Payload.TryGetProperty("scriptLimits", out var slNode)
+                ? slNode.Deserialize<ScriptLimits>() ?? ScriptLimits.Default
+                : ScriptLimits.Default;
+            _engine = new JintScriptEngine(new ScriptEngineOptions { Limits = scriptLimits });
             _eventLoop = new HtmlEventLoop(_engine);
             _taskDiagnostics.Clear();
             _eventLoop.UncaughtException += error => _taskDiagnostics.Add(error.GetType().Name + ": " + error.Message);
