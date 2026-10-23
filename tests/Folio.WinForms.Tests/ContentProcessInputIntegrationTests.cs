@@ -30,8 +30,8 @@ public sealed class ContentProcessInputIntegrationTests
               <style>
                 body { margin: 0; padding: 0; }
                 button { width: 100px; height: 40px; margin: 0; padding: 0; }
-                #p1 { width: 300px; height: 200px; background-color: rgb(255, 0, 0); }
-                #p2 { width: 300px; height: 200px; background-color: rgb(0, 255, 0); }
+                div#p1 { width: 300px; height: 200px; background-color: rgb(255, 0, 0); }
+                div#p2 { width: 300px; height: 200px; background-color: rgb(0, 255, 0); }
               </style>
             </head>
             <body>
@@ -83,7 +83,7 @@ public sealed class ContentProcessInputIntegrationTests
               <style>
                 body { margin: 0; }
                 input { width: 200px; height: 35px; }
-                #out { width: 300px; height: 100px; background-color: rgb(0, 0, 0); }
+                div#out { width: 300px; height: 100px; background-color: rgb(0, 0, 0); }
               </style>
             </head>
             <body>
@@ -262,7 +262,7 @@ public sealed class ContentProcessInputIntegrationTests
               <style>
                 body { margin: 0; }
                 select { width: 150px; height: 35px; }
-                #result { width: 300px; height: 100px; background-color: rgb(0, 0, 0); }
+                div#result { width: 300px; height: 100px; background-color: rgb(0, 0, 0); }
               </style>
             </head>
             <body>
