@@ -143,7 +143,7 @@ public static class Program
     {
         var results = Conformance.Discover()
             .Where(a => filters.Length == 0 || filters.Any(f => a.Id == f || a.Id.StartsWith(f.TrimEnd('/') + "/", StringComparison.Ordinal)))
-            .Select(Conformance.Run)
+            .Select(a => Conformance.Run(a))
             .ToList();
         var report = Conformance.Report(results);
         Console.WriteLine(report);

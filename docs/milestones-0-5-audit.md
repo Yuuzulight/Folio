@@ -232,4 +232,4 @@ With Milestones 0 through 5 accepted on their documented architectures and Miles
 2. **Track 3: "Towards all-Folio" In-House Dependencies (`docs/dependencies.md`)**:
    - Complex script shaping in `Folio.Typography` (open: no GSUB/GPOS yet; see the status in `docs/dependencies.md`).
    - In-house image decoders in `Folio.Imaging`: GIF and WebP (lossless and lossy) are done and checked against SkiaSharp's codecs (#576, #577, #578).
-   - Software rasterization backend behind `IRasterBackend` and `ICanvas` (open: paths, strokes, clips, glyphs and layers are approximated).
+   - Software rasterization backend behind `IRasterBackend` and `ICanvas`: written and checked against the Skia backend (reftests, goldens, differential scenes, conformance 150 of 164 against Skia's 155; see `docs/dependencies.md`); open: text hinting, CFF2 and COLR glyphs, performance, and it is not the product's backend yet.
