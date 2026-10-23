@@ -18,7 +18,7 @@ public class CssomViewTests
         throw new DirectoryNotFoundException("tests/fonts");
     }
 
-    private sealed class Page : IDisposable
+    internal sealed class Page : IDisposable
     {
         public Page(string body, int width = 800, int height = 600, ColorScheme scheme = ColorScheme.Light)
         {

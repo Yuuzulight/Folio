@@ -173,6 +173,372 @@ internal static class CssomViewBindings
         engine.Evaluate("delete globalThis.__folio_viewport_host;", "folio:viewport-cleanup");
     }
 
+    /// <summary>
+    /// <c>ResizeObserver</c> and <c>IntersectionObserver</c> (https://drafts.csswg.org/resize-observer/, https://www.w3.org/TR/intersection-observer/).
+    /// The observers are script classes; the host answers how big an element is and where it meets its root, from the last layout.
+    /// </summary>
+    internal static void InstallObservers(IScriptEngine engine, DomContext context)
+    {
+        Folio.Document? Host() => context.HostDocument;
+        ScriptValue Numbers(params float[] values) => context.Engine.CreateArray([.. values.Select(v => ScriptValue.FromNumber(v))]);
+        ElementNode? Element(ReadOnlySpan<ScriptValue> args, int index) => args.Length > index && context.TryUnwrapElement(args[index], out var e) ? e : null;
+
+        var host = new HostObjectTemplate("ObserverHost")
+            .DefineMethod("sizes", (_, _, args) =>
+            {
+                if (Element(args, 0) is not { } element)
+                    return Numbers(0, 0, 0, 0, 0, 0);
+                if (Host() is not { } doc)
+                {
+                    var rect = DomGeometry.Rect(element);
+                    return Numbers((float)rect.Width, (float)rect.Height, (float)rect.Width, (float)rect.Height, 0, 0);
+                }
+                return doc.ObservedSizes(element) is { } s ? Numbers(s.BorderWidth, s.BorderHeight, s.ContentWidth, s.ContentHeight, s.PaddingLeft, s.PaddingTop) : Numbers(0, 0, 0, 0, 0, 0);
+            })
+            .DefineMethod("intersect", (_, _, args) =>
+            {
+                if (Host() is not { } doc || Element(args, 0) is not { } target)
+                    return ScriptValue.Null;
+                Span<float> margin = stackalloc float[4];
+                for (var k = 0; k < 4 && args.Length > k + 2; k++)
+                    margin[k] = (float)WebIdlConversions.ToDouble(args[k + 2]);
+                if (doc.Intersect(target, Element(args, 1), margin[0], margin[1], margin[2], margin[3]) is not { } hit)
+                    return ScriptValue.Null;
+                var (t, i, r) = hit;
+                return Numbers(t.X, t.Y, t.Width, t.Height, r.X, r.Y, r.Width, r.Height, i is { } m ? 1 : 0, i?.X ?? 0, i?.Y ?? 0, i?.Width ?? 0, i?.Height ?? 0);
+            })
+            .DefineMethod("onStep", (_, _, args) =>
+            {
+                context.ObserverStepHandler = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+                return ScriptValue.Undefined;
+            });
+        engine.SetGlobalProperty("__folio_observer_host", engine.CreateHostObject(host, new object()));
+        engine.EvaluateHostScript(ObserverSource, "folio:observers");
+        engine.Evaluate("delete globalThis.__folio_observer_host;", "folio:observers-cleanup");
+    }
+
+    private const string ObserverSource = """
+        (function (host) {
+          'use strict';
+          const defineProperty = Object.defineProperty;
+          const now = function () { return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now(); };
+          function def(name, value) { defineProperty(globalThis, name, { value: value, writable: true, enumerable: false, configurable: true }); }
+          function hidden(object, name, value) { defineProperty(object, name, { value: value, writable: true, enumerable: false, configurable: true }); }
+          function tag(C, name) { defineProperty(C.prototype, Symbol.toStringTag, { value: name, configurable: true }); }
+          function isElement(value) { return value !== null && typeof value === 'object' && value.nodeType === 1; }
+          function report(error) {
+            try { if (typeof reportError === 'function') reportError(error); } catch (_) { }
+          }
+          // An instance of one of the read-only result classes, which scripts cannot construct.
+          function make(C, fields) {
+            const instance = Object.create(C.prototype);
+            for (const name in fields) hidden(instance, name, fields[name]);
+            return instance;
+          }
+          function getters(C, names) {
+            for (const name of names)
+              defineProperty(C.prototype, name, { get: function () { return this['_' + name]; }, enumerable: true, configurable: true });
+          }
+
+          if (typeof globalThis.DOMRectReadOnly !== 'function') {
+            class DOMRectReadOnly {
+              constructor(x, y, width, height) { hidden(this, '_r', [+x || 0, +y || 0, +width || 0, +height || 0]); }
+              get x() { return this._r[0]; }
+              get y() { return this._r[1]; }
+              get width() { return this._r[2]; }
+              get height() { return this._r[3]; }
+              get top() { return Math.min(this._r[1], this._r[1] + this._r[3]); }
+              get left() { return Math.min(this._r[0], this._r[0] + this._r[2]); }
+              get right() { return Math.max(this._r[0], this._r[0] + this._r[2]); }
+              get bottom() { return Math.max(this._r[1], this._r[1] + this._r[3]); }
+              toJSON() { return { x: this.x, y: this.y, width: this.width, height: this.height, top: this.top, right: this.right, bottom: this.bottom, left: this.left }; }
+            }
+            tag(DOMRectReadOnly, 'DOMRectReadOnly');
+            def('DOMRectReadOnly', DOMRectReadOnly);
+          }
+          const Rect = function (x, y, w, h) { return new globalThis.DOMRectReadOnly(x, y, w, h); };
+          const depthOf = function (node) { let n = 0; for (let p = node.parentNode; p; p = p.parentNode) n++; return n; };
+
+          // ---- ResizeObserver ----
+          class ResizeObserverSize {
+            constructor() { throw new TypeError('Illegal constructor'); }
+          }
+          getters(ResizeObserverSize, ['inlineSize', 'blockSize']);
+          tag(ResizeObserverSize, 'ResizeObserverSize');
+          class ResizeObserverEntry {
+            constructor() { throw new TypeError('Illegal constructor'); }
+          }
+          getters(ResizeObserverEntry, ['target', 'contentRect', 'borderBoxSize', 'contentBoxSize', 'devicePixelContentBoxSize']);
+          tag(ResizeObserverEntry, 'ResizeObserverEntry');
+
+          const resizing = new Set();
+          let resizeCount = 0;
+          const size = function (w, h) { return Object.freeze(make(ResizeObserverSize, { _inlineSize: w, _blockSize: h })); };
+          // The size of the observed box that decides whether a target changed: [width, height].
+          function boxSize(observation, sizes) {
+            switch (observation.box) {
+              case 'border-box': return [sizes[0], sizes[1]];
+              case 'device-pixel-content-box': return [Math.round(sizes[2] * devicePixelRatio), Math.round(sizes[3] * devicePixelRatio)];
+              default: return [sizes[2], sizes[3]];
+            }
+          }
+          class ResizeObserver {
+            constructor(callback) {
+              if (arguments.length === 0) throw new TypeError("Failed to construct 'ResizeObserver': 1 argument required, but only 0 present.");
+              if (typeof callback !== 'function') throw new TypeError("Failed to construct 'ResizeObserver': The callback provided as parameter 1 is not a function.");
+              hidden(this, '_callback', callback);
+              hidden(this, '_observations', []);
+              hidden(this, '_id', ++resizeCount);
+            }
+            observe(target, options) {
+              if (arguments.length === 0) throw new TypeError("Failed to execute 'observe' on 'ResizeObserver': 1 argument required, but only 0 present.");
+              if (!isElement(target)) throw new TypeError("Failed to execute 'observe' on 'ResizeObserver': parameter 1 is not of type 'Element'.");
+              let box = 'content-box';
+              if (options !== undefined && options !== null) {
+                if (typeof options !== 'object' && typeof options !== 'function') throw new TypeError("Failed to execute 'observe' on 'ResizeObserver': parameter 2 ('options') is not an object.");
+                if (options.box !== undefined) box = String(options.box);
+                if (box !== 'content-box' && box !== 'border-box' && box !== 'device-pixel-content-box')
+                  throw new TypeError("Failed to execute 'observe' on 'ResizeObserver': The provided value '" + box + "' is not a valid enum value of type ResizeObserverBoxOptions.");
+              }
+              this.unobserve(target);
+              this._observations.push({ target: target, box: box, size: [0, 0] });
+              resizing.add(this);
+            }
+            unobserve(target) {
+              if (arguments.length === 0) throw new TypeError("Failed to execute 'unobserve' on 'ResizeObserver': 1 argument required, but only 0 present.");
+              if (!isElement(target)) throw new TypeError("Failed to execute 'unobserve' on 'ResizeObserver': parameter 1 is not of type 'Element'.");
+              const list = this._observations;
+              for (let i = 0; i < list.length; i++) if (list[i].target === target) { list.splice(i, 1); break; }
+              if (list.length === 0) resizing.delete(this);
+            }
+            disconnect() {
+              this._observations.length = 0;
+              resizing.delete(this);
+            }
+          }
+          tag(ResizeObserver, 'ResizeObserver');
+
+          // https://drafts.csswg.org/resize-observer/#broadcast-resize-notifications-section
+          function runResizeObservers() {
+            if (resizing.size === 0) return;
+            let depth = 0;
+            for (;;) {
+              const observers = Array.from(resizing).sort(function (a, b) { return a._id - b._id; });
+              let active = false;
+              let skipped = false;
+              const gathered = [];
+              for (const observer of observers) {
+                const changed = [];
+                for (const observation of observer._observations) {
+                  const current = boxSize(observation, host.sizes(observation.target));
+                  if (current[0] === observation.size[0] && current[1] === observation.size[1]) continue;
+                  if (depthOf(observation.target) > depth) changed.push([observation, host.sizes(observation.target)]); else skipped = true;
+                }
+                if (changed.length > 0) { active = true; gathered.push([observer, changed]); }
+              }
+              if (!active) {
+                if (skipped) {
+                  try {
+                    globalThis.dispatchEvent(new ErrorEvent('error', { message: 'ResizeObserver loop completed with undelivered notifications.', cancelable: true }));
+                  } catch (error) { report(error); }
+                }
+                return;
+              }
+              let shallowest = Infinity;
+              for (const pair of gathered) {
+                const observer = pair[0];
+                const entries = [];
+                // The sizes are those the layout had when the observations were gathered, not what an earlier callback changed since.
+                for (const gatheredObservation of pair[1]) {
+                  const observation = gatheredObservation[0];
+                  const sizes = gatheredObservation[1];
+                  observation.size = boxSize(observation, sizes);
+                  const dpr = devicePixelRatio;
+                  entries.push(make(ResizeObserverEntry, {
+                    _target: observation.target,
+                    _contentRect: Rect(sizes[4], sizes[5], sizes[2], sizes[3]),
+                    _borderBoxSize: Object.freeze([size(sizes[0], sizes[1])]),
+                    _contentBoxSize: Object.freeze([size(sizes[2], sizes[3])]),
+                    _devicePixelContentBoxSize: Object.freeze([size(Math.round(sizes[2] * dpr), Math.round(sizes[3] * dpr))])
+                  }));
+                  shallowest = Math.min(shallowest, depthOf(observation.target));
+                }
+                try { observer._callback.call(observer, entries, observer); } catch (error) { report(error); }
+              }
+              depth = shallowest;
+            }
+          }
+          def('ResizeObserver', ResizeObserver);
+          def('ResizeObserverEntry', ResizeObserverEntry);
+          def('ResizeObserverSize', ResizeObserverSize);
+
+          // ---- IntersectionObserver ----
+          class IntersectionObserverEntry {
+            constructor() { throw new TypeError('Illegal constructor'); }
+            toJSON() {
+              return { time: this.time, rootBounds: this.rootBounds && this.rootBounds.toJSON(), boundingClientRect: this.boundingClientRect.toJSON(),
+                intersectionRect: this.intersectionRect.toJSON(), isIntersecting: this.isIntersecting, intersectionRatio: this.intersectionRatio };
+            }
+          }
+          getters(IntersectionObserverEntry, ['time', 'rootBounds', 'boundingClientRect', 'intersectionRect', 'isIntersecting', 'intersectionRatio', 'target']);
+          tag(IntersectionObserverEntry, 'IntersectionObserverEntry');
+
+          const intersecting = new Set();
+          function syntax(message) {
+            return typeof DOMException === 'function' ? new DOMException(message, 'SyntaxError') : new SyntaxError(message);
+          }
+          // "10px 5%" -> four [value, unit] pairs, top right bottom left.
+          function parseMargin(text) {
+            const tokens = String(text).trim().split(/\s+/);
+            if (tokens.length === 0 || tokens.length > 4 || tokens[0] === '') throw syntax("Failed to construct 'IntersectionObserver': Failed to parse rootMargin.");
+            const parsed = tokens.map(function (token) {
+              const m = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(px|%)$/.exec(token);
+              if (!m) throw syntax("Failed to construct 'IntersectionObserver': rootMargin must be specified in pixels or percent.");
+              return [parseFloat(m[1]), m[2]];
+            });
+            const [a, b, c, d] = parsed;
+            switch (parsed.length) {
+              case 1: return [a, a, a, a];
+              case 2: return [a, b, a, b];
+              case 3: return [a, b, c, b];
+              default: return [a, b, c, d];
+            }
+          }
+          class IntersectionObserver {
+            constructor(callback, options) {
+              if (arguments.length === 0) throw new TypeError("Failed to construct 'IntersectionObserver': 1 argument required, but only 0 present.");
+              if (typeof callback !== 'function') throw new TypeError("Failed to construct 'IntersectionObserver': The callback provided as parameter 1 is not a function.");
+              let root = null;
+              let margin = '0px';
+              let thresholds = [0];
+              if (options !== undefined && options !== null) {
+                if (typeof options !== 'object' && typeof options !== 'function') throw new TypeError("Failed to construct 'IntersectionObserver': parameter 2 ('options') is not an object.");
+                if (options.root !== undefined && options.root !== null) {
+                  if (options.root.nodeType === 9) root = null;
+                  else if (isElement(options.root)) root = options.root;
+                  else throw new TypeError("Failed to construct 'IntersectionObserver': Failed to read the 'root' property from 'IntersectionObserverInit': The provided value is not of type '(Document or Element)'.");
+                }
+                if (options.rootMargin !== undefined) margin = String(options.rootMargin);
+                if (options.threshold !== undefined) {
+                  const list = typeof options.threshold === 'object' && options.threshold !== null && Symbol.iterator in options.threshold ? Array.from(options.threshold) : [options.threshold];
+                  thresholds = list.map(function (value) {
+                    const n = Number(value);
+                    if (n !== n) throw new TypeError("Failed to construct 'IntersectionObserver': The provided double value is non-finite.");
+                    if (n < 0 || n > 1) throw new RangeError('Threshold values must be numbers between 0 and 1');
+                    return n;
+                  }).sort(function (x, y) { return x - y; });
+                  if (thresholds.length === 0) thresholds = [0];
+                }
+              }
+              const parsed = parseMargin(margin);
+              hidden(this, '_callback', callback);
+              hidden(this, '_root', root);
+              hidden(this, '_margin', parsed);
+              hidden(this, '_thresholds', Object.freeze(thresholds));
+              hidden(this, '_observations', []);
+              hidden(this, '_queue', []);
+            }
+            get root() { return this._root; }
+            get rootMargin() { return this._margin.map(function (p) { return p[0] + p[1]; }).join(' '); }
+            get thresholds() { return this._thresholds; }
+            observe(target) {
+              if (arguments.length === 0) throw new TypeError("Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present.");
+              if (!isElement(target)) throw new TypeError("Failed to execute 'observe' on 'IntersectionObserver': parameter 1 is not of type 'Element'.");
+              if (this._observations.some(function (o) { return o.target === target; })) return;
+              this._observations.push({ target: target, index: -1, intersecting: false });
+              intersecting.add(this);
+            }
+            unobserve(target) {
+              if (arguments.length === 0) throw new TypeError("Failed to execute 'unobserve' on 'IntersectionObserver': 1 argument required, but only 0 present.");
+              if (!isElement(target)) throw new TypeError("Failed to execute 'unobserve' on 'IntersectionObserver': parameter 1 is not of type 'Element'.");
+              const list = this._observations;
+              for (let i = 0; i < list.length; i++) if (list[i].target === target) { list.splice(i, 1); break; }
+              this._queue = this._queue.filter(function (entry) { return entry.target !== target; });
+              if (list.length === 0) intersecting.delete(this);
+            }
+            disconnect() {
+              this._observations.length = 0;
+              this._queue.length = 0;
+              intersecting.delete(this);
+            }
+            takeRecords() {
+              const queued = this._queue;
+              this._queue = [];
+              return queued;
+            }
+          }
+          tag(IntersectionObserver, 'IntersectionObserver');
+
+          // The root margin in pixels: percentages are of the root's own width (left and right) or height (top and bottom).
+          function pixelMargin(observer) {
+            const root = observer._root;
+            const w = root ? root.clientWidth : innerWidth;
+            const h = root ? root.clientHeight : innerHeight;
+            const m = observer._margin;
+            const px = function (pair, of) { return pair[1] === '%' ? of * pair[0] / 100 : pair[0]; };
+            return [px(m[0], h), px(m[1], w), px(m[2], h), px(m[3], w)];
+          }
+
+          // https://www.w3.org/TR/intersection-observer/#update-intersection-observations-algo
+          function runIntersectionObservers() {
+            if (intersecting.size === 0) return;
+            for (const observer of Array.from(intersecting)) {
+              const root = observer._root;
+              const margin = pixelMargin(observer);
+              const thresholds = observer._thresholds;
+              for (const observation of observer._observations.slice()) {
+                const target = observation.target;
+                const contained = !root || (root !== target && root.contains(target));
+                const hit = contained ? host.intersect(target, root, margin[0], margin[1], margin[2], margin[3]) : null;
+                let isIntersecting = false;
+                let ratio = 0;
+                let boundingRect;
+                let intersection = Rect(0, 0, 0, 0);
+                let rootBounds = null;
+                if (hit) {
+                  boundingRect = Rect(hit[0], hit[1], hit[2], hit[3]);
+                  rootBounds = Rect(hit[4], hit[5], hit[6], hit[7]);
+                  if (hit[8]) {
+                    isIntersecting = true;
+                    intersection = Rect(hit[9], hit[10], hit[11], hit[12]);
+                    const targetArea = hit[2] * hit[3];
+                    ratio = targetArea === 0 ? 1 : Math.min(1, (hit[11] * hit[12]) / targetArea);
+                  }
+                } else {
+                  const r = target.getBoundingClientRect();
+                  boundingRect = Rect(r.x, r.y, r.width, r.height);
+                  if (!root) rootBounds = Rect(-margin[3], -margin[0], innerWidth + margin[1] + margin[3], innerHeight + margin[0] + margin[2]);
+                }
+                let index = 0;
+                if (isIntersecting) {
+                  index = thresholds.length;
+                  for (let i = 0; i < thresholds.length; i++) if (thresholds[i] > ratio) { index = i; break; }
+                }
+                if (index === observation.index && isIntersecting === observation.intersecting) continue;
+                observation.index = index;
+                observation.intersecting = isIntersecting;
+                observer._queue.push(make(IntersectionObserverEntry, {
+                  _time: now(), _rootBounds: rootBounds, _boundingClientRect: boundingRect, _intersectionRect: intersection,
+                  _isIntersecting: isIntersecting, _intersectionRatio: ratio, _target: target
+                }));
+              }
+            }
+            for (const observer of Array.from(intersecting)) {
+              if (observer._queue.length === 0) continue;
+              const entries = observer.takeRecords();
+              try { observer._callback.call(observer, entries, observer); } catch (error) { report(error); }
+            }
+          }
+          def('IntersectionObserver', IntersectionObserver);
+          def('IntersectionObserverEntry', IntersectionObserverEntry);
+
+          host.onStep(function (step) {
+            if (step === 'resize') runResizeObservers();
+            else if (step === 'intersect') runIntersectionObservers();
+          });
+        })(__folio_observer_host);
+        """;
+
     private static bool MatchesWithoutHost(string query) => Folio.Css.Conditions.MediaMatches(query, new Folio.Css.MediaContext(800, 600));
 
     private const string WindowSource = """
@@ -306,4 +672,8 @@ internal sealed class DomRenderingHooks : RenderingStepsHooks
     }
 
     public override void RunMediaQueryChanges() => _context.CallRenderStep("media");
+
+    public override void RunResizeObservers() => _context.CallObserverStep("resize");
+
+    public override void RunIntersectionObservers() => _context.CallObserverStep("intersect");
 }
