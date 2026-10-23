@@ -74,6 +74,9 @@ public sealed class ContentDocumentRuntime : IDisposable
 
     public Task<ContentDocumentResult> ExecuteAsync(ContentMessage message, CancellationToken cancellationToken)
     {
+        if (message.Payload.TryGetProperty("crash", out var crashNode) && crashNode.ValueKind is JsonValueKind.True or JsonValueKind.String)
+            Environment.FailFast("Crashing test hook triggered.");
+
         var script = message.Payload.TryGetProperty("script", out var source) ? source.GetString() ?? "" : "";
         var url = message.Payload.TryGetProperty("url", out var location) ? location.GetString() ?? "content" : "content";
         var replacesDocument = message.Payload.TryGetProperty("html", out var htmlElement);

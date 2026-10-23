@@ -444,6 +444,7 @@ public class FolioView : Control
                 sender is ContentProcessClient client && !ReferenceEquals(client, _contentProcess)) return;
             _scriptStoppedReason = reason;
             ScriptStopped?.Invoke(this, new ScriptStoppedEventArgs(reason));
+            RenderFailed?.Invoke(this, new RenderFailedEventArgs(new InvalidOperationException($"Script stopped: {FormatPlainReason(reason)}")));
             Invalidate();
         }
         try
@@ -699,12 +700,24 @@ public class FolioView : Control
     private void PaintScriptStoppedNotice(Graphics graphics)
     {
         if (_scriptStoppedReason is not { } reason || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        var plain = FormatPlainReason(reason);
         var left = Math.Min(12, ClientSize.Width - 1);
         var top = Math.Min(12, ClientSize.Height - 1);
         using var brush = new SolidBrush(Color.FromArgb(235, Color.White));
         graphics.FillRectangle(brush, left, top, Math.Min(ClientSize.Width - left, 520), Math.Min(ClientSize.Height - top, 44));
         using var textBrush = new SolidBrush(Color.DarkRed);
-        graphics.DrawString($"Script stopped: {reason}", Font, textBrush, left + 8, top + 13);
+        graphics.DrawString($"Script stopped: {plain}", Font, textBrush, left + 8, top + 13);
+    }
+
+    private static string FormatPlainReason(string reason)
+    {
+        if (reason.Contains("heartbeat", StringComparison.OrdinalIgnoreCase) || reason.Contains("timed out", StringComparison.OrdinalIgnoreCase) || reason.Contains("too long", StringComparison.OrdinalIgnoreCase))
+            return "ran too long";
+        if (reason.Contains("memory", StringComparison.OrdinalIgnoreCase))
+            return "used too much memory";
+        if (reason.Contains("exit", StringComparison.OrdinalIgnoreCase) || reason.Contains("crash", StringComparison.OrdinalIgnoreCase) || reason.Contains("closed", StringComparison.OrdinalIgnoreCase) || reason.Contains("protocol", StringComparison.OrdinalIgnoreCase))
+            return "crashed";
+        return reason;
     }
 
     protected override void OnResize(EventArgs e)

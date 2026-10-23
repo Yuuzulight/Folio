@@ -179,6 +179,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 await _session.SendAsync(ContentMessageKind.Heartbeat, new { }, cancellationToken).ConfigureAwait(false);
                 if (!_supervisor.CheckHeartbeat()) break;
+                try { _process.Refresh(); } catch { }
                 if (!_supervisor.CheckMemory(_process.WorkingSet64)) break;
             }
         }
