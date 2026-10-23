@@ -177,4 +177,18 @@ internal static class FrameBenchmark
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
     }
+
+    /// <summary>
+    /// Measures and records the serialized display list frame size in bytes across IPC (issue #476).
+    /// </summary>
+    public static (int InitialFrameBytes, int SubsequentFrameBytes, int DisplayItemCount) MeasureIpcFrameSize(string? html = null)
+    {
+        html ??= Typical;
+        using var document = Document.Parse(html, Options);
+        var list = document.Paint(800, 600, 1, new HarfBuzzShaper(), 0).List;
+        var context = new DisplayListContext();
+        var initialBytes = DisplayListCodec.Encode(list, context).Length;
+        var subsequentBytes = DisplayListCodec.Encode(list, context).Length;
+        return (initialBytes, subsequentBytes, list.Items.Count);
+    }
 }

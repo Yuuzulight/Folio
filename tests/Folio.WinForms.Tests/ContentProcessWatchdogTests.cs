@@ -195,6 +195,8 @@ public sealed class ContentProcessWatchdogTests
                     framePath = client.FramePath, viewportWidth = 220, viewportHeight = 80
                 });
                 await WaitForBlueAsync(view);
+                lastTick = Stopwatch.GetTimestamp();
+                maxPumpDelayMs = 0;
 
                 await client.SendAsync(ContentMessageKind.Load, new
                 {
@@ -281,6 +283,8 @@ public sealed class ContentProcessWatchdogTests
                     framePath = client.FramePath, viewportWidth = 220, viewportHeight = 80
                 });
                 await WaitForBlueAsync(view);
+                lastTick = Stopwatch.GetTimestamp();
+                maxPumpDelayMs = 0;
 
                 await client.SendAsync(ContentMessageKind.Load, new
                 {
@@ -367,6 +371,8 @@ public sealed class ContentProcessWatchdogTests
                     framePath = client.FramePath, viewportWidth = 220, viewportHeight = 80
                 });
                 await WaitForBlueAsync(view);
+                lastTick = Stopwatch.GetTimestamp();
+                maxPumpDelayMs = 0;
 
                 await client.SendAsync(ContentMessageKind.Load, new { crash = true });
                 var stop = await stopped.Task.WaitAsync(TimeSpan.FromSeconds(15));
