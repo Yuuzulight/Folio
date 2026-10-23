@@ -59,4 +59,13 @@ public class BenchmarkTests
         Assert.Equal(0, code);
     }
 
+    [Fact]
+    public void MeasuresIpcFrameSize()
+    {
+        var (initBytes, subBytes, itemCount) = FrameBenchmark.MeasureIpcFrameSize();
+        Assert.True(initBytes > 0, "Initial frame bytes");
+        Assert.True(subBytes > 0, "Subsequent frame bytes");
+        Assert.True(itemCount > 0, "Display item count");
+    }
+
 }

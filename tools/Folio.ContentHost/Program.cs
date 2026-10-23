@@ -21,6 +21,21 @@ session.MessageReceived += async (message, cancellationToken) =>
         await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities = runtime.Capabilities, accepted }, cancellationToken);
         return;
     }
+    if (message.Kind == ContentMessageKind.Input)
+    {
+        if (message.TryGetInput(out var input) && input is not null)
+        {
+            try
+            {
+                await runtime.RouteInputAsync(input, message.Sequence, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                await session.SendAsync(ContentMessageKind.Diagnostic, new { sequence = message.Sequence, code = "Input", message = exception.Message }, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        return;
+    }
     if (message.Kind != ContentMessageKind.Load) return;
     try
     {
@@ -33,6 +48,7 @@ session.MessageReceived += async (message, cancellationToken) =>
             canvasCommands = result.CanvasCommands,
             diagnostics = result.Diagnostics,
             appliedCapabilities = runtime.Capabilities,
+            displayList = result.DisplayList,
             canvasFrame = new { path = framePath, width = frameStore.Width, height = frameStore.Height, stride = frameStore.Stride, sequence = frameStore.Sequence }
         }, cancellationToken);
     }

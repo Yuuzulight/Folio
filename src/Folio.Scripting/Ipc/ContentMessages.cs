@@ -79,7 +79,10 @@ public static class ContentMessagePayloads
     public static bool TryGetInput(this ContentMessage message, out ContentInputEvent? input)
     {
         input = null;
-        if (message.Kind != ContentMessageKind.Input || !message.Payload.TryGetProperty("type", out var type)) return false;
+        if (message.Kind != ContentMessageKind.Input) return false;
+        var hasType = message.Payload.TryGetProperty("type", out var type)
+            || message.Payload.TryGetProperty("Type", out type);
+        if (!hasType) return false;
         input = JsonSerializer.Deserialize<ContentInputEvent>(message.Payload.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         return input is not null && !string.IsNullOrWhiteSpace(type.GetString());
     }

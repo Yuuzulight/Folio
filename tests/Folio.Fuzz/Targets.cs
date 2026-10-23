@@ -339,9 +339,14 @@ internal static class Targets
     private static void Ipc(byte[] data)
     {
         if (ContentProtocol.TryDecode(data, out var message) && message is not null)
+        {
             message.TryGetCapabilities(out _);
+            message.TryGetDisplayList(out _);
+            message.TryGetInput(out _);
+        }
         if (data.Length >= 12)
             CanvasFrameStore.IsValidDescriptor(BitConverter.ToInt32(data, 0), BitConverter.ToInt32(data, 4), BitConverter.ToInt32(data, 8));
+        DisplayListCodec.TryDecode(data, out _);
         var reader = new ContentProtocolReader();
         for (var offset = 0; offset < data.Length; offset += Math.Min(7, data.Length - offset))
             reader.Push(data.AsMemory(offset, Math.Min(7, data.Length - offset)));
@@ -359,6 +364,12 @@ internal static class Targets
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.StorageRequest, 5, storageRequest.RootElement.Clone()));
         using var storageResponse = System.Text.Json.JsonDocument.Parse("{\"requestId\":5,\"result\":{\"token\":\"a\"}}");
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.StorageResponse, 6, storageResponse.RootElement.Clone()));
+        var seedList = new DisplayList();
+        seedList.Items.Add(new DisplayItem(DisplayItemKind.Fill, Shape: new RoundedRect(new RectF(0, 0, 50, 50), default), Color: new Folio.Css.CssColor(255, 0, 0, 255)));
+        var encodedDl = Convert.ToBase64String(DisplayListCodec.Encode(seedList));
+        using var frameDoc = System.Text.Json.JsonDocument.Parse($"{{\"displayList\":\"{encodedDl}\",\"canvasFrame\":{{\"path\":\"test\",\"width\":100,\"height\":100,\"stride\":400,\"sequence\":1}}}}");
+        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Frame, 7, frameDoc.RootElement.Clone()));
+        yield return DisplayListCodec.Encode(seedList);
     }
 
     private sealed class FuzzCacheStorage : IArtifactStorage

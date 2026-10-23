@@ -81,6 +81,12 @@ public static class Program
             table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| {width}x{height} | {Ms(skia)} | {Ms(software)} | {software / skia:0.0}x |"));
         }
 
+        table.AppendLine().AppendLine("Display list IPC frame size (issue #476): serialised display list bytes across the process pipe.")
+            .AppendLine().AppendLine("| Artifact | Display Items | Initial Frame KB | Subsequent Frame KB | Deduplicated Ratio |").AppendLine("|---|--:|--:|--:|--:|");
+        var (initBytes, subBytes, itemCount) = FrameBenchmark.MeasureIpcFrameSize();
+        var ratio = subBytes > 0 ? (float)initBytes / subBytes : 1f;
+        table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| typical dashboard | {itemCount} | {initBytes / 1024.0:0.0} | {subBytes / 1024.0:0.0} | {ratio:0.0}x |"));
+
         Console.WriteLine(table);
         foreach (var warning in warnings)
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.
