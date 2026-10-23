@@ -50,4 +50,13 @@ public class BenchmarkTests
         Assert.True(median > TimeSpan.Zero);
         Assert.True(p95 >= median);
     }
+
+    [Fact]
+    public async Task ScriptedProcessBenchmarkCompletesUnderTarget()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var code = await ScriptedProcessBenchmark.RunAsync(["sample"]);
+        Assert.Equal(0, code);
+    }
+
 }
