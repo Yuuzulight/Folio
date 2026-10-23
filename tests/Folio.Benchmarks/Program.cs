@@ -75,6 +75,14 @@ public static class Program
         if (scroll.Median > FrameBenchmark.ScrollTarget)
             warnings.Add($"Viewport scroll frame is over the target: median {Ms(scroll.Median)} ms (target {Ms(FrameBenchmark.ScrollTarget)} ms)");
 
+        table.AppendLine().AppendLine($"Raster backends, median of {iterations * 2} replays of the typical dashboard's display list; informational, the software backend is not the default.")
+            .AppendLine().AppendLine("| Viewport | Skia ms | Software ms | Software / Skia |").AppendLine("|---|--:|--:|--:|");
+        foreach (var (width, height) in new[] { (800, 600), (1920, 1080) })
+        {
+            var (skia, software) = FrameBenchmark.MeasureBackends(FrameBenchmark.Typical, width, height, iterations * 2);
+            table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| {width}x{height} | {Ms(skia)} | {Ms(software)} | {software / skia:0.0}x |"));
+        }
+
         Console.WriteLine(table);
         foreach (var warning in warnings)
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.
