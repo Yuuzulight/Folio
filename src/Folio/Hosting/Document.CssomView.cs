@@ -223,7 +223,7 @@ public sealed partial class Document
     {
         if (_page is not { } page || Viewport is not { } viewport || x < 0 || y < 0 || x >= viewport.Width || y >= viewport.Height)
             return [];
-        var hits = HitTester.HitAll(page, new Vector2(x, y), viewport.Scale, _scrollOffsets);
+        var hits = HitTester.HitAll(page, new Vector2(x, y) + ViewportScroll, viewport.Scale, _scrollOffsets); // the page's own scroll is not in the stacking tree
         if (Node.DocumentElement is { } root && !hits.Contains(root))
             hits.Add(root);
         return hits;
