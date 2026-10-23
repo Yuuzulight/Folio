@@ -231,5 +231,5 @@ With Milestones 0 through 5 accepted on their documented architectures and Miles
    - The Folio-owned AST, parser, bytecode compiler and virtual machine to eliminate the temporary Jint 4.17.0 compatibility dependency (open: a small subset today; see `docs/native-engine-plan.md`).
 2. **Track 3: "Towards all-Folio" In-House Dependencies (`docs/dependencies.md`)**:
    - Complex script shaping in `Folio.Typography` (open: no GSUB/GPOS yet; see the status in `docs/dependencies.md`).
-   - In-house image decoders in `Folio.Imaging` (GIF decodes a still image; WebP is not decoded yet: #577, #578).
+   - In-house image decoders in `Folio.Imaging`: GIF and WebP (lossless and lossy) are done and checked against SkiaSharp's codecs (#576, #577, #578).
    - Software rasterization backend behind `IRasterBackend` and `ICanvas` (open: paths, strokes, clips, glyphs and layers are approximated).

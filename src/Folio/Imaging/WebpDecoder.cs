@@ -5,7 +5,7 @@ namespace Folio.Imaging;
 /// <summary>
 /// Folio's WebP decoder (https://developers.google.com/speed/webp/docs/riff_container): the RIFF container with its
 /// VP8X extended header, lossless VP8L images (<see cref="WebpLossless"/>) and, for an animated file, its first
-/// frame on a transparent canvas. The VP8 lossy bitstream is not decoded yet (#578), so a lossy file gives no image.
+/// frame on a transparent canvas. Lossy VP8 key frames (with an ALPH alpha plane) are decoded to the same RGBA.
 /// The result is straight-alpha RGBA8.
 /// </summary>
 internal static class WebpDecoder
@@ -141,6 +141,16 @@ internal static class WebpDecoder
         return new DecodedImage(width, height, pixels);
     }
 
-    // The VP8 key frame and ALPH chunk are decoded in #578; until then a lossy file gives no image rather than a wrong one.
-    private static DecodedImage? DecodeLossy(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> alpha, int expectedWidth, int expectedHeight, long maxPixels) => null;
+    // A lossy file: the VP8 key frame, and the ALPH chunk if there is one (extended files only).
+    private static DecodedImage? DecodeLossy(ReadOnlySpan<byte> frameData, ReadOnlySpan<byte> alphaData, int expectedWidth, int expectedHeight, long maxPixels)
+    {
+        if (Vp8Decoder.Decode(frameData, maxPixels) is not { } frame)
+            return null;
+        if ((expectedWidth != 0 && expectedWidth != frame.Width) || (expectedHeight != 0 && expectedHeight != frame.Height))
+            return null;
+        byte[]? alpha = null;
+        if (!alphaData.IsEmpty && (alpha = WebpAlpha.Decode(alphaData, frame.Width, frame.Height, maxPixels)) is null)
+            return null;
+        return new DecodedImage(frame.Width, frame.Height, Vp8Convert.ToRgba(frame, alpha, smooth: true));
+    }
 }
