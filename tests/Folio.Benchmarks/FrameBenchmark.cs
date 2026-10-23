@@ -96,6 +96,33 @@ internal static class FrameBenchmark
     }
 
     /// <summary>
+    /// What replaying one display list into a surface costs on each raster backend (#568, #575): the median of
+    /// <paramref name="frames"/> replays of the typical dashboard's list, Skia and Folio's own software backend.
+    /// </summary>
+    public static (TimeSpan Skia, TimeSpan Software) MeasureBackends(string html, int width, int height, int frames)
+    {
+        using var document = Document.Parse(html, Options);
+        var (list, _) = document.Paint(width, height, 1, new HarfBuzzShaper(), 0);
+        TimeSpan Median(IRasterBackend backend)
+        {
+            using var surface = backend.CreateSurface(width, height);
+            var times = new List<TimeSpan>();
+            for (var i = -3; i < frames; i++) // three warm-up replays
+            {
+                var start = Stopwatch.GetTimestamp();
+                surface.Canvas.FillRoundedRect(new RoundedRect(new RectF(0, 0, width, height), default), new Paint(new Rgba(1, 1, 1, 1)));
+                DisplayListPlayer.Replay(list, surface.Canvas, new RectF(0, 0, width, height));
+                surface.ReadPixels(0, 0, 1, 1); // Skia draws lazily; reading a pixel waits for it
+                if (i >= 0)
+                    times.Add(Stopwatch.GetElapsedTime(start));
+            }
+            times.Sort();
+            return times[times.Count / 2];
+        }
+        return (Median(new SkiaRasterBackend()), Median(SoftwareRasterBackend.Instance));
+    }
+
+    /// <summary>
     /// Hover restyle + repaint frame time (docs/study/18-memory-and-performance.md, M3 target 4 ms):
     /// moving pointer between cards toggles :hover state, runs Update() and rasters the display list.
     /// </summary>
