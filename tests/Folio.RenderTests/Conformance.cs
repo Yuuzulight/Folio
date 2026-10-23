@@ -130,9 +130,9 @@ public static class Conformance
         return manifest;
     }
 
-    public static ConformanceResult Run(ConformanceArtifact artifact)
+    public static ConformanceResult Run(ConformanceArtifact artifact, bool software = false)
     {
-        var result = RunArtifact(artifact);
+        var result = RunArtifact(artifact, software);
         if (ManifestOf(artifact).ExpectedToFail is not { } reason)
             return result;
         return result.Outcome switch
@@ -143,7 +143,7 @@ public static class Conformance
         };
     }
 
-    private static ConformanceResult RunArtifact(ConformanceArtifact artifact)
+    private static ConformanceResult RunArtifact(ConformanceArtifact artifact, bool software)
     {
         var manifest = ManifestOf(artifact);
         var reference = LoadIfExists(Path.Combine(artifact.Folder, "reference.png"));
@@ -160,15 +160,15 @@ public static class Conformance
             var document = lifecycle.Document;
             document.Paint(manifest.Viewport, reference?.Height ?? 600);
             // The picture is the page as it loads, like the reference; the interaction script then runs against it as assertions.
-            using var result = HeadlessRenderer.Render(document, request);
-            var image = new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
+            var (width, height, pixels, renderDiagnostics) = SoftwareRender.Pixels(document, request, software);
+            var image = new PixelBuffer(width, height, pixels);
             if (manifest.Interaction is { Length: > 0 } script)
             {
                 var scriptResult = RunScriptCore(document, script, manifest.Viewport, reference?.Height, lifecycle.Host, lifecycle);
                 if (scriptResult is not null)
                     return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
             }
-            return (Image: (PixelBuffer?)image, result.Diagnostics, ScriptFailure: (string?)null);
+            return (Image: (PixelBuffer?)image, Diagnostics: renderDiagnostics, ScriptFailure: (string?)null);
         });
         try
         {
