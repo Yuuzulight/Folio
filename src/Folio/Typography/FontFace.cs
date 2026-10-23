@@ -272,6 +272,10 @@ internal sealed class FontFace : IFontHandle
 
     private FontData? TryTable(string tag) => _tables.TryGetValue(tag, out var t) ? _data.Slice(t.Offset, t.Length) : null;
 
+    /// <summary>A table's bytes, for the readers of outlines and layout tables that live beside this class.</summary>
+    internal FontData? RawTable(string tag) => TryTable(tag);
+
+
     // https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx: the last advance repeats for the remaining glyphs.
     private static ushort[] ReadAdvances(FontData hmtx, int metricCount, int glyphCount)
     {
