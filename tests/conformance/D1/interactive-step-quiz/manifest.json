@@ -1,0 +1,27 @@
+{
+  "prompt": "Create an interactive step-by-step quiz with multiple-choice questions, live progress bar, Back and Next buttons, score calculation, and a summary results screen.",
+  "features": [
+    "script",
+    "dom-events",
+    "forms",
+    "flex",
+    "aria",
+    "hidden-attribute",
+    "custom-properties"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #step-1",
+    "text #progress-label Question 1 of 3",
+    "click input[name='q1'][value='b']",
+    "click #btn-next",
+    "text #progress-label Question 2 of 3",
+    "click input[name='q2'][value='a']",
+    "click #btn-next-2",
+    "text #progress-label Question 3 of 3",
+    "click input[name='q3'][value='c']",
+    "click #btn-finish",
+    "exists #step-results:not([hidden])",
+    "text #final-score Score: 3 / 3 (100%)"
+  ]
+}
