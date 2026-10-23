@@ -27,6 +27,7 @@ internal static class WorkerPlatformBindings
             .DefineMethod("blobUrl", (t, _, a) => ((HostState)t).BlobUrl(a.Length == 0 ? "" : a[0].AsString() ?? ""))
             .DefineMethod("revokeBlobUrl", (t, _, a) => { ((HostState)t).RevokeBlobUrl(a.Length > 0 ? a[0].AsString() ?? "" : ""); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_worker_platform", engine.CreateHostObject(template, host));
+        UrlBindings.Install(engine);
         engine.EvaluateHostScript(Source, "folio:worker-platform");
         engine.Evaluate("delete globalThis.__folio_worker_platform;", "folio:worker-platform-cleanup");
     }
@@ -179,39 +180,6 @@ internal static class WorkerPlatformBindings
             const b=host.random(length);for(let i=0;i<length;i++)out[i]=b[i];return v;
           } };
           globalThis.console = {}; ['log','info','warn','error','debug','dir','trace'].forEach(k => console[k] = function(...a) { host.console(k, a.map(S).join(' ')); });
-          function formDecode(value) {
-            const text=S(value).replace(/\+/g,' '), bytes=[];
-            for(let i=0;i<text.length;) {
-              if(text[i]==='%'&&i+2<text.length&&/^[0-9a-fA-F]{2}$/.test(text.slice(i+1,i+3))){bytes.push(parseInt(text.slice(i+1,i+3),16));i+=3;}
-              else {const cp=text.codePointAt(i),count=cp>65535?2:1;for(const byte of host.encode(text.slice(i,i+count)))bytes.push(byte);i+=count;}
-            }
-            return host.decode(bytes,false);
-          }
-          function formEncode(value) {
-            let out='';for(const byte of host.encode(S(value))){if(byte===32)out+='+';else if(byte>=65&&byte<=90||byte>=97&&byte<=122||byte>=48&&byte<=57||byte===42||byte===45||byte===46||byte===95)out+=S.fromCharCode(byte);else out+='%'+byte.toString(16).toUpperCase().padStart(2,'0');}return out;
-          }
-          globalThis.URLSearchParams = function(init) {
-            this._p=[];
-            if(init===undefined||init===null)return;
-            if(typeof init==='object'&&typeof init[Symbol.iterator]==='function') {for(const pair of init){const parts=Afrom(pair);if(parts.length!==2)throw new TypeError('Expected a pair.');this.append(parts[0],parts[1]);}}
-            else if(typeof init==='object'){for(const key of Okeys(init))this.append(key,init[key]);}
-            else for(const x of S(init).replace(/^\?/,'').split('&'))if(x){const i=x.indexOf('=');this.append(formDecode(i<0?x:x.slice(0,i)),formDecode(i<0?'':x.slice(i+1)));}
-          };
-          URLSearchParams.prototype.append=function(k,v){this._p.push([S(k),S(v)]);};
-          URLSearchParams.prototype.get=function(k){const x=this._p.find(p=>p[0]===S(k));return x?x[1]:null;};
-          URLSearchParams.prototype.getAll=function(k){return this._p.filter(p=>p[0]===S(k)).map(p=>p[1]);};
-          URLSearchParams.prototype.has=function(k,v){return this._p.some(p=>p[0]===S(k)&&(v===undefined||p[1]===S(v)));};
-          URLSearchParams.prototype.delete=function(k,v){this._p=this._p.filter(p=>!(p[0]===S(k)&&(v===undefined||p[1]===S(v))));};
-          URLSearchParams.prototype.set=function(k,v){k=S(k);v=S(v);let found=false;this._p=this._p.filter(p=>{if(p[0]!==k)return true;if(found)return false;p[1]=v;found=true;return true;});if(!found)this._p.push([k,v]);};
-          URLSearchParams.prototype.sort=function(){this._p.sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);};
-          URLSearchParams.prototype.toString=function(){return this._p.map(p=>formEncode(p[0])+'='+formEncode(p[1])).join('&');};
-          URLSearchParams.prototype.entries=function(){return this._p.map(p=>p.slice())[Symbol.iterator]();};
-          URLSearchParams.prototype.keys=function(){return this._p.map(p=>p[0])[Symbol.iterator]();};
-          URLSearchParams.prototype.values=function(){return this._p.map(p=>p[1])[Symbol.iterator]();};
-          URLSearchParams.prototype.forEach=function(fn,receiver){for(const p of this._p)fn.call(receiver,p[1],p[0],this);};
-          URLSearchParams.prototype[Symbol.iterator]=URLSearchParams.prototype.entries;
-          Object.defineProperty(URLSearchParams.prototype,'size',{get:function(){return this._p.length;}});
-          globalThis.URL = function(v,b) { const href=host.resolveUrl(S(v), b===undefined?undefined:S(b)); const m=/^(?:([^:]+):)?(?:\/\/([^\/]*))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(href)||[]; this.href=href; this.protocol=m[1]?m[1]+':':''; this.host=(m[2]||'').replace(/^.*@/,''); this.origin=this.protocol&&this.host?this.protocol+'//'+this.host:'null'; this.pathname=m[3]||''; this.search=m[4]||''; this.hash=m[5]||''; this.searchParams=new URLSearchParams(this.search); };
           URL.createObjectURL=function(blob){const state=blobStates.get(blob);return host.blobUrl(state?host.blobText(byteList(state.bytes)):'');}; URL.revokeObjectURL=function(url){host.revokeBlobUrl(S(url));};
           const blobStates=new WeakMap(); function blobPart(p){if(typeof p==='string')return new U8(host.encode(p));if(blobStates.has(p))return blobStates.get(p).bytes.slice();if(p instanceof AB)return new U8(p);if(isView(p))return new U8(p.buffer,p.byteOffset,p.byteLength);return new U8(host.encode(S(p)));}
           const BlobCtor=function(parts,options){const chunks=Afrom(parts||[]).map(blobPart);let n=0;for(const c of chunks)n+=c.byteLength;if(n>16*1024*1024)throw new DOMException('The Blob is too large.','QuotaExceededError');const bytes=new U8(n);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.byteLength;}let type=options&&options.type?S(options.type).toLowerCase():'';if(/[^\x20-\x7E]/.test(type))type='';blobStates.set(this,{bytes,type});Object.defineProperty(this,'size',{get:()=>bytes.byteLength});Object.defineProperty(this,'type',{get:()=>type});}; BlobCtor.prototype.text=function(){return P.resolve(host.blobText(byteList(blobStates.get(this).bytes)));}; BlobCtor.prototype.arrayBuffer=function(){return P.resolve(blobStates.get(this).bytes.slice().buffer);}; BlobCtor.prototype.slice=function(start,end,type){const state=blobStates.get(this);let a=start===undefined?0:Number(start)||0,b=end===undefined?state.bytes.length:Number(end)||0;if(a<0)a=Math.max(state.bytes.length+a,0);else a=Math.min(a,state.bytes.length);if(b<0)b=Math.max(state.bytes.length+b,0);else b=Math.min(b,state.bytes.length);if(b<a)b=a;return new BlobCtor([state.bytes.slice(a,b)],{type:type===undefined?'':S(type).toLowerCase()});}; globalThis.Blob=BlobCtor;

@@ -61,6 +61,7 @@ internal static class Targets
             "all:", "unset", "var(--x,revert-layer)"]),
         new("canvas", Canvas, CanvasSeeds, ["M", "L", "C", "Z", "a", "e", "red", "#", "rgb(", "hsl(", "blur(", "drop-shadow(", "px ", "serif", "bold ", "repeat", "evenodd", "lighter", "xor", "NaN", ",", "-", "e999"]),
         new("webvtt", WebVtt, WebVttSeeds, ["WEBVTT", "NOTE", "--> ", "00:00.000", "align:start", "&amp;", "<b>", "\n\n"]),
+        new("url", Url, UrlSeeds, ["http://", "https://", "file:///", "//", "../", "./", "%2e", "%41", "[::1]", "@", ":", "?", "#", "\\", "xn--", "0x", "..", "\n"]),
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
         new("cache-storage", CacheStorage, CacheStorageSeeds, ["Operation", "open", "put", "match", "delete", "release", "$last", "vary", "GET", "Headers", "null"]),
@@ -187,6 +188,41 @@ internal static class Targets
         "WEBVTT\n\nintro\n00:01.500 --> 00:03.250 align:start\nHello &amp; world",
         "WEBVTT\n\nNOTE this is ignored\ncomment\n",
         "WEBVTT\n\n00:02.000 --> 00:01.000\nreversed",
+    }.Select(Encoding.UTF8.GetBytes);
+
+    // A URL against an optional base (the first line), as the parser and, through a copy, each setter take it; what parses must
+    // serialize to text that parses to the same URL again.
+    private static void Url(byte[] data)
+    {
+        var text = Encoding.UTF8.GetString(data);
+        var split = text.IndexOf('\n');
+        var baseUrl = split > 0 ? WhatwgUrl.Parse(text[..split]) : null;
+        var input = split >= 0 ? text[(split + 1)..] : text;
+        if (WhatwgUrl.Parse(input, baseUrl) is { } url)
+        {
+            var href = url.Serialize();
+            var again = WhatwgUrl.Parse(href) ?? throw new InvalidOperationException($"'{href}' does not parse again.");
+            if (again.Serialize() != href)
+                throw new InvalidOperationException($"'{href}' parses to '{again.Serialize()}'.");
+            _ = (url.Origin, url.HostString, url.PathString);
+            foreach (var set in new Action<WhatwgUrl>[] { u => u.SetProtocol(input), u => u.SetUsername(input), u => u.SetPassword(input), u => u.SetHost(input),
+                         u => u.SetHostname(input), u => u.SetPort(input), u => u.SetPathname(input), u => u.SetSearch(input), u => u.SetHash(input) })
+            {
+                var copy = url.Clone();
+                set(copy);
+                _ = copy.Serialize();
+            }
+        }
+        var pairs = WhatwgUrl.ParseForm(text);
+        if (WhatwgUrl.ParseForm(WhatwgUrl.SerializeForm(pairs)).SequenceEqual(pairs) is false)
+            throw new InvalidOperationException("Form data does not round-trip.");
+    }
+
+    private static IEnumerable<byte[]> UrlSeeds() => new[]
+    {
+        "https://user:pw@example.com:8080/a/b/../c?x=1&y=%20z#frag",
+        "http://example.com/dir/\n../up/./down?q#h", "file:///C:/a/b", "//host/path\nhttps://base.test/x/y", "http://[2001:db8::1]:80/",
+        "http://0x7f.1/", "mailto:someone@example.com", "data:text/plain,hello world#frag", "http://xn--nxasmq6b.com/", "a=1&b=%C3%A9&a=2+3",
     }.Select(Encoding.UTF8.GetBytes);
 
     private static void Diagrams(byte[] data)

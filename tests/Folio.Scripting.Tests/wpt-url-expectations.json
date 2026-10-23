@@ -1,0 +1,18 @@
+{
+  "comment": "toascii.json inputs whose host the platform's IDNA conversion (IdnMapping) does not make as UTS 46 says. Those that do not need the mapping table (a hyphen next to a non-ASCII letter, ignored code points such as U+180E) wait for an in-house UTS 46 implementation. Inputs that pass on some platform are fine to leave here.",
+  "toascii": [
+    "a\u2020--",
+    "-\u2020",
+    "xn--a.\u00DF",
+    "xn--ls8h=",
+    "\u064Aa",
+    "x01234567890123456789012345678901234567890123456789012345678901\u2020",
+    "look\u180Eout.net",
+    "look\u206Bout.net",
+    "look\u05BEout.net",
+    "\u04C0.com",
+    "\uD87E\uDC68.com",
+    "\u2183.com",
+    "xn--0.com"
+  ]
+}
