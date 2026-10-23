@@ -415,6 +415,32 @@ internal static class DomEvents
             }
             tag(InputEvent, 'InputEvent');
 
+            class SubmitEvent extends Event {
+                constructor(type, init) {
+                    requireArgs(1, arguments.length, 'SubmitEvent', 'SubmitEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'SubmitEvent');
+                    if (dict.submitter !== undefined && dict.submitter !== null && !isElement(dict.submitter))
+                        throw new TypeError("Failed to construct 'SubmitEvent': The provided value is not of type 'HTMLElement'.");
+                    eventState.get(this).submitter = dict.submitter === undefined ? null : dict.submitter;
+                }
+                get submitter() { return stateOf(this).submitter; }
+            }
+            tag(SubmitEvent, 'SubmitEvent');
+
+            class FormDataEvent extends Event {
+                constructor(type, init) {
+                    requireArgs(2, arguments.length, 'FormDataEvent', 'FormDataEvent');
+                    super(type, init);
+                    const dict = initDictionary(init, 'FormDataEvent');
+                    if (dict.formData === undefined || dict.formData === null || typeof FormData !== 'function' || !(dict.formData instanceof FormData))
+                        throw new TypeError("Failed to construct 'FormDataEvent': required member formData is undefined.");
+                    eventState.get(this).formData = dict.formData;
+                }
+                get formData() { return stateOf(this).formData; }
+            }
+            tag(FormDataEvent, 'FormDataEvent');
+
             class FocusEvent extends UIEvent {
                 constructor(type, init) {
                     requireArgs(1, arguments.length, 'FocusEvent', 'FocusEvent');
@@ -1185,6 +1211,16 @@ internal static class DomEvents
                     case 'beforeinput':
                         return new InputEvent(type, dict);
 
+                    case 'submit':
+                        dict.submitter = dict.relatedTarget === undefined || dict.relatedTarget === null ? null : dict.relatedTarget;
+                        return new SubmitEvent(type, dict);
+
+                    case 'change':
+                    case 'invalid':
+                    case 'reset':
+                    case 'select':
+                        return new Event(type, dict);
+
                     case 'focus':
                     case 'blur':
                     case 'focusin':
@@ -1243,6 +1279,8 @@ internal static class DomEvents
                 defineGlobal('KeyboardEvent', KeyboardEvent);
                 defineGlobal('InputEvent', InputEvent);
                 defineGlobal('FocusEvent', FocusEvent);
+                defineGlobal('SubmitEvent', SubmitEvent);
+                defineGlobal('FormDataEvent', FormDataEvent);
                 defineGlobal('CompositionEvent', CompositionEvent);
             }
             defineGlobal('EventTarget', EventTarget);

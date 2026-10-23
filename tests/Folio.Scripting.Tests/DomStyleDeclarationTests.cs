@@ -1698,7 +1698,7 @@ public sealed class DomStyleDeclarationTests
 
         Assert.Equal(2, engine.Evaluate("const input = document.getElementById('number'); input.valueAsNumber").AsNumber());
         Assert.Equal("2.5", engine.Evaluate("input.stepUp(); input.value").AsString());
-        Assert.Equal(3, engine.Evaluate("input.selectionStart").AsNumber());
+        Assert.True(engine.Evaluate("input.selectionStart === null").AsBoolean()); // a number input has no selection
     }
 
     [Fact]
