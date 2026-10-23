@@ -1260,28 +1260,14 @@ internal sealed class DomNodeTemplates
             _context.SetScroll(element, current.X + x, current.Y + y);
             return ScriptValue.Undefined;
         });
+        // The setters take null as the empty string.
+        static string TextArgument(ScriptValue value) => value.Kind == ScriptValueKind.Null ? "" : WebIdlConversions.ToDOMString(value);
         t.DefineProperty("innerText",
             (target, _) => ScriptValue.FromString(DomText.InnerText((ElementNode)target)),
-            (target, _, value) =>
-            {
-                var element = (ElementNode)target;
-                while (element.FirstChild is { } child)
-                    element.RemoveChild(child);
-                var text = WebIdlConversions.ToDOMString(value);
-                if (text.Length > 0)
-                    element.AppendChild(element.OwnerDocument.CreateText(text));
-            });
+            (target, _, value) => DomText.SetInnerText((ElementNode)target, TextArgument(value)));
         t.DefineProperty("outerText",
             (target, _) => ScriptValue.FromString(DomText.InnerText((ElementNode)target)),
-            (target, _, value) =>
-            {
-                var element = (ElementNode)target;
-                while (element.FirstChild is { } child)
-                    element.RemoveChild(child);
-                var text = WebIdlConversions.ToDOMString(value);
-                if (text.Length > 0)
-                    element.AppendChild(element.OwnerDocument.CreateText(text));
-            });
+            (target, _, value) => DomText.SetOuterText((ElementNode)target, TextArgument(value)));
 
         // ParentNode members
         t.DefineProperty("children", (target, _) => _context.WrapHtmlCollection((ElementNode)target));
@@ -1651,7 +1637,7 @@ internal sealed class DomNodeTemplates
         t.DefineNamedProperty((target, _, name) =>
         {
             var value = ((LiveComputedStyle)target).Get(name);
-            return value.Length == 0 ? ScriptValue.Undefined : ScriptValue.FromString(value);
+            return value.Length == 0 && !LiveComputedStyle.Knows(name) ? ScriptValue.Undefined : ScriptValue.FromString(value);
         }, enumerator: (target, _) => ((LiveComputedStyle)target).Properties.Select(p => p.Name));
         t.DefineMethod("item", (target, _, args) =>
         {

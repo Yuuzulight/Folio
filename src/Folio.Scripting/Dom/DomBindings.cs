@@ -176,7 +176,8 @@ public static class DomBindings
             {
                 if (args.Length == 0 || !context.Engine.TryGetHostTarget(args[0], out var node) || node is not ElementNode element)
                     throw WebIdlException.TypeError("getComputedStyle requires an Element.");
-                return context.WrapComputedStyle(element);
+                var pseudo = args.Length > 1 && args[1].Kind == ScriptValueKind.String ? args[1].AsString() : null;
+                return context.WrapComputedStyle(element, pseudo);
             });
         engine.SetGlobalProperty("__folio_style_host", engine.CreateHostObject(styleHost, context));
         var mutationHost = new HostObjectTemplate("MutationObserverHost")
