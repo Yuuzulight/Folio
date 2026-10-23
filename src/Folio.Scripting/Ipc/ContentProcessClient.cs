@@ -182,7 +182,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
                 {
                     _process.Refresh();
                     if (_process.HasExited) break;
-                    memory = Math.Max(_process.WorkingSet64, _process.PrivateMemorySize64);
+                    memory = OperatingSystem.IsWindows() ? Math.Max(_process.WorkingSet64, _process.PrivateMemorySize64) : _process.WorkingSet64;
                 }
                 catch (InvalidOperationException) { break; }
                 if (!_supervisor.CheckMemory(memory)) break;
