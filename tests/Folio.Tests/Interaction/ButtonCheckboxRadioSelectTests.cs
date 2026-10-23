@@ -385,4 +385,49 @@ public class ButtonCheckboxRadioSelectTests
         Assert.NotNull(clicked);
         Assert.Equal("mybtn", clicked.Button.Id);
     }
+
+    [Fact]
+    public void ClickingASubmitButtonValidatesTheFormFirst()
+    {
+        using var doc = Document.Parse("<form id=f><input id=t name=n required><button id=b>go</button></form>", BoxFontOptions);
+        doc.Paint(800, 600);
+        var submissions = 0;
+        doc.Input.FormSubmitted += (_, _) => submissions++;
+
+        doc.GetElementById("b")!.Click();
+        Assert.Equal(0, submissions); // the required field is empty
+        Assert.Equal("t", doc.Input.FocusedElement?.Id); // and is where the user is taken
+
+        doc.GetElementById("t")!.Value = "x";
+        doc.GetElementById("b")!.Click();
+        Assert.Equal(1, submissions);
+    }
+
+    [Fact]
+    public void NoValidateAndFormNoValidateLetAClickSubmitAnInvalidForm()
+    {
+        using var doc = Document.Parse("<form novalidate><input required name=a><button id=a>go</button></form><form><input required name=b><button id=b formnovalidate>go</button></form>", BoxFontOptions);
+        doc.Paint(800, 600);
+        var submissions = 0;
+        doc.Input.FormSubmitted += (_, _) => submissions++;
+        doc.GetElementById("a")!.Click();
+        doc.GetElementById("b")!.Click();
+        Assert.Equal(2, submissions);
+    }
+
+    [Fact]
+    public void EnterInATextFieldValidatesBeforeSubmitting()
+    {
+        using var doc = Document.Parse("<form><input id=t name=n required></form>", BoxFontOptions);
+        doc.Paint(800, 600);
+        var submissions = 0;
+        doc.Input.FormSubmitted += (_, _) => submissions++;
+        doc.GetElementById("t")!.Focus();
+        doc.Input.HandleKeyDown(new KeyEvent("Enter", "Enter"));
+        Assert.Equal(0, submissions);
+        doc.GetElementById("t")!.Value = "x";
+        doc.GetElementById("t")!.Focus();
+        doc.Input.HandleKeyDown(new KeyEvent("Enter", "Enter"));
+        Assert.Equal(1, submissions);
+    }
 }

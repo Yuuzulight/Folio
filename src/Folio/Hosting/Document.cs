@@ -185,6 +185,10 @@ public sealed class Document : IDisposable
     private readonly Dictionary<ElementNode, Element> _elements = [];
     private readonly Dictionary<ElementNode, TextControlState> _textControlStates = new(ReferenceEqualityComparer.Instance);
     private InputRouter? _inputRouter;
+    private FormControls? _forms;
+
+    /// <summary>Forms and their controls: validation, submission, activation.</summary>
+    internal FormControls Forms => _forms ??= new FormControls(Node, this);
 
     internal TextControlState? GetExistingTextControlState(ElementNode element) =>
         _textControlStates.GetValueOrDefault(element);
@@ -230,12 +234,12 @@ public sealed class Document : IDisposable
             state.Value = value;
             element.Value = state.Value;
             element.DisplayValue = state.DisplayText;
-            Update();
+            UpdateIfPainted();
         }
         else
         {
             element.Value = value;
-            Update();
+            UpdateIfPainted();
         }
     }
 
@@ -296,7 +300,16 @@ public sealed class Document : IDisposable
         var next = !element.IsChecked;
         element.Checked = next;
         SetState(element, NodeFlags.Checked, next);
-        Update();
+        UpdateIfPainted();
+        Forms.Activate(element, afterToggle: true);
+    }
+
+    /// <summary>The checked state of a checkbox or radio, and of the radios of its group, drawn again after a script changed it.</summary>
+    internal void RepaintForChecked(ElementNode element, IReadOnlyList<ElementNode>? group)
+    {
+        foreach (var e in group ?? [element])
+            SetState(e, NodeFlags.Checked, e.IsChecked);
+        UpdateIfPainted();
     }
 
     internal void CheckRadio(ElementNode element)
@@ -317,7 +330,8 @@ public sealed class Document : IDisposable
 
         element.Checked = true;
         SetState(element, NodeFlags.Checked, true);
-        Update();
+        UpdateIfPainted();
+        Forms.Activate(element, afterToggle: true);
     }
 
     internal void SelectAdjacentRadio(ElementNode current, int offset)
@@ -434,57 +448,7 @@ public sealed class Document : IDisposable
 
         var action = form.GetAttribute("action") ?? "";
         var method = (form.GetAttribute("method") ?? "GET").ToUpperInvariant();
-        var data = new List<KeyValuePair<string, string>>();
-
-        var controls = form.Descendants.OfType<ElementNode>().Where(e => e.Name.Namespace == Namespaces.Html).ToList();
-        foreach (var control in controls)
-        {
-            if (ElementNode.IsDisabledControl(control))
-                continue;
-            var name = control.GetAttribute("name");
-            if (string.IsNullOrEmpty(name))
-                continue;
-
-            var tag = control.LocalName;
-            if (tag == "input")
-            {
-                var type = (control.GetAttribute("type") ?? "text").ToLowerInvariant();
-                if (type is "submit" or "button" or "reset" or "image")
-                {
-                    if (control == submitter)
-                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
-                }
-                else if (type is "checkbox" or "radio")
-                {
-                    if (control.IsChecked)
-                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? "on"));
-                }
-                else if (type != "file")
-                {
-                    data.Add(new(name, GetControlValue(control)));
-                }
-            }
-            else if (tag == "textarea")
-            {
-                data.Add(new(name, GetControlValue(control)));
-            }
-            else if (tag == "select")
-            {
-                var options = control.Descendants.OfType<ElementNode>()
-                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option" && !ElementNode.IsDisabledControl(e))
-                    .ToList();
-                var selected = options.Where(o => o.IsSelected).ToList();
-                if (selected.Count == 0 && options.Count > 0 && control.GetAttribute("multiple") is null)
-                    selected.Add(options[0]);
-                foreach (var opt in selected)
-                    data.Add(new(name, opt.Value ?? opt.GetAttribute("value") ?? opt.TextContent ?? ""));
-            }
-            else if (tag == "button")
-            {
-                if (control == submitter)
-                    data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
-            }
-        }
+        var data = Forms.EntryList(form, submitter);
 
         Input.OnFormSubmitted(new FormSubmittedEventArgs(Wrap(form), action, method, data, submitter is not null ? Wrap(submitter) : null));
     }
@@ -527,7 +491,7 @@ public sealed class Document : IDisposable
                     opt.Selected = opt.GetAttribute("selected") is not null;
             }
         }
-        Update();
+        UpdateIfPainted();
     }
 
     internal void ToggleDetails(ElementNode details)
@@ -1308,6 +1272,13 @@ public sealed class Document : IDisposable
             }
             return boxes;
         }
+    }
+
+    /// <summary>Restyles after a change, once there is something painted to restyle; before the first paint the change is simply there for it.</summary>
+    internal void UpdateIfPainted()
+    {
+        if (_lastPaint is not null && _images is not null)
+            Update();
     }
 
     /// <summary>

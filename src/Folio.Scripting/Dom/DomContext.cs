@@ -385,9 +385,38 @@ internal sealed class DomContext : IFetchContext
     private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;
     private readonly Dictionary<ElementNode, (string Source, Folio.Imaging.IImageHandle? Image)> _images = new(ReferenceEqualityComparer.Instance);
     public DomNodeTemplates Templates { get; }
-    public ElementNode? FocusedElement { get; private set; }
-    public void Focus(ElementNode element) => FocusedElement = element;
-    public void Blur(ElementNode element) { if (ReferenceEquals(FocusedElement, element)) FocusedElement = null; }
+    /// <summary>The <see cref="Folio.Document"/> that draws and takes input for this tree, when scripts run against one.</summary>
+    internal Folio.Document? HostDocument { get; set; }
+
+    private FormControls? _forms;
+
+    /// <summary>The form logic: the host document's, or one over the bare tree.</summary>
+    internal FormControls Forms => _forms ??= HostDocument?.Forms ?? FormControls.For(Document);
+
+    private ElementNode? _scriptFocus;
+    public ElementNode? FocusedElement => HostDocument is { } host ? host.Input.FocusedNode : _scriptFocus;
+    public void Focus(ElementNode element)
+    {
+        if (HostDocument is { } host)
+            host.Input.Focus(element, visible: true);
+        else
+            _scriptFocus = element;
+    }
+    public void Blur(ElementNode element)
+    {
+        if (!ReferenceEquals(FocusedElement, element))
+            return;
+        if (HostDocument is { } host)
+            host.Input.Focus(null, visible: false);
+        else
+            _scriptFocus = null;
+    }
+
+    public bool TryUnwrapElement(ScriptValue value, [NotNullWhen(true)] out ElementNode? element)
+    {
+        element = Engine.TryGetHostTarget(value, out var target) ? target as ElementNode : null;
+        return element is not null;
+    }
 
     public void UpdateCapabilities(FeatureCapabilities capabilities)
     {
@@ -673,6 +702,7 @@ internal sealed class DomContext : IFetchContext
             "option" => Templates.HtmlOptionElementTemplate,
             "select" => Templates.HtmlSelectElementTemplate,
             "textarea" => Templates.HtmlTextAreaElementTemplate,
+            "form" => Templates.HtmlFormElementTemplate,
             "template" => Templates.HtmlTemplateElementTemplate,
             "canvas" => Templates.HtmlCanvasElementTemplate,
             "video" => Templates.HtmlVideoElementTemplate,

@@ -80,6 +80,14 @@ internal sealed class DomNodeTemplates
         HtmlOptionElementTemplate = CreateHtmlOptionElementTemplate(HtmlElementTemplate);
         HtmlSelectElementTemplate = CreateHtmlSelectElementTemplate(HtmlElementTemplate);
         HtmlTextAreaElementTemplate = CreateHtmlTextAreaElementTemplate(HtmlElementTemplate);
+        ValidityStateTemplate = FormBindings.CreateValidityStateTemplate();
+        FormControlsCollectionTemplate = FormBindings.CreateControlsCollectionTemplate(_context);
+        HtmlFormElementTemplate = FormBindings.CreateFormTemplate(HtmlElementTemplate, _context, FormControlsCollectionTemplate);
+        FormBindings.DefineClick(HtmlElementTemplate, _context);
+        foreach (var control in new[] { HtmlInputElementTemplate, HtmlButtonElementTemplate, HtmlSelectElementTemplate, HtmlTextAreaElementTemplate })
+            FormBindings.DefineControlMembers(control, _context, ValidityStateTemplate);
+        FormBindings.DefineTextControlMembers(HtmlInputElementTemplate, _context);
+        FormBindings.DefineTextControlMembers(HtmlTextAreaElementTemplate, _context);
         HtmlTemplateElementTemplate = CreateHtmlTemplateElementTemplate(HtmlElementTemplate);
         HtmlScriptElementTemplate = CreateHtmlScriptElementTemplate(HtmlElementTemplate);
         HtmlCanvasElementTemplate = CreateHtmlCanvasElementTemplate(HtmlElementTemplate);
@@ -187,6 +195,9 @@ internal sealed class DomNodeTemplates
     public HostObjectTemplate HtmlOptionElementTemplate { get; }
     public HostObjectTemplate HtmlSelectElementTemplate { get; }
     public HostObjectTemplate HtmlTextAreaElementTemplate { get; }
+    public HostObjectTemplate HtmlFormElementTemplate { get; }
+    public HostObjectTemplate ValidityStateTemplate { get; }
+    public HostObjectTemplate FormControlsCollectionTemplate { get; }
     public HostObjectTemplate HtmlTemplateElementTemplate { get; }
     public HostObjectTemplate HtmlScriptElementTemplate { get; }
     public HostObjectTemplate HtmlCanvasElementTemplate { get; }
@@ -1271,28 +1282,6 @@ internal sealed class DomNodeTemplates
 
         // ParentNode members
         t.DefineProperty("children", (target, _) => _context.WrapHtmlCollection((ElementNode)target));
-        t.DefineProperty("elements", (target, _) => _context.WrapHtmlCollection((ElementNode)target));
-        t.DefineMethod("checkValidity", (target, _, _) =>
-        {
-            var valid = ((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(control =>
-            {
-                var value = control.Value ?? control.GetAttribute("value") ?? "";
-                return control.GetAttribute("disabled") is not null || control.GetAttribute("required") is null || value.Length > 0;
-            });
-            return ScriptValue.FromBoolean(valid);
-        });
-        t.DefineMethod("reportValidity", (target, thisValue, args) =>
-        {
-            return ScriptValue.FromBoolean(((ElementNode)target).Descendants.OfType<ElementNode>().Where(e => e.LocalName is "input" or "textarea" or "select").All(control => control.GetAttribute("required") is null || (control.Value ?? control.GetAttribute("value") ?? "").Length > 0));
-        });
-        t.DefineMethod("reset", (target, _, _) =>
-        {
-            foreach (var control in ((ElementNode)target).Descendants.OfType<ElementNode>())
-                if (control.LocalName == "input") control.Value = control.GetAttribute("value") ?? "";
-            return ScriptValue.Undefined;
-        });
-        t.DefineMethod("submit", (_, _, _) => ScriptValue.Undefined);
-        t.DefineMethod("requestSubmit", (_, _, _) => ScriptValue.Undefined);
         t.DefineProperty("firstElementChild", (target, _) =>
             _context.Wrap(((ElementNode)target).Children.OfType<ElementNode>().FirstOrDefault()));
         t.DefineProperty("lastElementChild", (target, _) =>
@@ -2786,7 +2775,6 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("setSelectionRange", (_, _, _) => ScriptValue.Undefined);
         t.DefineMethod("select", (_, _, _) => ScriptValue.Undefined);
         t.DefineMethod("setRangeText", (target, _, args) => { if (args.Length > 0) ((ElementNode)target).Value = WebIdlConversions.ToDOMString(args[0]); return ScriptValue.Undefined; });
-        t.DefineMethod("click", (target, _, _) => { var el = (ElementNode)target; if (el.GetAttribute("type")?.Equals("checkbox", StringComparison.OrdinalIgnoreCase) == true) el.Checked = !el.IsChecked; return ScriptValue.Undefined; });
 
         t.DefineProperty("willValidate", (target, _) => ScriptValue.FromBoolean(((ElementNode)target).GetAttribute("disabled") is null && ((ElementNode)target).GetAttribute("readonly") is null));
         t.DefineProperty("validationMessage", (target, _) =>
@@ -2842,7 +2830,6 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("value",
             (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("value") ?? ""),
             (target, _, val) => ((ElementNode)target).SetAttribute("value", WebIdlConversions.ToDOMString(val)));
-        t.DefineMethod("click", (target, _, _) => ScriptValue.Undefined);
 
         return t;
     }

@@ -102,10 +102,10 @@ internal static class FrameBenchmark
     public static (TimeSpan Skia, TimeSpan Software) MeasureBackends(string html, int width, int height, int frames)
     {
         using var document = Document.Parse(html, Options);
-        var (list, _) = document.Paint(width, height, 1, new HarfBuzzShaper(), 0);
+        var list = document.Paint(width, height, 1, new HarfBuzzShaper(), 0).List;
         TimeSpan Median(IRasterBackend backend)
         {
-            using var surface = backend.CreateSurface(width, height);
+            using var surface = backend.CreateSurface(width, height) ?? throw new InvalidOperationException("The backend made no surface.");
             var times = new List<TimeSpan>();
             for (var i = -3; i < frames; i++) // three warm-up replays
             {
