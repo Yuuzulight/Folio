@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.IO.Pipes;
 using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Tests;
@@ -28,6 +29,8 @@ public sealed class WindowsSandboxTests
                 TestContext.Current.CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
             using var accepted = await listener.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
         }
+        var pipeName = "folio-sandbox-pipe-" + Guid.NewGuid().ToString("N");
+        using var pipeServer = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         await using var client = ContentProcessClient.Start(host, null,
             new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(10)));
         try
@@ -37,6 +40,7 @@ public sealed class WindowsSandboxTests
                 probe = "sandbox",
                 filePath = canary,
                 networkPort = ((IPEndPoint)listener.LocalEndpoint).Port,
+                pipeName,
                 environmentKey,
                 capabilities,
                 html = "<html><body></body></html>",
@@ -57,6 +61,9 @@ public sealed class WindowsSandboxTests
             Assert.True(payload.GetProperty("fileReadDenied").GetBoolean());
             Assert.True(payload.GetProperty("fileWriteDenied").GetBoolean());
             Assert.True(payload.GetProperty("networkDenied").GetBoolean());
+            Assert.True(payload.GetProperty("dnsDenied").GetBoolean());
+            Assert.True(payload.GetProperty("namedPipeDenied").GetBoolean());
+            Assert.True(payload.GetProperty("clipboardDenied").GetBoolean());
             Assert.True(payload.GetProperty("childDenied").GetBoolean());
             Assert.True(File.Exists(canary));
             Assert.Equal("host-canary", File.ReadAllText(canary));
