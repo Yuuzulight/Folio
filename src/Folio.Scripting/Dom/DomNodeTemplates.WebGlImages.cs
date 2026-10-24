@@ -63,10 +63,40 @@ internal sealed partial class DomNodeTemplates
             return GlWrap(state, GlKind.Texture, handle);
         });
 
+
+
+
+        // 3D textures are stored as one tall 2D image until volume textures exist.
+        t.DefineMethod("bindTexture", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var bindingTarget = WebIdlConversions.ToUint32(args[0]);
+            if (state.TextureBindings(bindingTarget) is not { } units) { state.SetError(0x0500); return ScriptValue.Undefined; }
+            if (args[1].IsNullOrUndefined) { units[state.UnitIndex] = null; return ScriptValue.Undefined; }
+            var handle = WebIdlConversions.ToUint32(args[1]);
+            if (!state.Textures.TryGetValue(handle, out var texture)) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            // A texture takes the target it is first bound to and keeps it.
+            if (texture.Target == 0) texture.Target = bindingTarget;
+            else if (texture.Target != bindingTarget) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            units[state.UnitIndex] = handle;
+            return ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("texParameteri", (target, _, args) => TexParameter((WebGlContextState)target, args, integer: true));
+        t.DefineMethod("texParameterf", (target, _, args) => TexParameter((WebGlContextState)target, args, integer: false));
+        t.DefineMethod("getTexParameter", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2 || state.BoundTextureAt(WebIdlConversions.ToUint32(args[0])) is not { } handle) { state.SetError(args.Length < 2 ? 0x0502 : state.TextureBindings(WebIdlConversions.ToUint32(args[0])) is null ? 0x0500 : 0x0502); return ScriptValue.Null; }
+            return state.TextureParameters.TryGetValue(handle, out var parameters) && parameters.TryGetValue(WebIdlConversions.ToUint32(args[1]), out var value) ? ScriptValue.FromNumber(value) : ScriptValue.Null;
+        });
+
         t.DefineMethod("texImage2D", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || !state.Textures.ContainsKey(handle) || args.Length < 6) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (args.Length < 6) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (!ImageTexture(state, WebIdlConversions.ToUint32(args[0]), out var handle, out var ignoredTexture, out var face)) return ScriptValue.Undefined;
             var level = WebIdlConversions.ToInt32(args[1]);
             var internalFormat = WebIdlConversions.ToUint32(args[2]);
 
@@ -77,7 +107,9 @@ internal sealed partial class DomNodeTemplates
                 var type = WebIdlConversions.ToUint32(args[4]);
                 if (GlFormats.Resolve(internalFormat, format, type) is not { } resolved) { state.SetError(0x0500); return ScriptValue.Undefined; }
                 if (!TryExtractImageSource(args[5], out var width, out var height, out var sourcePixels) || sourcePixels is null) { state.SetError(0x0502); return ScriptValue.Undefined; }
-                if (state.AllocateTextureLevel(handle, level, width, height, resolved) is not { } image) return ScriptValue.Undefined;
+                if (face > 0 || state.Textures[handle].Target == WebGlContextState.TextureCubeMap)
+                    if (width != height) { state.SetError(0x0501); return ScriptValue.Undefined; }
+                if (state.AllocateTextureLevel(handle, level, width, height, resolved, face) is not { } image) return ScriptValue.Undefined;
                 GlPixels.Write(image, 0, 0, width, height, GlPixels.FromRgba8(sourcePixels, width, height, state.UnpackFlipY, state.UnpackPremultiplyAlpha));
                 return ScriptValue.Undefined;
             }
@@ -90,6 +122,7 @@ internal sealed partial class DomNodeTemplates
                 var format = WebIdlConversions.ToUint32(args[6]);
                 var type = WebIdlConversions.ToUint32(args[7]);
                 if (WebIdlConversions.ToInt32(args[5]) != 0 || width < 0 || height < 0) { state.SetError(0x0501); return ScriptValue.Undefined; }
+                if (state.Textures[handle].Target == WebGlContextState.TextureCubeMap && width != height) { state.SetError(0x0501); return ScriptValue.Undefined; }
                 if (GlFormats.Resolve(internalFormat, format, type) is not { } resolved) { state.SetError(0x0500); return ScriptValue.Undefined; }
                 Vector4[]? texels = null;
                 byte[]? stencil = null;
@@ -101,7 +134,7 @@ internal sealed partial class DomNodeTemplates
                     texels = GlPixels.Decode(bytes.AsSpan(skip), width, height, format, type, state.UnpackAlignment, state.UnpackFlipY, state.UnpackPremultiplyAlpha, out stencil);
                     if (texels is null) { state.SetError(0x0502); return ScriptValue.Undefined; }
                 }
-                if (state.AllocateTextureLevel(handle, level, width, height, resolved) is not { } image) return ScriptValue.Undefined;
+                if (state.AllocateTextureLevel(handle, level, width, height, resolved, face) is not { } image) return ScriptValue.Undefined;
                 if (texels is not null) GlPixels.Write(image, 0, 0, width, height, texels, stencil);
                 return ScriptValue.Undefined;
             }
@@ -110,10 +143,10 @@ internal sealed partial class DomNodeTemplates
         t.DefineMethod("texSubImage2D", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || !state.Textures.TryGetValue(handle, out var texture)) { state.SetError(0x0502); return ScriptValue.Undefined; }
             if (args.Length != 7 && args.Length < 9) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (!ImageTexture(state, WebIdlConversions.ToUint32(args[0]), out var ignoredHandle, out var texture, out var face)) return ScriptValue.Undefined;
             var level = WebIdlConversions.ToInt32(args[1]);
-            if (texture.Level(level) is not { } image) { state.SetError(0x0501); return ScriptValue.Undefined; }
+            if (texture.Level(level, face) is not { } image) { state.SetError(0x0501); return ScriptValue.Undefined; }
             var x = WebIdlConversions.ToInt32(args[2]);
             var y = WebIdlConversions.ToInt32(args[3]);
 
@@ -146,23 +179,91 @@ internal sealed partial class DomNodeTemplates
         t.DefineMethod("texStorage2D", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || !state.Textures.TryGetValue(handle, out var texture) || args.Length < 5) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (args.Length < 5) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var storageTarget = WebIdlConversions.ToUint32(args[0]);
+            if (storageTarget is not (WebGlContextState.Texture2D or WebGlContextState.TextureCubeMap)) { state.SetError(0x0500); return ScriptValue.Undefined; }
+            if (state.BoundTextureAt(storageTarget) is not { } handle || !state.Textures.TryGetValue(handle, out var texture)) { state.SetError(0x0502); return ScriptValue.Undefined; }
             var levels = WebIdlConversions.ToInt32(args[1]);
             var width = WebIdlConversions.ToInt32(args[3]);
             var height = WebIdlConversions.ToInt32(args[4]);
-            if (levels < 1 || levels > 16 || width < 1 || height < 1) { state.SetError(0x0501); return ScriptValue.Undefined; }
+            if (levels < 1 || levels > 16 || width < 1 || height < 1 || (storageTarget == WebGlContextState.TextureCubeMap && width != height)) { state.SetError(0x0501); return ScriptValue.Undefined; }
             if (GlFormats.FromSized(WebIdlConversions.ToUint32(args[2])) is not { } format) { state.SetError(0x0500); return ScriptValue.Undefined; }
-            for (var level = 0; level < levels; level++)
+            for (var face = 0; face < (storageTarget == WebGlContextState.TextureCubeMap ? 6 : 1); face++)
             {
-                if (state.AllocateTextureLevel(handle, level, width, height, format) is null) return ScriptValue.Undefined;
-                width = Math.Max(1, width / 2);
-                height = Math.Max(1, height / 2);
+                var levelWidth = width;
+                var levelHeight = height;
+                for (var level = 0; level < levels; level++)
+                {
+                    if (state.AllocateTextureLevel(handle, level, levelWidth, levelHeight, format, face) is null) return ScriptValue.Undefined;
+                    levelWidth = Math.Max(1, levelWidth / 2);
+                    levelHeight = Math.Max(1, levelHeight / 2);
+                }
             }
             texture.Immutable = true;
             return ScriptValue.Undefined;
         });
 
-        // 3D textures are stored as one tall 2D image until volume textures exist.
+        t.DefineMethod("copyTexImage2D", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 8) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (!ImageTexture(state, WebIdlConversions.ToUint32(args[0]), out var handle, out var ignoredTexture, out var face)) return ScriptValue.Undefined;
+            var level = WebIdlConversions.ToInt32(args[1]);
+            var internalFormat = WebIdlConversions.ToUint32(args[2]);
+            var width = WebIdlConversions.ToInt32(args[5]);
+            var height = WebIdlConversions.ToInt32(args[6]);
+            if (level < 0 || level > 15 || width < 0 || height < 0 || width > 4096 || height > 4096 || WebIdlConversions.ToInt32(args[7]) != 0) { state.SetError(0x0501); return ScriptValue.Undefined; }
+            if ((GlFormats.FromSized(internalFormat) ?? GlFormats.Resolve(internalFormat, internalFormat, 0x1401)) is not { IsColor: true } format) { state.SetError(0x0500); return ScriptValue.Undefined; }
+            if (state.AllocateTextureLevel(handle, level, width, height, format, face) is null) return ScriptValue.Undefined;
+            state.CopyFramebufferToTexture(handle, level, face, 0, 0, WebIdlConversions.ToInt32(args[3]), WebIdlConversions.ToInt32(args[4]), width, height);
+            return ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("copyTexSubImage2D", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 8) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (!ImageTexture(state, WebIdlConversions.ToUint32(args[0]), out var handle, out var texture, out var face)) return ScriptValue.Undefined;
+            var level = WebIdlConversions.ToInt32(args[1]);
+            var xOffset = WebIdlConversions.ToInt32(args[2]);
+            var yOffset = WebIdlConversions.ToInt32(args[3]);
+            var width = WebIdlConversions.ToInt32(args[6]);
+            var height = WebIdlConversions.ToInt32(args[7]);
+            if (width < 0 || height < 0 || xOffset < 0 || yOffset < 0 || texture.Level(level, face) is not { } existing
+                || xOffset + width > existing.Width || yOffset + height > existing.Height || width > 4096 || height > 4096)
+            {
+                state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+            state.CopyFramebufferToTexture(handle, level, face, xOffset, yOffset, WebIdlConversions.ToInt32(args[4]), WebIdlConversions.ToInt32(args[5]), width, height);
+            return ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("generateMipmap", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            var mipmapTarget = args.Length > 0 ? WebIdlConversions.ToUint32(args[0]) : 0;
+            if (state.TextureBindings(mipmapTarget) is null) { state.SetError(0x0500); return ScriptValue.Undefined; }
+            if (state.BoundTextureAt(mipmapTarget) is not { } handle || !state.Textures.ContainsKey(handle)) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            if (!state.GenerateMipmaps(handle) && state.Error == 0) state.SetError(0x0502);
+            return ScriptValue.Undefined;
+        });
+
+        t.DefineMethod("getTexLevelParameter", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 3 || !ImageTexture(state, WebIdlConversions.ToUint32(args[0]), out var ignoredHandle, out var texture, out var face) || texture.Level(WebIdlConversions.ToInt32(args[1]), face) is not { } image)
+                return ScriptValue.Null;
+            return WebIdlConversions.ToUint32(args[2]) switch
+            {
+                0x1000 => ScriptValue.FromNumber(image.Width),
+                0x1001 => ScriptValue.FromNumber(image.Height),
+                0x8071 => ScriptValue.FromNumber(image.Depth),
+                0x1003 => ScriptValue.FromNumber(image.Format.InternalFormat),
+                _ => ScriptValue.Null,
+            };
+        });
+
         t.DefineMethod("texStorage3D", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
@@ -175,63 +276,9 @@ internal sealed partial class DomNodeTemplates
             return ScriptValue.Undefined;
         });
 
-        t.DefineMethod("copyTexImage2D", (target, _, args) =>
-        {
-            var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || !state.Textures.ContainsKey(handle) || args.Length < 8) { state.SetError(0x0502); return ScriptValue.Undefined; }
-            var level = WebIdlConversions.ToInt32(args[1]);
-            var internalFormat = WebIdlConversions.ToUint32(args[2]);
-            var width = WebIdlConversions.ToInt32(args[5]);
-            var height = WebIdlConversions.ToInt32(args[6]);
-            if (level < 0 || level > 15 || width < 0 || height < 0 || width > 4096 || height > 4096 || WebIdlConversions.ToInt32(args[7]) != 0) { state.SetError(0x0501); return ScriptValue.Undefined; }
-            if ((GlFormats.FromSized(internalFormat) ?? GlFormats.Resolve(internalFormat, internalFormat, 0x1401)) is not { IsColor: true } format) { state.SetError(0x0500); return ScriptValue.Undefined; }
-            if (state.AllocateTextureLevel(handle, level, width, height, format) is null) return ScriptValue.Undefined;
-            state.CopyFramebufferToTexture(handle, level, 0, 0, WebIdlConversions.ToInt32(args[3]), WebIdlConversions.ToInt32(args[4]), width, height);
-            return ScriptValue.Undefined;
-        });
 
-        t.DefineMethod("copyTexSubImage2D", (target, _, args) =>
-        {
-            var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || !state.Textures.TryGetValue(handle, out var texture) || args.Length < 8) { state.SetError(0x0502); return ScriptValue.Undefined; }
-            var level = WebIdlConversions.ToInt32(args[1]);
-            var xOffset = WebIdlConversions.ToInt32(args[2]);
-            var yOffset = WebIdlConversions.ToInt32(args[3]);
-            var width = WebIdlConversions.ToInt32(args[6]);
-            var height = WebIdlConversions.ToInt32(args[7]);
-            if (width < 0 || height < 0 || xOffset < 0 || yOffset < 0 || texture.Level(level) is not { } existing
-                || xOffset + width > existing.Width || yOffset + height > existing.Height || width > 4096 || height > 4096)
-            {
-                state.SetError(0x0501);
-                return ScriptValue.Undefined;
-            }
-            state.CopyFramebufferToTexture(handle, level, xOffset, yOffset, WebIdlConversions.ToInt32(args[4]), WebIdlConversions.ToInt32(args[5]), width, height);
-            return ScriptValue.Undefined;
-        });
 
-        t.DefineMethod("generateMipmap", (target, _, args) =>
-        {
-            var state = (WebGlContextState)target;
-            if (args.Length == 0 || WebIdlConversions.ToUint32(args[0]) is not (0x0DE1 or 0x8513)) { state.SetError(0x0500); return ScriptValue.Undefined; }
-            if (state.BoundTexture is not { } handle || !state.Textures.ContainsKey(handle)) { state.SetError(0x0502); return ScriptValue.Undefined; }
-            if (!state.GenerateMipmaps(handle) && state.Error == 0) state.SetError(0x0502);
-            return ScriptValue.Undefined;
-        });
 
-        t.DefineMethod("getTexLevelParameter", (target, _, args) =>
-        {
-            var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || args.Length < 3 || WebIdlConversions.ToUint32(args[0]) != 0x0DE1 || !state.Textures.TryGetValue(handle, out var texture)
-                || texture.Level(WebIdlConversions.ToInt32(args[1])) is not { } image)
-                return ScriptValue.Null;
-            return WebIdlConversions.ToUint32(args[2]) switch
-            {
-                0x1000 => ScriptValue.FromNumber(image.Width),
-                0x1001 => ScriptValue.FromNumber(image.Height),
-                0x1003 => ScriptValue.FromNumber(image.Format.InternalFormat),
-                _ => ScriptValue.Null,
-            };
-        });
 
         // ---- renderbuffers ----
 
@@ -308,12 +355,12 @@ internal sealed partial class DomNodeTemplates
             if (FramebufferFor(state, WebIdlConversions.ToUint32(args[0])) is not { } framebuffer) { state.SetError(WebIdlConversions.ToUint32(args[0]) is 0x8D40 or 0x8CA8 or 0x8CA9 ? 0x0502 : 0x0500); return ScriptValue.Undefined; }
             var point = WebIdlConversions.ToUint32(args[1]);
             if (!ValidAttachmentPoint(point)) { state.SetError(0x0500); return ScriptValue.Undefined; }
-            if (WebIdlConversions.ToUint32(args[2]) != 0x0DE1) { state.SetError(0x0500); return ScriptValue.Undefined; }
+            if (!WebGlContextState.TryImageTarget(WebIdlConversions.ToUint32(args[2]), out var textureTarget, out var face)) { state.SetError(0x0500); return ScriptValue.Undefined; }
             var level = WebIdlConversions.ToInt32(args[4]);
             if (args[3].IsNullOrUndefined) { framebuffer.Attachments.Remove(point); return ScriptValue.Undefined; }
             var texture = WebIdlConversions.ToUint32(args[3]);
-            if (level < 0 || !state.Textures.TryGetValue(texture, out var found) || found.Level(level) is null && level != 0) { state.SetError(level < 0 ? 0x0501 : 0x0502); return ScriptValue.Undefined; }
-            framebuffer.Attachments[point] = new GlAttachment(texture, null, level);
+            if (level < 0 || !state.Textures.TryGetValue(texture, out var found) || found.Target != textureTarget || found.Level(level, face) is null && level != 0) { state.SetError(level < 0 ? 0x0501 : 0x0502); return ScriptValue.Undefined; }
+            framebuffer.Attachments[point] = new GlAttachment(texture, null, level, face);
             return ScriptValue.Undefined;
         });
 
@@ -437,6 +484,32 @@ internal sealed partial class DomNodeTemplates
     {
         if (state.DrawFramebufferObject is { } framebuffer) return index < framebuffer.DrawBuffers.Length ? framebuffer.DrawBuffers[index] : 0;
         return index == 0 ? (state.DrawBuffers.Count > 0 ? state.DrawBuffers[0] : 0x0405u) : 0;
+    }
+
+    /// <summary>
+    /// The texture an image call (texImage2D and the others) writes to, from its target argument: the texture bound at TEXTURE_2D, or the cube map
+    /// bound at TEXTURE_CUBE_MAP for one of its faces. Raises INVALID_ENUM or INVALID_OPERATION and returns false when there is none.
+    /// </summary>
+    private static bool ImageTexture(WebGlContextState state, uint imageTarget, out uint handle, out GlTexture texture, out int face)
+    {
+        handle = 0;
+        texture = null!;
+        if (!WebGlContextState.TryImageTarget(imageTarget, out var bindingTarget, out face)) { state.SetError(0x0500); return false; }
+        if (state.BoundTextureAt(bindingTarget) is not { } bound || !state.Textures.TryGetValue(bound, out var found)) { state.SetError(0x0502); return false; }
+        handle = bound;
+        texture = found;
+        return true;
+    }
+
+    private static ScriptValue TexParameter(WebGlContextState state, ReadOnlySpan<ScriptValue> args, bool integer)
+    {
+        if (args.Length < 3) { state.SetError(0x0502); return ScriptValue.Undefined; }
+        var bindingTarget = WebIdlConversions.ToUint32(args[0]);
+        if (state.TextureBindings(bindingTarget) is null) { state.SetError(0x0500); return ScriptValue.Undefined; }
+        if (state.BoundTextureAt(bindingTarget) is not { } handle) { state.SetError(0x0502); return ScriptValue.Undefined; }
+        if (!state.TextureParameters.TryGetValue(handle, out var parameters)) state.TextureParameters[handle] = parameters = [];
+        parameters[WebIdlConversions.ToUint32(args[1])] = integer ? WebIdlConversions.ToInt32(args[2]) : (int)Math.Round(WebIdlConversions.ToDouble(args[2]));
+        return ScriptValue.Undefined;
     }
 
     private static bool ValidAttachmentPoint(uint point) =>

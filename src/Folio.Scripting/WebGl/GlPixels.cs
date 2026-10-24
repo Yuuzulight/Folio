@@ -99,7 +99,7 @@ internal static class GlPixels
     }
 
     /// <summary>Writes a block of texels into an image at an offset, clipping what falls outside it.</summary>
-    public static void Write(GlImage image, int x, int y, int width, int height, Vector4[] texels, byte[]? stencil = null)
+    public static void Write(GlImage image, int x, int y, int width, int height, Vector4[] texels, byte[]? stencil = null, int slice = 0)
     {
         for (var row = 0; row < height; row++)
         {
@@ -107,7 +107,7 @@ internal static class GlPixels
             for (var column = 0; column < width; column++)
             {
                 if (x + column >= image.Width) break;
-                var index = (y + row) * image.Width + x + column;
+                var index = (slice * image.Height + y + row) * image.Width + x + column;
                 image.Store(index, texels[row * width + column]);
                 if (stencil is not null && image.Stencil is not null) image.Stencil[index] = stencil[row * width + column];
             }

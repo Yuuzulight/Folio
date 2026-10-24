@@ -192,7 +192,7 @@ internal sealed partial class WebGlContextState
     // ---- texture units ----
 
     public uint?[] TextureUnits { get; } = new uint?[32];
-    private int UnitIndex => (int)Math.Clamp(ActiveTextureUnit - 0x84C0u, 0u, 31u);
+    internal int UnitIndex => (int)Math.Clamp(ActiveTextureUnit - 0x84C0u, 0u, 31u);
     public uint? BoundTexture { get => TextureUnits[UnitIndex]; set => TextureUnits[UnitIndex] = value; }
 
     // ---- state the fixed-function stages read ----

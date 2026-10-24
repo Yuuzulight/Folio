@@ -22,6 +22,9 @@ internal interface IShaderSampler
     /// <summary>A depth comparison lookup (<c>sampler2DShadow</c>): 1 where the reference passes the texture's compare function against the stored depth, else 0; filtered across the four nearest texels when the texture filters linearly.</summary>
     float SampleShadow(int unit, Vector2 uv, float reference);
 
+    /// <summary>A cube map lookup: the face and position the direction points at, filtered across face edges; <paramref name="dx"/> and <paramref name="dy"/> are the change of the direction across a pixel.</summary>
+    Vector4 SampleCube(int unit, Vector3 direction, Vector3 dx, Vector3 dy, float lod, float bias);
+
     /// <summary>One texel by integer coordinates, no filtering.</summary>
     Vector4 Fetch(int unit, int x, int y, int level);
 

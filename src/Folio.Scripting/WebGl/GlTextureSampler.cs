@@ -4,7 +4,7 @@ using Folio.Scripting.Dom;
 namespace Folio.Scripting.WebGl;
 
 /// <summary>Texture lookups for a draw: the texture bound to each unit, its filters and wrapping, and mip levels chosen from the screen-space change of the coordinates.</summary>
-internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
+internal sealed partial class GlTextureSampler(WebGlContextState state) : IShaderSampler
 {
     private static readonly Vector4 Black = new(0, 0, 0, 1);
 
@@ -13,15 +13,53 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
         if (unit < 0 || unit >= state.TextureUnits.Length || state.TextureUnits[unit] is not { } handle || !state.Textures.TryGetValue(handle, out var texture) || texture.Base is not { } baseTexture)
             return null;
         if (baseTexture.Width <= 0 || baseTexture.Height <= 0) return null;
-        state.TextureParameters.TryGetValue(handle, out var parameters);
-        int Parameter(uint name, int fallback)
-        {
-            // A sampler object bound to the unit overrides the texture's own parameters.
-            var sampler = state.BoundSamplers.GetValueOrDefault((uint)unit);
-            if (sampler is { } s && state.SamplerParameters.TryGetValue(s, out var overrides) && overrides.TryGetValue(name, out var v)) return (int)v;
-            return parameters is not null && parameters.TryGetValue(name, out var own) ? own : fallback;
-        }
+        int Parameter(uint name, int fallback) => TextureParameter(handle, unit, name, fallback);
         return (texture.Levels, Parameter(0x2801, 0x2702), Parameter(0x2800, 0x2601), (uint)Parameter(0x2802, 0x2901), (uint)Parameter(0x2803, 0x2901));
+    }
+
+    /// <summary>A parameter of the texture on a unit; a sampler object bound to the unit overrides the texture's own.</summary>
+    private int TextureParameter(uint handle, int unit, uint name, int fallback)
+    {
+        var sampler = state.BoundSamplers.GetValueOrDefault((uint)unit);
+        if (sampler is { } s && state.SamplerParameters.TryGetValue(s, out var overrides) && overrides.TryGetValue(name, out var v)) return (int)v;
+        return state.TextureParameters.TryGetValue(handle, out var parameters) && parameters.TryGetValue(name, out var own) ? own : fallback;
+    }
+
+    /// <summary>
+    /// Whether the image can be read with these filters: depth is sampled nearest (unless it is being compared), and 32-bit floats filter only
+    /// once OES_texture_float_linear is enabled. A texture that cannot is incomplete and reads black.
+    /// </summary>
+    private bool Filterable(GlImage baseLevel, int min, int mag, bool comparing)
+    {
+        var linear = mag is 0x2601 || min is 0x2601 or 0x2701 or 0x2702 or 0x2703;
+        if (!linear) return true;
+        if (baseLevel.Format.IsDepth) return comparing;
+        return !(baseLevel.Format.Storage == GlStorage.F32 && baseLevel.Format.IsColor && !state.EnabledExtensions.Contains("OES_texture_float_linear"));
+    }
+
+    /// <summary>The result of looking up a texture at a (possibly fractional) level: nearest or linear within a level, and between two levels for a mipmapped filter.</summary>
+    private static Vector4 ByLevel(int levelCount, int min, int mag, float level, Func<int, bool, Vector4> at)
+    {
+        var mipmapped = min is 0x2700 or 0x2701 or 0x2702 or 0x2703;
+        var magnify = level <= 0;
+        if (!mipmapped || magnify || levelCount == 1)
+            return at(0, (magnify ? mag : min) is 0x2601 or 0x2701 or 0x2703);
+        var maxLevel = levelCount - 1;
+        switch (min)
+        {
+            case 0x2700:
+                return at(Math.Clamp((int)MathF.Round(level), 0, maxLevel), false);
+            case 0x2701:
+                return at(Math.Clamp((int)MathF.Round(level), 0, maxLevel), true);
+            default:
+            {
+                var l0 = Math.Clamp((int)MathF.Floor(level), 0, maxLevel);
+                var l1 = Math.Min(l0 + 1, maxLevel);
+                var f = Math.Clamp(level - l0, 0, 1);
+                var linear = min == 0x2703;
+                return Vector4.Lerp(at(l0, linear), at(l1, linear), f);
+            }
+        }
     }
 
     private static int FullChain(int width, int height)
@@ -45,9 +83,8 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
         // A mip filter on a texture without all its levels leaves it incomplete, and an incomplete texture reads as black.
         if (mipmapped && (levels.Count < FullChain(baseLevel.Width, baseLevel.Height) || levels.Any(l => l is null || l.Width <= 0))) return Black;
         // Linear filtering needs a filterable format: depth is sampled nearest, and 32-bit floats are filterable only with OES_texture_float_linear.
-        var linearFilter = mag is 0x2601 || min is 0x2601 or 0x2701 or 0x2702 or 0x2703;
         var comparing = state.TextureParameters.TryGetValue(state.TextureUnits[unit] ?? 0, out var textureParameters) && textureParameters.GetValueOrDefault(0x884Cu) == 0x884E;
-        if (linearFilter && ((baseLevel.Format.IsDepth && !comparing) || (baseLevel.Format.Storage == GlStorage.F32 && baseLevel.Format.IsColor && !state.EnabledExtensions.Contains("OES_texture_float_linear")))) return Black;
+        if (!Filterable(baseLevel, min, mag, comparing)) return Black;
 
         float level;
         if (float.IsNaN(lod))

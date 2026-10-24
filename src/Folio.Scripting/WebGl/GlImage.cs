@@ -95,19 +95,22 @@ internal static class GlFormats
 /// <summary>A rectangle of texels (or samples) in one format: a texture level, a renderbuffer or a framebuffer's colour or depth.</summary>
 internal sealed class GlImage
 {
-    public GlImage(int width, int height, GlFormat format, int samples = 1)
+    public GlImage(int width, int height, GlFormat format, int samples = 1, int depth = 1)
     {
         Width = width;
         Height = height;
+        Depth = depth;
         Format = format;
         Samples = samples;
-        var count = checked(width * height * samples);
+        var count = checked(width * height * depth * samples);
         Data = new byte[checked(count * format.BytesPerTexel)];
         if (format.HasStencil) Stencil = new byte[count];
     }
 
     public int Width { get; }
     public int Height { get; }
+    /// <summary>Slices: the layers of an array texture level or the depth of a volume texture level; 1 for a plain image.</summary>
+    public int Depth { get; }
     public GlFormat Format { get; }
     public int Samples { get; }
     public byte[] Data { get; }
@@ -192,24 +195,48 @@ internal sealed class GlImage
 
     public void Fill(Vector4 v, bool maskR = true, bool maskG = true, bool maskB = true, bool maskA = true)
     {
-        var count = Width * Height * Samples;
+        var count = Width * Height * Depth * Samples;
         for (var i = 0; i < count; i++) Store(i, v, maskR, maskG, maskB, maskA);
     }
 
     private static byte ToByte(float v) => (byte)Math.Clamp((int)MathF.Round(v * 255f), 0, 255);
 }
 
-/// <summary>A texture: the images of its mip levels (level 0 first; a level not given yet is null) and what it was specified as.</summary>
+/// <summary>
+/// A texture: the images of its mip levels (level 0 first; a level not given yet is null). A cube map has six such chains, one per face
+/// (+X, -X, +Y, -Y, +Z, -Z); a volume or array texture has slices inside each level's image.
+/// </summary>
 internal sealed class GlTexture
 {
-    public List<GlImage?> Levels { get; } = [];
+    /// <summary>The target the texture was first bound to (TEXTURE_2D, TEXTURE_CUBE_MAP, TEXTURE_3D, TEXTURE_2D_ARRAY); 0 until then. It cannot change.</summary>
+    public uint Target { get; set; }
+    public List<GlImage?>[] Faces { get; } = [[], [], [], [], [], []];
+    public List<GlImage?> Levels => Faces[0];
     public bool Immutable { get; set; }
     /// <summary>Whether <c>generateMipmap</c> built the levels (as opposed to the page giving them one by one).</summary>
     public bool Generated { get; set; }
 
-    public GlImage? Level(int level) => level >= 0 && level < Levels.Count ? Levels[level] : null;
+    public GlImage? Level(int level, int face = 0) => face >= 0 && face < 6 && level >= 0 && level < Faces[face].Count ? Faces[face][level] : null;
     public GlImage? Base => Level(0);
     public GlFormat Format => Base?.Format ?? GlFormat.Rgba8;
+    public long ByteLength => Faces.Sum(chain => chain.Sum(image => (long)(image?.ByteLength ?? 0)));
+
+    /// <summary>Whether all six faces have a square level 0 of the same size and format (and, unless <paramref name="levelZeroOnly"/>, matching chains).</summary>
+    public bool IsCubeComplete(bool levelZeroOnly = false)
+    {
+        var first = Level(0, 0);
+        if (first is null || first.Width != first.Height || first.Width <= 0) return false;
+        for (var face = 1; face < 6; face++)
+        {
+            var image = Level(0, face);
+            if (image is null || image.Width != first.Width || image.Height != first.Height || image.Format != first.Format) return false;
+        }
+        if (levelZeroOnly) return true;
+        for (var face = 1; face < 6; face++)
+            for (var level = 1; level < Faces[0].Count; level++)
+                if (Level(level, face) is not { } image || Level(level, 0) is not { } reference || image.Width != reference.Width || image.Format != reference.Format) return false;
+        return true;
+    }
 }
 
 internal sealed class GlRenderbuffer
@@ -219,7 +246,7 @@ internal sealed class GlRenderbuffer
 }
 
 /// <summary>What is attached at one attachment point of a framebuffer: a level of a texture or a renderbuffer.</summary>
-internal readonly record struct GlAttachment(uint? Texture, uint? Renderbuffer, int Level);
+internal readonly record struct GlAttachment(uint? Texture, uint? Renderbuffer, int Level, int Face = 0, int Layer = 0);
 
 internal sealed class GlFramebufferObject
 {

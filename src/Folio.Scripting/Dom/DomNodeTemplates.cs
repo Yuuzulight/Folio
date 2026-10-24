@@ -588,6 +588,9 @@ internal sealed partial class DomNodeTemplates
                 0x8CAA => GlBound(state, GlKind.Framebuffer, state.BoundReadFramebuffer ?? state.BoundFramebuffer),
                 0x8CA6 => GlBound(state, GlKind.Framebuffer, state.BoundDrawFramebuffer ?? state.BoundFramebuffer),
                 0x8069 => GlBound(state, GlKind.Texture, state.BoundTexture),
+                0x8514 => GlBound(state, GlKind.Texture, state.BoundTextureAt(WebGlContextState.TextureCubeMap)),
+                0x806A => GlBound(state, GlKind.Texture, state.BoundTextureAt(WebGlContextState.Texture3D)),
+                0x8C1D => GlBound(state, GlKind.Texture, state.BoundTextureAt(WebGlContextState.Texture2DArray)),
                 0x8CA7 => GlBound(state, GlKind.Renderbuffer, state.BoundRenderbuffer),
                 0x0B74 => ScriptValue.FromNumber(state.DepthFunction),
                 0x0B45 => ScriptValue.FromNumber(state.CullFaceMode),
@@ -999,10 +1002,6 @@ internal sealed partial class DomNodeTemplates
         t.DefineMethod("getQuery", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.Queries.Contains(WebIdlConversions.ToUint32(args[0]))) return ScriptValue.Null; return ScriptValue.FromNumber(0); });
         t.DefineMethod("getQueryParameter", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.QueryResults.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var available)) return ScriptValue.Null; return WebIdlConversions.ToUint32(args[1]) switch { 0x8867 => ScriptValue.FromBoolean(available), 0x8866 => ScriptValue.FromNumber(available ? 1 : 0), _ => ScriptValue.Null }; });
         t.DefineMethod("activeTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).ActiveTextureUnit = WebIdlConversions.ToUint32(args[0]); return ScriptValue.Undefined; });
-        t.DefineMethod("bindTexture", (target, _, args) => { var state = (WebGlContextState)target; state.BoundTexture = args.Length > 1 ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
-        t.DefineMethod("texParameteri", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 3) { state.SetError(0x0502); return ScriptValue.Undefined; } if (!state.TextureParameters.TryGetValue(handle, out var parameters)) state.TextureParameters[handle] = parameters = []; parameters[WebIdlConversions.ToUint32(args[1])] = WebIdlConversions.ToInt32(args[2]); return ScriptValue.Undefined; });
-        t.DefineMethod("texParameterf", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 3) { state.SetError(0x0502); return ScriptValue.Undefined; } if (!state.TextureParameters.TryGetValue(handle, out var parameters)) state.TextureParameters[handle] = parameters = []; parameters[WebIdlConversions.ToUint32(args[1])] = (int)Math.Round(WebIdlConversions.ToDouble(args[2])); return ScriptValue.Undefined; });
-        t.DefineMethod("getTexParameter", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 2 || !state.TextureParameters.TryGetValue(handle, out var parameters) || !parameters.TryGetValue(WebIdlConversions.ToUint32(args[1]), out var value)) return ScriptValue.Null; return ScriptValue.FromNumber(value); });
         t.DefineMethod("deleteTexture", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteTexture(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isTexture", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Textures.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
         t.DefineMethod("deleteFramebuffer", (target, _, args) =>

@@ -441,7 +441,7 @@ internal static class GlslBuiltins
         var coordinate = args[1];
         var cube = args[0].Type.Base == GlslBase.SamplerCube || name.StartsWith("textureCube", StringComparison.Ordinal);
         if (cube)
-            return R(GlslType.Vec4, c => { sampler(c); return new Val(0, 0, 0, 1); });
+            return TextureCube(compiler, name, args);
 
         if (args[0].Type.Base == GlslBase.Sampler2DShadow)
         {
@@ -501,6 +501,59 @@ internal static class GlslBuiltins
             var bias = !explicitLod && extra is not null ? extra(c) : 0;
             if (c.Sampler is not { } s) return new Val(0, 0, 0, 1);
             return new Val(s.Sample(unit, coords, dxCoords, dyCoords, lod, bias));
+        });
+    }
+
+    private static (Func<ShaderContext, Vector3> Dx, Func<ShaderContext, Vector3> Dy) Derivatives3(CExpr coordinate)
+    {
+        if (coordinate.Source is { Storage: GlslStorage.VaryingIn } source)
+        {
+            var slot = source.Slot;
+            var sw = coordinate.SourceSwizzle;
+            int Comp(int k) => sw is not null && k < sw.Length ? sw[k] : k;
+            Vector3 Take(Vector4 v) => new(Lane(v, Comp(0)), Lane(v, Comp(1)), Lane(v, Comp(2)));
+            return (c => c.DerivX is null ? Vector3.Zero : Take(c.DerivX[slot]), c => c.DerivY is null ? Vector3.Zero : Take(c.DerivY[slot]));
+        }
+        return (_ => Vector3.Zero, _ => Vector3.Zero);
+    }
+
+    private static CExpr? TextureCube(GlslCompiler compiler, string name, List<CExpr> args)
+    {
+        if (args[0].Type.Base != GlslBase.SamplerCube || args[1].Type.Base != GlslBase.Vec3) return null;
+        if (name is not ("textureCube" or "textureCubeLod" or "texture" or "textureLod")) return null;
+        var explicitLod = name is "textureCubeLod" or "textureLod";
+        var extra = args.Count > 2 ? ToFloatScalar(args[2]) : null;
+        if (args.Count > 3 || (args.Count > 2 && extra is null) || (explicitLod && extra is null)) return null;
+        var sampler = args[0].V!;
+        var coordinate = args[1];
+        var direction = coordinate.V!;
+        var quadLevel = !explicitLod && coordinate.Source is not { Storage: GlslStorage.VaryingIn };
+        if (quadLevel) compiler.NoteQuad();
+        var (derivativeX, derivativeY) = Derivatives3(coordinate);
+        return R(GlslType.Vec4, c =>
+        {
+            var unit = (int)sampler(c).X;
+            Vector3 toward, dx, dy;
+            if (quadLevel)
+            {
+                if (c.Quad is not { } quad) return new Val(0, 0, 0, 1);
+                if (!quad.Evaluate(c, direction, out var own, out var neighbourX, out var neighbourY)) return default;
+                toward = new Vector3(own.C0.X, own.C0.Y, own.C0.Z);
+                var ax = QuadShading.Along(c.Lane, 1, own, neighbourX);
+                var ay = QuadShading.Along(c.Lane, 2, own, neighbourY);
+                dx = new Vector3(ax.X, ax.Y, ax.Z);
+                dy = new Vector3(ay.X, ay.Y, ay.Z);
+            }
+            else
+            {
+                var q = direction(c).C0;
+                toward = new Vector3(q.X, q.Y, q.Z);
+                dx = derivativeX(c);
+                dy = derivativeY(c);
+            }
+            var lod = explicitLod ? extra!(c) : float.NaN;
+            var bias = !explicitLod && extra is not null ? extra(c) : 0;
+            return c.Sampler is { } s ? new Val(s.SampleCube(unit, toward, dx, dy, lod, bias)) : new Val(0, 0, 0, 1);
         });
     }
 

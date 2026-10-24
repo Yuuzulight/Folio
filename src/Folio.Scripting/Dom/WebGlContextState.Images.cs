@@ -36,15 +36,53 @@ internal sealed partial class WebGlContextState
 
     // ---- textures ----
 
+    public const uint Texture2D = 0x0DE1;
+    public const uint TextureCubeMap = 0x8513;
+    public const uint Texture3D = 0x806F;
+    public const uint Texture2DArray = 0x8C1A;
+
     public GlTexture CreateTexture(uint handle) => Textures[handle] = new GlTexture();
+
+    /// <summary>The binding point (and, for a cube map, the face) an image target names: TEXTURE_2D, or one of the six TEXTURE_CUBE_MAP_* faces.</summary>
+    public static bool TryImageTarget(uint target, out uint bindingTarget, out int face)
+    {
+        face = 0;
+        bindingTarget = target;
+        if (target == Texture2D) return true;
+        if (target is >= 0x8515 and <= 0x851A)
+        {
+            bindingTarget = TextureCubeMap;
+            face = (int)(target - 0x8515);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>The texture bound at a binding point on the active unit, or null.</summary>
+    public uint? BoundTextureAt(uint bindingTarget) => TextureBindings(bindingTarget) is { } units ? units[UnitIndex] : null;
+
+    /// <summary>The binding-point table for a texture target, or null when the target is not one.</summary>
+    public uint?[]? TextureBindings(uint bindingTarget) => bindingTarget switch
+    {
+        Texture2D => TextureUnits,
+        TextureCubeMap => CubeTextureUnits,
+        Texture3D => Texture3DUnits,
+        Texture2DArray => TextureArrayUnits,
+        _ => null,
+    };
+
+    public uint?[] CubeTextureUnits { get; } = new uint?[32];
+    public uint?[] Texture3DUnits { get; } = new uint?[32];
+    public uint?[] TextureArrayUnits { get; } = new uint?[32];
 
     public void DeleteTexture(uint handle)
     {
         if (!Textures.Remove(handle, out var texture)) return;
-        Release(texture.Levels.Sum(level => (long)(level?.ByteLength ?? 0)));
+        Release(texture.ByteLength);
         TextureParameters.Remove(handle);
-        for (var unit = 0; unit < TextureUnits.Length; unit++)
-            if (TextureUnits[unit] == handle) TextureUnits[unit] = null;
+        foreach (var units in new[] { TextureUnits, CubeTextureUnits, Texture3DUnits, TextureArrayUnits })
+            for (var unit = 0; unit < units.Length; unit++)
+                if (units[unit] == handle) units[unit] = null;
         foreach (var framebuffer in Framebuffers.Values)
             foreach (var point in framebuffer.Attachments.Where(pair => pair.Value.Texture == handle).Select(pair => pair.Key).ToArray())
                 framebuffer.Attachments.Remove(point);
@@ -52,79 +90,91 @@ internal sealed partial class WebGlContextState
 
     /// <summary>
     /// Gives a texture level storage of the given size and format, zeroed, replacing what the level held. Respecifying level 0 with another size
-    /// or format drops the levels above it, which could not match any more.
+    /// or format drops the levels above it (of that face), which could not match any more.
     /// </summary>
-    public GlImage? AllocateTextureLevel(uint handle, int level, int width, int height, GlFormat format)
+    public GlImage? AllocateTextureLevel(uint handle, int level, int width, int height, GlFormat format, int face = 0, int depth = 1)
     {
         if (!Textures.TryGetValue(handle, out var texture)) return null;
-        if (width < 0 || height < 0 || width > 4096 || height > 4096 || level < 0 || level > 15) { SetError(0x0501); return null; }
-        var bytes = (long)width * height * Math.Max(format.BytesPerTexel, 1) + (format.HasStencil ? (long)width * height : 0);
-        long released = texture.Level(level)?.ByteLength ?? 0;
-        if (level == 0 && texture.Base is { } existing && (existing.Width != width || existing.Height != height || existing.Format != format))
-            released += texture.Levels.Skip(1).Sum(l => (long)(l?.ByteLength ?? 0));
+        var limit = texture.Target is Texture3D or Texture2DArray ? 2048 : 4096;
+        if (width < 0 || height < 0 || depth < 0 || width > limit || height > limit || depth > (texture.Target == Texture2DArray ? 256 : 2048) || level < 0 || level > 15) { SetError(0x0501); return null; }
+        var chain = texture.Faces[face];
+        var bytes = (long)width * height * depth * Math.Max(format.BytesPerTexel, 1) + (format.HasStencil ? (long)width * height * depth : 0);
+        long released = texture.Level(level, face)?.ByteLength ?? 0;
+        var dropping = level == 0 && texture.Level(0, face) is { } existing && (existing.Width != width || existing.Height != height || existing.Depth != depth || existing.Format != format);
+        if (dropping) released += chain.Skip(1).Sum(l => (long)(l?.ByteLength ?? 0));
         if (!Reserve(bytes, released)) return null;
-        if (level == 0 && texture.Base is { } old && (old.Width != width || old.Height != height || old.Format != format))
-            texture.Levels.RemoveRange(1, texture.Levels.Count - 1);
-        while (texture.Levels.Count <= level) texture.Levels.Add(null);
-        var image = new GlImage(width, height, format);
-        texture.Levels[level] = image;
+        if (dropping) chain.RemoveRange(1, chain.Count - 1);
+        while (chain.Count <= level) chain.Add(null);
+        var image = new GlImage(width, height, format, 1, depth);
+        chain[level] = image;
         texture.Generated = false;
         return image;
     }
 
-    /// <summary>Builds the mip chain of level 0 by averaging 2x2 blocks. A depth or stencil texture has none.</summary>
+    /// <summary>Builds the mip chain of level 0 (of every face of a cube map) by averaging blocks. A depth or stencil texture has none.</summary>
     public bool GenerateMipmaps(uint handle)
     {
-        if (!Textures.TryGetValue(handle, out var texture) || texture.Base is not { } baseLevel || baseLevel.Format.IsDepth || !baseLevel.Format.IsColor)
+        if (!Textures.TryGetValue(handle, out var texture) || texture.Base is not { } first || first.Format.IsDepth || !first.Format.IsColor)
             return false;
-        var width = baseLevel.Width;
-        var height = baseLevel.Height;
-        if (width <= 0 || height <= 0) return true;
-        var previous = baseLevel;
-        var levels = new List<GlImage?> { baseLevel };
+        var faceCount = texture.Target == TextureCubeMap ? 6 : 1;
+        if (faceCount == 6 && !texture.IsCubeComplete(levelZeroOnly: true)) { SetError(0x0502); return false; }
+        var chains = new List<GlImage?>[faceCount];
         long total = 0;
-        while (width > 1 || height > 1)
+        long released = 0;
+        for (var face = 0; face < faceCount; face++)
         {
-            width = Math.Max(1, width / 2);
-            height = Math.Max(1, height / 2);
-            total += (long)width * height * baseLevel.Format.BytesPerTexel;
+            var baseLevel = texture.Level(0, face)!;
+            chains[face] = BuildChain(baseLevel, texture.Target == Texture3D);
+            total += chains[face].Skip(1).Sum(l => (long)l!.ByteLength);
+            released += texture.Faces[face].Skip(1).Sum(l => (long)(l?.ByteLength ?? 0));
         }
-        var released = texture.Levels.Skip(1).Sum(l => (long)(l?.ByteLength ?? 0));
         if (!Reserve(total, released)) return false;
-        width = baseLevel.Width;
-        height = baseLevel.Height;
-        while (width > 1 || height > 1)
+        for (var face = 0; face < faceCount; face++)
         {
-            var nextWidth = Math.Max(1, width / 2);
-            var nextHeight = Math.Max(1, height / 2);
-            var next = new GlImage(nextWidth, nextHeight, baseLevel.Format);
-            for (var y = 0; y < nextHeight; y++)
-            {
-                var y0 = Math.Min(y * 2, height - 1);
-                var y1 = Math.Min(y0 + 1, height - 1);
-                for (var x = 0; x < nextWidth; x++)
-                {
-                    var x0 = Math.Min(x * 2, width - 1);
-                    var x1 = Math.Min(x0 + 1, width - 1);
-                    var sum = previous.Load(y0 * width + x0) + previous.Load(y0 * width + x1) + previous.Load(y1 * width + x0) + previous.Load(y1 * width + x1);
-                    next.Store(y * nextWidth + x, sum * 0.25f);
-                }
-            }
-            levels.Add(next);
-            previous = next;
-            width = nextWidth;
-            height = nextHeight;
+            texture.Faces[face].Clear();
+            texture.Faces[face].AddRange(chains[face]);
         }
-        texture.Levels.Clear();
-        texture.Levels.AddRange(levels);
         texture.Generated = true;
         return true;
     }
 
-    /// <summary>Writes RGBA8 pixels (a decoded image, a canvas, ImageData) into a texture level, flipped and premultiplied as the unpack state says.</summary>
-    public void UploadRgba8(uint handle, int level, int x, int y, int width, int height, ReadOnlySpan<byte> pixels)
+    private static List<GlImage?> BuildChain(GlImage baseLevel, bool halveDepth)
     {
-        if (!Textures.TryGetValue(handle, out var texture) || texture.Level(level) is not { } image) return;
+        var levels = new List<GlImage?> { baseLevel };
+        var previous = baseLevel;
+        while (previous.Width > 1 || previous.Height > 1 || (halveDepth && previous.Depth > 1))
+        {
+            var width = Math.Max(1, previous.Width / 2);
+            var height = Math.Max(1, previous.Height / 2);
+            var depth = halveDepth ? Math.Max(1, previous.Depth / 2) : previous.Depth;
+            var next = new GlImage(width, height, baseLevel.Format, 1, depth);
+            for (var z = 0; z < depth; z++)
+                for (var y = 0; y < height; y++)
+                    for (var x = 0; x < width; x++)
+                    {
+                        var sum = Vector4.Zero;
+                        var taps = 0;
+                        var z0 = halveDepth ? Math.Min(z * 2, previous.Depth - 1) : z;
+                        var z1 = halveDepth ? Math.Min(z0 + 1, previous.Depth - 1) : z;
+                        for (var sz = z0; sz <= z1; sz++)
+                            for (var sy = Math.Min(y * 2, previous.Height - 1); sy <= Math.Min(y * 2 + 1, previous.Height - 1); sy++)
+                                for (var sx = Math.Min(x * 2, previous.Width - 1); sx <= Math.Min(x * 2 + 1, previous.Width - 1); sx++)
+                                {
+                                    sum += previous.Load((sz * previous.Height + sy) * previous.Width + sx);
+                                    taps++;
+                                }
+                        next.Store((z * height + y) * width + x, sum / taps);
+                    }
+            levels.Add(next);
+            previous = next;
+        }
+        return levels;
+    }
+
+    /// <summary>Writes RGBA8 pixels (a decoded image, a canvas, ImageData) into a texture level, flipped and premultiplied as the unpack state says.</summary>
+    public void UploadRgba8(uint handle, int level, int face, int x, int y, int width, int height, ReadOnlySpan<byte> pixels)
+    {
+        if (!Textures.TryGetValue(handle, out var texture) || texture.Level(level, face) is not { } image) return;
         GlPixels.Write(image, x, y, width, height, GlPixels.FromRgba8(pixels, width, height, UnpackFlipY, UnpackPremultiplyAlpha));
     }
 
@@ -132,9 +182,9 @@ internal sealed partial class WebGlContextState
     /// Copies a region of the read framebuffer's colour into a level of a texture (copyTexImage2D, copyTexSubImage2D). Pixels outside the
     /// framebuffer come out as transparent black; a format without alpha reads as opaque.
     /// </summary>
-    public void CopyFramebufferToTexture(uint handle, int level, int xOffset, int yOffset, int x, int y, int width, int height)
+    public void CopyFramebufferToTexture(uint handle, int level, int face, int xOffset, int yOffset, int x, int y, int width, int height, int zOffset = 0)
     {
-        if (!Textures.TryGetValue(handle, out var texture) || texture.Level(level) is not { } target) return;
+        if (!Textures.TryGetValue(handle, out var texture) || texture.Level(level, face) is not { } target) return;
         var texels = new Vector4[width * height];
         if (ReadImage() is { } source)
         {
@@ -147,7 +197,7 @@ internal sealed partial class WebGlContextState
                     texels[row * width + column] = source.LoadColor(sy * source.Width + sx);
                 }
         }
-        GlPixels.Write(target, xOffset, yOffset, width, height, texels);
+        GlPixels.Write(target, xOffset, yOffset, width, height, texels, null, zOffset);
     }
 
     // ---- renderbuffers ----
@@ -194,7 +244,7 @@ internal sealed partial class WebGlContextState
 
     public GlImage? AttachmentImage(GlAttachment attachment)
     {
-        if (attachment.Texture is { } texture) return Textures.TryGetValue(texture, out var t) ? t.Level(attachment.Level) : null;
+        if (attachment.Texture is { } texture) return Textures.TryGetValue(texture, out var t) ? t.Level(attachment.Level, attachment.Face) : null;
         if (attachment.Renderbuffer is { } renderbuffer) return Renderbuffers.TryGetValue(renderbuffer, out var r) ? r.Image : null;
         return null;
     }
