@@ -185,9 +185,9 @@ All acceptance requirements are satisfied and verified by automated tests:
 
 ### #532 — Conformance: an audio and video category
 
-**Incomplete.** Evidence: `tests/conformance/D9: 5 manifests and HTML files`.
+**Acceptance verified.** Evidence: `tests/conformance/D9: 5 artifacts with manifests, Chrome references and interaction scripts; ConformanceTests.ConformanceReportListsD9WithAllExpectedToFail, ConformanceTests.D9ArtifactsHavePlayableSourcesReferencesAndInteractionScripts`.
 
-Count is met; player/timeline fixtures have no playable source. Fixed-time moving clip and seek image evidence is missing.
+Every artifact carries a real playable source as a data URL (a 2 s H.264 160x90 test clip and a 1 s 8 kHz WAV tone), so none is an empty element any more. Each page reports state in `<output>` elements that script updates from media events (`play`, `pause`, `volumechange`, `seeked`, `timeupdate`, `loadedmetadata`), and each interaction script asserts that state: play/pause, mute, text track count and mode, seek to one second with the timeline reading `0:01 / 0:02`, and a fixed-time canvas capture of the clip at one second. The initial DOM states were checked in headless Chrome, and the references are recaptured from it with `Folio.RefCapture D9`. All five are marked `expectedToFail` and the report shows 5 of 5 expected-to-fail (0.0% pass rate); the failures are real (for example the timeline reads `0:01 / 0:00` because Folio does not decode the clip yet), not an artifact of an empty fixture. The marks come off as #533–#537 land.
 
 Original acceptance:
 
