@@ -1,1 +1,22 @@
-{"prompt":"Create a particle field animated with WebGL points and a pause control.","features":["script","webgl","points","request-animation-frame"],"viewport":800}
+{
+  "prompt": "Create a particle field animated with WebGL points and a pause control.",
+  "features": [
+    "script",
+    "webgl",
+    "points",
+    "request-animation-frame"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #glcanvas",
+    "text #status running",
+    "text #count 300",
+    "click #pause-btn",
+    "text #status paused",
+    "click #pause-btn",
+    "text #status running",
+    "click #count-btn",
+    "text #count 500"
+  ],
+  "expectedToFail": "WebGL point primitive rendering and animation loops are implemented as stage-6 features (#528-#531)."
+}

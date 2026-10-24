@@ -1,5 +1,22 @@
 {
   "prompt": "Render a rotating WebGL triangle with a solid shader and a clear background.",
-  "features": ["script", "webgl", "shader", "draw-arrays"],
-  "viewport": 800
+  "features": [
+    "script",
+    "webgl",
+    "shader",
+    "draw-arrays"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #glcanvas",
+    "exists #speed-btn",
+    "exists #dir-btn",
+    "text #speed-val 1x",
+    "text #dir-val clockwise",
+    "click #speed-btn",
+    "text #speed-val 2x",
+    "click #dir-btn",
+    "text #dir-val counter-clockwise"
+  ],
+  "expectedToFail": "WebGL shader compilation and GPU scene rendering are implemented as stage-6 features (#528-#531)."
 }

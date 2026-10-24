@@ -1,3 +1,205 @@
-<!doctype html><canvas id="c" width="800" height="450"></canvas><button id="pause">Pause</button><script>
-const gl=c.getContext('experimental-webgl'); let running=true; pause.onclick=()=>running=!running;
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGL Particle Field</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --panel: #131b2e;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --border: #1e293b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    max-width: 760px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #f1f5f9;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { background: #334155; }
+  .badge { color: var(--muted); }
+  output { color: #f8fafc; font-weight: 600; }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 380px;
+    background: #050811;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>WebGL Particle Field</h1>
+    <div class="controls">
+      <button id="pause-btn">Pause</button>
+      <span class="badge">State: <output id="status">running</output></span>
+      <button id="count-btn">Add 200</button>
+      <span class="badge">Count: <output id="count">300</output></span>
+    </div>
+  </div>
+  <canvas id="glcanvas" width="720" height="380"></canvas>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('glcanvas');
+  const pauseBtn = document.getElementById('pause-btn');
+  const statusOutput = document.getElementById('status');
+  const countBtn = document.getElementById('count-btn');
+  const countOutput = document.getElementById('count');
+
+  let running = true;
+  let particleCount = 300;
+
+  pauseBtn.addEventListener('click', () => {
+    running = !running;
+    statusOutput.textContent = running ? 'running' : 'paused';
+    pauseBtn.textContent = running ? 'Pause' : 'Resume';
+  });
+
+  countBtn.addEventListener('click', () => {
+    particleCount = particleCount === 300 ? 500 : 300;
+    countOutput.textContent = String(particleCount);
+    countBtn.textContent = particleCount === 300 ? 'Add 200' : 'Remove 200';
+    rebuildParticles();
+  });
+
+  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) return;
+
+  const vsSource = `
+    attribute vec2 a_pos;
+    void main() {
+      gl_PointSize = 4.0;
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }
+  `;
+  const fsSource = `
+    precision mediump float;
+    void main() {
+      vec2 c = gl_PointCoord * 2.0 - 1.0;
+      if (dot(c, c) > 1.0) discard;
+      gl_FragColor = vec4(0.25, 0.82, 0.98, 0.85);
+    }
+  `;
+
+  function createShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const vs = createShader(gl.VERTEX_SHADER, vsSource);
+  const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const posLoc = gl.getAttribLocation(prog, 'a_pos');
+  const buf = gl.createBuffer();
+
+  let positions = [];
+  let velocities = [];
+
+  function rebuildParticles() {
+    positions = new Float32Array(particleCount * 2);
+    velocities = new Float32Array(particleCount * 2);
+    for (let i = 0; i < particleCount; i++) {
+      positions[i * 2] = (Math.sin(i * 997.0) * 0.9);
+      positions[i * 2 + 1] = (Math.cos(i * 613.0) * 0.85);
+      velocities[i * 2] = (Math.sin(i * 123.0) * 0.003);
+      velocities[i * 2 + 1] = (Math.cos(i * 456.0) * 0.003);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+  }
+
+  rebuildParticles();
+
+  if (posLoc >= 0) {
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+  }
+
+  function render() {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.04, 0.06, 0.12, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.drawArrays(gl.POINTS, 0, particleCount);
+  }
+
+  render();
+
+  function tick() {
+    if (running) {
+      for (let i = 0; i < particleCount; i++) {
+        positions[i * 2] += velocities[i * 2];
+        positions[i * 2 + 1] += velocities[i * 2 + 1];
+        if (positions[i * 2] < -1.0 || positions[i * 2] > 1.0) velocities[i * 2] *= -1;
+        if (positions[i * 2 + 1] < -1.0 || positions[i * 2 + 1] > 1.0) velocities[i * 2 + 1] *= -1;
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+      render();
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 </script>
+</body>
+</html>

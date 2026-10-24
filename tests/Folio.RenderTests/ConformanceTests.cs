@@ -49,6 +49,36 @@ public class ConformanceTests
     }
 
     [Fact]
+    public void ConformanceReportListsD8WithAllExpectedToFail()
+    {
+        var d8Artifacts = Conformance.Discover().Where(a => a.Category == "D8").ToList();
+        Assert.Equal(6, d8Artifacts.Count);
+
+        var results = d8Artifacts.Select(a => Conformance.Run(a)).ToList();
+        Assert.All(results, r => Assert.Equal(ConformanceOutcome.ExpectedFail, r.Outcome));
+
+        var report = Conformance.Report(results);
+        Assert.Contains("| D8 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 0.0% of 6 |", report);
+    }
+
+    [Fact]
+    public void D8InteractionScriptsExecuteSuccessfully()
+    {
+        var d8Artifacts = Conformance.Discover().Where(a => a.Category == "D8").ToList();
+        Assert.Equal(6, d8Artifacts.Count);
+
+        foreach (var artifact in d8Artifacts)
+        {
+            var manifest = Conformance.ManifestOf(artifact);
+            Assert.NotNull(manifest.Interaction);
+            Assert.NotEmpty(manifest.Interaction);
+
+            var result = Conformance.Run(artifact);
+            Assert.False(result.Broke, $"{artifact.Id} broke: {result.Outcome} {result.Detail}");
+        }
+    }
+
+    [Fact]
     public void ConformanceReportListsD1ThroughD7WithPassRates()
     {
         ConformanceArtifact Artifact(string category, string name) => new("", "root", category, name);
