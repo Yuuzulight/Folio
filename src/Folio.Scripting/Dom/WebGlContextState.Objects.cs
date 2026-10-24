@@ -49,29 +49,6 @@ internal sealed partial class WebGlContextState
         return existing;
     }
 
-    /// <summary>
-    /// Copies a region of the read framebuffer's colour into a level of the bound texture (copyTexImage2D, copyTexSubImage2D). Pixels outside the
-    /// framebuffer come out as transparent black; a format without alpha reads as opaque.
-    /// </summary>
-    public void CopyFramebufferToTexture(uint handle, int level, int xOffset, int yOffset, int x, int y, int width, int height, bool opaque)
-    {
-        var rgba = new byte[width * height * 4];
-        if (ReadSource() is { } source)
-        {
-            var (pixels, sourceWidth, sourceHeight) = source;
-            for (var row = 0; row < height; row++)
-                for (var column = 0; column < width; column++)
-                {
-                    var sx = x + column;
-                    var sy = y + row;
-                    if (sx < 0 || sy < 0 || sx >= sourceWidth || sy >= sourceHeight) continue;
-                    Array.Copy(pixels, (sy * sourceWidth + sx) * 4, rgba, (row * width + column) * 4, 4);
-                }
-        }
-        if (opaque) for (var i = 3; i < rgba.Length; i += 4) rgba[i] = 255;
-        CopyTexturePixels(handle, level, xOffset, yOffset, width, height, rgba);
-    }
-
     /// <summary>Whether the resource still exists: created here and not deleted since.</summary>
     public bool Exists(GlObject target) => target.Kind switch
     {
@@ -79,7 +56,7 @@ internal sealed partial class WebGlContextState
         GlKind.Shader => Shaders.ContainsKey(target.Handle),
         GlKind.Program => Programs.Contains(target.Handle),
         GlKind.Texture => Textures.ContainsKey(target.Handle),
-        GlKind.Framebuffer => Framebuffers.Contains(target.Handle),
+        GlKind.Framebuffer => Framebuffers.ContainsKey(target.Handle),
         GlKind.Renderbuffer => Renderbuffers.ContainsKey(target.Handle),
         GlKind.VertexArray => VertexArrays.Contains(target.Handle),
         GlKind.Sampler => Samplers.Contains(target.Handle),

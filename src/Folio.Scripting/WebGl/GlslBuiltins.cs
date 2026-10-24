@@ -443,6 +443,19 @@ internal static class GlslBuiltins
         if (cube)
             return R(GlslType.Vec4, c => { sampler(c); return new Val(0, 0, 0, 1); });
 
+        if (args[0].Type.Base == GlslBase.Sampler2DShadow)
+        {
+            // texture(sampler2DShadow, vec3(uv, reference)) -> float
+            if (args.Count != 2 || coordinate.Type.Base != GlslBase.Vec3) return null;
+            var shadowUnit = sampler;
+            var shadowCoordinate = coordinate.V!;
+            return R(GlslType.Float, c =>
+            {
+                var q = shadowCoordinate(c);
+                return c.Sampler is { } s ? new Val(s.SampleShadow((int)shadowUnit(c).X, new Vector2(q.C0.X, q.C0.Y), q.C0.Z)) : new Val(1);
+            });
+        }
+
         var projective = name is "texture2DProj" or "textureProj";
         var explicitLod = name is "texture2DLod" or "textureLod";
         if (projective ? coordinate.Type.Base is not (GlslBase.Vec3 or GlslBase.Vec4) : coordinate.Type.Base != GlslBase.Vec2) return null;

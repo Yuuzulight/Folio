@@ -277,7 +277,7 @@ internal sealed partial class WebGlContextState
             if (width <= 0 || height <= 0 || (long)width * height > MaxDrawingBufferPixels) return null;
             if (_drawingBuffer is null || _drawingBuffer.Width != width || _drawingBuffer.Height != height)
             {
-                _drawingBuffer = new GlDefaultFramebuffer(width, height, Antialias && (long)width * height <= 2_000_000);
+                _drawingBuffer = new GlDefaultFramebuffer(width, height, Antialias && (long)width * height <= 2_000_000, Alpha);
                 _bufferDirty = false;
                 _bufferPresented = false;
             }
@@ -334,20 +334,22 @@ internal sealed partial class WebGlContextState
     private GlRenderTarget? SelectRenderTarget(out bool isDefault)
     {
         isDefault = false;
-        var framebuffer = BoundDrawFramebuffer ?? BoundFramebuffer;
-        if (framebuffer is not { } fb)
+        if (DrawFramebufferObject is not { } framebuffer)
         {
+            // A framebuffer name that was never created or is gone leaves nothing to draw into.
+            if ((BoundDrawFramebuffer ?? BoundFramebuffer) is not null) return null;
             isDefault = true;
-            return BeginDrawingBufferUse()?.Target(Alpha);
+            return BeginDrawingBufferUse()?.Target();
         }
-        byte[]? depth = FramebufferDepthRenderbufferAttachments.TryGetValue(fb, out var depthHandle) && Renderbuffers.TryGetValue(depthHandle, out var depthStorage) ? depthStorage.Pixels : null;
-        if (FramebufferColorAttachments.TryGetValue(fb, out var textureHandle) && Textures.TryGetValue(textureHandle, out var texture) && texture.Width > 0 && texture.Height > 0)
-            return new GlRenderTarget(texture.Width, texture.Height, 1, texture.Pixels, SameSize(depth, texture.Width, texture.Height), null);
-        if (FramebufferRenderbufferAttachments.TryGetValue(fb, out var renderbufferHandle) && Renderbuffers.TryGetValue(renderbufferHandle, out var renderbuffer) && renderbuffer.Width > 0 && renderbuffer.Height > 0)
-            return new GlRenderTarget(renderbuffer.Width, renderbuffer.Height, 1, renderbuffer.Pixels, SameSize(depth, renderbuffer.Width, renderbuffer.Height), null);
-        return null;
-
-        static byte[]? SameSize(byte[]? depth, int width, int height) => depth is not null && depth.Length == width * height * 4 ? depth : null;
+        if (FramebufferStatus(framebuffer) != 0x8CD5) return null;
+        var colors = new GlImage?[framebuffer.DrawBuffers.Length];
+        for (var i = 0; i < colors.Length; i++)
+            if (framebuffer.DrawBuffers[i] == ColorAttachment0 + (uint)i) colors[i] = AttachedImage(framebuffer, ColorAttachment0 + (uint)i);
+        var depth = DepthImage(framebuffer);
+        var stencil = StencilImage(framebuffer);
+        var any = colors.FirstOrDefault(c => c is not null) ?? depth ?? stencil;
+        if (any is null) return null;
+        return new GlRenderTarget(any.Width, any.Height, 1, colors, depth?.Data, stencil?.Stencil);
     }
 
     public void DrawArrays(uint mode, int first, int count)
@@ -482,141 +484,186 @@ internal sealed partial class WebGlContextState
         if ((mask & ~0x4500u) != 0) { SetError(0x0501); return; }
         if (!clearColor && !clearDepth && !clearStencil)
             return;
-        var clear = new[] { (byte)Math.Round(ClearR * 255), (byte)Math.Round(ClearG * 255), (byte)Math.Round(ClearB * 255), (byte)Math.Round(ClearA * 255) };
         var scissor = EnabledCapabilities.Contains(0x0C11);
-        var drawFramebuffer = BoundDrawFramebuffer ?? BoundFramebuffer;
-        if (drawFramebuffer is { } framebuffer)
+        var color = new Vector4(ClearR, ClearG, ClearB, ClearA);
+        if ((BoundDrawFramebuffer ?? BoundFramebuffer) is not null)
         {
-            if (clearColor && FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && Textures.TryGetValue(texture, out var texturePixels))
-                ClearRegion(texturePixels.Pixels, texturePixels.Width, texturePixels.Height, 1, clear, scissor);
-            else if (clearColor && FramebufferRenderbufferAttachments.TryGetValue(framebuffer, out var renderbuffer) && Renderbuffers.TryGetValue(renderbuffer, out var renderbufferPixels))
-                ClearRegion(renderbufferPixels.Pixels, renderbufferPixels.Width, renderbufferPixels.Height, 1, clear, scissor);
-            if (clearDepth && DepthMask && FramebufferDepthRenderbufferAttachments.TryGetValue(framebuffer, out var depthBuffer) && Renderbuffers.TryGetValue(depthBuffer, out var depthPixels))
-                ClearDepthRegion(depthPixels.Pixels, depthPixels.Width, depthPixels.Height, 1, scissor);
+            if (DrawFramebufferObject is not { } framebuffer || FramebufferStatus(framebuffer) != 0x8CD5) { SetError(0x0506); return; }
+            if (clearColor)
+                for (var i = 0; i < framebuffer.DrawBuffers.Length; i++)
+                    if (framebuffer.DrawBuffers[i] == ColorAttachment0 + (uint)i && AttachedImage(framebuffer, ColorAttachment0 + (uint)i) is { } image)
+                        ClearColorRegion(image, color, scissor);
+            if (clearDepth && DepthMask && DepthImage(framebuffer) is { } depthImage) ClearDepthRegion(depthImage.Data, depthImage.Width, depthImage.Height, 1, scissor);
+            if (clearStencil && StencilImage(framebuffer) is { Stencil: { } stencilBits } stencilImage) ClearStencilRegion(stencilBits, stencilImage.Width, stencilImage.Height, 1, scissor);
             return;
         }
         if (BeginDrawingBufferUse() is not { } buffer) return;
         var samples = buffer.Samples;
-        if (clearColor) ClearRegion(buffer.Color, buffer.Width, buffer.Height, samples, clear, scissor);
+        if (clearColor) ClearColorRegion(buffer.Image, color, scissor);
         if (clearDepth && DepthMask) ClearDepthRegion(buffer.DepthBytes, buffer.Width, buffer.Height, samples, scissor);
-        if (clearStencil)
-        {
-            ForRegion(buffer.Width, buffer.Height, scissor, (pixel) =>
-            {
-                for (var s = 0; s < samples; s++)
-                {
-                    var i = pixel * samples + s;
-                    buffer.Stencil[i] = (byte)((buffer.Stencil[i] & ~StencilWriteMask) | ((uint)ClearStencil & StencilWriteMask));
-                }
-            });
-        }
+        if (clearStencil) ClearStencilRegion(buffer.Stencil, buffer.Width, buffer.Height, samples, scissor);
         MarkDrawn();
-
-        void ClearRegion(byte[] pixels, int width, int height, int samplesPerPixel, byte[] color, bool useScissor)
-        {
-            ForRegion(width, height, useScissor, pixel =>
-            {
-                for (var s = 0; s < samplesPerPixel; s++)
-                {
-                    var o = (pixel * samplesPerPixel + s) * 4;
-                    if (ColorMaskRed) pixels[o] = color[0];
-                    if (ColorMaskGreen) pixels[o + 1] = color[1];
-                    if (ColorMaskBlue) pixels[o + 2] = color[2];
-                    if (ColorMaskAlpha) pixels[o + 3] = Alpha || BoundFramebuffer is not null ? color[3] : (byte)255;
-                }
-            });
-        }
-
-        void ClearDepthRegion(byte[] pixels, int width, int height, int samplesPerPixel, bool useScissor)
-        {
-            var bits = BitConverter.SingleToInt32Bits(ClearDepth);
-            ForRegion(width, height, useScissor, pixel =>
-            {
-                for (var s = 0; s < samplesPerPixel; s++)
-                    BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan((pixel * samplesPerPixel + s) * 4, 4), bits);
-            });
-        }
-
-        void ForRegion(int width, int height, bool useScissor, Action<int> each)
-        {
-            var left = 0; var bottom = 0; var right = width; var top = height;
-            if (useScissor)
-            {
-                left = Math.Clamp(ScissorX, 0, width);
-                bottom = Math.Clamp(ScissorY, 0, height);
-                right = (int)Math.Clamp((long)ScissorX + ScissorWidth, 0, width);
-                top = (int)Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
-            }
-            for (var y = bottom; y < top; y++)
-                for (var x = left; x < right; x++)
-                    each(y * width + x);
-        }
     }
 
-    /// <summary>The colour attachment readPixels and blits read from: its RGBA8 pixels (rows from the bottom) and size; null if there is none.</summary>
-    public (byte[] Pixels, int Width, int Height)? ReadSource()
+    private void ClearColorRegion(GlImage image, Vector4 color, bool useScissor)
     {
-        var framebuffer = BoundReadFramebuffer ?? BoundFramebuffer;
-        if (framebuffer is { } fb)
+        var samples = image.Samples;
+        ForRegion(image.Width, image.Height, useScissor, pixel =>
         {
-            if (FramebufferColorAttachments.TryGetValue(fb, out var texture) && Textures.TryGetValue(texture, out var t))
-                return (t.Pixels, t.Width, t.Height);
-            if (FramebufferRenderbufferAttachments.TryGetValue(fb, out var renderbuffer) && Renderbuffers.TryGetValue(renderbuffer, out var r))
-                return (r.Pixels, r.Width, r.Height);
-            return null;
+            for (var s = 0; s < samples; s++)
+                image.Store(pixel * samples + s, color, ColorMaskRed, ColorMaskGreen, ColorMaskBlue, ColorMaskAlpha);
+        });
+    }
+
+    private void ClearDepthRegion(byte[] pixels, int width, int height, int samplesPerPixel, bool useScissor, float? value = null)
+    {
+        var bits = BitConverter.SingleToInt32Bits(value ?? ClearDepth);
+        ForRegion(width, height, useScissor, pixel =>
+        {
+            for (var s = 0; s < samplesPerPixel; s++)
+                BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan((pixel * samplesPerPixel + s) * 4, 4), bits);
+        });
+    }
+
+    private void ClearStencilRegion(byte[] stencil, int width, int height, int samplesPerPixel, bool useScissor, int? value = null)
+    {
+        var clear = (uint)(value ?? ClearStencil);
+        ForRegion(width, height, useScissor, pixel =>
+        {
+            for (var s = 0; s < samplesPerPixel; s++)
+            {
+                var i = pixel * samplesPerPixel + s;
+                stencil[i] = (byte)((stencil[i] & ~StencilWriteMask) | (clear & StencilWriteMask));
+            }
+        });
+    }
+
+    private void ForRegion(int width, int height, bool useScissor, Action<int> each)
+    {
+        var left = 0; var bottom = 0; var right = width; var top = height;
+        if (useScissor)
+        {
+            left = Math.Clamp(ScissorX, 0, width);
+            bottom = Math.Clamp(ScissorY, 0, height);
+            right = (int)Math.Clamp((long)ScissorX + ScissorWidth, 0, width);
+            top = (int)Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
         }
-        if (BeginDrawingBufferUse() is not { } buffer) return null;
-        var resolved = buffer.Resolve();
-        if (!Alpha) for (var i = 3; i < resolved.Length; i += 4) resolved[i] = 255;
-        return (resolved, buffer.Width, buffer.Height);
+        for (var y = bottom; y < top; y++)
+            for (var x = left; x < right; x++)
+                each(y * width + x);
+    }
+
+    /// <summary>
+    /// clearBufferfv, clearBufferiv, clearBufferuiv and clearBufferfi: clears one buffer of the draw framebuffer to the given value, honouring
+    /// the scissor and write masks. A colour buffer takes the value as it is (floating-point images keep values outside 0 to 1).
+    /// </summary>
+    public void ClearBuffer(uint buffer, int drawBuffer, Vector4 value)
+    {
+        var scissor = EnabledCapabilities.Contains(0x0C11);
+        var framebuffer = DrawFramebufferObject;
+        if (buffer == 0x1800) // COLOR
+        {
+            if (drawBuffer < 0 || drawBuffer >= MaxColorAttachments) { SetError(0x0501); return; }
+            if (framebuffer is null)
+            {
+                if (drawBuffer != 0 || BeginDrawingBufferUse() is not { } canvas) return;
+                ClearColorRegion(canvas.Image, value, scissor);
+                MarkDrawn();
+                return;
+            }
+            if (framebuffer.DrawBuffers.Length > drawBuffer && framebuffer.DrawBuffers[drawBuffer] == ColorAttachment0 + (uint)drawBuffer && AttachedImage(framebuffer, ColorAttachment0 + (uint)drawBuffer) is { } image)
+                ClearColorRegion(image, value, scissor);
+        }
+        else if (buffer == 0x1801) // DEPTH
+        {
+            if (!DepthMask) return;
+            if (framebuffer is null)
+            {
+                if (BeginDrawingBufferUse() is { } canvas) { ClearDepthRegion(canvas.DepthBytes, canvas.Width, canvas.Height, canvas.Samples, scissor, value.X); MarkDrawn(); }
+            }
+            else if (DepthImage(framebuffer) is { } depth) ClearDepthRegion(depth.Data, depth.Width, depth.Height, 1, scissor, value.X);
+        }
+        else if (buffer == 0x1802) // STENCIL
+        {
+            if (framebuffer is null)
+            {
+                if (BeginDrawingBufferUse() is { } canvas) { ClearStencilRegion(canvas.Stencil, canvas.Width, canvas.Height, canvas.Samples, scissor, (int)value.X); MarkDrawn(); }
+            }
+            else if (StencilImage(framebuffer) is { Stencil: { } stencil } image) ClearStencilRegion(stencil, image.Width, image.Height, 1, scissor, (int)value.X);
+        }
+        else SetError(0x0500);
+    }
+
+    /// <summary>The depth buffer a read or blit takes from (float32 per sample, rows from the bottom) with its size, or null.</summary>
+    public (byte[] Depth, int Width, int Height)? ReadDepth()
+    {
+        if (ReadFramebufferObject is { } framebuffer)
+            return DepthImage(framebuffer) is { } image ? (image.Data, image.Width, image.Height) : null;
+        return BeginDrawingBufferUse() is { } buffer ? (buffer.DepthBytes, buffer.Width, buffer.Height) : null;
     }
 
     public void BlitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, uint mask, uint filter)
     {
-        if (ReadSource() is not { } source) return;
-        var (srcPixels, srcW, srcH) = source;
-        if (srcPixels is null || srcW <= 0 || srcH <= 0) return;
+        if ((mask & ~0x4500u) != 0) { SetError(0x0500); return; }
+        if (dstX1 == dstX0 || dstY1 == dstY0) return;
+        var drawFramebuffer = DrawFramebufferObject;
+        var canvas = drawFramebuffer is null ? BeginDrawingBufferUse() : null;
 
-        byte[]? dstPixels = null;
-        int dstW = 0, dstH = 0, dstSamples = 1;
-        var drawFb = BoundDrawFramebuffer ?? BoundFramebuffer;
-        if (drawFb is { } dHandle)
+        if ((mask & 0x4000) != 0 && ReadImage() is { } source)
         {
-            if (FramebufferColorAttachments.TryGetValue(dHandle, out var dTex) && Textures.TryGetValue(dTex, out var dt)) { dstPixels = dt.Pixels; dstW = dt.Width; dstH = dt.Height; }
-            else if (FramebufferRenderbufferAttachments.TryGetValue(dHandle, out var dRb) && Renderbuffers.TryGetValue(dRb, out var db)) { dstPixels = db.Pixels; dstW = db.Width; dstH = db.Height; }
-        }
-        else if (BeginDrawingBufferUse() is { } buffer)
-        {
-            dstPixels = buffer.Color; dstW = buffer.Width; dstH = buffer.Height; dstSamples = buffer.Samples;
-        }
-        if (dstPixels is null || dstW <= 0 || dstH <= 0) return;
-
-        var minDstX = Math.Max(0, Math.Min(dstX0, dstX1));
-        var maxDstX = Math.Min(dstW, Math.Max(dstX0, dstX1));
-        var minDstY = Math.Max(0, Math.Min(dstY0, dstY1));
-        var maxDstY = Math.Min(dstH, Math.Max(dstY0, dstY1));
-        var dstSpanX = dstX1 - dstX0;
-        var dstSpanY = dstY1 - dstY0;
-        if (dstSpanX == 0 || dstSpanY == 0) return;
-        for (var dy = minDstY; dy < maxDstY; dy++)
-        {
-            var ty = (dy + 0.5f - dstY0) / dstSpanY;
-            var sy = Math.Clamp((int)MathF.Floor(srcY0 + ty * (srcY1 - srcY0)), 0, srcH - 1);
-            for (var dx = minDstX; dx < maxDstX; dx++)
+            var destination = canvas?.Image;
+            if (drawFramebuffer is not null && drawFramebuffer.DrawBuffers.Length > 0 && drawFramebuffer.DrawBuffers[0] == ColorAttachment0)
+                destination = AttachedImage(drawFramebuffer, ColorAttachment0);
+            if (destination is { } target)
             {
-                var tx = (dx + 0.5f - dstX0) / dstSpanX;
-                var sx = Math.Clamp((int)MathF.Floor(srcX0 + tx * (srcX1 - srcX0)), 0, srcW - 1);
-                var srcIdx = (sy * srcW + sx) * 4;
-                for (var s = 0; s < dstSamples; s++)
+                var samples = target.Samples;
+                BlitRegion(target.Width, target.Height, dstX0, dstY0, dstX1, dstY1, source.Width, source.Height, srcX0, srcY0, srcX1, srcY1, (sx, sy, dx, dy) =>
                 {
-                    var dstIdx = ((dy * dstW + dx) * dstSamples + s) * 4;
-                    dstPixels[dstIdx] = srcPixels[srcIdx];
-                    dstPixels[dstIdx + 1] = srcPixels[srcIdx + 1];
-                    dstPixels[dstIdx + 2] = srcPixels[srcIdx + 2];
-                    dstPixels[dstIdx + 3] = srcPixels[srcIdx + 3];
-                }
+                    var value = source.LoadColor(sy * source.Width + sx);
+                    for (var s = 0; s < samples; s++)
+                        target.Store((dy * target.Width + dx) * samples + s, value, ColorMaskRed, ColorMaskGreen, ColorMaskBlue, ColorMaskAlpha);
+                });
             }
         }
-        if (drawFb is null) MarkDrawn();
+        if ((mask & 0x0100) != 0 && DepthMask && ReadDepth() is { } depthSource)
+        {
+            var destination = canvas?.DepthBytes;
+            int width = canvas?.Width ?? 0, height = canvas?.Height ?? 0, samples = canvas?.Samples ?? 1;
+            if (drawFramebuffer is not null && DepthImage(drawFramebuffer) is { } depthImage) (destination, width, height) = (depthImage.Data, depthImage.Width, depthImage.Height);
+            if (destination is not null)
+            {
+                var sourceSamples = ReadFramebufferObject is null ? (_drawingBuffer?.Samples ?? 1) : 1;
+                BlitRegion(width, height, dstX0, dstY0, dstX1, dstY1, depthSource.Width, depthSource.Height, srcX0, srcY0, srcX1, srcY1, (sx, sy, dx, dy) =>
+                {
+                    var depth = BitConverter.ToSingle(depthSource.Depth, (sy * depthSource.Width + sx) * sourceSamples * 4);
+                    for (var s = 0; s < samples; s++)
+                        BitConverter.TryWriteBytes(destination.AsSpan(((dy * width + dx) * samples + s) * 4, 4), depth);
+                });
+            }
+        }
+        if (drawFramebuffer is null) MarkDrawn();
+    }
+
+    // Nearest-neighbour copy of the source rectangle onto the destination rectangle (either may be flipped by giving its corners the other way round).
+    private static void BlitRegion(int dstWidth, int dstHeight, int dstX0, int dstY0, int dstX1, int dstY1, int srcWidth, int srcHeight, int srcX0, int srcY0, int srcX1, int srcY1, Action<int, int, int, int> copy)
+    {
+        if (srcWidth <= 0 || srcHeight <= 0) return;
+        var minX = Math.Max(0, Math.Min(dstX0, dstX1));
+        var maxX = Math.Min(dstWidth, Math.Max(dstX0, dstX1));
+        var minY = Math.Max(0, Math.Min(dstY0, dstY1));
+        var maxY = Math.Min(dstHeight, Math.Max(dstY0, dstY1));
+        var spanX = dstX1 - dstX0;
+        var spanY = dstY1 - dstY0;
+        for (var dy = minY; dy < maxY; dy++)
+        {
+            var ty = (dy + 0.5f - dstY0) / spanY;
+            var sy = Math.Clamp((int)MathF.Floor(srcY0 + ty * (srcY1 - srcY0)), 0, srcHeight - 1);
+            for (var dx = minX; dx < maxX; dx++)
+            {
+                var tx = (dx + 0.5f - dstX0) / spanX;
+                var sx = Math.Clamp((int)MathF.Floor(srcX0 + tx * (srcX1 - srcX0)), 0, srcWidth - 1);
+                copy(sx, sy, dx, dy);
+            }
+        }
     }
 }

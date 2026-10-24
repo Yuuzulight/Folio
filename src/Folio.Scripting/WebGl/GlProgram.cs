@@ -234,6 +234,7 @@ internal sealed class GlLinkedProgram
         GlslBase.Mat4 => 0x8B5C,
         GlslBase.Sampler2D => 0x8B5E,
         GlslBase.SamplerCube => 0x8B60,
+        GlslBase.Sampler2DShadow => 0x8B62,
         _ => 0,
     };
 }

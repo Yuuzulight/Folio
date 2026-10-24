@@ -19,6 +19,9 @@ internal interface IShaderSampler
     /// </summary>
     Vector4 Sample(int unit, Vector2 uv, Vector2 dx, Vector2 dy, float lod, float bias);
 
+    /// <summary>A depth comparison lookup (<c>sampler2DShadow</c>): 1 where the reference passes the texture's compare function against the stored depth, else 0; filtered across the four nearest texels when the texture filters linearly.</summary>
+    float SampleShadow(int unit, Vector2 uv, float reference);
+
     /// <summary>One texel by integer coordinates, no filtering.</summary>
     Vector4 Fetch(int unit, int x, int y, int level);
 
