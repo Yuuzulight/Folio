@@ -853,7 +853,7 @@ internal sealed class WebGlContextState
 {
     private readonly IScriptEngine _engine;
     private readonly CanvasElementState _canvas;
-    private readonly int _maxGpuBytes;
+    private int _maxGpuBytes;
     private uint _nextHandle = 1;
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, double[]> BufferValues { get; } = [];
@@ -963,13 +963,73 @@ internal sealed class WebGlContextState
     public float ClearA { get; private set; } = 1;
     public ScriptValue OnContextLost { get; set; } = ScriptValue.Null;
     public ScriptValue OnContextRestored { get; set; } = ScriptValue.Null;
-    public WebGlContextState(IScriptEngine engine, CanvasElementState canvas, int maxGpuBytes) { _engine = engine; _canvas = canvas; _maxGpuBytes = Math.Max(0, maxGpuBytes); }
+    private TimeSpan _maxShaderExecutionTime;
+    public WebGlContextState(IScriptEngine engine, CanvasElementState canvas, int maxGpuBytes, TimeSpan maxShaderExecutionTime = default)
+    {
+        _engine = engine;
+        _canvas = canvas;
+        _maxGpuBytes = Math.Max(0, maxGpuBytes);
+        _maxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
+    }
+    public void UpdateShaderExecutionTime(TimeSpan maxShaderExecutionTime) =>
+        _maxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
+    public void UpdateBudget(int maxGpuBytes)
+    {
+        _maxGpuBytes = Math.Max(0, maxGpuBytes);
+        if (_maxGpuBytes == 0 || AllocatedBytes > _maxGpuBytes)
+        {
+            _canvas.MarkGpuFailure(new Folio.Scripting.Gpu.GpuFailure(Folio.Scripting.Gpu.GpuFailureKind.BudgetExceeded, "WebGL GPU memory budget exceeded."));
+            Lose();
+        }
+        else if (Lost && _canvas.Element.OwnerDocument.WebGlAllowed)
+        {
+            Restore();
+        }
+    }
     public uint CreateHandle() => _nextHandle++;
     public void AddDrawCall() => DrawCalls++;
     public void SetError(int error) { if (Error == 0) Error = error; }
     public int TakeError() { var error = Error; Error = 0; return error; }
-    public void Lose() { if (Lost) return; Lost = true; _canvas.MarkContextLost(); SetError(0x9242); if (OnContextLost.IsFunction) _engine.Call(OnContextLost, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextlost' })")]); }
-    public void Restore() { if (!Lost) return; Lost = false; _canvas.ProbeGraphics(); _canvas.ClearFallback(); if (OnContextRestored.IsFunction) _engine.Call(OnContextRestored, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextrestored' })")]); }
+    public void Lose()
+    {
+        if (Lost) return;
+        Lost = true;
+        _canvas.MarkContextLost();
+        SetError(0x9242);
+        try
+        {
+            _canvas.Element.OwnerDocument.EventDispatcher?.Invoke(
+                _canvas.Element,
+                "webglcontextlost",
+                new EventDispatchArgs { Bubbles = true, Cancelable = true });
+        }
+        catch { }
+        if (OnContextLost.IsFunction)
+        {
+            try { _engine.Call(OnContextLost, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextlost' })")]); }
+            catch { }
+        }
+    }
+    public void Restore()
+    {
+        if (!Lost) return;
+        Lost = false;
+        _canvas.ProbeGraphics();
+        _canvas.ClearFallback();
+        try
+        {
+            _canvas.Element.OwnerDocument.EventDispatcher?.Invoke(
+                _canvas.Element,
+                "webglcontextrestored",
+                new EventDispatchArgs { Bubbles = true, Cancelable = false });
+        }
+        catch { }
+        if (OnContextRestored.IsFunction)
+        {
+            try { _engine.Call(OnContextRestored, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextrestored' })")]); }
+            catch { }
+        }
+    }
     public bool TryAllocate(int bytes)
     {
         if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes)
@@ -1038,7 +1098,7 @@ internal sealed class WebGlContextState
     private void DrawElementsCore(uint mode, uint type, int count, int offset, int instance = 0)
     {
         var indexStride = type switch { 0x1401u => 1, 0x1403u => 2, 0x1405u => 4, _ => 0 };
-        if (indexStride == 0 || count < 3 || count > 30_000 || offset < 0 || offset % indexStride != 0 || BoundElementArrayBuffer is not { } elementBuffer ||
+        if (indexStride == 0 || count < 3 || offset < 0 || offset % indexStride != 0 || BoundElementArrayBuffer is not { } elementBuffer ||
             !BufferValues.TryGetValue(elementBuffer, out var indices) || offset / indexStride + count > indices.Length)
             return;
         DrawTriangles(mode, count, vertex => (int)indices[offset / indexStride + vertex], instance);
@@ -1046,7 +1106,7 @@ internal sealed class WebGlContextState
 
     private void DrawTriangles(uint mode, int count, Func<int, int> vertexIndex, int instance = 0)
     {
-        if (mode != 0x0004 || count < 3 || count > 30_000 || !EnabledVertexAttributes.Contains(0) ||
+        if (mode != 0x0004 || count < 3 || !EnabledVertexAttributes.Contains(0) ||
             !VertexAttribPointers.TryGetValue(0, out var pointer) || pointer.Type != 0x1406 || pointer.Size < 2 ||
             !VertexAttribBuffers.TryGetValue(0, out var bufferHandle) || !Buffers.TryGetValue(bufferHandle, out var buffer))
             return;
@@ -1077,10 +1137,10 @@ internal sealed class WebGlContextState
         else
         {
             var surf = Canvas.Surface();
-            if (surf is null || surf.Width <= 0 || surf.Height <= 0)
+            targetWidth = surf?.Width ?? Canvas.Width;
+            targetHeight = surf?.Height ?? Canvas.Height;
+            if (targetWidth <= 0 || targetHeight <= 0)
                 return;
-            targetWidth = surf.Width;
-            targetHeight = surf.Height;
         }
 
         (int Width, int Height, byte[] Pixels) activeTex = default;
@@ -1137,31 +1197,52 @@ internal sealed class WebGlContextState
             return (viewportX + (x + 1) * 0.5f * viewportWidth, viewportY + (1 - y) * 0.5f * viewportHeight);
         }
 
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         if (!isTargetFbo && !isTextured)
         {
-            var surface = Canvas.Surface()!;
-            var clipped = EnabledCapabilities.Contains(0x0C11);
+            var surface = Canvas.Surface();
+            var clipped = surface is not null && EnabledCapabilities.Contains(0x0C11);
             if (clipped)
             {
-                surface.Canvas.Save();
+                surface!.Canvas.Save();
                 surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
             }
             for (var vertex = 0; vertex + 2 < count; vertex += 3)
             {
+                if (stopwatch.Elapsed > _maxShaderExecutionTime)
+                {
+                    if (clipped) surface!.Canvas.Restore();
+                    Lose();
+                    _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL shader execution time exceeded.", null, "webgl"));
+                    return;
+                }
                 var a = Point(vertex); var b = Point(vertex + 1); var c = Point(vertex + 2);
                 if (float.IsNaN(a.X) || float.IsNaN(a.Y) || float.IsNaN(b.X) || float.IsNaN(b.Y) || float.IsNaN(c.X) || float.IsNaN(c.Y))
                     continue;
-                surface.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
+                surface?.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
                     FillRule.NonZero, new Paint(color, Blend: blend));
             }
             if (clipped)
-                surface.Canvas.Restore();
+                surface!.Canvas.Restore();
             Canvas.Touch();
             return;
         }
 
-        var surfacePixels = !isTargetFbo ? Canvas.Surface()!.ReadPixels(0, 0, targetWidth, targetHeight) : null;
-        var dstPixels = isTargetFbo ? fboPixels! : surfacePixels!;
+        var surfacePixels = !isTargetFbo ? Canvas.Surface()?.ReadPixels(0, 0, targetWidth, targetHeight) : null;
+        var dstPixels = isTargetFbo ? fboPixels : surfacePixels;
+        if (dstPixels is null)
+        {
+            for (var vertex = 0; vertex + 2 < count; vertex += 3)
+            {
+                if (stopwatch.Elapsed > _maxShaderExecutionTime)
+                {
+                    Lose();
+                    _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL shader execution time exceeded.", null, "webgl"));
+                    return;
+                }
+            }
+            return;
+        }
 
         var clipMinX = 0;
         var clipMaxX = targetWidth;
@@ -1200,8 +1281,15 @@ internal sealed class WebGlContextState
         var texH = isTextured ? activeTex.Height : 1;
         Span<float> sampledColor = stackalloc float[4];
 
+        var pixelCount = 0;
         for (var vertex = 0; vertex + 2 < count; vertex += 3)
         {
+            if (stopwatch.Elapsed > _maxShaderExecutionTime)
+            {
+                Lose();
+                _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL shader execution time exceeded.", null, "webgl"));
+                return;
+            }
             var pA = Point(vertex); var pB = Point(vertex + 1); var pC = Point(vertex + 2);
             if (float.IsNaN(pA.X) || float.IsNaN(pA.Y) || float.IsNaN(pB.X) || float.IsNaN(pB.Y) || float.IsNaN(pC.X) || float.IsNaN(pC.Y))
                 continue;
@@ -1230,6 +1318,12 @@ internal sealed class WebGlContextState
                 var py = y + 0.5f;
                 for (var x = bMinX; x < bMaxX; x++)
                 {
+                    if ((++pixelCount & 0x1FFF) == 0 && stopwatch.Elapsed > _maxShaderExecutionTime)
+                    {
+                        Lose();
+                        _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL shader execution time exceeded.", null, "webgl"));
+                        return;
+                    }
                     var px = x + 0.5f;
                     var w0 = ((pB.X - px) * (pC.Y - py) - (pB.Y - py) * (pC.X - px)) * invDet;
                     var w1 = ((pC.X - px) * (pA.Y - py) - (pC.Y - py) * (pA.X - px)) * invDet;
@@ -1287,7 +1381,7 @@ internal sealed class WebGlContextState
 
         if (!isTargetFbo)
         {
-            Canvas.Surface()!.WritePixels(0, 0, targetWidth, targetHeight, dstPixels);
+            Canvas.Surface()?.WritePixels(0, 0, targetWidth, targetHeight, dstPixels);
             Canvas.Touch();
         }
     }

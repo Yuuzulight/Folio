@@ -1,4 +1,5 @@
 using Folio.Dom;
+using Folio.Painting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
 
@@ -834,5 +835,208 @@ public sealed class WebGlAuditTests
         Assert.Equal(0x2901 /* REPEAT */, (int)engine.Evaluate("wrapS").AsNumber());
         Assert.Equal(0, (int)engine.Evaluate("errMip").AsNumber());
         Assert.False(engine.Evaluate("isSamplerAfter").AsBoolean());
+    }
+[Fact]
+    public void GlCanvasPropertyReturnsCanvasElement()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='c' width='20' height='20'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }
+        });
+        DomBindings.Install(engine, document);
+
+        Assert.True(engine.Evaluate("""
+            var canvas = document.getElementById('c');
+            var gl = canvas.getContext('webgl');
+            gl.canvas === canvas
+        """).AsBoolean());
+    }
+
+    [Fact]
+    public void ContextLossAndRestoreCycleThroughHostSwitch()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='c' width='20' height='20'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var canvas = document.getElementById('c');
+            var gl = canvas.getContext('webgl');
+            var canvasLost = 0;
+            var canvasRestored = 0;
+            var glLost = 0;
+            var glRestored = 0;
+
+            canvas.addEventListener('webglcontextlost', function(e) {
+                e.preventDefault();
+                canvasLost++;
+            });
+            canvas.addEventListener('webglcontextrestored', function() {
+                canvasRestored++;
+            });
+
+            gl.oncontextlost = function() { glLost++; };
+            gl.oncontextrestored = function() { glRestored++; };
+        """);
+
+        var canvasSurface = Assert.IsType<CanvasElementState>(document.Node.Descendants.OfType<ElementNode>().Single(e => e.LocalName == "canvas").CanvasSurface);
+        Assert.Null(canvasSurface.Fallback);
+        Assert.False(engine.Evaluate("gl.isContextLost()").AsBoolean());
+
+        // Host switches WebGL off
+        DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { WebGl = false });
+
+        Assert.True(engine.Evaluate("gl.isContextLost()").AsBoolean());
+        Assert.Equal(0x9242, (int)engine.Evaluate("gl.getError()").AsNumber());
+        Assert.Equal(1, (int)engine.Evaluate("canvasLost").AsNumber());
+        Assert.Equal(1, (int)engine.Evaluate("glLost").AsNumber());
+        Assert.Equal(new FeatureFallback(FallbackFeature.WebGl, FallbackReason.HostDenied), canvasSurface.Fallback);
+
+        // While lost, calls are inert
+        Assert.True(engine.Evaluate("gl.createBuffer() === null").AsBoolean());
+
+        // Host switches WebGL back on
+        DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { WebGl = true });
+
+        Assert.False(engine.Evaluate("gl.isContextLost()").AsBoolean());
+        Assert.Equal(1, (int)engine.Evaluate("canvasRestored").AsNumber());
+        Assert.Equal(1, (int)engine.Evaluate("glRestored").AsNumber());
+        Assert.Null(canvasSurface.Fallback);
+
+        // Operations succeed after restore
+        Assert.True(engine.Evaluate("gl.createBuffer() !== null").AsBoolean());
+    }
+
+    [Fact]
+    public void ContextLossAndRestoreCycleThroughBudget()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='c' width='20' height='20'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend(),
+            Limits = ResourceLimits.Default with { MaxGpuBytes = 1024 }
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var canvas = document.getElementById('c');
+            var gl = canvas.getContext('webgl');
+            var lostEvents = 0;
+            var restoredEvents = 0;
+            canvas.addEventListener('webglcontextlost', function(e) { e.preventDefault(); lostEvents++; });
+            canvas.addEventListener('webglcontextrestored', function() { restoredEvents++; });
+
+            var buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, 512, gl.STATIC_DRAW);
+        """);
+
+        var canvasSurface = Assert.IsType<CanvasElementState>(document.Node.Descendants.OfType<ElementNode>().Single(e => e.LocalName == "canvas").CanvasSurface);
+        Assert.False(engine.Evaluate("gl.isContextLost()").AsBoolean());
+        Assert.Null(canvasSurface.Fallback);
+
+        // Host shrinks budget to 0 -> context lost
+        DomBindings.UpdateGpuBudget(engine, 0);
+
+        Assert.True(engine.Evaluate("gl.isContextLost()").AsBoolean());
+        Assert.Equal(1, (int)engine.Evaluate("lostEvents").AsNumber());
+        Assert.Equal(FallbackReason.ResourceLimit, canvasSurface.Fallback?.Reason);
+
+        // Host restores budget -> context restored
+        DomBindings.UpdateGpuBudget(engine, 1024);
+
+        Assert.False(engine.Evaluate("gl.isContextLost()").AsBoolean());
+        Assert.Equal(1, (int)engine.Evaluate("restoredEvents").AsNumber());
+        Assert.Null(canvasSurface.Fallback);
+    }
+
+    [Fact]
+    public void ContextNeverRestoredShowsFallbackInRendering()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='c' width='100' height='50'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var gl = document.getElementById('c').getContext('webgl');
+            var ext = gl.getExtension('WEBGL_lose_context');
+            ext.loseContext();
+        """);
+
+        var canvasSurface = Assert.IsType<CanvasElementState>(document.Node.Descendants.OfType<ElementNode>().Single(e => e.LocalName == "canvas").CanvasSurface);
+        Assert.Equal(new FeatureFallback(FallbackFeature.WebGl, FallbackReason.ContextLost), canvasSurface.Fallback);
+
+        // Rendering document with never-restored context includes fallback
+        var (displayList, _) = document.Paint(100, 50);
+        Assert.NotNull(displayList);
+        var label = Assert.Single(displayList.Items, item => item.Kind == DisplayItemKind.Label);
+        Assert.Equal(new FeatureFallback(FallbackFeature.WebGl, FallbackReason.ContextLost).Label, label.Text);
+        Assert.Equal(FallbackReason.ContextLost, canvasSurface.Fallback?.Reason);
+    }
+
+    [Fact]
+    public void RunawayShaderWatchdogLosesContextAndLeavesPageRunning()
+    {
+        var diagnostics = new List<Diagnostic>();
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='c' width='100' height='100'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend(),
+            Limits = ResourceLimits.Default with { MaxShaderExecutionTime = TimeSpan.FromMilliseconds(50) }
+        });
+        document.Node.DiagnosticSink = diagnostics.Add;
+        DomBindings.Install(engine, document);
+
+        var result = engine.Evaluate("""
+            var canvas = document.getElementById('c');
+            var gl = canvas.getContext('webgl');
+            var lostFired = false;
+            canvas.addEventListener('webglcontextlost', function(e) {
+                e.preventDefault();
+                lostFired = true;
+            });
+
+            var vs = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vs, 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }');
+            gl.compileShader(vs);
+            var fs = gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(fs, 'void main() { gl_FragColor = vec4(1.0); }');
+            gl.compileShader(fs);
+            var prg = gl.createProgram();
+            gl.attachShader(prg, vs);
+            gl.attachShader(prg, fs);
+            gl.linkProgram(prg);
+            gl.useProgram(prg);
+
+            var vbo = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+            var verts = new Float32Array([0, 0, 1, 0, 0, 1]);
+            gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+            // Draw call that triggers the 50ms watchdog without large JS memory
+            gl.drawArrays(gl.TRIANGLES, 0, 3000000);
+
+            var wasLost = gl.isContextLost();
+            var pageRunning = true;
+            wasLost && lostFired && pageRunning;
+        """);
+
+        Assert.True(result.AsBoolean());
+        Assert.Contains(diagnostics, d => d.Code == DiagnosticCode.LimitExceeded && d.Message.Contains("shader execution time"));
+        var canvasSurface = Assert.IsType<CanvasElementState>(document.Node.Descendants.OfType<ElementNode>().Single(e => e.LocalName == "canvas").CanvasSurface);
+        Assert.Equal(FallbackReason.ContextLost, canvasSurface.Fallback?.Reason);
     }
 }
