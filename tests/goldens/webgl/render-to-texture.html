@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #ffffff; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  canvas { display: block; border: 2px solid #333333; }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="300"></canvas>
+<script>
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl');
+
+  // Shader program 1: Solid color
+  const vsColor = `
+    attribute vec2 a_pos;
+    void main() {
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+    }
+  `;
+  const fsColor = `
+    precision mediump float;
+    uniform vec4 u_color;
+    void main() {
+      gl_FragColor = u_color;
+    }
+  `;
+
+  const vs1 = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs1, vsColor);
+  gl.compileShader(vs1);
+
+  const fs1 = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs1, fsColor);
+  gl.compileShader(fs1);
+
+  const progColor = gl.createProgram();
+  gl.attachShader(progColor, vs1);
+  gl.attachShader(progColor, fs1);
+  gl.linkProgram(progColor);
+
+  // Shader program 2: Textured
+  const vsTex = `
+    attribute vec2 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() {
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+      v_uv = a_uv;
+    }
+  `;
+  const fsTex = `
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform sampler2D u_tex;
+    void main() {
+      gl_FragColor = texture2D(u_tex, v_uv);
+    }
+  `;
+
+  const vs2 = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs2, vsTex);
+  gl.compileShader(vs2);
+
+  const fs2 = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs2, fsTex);
+  gl.compileShader(fs2);
+
+  const progTex = gl.createProgram();
+  gl.attachShader(progTex, vs2);
+  gl.attachShader(progTex, fs2);
+  gl.linkProgram(progTex);
+
+  // 1. Create Framebuffer and attach texture
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+
+  const fboTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, fboTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 128, 128, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  // Render to FBO
+  gl.viewport(0, 0, 128, 128);
+  gl.clearColor(0.95, 0.78, 0.15, 1.0); // Gold
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  gl.useProgram(progColor);
+  const colorPosLoc = gl.getAttribLocation(progColor, 'a_pos');
+  const colorLoc = gl.getUniformLocation(progColor, 'u_color');
+
+  const triVbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, triVbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+     0.0,  0.6,
+    -0.6, -0.5,
+     0.6, -0.5
+  ]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(colorPosLoc);
+  gl.vertexAttribPointer(colorPosLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.uniform4f(colorLoc, 0.55, 0.2, 0.85, 1.0); // Violet
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // 2. Render FBO texture to Canvas
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, 400, 300);
+  gl.clearColor(0.08, 0.12, 0.22, 1.0); // Dark navy
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  gl.useProgram(progTex);
+  const texPosLoc = gl.getAttribLocation(progTex, 'a_pos');
+  const texUvLoc = gl.getAttribLocation(progTex, 'a_uv');
+
+  const quadVbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadVbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -0.7,  0.7,
+    -0.7, -0.7,
+     0.7, -0.7,
+     0.7,  0.7
+  ]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(texPosLoc);
+  gl.vertexAttribPointer(texPosLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const quadUvBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadUvBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    0.0, 1.0,
+    0.0, 0.0,
+    1.0, 0.0,
+    1.0, 1.0
+  ]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(texUvLoc);
+  gl.vertexAttribPointer(texUvLoc, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindTexture(gl.TEXTURE_2D, fboTex);
+
+  const quadIbo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadIbo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([
+    0, 1, 2,
+    0, 2, 3
+  ]), gl.STATIC_DRAW);
+
+  gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+</script>
+</body>
+</html>
