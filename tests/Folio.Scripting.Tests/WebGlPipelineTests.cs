@@ -7,7 +7,7 @@ namespace Folio.Scripting.Tests;
 public class WebGlPipelineTests
 {
     /// <summary>A WebGL canvas with a few helpers in the page, drawing without antialiasing unless asked so that edges are exact.</summary>
-    private sealed class GlPage : IDisposable
+    internal sealed class GlPage : IDisposable
     {
         private readonly JintScriptEngine _engine = new();
         private readonly Document _document;

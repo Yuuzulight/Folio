@@ -136,6 +136,10 @@ internal sealed partial class GlslCompiler
                 var color = new GlslVariable("gl_FragColor", GlslType.Vec4, GlslStorage.BuiltinOut, data.Slot);
                 _globals.Add(color);
                 _scopes[0]["gl_FragColor"] = color;
+                // EXT_frag_depth: the same output under the extension's name.
+                var depthAlias = new GlslVariable("gl_FragDepthEXT", GlslType.Float, GlslStorage.BuiltinOut, _fragDepthSlot);
+                _globals.Add(depthAlias);
+                _scopes[0]["gl_FragDepthEXT"] = depthAlias;
             }
         }
         foreach (var (name, value) in new (string, int)[]

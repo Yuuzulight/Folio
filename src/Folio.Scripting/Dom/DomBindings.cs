@@ -2,6 +2,7 @@ using Folio;
 using Folio.Dom;
 using Folio.Resources;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
@@ -582,6 +583,31 @@ public static class DomBindings
                 globalThis.DOMMatrixReadOnly = DOMMatrix;
             })();
         ", "folio:dom-constructors");
+        InstallWebGlInterfaces(engine);
+    }
+
+    /// <summary>
+    /// The WebGL interfaces, so <c>instanceof WebGLBuffer</c> works and <c>WebGLRenderingContext.TRIANGLES</c> reads. The two context
+    /// interfaces share a prototype, since one implementation serves both.
+    /// </summary>
+    private static void InstallWebGlInterfaces(IScriptEngine engine)
+    {
+        var script = new StringBuilder("(function() {\n");
+        script.Append("function defClass(name) { const ctor = function() { throw new TypeError('Illegal constructor'); };\n");
+        script.Append("Object.defineProperty(ctor, 'name', { value: name, configurable: true });\n");
+        script.Append("ctor.prototype = Object.create(Object.prototype, { constructor: { value: ctor, writable: true, configurable: true } });\n");
+        script.Append("globalThis[name] = ctor; return ctor; }\n");
+        foreach (var name in DomNodeTemplates.WebGlInterfaceNames)
+            script.Append("defClass('").Append(name).Append("');\n");
+        script.Append("globalThis.WebGLRenderingContext = defClass('WebGLRenderingContext');\n");
+        script.Append("WebGLRenderingContext.prototype = WebGL2RenderingContext.prototype;\n");
+        foreach (var (name, value) in Folio.Scripting.WebGl.GlConstants.All.Concat(Folio.Scripting.WebGl.GlConstants.Generated()))
+        {
+            script.Append("WebGL2RenderingContext.").Append(name).Append('=').Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(";\n");
+            script.Append("WebGLRenderingContext.").Append(name).Append('=').Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(";\n");
+        }
+        script.Append("})();");
+        engine.EvaluateHostScript(script.ToString(), "folio:webgl-interfaces");
     }
 }
 
