@@ -79,6 +79,35 @@ public class ConformanceTests
     }
 
     [Fact]
+    public void ConformanceReportListsD9WithAllExpectedToFail()
+    {
+        var d9Artifacts = Conformance.Discover().Where(a => a.Category == "D9").ToList();
+        Assert.True(d9Artifacts.Count >= 5);
+
+        var results = d9Artifacts.Select(a => Conformance.Run(a)).ToList();
+        Assert.All(results, r => Assert.Equal(ConformanceOutcome.ExpectedFail, r.Outcome));
+
+        var count = d9Artifacts.Count;
+        Assert.Contains($"| D9 | {count} | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | {count} | 0.0% of {count} |", Conformance.Report(results));
+    }
+
+    [Fact]
+    public void D9ArtifactsHavePlayableSourcesReferencesAndInteractionScripts()
+    {
+        foreach (var artifact in Conformance.Discover().Where(a => a.Category == "D9"))
+        {
+            var manifest = Conformance.ManifestOf(artifact);
+            Assert.NotEmpty(manifest.Interaction ?? []);
+            Assert.False(string.IsNullOrWhiteSpace(manifest.ExpectedToFail), $"{artifact.Id} needs an expectedToFail reason");
+            Assert.True(File.Exists(Path.Combine(artifact.Folder, "reference.png")), $"{artifact.Id} has no reference");
+            var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
+            Assert.True(html.Contains("data:video/mp4;base64,", StringComparison.Ordinal) || html.Contains("data:audio/wav;base64,", StringComparison.Ordinal),
+                $"{artifact.Id} has no playable media source");
+            Assert.False(Conformance.Run(artifact).Broke, $"{artifact.Id} broke");
+        }
+    }
+
+    [Fact]
     public void ConformanceReportListsD1ThroughD7WithPassRates()
     {
         ConformanceArtifact Artifact(string category, string name) => new("", "root", category, name);
