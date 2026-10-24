@@ -90,6 +90,7 @@ internal sealed class GlPipeline
     private readonly Vector4[] _derivX;
     private readonly Vector4[] _derivY;
     private readonly Val[] _scratchVaryings;
+    private readonly QuadShading? _quad;
 
     private GlPipeline(GlDrawCall call)
     {
@@ -114,6 +115,7 @@ internal sealed class GlPipeline
         _fragmentContext.Sampler = call.Sampler;
         _fragmentContext.DerivX = _derivX;
         _fragmentContext.DerivY = _derivY;
+        if (_program.Fragment.NeedsQuad) _quad = new QuadShading(_program.Fragment, _fragmentContext);
     }
 
     public static GlDrawStatus Draw(GlDrawCall call)
@@ -507,6 +509,43 @@ internal sealed class GlPipeline
             depthOffset = _state.PolygonOffsetFactor * MathF.Max(MathF.Abs(dzdx), MathF.Abs(dzdy)) + _state.PolygonOffsetUnits * (1f / 16777216f);
         }
 
+        // Everything the fragment shader reads about the pixel at (px, py): interpolated varyings, fragment coordinates, and its outputs cleared.
+        void LoadInputs(ShaderContext context, int px, int py)
+        {
+            var lx = px + 0.5f; var ly = py + 0.5f;
+            var wa = (eBc.A * lx + eBc.B * ly + eBc.C0) * invArea;
+            var wb = (eCa.A * lx + eCa.B * ly + eCa.C0) * invArea;
+            var wc = 1 - wa - wb;
+            var wsum = wa * a.InvW + wb * b.InvW + wc * c.InvW;
+            if (wsum <= 1e-12f) wsum = 1e-12f;
+            var pa = wa * a.InvW / wsum; var pb = wb * b.InvW / wsum; var pc = wc * c.InvW / wsum;
+            var z = wa * a.Z + wb * b.Z + wc * c.Z;
+            for (var i = 0; i < _varyingCount; i++)
+            {
+                var va = a.Varyings[i]; var vb = b.Varyings[i]; var vc = c.Varyings[i];
+                context.G[program.Varyings[i].FragmentSlot] = new Val
+                {
+                    C0 = va.C0 * pa + vb.C0 * pb + vc.C0 * pc,
+                    C1 = va.C1 * pa + vb.C1 * pb + vc.C1 * pc,
+                    C2 = va.C2 * pa + vb.C2 * pb + vc.C2 * pc,
+                    C3 = va.C3 * pa + vb.C3 * pb + vc.C3 * pc,
+                };
+            }
+            if (fragment.FragCoordSlot >= 0) context.G[fragment.FragCoordSlot] = new Val(lx, ly, z, wsum);
+            if (fragment.FrontFacingSlot >= 0) context.G[fragment.FrontFacingSlot] = new Val(front ? 1 : 0);
+            if (fragment.PointCoordSlot >= 0)
+            {
+                var pcoord = a.PointCoord * pa + b.PointCoord * pb + c.PointCoord * pc;
+                context.G[fragment.PointCoordSlot] = new Val(pcoord.X, pcoord.Y, 0, 0);
+            }
+            if (fragment.FragDepthSlot >= 0) context.G[fragment.FragDepthSlot] = new Val(float.NaN);
+            for (var o = 0; o < _outputSlots.Length; o++) if (_outputSlots[o] >= 0) context.G[_outputSlots[o]] = new Val(0, 0, 0, 1);
+            context.Discarded = false;
+        }
+
+        var quad = _quad;
+        if (quad is not null) quad.LoadInputs = LoadInputs;
+
         for (var y = minY; y <= maxY; y++)
         {
             for (var x = minX; x <= maxX; x++)
@@ -538,29 +577,15 @@ internal sealed class GlPipeline
 
                 // shading position: the pixel centre (extrapolated when the centre is outside the triangle)
                 var cx = x + 0.5f; var cy = y + 0.5f;
-                var wa = (eBc.A * cx + eBc.B * cy + eBc.C0) * invArea;
-                var wb = (eCa.A * cx + eCa.B * cy + eCa.C0) * invArea;
-                var wc = 1 - wa - wb;
-                var wsum = wa * a.InvW + wb * b.InvW + wc * c.InvW;
-                if (wsum <= 1e-12f) wsum = 1e-12f;
-                var pa = wa * a.InvW / wsum; var pb = wb * b.InvW / wsum; var pc = wc * c.InvW / wsum;
-
-                var z = wa * a.Z + wb * b.Z + wc * c.Z;
-                for (var i = 0; i < _varyingCount; i++)
-                {
-                    var va = a.Varyings[i]; var vb = b.Varyings[i]; var vc = c.Varyings[i];
-                    var interpolated = new Val
-                    {
-                        C0 = va.C0 * pa + vb.C0 * pb + vc.C0 * pc,
-                        C1 = va.C1 * pa + vb.C1 * pb + vc.C1 * pc,
-                        C2 = va.C2 * pa + vb.C2 * pb + vc.C2 * pc,
-                        C3 = va.C3 * pa + vb.C3 * pb + vc.C3 * pc,
-                    };
-                    fctx.G[program.Varyings[i].FragmentSlot] = interpolated;
-                }
+                quad?.Begin(x, y);
+                LoadInputs(fctx, x, y);
                 if (_wantDerivatives)
                 {
                     // d/dx and d/dy of the perspective-correct varyings from the barycentric gradients.
+                    var wa = (eBc.A * cx + eBc.B * cy + eBc.C0) * invArea;
+                    var wb = (eCa.A * cx + eCa.B * cy + eCa.C0) * invArea;
+                    var wc = 1 - wa - wb;
+                    var wsum = Math.Max(wa * a.InvW + wb * b.InvW + wc * c.InvW, 1e-12f);
                     var dwa_dx = eBc.A * invArea; var dwa_dy = eBc.B * invArea;
                     var dwb_dx = eCa.A * invArea; var dwb_dy = eCa.B * invArea;
                     var dwc_dx = -dwa_dx - dwb_dx; var dwc_dy = -dwa_dy - dwb_dy;
@@ -579,15 +604,6 @@ internal sealed class GlPipeline
                     }
                 }
 
-                if (fragment.FragCoordSlot >= 0) fctx.G[fragment.FragCoordSlot] = new Val(cx, cy, z, wsum);
-                if (fragment.FrontFacingSlot >= 0) fctx.G[fragment.FrontFacingSlot] = new Val(front ? 1 : 0);
-                if (fragment.PointCoordSlot >= 0)
-                {
-                    var pcoord = a.PointCoord * pa + b.PointCoord * pb + c.PointCoord * pc;
-                    fctx.G[fragment.PointCoordSlot] = new Val(pcoord.X, pcoord.Y, 0, 0);
-                }
-                if (fragment.FragDepthSlot >= 0) fctx.G[fragment.FragDepthSlot] = new Val(float.NaN);
-                for (var o = 0; o < _outputSlots.Length; o++) if (_outputSlots[o] >= 0) fctx.G[_outputSlots[o]] = new Val(0, 0, 0, 1);
                 fctx.Discarded = false;
                 fragment.Main(fctx);
                 if (fctx.Discarded) continue;

@@ -53,6 +53,7 @@ internal sealed partial class GlslCompiler
     private FunctionInfo? _current;
     private int _frame;
     private bool _usesDerivatives;
+    private bool _needsQuad;
     private int _positionSlot = -1, _pointSizeSlot = -1, _fragCoordSlot = -1, _frontFacingSlot = -1, _pointCoordSlot = -1,
         _vertexIdSlot = -1, _instanceIdSlot = -1, _fragDepthSlot = -1;
     private readonly List<int> _fragOutputs = [];
@@ -230,6 +231,7 @@ internal sealed partial class GlslCompiler
             InstanceIdSlot = _instanceIdSlot,
             FragDepthSlot = _fragDepthSlot,
             UsesDerivatives = _usesDerivatives,
+            NeedsQuad = _needsQuad,
             FragOutputSlots = outputs,
         };
     }
@@ -357,9 +359,9 @@ internal sealed partial class GlslCompiler
             case ExprStmt e:
             {
                 var expr = CompileExpr(e.Expr);
-                if (expr.Type.IsAggregate) { var a = expr.A!; return c => { a(c); return GlslFlow.Next; }; }
+                if (expr.Type.IsAggregate) { var a = expr.A!; return c => { a(c); return c.Stop ? GlslFlow.Return : GlslFlow.Next; }; }
                 var v = expr.V!;
-                return c => { v(c); return GlslFlow.Next; };
+                return c => { v(c); return c.Stop ? GlslFlow.Return : GlslFlow.Next; };
             }
             case IfStmt i:
             {
@@ -509,7 +511,7 @@ internal sealed partial class GlslCompiler
         return c =>
         {
             foreach (var a in all) a(c);
-            return GlslFlow.Next;
+            return c.Stop ? GlslFlow.Return : GlslFlow.Next;
         };
     }
 

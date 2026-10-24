@@ -466,20 +466,41 @@ internal static class GlslBuiltins
         if (explicitLod && extra is null) return null;
         var (dx, dy) = Derivatives(coordinate);
         var wIndex = coordinate.Type.Base == GlslBase.Vec3 ? 2 : 3;
+        // A coordinate that is not a plain varying has no derivative we can write down; the quad's neighbours supply it.
+        var quadLevel = !explicitLod && coordinate.Source is not { Storage: GlslStorage.VaryingIn };
+        if (quadLevel) compiler.NoteQuad();
+        Val Coordinates(ShaderContext c)
+        {
+            var q = uv(c);
+            var coords = new Vector2(q.C0.X, q.C0.Y);
+            if (projective) coords /= q.Get(wIndex);
+            return new Val(coords.X, coords.Y, 0, 0);
+        }
+        Func<ShaderContext, Val> coordinatesOf = Coordinates;
         return R(GlslType.Vec4, c =>
         {
             var unit = (int)sampler(c).X;
-            var q = uv(c);
-            var coords = new Vector2(q.C0.X, q.C0.Y);
-            if (projective)
+            Vector2 coords, dxCoords, dyCoords;
+            if (quadLevel)
             {
-                var w = q.Get(wIndex);
-                coords /= w;
+                if (c.Quad is not { } quad) return new Val(0, 0, 0, 1);
+                if (!quad.Evaluate(c, coordinatesOf, out var own, out var neighbourX, out var neighbourY)) return default;
+                coords = new Vector2(own.C0.X, own.C0.Y);
+                var ax = QuadShading.Along(c.Lane, 1, own, neighbourX);
+                var ay = QuadShading.Along(c.Lane, 2, own, neighbourY);
+                dxCoords = new Vector2(ax.X, ax.Y);
+                dyCoords = new Vector2(ay.X, ay.Y);
+            }
+            else
+            {
+                coords = Coordinates(c).C0 is var cc ? new Vector2(cc.X, cc.Y) : default;
+                dxCoords = dx(c);
+                dyCoords = dy(c);
             }
             var lod = explicitLod ? extra!(c) : float.NaN;
             var bias = !explicitLod && extra is not null ? extra(c) : 0;
             if (c.Sampler is not { } s) return new Val(0, 0, 0, 1);
-            return new Val(s.Sample(unit, coords, dx(c), dy(c), lod, bias));
+            return new Val(s.Sample(unit, coords, dxCoords, dyCoords, lod, bias));
         });
     }
 
@@ -539,7 +560,22 @@ internal static class GlslBuiltins
                 };
             });
         }
-        // The derivative of anything else is not tracked: flat.
-        return R(type, _ => default);
+        // The derivative of anything else comes from shading the neighbouring pixels of the quad.
+        compiler.NoteQuad();
+        var argument = a.V!;
+        var size = type.Size;
+        return R(type, c =>
+        {
+            if (c.Quad is not { } quad || !quad.Evaluate(c, argument, out var own, out var neighbourX, out var neighbourY)) return default;
+            var dx = QuadShading.Along(c.Lane, 1, own, neighbourX);
+            var dy = QuadShading.Along(c.Lane, 2, own, neighbourY);
+            var result = new Val();
+            for (var i = 0; i < size; i++)
+            {
+                var x = Lane(dx, i); var y = Lane(dy, i);
+                result.Set(i, name switch { "dFdx" => x, "dFdy" => y, _ => MathF.Abs(x) + MathF.Abs(y) });
+            }
+            return result;
+        });
     }
 }

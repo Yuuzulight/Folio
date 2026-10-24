@@ -43,6 +43,8 @@ internal sealed partial class GlslCompiler
 
     internal void NoteDerivatives() => _usesDerivatives = true;
 
+    internal void NoteQuad() => _needsQuad = true;
+
     // ---- user functions ----
 
     private CExpr UserCall(CallExpr call, List<FunctionInfo> overloads, List<CExpr> args)

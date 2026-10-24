@@ -42,6 +42,17 @@ internal sealed class ShaderContext
     public int Ticks;
     public IShaderSampler? Sampler;
 
+    // Derivatives of expressions that are not a plain varying come from shading the neighbouring pixels of a 2x2 quad (see QuadShading).
+    public QuadShading? Quad;
+    /// <summary>Which pixel of the quad this invocation is: bit 0 the column, bit 1 the row.</summary>
+    public int Lane;
+    /// <summary>How many derivative sites this run has passed.</summary>
+    public int CallIndex;
+    /// <summary>The derivative site a partial run stops at (-1 to run to the end).</summary>
+    public int StopAt = -1;
+    /// <summary>Set when a partial run reached its site; the statements unwind like a discard.</summary>
+    public bool Stop;
+
     /// <summary>Screen-space derivatives of the global slots that are varyings (null where the invocation has none).</summary>
     public Vector4[]? DerivX;
     public Vector4[]? DerivY;
@@ -87,6 +98,9 @@ internal sealed class GlslShader
     public int InstanceIdSlot { get; init; } = -1;
     public int FragDepthSlot { get; init; } = -1;
     public bool UsesDerivatives { get; init; }
+
+    /// <summary>Whether a derivative or an implicit-level lookup needs the neighbouring pixels of a quad shaded (its argument is not a plain varying).</summary>
+    public bool NeedsQuad { get; init; }
 
     /// <summary>The slots of the fragment outputs, indexed by color attachment (gl_FragColor / gl_FragData[n] / the declared outputs).</summary>
     public int[] FragOutputSlots { get; init; } = [];
