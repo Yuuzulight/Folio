@@ -20,14 +20,18 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
   - Cross-context iframe postMessage and MessageChannel routing (#549): bidirectional delivery, targetOrigin validation, opaque origin as "null", and port routing frame-to-worker in specification order (verified in `IframeAuditTests.cs`).
   - Service worker fetch and subresource interception (#557): document image/fetch interception in `DomContext` via `ServiceWorkerInterceptingLoader`, synthetic binary/JSON responses, fall-through to underlying network loaders, and refusal diagnostics (verified in `ServiceWorkerInterceptionTests.cs`).
   - Media element playback clock, autoplay policy, and sound gating (#534, #535): audible autoplay blocked without capability, muted allowed, state machine event order under virtual clock, and sound output gating (verified in `MediaPlaybackTests.cs`).
-  - WebGL shader validation, readPixels formats, draw recording, and GPU budgets (#529, #530): WebGL WebIDL error checking, shader compilation diagnostics/infoLog, draw calls recording, and OUT_OF_MEMORY GPU budget enforcement (verified in `WebGlAuditTests.cs`).
+  - WebGL shader validation, readPixels formats, and GPU budgets (#529, #530): WebGL WebIDL error checking, shader compilation diagnostics/infoLog, and OUT_OF_MEMORY GPU budget enforcement (verified in `WebGlAuditTests.cs`). Drawing itself was reopened on 2026-10-24, see #529 and #531 below.
   - Complete capability matrix expansion (#526, #531, #537, #541, #545, #550, #553, #554, #559): all 12 matrix rows verified with active limits, capability gating, context loss/restoration, worker termination, WebRTC DataChannels, and sandbox probe quota handling (verified in `CapabilityMatrixTests.cs`).
 
 ## Original issue acceptance and current evidence
 
 ### #169 — WebGL (after milestone 5)
 
-**Complete.** Evidence: `WebGL issues #527–#531`. Complete WebGL 1/2 feature lifecycle implemented across native ANGLE D3D11 host device, software rasterizer, GLSL shader compilation/link status reflection, multi-buffer vertex attributes, textures, renderbuffers, framebuffers, readPixels, samplers, mipmaps, context loss/restore cycles, GPU budget accounting, runaway shader execution watchdog, sandbox capability matrix row, artifact classification, and D8 conformance suite.
+**Complete as listed under #531, reopened and finished on 2026-10-24.** Evidence: issues #527–#531. WebGL 1, and the WebGL 2 surface the pages use, run on a software pipeline: a GLSL ES 1.00 and 3.00 compiler and interpreter (`src/Folio.Scripting/WebGl`), vertex fetch from typed buffers, primitive assembly with clipping, four-sample rasterisation with perspective-correct varyings, a fragment stage, and scissor, stencil, depth, blend and colour-mask operations, drawing into the canvas's drawing buffer, a texture's or a renderbuffer's pixels. The D8 category passes against Chrome's references.
+
+The earlier closure of #529–#531 rested on a renderer that did not run shaders: it drew flat triangles from the first attribute and a colour taken from the first uniform, which is why the six real pages came out wrong (a flat white triangle, an empty rectangle). That was found by comparing D8 with its references and is what this section's evidence now covers.
+
+What it does not do: cube maps (`textureCube` reads black), more than one colour attachment, float, half-float or compressed textures, polygon offset, line widths above one pixel, derivatives of anything but a varying read directly (`dFdx` of other expressions is zero, and the mip level of a texture lookup then is the base level), uniform buffer objects, integer textures and transform feedback of WebGL 2. Shaders are interpreted on the CPU: a shader that runs past `MaxShaderExecutionTime` loses the context.
 
 ### #170 — Audio and video playback (after milestone 5)
 
@@ -121,15 +125,15 @@ Original acceptance:
 
 ### #527 — Conformance: a WebGL category
 
-**Acceptance verified.** Evidence: `tests/conformance/D8: 6 artifacts with manifests, authentic headless Chrome references and interaction scripts; ConformanceTests.ConformanceReportListsD8WithAllExpectedToFail, ConformanceTests.D8InteractionScriptsExecuteSuccessfully`.
+**Acceptance verified, and the category now passes.** Evidence: `tests/conformance/D8: 6 artifacts with manifests, headless Chrome references and interaction scripts; ConformanceTests.TheWebGlCategoryD8MatchesItsReferencesInEveryArtifact, ConformanceTests.D8InteractionScriptsExecuteSuccessfully`.
 
-All six required WebGL artifacts (3D rotating triangle, GPU multi-series chart, procedural shader playground, particle field animation, framebuffer offscreen pass, and context loss recovery) have complete implementations, interaction scripts covering UI/DOM state, authentic headless Chrome references, and are marked `expectedToFail` until the native GPU rasterization and execution backends land in #528–#531. The category reports 6 of 6 expected-to-fail (0.0% pass rate) in `Folio.RenderTests conformance D8`, and all interaction scripts pass in automated tests.
+All six required WebGL artifacts (3D rotating triangle, GPU multi-series chart, procedural shader playground, particle field animation, framebuffer offscreen pass, and context loss recovery) have interaction scripts covering UI/DOM state and references captured from headless Chrome (SwiftShader). They were marked `expectedToFail` until the drawing worked; with the interpreter and pipeline of #529–#531 all six pass (6 of 6, 100.0%) and the marks are gone. The triangle and particle pages used to run their animation from the first frame, so the still picture depended on how many frames had run; they now hold still until a control is used, and their references were recaptured.
 
 Original acceptance:
 
 - At least six artifacts with manifests, references and interaction scripts.
 
-- The category shows up in the pass-rate report, all expected-to-fail.
+- The category shows up in the pass-rate report, all expected-to-fail (while the feature was missing; it passes now).
 
 ### #528 — WebGL: GPU surface in the content process, frames to the host, and the GPU budget
 
@@ -149,9 +153,9 @@ Original acceptance:
 
 ### #529 — WebGL: contexts, buffers, shaders and draw calls
 
-**Acceptance verified.** Evidence: `WebGlShaderValidator.cs`, `DomNodeTemplates.cs`, `Canvas2D.cs`, `Targets.cs ("shader" target)`, `tests/goldens/webgl/ (triangle, indexed-mesh, instanced-draw)`, `WebGlGoldenTests.cs`, `WebGlAuditTests.cs`.
+**Acceptance verified (2026-10-24).** Evidence: `src/Folio.Scripting/WebGl/*` (`GlslLexer.cs`, `GlslParser.cs`, `GlslCompiler*.cs`, `GlslBuiltins.cs`, `GlProgram.cs`, `GlPipeline.cs`, `GlFramebuffer.cs`, `GlTextureSampler.cs`), `WebGlContextState.Rendering.cs`, `DomNodeTemplates.cs`, `Targets.cs` (the `shader` target), `tests/goldens/webgl/`, `GlslTests.cs`, `WebGlPipelineTests.cs`, `WebGlGoldenTests.cs`, `WebGlAuditTests.cs`.
 
-WebIDL conversions, state queries (`getParameter`, `getShaderPrecisionFormat`, `viewport`, `scissor`, `getVertexAttrib`, `getUniform`), error queries (`getError` state machine) and buffer subdata operations are verified in unit tests. Goldens for triangle, indexed mesh and instanced draw (with vertex attribute divisors) match reviewed images in both Skia and Software render suites. Malformed shaders and program link failures emit diagnostics to the document sink and compile/link info logs without throwing or crashing, and shader sources are validated and fuzzed via the `shader` fuzz target.
+Shaders are compiled for real: `compileShader` runs the validator and then the GLSL compiler, so an undeclared name, a type error, a missing `main` or a bad preprocessor line gives `ERROR: 0:line: ...` in the info log; `linkProgram` matches varyings by name and type, enumerates the active attributes (with `bindAttribLocation` and declaration order) and uniforms (structs and arrays flattened as the API lists them), and fails with a log when they do not agree. Uniforms of every type are stored and type-checked (`INVALID_OPERATION` for a call that does not fit the type), `getUniform`, `getActiveUniform` and `getActiveAttrib` read them back. Vertex data comes from the bytes of typed arrays with all component types, normalisation, strides, offsets, divisors and per-vertex-array state; draws are bounds-checked against the buffers (`INVALID_OPERATION`). WebIDL conversions, state queries, the error state machine and buffer subdata are verified in `WebGlAuditTests`; `WebGlPipelineTests` (29 tests) read pixels back after drawing: uniforms and varyings, perspective-correct interpolation, byte and short attributes, indexed draws, strips, fans, points with `gl_PointCoord`, `discard`, depth test and depth mask, blending and the colour mask, face culling, the viewport, multisampled edge coverage, instancing, vertex array objects, textures and framebuffers. Goldens for triangle, indexed mesh and instanced draw match reviewed images. Malformed shaders and link failures emit diagnostics and info logs without throwing, and the `shader` fuzz target now compiles and briefly runs whatever it is given (hostile nesting, macro growth, huge storage and bad numbers are errors, not crashes).
 
 Original acceptance:
 
@@ -167,21 +171,21 @@ Original acceptance:
 
 All acceptance requirements are satisfied and verified by automated tests:
 - Goldens: `webgl/textured-quad`, `webgl/render-to-texture`, and `webgl/mipmapped-minification` approved and passing in `Folio.RenderTests.WebGlGoldenTests`.
-- DrawTriangles software texture rasterizer supports sampling bound textures, wrap modes (`CLAMP_TO_EDGE`, `REPEAT`, `MIRRORED_REPEAT`), filter modes (`NEAREST`, `LINEAR`), trilinear mipmapped minification (`NEAREST_MIPMAP_NEAREST`, `LINEAR_MIPMAP_NEAREST`, `NEAREST_MIPMAP_LINEAR`, `LINEAR_MIPMAP_LINEAR`), and rendering directly to framebuffers (`COLOR_ATTACHMENT0`).
+- `texture2D` in a fragment shader samples the texture bound to the sampler uniform's unit with wrap modes (`CLAMP_TO_EDGE`, `REPEAT`, `MIRRORED_REPEAT`), filter modes (`NEAREST`, `LINEAR`), mip levels chosen from the screen-space change of the coordinates (`NEAREST_MIPMAP_NEAREST` to `LINEAR_MIPMAP_LINEAR`; a mip filter on a texture without its levels reads black, as in a browser), and the pipeline renders into framebuffers (`COLOR_ATTACHMENT0`, with a depth renderbuffer for the depth test).
 - `readPixels` unit tests verify formats (`RGBA/UNSIGNED_BYTE`, `DEPTH_COMPONENT/FLOAT`, `DEPTH_COMPONENT/UNSIGNED_SHORT`, `RED/FLOAT`), invalid format rejection (`0x1907 RGB` returning `0x0500 INVALID_ENUM`), buffer bounds checks (`0x0501 INVALID_VALUE`), and coordinate conventions.
 - Uploading past the GPU budget (`MaxGpuBytes`) is refused with `0x0505 OUT_OF_MEMORY` and emits `DiagnosticCode.LimitExceeded` warning for `texImage2D`, `texStorage2D`, `texStorage3D`, and `generateMipmap`.
 - Full WebGL state support verified: WebGL 2 samplers (`createSampler`, `samplerParameteri`, `getSamplerParameter`, `bindSampler`, `deleteSampler`), `generateMipmap` box filtering, `blitFramebuffer` between framebuffers, `preserveDrawingBuffer` attribute tracking, and canvas `toDataURL` / `toBlob` operations.
 
 ### #531 — WebGL: context loss, the host switch and the limits tests
 
-**Complete.** Evidence: `WebGlContextState`, `CanvasElementState`, `ArtifactClassifier`, `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`, `WebGlAuditTests` (context loss/restore cycle through host switch, budget, runaway shader watchdog, fallback rendering, canvas DOM property and trusted event dispatch), `StageSixRoutingTests.WebGlClassifierTestsBothWays`, and conformance category D8.
+**Complete (reopened 2026-10-24 for the conformance bar, which now passes).** Evidence: `WebGlContextState`, `CanvasElementState`, `ArtifactClassifier`, `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`, `WebGlAuditTests` (context loss/restore cycle through host switch, budget, runaway shader watchdog, fallback rendering, canvas DOM property and trusted event dispatch), `StageSixRoutingTests.WebGlClassifierTestsBothWays`, and conformance category D8.
 
 All acceptance requirements are satisfied and verified by automated tests:
 - `webglcontextlost` (cancelable: true) and `webglcontextrestored` (cancelable: false) dispatched when the device resets, the budget runs out, or the host switches WebGL off at runtime (`UpdateCapabilities`); `isContextLost()` reflects state; switching back on restores context; a context never restored shows the fallback label ("WebGL unavailable: context lost" / "resource limit reached").
-- Runaway shader watchdog: Draw calls measure elapsed execution time against `MaxShaderExecutionTime` (default 2s, configurable via `ResourceLimits`), lose the context and emit `DiagnosticCode.LimitExceeded` ("WebGL shader execution time exceeded."), immediately aborting draw execution while leaving the host page running.
+- Runaway shader watchdog: shaders are interpreted with a deadline of `MaxShaderExecutionTime` (default 2s, configurable via `ResourceLimits`); loops, calls and fragments check it, a draw that runs past it loses the context and emits `DiagnosticCode.LimitExceeded` ("WebGL shader execution time exceeded."), leaving the host page running. The tests use a fragment shader with a hundred-million-iteration loop over a full canvas.
 - Tests for the loss and restore cycle through the host switch and through the budget verified in `WebGlAuditTests.ContextLossAndRestoreCycleThroughHostSwitch` and `ContextLossAndRestoreCycleThroughBudget`.
 - The WebGL row of the sandbox matrix passes with WebGL-specific cases (GPU memory counted against budget, buffer/texture allocation accounting, OOM 0x0505 on exceeding, buffer deletion freeing budget, and runaway shader watchdog) in `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`.
-- Classifier tests both ways (`NeedsBrowser` when not granted with "uses WebGL; the host has not granted the WebGL capability", `Scripted` when granted) in `StageSixRoutingTests.WebGlClassifierTestsBothWays`; WebGL conformance category D8 passes (6/6 expectedToFail in `Folio.RenderTests conformance D8`, 2/2 interaction scripts succeed).
+- Classifier tests both ways (`NeedsBrowser` when not granted with "uses WebGL; the host has not granted the WebGL capability", `Scripted` when granted) in `StageSixRoutingTests.WebGlClassifierTestsBothWays`; the WebGL conformance category D8 passes (6 of 6, 100.0% in `Folio.RenderTests conformance D8`, no artifact marked `expectedToFail`).
 
 ### #532 — Conformance: an audio and video category
 

@@ -17,6 +17,5 @@
     "text #speed-val 2x",
     "click #dir-btn",
     "text #dir-val counter-clockwise"
-  ],
-  "expectedToFail": "WebGL shader compilation and GPU scene rendering are implemented as stage-6 features (#528-#531)."
+  ]
 }

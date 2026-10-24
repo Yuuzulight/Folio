@@ -14,6 +14,5 @@
     "text #status lost",
     "click #restore-btn",
     "text #status restored"
-  ],
-  "expectedToFail": "WebGL context loss simulation and state recreation are implemented as stage-6 features (#528-#531)."
+  ]
 }
