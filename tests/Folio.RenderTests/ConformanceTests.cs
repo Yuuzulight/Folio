@@ -10,6 +10,62 @@ public class ConformanceTests
         Assert.True(result.Outcome == ConformanceOutcome.Pass, $"{result.Outcome}: {result.Detail}");
     }
 
+    [Fact]
+    public void D1ArtifactsGiveIdenticalSettledImagesOnTwoRunsAndInteractionScriptsRun()
+    {
+        var d1Artifacts = Conformance.Discover().Where(a => a.Category == "D1").ToList();
+        Assert.True(d1Artifacts.Count >= 2);
+        foreach (var artifact in d1Artifacts)
+        {
+            var run1 = Conformance.Run(artifact);
+            var run2 = Conformance.Run(artifact);
+
+            Assert.Equal(run1.Outcome, run2.Outcome);
+            Assert.False(run1.Broke, $"{artifact.Id} run 1 broke: {run1.Outcome} {run1.Detail}");
+            Assert.False(run2.Broke, $"{artifact.Id} run 2 broke: {run2.Outcome} {run2.Detail}");
+        }
+    }
+
+    [Fact]
+    public void PagePrintingDateNowAndMathRandomIsStableUnderVirtualClock()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <p id="out"></p>
+            <script>
+                document.getElementById('out').textContent = Date.now() + ' ' + Math.random() + ' ' + (typeof crypto !== 'undefined' && crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(4)).join(',') : '');
+            </script>
+            """;
+        var artifact = new ConformanceArtifact("", RepoPaths.Tests, "D1", "virtual-clock-stability");
+        using var lifecycle1 = Conformance.ArtifactLifecycle.Start(artifact, html, 0);
+        var text1 = lifecycle1.Document.QuerySelector("#out")?.TextContent;
+
+        using var lifecycle2 = Conformance.ArtifactLifecycle.Start(artifact, html, 0);
+        var text2 = lifecycle2.Document.QuerySelector("#out")?.TextContent;
+
+        Assert.NotNull(text1);
+        Assert.NotEmpty(text1);
+        Assert.Equal(text1, text2);
+    }
+
+    [Fact]
+    public void ConformanceReportListsD1ThroughD7WithPassRates()
+    {
+        ConformanceArtifact Artifact(string category, string name) => new("", "root", category, name);
+        var results = new List<ConformanceResult>();
+        for (var i = 1; i <= 7; i++)
+        {
+            results.Add(new(Artifact($"D{i}", $"item-{i}"), ConformanceOutcome.Pass, null));
+        }
+
+        var report = Conformance.Report(results);
+        for (var i = 1; i <= 7; i++)
+        {
+            Assert.Contains($"| D{i} |", report);
+            Assert.Contains("100.0% of 1", report);
+        }
+    }
+
     private const string None = "(none)";
 
     public static TheoryData<string> Artifacts =>

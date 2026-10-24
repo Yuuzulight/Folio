@@ -441,8 +441,8 @@ public static class Conformance
                     BaseUri = _baseUri,
                 };
                 document = Document.Parse(_html, options);
-                engine = new JintScriptEngine();
                 var clock = new VirtualEventLoopClock();
+                engine = new JintScriptEngine(new ScriptEngineOptions { Clock = () => clock.NowUtc, RandomSeed = 42 });
                 loop = new HtmlEventLoop(engine, clock);
                 DomBindings.Install(engine, document, eventLoop: loop);
                 ScriptGlobalsInstaller.Install(loop, engine);
