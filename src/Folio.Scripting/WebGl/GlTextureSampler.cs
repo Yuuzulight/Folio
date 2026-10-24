@@ -44,7 +44,7 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
         var baseLevel = levels[0];
         var mipmapped = min is 0x2700 or 0x2701 or 0x2702 or 0x2703;
         // A mip filter on a texture without all its levels leaves it incomplete, and an incomplete texture reads as black.
-        if (mipmapped && levels.Count < FullChain(baseLevel.Width, baseLevel.Height)) return Black;
+        if (mipmapped && (levels.Count < FullChain(baseLevel.Width, baseLevel.Height) || levels.Any(l => l.Width <= 0))) return Black;
 
         float level;
         if (float.IsNaN(lod))

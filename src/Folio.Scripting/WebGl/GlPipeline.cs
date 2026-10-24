@@ -493,6 +493,15 @@ internal sealed class GlPipeline
         var fctx = _fragmentContext;
         var tickCounter = 0;
 
+        // Polygon offset: factor times the largest depth slope plus units times the smallest resolvable depth step of a 24-bit buffer.
+        var depthOffset = 0f;
+        if (_state.PolygonOffsetFill)
+        {
+            var dzdx = (eBc.A * a.Z + eCa.A * b.Z + (-eBc.A - eCa.A) * c.Z) * invArea;
+            var dzdy = (eBc.B * a.Z + eCa.B * b.Z + (-eBc.B - eCa.B) * c.Z) * invArea;
+            depthOffset = _state.PolygonOffsetFactor * MathF.Max(MathF.Abs(dzdx), MathF.Abs(dzdy)) + _state.PolygonOffsetUnits * (1f / 16777216f);
+        }
+
         for (var y = minY; y <= maxY; y++)
         {
             for (var x = minX; x <= maxX; x++)
@@ -593,7 +602,7 @@ internal sealed class GlPipeline
                         if (samples == 1) { sx = cx; sy = cy; } else { sx = x + SamplePattern[s].X; sy = y + SamplePattern[s].Y; }
                         var sa = (eBc.A * sx + eBc.B * sy + eBc.C0) * invArea;
                         var sb = (eCa.A * sx + eCa.B * sy + eCa.C0) * invArea;
-                        sampleZ = sa * a.Z + sb * b.Z + (1 - sa - sb) * c.Z;
+                        sampleZ = Math.Clamp(sa * a.Z + sb * b.Z + (1 - sa - sb) * c.Z + depthOffset, 0, 1);
                     }
                     WriteSample(target, depthSpan, index, color, sampleZ, front);
                 }
