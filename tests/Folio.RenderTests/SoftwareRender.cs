@@ -1,3 +1,6 @@
+using Folio.Scripting;
+using Folio.Scripting.Dom;
+using Folio.Scripting.Jint;
 using Folio.Skia;
 
 namespace Folio.RenderTests;
@@ -34,7 +37,19 @@ public static class SoftwareRender
     /// <summary>A test page in an 800x600 viewport, by the software backend.</summary>
     public static PixelBuffer RenderPage(string htmlPath)
     {
-        using var document = Document.Parse(File.ReadAllText(htmlPath), TestRenderer.Options);
+        var html = File.ReadAllText(htmlPath);
+        using var document = Document.Parse(html, TestRenderer.Options);
+        if (html.Contains("<script", StringComparison.OrdinalIgnoreCase))
+        {
+            using var engine = new JintScriptEngine();
+            using var loop = new HtmlEventLoop(engine);
+            DomBindings.Install(engine, document, eventLoop: loop);
+            ScriptGlobalsInstaller.Install(loop, engine);
+            using var runner = new ScriptRunner(document.Node, engine, loop, TestRenderer.Options);
+            runner.Run();
+            loop.PerformMicrotaskCheckpoint();
+            loop.UpdateTheRendering();
+        }
         var (width, height, pixels, _) = Pixels(document, new RenderRequest(800, 600), software: true);
         return new PixelBuffer(width, height, pixels);
     }

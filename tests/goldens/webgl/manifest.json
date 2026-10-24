@@ -1,0 +1,6 @@
+{
+  "default": {
+    "channelThreshold": 8,
+    "maxDifferingRatio": 0.005
+  }
+}

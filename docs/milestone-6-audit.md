@@ -151,9 +151,9 @@ Original acceptance:
 
 ### #529 — WebGL: contexts, buffers, shaders and draw calls
 
-**Locally verified.** Evidence: `DomNodeTemplates.cs`, `Canvas2D.cs`, `WebGlAuditTests.cs`.
+**Acceptance verified.** Evidence: `WebGlShaderValidator.cs`, `DomNodeTemplates.cs`, `Canvas2D.cs`, `Targets.cs ("shader" target)`, `tests/goldens/webgl/ (triangle, indexed-mesh, instanced-draw)`, `WebGlGoldenTests.cs`, `WebGlAuditTests.cs`.
 
-Shader compilation checks for the words void/main. Drawing uses attribute zero and uniform zero directly, without executing GLSL.
+WebIDL conversions, state queries (`getParameter`, `getShaderPrecisionFormat`, `viewport`, `scissor`, `getVertexAttrib`, `getUniform`), error queries (`getError` state machine) and buffer subdata operations are verified in unit tests. Goldens for triangle, indexed mesh and instanced draw (with vertex attribute divisors) match reviewed images in both Skia and Software render suites. Malformed shaders and program link failures emit diagnostics to the document sink and compile/link info logs without throwing or crashing, and shader sources are validated and fuzzed via the `shader` fuzz target.
 
 Original acceptance:
 
