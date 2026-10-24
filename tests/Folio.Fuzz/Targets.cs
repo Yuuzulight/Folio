@@ -455,6 +455,16 @@ internal static class Targets
         var source = Encoding.UTF8.GetString(data);
         WebGlShaderValidator.Validate(0x8B31 /* VERTEX_SHADER */, source);
         WebGlShaderValidator.Validate(0x8B30 /* FRAGMENT_SHADER */, source);
+        // Whatever compiles also runs, for a moment: neither may fail in any way but a reported error or running out of time.
+        foreach (var stage in new[] { Folio.Scripting.WebGl.GlslStage.Vertex, Folio.Scripting.WebGl.GlslStage.Fragment })
+        {
+            var result = Folio.Scripting.WebGl.GlslCompiler.Compile(stage, source);
+            if (result.Shader is not { } shader) continue;
+            var context = shader.CreateContext();
+            context.Deadline = System.Diagnostics.Stopwatch.GetTimestamp() + System.Diagnostics.Stopwatch.Frequency / 50;
+            try { shader.Main(context); }
+            catch (Folio.Scripting.WebGl.ShaderTimeoutException) { }
+        }
     }
 
     private static IEnumerable<byte[]> ShaderSeeds() => new[]
@@ -465,5 +475,8 @@ internal static class Targets
         "#version 300 es\nprecision mediump float;\nout vec4 fragColor;\nvoid main() {\n  fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n}",
         "// comment\nvoid main() { /* empty */ }",
         "invalid shader source without main",
+        "precision mediump float;\nstruct L { vec3 c; float p; };\nfloat f(float a[3], inout vec2 v) { v.x += a[1]; return a[0] * a[2]; }\nvoid main() {\n  float a[3]; a[0] = 1.0; a[1] = 2.0; a[2] = 3.0; vec2 v = vec2(0.0); L l = L(vec3(1.0), 2.0);\n  for (int i = 0; i < 4; i++) { if (i == 2) continue; v += vec2(f(a, v)); }\n  mat2 m = mat2(1.0, 2.0, 3.0, 4.0); vec2 w = m * v;\n  gl_FragColor = vec4(w, l.p, float(l.c.x > 0.5 ? 1 : 0));\n}",
+        "#define N 3\nprecision mediump float;\n#if N > 2\nvoid main() { gl_FragColor = vec4(float(N)); }\n#endif",
+        "void main() { gl_FragColor = vec4((((((((((1.0))))))))))); }",
     }.Select(Encoding.UTF8.GetBytes);
 }

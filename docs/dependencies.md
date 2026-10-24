@@ -26,7 +26,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | BMP and ICO decoders | Not decoded yet | `ImageLoader` |
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
 | 2D rasterisation | **Dependency for now**: SkiaSharp; an in-house backend (`SoftwareRasterBackend`) is written and checked against it, not yet the default | Behind `IRasterBackend`/`ICanvas` |
-| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
+| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP. WebGL drawing itself runs on Folio's own GLSL ES compiler, interpreter and software pipeline (`src/Folio.Scripting/WebGl`), so shaders do not need ANGLE; ANGLE remains for the hardware surface path |
 | Glyph rasterisation (outlines, hinting, colour glyph formats) | **Dependency for now**: SkiaSharp; glyf and CFF outlines and CBDT bitmaps are read in-house (`GlyphOutlines`), without hinting, CFF2 or COLR | Glyphs drawn by id through `ICanvas` |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |

@@ -286,7 +286,7 @@ public sealed class WebGlAuditTests
 
             // 6. Program and Uniforms
             var vs = gl.createShader(gl.VERTEX_SHADER);
-            gl.shaderSource(vs, 'void main() { gl_Position = vec4(0.0); }');
+            gl.shaderSource(vs, 'uniform float u_float; uniform vec4 u_vec; uniform mat4 u_mat; void main() { gl_Position = u_mat * u_vec * u_float; }');
             gl.compileShader(vs);
             var fs = gl.createShader(gl.FRAGMENT_SHADER);
             gl.shaderSource(fs, 'void main() { gl_FragColor = vec4(1.0); }');
@@ -1011,7 +1011,7 @@ public sealed class WebGlAuditTests
             gl.shaderSource(vs, 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }');
             gl.compileShader(vs);
             var fs = gl.createShader(gl.FRAGMENT_SHADER);
-            gl.shaderSource(fs, 'void main() { gl_FragColor = vec4(1.0); }');
+            gl.shaderSource(fs, 'precision mediump float; void main() { float x = 0.0; for (int i = 0; i < 100000; i++) { for (int j = 0; j < 1000; j++) { x += sin(float(i * j)); } } gl_FragColor = vec4(x); }');
             gl.compileShader(fs);
             var prg = gl.createProgram();
             gl.attachShader(prg, vs);
@@ -1021,13 +1021,13 @@ public sealed class WebGlAuditTests
 
             var vbo = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-            var verts = new Float32Array([0, 0, 1, 0, 0, 1]);
+            var verts = new Float32Array([-1, -1, 3, -1, -1, 3]);
             gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
             gl.enableVertexAttribArray(0);
             gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-            // Draw call that triggers the 50ms watchdog without large JS memory
-            gl.drawArrays(gl.TRIANGLES, 0, 3000000);
+            // A shader that runs far past the 50ms watchdog, over a canvas full of pixels
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
 
             var wasLost = gl.isContextLost();
             var pageRunning = true;

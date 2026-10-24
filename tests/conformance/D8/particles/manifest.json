@@ -17,6 +17,5 @@
     "text #status running",
     "click #count-btn",
     "text #count 500"
-  ],
-  "expectedToFail": "WebGL point primitive rendering and animation loops are implemented as stage-6 features (#528-#531)."
+  ]
 }

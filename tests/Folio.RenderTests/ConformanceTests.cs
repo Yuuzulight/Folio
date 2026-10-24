@@ -49,16 +49,18 @@ public class ConformanceTests
     }
 
     [Fact]
-    public void ConformanceReportListsD8WithAllExpectedToFail()
+    public void TheWebGlCategoryD8MatchesItsReferencesInEveryArtifact()
     {
         var d8Artifacts = Conformance.Discover().Where(a => a.Category == "D8").ToList();
         Assert.Equal(6, d8Artifacts.Count);
 
+        // The shaders run, so the pages draw what Chrome draws for them: nothing in D8 is expected to fail any more.
         var results = d8Artifacts.Select(a => Conformance.Run(a)).ToList();
-        Assert.All(results, r => Assert.Equal(ConformanceOutcome.ExpectedFail, r.Outcome));
+        Assert.All(results, r => Assert.True(r.Outcome is ConformanceOutcome.Pass or ConformanceOutcome.PassSecondary, $"{r.Artifact.Id}: {r.Outcome} {r.Detail}"));
+        Assert.All(d8Artifacts, a => Assert.Null(Conformance.ManifestOf(a).ExpectedToFail));
 
         var report = Conformance.Report(results);
-        Assert.Contains("| D8 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 0.0% of 6 |", report);
+        Assert.Contains("| D8 | 6 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% of 6 |", report);
     }
 
     [Fact]

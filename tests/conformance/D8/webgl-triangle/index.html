@@ -104,14 +104,18 @@
 
   let speed = 1;
   let clockwise = true;
+  // The scene holds still at its initial angle until the first control is used, so a still picture of it does not depend on how many frames have run.
+  let started = false;
 
   speedBtn.addEventListener('click', () => {
+    started = true;
     speed = speed === 1 ? 2 : 1;
     speedVal.textContent = speed + 'x';
     speedBtn.textContent = speed === 1 ? 'Fast' : 'Normal';
   });
 
   dirBtn.addEventListener('click', () => {
+    started = true;
     clockwise = !clockwise;
     dirVal.textContent = clockwise ? 'clockwise' : 'counter-clockwise';
   });
@@ -194,8 +198,10 @@
   render();
 
   function tick() {
-    angle += (clockwise ? -1 : 1) * 0.02 * speed;
-    render();
+    if (started) {
+      angle += (clockwise ? -1 : 1) * 0.02 * speed;
+      render();
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

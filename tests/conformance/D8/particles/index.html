@@ -99,14 +99,18 @@
 
   let running = true;
   let particleCount = 300;
+  // The field holds still until the first control is used, so a still picture of it does not depend on how many frames have run.
+  let started = false;
 
   pauseBtn.addEventListener('click', () => {
+    started = true;
     running = !running;
     statusOutput.textContent = running ? 'running' : 'paused';
     pauseBtn.textContent = running ? 'Pause' : 'Resume';
   });
 
   countBtn.addEventListener('click', () => {
+    started = true;
     particleCount = particleCount === 300 ? 500 : 300;
     countOutput.textContent = String(particleCount);
     countBtn.textContent = particleCount === 300 ? 'Add 200' : 'Remove 200';
@@ -185,7 +189,7 @@
   render();
 
   function tick() {
-    if (running) {
+    if (running && started) {
       for (let i = 0; i < particleCount; i++) {
         positions[i * 2] += velocities[i * 2];
         positions[i * 2 + 1] += velocities[i * 2 + 1];

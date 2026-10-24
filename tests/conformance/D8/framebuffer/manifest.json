@@ -15,6 +15,5 @@
     "text #filter-mode inverted",
     "click #filter-btn",
     "text #filter-mode normal"
-  ],
-  "expectedToFail": "WebGL framebuffer and render-to-texture passes are implemented as stage-6 features (#528-#531)."
+  ]
 }

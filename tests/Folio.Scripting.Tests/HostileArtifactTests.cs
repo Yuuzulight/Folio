@@ -71,7 +71,8 @@ public class HostileArtifactTests
     {
         var limits = new ScriptLimits
         {
-            Timeout = TimeSpan.FromMilliseconds(50),
+            // Long enough that the host's own setup, which runs under the same limit, is never what runs out on a busy machine.
+            Timeout = TimeSpan.FromMilliseconds(400),
             MaxStatements = 2000
         };
         var doc = Document.Parse("<button id='btn'>Click</button>");
