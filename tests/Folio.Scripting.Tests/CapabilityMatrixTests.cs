@@ -127,7 +127,8 @@ public sealed class CapabilityMatrixTests
             new FolioOptions
             {
                 Capabilities = capabilitiesFor(row),
-                Limits = ResourceLimits.Default with { MaxGpuBytes = 1024 }
+                Raster = new Folio.Skia.SkiaRasterBackend(),
+                Limits = ResourceLimits.Default with { MaxGpuBytes = 1024, MaxShaderExecutionTime = TimeSpan.FromMilliseconds(50) }
             }));
 
         Assert.True(engine.Evaluate(@"
@@ -141,13 +142,39 @@ public sealed class CapabilityMatrixTests
             const lostError = gl.getError() === 0x9242;
             ext.restoreContext();
             const wasRestored = !gl.isContextLost();
+
+            // GPU memory counted against limits
             const buf = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
             gl.bufferData(gl.ARRAY_BUFFER, 512, gl.STATIC_DRAW);
             const allocOk = gl.getError() === 0;
             gl.bufferData(gl.ARRAY_BUFFER, 2048, gl.STATIC_DRAW);
             const oom = gl.getError() === 0x0505;
-            wasLost && lostError && wasRestored && events === 'lostrestored' && allocOk && oom
+            gl.deleteBuffer(buf);
+
+            // Runaway shader watchdog loses context and leaves page running
+            const vs = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vs, 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }');
+            gl.compileShader(vs);
+            const fs = gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(fs, 'void main() { gl_FragColor = vec4(1.0); }');
+            gl.compileShader(fs);
+            const prg = gl.createProgram();
+            gl.attachShader(prg, vs);
+            gl.attachShader(prg, fs);
+            gl.linkProgram(prg);
+            gl.useProgram(prg);
+            const vbo = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+            const verts = new Float32Array([0, 0, 1, 0, 0, 1]);
+            gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+            gl.drawArrays(gl.TRIANGLES, 0, 3000000);
+            const runawayLost = gl.isContextLost();
+            const pageRunning = true;
+
+            wasLost && lostError && wasRestored && events.includes('lost') && allocOk && oom && runawayLost && pageRunning
         ").AsBoolean());
 
         static FeatureCapabilities capabilitiesFor(string capabilityRow) => capabilityRow == "all"

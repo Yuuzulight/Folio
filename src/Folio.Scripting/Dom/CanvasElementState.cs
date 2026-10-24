@@ -53,12 +53,13 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     }
     internal void MarkContextLost()
     {
-        if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.HostDenied or FallbackReason.ResourceLimit })
+            _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
     }
     internal void MarkHostDenied() { if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.HostDenied); }
     internal void ClearFallback()
     {
-        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable or FallbackReason.ResourceLimit })
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable } && (SizeAllowed || _fallback is not { Reason: FallbackReason.ResourceLimit }))
             _fallback = null;
     }
     internal void ProbeGraphics() { _ = Surface(); }

@@ -191,7 +191,7 @@ internal sealed class DomContext : IFetchContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, TimeSpan maxShaderExecutionTime = default, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
         Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null, Func<long, GpuDeviceResult>? gpuFactory = null)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
@@ -201,6 +201,7 @@ internal sealed class DomContext : IFetchContext
         Capabilities = capabilities ?? FeatureCapabilities.Default;
         Document.SetFeatureAvailability(Capabilities.WebGl, Capabilities.Media, Capabilities.Sound, Capabilities.Iframes);
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
+        MaxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
         _gpuFactory = gpuFactory;
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
@@ -237,7 +238,8 @@ internal sealed class DomContext : IFetchContext
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
     private volatile FeatureCapabilities _capabilities = FeatureCapabilities.Default;
     public FeatureCapabilities Capabilities { get => _capabilities; private set => _capabilities = value; }
-    public int MaxGpuBytes { get; }
+    public int MaxGpuBytes { get; private set; }
+    public TimeSpan MaxShaderExecutionTime { get; private set; }
     public int MaxMediaBytes { get; }
     public int MaxMediaDecoders { get; }
     public int MaxWorkerMessageBytes { get; }
@@ -460,6 +462,21 @@ internal sealed class DomContext : IFetchContext
                     else { state.MarkHostDenied(); context.Lose(); }
                 }
                 catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
+            }
+        }
+    }
+
+    public void UpdateLimits(ResourceLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        MaxGpuBytes = Math.Max(0, limits.MaxGpuBytes);
+        MaxShaderExecutionTime = limits.MaxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : limits.MaxShaderExecutionTime;
+        foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
+        {
+            if (canvas.CanvasSurface is CanvasElementState state && state.WebGlContext is { } context)
+            {
+                context.UpdateBudget(MaxGpuBytes);
+                context.UpdateShaderExecutionTime(MaxShaderExecutionTime);
             }
         }
     }

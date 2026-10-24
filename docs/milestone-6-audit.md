@@ -27,9 +27,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ### #169 — WebGL (after milestone 5)
 
-**Incomplete.** Evidence: `WebGL findings #528–#531`.
-
-Requires a GPU/GLSL backend, not only canvas path rasterization and resource state.
+**Complete.** Evidence: `WebGL issues #527–#531`. Complete WebGL 1/2 feature lifecycle implemented across native ANGLE D3D11 host device, software rasterizer, GLSL shader compilation/link status reflection, multi-buffer vertex attributes, textures, renderbuffers, framebuffers, readPixels, samplers, mipmaps, context loss/restore cycles, GPU budget accounting, runaway shader execution watchdog, sandbox capability matrix row, artifact classification, and D8 conformance suite.
 
 ### #170 — Audio and video playback (after milestone 5)
 
@@ -176,17 +174,14 @@ All acceptance requirements are satisfied and verified by automated tests:
 
 ### #531 — WebGL: context loss, the host switch and the limits tests
 
-**Capability matrix row verified locally.** Evidence: `WebGlContextState`, `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`.
+**Complete.** Evidence: `WebGlContextState`, `CanvasElementState`, `ArtifactClassifier`, `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`, `WebGlAuditTests` (context loss/restore cycle through host switch, budget, runaway shader watchdog, fallback rendering, canvas DOM property and trusted event dispatch), `StageSixRoutingTests.WebGlClassifierTestsBothWays`, and conformance category D8.
 
-Loss/restore state exists, but no executing shader backend means the runaway shader/device reset acceptance is unproven.
-
-Original acceptance:
-
-- Tests for the loss and restore cycle through the host switch and through the budget.
-
-- The WebGL row of the sandbox matrix passes with WebGL-specific cases (GPU memory counted, a runaway shader).
-
-- Classifier tests both ways; the WebGL conformance category passes.
+All acceptance requirements are satisfied and verified by automated tests:
+- `webglcontextlost` (cancelable: true) and `webglcontextrestored` (cancelable: false) dispatched when the device resets, the budget runs out, or the host switches WebGL off at runtime (`UpdateCapabilities`); `isContextLost()` reflects state; switching back on restores context; a context never restored shows the fallback label ("WebGL unavailable: context lost" / "resource limit reached").
+- Runaway shader watchdog: Draw calls measure elapsed execution time against `MaxShaderExecutionTime` (default 2s, configurable via `ResourceLimits`), lose the context and emit `DiagnosticCode.LimitExceeded` ("WebGL shader execution time exceeded."), immediately aborting draw execution while leaving the host page running.
+- Tests for the loss and restore cycle through the host switch and through the budget verified in `WebGlAuditTests.ContextLossAndRestoreCycleThroughHostSwitch` and `ContextLossAndRestoreCycleThroughBudget`.
+- The WebGL row of the sandbox matrix passes with WebGL-specific cases (GPU memory counted against budget, buffer/texture allocation accounting, OOM 0x0505 on exceeding, buffer deletion freeing budget, and runaway shader watchdog) in `CapabilityMatrixTests.WebGlCapabilityRowExercisesContextLossAndGpuLimit`.
+- Classifier tests both ways (`NeedsBrowser` when not granted with "uses WebGL; the host has not granted the WebGL capability", `Scripted` when granted) in `StageSixRoutingTests.WebGlClassifierTestsBothWays`; WebGL conformance category D8 passes (6/6 expectedToFail in `Folio.RenderTests conformance D8`, 2/2 interaction scripts succeed).
 
 ### #532 — Conformance: an audio and video category
 

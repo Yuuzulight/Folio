@@ -65,6 +65,7 @@ public sealed partial class Document : IDisposable
     /// <summary>Stage-6 capabilities granted by the host for this document.</summary>
     public FeatureCapabilities Capabilities => Options.Capabilities;
     public int MaxGpuBytes => Options.Limits.MaxGpuBytes;
+    public TimeSpan MaxShaderExecutionTime => Options.Limits.MaxShaderExecutionTime;
     public int MaxMediaBytes => Options.Limits.MaxMediaBytes;
     public int MaxMediaDecoders => Options.Limits.MaxMediaDecoders;
     public int MaxWorkerMessageBytes => Options.Limits.MaxWorkerMessageBytes;

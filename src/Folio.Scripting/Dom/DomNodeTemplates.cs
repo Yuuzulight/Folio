@@ -244,7 +244,7 @@ internal sealed class DomNodeTemplates
                 // The same object every time, so contexts compare equal.
                 return _context.WrapperCache.GetOrCreate(_context.Engine, Canvas.Context, canvas);
             }
-            if (string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal))
+            if (string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal) || string.Equals(kind, "experimental-webgl", StringComparison.Ordinal))
             {
                 if (canvas.Context2D is not null) return ScriptValue.Null;
                 canvas.AttemptWebGl();
@@ -257,7 +257,7 @@ internal sealed class DomNodeTemplates
                 if (canvas.WebGlContext is { } existing)
                     return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, existing);
                 canvas.ClearFallback();
-                var state = new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes);
+                var state = new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes, _context.MaxShaderExecutionTime);
                 if (args.Length > 1 && args[1].IsObject)
                 {
                     var opt = args[1];
@@ -657,6 +657,7 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("HIGH_FLOAT", (_, _) => ScriptValue.FromNumber(0x8DF2));
         t.DefineProperty("drawingBufferWidth", (target, _) => ScriptValue.FromNumber(ReadCanvasDimension(((WebGlContextState)target).Canvas, "width", 300)));
         t.DefineProperty("drawingBufferHeight", (target, _) => ScriptValue.FromNumber(ReadCanvasDimension(((WebGlContextState)target).Canvas, "height", 150)));
+        t.DefineProperty("canvas", (target, _) => _context.WrapperCache.GetOrCreate(_context.Engine, HtmlCanvasElementTemplate, ((WebGlContextState)target).Canvas.Element));
         t.DefineProperty("oncontextlost", (target, _) => ((WebGlContextState)target).OnContextLost, (target, _, value) => ((WebGlContextState)target).OnContextLost = value);
         t.DefineProperty("oncontextrestored", (target, _) => ((WebGlContextState)target).OnContextRestored, (target, _, value) => ((WebGlContextState)target).OnContextRestored = value);
         t.DefineMethod("getParameter", (target, _, args) =>

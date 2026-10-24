@@ -64,7 +64,7 @@ public static class ArtifactClassifier
 
     // Flip each entry only after its original feature acceptance is established.
     // Host permission alone cannot make a prototype backend complete.
-    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.None;
+    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.WebGl;
 
     public static ArtifactClassification Classify(string html, FolioOptions? options = null) =>
         Classify(html, options, ProductionFeatures);
