@@ -37,7 +37,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Resource loaders, cache, integrity checks | **Folio builds it** | On `HttpClient` and `System.Security.Cryptography` ([study](study/16-resources-and-security.md)) |
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
-| Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
+| Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided**: Windows APIs (`CreateAppContainerProfile`, `CreateProcessAsUser`, `CreateJobObject`, `SetInformationJobObject`) | Set up by Folio through Windows APIs |
 | JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
 | WebRTC signalling and loopback transport | **Folio builds it** | Capability-gated offer/answer, ICE state, tracks and data channels; external ICE/peer transport remains a host-owned seam |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
@@ -125,6 +125,8 @@ This follows the dependency-first plan. Replacing ANGLE later would require a Fo
 
 ### JavaScript engine — Jint
 
+**Pinned version and licence:** Jint 4.17.0, licensed under **BSD-2-Clause**.
+
 **M6 audit repair (2026-10-19):** upgraded the compatibility backend to Jint 4.17.0. Jint 4.1 blocked during pending `await`, and Folio's background evaluation/host-pump workaround could run continuations concurrently and corrupt lexical scope. The wrapper now evaluates and calls functions directly on the event-loop owner, with promise jobs drained at checkpoints. Awaited timer/fetch/microtask and worker lifecycle regressions cover this path. Folio-owned installer scripts use a bounded prepared-code cache through an internal host-only path; artifact URLs cannot select it. Jint's native stack-overflow guard is enabled, while artifact execution limits remain unchanged. This repair does not satisfy M6's separate native-engine/WebAssembly requirements.
 
 
@@ -194,6 +196,12 @@ public interface IImageDecoder
 ### System services
 
 `IFontSource` (list families, open face data, match a character for last-resort fallback), `IClipboard`, and the IME/accessibility hooks are implemented by the host layer (`Folio.Skia` for fonts, `Folio.WinForms` for the rest). Tests use a bundled-fonts `IFontSource`, which is also what makes the engine and its tests run on Linux CI.
+
+### Windows sandbox APIs
+
+The content process (`Folio.ContentHost`) is isolated using native Windows security APIs:
+- **AppContainer profiles**: `CreateAppContainerProfile`, `DeleteAppContainerProfile`, and `DeriveAppContainerSidFromAppContainerName` from `userenv.dll`. Process startup uses `STARTUPINFOEX` with `InitializeProcThreadAttributeList` and `UpdateProcThreadAttribute` to pass `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` to `CreateProcessAsUser` (or `CreateProcessW`).
+- **Job Objects**: `CreateJobObjectW`, `AssignProcessToJobObject`, and `SetInformationJobObject` configure `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, `JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`) and `JOBOBJECT_BASIC_UI_RESTRICTIONS` (`JOB_OBJECT_UILIMIT_HANDLES`, `JOB_OBJECT_UILIMIT_GLOBALATOMS`, `JOB_OBJECT_UILIMIT_DESKTOP`).
 
 ## Towards all-Folio
 
