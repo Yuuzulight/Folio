@@ -864,10 +864,16 @@ internal sealed class WebGlContextState
     public Dictionary<uint, string> ProgramInfoLogs { get; } = [];
     public Dictionary<(uint Program, string Name), int> AttribLocations { get; } = [];
     public Dictionary<(uint Program, string Name), int> UniformLocations { get; } = [];
-    private int _nextAttribLoc;
+    private readonly Dictionary<uint, int> _programNextAttribLoc = [];
     private int _nextUniformLoc;
-    public int GetOrAssignAttribLocation(uint program, string name) =>
-        AttribLocations.TryGetValue((program, name), out var loc) ? loc : (AttribLocations[(program, name)] = _nextAttribLoc++);
+    public int GetOrAssignAttribLocation(uint program, string name)
+    {
+        if (AttribLocations.TryGetValue((program, name), out var loc))
+            return loc;
+        var next = _programNextAttribLoc.GetValueOrDefault(program, 0);
+        _programNextAttribLoc[program] = next + 1;
+        return AttribLocations[(program, name)] = next;
+    }
     public int GetOrAssignUniformLocation(uint program, string name) =>
         UniformLocations.TryGetValue((program, name), out var loc) ? loc : (UniformLocations[(program, name)] = _nextUniformLoc++);
     public HashSet<int> EnabledVertexAttributes { get; } = [];
@@ -897,6 +903,23 @@ internal sealed class WebGlContextState
     public uint StencilDepthPass { get; set; }
     public int ClearStencil { get; set; }
     public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
+    public Dictionary<uint, List<(int Width, int Height, byte[] Pixels)>> TextureMipLevels { get; } = [];
+    public bool Alpha { get; set; } = true;
+    public bool Depth { get; set; } = true;
+    public bool Stencil { get; set; } = false;
+    public bool Antialias { get; set; } = false;
+    public bool PremultipliedAlpha { get; set; } = true;
+    public bool PreserveDrawingBuffer { get; set; } = false;
+    public bool UnpackFlipY { get; set; } = false;
+    public bool UnpackPremultiplyAlpha { get; set; } = false;
+    public int UnpackAlignment { get; set; } = 4;
+    public int PackAlignment { get; set; } = 4;
+    public uint UnpackColorspaceConversion { get; set; } = 0x9244;
+    public uint? BoundReadFramebuffer { get; set; }
+    public uint? BoundDrawFramebuffer { get; set; }
+    public HashSet<uint> Samplers { get; } = [];
+    public Dictionary<uint, Dictionary<uint, double>> SamplerParameters { get; } = [];
+    public Dictionary<uint, uint?> BoundSamplers { get; } = [];
     public Dictionary<uint, uint> TextureInternalFormats { get; } = [];
     public Dictionary<uint, Dictionary<uint, int>> TextureParameters { get; } = [];
     public HashSet<uint> TextureMipmaps { get; } = [];
@@ -949,7 +972,12 @@ internal sealed class WebGlContextState
     public void Restore() { if (!Lost) return; Lost = false; _canvas.ProbeGraphics(); _canvas.ClearFallback(); if (OnContextRestored.IsFunction) _engine.Call(OnContextRestored, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextrestored' })")]); }
     public bool TryAllocate(int bytes)
     {
-        if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes) { SetError(0x0505); return false; }
+        if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
         AllocatedBytes += bytes;
         return true;
     }
@@ -957,7 +985,12 @@ internal sealed class WebGlContextState
     {
         var oldBytes = Buffers.TryGetValue(handle, out var existing) ? existing.Length : 0;
         var nextTotal = AllocatedBytes - oldBytes + bytes;
-        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
         AllocatedBytes = nextTotal;
         Buffers[handle] = new byte[bytes];
         return true;
@@ -1017,9 +1050,42 @@ internal sealed class WebGlContextState
             !VertexAttribPointers.TryGetValue(0, out var pointer) || pointer.Type != 0x1406 || pointer.Size < 2 ||
             !VertexAttribBuffers.TryGetValue(0, out var bufferHandle) || !Buffers.TryGetValue(bufferHandle, out var buffer))
             return;
-        var surface = Canvas.Surface();
-        if (surface is null || surface.Width <= 0 || surface.Height <= 0)
-            return;
+
+        var isTargetFbo = BoundFramebuffer is { };
+        byte[]? fboPixels = null;
+        int targetWidth = 0, targetHeight = 0;
+        uint? targetFbTexHandle = null;
+        if (isTargetFbo)
+        {
+            var fb = BoundFramebuffer!.Value;
+            if (FramebufferColorAttachments.TryGetValue(fb, out var fbTexHandle) && Textures.TryGetValue(fbTexHandle, out var fbTex))
+            {
+                targetFbTexHandle = fbTexHandle;
+                fboPixels = fbTex.Pixels;
+                targetWidth = fbTex.Width;
+                targetHeight = fbTex.Height;
+            }
+            else if (FramebufferRenderbufferAttachments.TryGetValue(fb, out var fbRbHandle) && Renderbuffers.TryGetValue(fbRbHandle, out var fbRb))
+            {
+                fboPixels = fbRb.Pixels;
+                targetWidth = fbRb.Width;
+                targetHeight = fbRb.Height;
+            }
+            if (fboPixels is null || targetWidth <= 0 || targetHeight <= 0)
+                return;
+        }
+        else
+        {
+            var surf = Canvas.Surface();
+            if (surf is null || surf.Width <= 0 || surf.Height <= 0)
+                return;
+            targetWidth = surf.Width;
+            targetHeight = surf.Height;
+        }
+
+        (int Width, int Height, byte[] Pixels) activeTex = default;
+        var isTextured = BoundTexture is { } texHandle && (!isTargetFbo || targetFbTexHandle != texHandle) && Textures.TryGetValue(texHandle, out activeTex) && activeTex.Width > 0 && activeTex.Height > 0 && EnabledVertexAttributes.Contains(1);
+
         var stride = pointer.Stride > 0 ? pointer.Stride : pointer.Size * 4;
         if (stride < pointer.Size * 4)
             return;
@@ -1036,12 +1102,11 @@ internal sealed class WebGlContextState
             return off >= 0 && off + 4 <= bData.Length ? BitConverter.ToSingle(bData, (int)off) : float.NaN;
         }
 
-        // Instance offset from attribute 1 if enabled
+        // Instance offset from attribute 1 if enabled with divisor > 0
         float instOffsetX = 0f, instOffsetY = 0f;
-        if (EnabledVertexAttributes.Contains(1))
+        if (EnabledVertexAttributes.Contains(1) && VertexAttribDivisors.TryGetValue(1, out var div) && div > 0)
         {
-            var divisor = VertexAttribDivisors.TryGetValue(1, out var div) && div > 0 ? (int)div : 1;
-            var elem = instance / divisor;
+            var elem = instance / (int)div;
             var ox = ReadAttrib(1, elem, 0);
             var oy = ReadAttrib(1, elem, 1);
             if (!float.IsNaN(ox)) instOffsetX = ox;
@@ -1055,14 +1120,9 @@ internal sealed class WebGlContextState
             ? BlendMode.Normal : BlendMode.Copy;
         var viewportX = ViewportX;
         var viewportY = ViewportY;
-        var viewportWidth = ViewportWidth > 0 ? ViewportWidth : surface.Width;
-        var viewportHeight = ViewportHeight > 0 ? ViewportHeight : surface.Height;
-        var clipped = EnabledCapabilities.Contains(0x0C11);
-        if (clipped)
-        {
-            surface.Canvas.Save();
-            surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
-        }
+        var viewportWidth = ViewportWidth > 0 ? ViewportWidth : targetWidth;
+        var viewportHeight = ViewportHeight > 0 ? ViewportHeight : targetHeight;
+
         float Read(int vertex, int component)
         {
             var offset = (long)vertexIndex(vertex) * stride + pointer.Offset + component * 4;
@@ -1072,23 +1132,271 @@ internal sealed class WebGlContextState
         {
             var x = Read(vertex, 0) + instOffsetX;
             var y = Read(vertex, 1) + instOffsetY;
+            if (isTargetFbo)
+                return (viewportX + (x + 1) * 0.5f * viewportWidth, viewportY + (y + 1) * 0.5f * viewportHeight);
             return (viewportX + (x + 1) * 0.5f * viewportWidth, viewportY + (1 - y) * 0.5f * viewportHeight);
         }
+
+        if (!isTargetFbo && !isTextured)
+        {
+            var surface = Canvas.Surface()!;
+            var clipped = EnabledCapabilities.Contains(0x0C11);
+            if (clipped)
+            {
+                surface.Canvas.Save();
+                surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
+            }
+            for (var vertex = 0; vertex + 2 < count; vertex += 3)
+            {
+                var a = Point(vertex); var b = Point(vertex + 1); var c = Point(vertex + 2);
+                if (float.IsNaN(a.X) || float.IsNaN(a.Y) || float.IsNaN(b.X) || float.IsNaN(b.Y) || float.IsNaN(c.X) || float.IsNaN(c.Y))
+                    continue;
+                surface.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
+                    FillRule.NonZero, new Paint(color, Blend: blend));
+            }
+            if (clipped)
+                surface.Canvas.Restore();
+            Canvas.Touch();
+            return;
+        }
+
+        var surfacePixels = !isTargetFbo ? Canvas.Surface()!.ReadPixels(0, 0, targetWidth, targetHeight) : null;
+        var dstPixels = isTargetFbo ? fboPixels! : surfacePixels!;
+
+        var clipMinX = 0;
+        var clipMaxX = targetWidth;
+        var clipMinY = 0;
+        var clipMaxY = targetHeight;
+        if (EnabledCapabilities.Contains(0x0C11))
+        {
+            clipMinX = Math.Clamp(ScissorX, 0, targetWidth);
+            clipMaxX = Math.Clamp(ScissorX + ScissorWidth, 0, targetWidth);
+            clipMinY = Math.Clamp(ScissorY, 0, targetHeight);
+            clipMaxY = Math.Clamp(ScissorY + ScissorHeight, 0, targetHeight);
+        }
+
+        (float U, float V) GetUv(int vertex)
+        {
+            if (EnabledVertexAttributes.Contains(1) && (!VertexAttribDivisors.TryGetValue(1, out var d) || d == 0))
+            {
+                var u = ReadAttrib(1, vertexIndex(vertex), 0);
+                var v = ReadAttrib(1, vertexIndex(vertex), 1);
+                if (!float.IsNaN(u) && !float.IsNaN(v)) return (u, v);
+            }
+            var ndcX = Read(vertex, 0);
+            var ndcY = Read(vertex, 1);
+            return ((ndcX + 1f) * 0.5f, (ndcY + 1f) * 0.5f);
+        }
+
+        uint activeTexHandle = isTextured ? BoundTexture!.Value : 0;
+        var activeTexParams = isTextured && TextureParameters.TryGetValue(activeTexHandle, out var tp) ? tp : null;
+        var minFilter = activeTexParams?.GetValueOrDefault(0x2801u, 0x2601) ?? 0x2601;
+        var magFilter = activeTexParams?.GetValueOrDefault(0x2800u, 0x2601) ?? 0x2601;
+        var wrapS = (uint)(activeTexParams?.GetValueOrDefault(0x2802u, 0x2901) ?? 0x2901);
+        var wrapT = (uint)(activeTexParams?.GetValueOrDefault(0x2803u, 0x2901) ?? 0x2901);
+        TextureMipLevels.TryGetValue(activeTexHandle, out var mipLevels);
+
+        var texW = isTextured ? activeTex.Width : 1;
+        var texH = isTextured ? activeTex.Height : 1;
+        Span<float> sampledColor = stackalloc float[4];
+
         for (var vertex = 0; vertex + 2 < count; vertex += 3)
         {
-            var a = Point(vertex); var b = Point(vertex + 1); var c = Point(vertex + 2);
-            if (float.IsNaN(a.X) || float.IsNaN(a.Y) || float.IsNaN(b.X) || float.IsNaN(b.Y) || float.IsNaN(c.X) || float.IsNaN(c.Y))
+            var pA = Point(vertex); var pB = Point(vertex + 1); var pC = Point(vertex + 2);
+            if (float.IsNaN(pA.X) || float.IsNaN(pA.Y) || float.IsNaN(pB.X) || float.IsNaN(pB.Y) || float.IsNaN(pC.X) || float.IsNaN(pC.Y))
                 continue;
-            Canvas.Surface()!.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
-                FillRule.NonZero, new Paint(color, Blend: blend));
+
+            var uvA = isTextured ? GetUv(vertex) : default;
+            var uvB = isTextured ? GetUv(vertex + 1) : default;
+            var uvC = isTextured ? GetUv(vertex + 2) : default;
+
+            var bMinX = Math.Max(clipMinX, (int)MathF.Floor(MathF.Min(pA.X, MathF.Min(pB.X, pC.X))));
+            var bMaxX = Math.Min(clipMaxX, (int)MathF.Ceiling(MathF.Max(pA.X, MathF.Max(pB.X, pC.X))));
+            var bMinY = Math.Max(clipMinY, (int)MathF.Floor(MathF.Min(pA.Y, MathF.Min(pB.Y, pC.Y))));
+            var bMaxY = Math.Min(clipMaxY, (int)MathF.Ceiling(MathF.Max(pA.Y, MathF.Max(pB.Y, pC.Y))));
+            if (bMinX >= bMaxX || bMinY >= bMaxY) continue;
+
+            var det = (pB.X - pA.X) * (pC.Y - pA.Y) - (pB.Y - pA.Y) * (pC.X - pA.X);
+            if (MathF.Abs(det) < 1e-6f) continue;
+            var invDet = 1.0f / det;
+
+            var quadSpanX = MathF.Max(1.0f, bMaxX - bMinX);
+            var quadSpanY = MathF.Max(1.0f, bMaxY - bMinY);
+            var scale = MathF.Max((float)texW / quadSpanX, (float)texH / quadSpanY);
+            var lod = scale > 1.0f ? MathF.Max(0f, MathF.Log2(scale)) : 0f;
+
+            for (var y = bMinY; y < bMaxY; y++)
+            {
+                var py = y + 0.5f;
+                for (var x = bMinX; x < bMaxX; x++)
+                {
+                    var px = x + 0.5f;
+                    var w0 = ((pB.X - px) * (pC.Y - py) - (pB.Y - py) * (pC.X - px)) * invDet;
+                    var w1 = ((pC.X - px) * (pA.Y - py) - (pC.Y - py) * (pA.X - px)) * invDet;
+                    var w2 = 1.0f - w0 - w1;
+
+                    if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
+
+                    float sr, sg, sb, sa;
+                    if (isTextured)
+                    {
+                        var u = w0 * uvA.U + w1 * uvB.U + w2 * uvC.U;
+                        var v = w0 * uvA.V + w1 * uvB.V + w2 * uvC.V;
+
+                        SampleTexture(mipLevels, (activeTex.Pixels ?? []), texW, texH, lod, scale, u, v, wrapS, wrapT, minFilter, magFilter, sampledColor);
+
+                        sr = sampledColor[0];
+                        sg = sampledColor[1];
+                        sb = sampledColor[2];
+                        sa = sampledColor[3];
+                    }
+                    else
+                    {
+                        sr = color.R; sg = color.G; sb = color.B; sa = color.A;
+                    }
+
+                    var dstIndex = (y * targetWidth + x) * 4;
+                    if (blend == BlendMode.Normal)
+                    {
+                        var da = dstPixels[dstIndex + 3] / 255.0f;
+                        var outA = sa + da * (1.0f - sa);
+                        if (outA > 0.0f)
+                        {
+                            var dr = dstPixels[dstIndex] / 255.0f;
+                            var dg = dstPixels[dstIndex + 1] / 255.0f;
+                            var db = dstPixels[dstIndex + 2] / 255.0f;
+                            var outR = (sr * sa + dr * da * (1.0f - sa)) / outA;
+                            var outG = (sg * sa + dg * da * (1.0f - sa)) / outA;
+                            var outB = (sb * sa + db * da * (1.0f - sa)) / outA;
+                            if (ColorMaskRed) dstPixels[dstIndex] = (byte)Math.Clamp(MathF.Round(outR * 255.0f), 0, 255);
+                            if (ColorMaskGreen) dstPixels[dstIndex + 1] = (byte)Math.Clamp(MathF.Round(outG * 255.0f), 0, 255);
+                            if (ColorMaskBlue) dstPixels[dstIndex + 2] = (byte)Math.Clamp(MathF.Round(outB * 255.0f), 0, 255);
+                            if (ColorMaskAlpha) dstPixels[dstIndex + 3] = (byte)Math.Clamp(MathF.Round(outA * 255.0f), 0, 255);
+                        }
+                    }
+                    else
+                    {
+                        if (ColorMaskRed) dstPixels[dstIndex] = (byte)Math.Clamp(MathF.Round(sr * 255.0f), 0, 255);
+                        if (ColorMaskGreen) dstPixels[dstIndex + 1] = (byte)Math.Clamp(MathF.Round(sg * 255.0f), 0, 255);
+                        if (ColorMaskBlue) dstPixels[dstIndex + 2] = (byte)Math.Clamp(MathF.Round(sb * 255.0f), 0, 255);
+                        if (ColorMaskAlpha) dstPixels[dstIndex + 3] = (byte)Math.Clamp(MathF.Round(sa * 255.0f), 0, 255);
+                    }
+                }
+            }
         }
-        if (clipped)
-            surface.Canvas.Restore();
-        Canvas.Touch();
+
+        if (!isTargetFbo)
+        {
+            Canvas.Surface()!.WritePixels(0, 0, targetWidth, targetHeight, dstPixels);
+            Canvas.Touch();
+        }
+    }
+
+    private static void SampleTexture(List<(int Width, int Height, byte[] Pixels)>? mipLevels, byte[] basePixels, int baseW, int baseH, float lod, float scale, float u, float v, uint wrapS, uint wrapT, int minFilter, int magFilter, Span<float> result)
+    {
+        if (scale > 1.0f && mipLevels is not null && mipLevels.Count > 1)
+        {
+            var maxL = mipLevels.Count - 1;
+            switch ((uint)minFilter)
+            {
+                case 0x2700:
+                {
+                    var l = Math.Clamp((int)MathF.Round(lod), 0, maxL);
+                    SampleLevel(mipLevels[l].Pixels, mipLevels[l].Width, mipLevels[l].Height, u, v, wrapS, wrapT, 0x2600, result);
+                    return;
+                }
+                case 0x2701:
+                {
+                    var l = Math.Clamp((int)MathF.Round(lod), 0, maxL);
+                    SampleLevel(mipLevels[l].Pixels, mipLevels[l].Width, mipLevels[l].Height, u, v, wrapS, wrapT, 0x2601, result);
+                    return;
+                }
+                case 0x2702:
+                {
+                    var l0 = Math.Clamp((int)MathF.Floor(lod), 0, maxL);
+                    var l1 = Math.Min(l0 + 1, maxL);
+                    var f = lod - l0;
+                    Span<float> c0 = stackalloc float[4];
+                    Span<float> c1 = stackalloc float[4];
+                    SampleLevel(mipLevels[l0].Pixels, mipLevels[l0].Width, mipLevels[l0].Height, u, v, wrapS, wrapT, 0x2600, c0);
+                    SampleLevel(mipLevels[l1].Pixels, mipLevels[l1].Width, mipLevels[l1].Height, u, v, wrapS, wrapT, 0x2600, c1);
+                    for (var i = 0; i < 4; i++) result[i] = c0[i] * (1f - f) + c1[i] * f;
+                    return;
+                }
+                case 0x2703:
+                {
+                    var l0 = Math.Clamp((int)MathF.Floor(lod), 0, maxL);
+                    var l1 = Math.Min(l0 + 1, maxL);
+                    var f = lod - l0;
+                    Span<float> c0 = stackalloc float[4];
+                    Span<float> c1 = stackalloc float[4];
+                    SampleLevel(mipLevels[l0].Pixels, mipLevels[l0].Width, mipLevels[l0].Height, u, v, wrapS, wrapT, 0x2601, c0);
+                    SampleLevel(mipLevels[l1].Pixels, mipLevels[l1].Width, mipLevels[l1].Height, u, v, wrapS, wrapT, 0x2601, c1);
+                    for (var i = 0; i < 4; i++) result[i] = c0[i] * (1f - f) + c1[i] * f;
+                    return;
+                }
+            }
+        }
+        var filter = scale > 1.0f ? minFilter : magFilter;
+        SampleLevel(basePixels, baseW, baseH, u, v, wrapS, wrapT, filter, result);
+    }
+
+    private static float WrapCoord(float coord, uint mode) => mode switch
+    {
+        0x812F => Math.Clamp(coord, 0f, 1f),
+        0x8370 => MathF.Abs(coord) % 2f > 1f ? 1f - (MathF.Abs(coord) % 1f) : MathF.Abs(coord) % 1f,
+        _ => coord - MathF.Floor(coord)
+    };
+
+    private static void SampleLevel(byte[] pixels, int width, int height, float u, float v, uint wrapS, uint wrapT, int filter, Span<float> result)
+    {
+        var wu = WrapCoord(u, wrapS);
+        var wv = WrapCoord(v, wrapT);
+        if (filter == 0x2600)
+        {
+            var tx = Math.Clamp((int)MathF.Floor(wu * width), 0, width - 1);
+            var ty = Math.Clamp((int)MathF.Floor(wv * height), 0, height - 1);
+            var idx = (ty * width + tx) * 4;
+            for (var c = 0; c < 4; c++)
+                result[c] = pixels[idx + c] / 255.0f;
+            return;
+        }
+        var px = wu * width - 0.5f;
+        var py = wv * height - 0.5f;
+        var x0 = (int)MathF.Floor(px);
+        var y0 = (int)MathF.Floor(py);
+        var x1 = x0 + 1;
+        var y1 = y0 + 1;
+        var fx = px - x0;
+        var fy = py - y0;
+
+        var cx0 = Math.Clamp(x0, 0, width - 1);
+        var cx1 = Math.Clamp(x1, 0, width - 1);
+        var cy0 = Math.Clamp(y0, 0, height - 1);
+        var cy1 = Math.Clamp(y1, 0, height - 1);
+
+        var i00 = (cy0 * width + cx0) * 4;
+        var i10 = (cy0 * width + cx1) * 4;
+        var i01 = (cy1 * width + cx0) * 4;
+        var i11 = (cy1 * width + cx1) * 4;
+
+        for (var c = 0; c < 4; c++)
+        {
+            var top = pixels[i00 + c] * (1.0f - fx) + pixels[i10 + c] * fx;
+            var bot = pixels[i01 + c] * (1.0f - fx) + pixels[i11 + c] * fx;
+            result[c] = (top * (1.0f - fy) + bot * fy) / 255.0f;
+        }
     }
     public void DeleteTexture(uint handle)
     {
-        if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
+        var freed = 0;
+        if (Textures.Remove(handle, out var texture)) freed += texture.Pixels.Length;
+        if (TextureMipLevels.Remove(handle, out var mips))
+        {
+            for (var i = 1; i < mips.Count; i++)
+                freed += mips[i].Pixels.Length;
+        }
+        AllocatedBytes = Math.Max(0, AllocatedBytes - freed);
         TextureParameters.Remove(handle);
         TextureInternalFormats.Remove(handle);
         TextureMipmaps.Remove(handle);
@@ -1101,6 +1409,8 @@ internal sealed class WebGlContextState
         FramebufferRenderbufferAttachments.Remove(handle);
         FramebufferDepthRenderbufferAttachments.Remove(handle);
         if (BoundFramebuffer == handle) BoundFramebuffer = null;
+        if (BoundReadFramebuffer == handle) BoundReadFramebuffer = null;
+        if (BoundDrawFramebuffer == handle) BoundDrawFramebuffer = null;
     }
     public void DeleteRenderbuffer(uint handle)
     {
@@ -1117,7 +1427,12 @@ internal sealed class WebGlContextState
     {
         var oldBytes = Renderbuffers.TryGetValue(handle, out var existing) ? existing.Pixels.Length : 0;
         var nextTotal = AllocatedBytes - oldBytes + bytes;
-        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
         AllocatedBytes = nextTotal;
         Renderbuffers[handle] = (width, height, new byte[bytes]);
         return true;
@@ -1125,26 +1440,199 @@ internal sealed class WebGlContextState
     public bool ReplaceTexture(uint handle, int width, int height, int bytes)
     {
         var oldBytes = Textures.TryGetValue(handle, out var existing) ? existing.Pixels.Length : 0;
+        if (TextureMipLevels.TryGetValue(handle, out var existingMips))
+        {
+            for (var i = 1; i < existingMips.Count; i++)
+                oldBytes += existingMips[i].Pixels.Length;
+        }
         var nextTotal = AllocatedBytes - oldBytes + bytes;
-        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
         AllocatedBytes = nextTotal;
-        Textures[handle] = (width, height, new byte[bytes]);
+        var newPixels = new byte[bytes];
+        Textures[handle] = (width, height, newPixels);
+        TextureMipLevels[handle] = [(width, height, newPixels)];
         return true;
     }
-    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, IReadOnlyList<ScriptValue> source)
+    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, ReadOnlySpan<byte> source, bool flipY = false, bool premultiplyAlpha = false)
     {
         if (!Textures.TryGetValue(handle, out var texture)) return;
         var copyWidth = Math.Min(width, Math.Max(0, texture.Width - x));
         var copyHeight = Math.Min(height, Math.Max(0, texture.Height - y));
         for (var row = 0; row < copyHeight; row++)
+        {
+            var srcRow = flipY ? height - 1 - row : row;
             for (var column = 0; column < copyWidth; column++)
             {
-                var sourceIndex = (row * width + column) * 4;
+                var sourceIndex = (srcRow * width + column) * 4;
                 var targetIndex = ((y + row) * texture.Width + x + column) * 4;
-                for (var channel = 0; channel < 4 && sourceIndex + channel < source.Count && targetIndex + channel < texture.Pixels.Length; channel++)
-                    texture.Pixels[targetIndex + channel] = (byte)Math.Clamp(WebIdlConversions.ToInt32(source[sourceIndex + channel]), 0, 255);
+                if (sourceIndex + 3 < source.Length && targetIndex + 3 < texture.Pixels.Length)
+                {
+                    var r = source[sourceIndex];
+                    var g = source[sourceIndex + 1];
+                    var b = source[sourceIndex + 2];
+                    var a = source[sourceIndex + 3];
+                    if (premultiplyAlpha)
+                    {
+                        r = (byte)((r * a) / 255);
+                        g = (byte)((g * a) / 255);
+                        b = (byte)((b * a) / 255);
+                    }
+                    texture.Pixels[targetIndex] = r;
+                    texture.Pixels[targetIndex + 1] = g;
+                    texture.Pixels[targetIndex + 2] = b;
+                    texture.Pixels[targetIndex + 3] = a;
+                }
             }
+        }
         Textures[handle] = texture;
+        if (TextureMipLevels.TryGetValue(handle, out var mips) && mips.Count > 0)
+            mips[0] = texture;
+    }
+    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, IReadOnlyList<ScriptValue> source)
+    {
+        var bytes = new byte[source.Count];
+        for (var i = 0; i < source.Count; i++)
+            bytes[i] = (byte)Math.Clamp(WebIdlConversions.ToInt32(source[i]), 0, 255);
+        CopyTexturePixels(handle, x, y, width, height, bytes, UnpackFlipY, UnpackPremultiplyAlpha);
+    }
+    public bool GenerateMipmaps(uint handle)
+    {
+        if (!Textures.TryGetValue(handle, out var baseTex))
+            return false;
+        TextureMipmaps.Add(handle);
+        if (baseTex.Width <= 0 || baseTex.Height <= 0)
+            return true;
+        var extraBytes = 0;
+        var curW = baseTex.Width;
+        var curH = baseTex.Height;
+        while (curW > 1 || curH > 1)
+        {
+            curW = Math.Max(1, curW / 2);
+            curH = Math.Max(1, curH / 2);
+            extraBytes += curW * curH * 4;
+        }
+        if (!TryAllocate(extraBytes))
+            return false;
+
+        var levels = new List<(int Width, int Height, byte[] Pixels)> { baseTex };
+        curW = baseTex.Width;
+        curH = baseTex.Height;
+        var prevPixels = baseTex.Pixels;
+        while (curW > 1 || curH > 1)
+        {
+            var nextW = Math.Max(1, curW / 2);
+            var nextH = Math.Max(1, curH / 2);
+            var nextPixels = new byte[nextW * nextH * 4];
+            for (var y = 0; y < nextH; y++)
+            {
+                var srcY0 = Math.Min(y * 2, curH - 1);
+                var srcY1 = Math.Min(srcY0 + 1, curH - 1);
+                for (var x = 0; x < nextW; x++)
+                {
+                    var srcX0 = Math.Min(x * 2, curW - 1);
+                    var srcX1 = Math.Min(srcX0 + 1, curW - 1);
+                    var i00 = (srcY0 * curW + srcX0) * 4;
+                    var i10 = (srcY0 * curW + srcX1) * 4;
+                    var i01 = (srcY1 * curW + srcX0) * 4;
+                    var i11 = (srcY1 * curW + srcX1) * 4;
+                    var dstI = (y * nextW + x) * 4;
+                    for (var c = 0; c < 4; c++)
+                    {
+                        var sum = prevPixels[i00 + c] + prevPixels[i10 + c] + prevPixels[i01 + c] + prevPixels[i11 + c];
+                        nextPixels[dstI + c] = (byte)(sum / 4);
+                    }
+                }
+            }
+            levels.Add((nextW, nextH, nextPixels));
+            prevPixels = nextPixels;
+            curW = nextW;
+            curH = nextH;
+        }
+        TextureMipLevels[handle] = levels;
+        TextureMipmaps.Add(handle);
+        return true;
+    }
+    public void BlitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, uint mask, uint filter)
+    {
+        var readFb = BoundReadFramebuffer ?? BoundFramebuffer;
+        var drawFb = BoundDrawFramebuffer ?? BoundFramebuffer;
+        byte[]? srcPixels = null;
+        int srcW = 0, srcH = 0;
+        if (readFb is { } rHandle)
+        {
+            if (FramebufferColorAttachments.TryGetValue(rHandle, out var rTex) && Textures.TryGetValue(rTex, out var rt))
+            {
+                srcPixels = rt.Pixels; srcW = rt.Width; srcH = rt.Height;
+            }
+            else if (FramebufferRenderbufferAttachments.TryGetValue(rHandle, out var rRb) && Renderbuffers.TryGetValue(rRb, out var rb))
+            {
+                srcPixels = rb.Pixels; srcW = rb.Width; srcH = rb.Height;
+            }
+        }
+        else if (_canvas.Surface() is { } surf)
+        {
+            srcPixels = surf.ReadPixels(0, 0, surf.Width, surf.Height);
+            srcW = surf.Width; srcH = surf.Height;
+        }
+
+        if (srcPixels is null || srcW <= 0 || srcH <= 0) return;
+
+        byte[]? dstPixels = null;
+        int dstW = 0, dstH = 0;
+        if (drawFb is { } dHandle)
+        {
+            if (FramebufferColorAttachments.TryGetValue(dHandle, out var dTex) && Textures.TryGetValue(dTex, out var dt))
+            {
+                dstPixels = dt.Pixels; dstW = dt.Width; dstH = dt.Height;
+            }
+            else if (FramebufferRenderbufferAttachments.TryGetValue(dHandle, out var dRb) && Renderbuffers.TryGetValue(dRb, out var db))
+            {
+                dstPixels = db.Pixels; dstW = db.Width; dstH = db.Height;
+            }
+        }
+        else if (_canvas.Surface() is { } surf)
+        {
+            dstPixels = surf.ReadPixels(0, 0, surf.Width, surf.Height);
+            dstW = surf.Width; dstH = surf.Height;
+        }
+
+        if (dstPixels is null || dstW <= 0 || dstH <= 0) return;
+
+        var minDstX = Math.Max(0, Math.Min(dstX0, dstX1));
+        var maxDstX = Math.Min(dstW, Math.Max(dstX0, dstX1));
+        var minDstY = Math.Max(0, Math.Min(dstY0, dstY1));
+        var maxDstY = Math.Min(dstH, Math.Max(dstY0, dstY1));
+        var dstSpanX = dstX1 - dstX0;
+        var dstSpanY = dstY1 - dstY0;
+        if (dstSpanX == 0 || dstSpanY == 0) return;
+
+        for (var dy = minDstY; dy < maxDstY; dy++)
+        {
+            var ty = (float)(dy - dstY0) / dstSpanY;
+            var sy = Math.Clamp((int)(srcY0 + ty * (srcY1 - srcY0)), 0, srcH - 1);
+            for (var dx = minDstX; dx < maxDstX; dx++)
+            {
+                var tx = (float)(dx - dstX0) / dstSpanX;
+                var sx = Math.Clamp((int)(srcX0 + tx * (srcX1 - srcX0)), 0, srcW - 1);
+                var srcIdx = (sy * srcW + sx) * 4;
+                var dstIdx = (dy * dstW + dx) * 4;
+                dstPixels[dstIdx] = srcPixels[srcIdx];
+                dstPixels[dstIdx + 1] = srcPixels[srcIdx + 1];
+                dstPixels[dstIdx + 2] = srcPixels[srcIdx + 2];
+                dstPixels[dstIdx + 3] = srcPixels[srcIdx + 3];
+            }
+        }
+
+        if (drawFb is null && _canvas.Surface() is { } writeSurf)
+        {
+            writeSurf.WritePixels(0, 0, dstW, dstH, dstPixels);
+            _canvas.Touch();
+        }
     }
     public void DeleteShader(uint handle)
     {

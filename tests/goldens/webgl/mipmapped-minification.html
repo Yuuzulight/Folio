@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #ffffff; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  canvas { display: block; border: 2px solid #333333; }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="300"></canvas>
+<script>
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl');
+  gl.viewport(0, 0, 400, 300);
+  gl.clearColor(0.12, 0.12, 0.16, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  const vsSource = `
+    attribute vec2 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() {
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+      v_uv = a_uv;
+    }
+  `;
+  const fsSource = `
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform sampler2D u_tex;
+    void main() {
+      gl_FragColor = texture2D(u_tex, v_uv);
+    }
+  `;
+
+  const vs = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs, vsSource);
+  gl.compileShader(vs);
+
+  const fs = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs, fsSource);
+  gl.compileShader(fs);
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const posLoc = gl.getAttribLocation(prog, 'a_pos');
+  const uvLoc = gl.getAttribLocation(prog, 'a_uv');
+
+  // Create 64x64 checkerboard texture
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  const size = 64;
+  const texData = new Uint8Array(size * size * 4);
+  const c1 = [255, 255, 255, 255]; // White
+  const c2 = [220,  20,  60, 255]; // Crimson
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const idx = (r * size + c) * 4;
+      const color = (r + c) % 2 === 0 ? c1 : c2;
+      texData[idx] = color[0];
+      texData[idx + 1] = color[1];
+      texData[idx + 2] = color[2];
+      texData[idx + 3] = color[3];
+    }
+  }
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+  // Two quads: left is regular size, right is minified
+  const vertices = new Float32Array([
+    // Quad 1: Left (x: -0.85 to -0.15, y: -0.5 to 0.5)
+    -0.85,  0.5,
+    -0.85, -0.5,
+    -0.15, -0.5,
+    -0.15,  0.5,
+
+    // Quad 2: Right minified (x: 0.25 to 0.55, y: -0.2 to 0.2)
+     0.25,  0.2,
+     0.25, -0.2,
+     0.55, -0.2,
+     0.55,  0.2
+  ]);
+
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const uvs = new Float32Array([
+    // Quad 1 UVs
+    0.0, 1.0,
+    0.0, 0.0,
+    1.0, 0.0,
+    1.0, 1.0,
+
+    // Quad 2 UVs
+    0.0, 1.0,
+    0.0, 0.0,
+    1.0, 0.0,
+    1.0, 1.0
+  ]);
+
+  const uvBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(uvLoc);
+  gl.vertexAttribPointer(uvLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const indices = new Uint16Array([
+    0, 1, 2, 0, 2, 3,
+    4, 5, 6, 4, 6, 7
+  ]);
+  const ibo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+  gl.drawElements(gl.TRIANGLES, 12, gl.UNSIGNED_SHORT, 0);
+</script>
+</body>
+</html>

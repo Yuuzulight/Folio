@@ -27,18 +27,30 @@ public static class TestRenderer
     {
         var html = File.ReadAllText(htmlPath);
         using var document = Document.Parse(html, Options);
-        if (html.Contains("<script", StringComparison.OrdinalIgnoreCase))
+        JintScriptEngine? engine = null;
+        HtmlEventLoop? loop = null;
+        ScriptRunner? runner = null;
+        try
         {
-            using var engine = new JintScriptEngine();
-            using var loop = new HtmlEventLoop(engine);
-            DomBindings.Install(engine, document, eventLoop: loop);
-            ScriptGlobalsInstaller.Install(loop, engine);
-            using var runner = new ScriptRunner(document.Node, engine, loop, Options);
-            runner.Run();
-            loop.PerformMicrotaskCheckpoint();
-            loop.UpdateTheRendering();
+            if (html.Contains("<script", StringComparison.OrdinalIgnoreCase))
+            {
+                engine = new JintScriptEngine();
+                loop = new HtmlEventLoop(engine);
+                DomBindings.Install(engine, document, eventLoop: loop);
+                ScriptGlobalsInstaller.Install(loop, engine);
+                runner = new ScriptRunner(document.Node, engine, loop, Options);
+                runner.Run();
+                loop.PerformMicrotaskCheckpoint();
+                loop.UpdateTheRendering();
+            }
+            using var result = HeadlessRenderer.Render(document, new RenderRequest(800, 600));
+            return new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
         }
-        using var result = HeadlessRenderer.Render(document, new RenderRequest(800, 600));
-        return new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
+        finally
+        {
+            runner?.Dispose();
+            loop?.Dispose();
+            engine?.Dispose();
+        }
     }
 }

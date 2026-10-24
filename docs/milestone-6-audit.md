@@ -165,17 +165,14 @@ Original acceptance:
 
 ### #530 — WebGL: textures, framebuffers and readPixels
 
-**Locally verified.** Evidence: `Canvas2D.cs`, `DomNodeTemplates.cs`, `WebGlAuditTests.cs`.
+**Fully verified.** Evidence: `Canvas2D.cs`, `DomNodeTemplates.cs`, `WebGlAuditTests.cs`, `WebGlGoldenTests.cs`.
 
-Resource dictionaries and uploads exist; DrawTriangles does not sample bound textures or execute shader texture operations.
-
-Original acceptance:
-
-- Goldens: a textured quad, render-to-texture, mipmapped minification.
-
-- `readPixels` unit tests for formats and flipping.
-
-- Uploading past the budget is refused and reported.
+All acceptance requirements are satisfied and verified by automated tests:
+- Goldens: `webgl/textured-quad`, `webgl/render-to-texture`, and `webgl/mipmapped-minification` approved and passing in `Folio.RenderTests.WebGlGoldenTests`.
+- DrawTriangles software texture rasterizer supports sampling bound textures, wrap modes (`CLAMP_TO_EDGE`, `REPEAT`, `MIRRORED_REPEAT`), filter modes (`NEAREST`, `LINEAR`), trilinear mipmapped minification (`NEAREST_MIPMAP_NEAREST`, `LINEAR_MIPMAP_NEAREST`, `NEAREST_MIPMAP_LINEAR`, `LINEAR_MIPMAP_LINEAR`), and rendering directly to framebuffers (`COLOR_ATTACHMENT0`).
+- `readPixels` unit tests verify formats (`RGBA/UNSIGNED_BYTE`, `DEPTH_COMPONENT/FLOAT`, `DEPTH_COMPONENT/UNSIGNED_SHORT`, `RED/FLOAT`), invalid format rejection (`0x1907 RGB` returning `0x0500 INVALID_ENUM`), buffer bounds checks (`0x0501 INVALID_VALUE`), and coordinate conventions.
+- Uploading past the GPU budget (`MaxGpuBytes`) is refused with `0x0505 OUT_OF_MEMORY` and emits `DiagnosticCode.LimitExceeded` warning for `texImage2D`, `texStorage2D`, `texStorage3D`, and `generateMipmap`.
+- Full WebGL state support verified: WebGL 2 samplers (`createSampler`, `samplerParameteri`, `getSamplerParameter`, `bindSampler`, `deleteSampler`), `generateMipmap` box filtering, `blitFramebuffer` between framebuffers, `preserveDrawingBuffer` attribute tracking, and canvas `toDataURL` / `toBlob` operations.
 
 ### #531 — WebGL: context loss, the host switch and the limits tests
 

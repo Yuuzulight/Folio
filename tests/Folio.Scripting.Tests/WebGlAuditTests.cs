@@ -495,4 +495,344 @@ public sealed class WebGlAuditTests
         // OUT_OF_MEMORY = 0x0505
         Assert.Equal(0x0505, (int)engine.Evaluate("err").AsNumber());
     }
+
+    [Fact]
+    public void WebGlCanvasProducesValidSnapshotAndNoFallback()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='100' height='100'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+        engine.Evaluate("""
+            var gl = document.getElementById('canvas').getContext('webgl');
+            gl.clearColor(1.0, 0.0, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        """);
+        var el = (ElementNode)document.Node.Descendants.First(n => n is ElementNode e && e.LocalName == "canvas");
+        var state = (CanvasElementState)el.CanvasSurface!;
+        Assert.Null(state.Fallback);
+        var snapshot = state.Snapshot();
+        Assert.NotNull(snapshot);
+        var p = snapshot.Pixels.Span;
+        Assert.Equal(255, p[0]);
+        Assert.Equal(0, p[1]);
+        Assert.Equal(0, p[2]);
+        Assert.Equal(255, p[3]);
+    }
+
+    [Fact]
+    public void ReadPixelsFormatsAndCoordinatesFlipping()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='4' height='4'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var gl = document.getElementById('canvas').getContext('webgl');
+            gl.enable(gl.SCISSOR_TEST);
+
+            // Bottom half in WebGL window coords: y=0, height=2
+            gl.scissor(0, 0, 4, 2);
+            gl.clearColor(0.0, 1.0, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            // Top half in WebGL window coords: y=2, height=2
+            gl.scissor(0, 2, 4, 2);
+            gl.clearColor(1.0, 0.0, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.disable(gl.SCISSOR_TEST);
+        """);
+
+        // WebGL window coords: read bottom-left (y=0, height=1) -> green
+        engine.Evaluate("""
+            var bufBottom = new Uint8Array(4);
+            gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, bufBottom);
+        """);
+        var gBottom = (int)engine.Evaluate("bufBottom[1]").AsNumber();
+        var rBottom = (int)engine.Evaluate("bufBottom[0]").AsNumber();
+        Assert.Equal(255, gBottom);
+        Assert.Equal(0, rBottom);
+
+        // WebGL window coords: read top-left (y=3, height=1) -> red
+        engine.Evaluate("""
+            var bufTop = new Uint8Array(4);
+            gl.readPixels(0, 3, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, bufTop);
+        """);
+        var rTop = (int)engine.Evaluate("bufTop[0]").AsNumber();
+        var gTop = (int)engine.Evaluate("bufTop[1]").AsNumber();
+        Assert.Equal(255, rTop);
+        Assert.Equal(0, gTop);
+
+        // Test RED / FLOAT readback
+        engine.Evaluate("""
+            var redBuf = new Float32Array(1);
+            gl.readPixels(0, 3, 1, 1, 0x1903 /* RED */, gl.FLOAT, redBuf);
+        """);
+        Assert.InRange((float)engine.Evaluate("redBuf[0]").AsNumber(), 0.99f, 1.01f);
+
+        // Test DEPTH_COMPONENT / FLOAT and UNSIGNED_SHORT on depth buffer
+        engine.Evaluate("""
+            var fb = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+            var rb = gl.createRenderbuffer();
+            gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+            gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 4, 4);
+            gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+            gl.clearDepth(0.5);
+            gl.clear(gl.DEPTH_BUFFER_BIT);
+
+            var depthFloat = new Float32Array(1);
+            gl.readPixels(0, 0, 1, 1, gl.DEPTH_COMPONENT, gl.FLOAT, depthFloat);
+            var depthShort = new Uint16Array(1);
+            gl.readPixels(0, 0, 1, 1, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, depthShort);
+        """);
+        var df = (float)engine.Evaluate("depthFloat[0]").AsNumber();
+        var ds = (int)engine.Evaluate("depthShort[0]").AsNumber();
+        Assert.InRange(df, 0.49f, 0.51f);
+        Assert.InRange(ds, 32000, 33000);
+    }
+
+    [Fact]
+    public void TextureUploadPastBudgetRefusedAndReportsDiagnostic()
+    {
+        var diagnostics = new List<Diagnostic>();
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='10' height='10'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Limits = new ResourceLimits { MaxGpuBytes = 1024 }
+        });
+        document.Node.DiagnosticSink = diagnostics.Add;
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var gl = document.getElementById('canvas').getContext('webgl');
+            var tex1 = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex1);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            var err1 = gl.getError();
+
+            var tex2 = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex2);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            var err2 = gl.getError();
+        """);
+
+        Assert.Equal(0, (int)engine.Evaluate("err1").AsNumber());
+        Assert.Equal(0x0505 /* OUT_OF_MEMORY */, (int)engine.Evaluate("err2").AsNumber());
+
+        var diag = diagnostics.FirstOrDefault(d => d.Code == DiagnosticCode.LimitExceeded);
+        Assert.NotNull(diag);
+        Assert.Equal("webgl", diag.Feature);
+        Assert.Equal(Severity.Warning, diag.Severity);
+    }
+
+    [Fact]
+    public void TexStorageAndGenerateMipmapMemoryBudgetEnforcement()
+    {
+        var diagnostics = new List<Diagnostic>();
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='10' height='10'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Limits = new ResourceLimits { MaxGpuBytes = 1024 }
+        });
+        document.Node.DiagnosticSink = diagnostics.Add;
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var gl = document.getElementById('canvas').getContext('webgl');
+            var tex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texStorage2D(gl.TEXTURE_2D, 4, gl.RGBA8, 16, 16);
+            var err = gl.getError();
+        """);
+
+        Assert.Equal(0x0505 /* OUT_OF_MEMORY */, (int)engine.Evaluate("err").AsNumber());
+        Assert.Contains(diagnostics, d => d.Code == DiagnosticCode.LimitExceeded && d.Feature == "webgl");
+    }
+
+    [Fact]
+    public void TexImage2DWithImageAndCanvasAndImageDataSources()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("""
+            <canvas id='srcCanvas' width='2' height='2'></canvas>
+            <canvas id='glCanvas' width='2' height='2'></canvas>
+        """, new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var src = document.getElementById('srcCanvas').getContext('2d');
+            src.fillStyle = '#ff0000';
+            src.fillRect(0, 0, 2, 2);
+
+            var gl = document.getElementById('glCanvas').getContext('webgl');
+            var tex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+
+            // 6-argument texImage2D with HTMLCanvasElement
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, document.getElementById('srcCanvas'));
+            var errCanvas = gl.getError();
+
+            // 6-argument texImage2D with ImageData
+            var imgData = src.createImageData(2, 2);
+            imgData.data[0] = 0; imgData.data[1] = 255; imgData.data[2] = 0; imgData.data[3] = 255;
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imgData);
+            var errImgData = gl.getError();
+
+            // pixelStorei parameters
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+            var flipY = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+            var premult = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+        """);
+
+        Assert.Equal(0, (int)engine.Evaluate("errCanvas").AsNumber());
+        Assert.Equal(0, (int)engine.Evaluate("errImgData").AsNumber());
+        Assert.True(engine.Evaluate("flipY").AsBoolean());
+        Assert.True(engine.Evaluate("premult").AsBoolean());
+    }
+
+    [Fact]
+    public void BlitFramebufferCopiesPixelsBetweenFramebuffers()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='4' height='4'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var gl = document.getElementById('canvas').getContext('webgl');
+            // Create Read FBO
+            var fboRead = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fboRead);
+            var texRead = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texRead);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 4, 4, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texRead, 0);
+            gl.clearColor(0.2, 0.4, 0.8, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            // Create Draw FBO
+            var fboDraw = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fboDraw);
+            var texDraw = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texDraw);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 4, 4, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texDraw, 0);
+
+            // Bind read and draw framebuffers
+            gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboRead);
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fboDraw);
+
+            // Blit
+            gl.blitFramebuffer(0, 0, 4, 4, 0, 0, 4, 4, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+
+            // Readback from draw FBO
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fboDraw);
+            var readBuf = new Uint8Array(16);
+            gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, readBuf);
+        """);
+
+        var r = (int)engine.Evaluate("readBuf[0]").AsNumber();
+        var g = (int)engine.Evaluate("readBuf[1]").AsNumber();
+        var b = (int)engine.Evaluate("readBuf[2]").AsNumber();
+        var a = (int)engine.Evaluate("readBuf[3]").AsNumber();
+
+        Assert.InRange(r, 50, 52);
+        Assert.InRange(g, 101, 103);
+        Assert.InRange(b, 203, 205);
+        Assert.Equal(255, a);
+    }
+
+    [Fact]
+    public void ContextAttributesAndToBlobOnWebGlCanvas()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='10' height='10'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Raster = new Folio.Skia.SkiaRasterBackend()
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var canvas = document.getElementById('canvas');
+            var gl = canvas.getContext('webgl', { preserveDrawingBuffer: true, alpha: false, antialias: false });
+            var attrs = gl.getContextAttributes();
+            var pdb = attrs.preserveDrawingBuffer;
+            var alpha = attrs.alpha;
+            var antialias = attrs.antialias;
+
+            gl.clearColor(1.0, 0.5, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            var dataUrl = canvas.toDataURL();
+            var blobReceived = null;
+            canvas.toBlob(function(b) { blobReceived = b; }, 'image/png');
+        """);
+
+        Assert.True(engine.Evaluate("pdb").AsBoolean());
+        Assert.False(engine.Evaluate("alpha").AsBoolean());
+        Assert.False(engine.Evaluate("antialias").AsBoolean());
+        var dataUrl = engine.Evaluate("dataUrl").AsString();
+        Assert.StartsWith("data:image/png;base64,", dataUrl);
+        Assert.False(engine.Evaluate("blobReceived === null").AsBoolean());
+    }
+
+    [Fact]
+    public void WebGl2SamplersAndMipmaps()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<canvas id='canvas' width='10' height='10'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }
+        });
+        DomBindings.Install(engine, document);
+
+        engine.Evaluate("""
+            var gl = document.getElementById('canvas').getContext('webgl');
+            var sampler = gl.createSampler();
+            var isSamplerBefore = gl.isSampler(sampler);
+
+            gl.samplerParameteri(sampler, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+            gl.samplerParameteri(sampler, gl.TEXTURE_WRAP_S, gl.REPEAT);
+
+            var minFilter = gl.getSamplerParameter(sampler, gl.TEXTURE_MIN_FILTER);
+            var wrapS = gl.getSamplerParameter(sampler, gl.TEXTURE_WRAP_S);
+
+            gl.bindSampler(0, sampler);
+
+            // Texture mipmap generation
+            var tex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.generateMipmap(gl.TEXTURE_2D);
+            var errMip = gl.getError();
+
+            gl.deleteSampler(sampler);
+            var isSamplerAfter = gl.isSampler(sampler);
+        """);
+
+        Assert.True(engine.Evaluate("isSamplerBefore").AsBoolean());
+        Assert.Equal(0x2703 /* LINEAR_MIPMAP_LINEAR */, (int)engine.Evaluate("minFilter").AsNumber());
+        Assert.Equal(0x2901 /* REPEAT */, (int)engine.Evaluate("wrapS").AsNumber());
+        Assert.Equal(0, (int)engine.Evaluate("errMip").AsNumber());
+        Assert.False(engine.Evaluate("isSamplerAfter").AsBoolean());
+    }
 }

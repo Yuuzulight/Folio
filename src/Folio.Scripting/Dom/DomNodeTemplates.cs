@@ -257,7 +257,24 @@ internal sealed class DomNodeTemplates
                 if (canvas.WebGlContext is { } existing)
                     return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, existing);
                 canvas.ClearFallback();
-                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes));
+                var state = new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes);
+                if (args.Length > 1 && args[1].IsObject)
+                {
+                    var opt = args[1];
+                    if (_context.Engine.GetProperty(opt, "preserveDrawingBuffer") is { IsUndefined: false } pdb)
+                        state.PreserveDrawingBuffer = WebIdlConversions.ToBoolean(pdb);
+                    if (_context.Engine.GetProperty(opt, "alpha") is { IsUndefined: false } a)
+                        state.Alpha = WebIdlConversions.ToBoolean(a);
+                    if (_context.Engine.GetProperty(opt, "depth") is { IsUndefined: false } d)
+                        state.Depth = WebIdlConversions.ToBoolean(d);
+                    if (_context.Engine.GetProperty(opt, "stencil") is { IsUndefined: false } s)
+                        state.Stencil = WebIdlConversions.ToBoolean(s);
+                    if (_context.Engine.GetProperty(opt, "antialias") is { IsUndefined: false } aa)
+                        state.Antialias = WebIdlConversions.ToBoolean(aa);
+                    if (_context.Engine.GetProperty(opt, "premultipliedAlpha") is { IsUndefined: false } pa)
+                        state.PremultipliedAlpha = WebIdlConversions.ToBoolean(pa);
+                }
+                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext = state);
             }
             return ScriptValue.Null;
         });
@@ -277,6 +294,32 @@ internal sealed class DomNodeTemplates
                 bytes = surface.Encode(type, 1);
             }
             return ScriptValue.FromString(bytes is null ? "data:," : $"data:{type};base64,{Convert.ToBase64String(bytes)}");
+        });
+        t.DefineMethod("toBlob", (target, _, args) =>
+        {
+            var canvas = _context.GetCanvas((ElementNode)target);
+            if (args.Length == 0 || !args[0].IsFunction)
+                throw WebIdlException.TypeError("toBlob requires a callback function.");
+            var callback = args[0];
+            var type = args.Length > 1 && args[1].IsString ? args[1].AsString()!.ToLowerInvariant() : "image/png";
+            var quality = args.Length > 2 && args[2].IsNumber ? args[2].AsNumber() : 0.92;
+            if (canvas.Width == 0 || canvas.Height == 0 || canvas.Surface() is not { } surface)
+            {
+                _context.Engine.Call(callback, ScriptValue.Undefined, [ScriptValue.Null]);
+                return ScriptValue.Undefined;
+            }
+            canvas.Sync();
+            var bytes = surface.Encode(type, quality) ?? surface.Encode("image/png", 1);
+            if (bytes is null)
+            {
+                _context.Engine.Call(callback, ScriptValue.Undefined, [ScriptValue.Null]);
+                return ScriptValue.Undefined;
+            }
+            var buffer = _context.Engine.CreateArrayBuffer(bytes);
+            var blobFunc = _context.Engine.Evaluate("(buf, t) => new Blob([buf], { type: t })");
+            var blob = _context.Engine.Call(blobFunc, ScriptValue.Undefined, [buffer, ScriptValue.FromString(type)]);
+            _context.Engine.Call(callback, ScriptValue.Undefined, [blob]);
+            return ScriptValue.Undefined;
         });
         return t;
     }
@@ -557,8 +600,25 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("LINEAR", (_, _) => ScriptValue.FromNumber(0x2601));
         t.DefineProperty("NEAREST", (_, _) => ScriptValue.FromNumber(0x2600));
         t.DefineProperty("CLAMP_TO_EDGE", (_, _) => ScriptValue.FromNumber(0x812F));
+        t.DefineProperty("NEAREST_MIPMAP_NEAREST", (_, _) => ScriptValue.FromNumber(0x2700));
+        t.DefineProperty("LINEAR_MIPMAP_NEAREST", (_, _) => ScriptValue.FromNumber(0x2701));
+        t.DefineProperty("NEAREST_MIPMAP_LINEAR", (_, _) => ScriptValue.FromNumber(0x2702));
+        t.DefineProperty("LINEAR_MIPMAP_LINEAR", (_, _) => ScriptValue.FromNumber(0x2703));
+        t.DefineProperty("REPEAT", (_, _) => ScriptValue.FromNumber(0x2901));
+        t.DefineProperty("MIRRORED_REPEAT", (_, _) => ScriptValue.FromNumber(0x8370));
+        t.DefineProperty("RGB", (_, _) => ScriptValue.FromNumber(0x1907));
+        t.DefineProperty("LUMINANCE", (_, _) => ScriptValue.FromNumber(0x1909));
+        t.DefineProperty("ALPHA", (_, _) => ScriptValue.FromNumber(0x1906));
+        t.DefineProperty("LUMINANCE_ALPHA", (_, _) => ScriptValue.FromNumber(0x190A));
+        t.DefineProperty("UNPACK_FLIP_Y_WEBGL", (_, _) => ScriptValue.FromNumber(0x9240));
+        t.DefineProperty("UNPACK_PREMULTIPLY_ALPHA_WEBGL", (_, _) => ScriptValue.FromNumber(0x9241));
+        t.DefineProperty("UNPACK_ALIGNMENT", (_, _) => ScriptValue.FromNumber(0x0CF5));
+        t.DefineProperty("PACK_ALIGNMENT", (_, _) => ScriptValue.FromNumber(0x0D05));
+        t.DefineProperty("SAMPLER_BINDING", (_, _) => ScriptValue.FromNumber(0x8919));
         t.DefineProperty("TEXTURE0", (_, _) => ScriptValue.FromNumber(0x84C0));
         t.DefineProperty("FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8D40));
+        t.DefineProperty("READ_FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8CA8));
+        t.DefineProperty("DRAW_FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8CA9));
         t.DefineProperty("RENDERBUFFER", (_, _) => ScriptValue.FromNumber(0x8D41));
         t.DefineProperty("FRAMEBUFFER_COMPLETE", (_, _) => ScriptValue.FromNumber(0x8CD5));
         t.DefineProperty("COLOR_ATTACHMENT0", (_, _) => ScriptValue.FromNumber(0x8CE0));
@@ -631,6 +691,15 @@ internal sealed class DomNodeTemplates
                 0x8894 => state.BoundArrayBuffer is { } ab ? ScriptValue.FromNumber(ab) : ScriptValue.Null,
                 0x8895 => state.BoundElementArrayBuffer is { } eb ? ScriptValue.FromNumber(eb) : ScriptValue.Null,
                 0x8B8D => state.CurrentProgram is { } cp ? ScriptValue.FromNumber(cp) : ScriptValue.Null,
+                0x9240 => ScriptValue.FromBoolean(state.UnpackFlipY),
+                0x9241 => ScriptValue.FromBoolean(state.UnpackPremultiplyAlpha),
+                0x0CF5 => ScriptValue.FromNumber(state.UnpackAlignment),
+                0x0D05 => ScriptValue.FromNumber(state.PackAlignment),
+                0x8CAA => state.BoundReadFramebuffer is { } rfb ? ScriptValue.FromNumber(rfb) : (state.BoundFramebuffer is { } fb ? ScriptValue.FromNumber(fb) : ScriptValue.Null),
+                0x8CA6 => state.BoundDrawFramebuffer is { } dfb ? ScriptValue.FromNumber(dfb) : (state.BoundFramebuffer is { } fb2 ? ScriptValue.FromNumber(fb2) : ScriptValue.Null),
+                0x8069 => state.BoundTexture is { } bt ? ScriptValue.FromNumber(bt) : ScriptValue.Null,
+                0x8CA7 => state.BoundFramebuffer is { } fbb ? ScriptValue.FromNumber(fbb) : ScriptValue.Null,
+                0x8D40 => state.BoundRenderbuffer is { } rbb ? ScriptValue.FromNumber(rbb) : ScriptValue.Null,
                 _ => ScriptValue.Null
             };
         });
@@ -638,7 +707,50 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("viewport", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.ViewportX = WebIdlConversions.ToInt32(args[0]); state.ViewportY = WebIdlConversions.ToInt32(args[1]); state.ViewportWidth = Math.Max(0, WebIdlConversions.ToInt32(args[2])); state.ViewportHeight = Math.Max(0, WebIdlConversions.ToInt32(args[3])); } return ScriptValue.Undefined; });
         t.DefineMethod("scissor", (target, _, args) => { if (args.Length > 3) { var state = (WebGlContextState)target; state.ScissorX = WebIdlConversions.ToInt32(args[0]); state.ScissorY = WebIdlConversions.ToInt32(args[1]); state.ScissorWidth = Math.Max(0, WebIdlConversions.ToInt32(args[2])); state.ScissorHeight = Math.Max(0, WebIdlConversions.ToInt32(args[3])); } return ScriptValue.Undefined; });
         t.DefineMethod("getSupportedExtensions", (target, _, _) => _context.Engine.CreateArray([ScriptValue.FromString("WEBGL_lose_context")]));
-        t.DefineMethod("getContextAttributes", (_, _, _) => _context.Engine.Evaluate("({ alpha: true, depth: true, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })"));
+        t.DefineMethod("getContextAttributes", (target, _, _) =>
+        {
+            var state = (WebGlContextState)target;
+            return _context.Engine.Evaluate($$"""
+                ({
+                    alpha: {{(state.Alpha ? "true" : "false")}},
+                    depth: {{(state.Depth ? "true" : "false")}},
+                    stencil: {{(state.Stencil ? "true" : "false")}},
+                    antialias: {{(state.Antialias ? "true" : "false")}},
+                    premultipliedAlpha: {{(state.PremultipliedAlpha ? "true" : "false")}},
+                    preserveDrawingBuffer: {{(state.PreserveDrawingBuffer ? "true" : "false")}}
+                })
+                """);
+        });
+        t.DefineMethod("pixelStorei", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var pname = WebIdlConversions.ToUint32(args[0]);
+            var param = WebIdlConversions.ToInt32(args[1]);
+            switch (pname)
+            {
+                case 0x9240:
+                    state.UnpackFlipY = param != 0;
+                    break;
+                case 0x9241:
+                    state.UnpackPremultiplyAlpha = param != 0;
+                    break;
+                case 0x0CF5:
+                    if (param is 1 or 2 or 4 or 8) state.UnpackAlignment = param;
+                    else state.SetError(0x0501);
+                    break;
+                case 0x0D05:
+                    if (param is 1 or 2 or 4 or 8) state.PackAlignment = param;
+                    else state.SetError(0x0501);
+                    break;
+                case 0x9243:
+                    state.UnpackColorspaceConversion = (uint)param;
+                    break;
+                default:
+                    break;
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("createBuffer", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Buffers[handle] = []; return ScriptValue.FromNumber(handle); });
         t.DefineMethod("bindBuffer", (target, _, args) => { var state = (WebGlContextState)target; var binding = args.Length > 1 && !args[1].IsNullOrUndefined ? (uint?)WebIdlConversions.ToUint32(args[1]) : null; if (args.Length > 0 && WebIdlConversions.ToUint32(args[0]) == 0x8893) state.BoundElementArrayBuffer = binding; else state.BoundArrayBuffer = binding; return ScriptValue.Undefined; });
         t.DefineMethod("bufferData", (target, _, args) =>
@@ -943,19 +1055,182 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("texImage2D", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
-            if (state.BoundTexture is not { } handle || args.Length < 9) { state.SetError(0x0502); return ScriptValue.Undefined; }
-            var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
-            var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
-            var bytes = Math.Min(width * height * 4, 64 * 1024 * 1024);
-            if (state.ReplaceTexture(handle, width, height, bytes) && args.Length > 8 && _context.Engine.TryGetArrayItems(args[8], out var source))
-                state.CopyTexturePixels(handle, 0, 0, width, height, source);
-            if (state.Textures.ContainsKey(handle)) state.TextureInternalFormats[handle] = WebIdlConversions.ToUint32(args[2]);
+            if (state.BoundTexture is not { } handle) { state.SetError(0x0502); return ScriptValue.Undefined; }
+
+            // 6-argument overload: texImage2D(target, level, internalformat, format, type, source)
+            if (args.Length == 6)
+            {
+                var internalFormat = WebIdlConversions.ToUint32(args[2]);
+                var format = WebIdlConversions.ToUint32(args[3]);
+                var type = WebIdlConversions.ToUint32(args[4]);
+                var source = args[5];
+
+                if (!TryExtractImageSource(source, out var width, out var height, out var sourcePixels) || sourcePixels is null)
+                {
+                    state.SetError(0x0502);
+                    return ScriptValue.Undefined;
+                }
+
+                var bytes = width * height * 4;
+                if (!state.ReplaceTexture(handle, width, height, bytes))
+                    return ScriptValue.Undefined;
+
+                state.CopyTexturePixels(handle, 0, 0, width, height, sourcePixels, state.UnpackFlipY, state.UnpackPremultiplyAlpha);
+                state.TextureInternalFormats[handle] = internalFormat;
+                return ScriptValue.Undefined;
+            }
+
+            // 9-argument (or WebGL2 10-argument) overload
+            if (args.Length >= 9)
+            {
+                var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
+                var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
+                var internalFormat = WebIdlConversions.ToUint32(args[2]);
+                var format = WebIdlConversions.ToUint32(args[6]);
+                var type = WebIdlConversions.ToUint32(args[7]);
+
+                var bytes = Math.Min(width * height * 4, 64 * 1024 * 1024);
+                if (!state.ReplaceTexture(handle, width, height, bytes))
+                    return ScriptValue.Undefined;
+
+                state.TextureInternalFormats[handle] = internalFormat;
+
+                if (!args[8].IsNullOrUndefined && _context.Engine.TryGetArrayItems(args[8], out var items))
+                {
+                    var srcOffset = args.Length > 9 ? Math.Max(0, WebIdlConversions.ToInt32(args[9])) : 0;
+                    var pixelBytes = ConvertToRgbaBytes(items, srcOffset, width, height, format, type);
+                    state.CopyTexturePixels(handle, 0, 0, width, height, pixelBytes, state.UnpackFlipY, state.UnpackPremultiplyAlpha);
+                }
+                return ScriptValue.Undefined;
+            }
+
+            state.SetError(0x0502);
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("texStorage2D", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 4) { state.SetError(0x0502); return ScriptValue.Undefined; } var width = Math.Clamp(WebIdlConversions.ToInt32(args[2]), 0, 4096); var height = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096); state.ReplaceTexture(handle, width, height, Math.Min(width * height * 4, 64 * 1024 * 1024)); state.TextureInternalFormats[handle] = WebIdlConversions.ToUint32(args[1]); return ScriptValue.Undefined; });
-        t.DefineMethod("texStorage3D", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 5) { state.SetError(0x0502); return ScriptValue.Undefined; } var width = Math.Clamp(WebIdlConversions.ToInt32(args[2]), 0, 2048); var height = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 2048); var depth = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 256); state.ReplaceTexture(handle, width, height * depth, Math.Min(width * height * depth * 4, 64 * 1024 * 1024)); state.TextureInternalFormats[handle] = WebIdlConversions.ToUint32(args[1]); return ScriptValue.Undefined; });
-        t.DefineMethod("texSubImage2D", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 9 || !state.Textures.ContainsKey(handle)) { state.SetError(0x0502); return ScriptValue.Undefined; } var x = Math.Max(0, WebIdlConversions.ToInt32(args[2])); var y = Math.Max(0, WebIdlConversions.ToInt32(args[3])); var width = Math.Max(0, WebIdlConversions.ToInt32(args[4])); var height = Math.Max(0, WebIdlConversions.ToInt32(args[5])); if (_context.Engine.TryGetArrayItems(args[8], out var source)) state.CopyTexturePixels(handle, x, y, width, height, source); return ScriptValue.Undefined; });
-        t.DefineMethod("generateMipmap", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length == 0 || !state.Textures.ContainsKey(handle)) state.SetError(0x0502); else state.TextureMipmaps.Add(handle); return ScriptValue.Undefined; });
+        t.DefineMethod("texStorage2D", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (state.BoundTexture is not { } handle || args.Length < 5)
+            {
+                state.SetError(0x0502);
+                return ScriptValue.Undefined;
+            }
+            var levels = Math.Clamp(WebIdlConversions.ToInt32(args[1]), 1, 16);
+            var internalFormat = WebIdlConversions.ToUint32(args[2]);
+            var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 4096);
+            var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 4096);
+
+            var totalBytes = 0;
+            var curW = width;
+            var curH = height;
+            for (var l = 0; l < levels; l++)
+            {
+                totalBytes += curW * curH * 4;
+                curW = Math.Max(1, curW / 2);
+                curH = Math.Max(1, curH / 2);
+            }
+            if (!state.ReplaceTexture(handle, width, height, totalBytes))
+                return ScriptValue.Undefined;
+
+            state.TextureInternalFormats[handle] = internalFormat;
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("texStorage3D", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (state.BoundTexture is not { } handle || args.Length < 6)
+            {
+                state.SetError(0x0502);
+                return ScriptValue.Undefined;
+            }
+            var levels = Math.Clamp(WebIdlConversions.ToInt32(args[1]), 1, 16);
+            var internalFormat = WebIdlConversions.ToUint32(args[2]);
+            var width = Math.Clamp(WebIdlConversions.ToInt32(args[3]), 0, 2048);
+            var height = Math.Clamp(WebIdlConversions.ToInt32(args[4]), 0, 2048);
+            var depth = Math.Clamp(WebIdlConversions.ToInt32(args[5]), 0, 256);
+
+            var totalBytes = 0;
+            var curW = width;
+            var curH = height;
+            var curD = depth;
+            for (var l = 0; l < levels; l++)
+            {
+                totalBytes += curW * curH * curD * 4;
+                curW = Math.Max(1, curW / 2);
+                curH = Math.Max(1, curH / 2);
+                curD = Math.Max(1, curD / 2);
+            }
+            if (!state.ReplaceTexture(handle, width, height * depth, totalBytes))
+                return ScriptValue.Undefined;
+
+            state.TextureInternalFormats[handle] = internalFormat;
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("texSubImage2D", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (state.BoundTexture is not { } handle || !state.Textures.ContainsKey(handle))
+            {
+                state.SetError(0x0502);
+                return ScriptValue.Undefined;
+            }
+
+            // 7-argument overload
+            if (args.Length == 7)
+            {
+                var x = Math.Max(0, WebIdlConversions.ToInt32(args[2]));
+                var y = Math.Max(0, WebIdlConversions.ToInt32(args[3]));
+                var source = args[6];
+                if (!TryExtractImageSource(source, out var width, out var height, out var sourcePixels) || sourcePixels is null)
+                {
+                    state.SetError(0x0502);
+                    return ScriptValue.Undefined;
+                }
+                state.CopyTexturePixels(handle, x, y, width, height, sourcePixels, state.UnpackFlipY, state.UnpackPremultiplyAlpha);
+                return ScriptValue.Undefined;
+            }
+
+            // 9-argument overload
+            if (args.Length >= 9)
+            {
+                var x = Math.Max(0, WebIdlConversions.ToInt32(args[2]));
+                var y = Math.Max(0, WebIdlConversions.ToInt32(args[3]));
+                var width = Math.Max(0, WebIdlConversions.ToInt32(args[4]));
+                var height = Math.Max(0, WebIdlConversions.ToInt32(args[5]));
+                var format = WebIdlConversions.ToUint32(args[6]);
+                var type = WebIdlConversions.ToUint32(args[7]);
+
+                if (!args[8].IsNullOrUndefined && _context.Engine.TryGetArrayItems(args[8], out var items))
+                {
+                    var srcOffset = args.Length > 9 ? Math.Max(0, WebIdlConversions.ToInt32(args[9])) : 0;
+                    var pixelBytes = ConvertToRgbaBytes(items, srcOffset, width, height, format, type);
+                    state.CopyTexturePixels(handle, x, y, width, height, pixelBytes, state.UnpackFlipY, state.UnpackPremultiplyAlpha);
+                }
+                return ScriptValue.Undefined;
+            }
+
+            state.SetError(0x0502);
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("generateMipmap", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length == 0 || (WebIdlConversions.ToUint32(args[0]) is not (0x0DE1 or 0x8513)))
+            {
+                state.SetError(0x0500);
+                return ScriptValue.Undefined;
+            }
+            if (state.BoundTexture is not { } handle || !state.Textures.ContainsKey(handle))
+            {
+                state.SetError(0x0502);
+                return ScriptValue.Undefined;
+            }
+            if (!state.GenerateMipmaps(handle))
+            {
+                if (state.Error == 0) state.SetError(0x0502);
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("texParameteri", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 3) { state.SetError(0x0502); return ScriptValue.Undefined; } if (!state.TextureParameters.TryGetValue(handle, out var parameters)) state.TextureParameters[handle] = parameters = []; parameters[WebIdlConversions.ToUint32(args[1])] = WebIdlConversions.ToInt32(args[2]); return ScriptValue.Undefined; });
         t.DefineMethod("getTexParameter", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 2 || !state.TextureParameters.TryGetValue(handle, out var parameters) || !parameters.TryGetValue(WebIdlConversions.ToUint32(args[1]), out var value)) return ScriptValue.Null; return ScriptValue.FromNumber(value); });
         t.DefineMethod("getTexLevelParameter", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundTexture is not { } handle || args.Length < 3 || WebIdlConversions.ToUint32(args[0]) != 0x0DE1 || WebIdlConversions.ToInt32(args[1]) != 0 || !state.Textures.TryGetValue(handle, out var texture)) return ScriptValue.Null; return WebIdlConversions.ToUint32(args[2]) switch { 0x1000 => ScriptValue.FromNumber(texture.Width), 0x1001 => ScriptValue.FromNumber(texture.Height), 0x1003 => ScriptValue.FromNumber(state.TextureInternalFormats.TryGetValue(handle, out var format) ? format : 0x1908u), _ => ScriptValue.Null }; });
@@ -999,11 +1274,109 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("bindVertexArray", (target, _, args) => { var state = (WebGlContextState)target; state.BoundVertexArray = args.Length > 0 && !args[0].IsNullOrUndefined ? WebIdlConversions.ToUint32(args[0]) : null; return ScriptValue.Undefined; });
         t.DefineMethod("deleteVertexArray", (target, _, args) => { if (args.Length > 0) { var state = (WebGlContextState)target; var handle = WebIdlConversions.ToUint32(args[0]); state.VertexArrays.Remove(handle); if (state.BoundVertexArray == handle) state.BoundVertexArray = null; } return ScriptValue.Undefined; });
         t.DefineMethod("isVertexArray", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).VertexArrays.Contains(WebIdlConversions.ToUint32(args[0]))));
-        t.DefineMethod("bindFramebuffer", (target, _, args) => { var state = (WebGlContextState)target; state.BoundFramebuffer = args.Length > 1 && !args[1].IsNullOrUndefined ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("bindFramebuffer", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var fbTarget = WebIdlConversions.ToUint32(args[0]);
+            var handle = args[1].IsNullOrUndefined ? (uint?)null : WebIdlConversions.ToUint32(args[1]);
+            if (handle is { } h && h != 0 && !state.Framebuffers.Contains(h)) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var bindHandle = handle == 0 ? null : handle;
+            if (fbTarget == 0x8CA8 /* READ_FRAMEBUFFER */)
+                state.BoundReadFramebuffer = bindHandle;
+            else if (fbTarget == 0x8CA9 /* DRAW_FRAMEBUFFER */)
+                state.BoundDrawFramebuffer = bindHandle;
+            else if (fbTarget == 0x8D40 /* FRAMEBUFFER */)
+            {
+                state.BoundFramebuffer = bindHandle;
+                state.BoundReadFramebuffer = bindHandle;
+                state.BoundDrawFramebuffer = bindHandle;
+            }
+            else state.SetError(0x0500);
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("framebufferTexture2D", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundFramebuffer is not { } framebuffer || args.Length < 5) { state.SetError(0x0502); return ScriptValue.Undefined; } var texture = args[3].IsNullOrUndefined ? 0u : WebIdlConversions.ToUint32(args[3]); if (texture != 0 && !state.Textures.ContainsKey(texture)) state.SetError(0x0502); else if (texture == 0) state.FramebufferColorAttachments.Remove(framebuffer); else state.FramebufferColorAttachments[framebuffer] = texture; return ScriptValue.Undefined; });
         t.DefineMethod("framebufferRenderbuffer", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundFramebuffer is not { } framebuffer || args.Length < 4 || (WebIdlConversions.ToUint32(args[1]) is not (0x8CE0 or 0x8D00)) || WebIdlConversions.ToUint32(args[2]) != 0x8D41) { state.SetError(0x0502); return ScriptValue.Undefined; } var attachment = WebIdlConversions.ToUint32(args[1]); var renderbuffer = args[3].IsNullOrUndefined ? 0u : WebIdlConversions.ToUint32(args[3]); if (renderbuffer != 0 && !state.Renderbuffers.ContainsKey(renderbuffer)) state.SetError(0x0502); else if (attachment == 0x8D00) { if (renderbuffer == 0) state.FramebufferDepthRenderbufferAttachments.Remove(framebuffer); else state.FramebufferDepthRenderbufferAttachments[framebuffer] = renderbuffer; } else if (renderbuffer == 0) state.FramebufferRenderbufferAttachments.Remove(framebuffer); else state.FramebufferRenderbufferAttachments[framebuffer] = renderbuffer; return ScriptValue.Undefined; });
         t.DefineMethod("checkFramebufferStatus", (target, _, _) => { var state = (WebGlContextState)target; return ScriptValue.FromNumber(state.BoundFramebuffer is { } framebuffer && (state.FramebufferColorAttachments.ContainsKey(framebuffer) || state.FramebufferRenderbufferAttachments.ContainsKey(framebuffer) || state.FramebufferDepthRenderbufferAttachments.ContainsKey(framebuffer)) ? 0x8CD5 : 0x8CD6); });
         t.DefineMethod("getFramebufferAttachmentParameter", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundFramebuffer is not { } framebuffer || args.Length < 3) return ScriptValue.Null; var attachment = WebIdlConversions.ToUint32(args[1]); var renderbuffer = attachment == 0x8D00 ? state.FramebufferDepthRenderbufferAttachments.GetValueOrDefault(framebuffer) : state.FramebufferRenderbufferAttachments.GetValueOrDefault(framebuffer); if (renderbuffer != 0) return WebIdlConversions.ToUint32(args[2]) switch { 0x8CD0 => ScriptValue.FromNumber(0x8D41), 0x8CD1 => ScriptValue.FromNumber(renderbuffer), _ => ScriptValue.Null }; if (!state.FramebufferColorAttachments.TryGetValue(framebuffer, out var texture)) return ScriptValue.Null; return WebIdlConversions.ToUint32(args[2]) switch { 0x8CD0 => ScriptValue.FromNumber(0x1702), 0x8CD1 => ScriptValue.FromNumber(texture), _ => ScriptValue.Null }; });
+        t.DefineMethod("blitFramebuffer", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 10)
+            {
+                state.SetError(0x0502);
+                return ScriptValue.Undefined;
+            }
+            var srcX0 = WebIdlConversions.ToInt32(args[0]);
+            var srcY0 = WebIdlConversions.ToInt32(args[1]);
+            var srcX1 = WebIdlConversions.ToInt32(args[2]);
+            var srcY1 = WebIdlConversions.ToInt32(args[3]);
+            var dstX0 = WebIdlConversions.ToInt32(args[4]);
+            var dstY0 = WebIdlConversions.ToInt32(args[5]);
+            var dstX1 = WebIdlConversions.ToInt32(args[6]);
+            var dstY1 = WebIdlConversions.ToInt32(args[7]);
+            var mask = WebIdlConversions.ToUint32(args[8]);
+            var filter = WebIdlConversions.ToUint32(args[9]);
+            state.BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("createSampler", (target, _, _) =>
+        {
+            var state = (WebGlContextState)target;
+            var handle = state.CreateHandle();
+            state.Samplers.Add(handle);
+            return ScriptValue.FromNumber(handle);
+        });
+        t.DefineMethod("deleteSampler", (target, _, args) =>
+        {
+            if (args.Length > 0)
+            {
+                var state = (WebGlContextState)target;
+                var handle = WebIdlConversions.ToUint32(args[0]);
+                state.Samplers.Remove(handle);
+                state.SamplerParameters.Remove(handle);
+                foreach (var unit in state.BoundSamplers.Where(p => p.Value == handle).Select(p => p.Key).ToArray())
+                    state.BoundSamplers[unit] = null;
+            }
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("isSampler", (target, _, args) =>
+            ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Samplers.Contains(WebIdlConversions.ToUint32(args[0]))));
+        t.DefineMethod("bindSampler", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var unit = WebIdlConversions.ToUint32(args[0]);
+            var sampler = args[1].IsNullOrUndefined ? (uint?)null : WebIdlConversions.ToUint32(args[1]);
+            if (sampler is { } s && !state.Samplers.Contains(s)) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            state.BoundSamplers[unit] = sampler;
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("samplerParameteri", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 3 || !state.Samplers.Contains(WebIdlConversions.ToUint32(args[0]))) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var s = WebIdlConversions.ToUint32(args[0]);
+            if (!state.SamplerParameters.TryGetValue(s, out var p)) state.SamplerParameters[s] = p = [];
+            p[WebIdlConversions.ToUint32(args[1])] = WebIdlConversions.ToInt32(args[2]);
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("samplerParameterf", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 3 || !state.Samplers.Contains(WebIdlConversions.ToUint32(args[0]))) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var s = WebIdlConversions.ToUint32(args[0]);
+            if (!state.SamplerParameters.TryGetValue(s, out var p)) state.SamplerParameters[s] = p = [];
+            p[WebIdlConversions.ToUint32(args[1])] = WebIdlConversions.ToDouble(args[2]);
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("getSamplerParameter", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2 || !state.Samplers.Contains(WebIdlConversions.ToUint32(args[0])) || !state.SamplerParameters.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var p) || !p.TryGetValue(WebIdlConversions.ToUint32(args[1]), out var val))
+                return ScriptValue.Null;
+            return ScriptValue.FromNumber(val);
+        });
         t.DefineMethod("readPixels", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
@@ -1014,14 +1387,27 @@ internal sealed class DomNodeTemplates
             var height = WebIdlConversions.ToInt32(args[3]);
             var format = WebIdlConversions.ToUint32(args[4]);
             var type = WebIdlConversions.ToUint32(args[5]);
-            if (format == 0x1902 && type == 0x1406)
+
+            if (width < 0 || height < 0 || width > 4096 || height > 4096 || !_context.Engine.TryGetArrayItems(args[6], out var destination))
             {
-                if (width < 0 || height < 0 || width > 4096 || height > 4096 || !_context.Engine.TryGetArrayItems(args[6], out var depthDestination) || (long)width * height > 4 * 1024 * 1024 || depthDestination.Count < (long)width * height)
+                state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+
+            if (format == 0x1902 /* DEPTH_COMPONENT */)
+            {
+                if (type is not (0x1406 /* FLOAT */ or 0x1403 /* UNSIGNED_SHORT */))
+                {
+                    state.SetError(0x0500);
+                    return ScriptValue.Undefined;
+                }
+                var neededCount = (long)width * height;
+                if (destination.Count < neededCount)
                 {
                     state.SetError(0x0501);
                     return ScriptValue.Undefined;
                 }
-                var depthSource = state.BoundFramebuffer is { } depthFramebuffer && state.FramebufferDepthRenderbufferAttachments.TryGetValue(depthFramebuffer, out var depthHandle) && state.Renderbuffers.TryGetValue(depthHandle, out var depthPixels) ? depthPixels : default;
+                var depthSource = (state.BoundReadFramebuffer ?? state.BoundFramebuffer) is { } depthFramebuffer && state.FramebufferDepthRenderbufferAttachments.TryGetValue(depthFramebuffer, out var depthHandle) && state.Renderbuffers.TryGetValue(depthHandle, out var depthPixels) ? depthPixels : default;
                 for (var row = 0; row < height; row++)
                     for (var column = 0; column < width; column++)
                     {
@@ -1029,42 +1415,56 @@ internal sealed class DomNodeTemplates
                         var sourceY = y + row;
                         var sourceIndex = sourceX >= 0 && sourceY >= 0 && sourceX < depthSource.Width && sourceY < depthSource.Height ? (sourceY * depthSource.Width + sourceX) * 4 : -1;
                         var depth = sourceIndex >= 0 && sourceIndex + 4 <= depthSource.Pixels.Length ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(depthSource.Pixels.AsSpan(sourceIndex, 4))) : 1f;
-                        _context.Engine.TrySetArrayItem(args[6], row * width + column, ScriptValue.FromNumber(depth));
+                        if (type == 0x1406)
+                            _context.Engine.TrySetArrayItem(args[6], row * width + column, ScriptValue.FromNumber(depth));
+                        else
+                            _context.Engine.TrySetArrayItem(args[6], row * width + column, ScriptValue.FromNumber((ushort)Math.Clamp(MathF.Round(depth * 65535f), 0, 65535)));
                     }
                 return ScriptValue.Undefined;
             }
-            if (format != 0x1908 || type != 0x1401)
+
+            var isRgba = format == 0x1908;
+            var isRed = format is (0x1903 or 0x8229);
+            var isRgbaInt = format == 0x8D99;
+
+            if (!isRgba && !isRed && !isRgbaInt)
             {
                 state.SetError(0x0500);
                 return ScriptValue.Undefined;
             }
-            if (width < 0 || height < 0 || width > 4096 || height > 4096 ||
-                !_context.Engine.TryGetArrayItems(args[6], out var destination))
-            {
-                state.SetError(0x0501);
-                return ScriptValue.Undefined;
-            }
-            var count = (long)width * height * 4;
+
+            var channels = isRed ? 1 : 4;
+            var count = (long)width * height * channels;
             if (count > 16 * 1024 * 1024 || destination.Count < count)
             {
                 state.SetError(0x0501);
                 return ScriptValue.Undefined;
             }
-            var source = state.BoundFramebuffer is { } framebuffer && state.FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && state.Textures.TryGetValue(texture, out var pixels)
-                ? pixels
-                : state.BoundFramebuffer is { } renderbufferFramebuffer && state.FramebufferRenderbufferAttachments.TryGetValue(renderbufferFramebuffer, out var renderbuffer) && state.Renderbuffers.TryGetValue(renderbuffer, out var renderbufferPixels)
-                    ? renderbufferPixels : default;
-            var sourcePixels = source.Pixels;
-            var sourceWidth = source.Width;
-            var sourceHeight = source.Height;
-            if (sourcePixels is null && state.Canvas.Surface() is { } surface)
+
+            var boundReadFb = state.BoundReadFramebuffer ?? state.BoundFramebuffer;
+            var isFbo = boundReadFb is { };
+            byte[]? sourcePixels = null;
+            int sourceWidth = 0, sourceHeight = 0;
+
+            if (isFbo)
             {
-                sourcePixels = surface.ReadPixels(x, y, width, height);
-                sourceWidth = width;
-                sourceHeight = height;
-                x = 0;
-                y = 0;
+                var fb = boundReadFb!.Value;
+                if (state.FramebufferColorAttachments.TryGetValue(fb, out var texture) && state.Textures.TryGetValue(texture, out var pixels))
+                {
+                    sourcePixels = pixels.Pixels; sourceWidth = pixels.Width; sourceHeight = pixels.Height;
+                }
+                else if (state.FramebufferRenderbufferAttachments.TryGetValue(fb, out var rb) && state.Renderbuffers.TryGetValue(rb, out var rbPixels))
+                {
+                    sourcePixels = rbPixels.Pixels; sourceWidth = rbPixels.Width; sourceHeight = rbPixels.Height;
+                }
             }
+            else if (state.Canvas.Surface() is { } surface)
+            {
+                sourceWidth = surface.Width;
+                sourceHeight = surface.Height;
+                sourcePixels = surface.ReadPixels(0, 0, sourceWidth, sourceHeight);
+            }
+
             for (var row = 0; row < height; row++)
                 for (var column = 0; column < width; column++)
                 {
@@ -1072,9 +1472,16 @@ internal sealed class DomNodeTemplates
                     var sourceY = y + row;
                     var sourceIndex = sourcePixels is not null && sourceX >= 0 && sourceY >= 0 && sourceX < sourceWidth && sourceY < sourceHeight
                         ? (sourceY * sourceWidth + sourceX) * 4 : -1;
-                    var destinationIndex = (row * width + column) * 4;
-                    for (var channel = 0; channel < 4; channel++)
-                        _context.Engine.TrySetArrayItem(args[6], destinationIndex + channel, ScriptValue.FromNumber(sourceIndex >= 0 ? sourcePixels![sourceIndex + channel] : 0));
+
+                    var destPixelBase = (row * width + column) * channels;
+                    for (var ch = 0; ch < channels; ch++)
+                    {
+                        var b = sourceIndex >= 0 && sourceIndex + ch < sourcePixels!.Length ? sourcePixels[sourceIndex + ch] : (byte)0;
+                        if (type == 0x1406 /* FLOAT */)
+                            _context.Engine.TrySetArrayItem(args[6], destPixelBase + ch, ScriptValue.FromNumber(b / 255.0));
+                        else
+                            _context.Engine.TrySetArrayItem(args[6], destPixelBase + ch, ScriptValue.FromNumber(b));
+                    }
                 }
             return ScriptValue.Undefined;
         });
@@ -3334,5 +3741,160 @@ internal sealed class DomNodeTemplates
 
         return t;
     }
-}
 
+    private bool TryExtractImageSource(ScriptValue source, out int width, out int height, out byte[]? pixels)
+    {
+        width = 0; height = 0; pixels = null;
+        if (!source.IsObject) return false;
+
+        if (_context.Engine.TryGetHostTarget(source, out var target))
+        {
+            if (target is CanvasImageData imageData)
+            {
+                width = imageData.Width;
+                height = imageData.Height;
+                pixels = _context.Templates.Canvas.PixelsOf(imageData);
+                return true;
+            }
+            if (target is ElementNode element)
+            {
+                if (element.LocalName == "canvas")
+                {
+                    var canvas = _context.GetCanvas(element);
+                    width = canvas.Width;
+                    height = canvas.Height;
+                    if (width <= 0 || height <= 0) return false;
+                    pixels = canvas.Surface()?.ReadPixels(0, 0, width, height);
+                    return pixels is not null;
+                }
+                if (element.LocalName == "img")
+                {
+                    var imageHandle = _context.ImageOf(element);
+                    if (imageHandle is not null)
+                    {
+                        width = imageHandle.Width;
+                        height = imageHandle.Height;
+                        pixels = imageHandle.Pixels.ToArray();
+                        return true;
+                    }
+                }
+            }
+        }
+        var wVal = _context.Engine.GetProperty(source, "width");
+        var hVal = _context.Engine.GetProperty(source, "height");
+        var dataVal = _context.Engine.GetProperty(source, "data");
+        if (!wVal.IsUndefined && !hVal.IsUndefined && !dataVal.IsUndefined)
+        {
+            width = WebIdlConversions.ToInt32(wVal);
+            height = WebIdlConversions.ToInt32(hVal);
+            if (width > 0 && height > 0 && _context.Engine.TryGetArrayItems(dataVal, out var items))
+            {
+                pixels = new byte[items.Count];
+                for (var i = 0; i < items.Count; i++)
+                    pixels[i] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[i]), 0, 255);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static byte[] ConvertToRgbaBytes(IReadOnlyList<ScriptValue> items, int offset, int width, int height, uint format, uint type)
+    {
+        var pixelCount = width * height;
+        var result = new byte[pixelCount * 4];
+        if (format is 0x1908 or 0x8058 /* RGBA / RGBA8 */)
+        {
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var srcIdx = offset + i * 4;
+                var dstIdx = i * 4;
+                if (srcIdx + 3 < items.Count)
+                {
+                    result[dstIdx] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx]), 0, 255);
+                    result[dstIdx + 1] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 1]), 0, 255);
+                    result[dstIdx + 2] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 2]), 0, 255);
+                    result[dstIdx + 3] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 3]), 0, 255);
+                }
+            }
+            return result;
+        }
+        if (format is 0x1907 or 0x8051 /* RGB / RGB8 */)
+        {
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var srcIdx = offset + i * 3;
+                var dstIdx = i * 4;
+                if (srcIdx + 2 < items.Count)
+                {
+                    result[dstIdx] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx]), 0, 255);
+                    result[dstIdx + 1] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 1]), 0, 255);
+                    result[dstIdx + 2] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 2]), 0, 255);
+                    result[dstIdx + 3] = 255;
+                }
+            }
+            return result;
+        }
+        if (format == 0x1909 /* LUMINANCE */)
+        {
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var srcIdx = offset + i;
+                var dstIdx = i * 4;
+                if (srcIdx < items.Count)
+                {
+                    var lum = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx]), 0, 255);
+                    result[dstIdx] = lum;
+                    result[dstIdx + 1] = lum;
+                    result[dstIdx + 2] = lum;
+                    result[dstIdx + 3] = 255;
+                }
+            }
+            return result;
+        }
+        if (format == 0x1906 /* ALPHA */)
+        {
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var srcIdx = offset + i;
+                var dstIdx = i * 4;
+                if (srcIdx < items.Count)
+                {
+                    result[dstIdx + 3] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx]), 0, 255);
+                }
+            }
+            return result;
+        }
+        if (format == 0x190A /* LUMINANCE_ALPHA */)
+        {
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var srcIdx = offset + i * 2;
+                var dstIdx = i * 4;
+                if (srcIdx + 1 < items.Count)
+                {
+                    var lum = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx]), 0, 255);
+                    var a = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 1]), 0, 255);
+                    result[dstIdx] = lum;
+                    result[dstIdx + 1] = lum;
+                    result[dstIdx + 2] = lum;
+                    result[dstIdx + 3] = a;
+                }
+            }
+            return result;
+        }
+        for (var i = 0; i < pixelCount; i++)
+        {
+            var srcIdx = offset + i * 4;
+            var dstIdx = i * 4;
+            if (srcIdx + 3 < items.Count)
+            {
+                result[dstIdx] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx]), 0, 255);
+                result[dstIdx + 1] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 1]), 0, 255);
+                result[dstIdx + 2] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 2]), 0, 255);
+                result[dstIdx + 3] = (byte)Math.Clamp(WebIdlConversions.ToInt32(items[srcIdx + 3]), 0, 255);
+            }
+        }
+        return result;
+    }
+
+}
