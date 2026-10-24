@@ -1,3 +1,6 @@
+using Folio.Scripting;
+using Folio.Scripting.Dom;
+using Folio.Scripting.Jint;
 using Folio.Skia;
 using Folio.Typography;
 
@@ -14,12 +17,27 @@ public static class TestRenderer
             GenericFamilies = new[] { "serif", "sans-serif", "monospace", "system-ui", "cursive", "fantasy", "emoji" }
                 .ToDictionary(g => g, _ => (IReadOnlyList<string>)["Folio Box"], StringComparer.OrdinalIgnoreCase),
         },
+        Capabilities = new FeatureCapabilities { WebGl = true },
+        Scripting = ScriptingPolicy.ContentProcess,
+        Raster = new SkiaRasterBackend(),
     };
 
     /// <summary>Renders a test page in an 800x600 viewport.</summary>
     public static PixelBuffer Render(string htmlPath)
     {
-        using var document = Document.Parse(File.ReadAllText(htmlPath), Options);
+        var html = File.ReadAllText(htmlPath);
+        using var document = Document.Parse(html, Options);
+        if (html.Contains("<script", StringComparison.OrdinalIgnoreCase))
+        {
+            using var engine = new JintScriptEngine();
+            using var loop = new HtmlEventLoop(engine);
+            DomBindings.Install(engine, document, eventLoop: loop);
+            ScriptGlobalsInstaller.Install(loop, engine);
+            using var runner = new ScriptRunner(document.Node, engine, loop, Options);
+            runner.Run();
+            loop.PerformMicrotaskCheckpoint();
+            loop.UpdateTheRendering();
+        }
         using var result = HeadlessRenderer.Render(document, new RenderRequest(800, 600));
         return new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
     }

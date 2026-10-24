@@ -28,6 +28,7 @@ public sealed partial class Document : IDisposable
         node.SetFeatureAvailability(options.Capabilities.WebGl, options.Capabilities.Media, options.Capabilities.Sound, options.Capabilities.Iframes);
         node.PrefersDarkColorScheme = _colorScheme == ColorScheme.Dark;
         _diagnostics = diagnostics;
+        node.DiagnosticSink ??= diagnostics.Add;
     }
 
     internal DocumentNode Node { get; }

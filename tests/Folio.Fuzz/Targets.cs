@@ -65,6 +65,10 @@ internal static class Targets
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
         new("cache-storage", CacheStorage, CacheStorageSeeds, ["Operation", "open", "put", "match", "delete", "release", "$last", "vary", "GET", "Headers", "null"]),
+        new("shader", Shader, ShaderSeeds, ["attribute", "uniform", "varying", "in", "out", "precision", "highp", "mediump", "lowp",
+            "void", "main", "float", "vec2", "vec3", "vec4", "mat2", "mat3", "mat4", "int", "ivec2",
+            "sampler2D", "gl_Position", "gl_FragColor", "gl_FragCoord", "texture2D", "texture",
+            "#version 300 es", "#version 100", "#define", "#ifdef", "#endif", "{", "}", "(", ")", ";", "=", "+", "*"]),
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -445,4 +449,21 @@ internal static class Targets
 
     private static IEnumerable<byte[]> Images(string pattern) =>
         Directory.GetFiles(Path.Combine(RepoPaths.Tests, "images"), pattern).Select(File.ReadAllBytes);
+
+    private static void Shader(byte[] data)
+    {
+        var source = Encoding.UTF8.GetString(data);
+        WebGlShaderValidator.Validate(0x8B31 /* VERTEX_SHADER */, source);
+        WebGlShaderValidator.Validate(0x8B30 /* FRAGMENT_SHADER */, source);
+    }
+
+    private static IEnumerable<byte[]> ShaderSeeds() => new[]
+    {
+        "attribute vec2 position;\nvoid main() {\n  gl_Position = vec4(position, 0.0, 1.0);\n}",
+        "precision mediump float;\nuniform vec4 color;\nvoid main() {\n  gl_FragColor = color;\n}",
+        "#version 300 es\nin vec2 position;\nvoid main() {\n  gl_Position = vec4(position, 0.0, 1.0);\n}",
+        "#version 300 es\nprecision mediump float;\nout vec4 fragColor;\nvoid main() {\n  fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n}",
+        "// comment\nvoid main() { /* empty */ }",
+        "invalid shader source without main",
+    }.Select(Encoding.UTF8.GetBytes);
 }

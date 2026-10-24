@@ -857,10 +857,19 @@ internal sealed class WebGlContextState
     private uint _nextHandle = 1;
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, double[]> BufferValues { get; } = [];
-    public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
+    public Dictionary<uint, (int Type, string Source, bool Compiled, string InfoLog)> Shaders { get; } = [];
     public HashSet<uint> Programs { get; } = [];
     public Dictionary<uint, List<uint>> ProgramShaders { get; } = [];
     public HashSet<uint> LinkedPrograms { get; } = [];
+    public Dictionary<uint, string> ProgramInfoLogs { get; } = [];
+    public Dictionary<(uint Program, string Name), int> AttribLocations { get; } = [];
+    public Dictionary<(uint Program, string Name), int> UniformLocations { get; } = [];
+    private int _nextAttribLoc;
+    private int _nextUniformLoc;
+    public int GetOrAssignAttribLocation(uint program, string name) =>
+        AttribLocations.TryGetValue((program, name), out var loc) ? loc : (AttribLocations[(program, name)] = _nextAttribLoc++);
+    public int GetOrAssignUniformLocation(uint program, string name) =>
+        UniformLocations.TryGetValue((program, name), out var loc) ? loc : (UniformLocations[(program, name)] = _nextUniformLoc++);
     public HashSet<int> EnabledVertexAttributes { get; } = [];
     public Dictionary<int, (int Size, uint Type, bool Normalized, int Stride, int Offset)> VertexAttribPointers { get; } = [];
     public Dictionary<int, uint> VertexAttribBuffers { get; } = [];
@@ -978,31 +987,31 @@ internal sealed class WebGlContextState
     public void DrawArraysInstanced(uint mode, int first, int count, int instanceCount)
     {
         DrawCalls++;
-        if (instanceCount < 0 || instanceCount > 1024)
+        if (instanceCount <= 0 || instanceCount > 1024)
             return;
         for (var instance = 0; instance < instanceCount; instance++)
-            DrawTriangles(mode, count, vertex => first + vertex);
+            DrawTriangles(mode, count, vertex => first + vertex, instance);
     }
 
     public void DrawElementsInstanced(uint mode, uint type, int count, int offset, int instanceCount)
     {
         DrawCalls++;
-        if (instanceCount < 0 || instanceCount > 1024)
+        if (instanceCount <= 0 || instanceCount > 1024)
             return;
         for (var instance = 0; instance < instanceCount; instance++)
-            DrawElementsCore(mode, type, count, offset);
+            DrawElementsCore(mode, type, count, offset, instance);
     }
 
-    private void DrawElementsCore(uint mode, uint type, int count, int offset)
+    private void DrawElementsCore(uint mode, uint type, int count, int offset, int instance = 0)
     {
         var indexStride = type switch { 0x1401u => 1, 0x1403u => 2, 0x1405u => 4, _ => 0 };
         if (indexStride == 0 || count < 3 || count > 30_000 || offset < 0 || offset % indexStride != 0 || BoundElementArrayBuffer is not { } elementBuffer ||
             !BufferValues.TryGetValue(elementBuffer, out var indices) || offset / indexStride + count > indices.Length)
             return;
-        DrawTriangles(mode, count, vertex => (int)indices[offset / indexStride + vertex]);
+        DrawTriangles(mode, count, vertex => (int)indices[offset / indexStride + vertex], instance);
     }
 
-    private void DrawTriangles(uint mode, int count, Func<int, int> vertexIndex)
+    private void DrawTriangles(uint mode, int count, Func<int, int> vertexIndex, int instance = 0)
     {
         if (mode != 0x0004 || count < 3 || count > 30_000 || !EnabledVertexAttributes.Contains(0) ||
             !VertexAttribPointers.TryGetValue(0, out var pointer) || pointer.Type != 0x1406 || pointer.Size < 2 ||
@@ -1014,6 +1023,31 @@ internal sealed class WebGlContextState
         var stride = pointer.Stride > 0 ? pointer.Stride : pointer.Size * 4;
         if (stride < pointer.Size * 4)
             return;
+
+        float ReadAttrib(int attribIndex, int elemIndex, int component)
+        {
+            if (!VertexAttribPointers.TryGetValue(attribIndex, out var p) ||
+                !VertexAttribBuffers.TryGetValue(attribIndex, out var bHandle) ||
+                !Buffers.TryGetValue(bHandle, out var bData))
+                return float.NaN;
+            var s = p.Stride > 0 ? p.Stride : p.Size * 4;
+            if (s < p.Size * 4) return float.NaN;
+            var off = (long)elemIndex * s + p.Offset + component * 4;
+            return off >= 0 && off + 4 <= bData.Length ? BitConverter.ToSingle(bData, (int)off) : float.NaN;
+        }
+
+        // Instance offset from attribute 1 if enabled
+        float instOffsetX = 0f, instOffsetY = 0f;
+        if (EnabledVertexAttributes.Contains(1))
+        {
+            var divisor = VertexAttribDivisors.TryGetValue(1, out var div) && div > 0 ? (int)div : 1;
+            var elem = instance / divisor;
+            var ox = ReadAttrib(1, elem, 0);
+            var oy = ReadAttrib(1, elem, 1);
+            if (!float.IsNaN(ox)) instOffsetX = ox;
+            if (!float.IsNaN(oy)) instOffsetY = oy;
+        }
+
         var colorValues = UniformValues.TryGetValue(0, out var uniform) && uniform.Length >= 4 ? uniform : [1, 1, 1, 1];
         var color = new Rgba((float)Math.Clamp(colorValues[0], 0, 1), (float)Math.Clamp(colorValues[1], 0, 1),
             (float)Math.Clamp(colorValues[2], 0, 1), (float)Math.Clamp(colorValues[3], 0, 1));
@@ -1036,8 +1070,8 @@ internal sealed class WebGlContextState
         }
         (float X, float Y) Point(int vertex)
         {
-            var x = Read(vertex, 0);
-            var y = Read(vertex, 1);
+            var x = Read(vertex, 0) + instOffsetX;
+            var y = Read(vertex, 1) + instOffsetY;
             return (viewportX + (x + 1) * 0.5f * viewportWidth, viewportY + (1 - y) * 0.5f * viewportHeight);
         }
         for (var vertex = 0; vertex + 2 < count; vertex += 3)
@@ -1112,12 +1146,18 @@ internal sealed class WebGlContextState
             }
         Textures[handle] = texture;
     }
-    public void DeleteShader(uint handle) => Shaders.Remove(handle);
+    public void DeleteShader(uint handle)
+    {
+        Shaders.Remove(handle);
+        foreach (var pair in ProgramShaders)
+            pair.Value.Remove(handle);
+    }
     public void DeleteProgram(uint handle)
     {
         Programs.Remove(handle);
         ProgramShaders.Remove(handle);
         LinkedPrograms.Remove(handle);
+        ProgramInfoLogs.Remove(handle);
         if (CurrentProgram == handle) CurrentProgram = null;
     }
     public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));

@@ -491,8 +491,24 @@ internal sealed class DomNodeTemplates
     private HostObjectTemplate CreateWebGlRenderingContextTemplate()
     {
         var t = new HostObjectTemplate("WebGL2RenderingContext");
+        t.DefineProperty("NO_ERROR", (_, _) => ScriptValue.FromNumber(0));
+        t.DefineProperty("INVALID_ENUM", (_, _) => ScriptValue.FromNumber(0x0500));
+        t.DefineProperty("INVALID_VALUE", (_, _) => ScriptValue.FromNumber(0x0501));
+        t.DefineProperty("INVALID_OPERATION", (_, _) => ScriptValue.FromNumber(0x0502));
+        t.DefineProperty("OUT_OF_MEMORY", (_, _) => ScriptValue.FromNumber(0x0505));
+        t.DefineProperty("CONTEXT_LOST_WEBGL", (_, _) => ScriptValue.FromNumber(0x9242));
         t.DefineProperty("ARRAY_BUFFER", (_, _) => ScriptValue.FromNumber(0x8892));
         t.DefineProperty("ELEMENT_ARRAY_BUFFER", (_, _) => ScriptValue.FromNumber(0x8893));
+        t.DefineProperty("ARRAY_BUFFER_BINDING", (_, _) => ScriptValue.FromNumber(0x8894));
+        t.DefineProperty("ELEMENT_ARRAY_BUFFER_BINDING", (_, _) => ScriptValue.FromNumber(0x8895));
+        t.DefineProperty("CURRENT_PROGRAM", (_, _) => ScriptValue.FromNumber(0x8B8D));
+        t.DefineProperty("VERTEX_ATTRIB_ARRAY_BUFFER_BINDING", (_, _) => ScriptValue.FromNumber(0x889F));
+        t.DefineProperty("VERTEX_ATTRIB_ARRAY_NORMALIZED", (_, _) => ScriptValue.FromNumber(0x886A));
+        t.DefineProperty("SHADER_TYPE", (_, _) => ScriptValue.FromNumber(0x8B4F));
+        t.DefineProperty("DELETE_STATUS", (_, _) => ScriptValue.FromNumber(0x8B80));
+        t.DefineProperty("ATTACHED_SHADERS", (_, _) => ScriptValue.FromNumber(0x8B85));
+        t.DefineProperty("ACTIVE_UNIFORMS", (_, _) => ScriptValue.FromNumber(0x8B86));
+        t.DefineProperty("ACTIVE_ATTRIBUTES", (_, _) => ScriptValue.FromNumber(0x8B89));
         t.DefineProperty("STATIC_DRAW", (_, _) => ScriptValue.FromNumber(0x88E4));
         t.DefineProperty("VERTEX_SHADER", (_, _) => ScriptValue.FromNumber(0x8B31));
         t.DefineProperty("FRAGMENT_SHADER", (_, _) => ScriptValue.FromNumber(0x8B30));
@@ -586,6 +602,7 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("getParameter", (target, _, args) =>
         {
             if (args.Length == 0) return ScriptValue.Null;
+            var state = (WebGlContextState)target;
             return WebIdlConversions.ToUint32(args[0]) switch
             {
                 0x0D33 => ScriptValue.FromNumber(4096),
@@ -595,18 +612,25 @@ internal sealed class DomNodeTemplates
                 0x1F00 => ScriptValue.FromString("Folio"),
                 0x1F01 => ScriptValue.FromString("Folio bounded renderer"),
                 0x8B8C => ScriptValue.FromString("WebGL GLSL ES 3.00"),
-                0x0BA2 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ViewportX}, {((WebGlContextState)target).ViewportY}, {((WebGlContextState)target).ViewportWidth}, {((WebGlContextState)target).ViewportHeight}]"),
-                0x0C10 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ScissorX}, {((WebGlContextState)target).ScissorY}, {((WebGlContextState)target).ScissorWidth}, {((WebGlContextState)target).ScissorHeight}]"),
-                0x80C9 => ScriptValue.FromNumber(((WebGlContextState)target).BlendSourceFactor),
-                0x80CB => ScriptValue.FromNumber(((WebGlContextState)target).BlendSourceAlphaFactor),
-                0x80C8 => ScriptValue.FromNumber(((WebGlContextState)target).BlendDestinationFactor),
-                0x80CA => ScriptValue.FromNumber(((WebGlContextState)target).BlendDestinationAlphaFactor),
-                0x8009 => ScriptValue.FromNumber(((WebGlContextState)target).BlendEquation),
-                0x883D => ScriptValue.FromNumber(((WebGlContextState)target).BlendAlphaEquation),
-                0x0C23 => _context.Engine.Evaluate($"[{((WebGlContextState)target).ColorMaskRed.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskGreen.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskBlue.ToString().ToLowerInvariant()}, {((WebGlContextState)target).ColorMaskAlpha.ToString().ToLowerInvariant()}]"),
-                0x0B72 => ScriptValue.FromBoolean(((WebGlContextState)target).DepthMask),
+                0x0BA2 => _context.Engine.Evaluate($"[{state.ViewportX}, {state.ViewportY}, {state.ViewportWidth}, {state.ViewportHeight}]"),
+                0x0C10 => _context.Engine.Evaluate($"[{state.ScissorX}, {state.ScissorY}, {state.ScissorWidth}, {state.ScissorHeight}]"),
+                0x80C9 => ScriptValue.FromNumber(state.BlendSourceFactor),
+                0x80CB => ScriptValue.FromNumber(state.BlendSourceAlphaFactor),
+                0x80C8 => ScriptValue.FromNumber(state.BlendDestinationFactor),
+                0x80CA => ScriptValue.FromNumber(state.BlendDestinationAlphaFactor),
+                0x8009 => ScriptValue.FromNumber(state.BlendEquation),
+                0x883D => ScriptValue.FromNumber(state.BlendAlphaEquation),
+                0x0C23 => _context.Engine.Evaluate($"[{state.ColorMaskRed.ToString().ToLowerInvariant()}, {state.ColorMaskGreen.ToString().ToLowerInvariant()}, {state.ColorMaskBlue.ToString().ToLowerInvariant()}, {state.ColorMaskAlpha.ToString().ToLowerInvariant()}]"),
+                0x0B72 => ScriptValue.FromBoolean(state.DepthMask),
+                0x0B71 => ScriptValue.FromBoolean(state.EnabledCapabilities.Contains(0x0B71)),
+                0x0C11 => ScriptValue.FromBoolean(state.EnabledCapabilities.Contains(0x0C11)),
+                0x0BE2 => ScriptValue.FromBoolean(state.EnabledCapabilities.Contains(0x0BE2)),
                 0x8824 => ScriptValue.FromNumber(4),
-                0x8825 => ScriptValue.FromNumber(((WebGlContextState)target).DrawBuffers.Count > 0 ? ((WebGlContextState)target).DrawBuffers[0] : 0x0405),
+                0x8825 => ScriptValue.FromNumber(state.DrawBuffers.Count > 0 ? state.DrawBuffers[0] : 0x0405),
+                0x85B5 => state.BoundVertexArray is { } va ? ScriptValue.FromNumber(va) : ScriptValue.Null,
+                0x8894 => state.BoundArrayBuffer is { } ab ? ScriptValue.FromNumber(ab) : ScriptValue.Null,
+                0x8895 => state.BoundElementArrayBuffer is { } eb ? ScriptValue.FromNumber(eb) : ScriptValue.Null,
+                0x8B8D => state.CurrentProgram is { } cp ? ScriptValue.FromNumber(cp) : ScriptValue.Null,
                 _ => ScriptValue.Null
             };
         });
@@ -667,13 +691,59 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("getBufferSubData", (target, _, args) => { var state = (WebGlContextState)target; if (state.BoundArrayBuffer is not { } handle || args.Length < 3 || !state.Buffers.TryGetValue(handle, out var buffer) || !_context.Engine.TryGetArrayItems(args[2], out var destination)) { state.SetError(0x0502); return ScriptValue.Undefined; } var offset = Math.Max(0, WebIdlConversions.ToInt32(args[1])); if (offset > buffer.Length || destination.Count > buffer.Length - offset) { state.SetError(0x0501); return ScriptValue.Undefined; } for (var i = 0; i < destination.Count; i++) _context.Engine.TrySetArrayItem(args[2], i, ScriptValue.FromNumber(buffer[offset + i])); return ScriptValue.Undefined; });
         t.DefineMethod("deleteBuffer", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteBuffer(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isBuffer", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Buffers.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
-        t.DefineMethod("createShader", (target, _, args) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Shaders[handle] = (args.Length > 0 ? WebIdlConversions.ToInt32(args[0]) : 0, "", false); return ScriptValue.FromNumber(handle); });
-        t.DefineMethod("shaderSource", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length > 1) state.Shaders[WebIdlConversions.ToUint32(args[0])] = (0, WebIdlConversions.ToDOMString(args[1]), false); return ScriptValue.Undefined; });
-        t.DefineMethod("compileShader", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length > 0 && state.Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader)) state.Shaders[WebIdlConversions.ToUint32(args[0])] = shader with { Compiled = shader.Source.Length <= 1_000_000 && shader.Source.Contains("void", StringComparison.Ordinal) && shader.Source.Contains("main", StringComparison.Ordinal) }; return ScriptValue.Undefined; });
+        t.DefineMethod("createShader", (target, _, args) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Shaders[handle] = (args.Length > 0 ? WebIdlConversions.ToInt32(args[0]) : 0, "", false, ""); return ScriptValue.FromNumber(handle); });
+        t.DefineMethod("shaderSource", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length > 1)
+            {
+                var handle = WebIdlConversions.ToUint32(args[0]);
+                var type = state.Shaders.TryGetValue(handle, out var s) ? s.Type : 0;
+                state.Shaders[handle] = (type, WebIdlConversions.ToDOMString(args[1]), false, "");
+            }
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("compileShader", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length == 0) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var handle = WebIdlConversions.ToUint32(args[0]);
+            if (!state.Shaders.TryGetValue(handle, out var shader)) { state.SetError(0x0501); return ScriptValue.Undefined; }
+            var result = WebGlShaderValidator.Validate(shader.Type, shader.Source);
+            state.Shaders[handle] = shader with { Compiled = result.IsValid, InfoLog = result.InfoLog };
+            if (!result.IsValid)
+            {
+                _context.Document.DiagnosticSink?.Invoke(new Diagnostic(
+                    DiagnosticCode.ScriptError,
+                    Severity.Warning,
+                    $"WebGL shader compilation failed: {result.InfoLog}",
+                    result.LineNumber > 0 ? new SourceLocation(result.LineNumber, 1) : null,
+                    "webgl"));
+            }
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("deleteShader", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteShader(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isShader", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Shaders.ContainsKey(WebIdlConversions.ToUint32(args[0]))));
-        t.DefineMethod("getShaderParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) && shader.Compiled));
-        t.DefineMethod("getShaderInfoLog", (target, _, args) => ScriptValue.FromString(args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) && !shader.Compiled ? (shader.Source.Length > 1_000_000 ? "Shader source exceeds the host limit." : "Shader source is missing a valid main entry point.") : ""));
+        t.DefineMethod("getShaderParameter", (target, _, args) =>
+        {
+            if (args.Length > 1 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader))
+            {
+                return WebIdlConversions.ToUint32(args[1]) switch
+                {
+                    0x8B81 => ScriptValue.FromBoolean(shader.Compiled),
+                    0x8B4F => ScriptValue.FromNumber(shader.Type),
+                    0x8B80 => ScriptValue.FromBoolean(false),
+                    _ => ScriptValue.Null
+                };
+            }
+            return ScriptValue.Null;
+        });
+        t.DefineMethod("getShaderInfoLog", (target, _, args) =>
+        {
+            if (args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader))
+                return ScriptValue.FromString(shader.InfoLog);
+            return ScriptValue.FromString("");
+        });
         t.DefineMethod("getShaderSource", (target, _, args) => args.Length > 0 && ((WebGlContextState)target).Shaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var shader) ? ScriptValue.FromString(shader.Source) : ScriptValue.Null);
         t.DefineMethod("createProgram", (target, _, _) => { var state = (WebGlContextState)target; var handle = state.CreateHandle(); state.Programs.Add(handle); return ScriptValue.FromNumber(handle); });
         t.DefineMethod("attachShader", (target, _, args) =>
@@ -696,12 +766,34 @@ internal sealed class DomNodeTemplates
         t.DefineMethod("linkProgram", (target, _, args) =>
         {
             var state = (WebGlContextState)target;
-            if (args.Length > 0)
+            if (args.Length == 0) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var program = WebIdlConversions.ToUint32(args[0]);
+            state.Programs.Add(program);
+            var hasShaders = state.ProgramShaders.TryGetValue(program, out var attached) && attached.Count > 0;
+            var allCompiled = hasShaders && attached!.All(shader => state.Shaders.TryGetValue(shader, out var val) && val.Compiled);
+            var hasVertex = hasShaders && attached!.Any(shader => state.Shaders.TryGetValue(shader, out var val) && val.Type == 0x8B31);
+            var hasFragment = hasShaders && attached!.Any(shader => state.Shaders.TryGetValue(shader, out var val) && val.Type == 0x8B30);
+            var linked = hasShaders && allCompiled && hasVertex && hasFragment;
+            if (linked)
             {
-                var program = WebIdlConversions.ToUint32(args[0]);
-                state.Programs.Add(program);
-                var linked = !state.ProgramShaders.TryGetValue(program, out var shaders) || shaders.All(shader => state.Shaders.TryGetValue(shader, out var value) && value.Compiled);
-                if (linked) state.LinkedPrograms.Add(program); else state.LinkedPrograms.Remove(program);
+                state.LinkedPrograms.Add(program);
+                state.ProgramInfoLogs.Remove(program);
+            }
+            else
+            {
+                state.LinkedPrograms.Remove(program);
+                var reason = !hasShaders ? "No shaders attached to program."
+                    : !hasVertex ? "Program is missing a vertex shader."
+                    : !hasFragment ? "Program is missing a fragment shader."
+                    : "One or more attached shaders failed compilation.";
+                var log = $"ERROR: WebGL program link failed: {reason}";
+                state.ProgramInfoLogs[program] = log;
+                _context.Document.DiagnosticSink?.Invoke(new Diagnostic(
+                    DiagnosticCode.ScriptError,
+                    Severity.Warning,
+                    log,
+                    null,
+                    "webgl"));
             }
             return ScriptValue.Undefined;
         });
@@ -713,23 +805,109 @@ internal sealed class DomNodeTemplates
         });
         t.DefineMethod("deleteProgram", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).DeleteProgram(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("isProgram", (target, _, args) => ScriptValue.FromBoolean(args.Length > 0 && ((WebGlContextState)target).Programs.Contains(WebIdlConversions.ToUint32(args[0]))));
-        t.DefineMethod("getProgramParameter", (target, _, args) => ScriptValue.FromBoolean(args.Length > 1 && WebIdlConversions.ToUint32(args[1]) == 0x8B82 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0]))));
-        t.DefineMethod("getProgramInfoLog", (target, _, args) => ScriptValue.FromString(args.Length > 0 && !((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? "Program is not linked." : ""));
+        t.DefineMethod("getProgramParameter", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length > 1)
+            {
+                var program = WebIdlConversions.ToUint32(args[0]);
+                return WebIdlConversions.ToUint32(args[1]) switch
+                {
+                    0x8B82 => ScriptValue.FromBoolean(state.LinkedPrograms.Contains(program)),
+                    0x8B80 => ScriptValue.FromBoolean(false),
+                    0x8B85 => ScriptValue.FromNumber(state.ProgramShaders.TryGetValue(program, out var s) ? s.Count : 0),
+                    0x8B86 => ScriptValue.FromNumber(state.UniformLocations.Count(kv => kv.Key.Program == program)),
+                    0x8B89 => ScriptValue.FromNumber(state.AttribLocations.Count(kv => kv.Key.Program == program)),
+                    _ => ScriptValue.Null
+                };
+            }
+            return ScriptValue.Null;
+        });
+        t.DefineMethod("getProgramInfoLog", (target, _, args) =>
+        {
+            if (args.Length > 0 && ((WebGlContextState)target).ProgramInfoLogs.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var log))
+                return ScriptValue.FromString(log);
+            return ScriptValue.FromString("");
+        });
         t.DefineMethod("getAttachedShaders", (target, _, args) => { var state = (WebGlContextState)target; var shaders = args.Length > 0 && state.ProgramShaders.TryGetValue(WebIdlConversions.ToUint32(args[0]), out var attached) ? attached : []; return _context.Engine.CreateArray(shaders.Select(handle => ScriptValue.FromNumber(handle)).ToArray()); });
-        t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 1 ? WebIdlConversions.ToUint32(args[1]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("useProgram", (target, _, args) => { ((WebGlContextState)target).CurrentProgram = args.Length > 0 && !args[0].IsNullOrUndefined ? WebIdlConversions.ToUint32(args[0]) : null; return ScriptValue.Undefined; });
+        t.DefineMethod("bindAttribLocation", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 3) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var program = WebIdlConversions.ToUint32(args[0]);
+            var index = WebIdlConversions.ToInt32(args[1]);
+            var name = WebIdlConversions.ToDOMString(args[2]);
+            if (index < 0 || index >= 16) { state.SetError(0x0501); return ScriptValue.Undefined; }
+            state.AttribLocations[(program, name)] = index;
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("getAttribLocation", (target, _, args) =>
-            ScriptValue.FromNumber(args.Length > 1 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? 0 : -1));
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) return ScriptValue.FromNumber(-1);
+            var program = WebIdlConversions.ToUint32(args[0]);
+            if (!state.LinkedPrograms.Contains(program)) return ScriptValue.FromNumber(-1);
+            var name = WebIdlConversions.ToDOMString(args[1]);
+            return ScriptValue.FromNumber(state.GetOrAssignAttribLocation(program, name));
+        });
         t.DefineMethod("getUniformLocation", (target, _, args) =>
-            args.Length > 1 && ((WebGlContextState)target).LinkedPrograms.Contains(WebIdlConversions.ToUint32(args[0])) ? ScriptValue.FromNumber(0) : ScriptValue.Null);
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) return ScriptValue.Null;
+            var program = WebIdlConversions.ToUint32(args[0]);
+            if (!state.LinkedPrograms.Contains(program)) return ScriptValue.Null;
+            var name = WebIdlConversions.ToDOMString(args[1]);
+            return ScriptValue.FromNumber(state.GetOrAssignUniformLocation(program, name));
+        });
         t.DefineMethod("enableVertexAttribArray", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledVertexAttributes.Add(WebIdlConversions.ToInt32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("disableVertexAttribArray", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledVertexAttributes.Remove(WebIdlConversions.ToInt32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("vertexAttribPointer", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 6) { state.SetError(0x0502); return ScriptValue.Undefined; } var index = WebIdlConversions.ToInt32(args[0]); var size = WebIdlConversions.ToInt32(args[1]); if (index < 0 || size < 1 || size > 4) { state.SetError(0x0501); return ScriptValue.Undefined; } state.VertexAttribPointers[index] = (size, WebIdlConversions.ToUint32(args[2]), WebIdlConversions.ToBoolean(args[3]), WebIdlConversions.ToInt32(args[4]), WebIdlConversions.ToInt32(args[5])); if (state.BoundArrayBuffer is { } buffer) state.VertexAttribBuffers[index] = buffer; else state.VertexAttribBuffers.Remove(index); return ScriptValue.Undefined; });
         t.DefineMethod("vertexAttribDivisor", (target, _, args) => { if (args.Length > 1) ((WebGlContextState)target).VertexAttribDivisors[WebIdlConversions.ToInt32(args[0])] = WebIdlConversions.ToUint32(args[1]); return ScriptValue.Undefined; });
-        t.DefineMethod("getVertexAttrib", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2) return ScriptValue.Null; var index = WebIdlConversions.ToInt32(args[0]); var pname = WebIdlConversions.ToUint32(args[1]); var enabled = state.EnabledVertexAttributes.Contains(index); if (pname == 0x8622) return ScriptValue.FromBoolean(enabled); if (pname == 0x88FE) return ScriptValue.FromNumber(state.VertexAttribDivisors.TryGetValue(index, out var divisor) ? divisor : 0); if (!state.VertexAttribPointers.TryGetValue(index, out var pointer)) return pname == 0x8623 ? ScriptValue.FromNumber(4) : ScriptValue.FromNumber(0); return pname switch { 0x8623 => ScriptValue.FromNumber(pointer.Size), 0x8624 => ScriptValue.FromNumber(pointer.Stride), 0x8625 => ScriptValue.FromNumber(pointer.Type), _ => ScriptValue.Null }; });
+        t.DefineMethod("getVertexAttrib", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 2) return ScriptValue.Null;
+            var index = WebIdlConversions.ToInt32(args[0]);
+            var pname = WebIdlConversions.ToUint32(args[1]);
+            var enabled = state.EnabledVertexAttributes.Contains(index);
+            if (pname == 0x8622) return ScriptValue.FromBoolean(enabled);
+            if (pname == 0x88FE) return ScriptValue.FromNumber(state.VertexAttribDivisors.TryGetValue(index, out var divisor) ? divisor : 0);
+            if (pname == 0x889F) return ScriptValue.FromNumber(state.VertexAttribBuffers.TryGetValue(index, out var bufferHandle) ? bufferHandle : 0);
+            if (!state.VertexAttribPointers.TryGetValue(index, out var pointer)) return pname == 0x8623 ? ScriptValue.FromNumber(4) : ScriptValue.FromNumber(0);
+            return pname switch
+            {
+                0x8623 => ScriptValue.FromNumber(pointer.Size),
+                0x8624 => ScriptValue.FromNumber(pointer.Stride),
+                0x8625 => ScriptValue.FromNumber(pointer.Type),
+                0x886A => ScriptValue.FromBoolean(pointer.Normalized),
+                _ => ScriptValue.Null
+            };
+        });
         t.DefineMethod("uniform1f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 1));
         t.DefineMethod("uniform1i", (target, _, args) => StoreUniform((WebGlContextState)target, args, 1));
+        t.DefineMethod("uniform2f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 2));
+        t.DefineMethod("uniform3f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 3));
         t.DefineMethod("uniform4f", (target, _, args) => StoreUniform((WebGlContextState)target, args, 4));
-        t.DefineMethod("uniformMatrix4fv", (target, _, args) => StoreUniform((WebGlContextState)target, args, 16));
+        t.DefineMethod("uniform1fv", (target, _, args) => StoreUniformArray(_context.Engine, (WebGlContextState)target, args, 1));
+        t.DefineMethod("uniform2fv", (target, _, args) => StoreUniformArray(_context.Engine, (WebGlContextState)target, args, 2));
+        t.DefineMethod("uniform3fv", (target, _, args) => StoreUniformArray(_context.Engine, (WebGlContextState)target, args, 3));
+        t.DefineMethod("uniform4fv", (target, _, args) => StoreUniformArray(_context.Engine, (WebGlContextState)target, args, 4));
+        t.DefineMethod("uniformMatrix4fv", (target, _, args) =>
+        {
+            var state = (WebGlContextState)target;
+            if (args.Length < 3) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var location = WebIdlConversions.ToInt32(args[0]);
+            if (!_context.Engine.TryGetArrayItems(args[2], out var items) || items.Count < 16)
+            {
+                state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+            var values = new double[16];
+            for (var i = 0; i < 16; i++) values[i] = WebIdlConversions.ToDouble(items[i]);
+            state.UniformValues[location] = values;
+            return ScriptValue.Undefined;
+        });
         t.DefineMethod("getUniform", (target, _, args) => { var state = (WebGlContextState)target; if (args.Length < 2 || !state.UniformValues.TryGetValue(WebIdlConversions.ToInt32(args[1]), out var values)) return ScriptValue.Null; return values.Length == 1 ? ScriptValue.FromNumber(values[0]) : _context.Engine.CreateArray(values.Select(ScriptValue.FromNumber).ToArray()); });
         t.DefineMethod("enable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Add(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
         t.DefineMethod("disable", (target, _, args) => { if (args.Length > 0) ((WebGlContextState)target).EnabledCapabilities.Remove(WebIdlConversions.ToUint32(args[0])); return ScriptValue.Undefined; });
@@ -935,6 +1113,21 @@ internal sealed class DomNodeTemplates
             var location = WebIdlConversions.ToInt32(args[0]);
             var values = new double[count];
             for (var i = 0; i < count; i++) values[i] = WebIdlConversions.ToDouble(args[i + 1]);
+            state.UniformValues[location] = values;
+            return ScriptValue.Undefined;
+        }
+
+        static ScriptValue StoreUniformArray(IScriptEngine engine, WebGlContextState state, ReadOnlySpan<ScriptValue> args, int count)
+        {
+            if (args.Length < 2) { state.SetError(0x0502); return ScriptValue.Undefined; }
+            var location = WebIdlConversions.ToInt32(args[0]);
+            if (!engine.TryGetArrayItems(args[1], out var items) || items.Count < count)
+            {
+                state.SetError(0x0501);
+                return ScriptValue.Undefined;
+            }
+            var values = new double[count];
+            for (var i = 0; i < count; i++) values[i] = WebIdlConversions.ToDouble(items[i]);
             state.UniformValues[location] = values;
             return ScriptValue.Undefined;
         }
