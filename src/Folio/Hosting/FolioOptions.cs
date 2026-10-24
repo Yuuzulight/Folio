@@ -108,9 +108,9 @@ public sealed class FolioOptions
     /// <summary>Resolves relative URLs; null for documents without a location.</summary>
     public Uri? BaseUri { get; init; }
 
-    public ColorScheme ColorScheme { get; init; } = ColorScheme.Light;
+    public ColorScheme ColorScheme { get; set; } = ColorScheme.Light;
 
-    public bool ReducedMotion { get; init; }
+    public bool ReducedMotion { get; set; }
 
     /// <summary>A user stylesheet, applied between the user-agent and author styles.</summary>
     public string? UserStyleSheet { get; init; }

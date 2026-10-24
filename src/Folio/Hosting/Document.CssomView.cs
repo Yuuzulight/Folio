@@ -34,7 +34,7 @@ public sealed partial class Document
     internal MediaContext CurrentMedia()
     {
         var (width, height, scale) = Viewport ?? (800, 600, 1);
-        return new MediaContext(width, height, scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+        return new MediaContext(width, height, scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
     }
 
     /// <summary>Whether a media query list matches the document's current environment (<c>matchMedia(query).matches</c>).</summary>

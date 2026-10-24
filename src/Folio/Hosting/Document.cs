@@ -23,14 +23,43 @@ public sealed partial class Document : IDisposable
     {
         Node = node;
         Options = options;
+        _colorScheme = options.ColorScheme;
+        _reducedMotion = options.ReducedMotion;
         node.SetFeatureAvailability(options.Capabilities.WebGl, options.Capabilities.Media, options.Capabilities.Sound, options.Capabilities.Iframes);
-        node.PrefersDarkColorScheme = options.ColorScheme == ColorScheme.Dark;
+        node.PrefersDarkColorScheme = _colorScheme == ColorScheme.Dark;
         _diagnostics = diagnostics;
     }
 
     internal DocumentNode Node { get; }
 
     internal FolioOptions Options { get; }
+
+    /// <summary>The color scheme preference currently active for this document.</summary>
+    public ColorScheme ColorScheme
+    {
+        get => _colorScheme;
+        set
+        {
+            if (_colorScheme == value) return;
+            _colorScheme = value;
+            Node.PrefersDarkColorScheme = value == ColorScheme.Dark;
+            Node.SheetsMutated = true;
+        }
+    }
+    private ColorScheme _colorScheme;
+
+    /// <summary>Whether the reduced-motion preference is active for this document.</summary>
+    public bool ReducedMotion
+    {
+        get => _reducedMotion;
+        set
+        {
+            if (_reducedMotion == value) return;
+            _reducedMotion = value;
+            Node.SheetsMutated = true;
+        }
+    }
+    private bool _reducedMotion;
 
     /// <summary>Stage-6 capabilities granted by the host for this document.</summary>
     public FeatureCapabilities Capabilities => Options.Capabilities;
@@ -1142,7 +1171,7 @@ public sealed partial class Document : IDisposable
     {
         (_frame, _animatedBoxes) = (null, null);
         _lastPaint = (viewportWidth, viewportHeight, deviceScale, shaper, animationTime);
-        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
         _labelText = new Hosting.CanvasStyleEngine(_fonts, shaper);
         var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
@@ -1303,7 +1332,7 @@ public sealed partial class Document : IDisposable
             // A style or link element came, went or changed its text: the styles are resolved again before the boxes are built.
             if (sheetsMutated)
             {
-                var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+                var media = new MediaContext(last.Width, last.Height, last.Scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
                 _fonts ??= FontCollection.For(Options.Fonts);
                 var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
                 StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
@@ -1345,7 +1374,7 @@ public sealed partial class Document : IDisposable
         if (!partial)
         {
             Remember(Node);
-            var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
+            var media = new MediaContext(last.Width, last.Height, last.Scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
             _fonts ??= FontCollection.For(Options.Fonts);
             var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
             StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
