@@ -253,6 +253,9 @@ internal sealed partial class WebGlContextState
         StencilDepthFail = StencilDepthFail,
         StencilDepthPass = StencilDepthPass,
         PremultipliedAlpha = PremultipliedAlpha,
+        PolygonOffsetFill = EnabledCapabilities.Contains(0x8037),
+        PolygonOffsetFactor = PolygonOffsetFactor,
+        PolygonOffsetUnits = PolygonOffsetUnits,
     };
 
     // ---- the drawing buffer ----

@@ -1114,9 +1114,41 @@ internal sealed partial class WebGlContextState
         TextureMipLevels[handle] = [(width, height, newPixels)];
         return true;
     }
-    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, ReadOnlySpan<byte> source, bool flipY = false, bool premultiplyAlpha = false)
+    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, ReadOnlySpan<byte> source, bool flipY = false, bool premultiplyAlpha = false) =>
+        CopyTexturePixels(handle, 0, x, y, width, height, source, flipY, premultiplyAlpha);
+
+    /// <summary>The pixels of one mip level of a texture, or null if the texture or that level does not exist.</summary>
+    public (int Width, int Height, byte[] Pixels)? TextureLevel(uint handle, int level)
     {
-        if (!Textures.TryGetValue(handle, out var texture)) return;
+        if (level == 0) return Textures.TryGetValue(handle, out var baseLevel) ? baseLevel : null;
+        return TextureMipLevels.TryGetValue(handle, out var mips) && level > 0 && level < mips.Count && mips[level].Width > 0 ? mips[level] : null;
+    }
+
+    /// <summary>Allocates (zeroed) storage for a level of the texture; level 0 replaces the texture as <see cref="ReplaceTexture"/> does.</summary>
+    public bool SetTextureLevel(uint handle, int level, int width, int height)
+    {
+        var bytes = (long)width * height * 4;
+        if (bytes > int.MaxValue) { SetError(0x0505); return false; }
+        if (level == 0) return ReplaceTexture(handle, width, height, (int)bytes);
+        if (!Textures.TryGetValue(handle, out var baseLevel)) return false;
+        if (!TextureMipLevels.TryGetValue(handle, out var mips)) TextureMipLevels[handle] = mips = [baseLevel];
+        var old = level < mips.Count ? mips[level].Pixels.Length : 0;
+        var next = AllocatedBytes - old + bytes;
+        if (next > _maxGpuBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
+        AllocatedBytes = (int)next;
+        while (mips.Count <= level) mips.Add((0, 0, []));
+        mips[level] = (width, height, new byte[bytes]);
+        return true;
+    }
+
+    public void CopyTexturePixels(uint handle, int level, int x, int y, int width, int height, ReadOnlySpan<byte> source, bool flipY = false, bool premultiplyAlpha = false)
+    {
+        if (TextureLevel(handle, level) is not { } texture) return;
         var copyWidth = Math.Min(width, Math.Max(0, texture.Width - x));
         var copyHeight = Math.Min(height, Math.Max(0, texture.Height - y));
         for (var row = 0; row < copyHeight; row++)
@@ -1145,9 +1177,6 @@ internal sealed partial class WebGlContextState
                 }
             }
         }
-        Textures[handle] = texture;
-        if (TextureMipLevels.TryGetValue(handle, out var mips) && mips.Count > 0)
-            mips[0] = texture;
     }
     public void CopyTexturePixels(uint handle, int x, int y, int width, int height, IReadOnlyList<ScriptValue> source)
     {
