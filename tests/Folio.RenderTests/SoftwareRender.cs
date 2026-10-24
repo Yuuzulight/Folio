@@ -21,7 +21,7 @@ public static class SoftwareRender
         var surface = new Folio.Painting.SoftwareRasterSurface(pixelWidth, pixelHeight);
         var canvas = surface.Canvas;
         canvas.FillRoundedRect(new Folio.Painting.RoundedRect(new Folio.Painting.RectF(0, 0, pixelWidth, pixelHeight), default),
-            document.Options.ColorScheme == ColorScheme.Dark ? new Folio.Painting.Paint(new Folio.Painting.Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1)) : new Folio.Painting.Paint(new Folio.Painting.Rgba(1, 1, 1, 1)));
+            document.ColorScheme == ColorScheme.Dark ? new Folio.Painting.Paint(new Folio.Painting.Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1)) : new Folio.Painting.Paint(new Folio.Painting.Rgba(1, 1, 1, 1)));
         canvas.Transform(System.Numerics.Matrix3x2.CreateScale(request.DeviceScale));
         Folio.Painting.DisplayListPlayer.Replay(list, canvas, new Folio.Painting.RectF(0, 0, pixelWidth / request.DeviceScale, pixelHeight / request.DeviceScale));
         // Premultiplied RGBA to premultiplied BGRA.

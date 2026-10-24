@@ -293,6 +293,56 @@ public class CssomViewTests
     }
 
     [Fact]
+    public void SwitchingColorSchemeAtRuntimeFiresChangeEventForPrefersColorSchemeList()
+    {
+        using var page = new Page("<p>x</p>", 800, 600);
+        page.Run("var dark = matchMedia('(prefers-color-scheme: dark)'); var light = matchMedia('(prefers-color-scheme: light)'); dark.addEventListener('change', function (e) { log.push('dark:' + e.matches); }); light.onchange = function (e) { log.push('light:' + e.matches); };");
+        page.Frame();
+        Assert.Equal("", page.Log());
+
+        // Switch color scheme to dark at runtime
+        page.Document.ColorScheme = ColorScheme.Dark;
+        Assert.Equal("true", page.Run("String(dark.matches)"));
+        Assert.Equal("false", page.Run("String(light.matches)"));
+
+        // Change event fires at next frame
+        page.Frame();
+        Assert.Contains("dark:true", page.Log());
+        Assert.Contains("light:false", page.Log());
+
+        page.Run("log.length = 0;");
+        page.Frame();
+        Assert.Equal("", page.Log()); // once only
+
+        // Switch back to light
+        page.Document.ColorScheme = ColorScheme.Light;
+        page.Frame();
+        Assert.Contains("dark:false", page.Log());
+        Assert.Contains("light:true", page.Log());
+    }
+
+    [Fact]
+    public void SwitchingReducedMotionAtRuntimeFiresChangeEventForPrefersReducedMotionList()
+    {
+        using var page = new Page("<p>x</p>", 800, 600);
+        page.Run("var motion = matchMedia('(prefers-reduced-motion: reduce)'); motion.addEventListener('change', function (e) { log.push('motion:' + e.matches); });");
+        page.Frame();
+        Assert.Equal("", page.Log());
+
+        // Switch reduced motion to true at runtime
+        page.Document.ReducedMotion = true;
+        Assert.Equal("true", page.Run("String(motion.matches)"));
+
+        page.Frame();
+        Assert.Equal("motion:true", page.Log());
+
+        page.Run("log.length = 0;");
+        page.Document.ReducedMotion = false;
+        page.Frame();
+        Assert.Equal("motion:false", page.Log());
+    }
+
+    [Fact]
     public void TheLegacyListenerApiWorks()
     {
         using var page = new Page("<p>x</p>", 800, 600);

@@ -104,6 +104,34 @@ public class FolioView : Control
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public FolioOptions Options { get; set; } = new();
 
+    /// <summary>The active color scheme (light or dark mode) for the view and its loaded document.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public ColorScheme ColorScheme
+    {
+        get => _document?.ColorScheme ?? Options.ColorScheme;
+        set
+        {
+            Options.ColorScheme = value;
+            if (_document is not null)
+                _document.ColorScheme = value;
+            Invalidate();
+        }
+    }
+
+    /// <summary>Whether reduced motion is requested for animations.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ReducedMotion
+    {
+        get => _document?.ReducedMotion ?? Options.ReducedMotion;
+        set
+        {
+            Options.ReducedMotion = value;
+            if (_document is not null)
+                _document.ReducedMotion = value;
+            Invalidate();
+        }
+    }
+
     /// <summary>The capabilities currently requested for this view's content artifact.</summary>
     [Browsable(false)]
     public FeatureCapabilities Capabilities { get { lock (_contentStateGate) return _capabilities; } }
@@ -795,7 +823,7 @@ public class FolioView : Control
             using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
             using (var canvas = new SKCanvas(bitmap))
             {
-                canvas.Clear(_document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
+                canvas.Clear((_document?.ColorScheme ?? Options.ColorScheme) == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
                 canvas.Scale(PixelScale);
                 canvas.Translate(0, -ScrollTop);
                 DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
