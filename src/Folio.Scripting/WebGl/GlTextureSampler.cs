@@ -8,12 +8,11 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
 {
     private static readonly Vector4 Black = new(0, 0, 0, 1);
 
-    private (List<(int Width, int Height, byte[] Pixels)> Levels, int Min, int Mag, uint WrapS, uint WrapT)? Resolve(int unit)
+    private (List<GlImage?> Levels, int Min, int Mag, uint WrapS, uint WrapT)? Resolve(int unit)
     {
-        if (unit < 0 || unit >= state.TextureUnits.Length || state.TextureUnits[unit] is not { } handle || !state.Textures.TryGetValue(handle, out var baseTexture))
+        if (unit < 0 || unit >= state.TextureUnits.Length || state.TextureUnits[unit] is not { } handle || !state.Textures.TryGetValue(handle, out var texture) || texture.Base is not { } baseTexture)
             return null;
         if (baseTexture.Width <= 0 || baseTexture.Height <= 0) return null;
-        var levels = state.TextureMipLevels.TryGetValue(handle, out var mips) && mips.Count > 0 ? mips : [baseTexture];
         state.TextureParameters.TryGetValue(handle, out var parameters);
         int Parameter(uint name, int fallback)
         {
@@ -22,7 +21,7 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
             if (sampler is { } s && state.SamplerParameters.TryGetValue(s, out var overrides) && overrides.TryGetValue(name, out var v)) return (int)v;
             return parameters is not null && parameters.TryGetValue(name, out var own) ? own : fallback;
         }
-        return (levels, Parameter(0x2801, 0x2702), Parameter(0x2800, 0x2601), (uint)Parameter(0x2802, 0x2901), (uint)Parameter(0x2803, 0x2901));
+        return (texture.Levels, Parameter(0x2801, 0x2702), Parameter(0x2800, 0x2601), (uint)Parameter(0x2802, 0x2901), (uint)Parameter(0x2803, 0x2901));
     }
 
     private static int FullChain(int width, int height)
@@ -41,10 +40,14 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
     {
         if (Resolve(unit) is not { } t) return Black;
         var (levels, min, mag, wrapS, wrapT) = t;
-        var baseLevel = levels[0];
+        var baseLevel = levels[0]!;
         var mipmapped = min is 0x2700 or 0x2701 or 0x2702 or 0x2703;
         // A mip filter on a texture without all its levels leaves it incomplete, and an incomplete texture reads as black.
-        if (mipmapped && (levels.Count < FullChain(baseLevel.Width, baseLevel.Height) || levels.Any(l => l.Width <= 0))) return Black;
+        if (mipmapped && (levels.Count < FullChain(baseLevel.Width, baseLevel.Height) || levels.Any(l => l is null || l.Width <= 0))) return Black;
+        // Linear filtering needs a filterable format: depth is sampled nearest, and 32-bit floats are filterable only with OES_texture_float_linear.
+        var linearFilter = mag is 0x2601 || min is 0x2601 or 0x2701 or 0x2702 or 0x2703;
+        var comparing = state.TextureParameters.TryGetValue(state.TextureUnits[unit] ?? 0, out var textureParameters) && textureParameters.GetValueOrDefault(0x884Cu) == 0x884E;
+        if (linearFilter && ((baseLevel.Format.IsDepth && !comparing) || (baseLevel.Format.Storage == GlStorage.F32 && baseLevel.Format.IsColor && !state.EnabledExtensions.Contains("OES_texture_float_linear")))) return Black;
 
         float level;
         if (float.IsNaN(lod))
@@ -64,22 +67,22 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
         if (!mipmapped || magnify || levels.Count == 1)
         {
             var linear = (magnify ? mag : min) is 0x2601 or 0x2701 or 0x2703;
-            return SampleLevel(levels[0], uv, wrapS, wrapT, linear);
+            return SampleLevel(levels[0]!, uv, wrapS, wrapT, linear);
         }
         var maxLevel = levels.Count - 1;
         switch (filter)
         {
             case 0x2700:
-                return SampleLevel(levels[Math.Clamp((int)MathF.Round(level), 0, maxLevel)], uv, wrapS, wrapT, linear: false);
+                return SampleLevel(levels[Math.Clamp((int)MathF.Round(level), 0, maxLevel)]!, uv, wrapS, wrapT, linear: false);
             case 0x2701:
-                return SampleLevel(levels[Math.Clamp((int)MathF.Round(level), 0, maxLevel)], uv, wrapS, wrapT, linear: true);
+                return SampleLevel(levels[Math.Clamp((int)MathF.Round(level), 0, maxLevel)]!, uv, wrapS, wrapT, linear: true);
             default:
             {
                 var l0 = Math.Clamp((int)MathF.Floor(level), 0, maxLevel);
                 var l1 = Math.Min(l0 + 1, maxLevel);
                 var f = Math.Clamp(level - l0, 0, 1);
                 var linear = filter == 0x2703;
-                return Vector4.Lerp(SampleLevel(levels[l0], uv, wrapS, wrapT, linear), SampleLevel(levels[l1], uv, wrapS, wrapT, linear), f);
+                return Vector4.Lerp(SampleLevel(levels[l0]!, uv, wrapS, wrapT, linear), SampleLevel(levels[l1]!, uv, wrapS, wrapT, linear), f);
             }
         }
     }
@@ -117,15 +120,11 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
         }
     }
 
-    private static Vector4 Texel((int Width, int Height, byte[] Pixels) level, int x, int y)
-    {
-        var i = (y * level.Width + x) * 4;
-        return new Vector4(level.Pixels[i], level.Pixels[i + 1], level.Pixels[i + 2], level.Pixels[i + 3]) * (1f / 255f);
-    }
+    private static Vector4 Texel(GlImage level, int x, int y) => level.LoadColor(y * level.Width + x);
 
-    private static Vector4 SampleLevel((int Width, int Height, byte[] Pixels) level, Vector2 uv, uint wrapS, uint wrapT, bool linear)
+    private static Vector4 SampleLevel(GlImage level, Vector2 uv, uint wrapS, uint wrapT, bool linear)
     {
-        if (level.Width <= 0 || level.Height <= 0 || level.Pixels.Length < level.Width * level.Height * 4) return Black;
+        if (level.Width <= 0 || level.Height <= 0) return Black;
         if (!linear)
         {
             var u = Wrap(uv.X, wrapS);
@@ -148,19 +147,55 @@ internal sealed class GlTextureSampler(WebGlContextState state) : IShaderSampler
         return Vector4.Lerp(top, bottom, fy);
     }
 
+    public float SampleShadow(int unit, Vector2 uv, float reference)
+    {
+        if (Resolve(unit) is not { } t || t.Levels[0] is not { } level || !level.Format.IsDepth) return 0;
+        var handle = state.TextureUnits[unit] ?? 0;
+        state.TextureParameters.TryGetValue(handle, out var parameters);
+        var function = (uint)(parameters?.GetValueOrDefault(0x884Du, 0x0203) ?? 0x0203);
+        float Test(int x, int y)
+        {
+            var depth = BitConverter.ToSingle(level.Data, (y * level.Width + x) * 4);
+            var passes = function switch
+            {
+                0x0200 => false,
+                0x0201 => reference < depth,
+                0x0202 => reference == depth,
+                0x0203 => reference <= depth,
+                0x0204 => reference > depth,
+                0x0205 => reference != depth,
+                0x0206 => reference >= depth,
+                _ => true,
+            };
+            return passes ? 1f : 0f;
+        }
+        if (t.Mag != 0x2601 && t.Min is not (0x2601 or 0x2701 or 0x2703))
+            return Test(Math.Clamp((int)MathF.Floor(Wrap(uv.X, t.WrapS) * level.Width), 0, level.Width - 1), Math.Clamp((int)MathF.Floor(Wrap(uv.Y, t.WrapT) * level.Height), 0, level.Height - 1));
+        // Percentage-closer filtering: the comparison results of the four texels around the point, blended.
+        var px = uv.X * level.Width - 0.5f;
+        var py = uv.Y * level.Height - 0.5f;
+        var x0 = (int)MathF.Floor(px);
+        var y0 = (int)MathF.Floor(py);
+        var fx = px - x0;
+        var fy = py - y0;
+        var i0 = WrapIndex(x0, level.Width, t.WrapS); var i1 = WrapIndex(x0 + 1, level.Width, t.WrapS);
+        var j0 = WrapIndex(y0, level.Height, t.WrapT); var j1 = WrapIndex(y0 + 1, level.Height, t.WrapT);
+        var top = Test(i0, j0) * (1 - fx) + Test(i1, j0) * fx;
+        var bottom = Test(i0, j1) * (1 - fx) + Test(i1, j1) * fx;
+        return top * (1 - fy) + bottom * fy;
+    }
+
     public Vector4 Fetch(int unit, int x, int y, int level)
     {
         if (Resolve(unit) is not { } t) return Vector4.Zero;
-        var levels = t.Levels;
-        if (level < 0 || level >= levels.Count) return Vector4.Zero;
-        var l = levels[level];
+        if (t.Levels.ElementAtOrDefault(level) is not { } l) return Vector4.Zero;
         if (x < 0 || y < 0 || x >= l.Width || y >= l.Height) return Vector4.Zero;
         return Texel(l, x, y);
     }
 
     public (int Width, int Height) Size(int unit, int level)
     {
-        if (Resolve(unit) is not { } t || level < 0 || level >= t.Levels.Count) return (0, 0);
-        return (t.Levels[level].Width, t.Levels[level].Height);
+        if (Resolve(unit) is not { } t || t.Levels.ElementAtOrDefault(level) is not { } l) return (0, 0);
+        return (l.Width, l.Height);
     }
 }

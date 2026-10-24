@@ -7,7 +7,7 @@ internal enum GlslBase
     Void, Float, Int, Bool,
     Vec2, Vec3, Vec4, IVec2, IVec3, IVec4, BVec2, BVec3, BVec4,
     Mat2, Mat3, Mat4,
-    Sampler2D, SamplerCube, Struct,
+    Sampler2D, SamplerCube, Sampler2DShadow, Struct,
 }
 
 internal sealed class GlslStructDef(string name)
@@ -43,6 +43,7 @@ internal sealed record GlslType(GlslBase Base, int ArraySize = 0, GlslStructDef?
     public static readonly GlslType Mat3 = new(GlslBase.Mat3);
     public static readonly GlslType Mat4 = new(GlslBase.Mat4);
     public static readonly GlslType Sampler2D = new(GlslBase.Sampler2D);
+    public static readonly GlslType Sampler2DShadow = new(GlslBase.Sampler2DShadow);
 
     public bool IsArray => ArraySize > 0;
     public bool IsStruct => Base == GlslBase.Struct && !IsArray;
@@ -58,7 +59,7 @@ internal sealed record GlslType(GlslBase Base, int ArraySize = 0, GlslStructDef?
     public bool IsScalar => !IsArray && Base is GlslBase.Float or GlslBase.Int or GlslBase.Bool;
     public bool IsVector => !IsArray && Base is >= GlslBase.Vec2 and <= GlslBase.BVec4;
     public bool IsMatrix => !IsArray && Base is GlslBase.Mat2 or GlslBase.Mat3 or GlslBase.Mat4;
-    public bool IsSampler => !IsArray && Base is GlslBase.Sampler2D or GlslBase.SamplerCube;
+    public bool IsSampler => !IsArray && Base is GlslBase.Sampler2D or GlslBase.SamplerCube or GlslBase.Sampler2DShadow;
     public bool IsNumeric => (IsScalar || IsVector || IsMatrix) && ScalarKind != GlslBase.Bool;
 
     /// <summary>float, int or bool: what a scalar, vector or matrix is made of.</summary>
@@ -108,6 +109,7 @@ internal sealed record GlslType(GlslBase Base, int ArraySize = 0, GlslStructDef?
         GlslBase.Struct => Struct!.Name,
         GlslBase.Sampler2D => "sampler2D",
         GlslBase.SamplerCube => "samplerCube",
+        GlslBase.Sampler2DShadow => "sampler2DShadow",
         _ => Base.ToString().ToLowerInvariant(),
     }) + (IsArray ? $"[{ArraySize}]" : "");
 
@@ -133,6 +135,7 @@ internal sealed record GlslType(GlslBase Base, int ArraySize = 0, GlslStructDef?
             "mat4" or "mat4x4" => Mat4,
             "sampler2D" => Sampler2D,
             "samplerCube" => new(GlslBase.SamplerCube),
+            "sampler2DShadow" => Sampler2DShadow,
             _ => null!,
         };
         return type is not null;

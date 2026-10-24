@@ -85,7 +85,8 @@ internal sealed class GlPipeline
     private readonly ShaderContext _fragmentContext;
     private readonly int _varyingCount;
     private readonly bool _wantDerivatives;
-    private readonly int _outputSlot;
+    private readonly int[] _outputSlots;
+    private readonly Vector4[] _outputColors;
     private readonly Vector4[] _derivX;
     private readonly Vector4[] _derivY;
     private readonly Val[] _scratchVaryings;
@@ -100,7 +101,11 @@ internal sealed class GlPipeline
         _fragmentContext = _program.FragmentContext;
         _varyingCount = _program.Varyings.Count;
         _wantDerivatives = _program.Fragment.UsesDerivatives || _program.Uniforms.Any(u => u.Type.IsSampler && u.FragmentSlot >= 0);
-        _outputSlot = _program.Fragment.FragOutputSlots.Length > 0 ? _program.Fragment.FragOutputSlots[0] : -1;
+        // Output i goes to the colour image i of the target; an output with no image, or a shader that does not write it, is skipped.
+        var declared = _program.Fragment.FragOutputSlots;
+        _outputSlots = new int[call.Target.Colors.Length];
+        for (var i = 0; i < _outputSlots.Length; i++) _outputSlots[i] = i < declared.Length && call.Target.Colors[i] is not null ? declared[i] : -1;
+        _outputColors = new Vector4[_outputSlots.Length];
         _derivX = new Vector4[_program.Fragment.GlobalSlots];
         _derivY = new Vector4[_program.Fragment.GlobalSlots];
         _scratchVaryings = new Val[_varyingCount];
@@ -582,11 +587,11 @@ internal sealed class GlPipeline
                     fctx.G[fragment.PointCoordSlot] = new Val(pcoord.X, pcoord.Y, 0, 0);
                 }
                 if (fragment.FragDepthSlot >= 0) fctx.G[fragment.FragDepthSlot] = new Val(float.NaN);
-                if (_outputSlot >= 0) fctx.G[_outputSlot] = new Val(0, 0, 0, 1);
+                for (var o = 0; o < _outputSlots.Length; o++) if (_outputSlots[o] >= 0) fctx.G[_outputSlots[o]] = new Val(0, 0, 0, 1);
                 fctx.Discarded = false;
                 fragment.Main(fctx);
                 if (fctx.Discarded) continue;
-                var color = _outputSlot >= 0 ? fctx.G[_outputSlot].C0 : Vector4.Zero;
+                for (var o = 0; o < _outputSlots.Length; o++) _outputColors[o] = _outputSlots[o] >= 0 ? fctx.G[_outputSlots[o]].C0 : Vector4.Zero;
                 var shaderDepth = fragment.FragDepthSlot >= 0 ? fctx.G[fragment.FragDepthSlot].X : float.NaN;
 
                 // per-sample tests and writes
@@ -604,7 +609,7 @@ internal sealed class GlPipeline
                         var sb = (eCa.A * sx + eCa.B * sy + eCa.C0) * invArea;
                         sampleZ = Math.Clamp(sa * a.Z + sb * b.Z + (1 - sa - sb) * c.Z + depthOffset, 0, 1);
                     }
-                    WriteSample(target, depthSpan, index, color, sampleZ, front);
+                    WriteSample(target, depthSpan, index, _outputColors, sampleZ, front);
                 }
             }
         }
@@ -647,7 +652,7 @@ internal sealed class GlPipeline
         _ => stored,
     };
 
-    private void WriteSample(GlRenderTarget target, Span<float> depth, int index, Vector4 color, float z, bool front)
+    private void WriteSample(GlRenderTarget target, Span<float> depth, int index, Vector4[] colors, float z, bool front)
     {
         var st = _state;
         if (st.StencilTest && target.Stencil is not null)
@@ -670,34 +675,33 @@ internal sealed class GlPipeline
         }
         if (st.DepthMask && depth.Length > 0) depth[index] = z;
 
-        var o = index * 4;
-        var dst = new Vector4(target.Color[o], target.Color[o + 1], target.Color[o + 2], target.HasAlpha ? target.Color[o + 3] : 255) / 255f;
-        var src = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
-        Vector4 result;
-        if (st.Blend)
+        for (var i = 0; i < target.Colors.Length; i++)
         {
-            var sf = Factor(st.BlendSrcRgb, src, dst, st.BlendColor);
-            var df = Factor(st.BlendDstRgb, src, dst, st.BlendColor);
-            var saf = Factor(st.BlendSrcAlpha, src, dst, st.BlendColor);
-            var daf = Factor(st.BlendDstAlpha, src, dst, st.BlendColor);
-            var rgb = Combine(st.BlendEquationRgb, src * sf, dst * df);
-            var alpha = Combine(st.BlendEquationAlpha, src * saf, dst * daf);
-            result = new Vector4(rgb.X, rgb.Y, rgb.Z, alpha.W);
-            result = Vector4.Clamp(result, Vector4.Zero, Vector4.One);
+            if (target.Colors[i] is not { } image) continue;
+            var fixedPoint = !image.Format.IsFloat;
+            var dst = image.LoadColor(index);
+            var src = fixedPoint ? Vector4.Clamp(colors[i], Vector4.Zero, Vector4.One) : colors[i];
+            Vector4 result;
+            if (st.Blend)
+            {
+                var sf = Factor(st.BlendSrcRgb, src, dst, st.BlendColor);
+                var df = Factor(st.BlendDstRgb, src, dst, st.BlendColor);
+                var saf = Factor(st.BlendSrcAlpha, src, dst, st.BlendColor);
+                var daf = Factor(st.BlendDstAlpha, src, dst, st.BlendColor);
+                var rgb = Combine(st.BlendEquationRgb, src * sf, dst * df);
+                var alpha = Combine(st.BlendEquationAlpha, src * saf, dst * daf);
+                result = new Vector4(rgb.X, rgb.Y, rgb.Z, alpha.W);
+                if (fixedPoint) result = Vector4.Clamp(result, Vector4.Zero, Vector4.One);
+            }
+            else
+            {
+                result = src;
+            }
+            image.Store(index, result, st.MaskR, st.MaskG, st.MaskB, st.MaskA);
         }
-        else
-        {
-            result = src;
-        }
-        if (st.MaskR) target.Color[o] = ToByte(result.X);
-        if (st.MaskG) target.Color[o + 1] = ToByte(result.Y);
-        if (st.MaskB) target.Color[o + 2] = ToByte(result.Z);
-        if (st.MaskA) target.Color[o + 3] = target.HasAlpha ? ToByte(result.W) : (byte)255;
     }
 
     private static byte Masked(byte old, byte value, uint mask) => (byte)((old & ~mask) | (value & mask));
-
-    private static byte ToByte(float v) => (byte)Math.Clamp((int)MathF.Round(v * 255f), 0, 255);
 
     private static Vector4 Combine(uint equation, Vector4 s, Vector4 d) => equation switch
     {

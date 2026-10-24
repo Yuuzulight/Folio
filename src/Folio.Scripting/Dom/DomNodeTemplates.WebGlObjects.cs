@@ -150,6 +150,18 @@ internal sealed partial class DomNodeTemplates
         Forward(vertexArrays, context, "isVertexArrayOES", "isVertexArray");
         Forward(vertexArrays, context, "bindVertexArrayOES", "bindVertexArray");
 
+        var drawBuffers = new HostObjectTemplate("WEBGL_draw_buffers");
+        for (var i = 0; i < 16; i++)
+        {
+            var attachment = ScriptValue.FromNumber(0x8CE0 + i);
+            var buffer = ScriptValue.FromNumber(0x8825 + i);
+            drawBuffers.DefineProperty($"COLOR_ATTACHMENT{i}_WEBGL", (_, _) => attachment);
+            drawBuffers.DefineProperty($"DRAW_BUFFER{i}_WEBGL", (_, _) => buffer);
+        }
+        drawBuffers.DefineProperty("MAX_COLOR_ATTACHMENTS_WEBGL", (_, _) => ScriptValue.FromNumber(WebGlContextState.MaxColorAttachments));
+        drawBuffers.DefineProperty("MAX_DRAW_BUFFERS_WEBGL", (_, _) => ScriptValue.FromNumber(WebGlContextState.MaxColorAttachments));
+        Forward(drawBuffers, context, "drawBuffersWEBGL", "drawBuffers");
+
         return new Dictionary<string, HostObjectTemplate>(StringComparer.OrdinalIgnoreCase)
         {
             ["WEBGL_lose_context"] = loseContext,
@@ -160,6 +172,16 @@ internal sealed partial class DomNodeTemplates
             ["EXT_blend_minmax"] = Constants("EXT_blend_minmax", ("MIN_EXT", 0x8007), ("MAX_EXT", 0x8008)),
             ["EXT_frag_depth"] = Constants("EXT_frag_depth"),
             ["EXT_texture_filter_anisotropic"] = Constants("EXT_texture_filter_anisotropic", ("TEXTURE_MAX_ANISOTROPY_EXT", 0x84FE), ("MAX_TEXTURE_MAX_ANISOTROPY_EXT", 0x84FF)),
+            ["WEBGL_draw_buffers"] = drawBuffers,
+            ["OES_texture_float"] = Constants("OES_texture_float"),
+            ["OES_texture_float_linear"] = Constants("OES_texture_float_linear"),
+            ["OES_texture_half_float"] = Constants("OES_texture_half_float", ("HALF_FLOAT_OES", 0x8D61)),
+            ["OES_texture_half_float_linear"] = Constants("OES_texture_half_float_linear"),
+            ["WEBGL_depth_texture"] = Constants("WEBGL_depth_texture", ("UNSIGNED_INT_24_8_WEBGL", 0x84FA)),
+            ["EXT_color_buffer_float"] = Constants("EXT_color_buffer_float"),
+            ["EXT_color_buffer_half_float"] = Constants("EXT_color_buffer_half_float", ("RGBA16F_EXT", 0x881A), ("RGB16F_EXT", 0x881B), ("FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE_EXT", 0x8211), ("UNSIGNED_NORMALIZED_EXT", 0x8C17)),
+            ["WEBGL_color_buffer_float"] = Constants("WEBGL_color_buffer_float", ("RGBA32F_EXT", 0x8814), ("FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE_EXT", 0x8211), ("UNSIGNED_NORMALIZED_EXT", 0x8C17)),
+            ["EXT_float_blend"] = Constants("EXT_float_blend"),
             ["WEBGL_debug_renderer_info"] = Constants("WEBGL_debug_renderer_info", ("UNMASKED_VENDOR_WEBGL", 0x9245), ("UNMASKED_RENDERER_WEBGL", 0x9246)),
         };
     }

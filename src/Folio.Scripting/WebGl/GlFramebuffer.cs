@@ -1,23 +1,22 @@
 namespace Folio.Scripting.WebGl;
 
 /// <summary>
-/// Something the pipeline draws into: RGBA8 colour with one or more samples per pixel (sample-major within a pixel), rows from the bottom
-/// as GL has them, and optional depth and stencil of the same shape.
+/// Something the pipeline draws into: one image per fragment output (null where the output goes nowhere) with one or more samples per pixel
+/// (sample-major within a pixel), rows from the bottom as GL has them, and optional depth and stencil of the same shape.
 /// </summary>
-internal sealed class GlRenderTarget(int width, int height, int samples, byte[] color, byte[]? depthBytes, byte[]? stencil)
+internal sealed class GlRenderTarget(int width, int height, int samples, GlImage?[] colors, byte[]? depthBytes, byte[]? stencil)
 {
     public int Width { get; } = width;
     public int Height { get; } = height;
     public int Samples { get; } = samples;
-    public byte[] Color { get; } = color;
+
+    /// <summary>The colour image each fragment output is written to, indexed by output location.</summary>
+    public GlImage?[] Colors { get; } = colors;
 
     /// <summary>Depth as little-endian float32 per sample; null when the target has no depth buffer.</summary>
     public byte[]? DepthBytes { get; } = depthBytes;
 
     public byte[]? Stencil { get; } = stencil;
-
-    /// <summary>Whether alpha is stored (a canvas made with <c>alpha: false</c> reads as opaque).</summary>
-    public bool HasAlpha { get; init; } = true;
 }
 
 /// <summary>The drawing buffer of a WebGL canvas: multisampled, with depth and stencil, resolved on demand into the canvas bitmap.</summary>
@@ -27,18 +26,19 @@ internal sealed class GlDefaultFramebuffer
 
     public int Width { get; }
     public int Height { get; }
-    public byte[] Color { get; }
+    public GlImage Image { get; }
+    public byte[] Color => Image.Data;
     public byte[] DepthBytes { get; }
     public byte[] Stencil { get; }
     private readonly bool _multisample;
 
-    public GlDefaultFramebuffer(int width, int height, bool multisample)
+    public GlDefaultFramebuffer(int width, int height, bool multisample, bool alpha = true)
     {
         Width = width;
         Height = height;
         _multisample = multisample;
         var samples = multisample ? SampleCount : 1;
-        Color = new byte[checked(width * height * samples * 4)];
+        Image = new GlImage(width, height, new GlFormat(alpha ? 0x8058u : 0x8051u, GlStorage.U8, alpha ? GlLayout.RGBA : GlLayout.RGB), samples);
         DepthBytes = new byte[checked(width * height * samples * 4)];
         Stencil = new byte[width * height * samples];
         FillDepth(1f);
@@ -46,7 +46,7 @@ internal sealed class GlDefaultFramebuffer
 
     public int Samples => _multisample ? SampleCount : 1;
 
-    public GlRenderTarget Target(bool alpha) => new(Width, Height, Samples, Color, DepthBytes, Stencil) { HasAlpha = alpha };
+    public GlRenderTarget Target() => new(Width, Height, Samples, [Image], DepthBytes, Stencil);
 
     public void FillDepth(float value)
     {
@@ -63,6 +63,7 @@ internal sealed class GlDefaultFramebuffer
         if (samples == 1)
         {
             Array.Copy(Color, result, result.Length);
+            if (!Image.Format.HasAlpha) for (var i = 3; i < result.Length; i += 4) result[i] = 255;
             return result;
         }
         for (var p = 0; p < Width * Height; p++)
@@ -77,7 +78,7 @@ internal sealed class GlDefaultFramebuffer
             result[p * 4] = (byte)((sr + samples / 2) / samples);
             result[p * 4 + 1] = (byte)((sg + samples / 2) / samples);
             result[p * 4 + 2] = (byte)((sb + samples / 2) / samples);
-            result[p * 4 + 3] = (byte)((sa + samples / 2) / samples);
+            result[p * 4 + 3] = Image.Format.HasAlpha ? (byte)((sa + samples / 2) / samples) : (byte)255;
         }
         return result;
     }
