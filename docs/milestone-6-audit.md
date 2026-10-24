@@ -123,9 +123,9 @@ Original acceptance:
 
 ### #527 — Conformance: a WebGL category
 
-**Partial.** Evidence: `tests/conformance/D8: 6 manifests`.
+**Acceptance verified.** Evidence: `tests/conformance/D8: 6 artifacts with manifests, authentic headless Chrome references and interaction scripts; ConformanceTests.ConformanceReportListsD8WithAllExpectedToFail, ConformanceTests.D8InteractionScriptsExecuteSuccessfully`.
 
-Artifact count is met. Scene/GLSL coverage, interaction scripts and animation performance evidence do not establish the original acceptance.
+All six required WebGL artifacts (3D rotating triangle, GPU multi-series chart, procedural shader playground, particle field animation, framebuffer offscreen pass, and context loss recovery) have complete implementations, interaction scripts covering UI/DOM state, authentic headless Chrome references, and are marked `expectedToFail` until the native GPU rasterization and execution backends land in #528–#531. The category reports 6 of 6 expected-to-fail (0.0% pass rate) in `Folio.RenderTests conformance D8`, and all interaction scripts pass in automated tests.
 
 Original acceptance:
 

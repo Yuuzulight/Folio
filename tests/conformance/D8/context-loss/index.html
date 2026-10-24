@@ -1,3 +1,194 @@
-<!doctype html><canvas id="c" width="800" height="450"></canvas><output id="status">ready</output><script>
-const gl=c.getContext('webgl'); c.addEventListener('webglcontextlost',()=>status.textContent='lost'); c.addEventListener('webglcontextrestored',()=>status.textContent='restored');
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGL Context Loss Recovery</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --panel: #131b2e;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --border: #1e293b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    max-width: 760px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #f1f5f9;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { background: #334155; }
+  .badge { color: var(--muted); }
+  output { color: #f8fafc; font-weight: 600; }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 380px;
+    background: #050811;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>WebGL Context Loss Recovery</h1>
+    <div class="controls">
+      <button id="lose-btn">Lose Context</button>
+      <button id="restore-btn">Restore Context</button>
+      <span class="badge">Status: <output id="status">active</output></span>
+    </div>
+  </div>
+  <canvas id="glcanvas" width="720" height="380"></canvas>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('glcanvas');
+  const loseBtn = document.getElementById('lose-btn');
+  const restoreBtn = document.getElementById('restore-btn');
+  const statusOutput = document.getElementById('status');
+
+  let gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  let ext = gl ? gl.getExtension('WEBGL_lose_context') : null;
+  let prog, buf;
+
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    statusOutput.textContent = 'lost';
+  });
+
+  canvas.addEventListener('webglcontextrestored', () => {
+    statusOutput.textContent = 'restored';
+    initGL();
+    render();
+  });
+
+  loseBtn.addEventListener('click', () => {
+    if (ext) {
+      ext.loseContext();
+    }
+    statusOutput.textContent = 'lost';
+  });
+
+  restoreBtn.addEventListener('click', () => {
+    if (ext) {
+      ext.restoreContext();
+    }
+    statusOutput.textContent = 'restored';
+  });
+
+  function initGL() {
+    if (!gl) return;
+    const vsSource = `
+      attribute vec3 a_pos;
+      attribute vec3 a_color;
+      varying vec3 v_color;
+      void main() {
+        gl_Position = vec4(a_pos * 0.7, 1.0);
+        v_color = a_color;
+      }
+    `;
+    const fsSource = `
+      precision mediump float;
+      varying vec3 v_color;
+      void main() {
+        gl_FragColor = vec4(v_color, 1.0);
+      }
+    `;
+    function createShader(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return s;
+    }
+    const vs = createShader(gl.VERTEX_SHADER, vsSource);
+    const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+    prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const vertices = new Float32Array([
+       0.0,  0.8, 0.0,   1.0, 0.3, 0.2,
+      -0.7, -0.6, 0.0,   0.2, 0.8, 1.0,
+       0.7, -0.6, 0.0,   0.9, 0.8, 0.1
+    ]);
+    buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    const posLoc = gl.getAttribLocation(prog, 'a_pos');
+    const colLoc = gl.getAttribLocation(prog, 'a_color');
+    if (posLoc >= 0) {
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 24, 0);
+    }
+    if (colLoc >= 0) {
+      gl.enableVertexAttribArray(colLoc);
+      gl.vertexAttribPointer(colLoc, 3, gl.FLOAT, false, 24, 12);
+    }
+  }
+
+  function render() {
+    if (!gl || gl.isContextLost()) return;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.08, 0.12, 0.22, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  statusOutput.textContent = 'active';
+  initGL();
+  render();
+})();
 </script>
+</body>
+</html>

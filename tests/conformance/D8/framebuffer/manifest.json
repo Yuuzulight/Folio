@@ -1,1 +1,20 @@
-{"prompt":"Demonstrate a WebGL framebuffer with a textured offscreen pass.","features":["script","webgl","framebuffer","read-pixels"],"viewport":800}
+{
+  "prompt": "Demonstrate a WebGL framebuffer with a textured offscreen pass.",
+  "features": [
+    "script",
+    "webgl",
+    "framebuffer",
+    "read-pixels"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #glcanvas",
+    "text #fbo-status rendered",
+    "text #filter-mode normal",
+    "click #filter-btn",
+    "text #filter-mode inverted",
+    "click #filter-btn",
+    "text #filter-mode normal"
+  ],
+  "expectedToFail": "WebGL framebuffer and render-to-texture passes are implemented as stage-6 features (#528-#531)."
+}

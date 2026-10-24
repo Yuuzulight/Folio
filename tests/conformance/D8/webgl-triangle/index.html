@@ -1,3 +1,205 @@
-<!doctype html><canvas id="c" width="800" height="450"></canvas><script>
-const gl=document.getElementById('c').getContext('webgl'); if(gl){gl.clearColor(.04,.06,.12,1);gl.clear(gl.COLOR_BUFFER_BIT);}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGL Rotating Triangle</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --panel: #131b2e;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --border: #1e293b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    max-width: 760px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #f1f5f9;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { background: #334155; }
+  .badge {
+    color: var(--muted);
+  }
+  output {
+    color: #f8fafc;
+    font-weight: 600;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 380px;
+    background: #050811;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>WebGL Rotating Triangle</h1>
+    <div class="controls">
+      <button id="speed-btn">Fast</button>
+      <span class="badge">Speed: <output id="speed-val">1x</output></span>
+      <button id="dir-btn">Reverse</button>
+      <span class="badge">Direction: <output id="dir-val">clockwise</output></span>
+    </div>
+  </div>
+  <canvas id="glcanvas" width="720" height="380"></canvas>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('glcanvas');
+  const speedBtn = document.getElementById('speed-btn');
+  const speedVal = document.getElementById('speed-val');
+  const dirBtn = document.getElementById('dir-btn');
+  const dirVal = document.getElementById('dir-val');
+
+  let speed = 1;
+  let clockwise = true;
+
+  speedBtn.addEventListener('click', () => {
+    speed = speed === 1 ? 2 : 1;
+    speedVal.textContent = speed + 'x';
+    speedBtn.textContent = speed === 1 ? 'Fast' : 'Normal';
+  });
+
+  dirBtn.addEventListener('click', () => {
+    clockwise = !clockwise;
+    dirVal.textContent = clockwise ? 'clockwise' : 'counter-clockwise';
+  });
+
+  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) return;
+
+  const vsSource = `
+    attribute vec2 a_pos;
+    attribute vec3 a_color;
+    uniform float u_angle;
+    varying vec3 v_color;
+    void main() {
+      float c = cos(u_angle);
+      float s = sin(u_angle);
+      mat2 rot = mat2(c, -s, s, c);
+      gl_Position = vec4(rot * a_pos * 0.75, 0.0, 1.0);
+      v_color = a_color;
+    }
+  `;
+
+  const fsSource = `
+    precision mediump float;
+    varying vec3 v_color;
+    void main() {
+      gl_FragColor = vec4(v_color, 1.0);
+    }
+  `;
+
+  function createShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const vs = createShader(gl.VERTEX_SHADER, vsSource);
+  const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const vertices = new Float32Array([
+     0.0,  0.8,   1.0, 0.2, 0.3,
+    -0.7, -0.6,   0.2, 1.0, 0.4,
+     0.7, -0.6,   0.2, 0.5, 1.0
+  ]);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+  const posLoc = gl.getAttribLocation(prog, 'a_pos');
+  const colorLoc = gl.getAttribLocation(prog, 'a_color');
+  const angleLoc = gl.getUniformLocation(prog, 'u_angle');
+
+  if (posLoc >= 0) {
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 20, 0);
+  }
+  if (colorLoc >= 0) {
+    gl.enableVertexAttribArray(colorLoc);
+    gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 20, 8);
+  }
+
+  let angle = 0.5; // settled initial angle
+  function render() {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.04, 0.06, 0.12, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    if (angleLoc !== null) {
+      gl.uniform1f(angleLoc, angle);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  render();
+
+  function tick() {
+    angle += (clockwise ? -1 : 1) * 0.02 * speed;
+    render();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 </script>
+</body>
+</html>

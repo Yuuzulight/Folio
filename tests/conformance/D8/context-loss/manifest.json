@@ -1,1 +1,19 @@
-{"prompt":"Render a WebGL scene that reports context loss and restoration to the user.","features":["script","webgl","context-lost","context-restored"],"viewport":800}
+{
+  "prompt": "Render a WebGL scene that reports context loss and restoration to the user.",
+  "features": [
+    "script",
+    "webgl",
+    "context-lost",
+    "context-restored"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #glcanvas",
+    "text #status active",
+    "click #lose-btn",
+    "text #status lost",
+    "click #restore-btn",
+    "text #status restored"
+  ],
+  "expectedToFail": "WebGL context loss simulation and state recreation are implemented as stage-6 features (#528-#531)."
+}

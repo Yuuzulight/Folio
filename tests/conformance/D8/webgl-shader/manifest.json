@@ -1,1 +1,19 @@
-{"prompt":"Build a WebGL shader playground with a gradient shader and a reset button.","features":["script","webgl2","fragment-shader","interaction"],"viewport":800}
+{
+  "prompt": "Build a WebGL shader playground with a gradient shader and a reset button.",
+  "features": [
+    "script",
+    "webgl2",
+    "fragment-shader",
+    "interaction"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #glcanvas",
+    "text #mode-name plasma",
+    "click #mode-btn",
+    "text #mode-name aurora",
+    "click #reset-btn",
+    "text #mode-name plasma"
+  ],
+  "expectedToFail": "WebGL fragment shader procedurals and uniforms are implemented as stage-6 features (#528-#531)."
+}
