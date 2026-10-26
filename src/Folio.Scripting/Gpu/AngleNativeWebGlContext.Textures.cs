@@ -512,10 +512,10 @@ internal sealed partial class AngleNativeWebGlContext
             if (!_textureLevels.TryGetValue((value, target, level), out var image) || xOffset > image.Width - width || yOffset > image.Height - height || zOffset > image.Depth - depth)
             { failure = NativeFailure("The 3D texture subimage is outside the allocated level.", 0x0501); return false; }
             var integer = format is 0x8D98 or 0x8D99;
-            if ((!integer && format is not (0x1907 or 0x1908)) || (integer ? type is not (0x1401 or 0x1403 or 0x1405) : type is not (0x1401 or 0x1406 or 0x140B)))
+            if ((!integer && format is not (0x1907 or 0x1908)) || (integer ? type is not (0x1400 or 0x1401 or 0x1402 or 0x1403 or 0x1404 or 0x1405) : type is not (0x1401 or 0x1406 or 0x140B)))
             { failure = NativeFailure("The 3D texture subimage format or type is unsupported.", 0x0500); return false; }
             var channels = format is 0x1908 or 0x8D99 ? 4 : 3;
-            var componentBytes = type is 0x1406 or 0x1405 ? 4 : type is 0x140B or 0x1403 ? 2 : 1;
+            var componentBytes = type is 0x1404 or 0x1405 or 0x1406 ? 4 : type is 0x1402 or 0x1403 or 0x140B ? 2 : 1;
             var required = checked((long)width * height * depth * channels * componentBytes);
             if (pixels.Length != required) { failure = NativeFailure("The 3D texture subimage length is invalid.", 0x0501); return false; }
             if (!Begin(out failure)) return false;
