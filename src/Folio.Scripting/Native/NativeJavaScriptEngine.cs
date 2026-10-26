@@ -621,6 +621,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         ScriptValueKind.Boolean => value.AsBoolean(),
         ScriptValueKind.Number => value.AsNumber(),
         ScriptValueKind.String => value.AsString(),
+        ScriptValueKind.Array when value.Raw is IEnumerable<ScriptValue> items => items.Select(ToObject).ToList(),
+        ScriptValueKind.Array when value.Raw is IEnumerable<object?> items => items.ToList(),
         _ => value.Raw,
     };
     private static ScriptValue ToScriptValue(object? value) => value switch
