@@ -144,6 +144,18 @@ public class FetchTests
     }
 
     [Fact]
+    public void FetchIntegrityAcceptsEmptyAndWhitespaceSeparatedMetadata()
+    {
+        var loader = new FakeLoader();
+        loader.Responses["https://cdn.example/empty"] = ([], "application/octet-stream");
+        loader.Responses["https://cdn.example/multiple"] = ([], "application/wasm");
+        var log = Run("fetch('https://cdn.example/empty', { integrity: '   ' }).then(() => fetch('https://cdn.example/multiple', { integrity: 'sha256-AAAA?foo sha512-BBBB' })).then(() => log.push('loaded')).catch(e => log.push(name(e)))", loader);
+        Assert.Equal("loaded", log);
+        Assert.Equal("", loader.Requests[0].Integrity);
+        Assert.Equal("sha256-AAAA?foo sha512-BBBB", loader.Requests[1].Integrity);
+    }
+
+    [Fact]
     public void RefusedUrlsAndUnsupportedSchemesRejectWithATypeErrorAndReportADiagnostic()
     {
         var diagnostics = new List<Diagnostic>();

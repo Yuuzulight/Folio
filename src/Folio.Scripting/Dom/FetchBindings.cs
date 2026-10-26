@@ -193,9 +193,15 @@ internal static class FetchBindings
                         signal = init.signal;
                     }
                     if (init.integrity !== undefined) {
-                        integrity = String(init.integrity);
-                        if (integrity.indexOf('sha256-') !== 0 && integrity.indexOf('sha384-') !== 0 && integrity.indexOf('sha512-') !== 0)
-                            throw new TypeError('The integrity option must use sha256-, sha384- or sha512-.');
+                        integrity = String(init.integrity).trim();
+                        const metadata = integrity.split(/\s+/).filter(Boolean);
+                        for (const token of metadata) {
+                            const algorithm = token.split('-', 1)[0].toLowerCase();
+                            const dash = token.indexOf('-');
+                            const digest = dash < 0 ? '' : token.slice(dash + 1).split('?', 1)[0];
+                            if ((algorithm !== 'sha256' && algorithm !== 'sha384' && algorithm !== 'sha512') || digest.length === 0)
+                                throw new TypeError('The integrity option must use sha256-, sha384- or sha512- metadata.');
+                        }
                     }
                     if (init.body !== undefined && init.body !== null) throw new TypeError("Failed to construct 'Request': Request with GET/HEAD method cannot have body.");
                     requestState.set(this, { url, method, headers: headers || new Headers(), signal, integrity });
