@@ -52,3 +52,8 @@ complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains th
 production JavaScript engine, and Wasmtime remains part of the native WebAssembly
 path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
+
+The native-engine differential conformance probe makes the remaining JavaScript
+gate concrete: D1 passes 2/2, while the current native path passes only 2/60 in
+D2–D7 (the rest are script failures or image mismatches). It therefore cannot be
+selected as Folio's production engine yet.
