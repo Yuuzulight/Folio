@@ -68,7 +68,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 _ => "[object Object]",
             }),
         };
-        _bindings["Object"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+        var objectBindings = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["prototype"] = objectPrototype,
             ["assign"] = (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -188,6 +188,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }),
             ["prototype"] = new Dictionary<string, object?>(StringComparer.Ordinal),
         };
+        var objectConstructor = new NativeFunction(args =>
+            args.Count > 0 && args[0] is not null && args[0] is not JavaScriptEvaluator.UndefinedValue
+                ? args[0]
+                : new Dictionary<string, object?>(StringComparer.Ordinal));
+        foreach (var (name, value) in objectBindings)
+            objectConstructor.SetProperty(name, value);
+        _bindings["Object"] = objectConstructor;
+
         _bindings["Reflect"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["apply"] = (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -345,8 +353,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         // Keep it as a live view of the engine binding table so assignments made
         // through either spelling observe the same state.
         _bindings["globalThis"] = _bindings;
-        if (_bindings["Object"] is IDictionary<string, object?> objectBindings)
-            objectBindings["prototype"] = objectPrototype;
+        if (_bindings["Object"] is NativeFunction objectConstructorBinding)
+            objectConstructorBinding.SetProperty("prototype", objectPrototype);
     }
 
     public void Configure(ScriptLimits limits)

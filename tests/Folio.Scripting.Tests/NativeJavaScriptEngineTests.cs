@@ -82,6 +82,7 @@ public sealed class NativeJavaScriptEngineTests
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("ok", engine.Evaluate("return Object.assign({}, { value: 'ok' }).value;").AsString());
+        Assert.Equal("function|object", engine.Evaluate("return typeof Object + '|' + typeof new Object();").AsString());
     }
 
     [Fact]
