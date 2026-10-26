@@ -106,6 +106,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void PreservesNativeMapBindingsInFactoryClosures()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(2d, engine.Evaluate("function factory(){var fh, value; fh=new Map(), value=1; function put(){fh.set(1, 2);} put(); return fh.get(1);} return factory();").AsNumber());
+    }
+
+    [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()
     {
         using var engine = new NativeJavaScriptEngine();
