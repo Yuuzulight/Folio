@@ -485,6 +485,36 @@ public sealed class NativeWebGlPageTests
     }
 
     [Fact]
+    public void NativeWebGl2DerivativesWorkForComputedExpressions()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("""
+                var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false,preserveDrawingBuffer:true});
+                function sh(t,s){var x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x;}
+                var p=gl.createProgram();
+                gl.attachShader(p,sh(gl.VERTEX_SHADER,'#version 300 es\nout vec2 v;void main(){gl_Position=vec4(-1.0,-1.0,0.0,1.0);if(gl_VertexID==1)gl_Position=vec4(3.0,-1.0,0.0,1.0);if(gl_VertexID==2)gl_Position=vec4(-1.0,3.0,0.0,1.0);v=gl_Position.xy*0.5+0.5;}'));
+                gl.attachShader(p,sh(gl.FRAGMENT_SHADER,'#version 300 es\nprecision highp float;in vec2 v;out vec4 c;void main(){float computed=v.x*v.x;float width=fwidth(computed)+abs(dFdx(computed))+abs(dFdy(computed));c=vec4(width>0.0?1.0:0.0,0.0,0.0,1.0);}'));
+                gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));gl.useProgram(p);gl.viewport(0,0,2,2);gl.drawArrays(gl.TRIANGLES,0,3);
+                var px=new Uint8Array(4);gl.readPixels(1,1,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);
+                """
+            );
+            Assert.Equal(0, engine.Evaluate("gl.getError()").AsNumber());
+            Assert.Equal(255, engine.Evaluate("px[0]").AsNumber());
+            Assert.Equal(255, engine.Evaluate("px[3]").AsNumber());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
     public void NativeWebGl2ClearBufferuivClearsIntegerColorAttachment()
     {
         if (!OperatingSystem.IsWindows()) return;
