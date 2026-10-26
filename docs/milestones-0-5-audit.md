@@ -15,7 +15,7 @@ gate in [replacement-gate.md](replacement-gate.md).
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `docs/roadmap.md` M2 acceptance section; typography, SVG, image and render regression suites | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `docs/roadmap.md` M3 audit note; interaction/accessibility/invalidation tests and the three-iteration performance evidence recorded there | Verified |
 | 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | `docs/milestone-4-scripting.md`; `Folio.Scripting.Tests`; process, sandbox, IPC and fuzz coverage | Verified |
-| 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `docs/roadmap.md` M5 audit result; D2–D7 60/60, serialized scripting suite 1,172/1,172, and the canvas/library tests | Verified as dependency-backed product milestone |
+| 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `docs/roadmap.md` M5 audit result; D2–D7 60/60, serialized scripting suite 1,173/1,173, and the canvas/library tests | Verified as dependency-backed product milestone |
 
 The M5 result is intentionally qualified: its acceptance is complete for the
 dependency-backed product, while replacement of the dependency-backed scripting
