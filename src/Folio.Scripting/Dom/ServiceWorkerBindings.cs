@@ -346,7 +346,7 @@ internal static class ServiceWorkerBindings
                     workerSelf.self = workerSelf;
                     workerSelf.clients.claim = function() { ensureLive(); pageServiceWorkerContainer.controller = worker; pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); return Promise.resolve(); };
                     workerSelf.globalThis = workerSelf;
-                    ['Promise','URL','Request','Response','Headers','Blob','TextEncoder','TextDecoder','ArrayBuffer','Uint8Array','Map','Set','WeakMap','WeakSet','Object','Array','String','Number','Boolean','Error','TypeError','RangeError','SyntaxError','RegExp','Reflect','Function','Date','Math','JSON','console','crypto','atob','btoa','fetch'].forEach(function(name) { if (globalThis[name] !== undefined) workerSelf[name] = globalThis[name]; });
+                    ['Promise','URL','Request','Response','Headers','Blob','TextEncoder','TextDecoder','ArrayBuffer','Uint8Array','Map','Set','WeakMap','WeakSet','Object','Array','String','Number','Boolean','Error','TypeError','RangeError','SyntaxError','RegExp','Reflect','Function','Date','Math','JSON','console','crypto','atob','btoa','fetch','Cache','CacheStorage','caches'].forEach(function(name) { if (globalThis[name] !== undefined) workerSelf[name] = globalThis[name]; });
                     runWorkerScript = function(source, filename) {
                         if (isolatedRuntime !== null && isolatedRuntime !== undefined) {
                             var nativeRuntime = isolatedRuntime;

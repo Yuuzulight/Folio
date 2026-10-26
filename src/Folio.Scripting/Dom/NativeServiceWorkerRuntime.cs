@@ -219,6 +219,17 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         _clients = _engine.CreateHostObject(clientsTemplate, this);
         var worker = new HostObjectTemplate("NativeServiceWorkerGlobal")
             .DefineProperty("clients", (_, _) => _clients)
+            // The isolated worker scope is exposed through `self`.  Native
+            // scripts resolve Web APIs from that scope, so mirror the APIs
+            // installed on the engine global rather than leaving `caches`
+            // (and the response/request constructors) invisible behind the
+            // host object wrapper.
+            .DefineProperty("caches", (_, _) => _engine!.GetGlobalProperty("caches"))
+            .DefineProperty("CacheStorage", (_, _) => _engine!.GetGlobalProperty("CacheStorage"))
+            .DefineProperty("Cache", (_, _) => _engine!.GetGlobalProperty("Cache"))
+            .DefineProperty("Request", (_, _) => _engine!.GetGlobalProperty("Request"))
+            .DefineProperty("Response", (_, _) => _engine!.GetGlobalProperty("Response"))
+            .DefineProperty("fetch", (_, _) => _engine!.GetGlobalProperty("fetch"))
             .DefineProperty("onmessage", (_, _) => _onMessage, (_, _, value) => _onMessage = value)
             .DefineMethod("postMessage", (_, _, args) =>
             {
