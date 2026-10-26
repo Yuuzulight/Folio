@@ -486,7 +486,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `WebRtcBindings.cs: RTCPeerConnection.createOffer/setRemoteDescription`.
 
-Offers and answers now contain deterministic session descriptions with data/media sections, and the existing loopback regression covers negotiation and channels. Peers still connect by matching in-page state and passing local track objects; no allowlisted host network transport or real encoded video-track pipeline is wired yet.
+Offers and answers now contain deterministic session descriptions with data/media sections, and loopback regressions cover negotiation and channels on both the compatibility and Folio-owned native engines (`WebRtcCapabilityTests.NativeEngineLoopbackPeerNegotiationDeliversData`). Peers still connect by matching in-page state and passing local track objects; no allowlisted host network transport or real encoded video-track pipeline is wired yet.
 
 Original acceptance:
 
