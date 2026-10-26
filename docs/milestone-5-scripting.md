@@ -1,6 +1,6 @@
 # Milestone 5 scripting results
 
-Verification refresh (2026-10-26): the focused M5 acceptance suites remain green, including D2–D7 conformance, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The full serialized solution run was stopped only while two long-running modules were still active; it reported no assertion failures before the stop.
+Verification refresh (2026-10-26): the focused M5 acceptance suites remain green, including D2–D7 conformance, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The complete Release solution run passes 4,072 tests with 0 failures and 7 documented skips (4,079 discovered).
 
 This document records the current M5 implementation and verification baseline.
 
