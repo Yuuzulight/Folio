@@ -65,3 +65,10 @@ execute the cached minified React/ReactDOM sources, so `React`/`ReactDOM` remain
 undefined and the following inline handler never installs. A focused equivalent
 live-DOM event test passes, confirming this is an engine-language/library
 compatibility gap rather than a conformance-harness click bug.
+
+The first repair is now landed in `a0d2877`: native non-strict calls without an
+explicit receiver bind `this` to the global object, as required by UMD wrappers.
+The checked-in native probe now loads both cached React and ReactDOM bundles
+successfully, and the full scripting suite passes 1,357 tests with six documented
+skips. This removes the initial UMD bootstrap failure but does not yet establish
+React DOM mounting, the D2–D7 parity bar, or production replacement of Jint.
