@@ -538,9 +538,9 @@ Original acceptance:
 
 ### #557 — Service workers: fetch interception
 
-**Partial.** Evidence: `DomBindings.cs service-worker fetch hooks; Folio/Resources/Loading.cs; DomContext.cs service-worker resource interceptor; DomStyleDeclarationTests.ServiceWorkerRegistrationIsCapabilityGated; D14/sw-01..03`.
+**Acceptance verified; lifecycle/sandbox follow-up remains separate.** Evidence: `DomBindings.cs` service-worker fetch hooks, `Folio/Resources/Loading.cs`, `DomContext.cs` service-worker resource interceptor, `ServiceWorkerCapabilityTests` (Jint/native fall-through and refused-origin regressions), `ContentCacheTests`, and native/Jint D14 3/3.
 
-Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. New Jint/native regressions prove same-origin fall-through, synthetic interception and cross-origin refusal diagnostics. Independent service-worker interruption, full content-process subresource coverage and the sandbox matrix remain open.
+Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. Jint/native regressions prove same-origin fall-through, synthetic interception and cross-origin refusal diagnostics, while content-process cache tests cover brokered persistence and worker-originated writes. Independent service-worker interruption and the sandbox matrix remain tracked by #556/#559.
 
 Original acceptance:
 
