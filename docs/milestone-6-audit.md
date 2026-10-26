@@ -514,7 +514,7 @@ Original acceptance:
 
 **Partial.** Evidence: `Conformance.cs: reopen command; tests/conformance/D14: 3 manifests and checked-in sw.js sources`.
 
-Reopen now disposes the old bindings, runner, event loop, engine and document, then creates a fresh load retaining only artifact storage and an offline artifact/pinned-cache loader. Focused lifecycle tests prove different document/engine identities, invalidation of the old engine, storage survival and restoration of a persisted registration. However, the native conformance runner currently reports D14 0/3: the isolated worker can dispatch and produce bytes, but the page compatibility bridge loses the response methods before `fetch()` accepts it and falls through to the offline loader. The category is not complete.
+Reopen now disposes the old bindings, runner, event loop, engine and document, then creates a fresh load retaining only artifact storage and an offline artifact/pinned-cache loader. Focused lifecycle tests prove different document/engine identities, invalidation of the old engine, storage survival and restoration of a persisted registration. The native conformance runner now reports D14 3/3 after the reopened-page response bridge was fixed: native dispatch uses a synchronous seam and reconstructs a page-owned `Response` instead of passing an isolated-engine prototype through the promise bridge. The broader native backend, interruption and sandbox requirements remain open.
 
 Original acceptance:
 
@@ -540,7 +540,7 @@ Original acceptance:
 
 **Partial.** Evidence: `DomBindings.cs service-worker fetch hooks; Folio/Resources/Loading.cs; DomContext.cs service-worker resource interceptor; DomStyleDeclarationTests.ServiceWorkerRegistrationIsCapabilityGated; D14/sw-01..03`.
 
-Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime can dispatch worker code and produce response bytes, but native D14 remains 0/3 because the page compatibility bridge does not yet preserve the response object through the nested promise handoff. The strengthened D14 corpus therefore remains an open acceptance gate; Jint isolation, fall-through/refused-origin coverage across both backends, interruption evidence and the sandbox matrix also remain open.
+Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. Jint isolation, fall-through/refused-origin coverage across both backends, interruption evidence and the sandbox matrix remain open.
 
 Original acceptance:
 

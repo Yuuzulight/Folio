@@ -1,6 +1,6 @@
 # Milestone 6 status
 
-Current native service-worker conformance correction (2026-10-27): D14 currently fails 0/3 on the native engine. Worker dispatch produces response bytes, but the page compatibility bridge loses response methods across the nested promise handoff and falls through to the offline loader. The native service-worker gate remains open; the historical claims below must not be read as completion evidence.
+Current native service-worker conformance correction (2026-10-27): D14 now passes 3/3 on the native engine after fixing the reopened-page response bridge. The native service-worker corpus gate is green, but the broader native service-worker backend, interruption, and sandbox requirements below remain open; the historical claims below must not be read as completion evidence for those requirements.
 
 Latest full Release verification (2026-10-26): 4,072 passed, 0 failed, 7 documented skips, 4,079 discovered. The older aggregate sentence below is retained as historical context.
 
