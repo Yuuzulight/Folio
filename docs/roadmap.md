@@ -44,6 +44,11 @@ Current audit: S1 and S3 conformance are 12/12 each with no crashes, hangs or li
 - SVG reftests and goldens pass; SVG and font fuzz harnesses added and clean.
 - Web font loading honours the allowlist, cache and integrity rules; blocked fonts fall back without layout errors.
 
+Current audit: S1–S6 each pass 12/12 (100%) with no crashes, hangs, limit hits or expected failures. Focused Release
+verification passes 140 typography/SVG/allowlist tests and 123 reftest/headless/font tests; the SVG and font fuzz
+targets completed 8,195 and 102,766 mutations respectively with zero failures. Animation timeline and reduced-motion
+coverage are exercised by the animation, cascade and WinForms host tests. Milestone 2 is complete.
+
 ## 3. Interaction
 
 **Scope**: nested scroll containers, wheel routing and chaining, keyboard scrolling, smooth scrolling, sticky behaviour under scroll; hover, active and focus states with targeted restyle; link activation events; text selection (drag, word, paragraph, select all) and copy; focus navigation and `:focus-visible`; forms and text input (text fields, `textarea`, checkboxes, radios, range, select drop-downs, buttons, `details`/`summary`) with IME; tooltips and cursors; basic accessibility tree; incremental restyle, relayout and repaint ([study 14](study/14-invalidation.md)).
