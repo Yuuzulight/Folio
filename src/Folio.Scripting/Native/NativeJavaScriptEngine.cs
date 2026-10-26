@@ -1144,6 +1144,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TryGetValue(string name, out object? value)
         {
             if (_expandos.TryGetValue(name, out value)) return true;
+            // DOM interface prototypes are script-visible and may override native methods/accessors.
+            // Resolve them before the generated template so assignments such as
+            // Node.prototype.appendChild = ... observe normal JavaScript lookup semantics.
+            if (Engine.TryGetDomPrototypeValue(Template.Name, name, this, out value)) return true;
             if (Template.TryGetProperty(name, out var getter, out _))
             {
                 value = ToObject(getter(Target, ScriptValue.FromObject(this)));

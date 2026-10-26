@@ -318,6 +318,7 @@ public sealed class NativeJavaScriptEngineTests
         DomBindings.Install(engine, document, eventLoop: loop);
         ScriptGlobalsInstaller.Install(loop, engine);
         Assert.True(engine.Evaluate("const root=document.getElementById('root'); const button=document.createElement('button'); root.appendChild(button); root.firstChild===button && button.parentNode===root && root.removeChild(button)===button && root.firstChild===null").AsBoolean());
+        Assert.Equal("overridden", engine.Evaluate("Node.prototype.removeChild=function(){return 'overridden'}; document.getElementById('root').removeChild(document.createElement('button'))").AsString());
     }
 
     [Fact]
