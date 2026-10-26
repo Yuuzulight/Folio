@@ -70,6 +70,18 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeDocumentAndElementPrototypesExposeDomMethods()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Folio.Document.Parse("<div id='root'></div>");
+        DomBindings.Install(engine, document);
+        Assert.Equal("function", engine.Evaluate("typeof Document.prototype.createElement").AsString());
+        Assert.Equal("function", engine.Evaluate("typeof Element.prototype.setAttribute").AsString());
+        engine.Evaluate("var made=Document.prototype.createElement.call(document,'span'); Element.prototype.setAttribute.call(made,'data-x','ok');");
+        Assert.Equal("ok", engine.Evaluate("made.getAttribute('data-x')").AsString());
+    }
+
+    [Fact]
     public void ProbeNativeMessageChannelDelivery()
     {
         using var engine = new NativeJavaScriptEngine();

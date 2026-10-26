@@ -749,6 +749,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             _bindings[name] = ctor;
         }
 
+        void AddPrototypeMethods(string prototypeName, params string[] methodNames)
+        {
+            if (!_domPrototypes.TryGetValue(prototypeName, out var prototypeValue) || prototypeValue is not Dictionary<string, object?> prototype) return;
+            foreach (var methodName in methodNames)
+                prototype[methodName] = new NativeReceiverFunction((receiver, args) => InvokeDomPrototypeMethod(receiver, methodName, args));
+        }
+
+        AddPrototypeMethods("Document", "createElement", "createElementNS", "createTextNode", "createComment", "createDocumentFragment", "getElementById", "querySelector", "querySelectorAll", "getElementsByTagName", "getElementsByClassName", "createEvent", "createRange", "addEventListener", "removeEventListener", "dispatchEvent");
+        AddPrototypeMethods("Element", "setAttribute", "getAttribute", "removeAttribute", "hasAttribute", "toggleAttribute", "querySelector", "querySelectorAll", "closest", "matches", "insertAdjacentHTML", "addEventListener", "removeEventListener", "dispatchEvent", "getBoundingClientRect", "focus", "blur");
+
         _bindings["DOMMatrix"] = _bindings["DOMMatrixReadOnly"] = new NativeFunction(args =>
         {
             var values = new[] { 1d, 0d, 0d, 1d, 0d, 0d };
