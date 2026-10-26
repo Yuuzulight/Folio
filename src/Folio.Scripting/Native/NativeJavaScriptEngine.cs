@@ -715,6 +715,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     };
     private static ScriptValue ToScriptValue(object? value) => value switch
     {
+        ScriptValue scriptValue => scriptValue,
         JavaScriptEvaluator.UndefinedValue => ScriptValue.Undefined,
         null => ScriptValue.Null,
         bool boolean => ScriptValue.FromBoolean(boolean),

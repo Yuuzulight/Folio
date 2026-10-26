@@ -24,6 +24,8 @@ public sealed class NativeWebAssemblyTests
         WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
         var values = string.Join(',', bytes);
         Assert.Equal(42, engine.Evaluate($"var module = new WebAssembly.Module(new Uint8Array([{values}])); var instance = new WebAssembly.Instance(module, {{}}); instance.exports.run()").AsNumber());
+        Assert.Equal(42, engine.Evaluate($"new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array([{values}])), {{}}).exports.run()").AsNumber());
+        Assert.True(engine.Evaluate($"new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array([{values}])), {{}}).exports.run() - 2 === 40").AsBoolean());
     }
 
     [Fact]

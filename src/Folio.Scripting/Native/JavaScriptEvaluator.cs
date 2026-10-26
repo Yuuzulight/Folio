@@ -362,6 +362,17 @@ internal sealed class JavaScriptEvaluator
                 ? InvokeWithReceiver(property!, receiver, call.Arguments.Select(Evaluate).ToArray())
                 : property;
         }
+        if (call.Callee is JavaScriptMemberExpression memberChain
+            && memberChain.Target is JavaScriptMemberExpression nestedMember
+            && nestedMember.Target is JavaScriptCallExpression chainedConstructor)
+        {
+            var receiver = Construct(chainedConstructor);
+            var intermediate = MemberValue(receiver, nestedMember.Name);
+            var property = MemberValue(intermediate, memberChain.Name);
+            return property is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable or NativeJavaScriptEngine.NativeReceiverFunction
+                ? InvokeWithReceiver(property!, intermediate, call.Arguments.Select(Evaluate).ToArray())
+                : property;
+        }
         var constructor = call.Callee is JavaScriptIdentifierExpression identifier ? Lookup(identifier.Name) : Evaluate(call.Callee);
         var arguments = call.Arguments.Select(Evaluate).ToArray();
         var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
@@ -537,6 +548,8 @@ internal sealed class JavaScriptEvaluator
         if (operation is "<<" or ">>")
             return operation == "<<" ? (double)(ToInt32(Number(left)) << (ToInt32(Number(right)) & 31)) : (double)(ToInt32(Number(left)) >> (ToInt32(Number(right)) & 31));
         if (operation == ">>>") return (double)((uint)ToInt32(Number(left)) >> (ToInt32(Number(right)) & 31));
+        if (operation == "+" && (left is string || right is string))
+            return StringValue(left) + StringValue(right);
         var l = Number(left); var r = Number(right);
         return operation switch { "+" => l + r, "-" => l - r, "*" => l * r, "/" => r == 0 ? double.NaN : l / r, "%" => r == 0 ? double.NaN : l % r, _ => throw new NotSupportedException($"Unsupported compound operator '{op}'.") };
     }

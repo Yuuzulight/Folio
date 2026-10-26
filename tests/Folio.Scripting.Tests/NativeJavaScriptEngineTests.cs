@@ -322,6 +322,16 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeDomTextContentConcatenationKeepsStringValues()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var document = TreeBuilder.Parse("<p id='status'>Wasm image filter</p>");
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("Wasm image filter ready", engine.Evaluate("document.getElementById('status').textContent += true ? ' ready' : ' failed'; document.getElementById('status').textContent").AsString());
+    }
+
+    [Fact]
     public void ExecutesScopedWorkerBootstrapShape()
     {
         using var engine = new NativeJavaScriptEngine();

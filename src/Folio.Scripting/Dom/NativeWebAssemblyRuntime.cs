@@ -530,7 +530,13 @@ internal sealed class NativeWebAssemblyInstance(Module module, Store store, Wasm
             if (function.Parameters.Count != arguments.Count) throw WebIdlException.TypeError($"WebAssembly export '{name}' received the wrong number of arguments.");
             var values = new ValueBox[arguments.Count];
             for (var i = 0; i < values.Length; i++) values[i] = BoxValue(function.Parameters[i], arguments[i]);
-            var result = Unbox(engine, function.Invoke(values));
+            var rawResult = function.Invoke(values);
+            var result = rawResult switch
+            {
+                ValueBox box when function.Results.Count == 1 => UnboxValue(engine, function.Results[0], box),
+                ValueBox[] boxes => engine.CreateArray(boxes.Select((box, index) => UnboxValue(engine, function.Results[index], box)).ToArray()),
+                _ => Unbox(engine, rawResult),
+            };
             foreach (var global in AllGlobals) global.SyncFromNative(engine);
             return result;
         }
