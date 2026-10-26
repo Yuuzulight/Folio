@@ -566,9 +566,9 @@ Original acceptance:
 
 ### #559 — Service workers: the limits tests and routing
 
-**Partial; sandbox row and native interruption are now directly exercised.** Evidence: `CapabilityMatrixTests` service-worker row, `WindowsSandboxTests.ServiceWorkerCapabilityRowRunsThroughTheRealContentProcess`, `ServiceWorkerCapabilityTests.NativeServiceWorkerBusyFetchIsInterruptedWithoutStoppingThePage`, `DomBindings` service-worker handlers, and D14 3/3 on native/Jint.
+**Acceptance verified; broader lifecycle follow-up remains separate.** Evidence: `CapabilityMatrixTests` service-worker row, `WindowsSandboxTests.ServiceWorkerCapabilityRowRunsThroughTheRealContentProcess`, `ServiceWorkerCapabilityTests.NativeServiceWorkerBusyFetchIsInterruptedWithoutStoppingThePage`, `DomBindings` service-worker handlers, classifier routing tests, and D14 3/3 on native/Jint.
 
-The service-worker capability row now runs registration, host-loaded worker code and an intercepted fetch inside the real content process for both the `service-workers` and `all` matrix rows, with artifact storage and capability grants applied. The native isolated runtime now receives the document execution timeout, and a busy fetch is interrupted while the page remains responsive. Process-death cleanup and bandwidth/storage routing remain unproven.
+The service-worker capability row runs registration, host-loaded worker code and an intercepted fetch inside the real content process for both the `service-workers` and `all` matrix rows, with artifact storage and capability grants applied. The native isolated runtime receives the document execution timeout, and a busy fetch is interrupted while the page remains responsive. Storage caps, disposal/revocation, classifier routing and the conformance category are covered by their focused suites. Process-death cleanup and richer host transport behavior remain follow-up work under the lifecycle issue.
 
 Original acceptance:
 
