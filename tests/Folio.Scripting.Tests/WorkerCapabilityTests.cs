@@ -41,6 +41,20 @@ public sealed class WorkerCapabilityTests
     }
 
     [Fact]
+    public void NativeEngineWorkerRoundTripsCyclesMapsSetsAndAliases()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){var same=e.data.self===e.data && e.data.left===e.data.right; postMessage([same,e.data.map.get(\"answer\"),e.data.set.has(7)].join(\":\"));}')); worker.onmessage=function(e){response=e.data;}; worker.onerror=function(e){error=e.message;}; worker.onmessageerror=function(){error='messageerror';}; var root={}; root.self=root; root.map=new Map([[\"answer\",42]]); root.set=new Set([7]); root.left={value:9}; root.right=root.left; worker.postMessage(root);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != "" || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("true:42:true", engine.GetGlobalProperty("response").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+    }
+
+    [Fact]
     public void NativeEngineStructuredCloneEncodesObjectsAndArrays()
     {
         using var engine = new NativeJavaScriptEngine();
