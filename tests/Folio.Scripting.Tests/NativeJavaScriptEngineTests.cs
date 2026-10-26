@@ -49,6 +49,33 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(2d, engine.Evaluate("function count(a){ return arguments.length; } return count(1, 2);").AsNumber());
     }
 
+    [Fact]
+    public void ParsesReactDomErrorDecoderFunction()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("Minified React error #1", engine.Evaluate("function m(a){for(var b=\"https://reactjs.org/docs/error-decoder.html?invariant=\"+a,c=1;c<arguments.length;c++)b+=\"&args[]=\"+encodeURIComponent(arguments[c]);return\"Minified React error #\"+a;} return m(1, 2);").AsString());
+    }
+
+    [Fact]
+    public void EvaluatesSequenceExpressionsAsStatements()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(2d, engine.Evaluate("let value = 0; value = 1, value = 2; return value;").AsNumber());
+    }
+
+    [Fact]
+    public void AllowsMinifiedBareReturns()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(1d, engine.Evaluate("function done(value){if(value)return;return 1;} return done(false);").AsNumber());
+    }
+
+    [Fact]
+    public void ProvidesSymbolForToNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("Symbol.for:react.element", engine.Evaluate("return Symbol.for('react.element');").AsString());
+    }
 
     [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()

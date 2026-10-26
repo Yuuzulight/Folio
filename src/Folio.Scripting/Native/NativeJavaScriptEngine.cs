@@ -210,6 +210,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Symbol"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["iterator"] = "Symbol.iterator", ["toStringTag"] = "Symbol.toStringTag",
+            ["for"] = (Func<IReadOnlyList<object?>, object?>)(args => $"Symbol.for:{(args.Count > 0 ? args[0] : "undefined")}"),
         };
         var promiseConstructor = new NativeFunction(args =>
         {

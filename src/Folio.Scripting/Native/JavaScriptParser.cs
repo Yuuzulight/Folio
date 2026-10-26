@@ -36,6 +36,15 @@ internal sealed class JavaScriptParser
     private JavaScriptStatement ParseStatement()
     {
         if (Match(";")) return new JavaScriptExpressionStatement(new JavaScriptLiteralExpression("undefined", JavaScriptTokenKind.Identifier));
+        if (_current.Kind == JavaScriptTokenKind.Identifier && Peek(0).Text == ":")
+        {
+            // Labeled statements are used by minified React bundles. The
+            // bounded evaluator does not currently expose labeled break
+            // control flow, but the label itself does not change execution of
+            // the following statement.
+            Take(); Take();
+            return ParseStatement();
+        }
         if (Match("{"))
         {
             var statements = new List<JavaScriptStatement>();
@@ -99,13 +108,13 @@ internal sealed class JavaScriptParser
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "return")
         {
             Take();
-            JavaScriptExpression? expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == ";" ? null : ParseSequenceExpression();
+            JavaScriptExpression? expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or "}" ? null : ParseSequenceExpression();
             Match(";");
             return new JavaScriptReturnStatement(expression);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "if")
         {
-            Take(); Expect("("); var condition = ParseBinary(0); Expect(")");
+            Take(); Expect("("); var condition = ParseSequenceExpression(); Expect(")");
             var then = ParseStatement();
             JavaScriptStatement? @else = null;
             if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "else") { Take(); @else = ParseStatement(); }
@@ -113,12 +122,12 @@ internal sealed class JavaScriptParser
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "with")
         {
-            Take(); Expect("("); var scope = ParseBinary(0); Expect(")");
+            Take(); Expect("("); var scope = ParseSequenceExpression(); Expect(")");
             return new JavaScriptWithStatement(scope, ParseStatement());
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "while")
         {
-            Take(); Expect("("); var condition = ParseBinary(0); Expect(")");
+            Take(); Expect("("); var condition = ParseSequenceExpression(); Expect(")");
             return new JavaScriptWhileStatement(condition, ParseStatement());
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "do")
@@ -126,12 +135,14 @@ internal sealed class JavaScriptParser
             Take();
             var body = ParseStatement();
             if (_current.Kind != JavaScriptTokenKind.Identifier || _current.Text != "while") throw Error("Expected while after do body");
-            Take(); Expect("("); var condition = ParseBinary(0); Expect(")"); Match(";");
+            Take(); Expect("("); var condition = ParseSequenceExpression(); Expect(")"); Match(";");
             return new JavaScriptDoWhileStatement(body, condition);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "break" or "continue")
         {
-            var keyword = _current.Text; Take(); Match(";");
+            var keyword = _current.Text; Take();
+            if (_current.Kind == JavaScriptTokenKind.Identifier) { Take(); Match(";"); }
+            else Match(";");
             return keyword == "break" ? new JavaScriptBreakStatement() : new JavaScriptContinueStatement();
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "for")
@@ -191,7 +202,7 @@ internal sealed class JavaScriptParser
                         Expect(")");
                         return new JavaScriptForEachStatement(bareName, bareIterable, ParseStatement(), true);
                     }
-                    var expression = ParseBinary(0);
+                    var expression = ParseSequenceExpression();
                     // `for (name in object)` is parsed by the binary parser as
                     // an `in` expression; lower that form to the foreach AST
                     // just like the declaration form above.
@@ -207,15 +218,15 @@ internal sealed class JavaScriptParser
                 Expect(";");
             }
             JavaScriptExpression? condition = null;
-            if (!Match(";")) { condition = ParseBinary(0); Expect(";"); }
+            if (!Match(";")) { condition = ParseSequenceExpression(); Expect(";"); }
             JavaScriptExpression? update = null;
-            if (!Match(")")) { update = ParseBinary(0); Expect(")"); }
+            if (!Match(")")) { update = ParseSequenceExpression(); Expect(")"); }
             return new JavaScriptForStatement(initializer, condition, update, ParseStatement());
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "throw")
         {
             Take();
-            var expression = ParseBinary(0); Match(";");
+            var expression = ParseSequenceExpression(); Match(";");
             return new JavaScriptThrowStatement(expression);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "try")
@@ -253,7 +264,7 @@ internal sealed class JavaScriptParser
             }
             return new JavaScriptSwitchStatement(expression, cases);
         }
-        var result = ParseBinary(0); Match(";"); return new JavaScriptExpressionStatement(result);
+        var result = ParseSequenceExpression(); Match(";"); return new JavaScriptExpressionStatement(result);
     }
 
     private JavaScriptExpression ParseBinary(int minimumPrecedence)
@@ -430,7 +441,7 @@ internal sealed class JavaScriptParser
             {
                 do
                 {
-                    if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String)) throw Error("Expected an object property name");
+                    if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");
                     var name = _current.Text; Take();
                     if (name == "get" && _current.Kind == JavaScriptTokenKind.Identifier)
                     {
