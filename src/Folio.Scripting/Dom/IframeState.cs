@@ -482,6 +482,29 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 if (!IsCurrent()) return;
                 childRunner = new ScriptRunner(childDocument, childEngine, childLoop, options);
                 _childRunner = childRunner;
+
+                var parentWindowTemplate = new HostObjectTemplate("WindowProxy")
+                    .DefineProperty("closed", (target, _) => ScriptValue.FromBoolean(((IframeState)target).Closed))
+                    .DefineProperty("origin", (target, _) => ScriptValue.FromString(((IframeState)target).ParentOrigin))
+                    .DefineMethod("postMessage", (target, _, args) =>
+                    {
+                        if (args.Length > 0)
+                        {
+                            var data = args[0];
+                            var targetOrigin = args.Length > 1 ? WebIdlConversions.ToDOMString(args[1]) : "*";
+                            var transfer = args.Length > 2 ? args[2] : ScriptValue.Undefined;
+                            ((IframeState)target).PostMessageToParent(data, targetOrigin, transfer);
+                        }
+                        return ScriptValue.Undefined;
+                    });
+                var parentProxy = childEngine.CreateHostObject(parentWindowTemplate, this);
+                childEngine.SetGlobalProperty("__folio_parent_window", parentProxy);
+                childEngine.EvaluateHostScript("""
+                    globalThis.parent = __folio_parent_window;
+                    globalThis.top = __folio_parent_window;
+                    delete globalThis.__folio_parent_window;
+                """, "folio:iframe-parent");
+
                 childRunner.Run();
             }
             committed = IsCurrent();
@@ -531,6 +554,8 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             Engine.Call(OnLoad, ScriptValue.Undefined, [eventValue]);
         }
     }
+
+    internal void PumpChildLoop() => _childLoop?.SpinUntilIdle();
 
     public void Render(float width, float height)
     {

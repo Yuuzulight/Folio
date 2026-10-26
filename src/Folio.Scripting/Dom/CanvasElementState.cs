@@ -166,12 +166,13 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     }
     internal void MarkContextLost()
     {
-        if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.HostDenied or FallbackReason.ResourceLimit })
+            _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
     }
     internal void MarkHostDenied() { if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.HostDenied); }
     internal void ClearFallback()
     {
-        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable or FallbackReason.ResourceLimit })
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable } && (SizeAllowed || _fallback is not { Reason: FallbackReason.ResourceLimit }))
             _fallback = null;
     }
     internal void ProbeGraphics() { _ = Surface(); }
@@ -194,8 +195,15 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     /// <summary>Whether a bitmap of the element's size fits the image limits (16,384 pixels a side, 64 megapixels).</summary>
     public bool SizeAllowed => ImageLimits.Allows(Width, Height, ImageLimits.MaxPixels);
 
-    /// <summary>The element's bitmap, made on first use; null when there is no backend or the size is not allowed or zero.</summary>
+    /// <summary>The element's bitmap, made on first use; null when there is no backend or the size is not allowed or zero. A WebGL canvas first shows what its context has drawn.</summary>
     public IRasterSurface? Surface()
+    {
+        WebGlContext?.Present();
+        return PixelSurface();
+    }
+
+    /// <summary>The bitmap itself, without waiting for a WebGL context to put its drawing buffer into it.</summary>
+    internal IRasterSurface? PixelSurface()
     {
         if (_surface is not null) return _surface;
         if (!SizeAllowed)
@@ -257,6 +265,7 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
 
     public IImageHandle? Snapshot()
     {
+        WebGlContext?.Present();
         if (Context2D is null && WebGlContext is null && !_nativeFrame)
             return null;
         if (Context2D is not null) Sync();

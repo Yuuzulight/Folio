@@ -1086,24 +1086,19 @@ internal sealed class MediaTimeRangesState(IReadOnlyList<(double Start, double E
     public IReadOnlyList<(double Start, double End)> Ranges { get; } = ranges;
 }
 
-internal sealed class WebGlContextState
+internal sealed partial class WebGlContextState
 {
     private readonly IScriptEngine _engine;
     private readonly CanvasElementState _canvas;
-    private readonly int _maxGpuBytes;
+    private int _maxGpuBytes;
     private uint _nextHandle = 1;
     public Dictionary<uint, byte[]> Buffers { get; } = [];
     public Dictionary<uint, double[]> BufferValues { get; } = [];
-    public Dictionary<uint, (int Type, string Source, bool Compiled)> Shaders { get; } = [];
+    public Dictionary<uint, (int Type, string Source, bool Compiled, string InfoLog)> Shaders { get; } = [];
     public HashSet<uint> Programs { get; } = [];
     public Dictionary<uint, List<uint>> ProgramShaders { get; } = [];
     public HashSet<uint> LinkedPrograms { get; } = [];
-    public HashSet<int> EnabledVertexAttributes { get; } = [];
-    public Dictionary<int, (int Size, uint Type, bool Normalized, int Stride, int Offset)> VertexAttribPointers { get; } = [];
-    public Dictionary<int, uint> VertexAttribBuffers { get; } = [];
-    public Dictionary<int, uint> VertexAttribDivisors { get; } = [];
-    public Dictionary<int, double[]> UniformValues { get; } = [];
-    public HashSet<uint> EnabledCapabilities { get; } = [];
+    public Dictionary<uint, string> ProgramInfoLogs { get; } = [];
     public float ClearDepth { get; set; } = 1;
     public uint DepthFunction { get; set; } = 0x0203;
     public bool DepthMask { get; set; } = true;
@@ -1124,16 +1119,23 @@ internal sealed class WebGlContextState
     public uint StencilDepthFail { get; set; }
     public uint StencilDepthPass { get; set; }
     public int ClearStencil { get; set; }
-    public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Textures { get; } = [];
-    public Dictionary<uint, uint> TextureInternalFormats { get; } = [];
+    public bool Alpha { get; set; } = true;
+    public bool Depth { get; set; } = true;
+    public bool Stencil { get; set; } = false;
+    public bool Antialias { get; set; } = false;
+    public bool PremultipliedAlpha { get; set; } = true;
+    public bool PreserveDrawingBuffer { get; set; } = false;
+    public bool UnpackFlipY { get; set; } = false;
+    public bool UnpackPremultiplyAlpha { get; set; } = false;
+    public int UnpackAlignment { get; set; } = 4;
+    public int PackAlignment { get; set; } = 4;
+    public uint UnpackColorspaceConversion { get; set; } = 0x9244;
+    public uint? BoundReadFramebuffer { get; set; }
+    public uint? BoundDrawFramebuffer { get; set; }
+    public HashSet<uint> Samplers { get; } = [];
+    public Dictionary<uint, Dictionary<uint, double>> SamplerParameters { get; } = [];
+    public Dictionary<uint, uint?> BoundSamplers { get; } = [];
     public Dictionary<uint, Dictionary<uint, int>> TextureParameters { get; } = [];
-    public HashSet<uint> TextureMipmaps { get; } = [];
-    public HashSet<uint> Framebuffers { get; } = [];
-    public Dictionary<uint, uint> FramebufferColorAttachments { get; } = [];
-    public Dictionary<uint, (int Width, int Height, byte[] Pixels)> Renderbuffers { get; } = [];
-    public Dictionary<uint, uint> RenderbufferFormats { get; } = [];
-    public Dictionary<uint, uint> FramebufferRenderbufferAttachments { get; } = [];
-    public Dictionary<uint, uint> FramebufferDepthRenderbufferAttachments { get; } = [];
     public List<uint> DrawBuffers { get; } = [];
     public uint ReadBuffer { get; set; } = 0x0405;
     public HashSet<uint> VertexArrays { get; } = [];
@@ -1141,12 +1143,10 @@ internal sealed class WebGlContextState
     public HashSet<uint> Queries { get; } = [];
     public Dictionary<uint, bool> QueryResults { get; } = [];
     public uint? ActiveQuery { get; set; }
-    public uint? BoundTexture { get; set; }
     public uint ActiveTextureUnit { get; set; } = 0x84C0;
     public uint? BoundFramebuffer { get; set; }
     public uint? BoundRenderbuffer { get; set; }
     public uint? BoundArrayBuffer { get; set; }
-    public uint? BoundElementArrayBuffer { get; set; }
     public uint? CurrentProgram { get; set; }
     public uint? BoundVertexArray { get; set; }
     public int DrawCalls { get; private set; }
@@ -1165,19 +1165,84 @@ internal sealed class WebGlContextState
     public float ClearR { get; private set; }
     public float ClearG { get; private set; }
     public float ClearB { get; private set; }
-    public float ClearA { get; private set; } = 1;
+    public float ClearA { get; private set; }
     public ScriptValue OnContextLost { get; set; } = ScriptValue.Null;
     public ScriptValue OnContextRestored { get; set; } = ScriptValue.Null;
-    public WebGlContextState(IScriptEngine engine, CanvasElementState canvas, int maxGpuBytes) { _engine = engine; _canvas = canvas; _maxGpuBytes = Math.Max(0, maxGpuBytes); }
+    private TimeSpan _maxShaderExecutionTime;
+    public WebGlContextState(IScriptEngine engine, CanvasElementState canvas, int maxGpuBytes, TimeSpan maxShaderExecutionTime = default)
+    {
+        _engine = engine;
+        _canvas = canvas;
+        _maxGpuBytes = Math.Max(0, maxGpuBytes);
+        _maxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
+    }
+    public void UpdateShaderExecutionTime(TimeSpan maxShaderExecutionTime) =>
+        _maxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
+    public void UpdateBudget(int maxGpuBytes)
+    {
+        _maxGpuBytes = Math.Max(0, maxGpuBytes);
+        if (_maxGpuBytes == 0 || AllocatedBytes > _maxGpuBytes)
+        {
+            _canvas.MarkGpuFailure(new Folio.Scripting.Gpu.GpuFailure(Folio.Scripting.Gpu.GpuFailureKind.BudgetExceeded, "WebGL GPU memory budget exceeded."));
+            Lose();
+        }
+        else if (Lost && _canvas.Element.OwnerDocument.WebGlAllowed)
+        {
+            Restore();
+        }
+    }
     public uint CreateHandle() => _nextHandle++;
     public void AddDrawCall() => DrawCalls++;
     public void SetError(int error) { if (Error == 0) Error = error; }
     public int TakeError() { var error = Error; Error = 0; return error; }
-    public void Lose() { if (Lost) return; Lost = true; _canvas.MarkContextLost(); SetError(0x9242); if (OnContextLost.IsFunction) _engine.Call(OnContextLost, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextlost' })")]); }
-    public void Restore() { if (!Lost) return; Lost = false; _canvas.ProbeGraphics(); _canvas.ClearFallback(); if (OnContextRestored.IsFunction) _engine.Call(OnContextRestored, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextrestored' })")]); }
+    public void Lose()
+    {
+        if (Lost) return;
+        Lost = true;
+        _canvas.MarkContextLost();
+        SetError(0x9242);
+        try
+        {
+            _canvas.Element.OwnerDocument.EventDispatcher?.Invoke(
+                _canvas.Element,
+                "webglcontextlost",
+                new EventDispatchArgs { Bubbles = true, Cancelable = true });
+        }
+        catch { }
+        if (OnContextLost.IsFunction)
+        {
+            try { _engine.Call(OnContextLost, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextlost' })")]); }
+            catch { }
+        }
+    }
+    public void Restore()
+    {
+        if (!Lost) return;
+        Lost = false;
+        _canvas.ProbeGraphics();
+        _canvas.ClearFallback();
+        try
+        {
+            _canvas.Element.OwnerDocument.EventDispatcher?.Invoke(
+                _canvas.Element,
+                "webglcontextrestored",
+                new EventDispatchArgs { Bubbles = true, Cancelable = false });
+        }
+        catch { }
+        if (OnContextRestored.IsFunction)
+        {
+            try { _engine.Call(OnContextRestored, ScriptValue.Undefined, [_engine.Evaluate("({ type: 'webglcontextrestored' })")]); }
+            catch { }
+        }
+    }
     public bool TryAllocate(int bytes)
     {
-        if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes) { SetError(0x0505); return false; }
+        if (bytes < 0 || bytes > _maxGpuBytes - AllocatedBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
         AllocatedBytes += bytes;
         return true;
     }
@@ -1185,7 +1250,12 @@ internal sealed class WebGlContextState
     {
         var oldBytes = Buffers.TryGetValue(handle, out var existing) ? existing.Length : 0;
         var nextTotal = AllocatedBytes - oldBytes + bytes;
-        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
+        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes)
+        {
+            SetError(0x0505);
+            _canvas.Element.OwnerDocument.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.LimitExceeded, Severity.Warning, "WebGL GPU memory budget exceeded.", null, "webgl"));
+            return false;
+        }
         AllocatedBytes = nextTotal;
         Buffers[handle] = new byte[bytes];
         return true;
@@ -1200,253 +1270,19 @@ internal sealed class WebGlContextState
             VertexAttribBuffers.Remove(index);
     }
 
-    public void DrawArrays(uint mode, int first, int count)
+    public void DeleteShader(uint handle)
     {
-        DrawCalls++;
-        DrawTriangles(mode, count, vertex => first + vertex);
+        Shaders.Remove(handle);
+        foreach (var pair in ProgramShaders)
+            pair.Value.Remove(handle);
     }
-
-    public void DrawElements(uint mode, uint type, int count, int offset)
-    {
-        DrawCalls++;
-        DrawElementsCore(mode, type, count, offset);
-    }
-
-    public void DrawArraysInstanced(uint mode, int first, int count, int instanceCount)
-    {
-        DrawCalls++;
-        if (instanceCount < 0 || instanceCount > 1024)
-            return;
-        for (var instance = 0; instance < instanceCount; instance++)
-            DrawTriangles(mode, count, vertex => first + vertex);
-    }
-
-    public void DrawElementsInstanced(uint mode, uint type, int count, int offset, int instanceCount)
-    {
-        DrawCalls++;
-        if (instanceCount < 0 || instanceCount > 1024)
-            return;
-        for (var instance = 0; instance < instanceCount; instance++)
-            DrawElementsCore(mode, type, count, offset);
-    }
-
-    private void DrawElementsCore(uint mode, uint type, int count, int offset)
-    {
-        var indexStride = type switch { 0x1401u => 1, 0x1403u => 2, 0x1405u => 4, _ => 0 };
-        if (indexStride == 0 || count < 3 || count > 30_000 || offset < 0 || offset % indexStride != 0 || BoundElementArrayBuffer is not { } elementBuffer ||
-            !BufferValues.TryGetValue(elementBuffer, out var indices) || offset / indexStride + count > indices.Length)
-            return;
-        DrawTriangles(mode, count, vertex => (int)indices[offset / indexStride + vertex]);
-    }
-
-    private void DrawTriangles(uint mode, int count, Func<int, int> vertexIndex)
-    {
-        if (mode != 0x0004 || count < 3 || count > 30_000 || !EnabledVertexAttributes.Contains(0) ||
-            !VertexAttribPointers.TryGetValue(0, out var pointer) || pointer.Type != 0x1406 || pointer.Size < 2 ||
-            !VertexAttribBuffers.TryGetValue(0, out var bufferHandle) || !Buffers.TryGetValue(bufferHandle, out var buffer))
-            return;
-        var surface = Canvas.Surface();
-        if (surface is null || surface.Width <= 0 || surface.Height <= 0)
-            return;
-        var stride = pointer.Stride > 0 ? pointer.Stride : pointer.Size * 4;
-        if (stride < pointer.Size * 4)
-            return;
-        var colorValues = UniformValues.TryGetValue(0, out var uniform) && uniform.Length >= 4 ? uniform : [1, 1, 1, 1];
-        var color = new Rgba((float)Math.Clamp(colorValues[0], 0, 1), (float)Math.Clamp(colorValues[1], 0, 1),
-            (float)Math.Clamp(colorValues[2], 0, 1), (float)Math.Clamp(colorValues[3], 0, 1));
-        var blend = EnabledCapabilities.Contains(0x0BE2) && BlendSourceFactor == 0x0302 && BlendDestinationFactor == 0x0303
-            ? BlendMode.Normal : BlendMode.Copy;
-        var viewportX = ViewportX;
-        var viewportY = ViewportY;
-        var viewportWidth = ViewportWidth > 0 ? ViewportWidth : surface.Width;
-        var viewportHeight = ViewportHeight > 0 ? ViewportHeight : surface.Height;
-        var clipped = EnabledCapabilities.Contains(0x0C11);
-        if (clipped)
-        {
-            surface.Canvas.Save();
-            surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
-        }
-        float Read(int vertex, int component)
-        {
-            var offset = (long)vertexIndex(vertex) * stride + pointer.Offset + component * 4;
-            return offset >= 0 && offset + 4 <= buffer.Length ? BitConverter.ToSingle(buffer, (int)offset) : float.NaN;
-        }
-        (float X, float Y) Point(int vertex)
-        {
-            var x = Read(vertex, 0);
-            var y = Read(vertex, 1);
-            return (viewportX + (x + 1) * 0.5f * viewportWidth, viewportY + (1 - y) * 0.5f * viewportHeight);
-        }
-        for (var vertex = 0; vertex + 2 < count; vertex += 3)
-        {
-            var a = Point(vertex); var b = Point(vertex + 1); var c = Point(vertex + 2);
-            if (float.IsNaN(a.X) || float.IsNaN(a.Y) || float.IsNaN(b.X) || float.IsNaN(b.Y) || float.IsNaN(c.X) || float.IsNaN(c.Y))
-                continue;
-            Canvas.Surface()!.Canvas.FillPath(new PathData().MoveTo(a.X, a.Y).LineTo(b.X, b.Y).LineTo(c.X, c.Y).Close(),
-                FillRule.NonZero, new Paint(color, Blend: blend));
-        }
-        if (clipped)
-            surface.Canvas.Restore();
-        Canvas.Touch();
-    }
-    public void DeleteTexture(uint handle)
-    {
-        if (Textures.Remove(handle, out var texture)) AllocatedBytes = Math.Max(0, AllocatedBytes - texture.Pixels.Length);
-        TextureParameters.Remove(handle);
-        TextureInternalFormats.Remove(handle);
-        TextureMipmaps.Remove(handle);
-        if (BoundTexture == handle) BoundTexture = null;
-    }
-    public void DeleteFramebuffer(uint handle)
-    {
-        Framebuffers.Remove(handle);
-        FramebufferColorAttachments.Remove(handle);
-        FramebufferRenderbufferAttachments.Remove(handle);
-        FramebufferDepthRenderbufferAttachments.Remove(handle);
-        if (BoundFramebuffer == handle) BoundFramebuffer = null;
-    }
-    public void DeleteRenderbuffer(uint handle)
-    {
-        if (Renderbuffers.Remove(handle, out var renderbuffer))
-            AllocatedBytes = Math.Max(0, AllocatedBytes - renderbuffer.Pixels.Length);
-        RenderbufferFormats.Remove(handle);
-        foreach (var attachment in FramebufferRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
-            FramebufferRenderbufferAttachments.Remove(attachment);
-        foreach (var attachment in FramebufferDepthRenderbufferAttachments.Where(pair => pair.Value == handle).Select(pair => pair.Key).ToArray())
-            FramebufferDepthRenderbufferAttachments.Remove(attachment);
-        if (BoundRenderbuffer == handle) BoundRenderbuffer = null;
-    }
-    public bool ReplaceRenderbuffer(uint handle, int width, int height, int bytes)
-    {
-        var oldBytes = Renderbuffers.TryGetValue(handle, out var existing) ? existing.Pixels.Length : 0;
-        var nextTotal = AllocatedBytes - oldBytes + bytes;
-        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
-        AllocatedBytes = nextTotal;
-        Renderbuffers[handle] = (width, height, new byte[bytes]);
-        return true;
-    }
-    public bool ReplaceTexture(uint handle, int width, int height, int bytes)
-    {
-        var oldBytes = Textures.TryGetValue(handle, out var existing) ? existing.Pixels.Length : 0;
-        var nextTotal = AllocatedBytes - oldBytes + bytes;
-        if (bytes < 0 || bytes > _maxGpuBytes || nextTotal > _maxGpuBytes) { SetError(0x0505); return false; }
-        AllocatedBytes = nextTotal;
-        Textures[handle] = (width, height, new byte[bytes]);
-        return true;
-    }
-    public void CopyTexturePixels(uint handle, int x, int y, int width, int height, IReadOnlyList<ScriptValue> source)
-    {
-        if (!Textures.TryGetValue(handle, out var texture)) return;
-        var copyWidth = Math.Min(width, Math.Max(0, texture.Width - x));
-        var copyHeight = Math.Min(height, Math.Max(0, texture.Height - y));
-        for (var row = 0; row < copyHeight; row++)
-            for (var column = 0; column < copyWidth; column++)
-            {
-                var sourceIndex = (row * width + column) * 4;
-                var targetIndex = ((y + row) * texture.Width + x + column) * 4;
-                for (var channel = 0; channel < 4 && sourceIndex + channel < source.Count && targetIndex + channel < texture.Pixels.Length; channel++)
-                    texture.Pixels[targetIndex + channel] = (byte)Math.Clamp(WebIdlConversions.ToInt32(source[sourceIndex + channel]), 0, 255);
-            }
-        Textures[handle] = texture;
-    }
-    public void DeleteShader(uint handle) => Shaders.Remove(handle);
     public void DeleteProgram(uint handle)
     {
         Programs.Remove(handle);
         ProgramShaders.Remove(handle);
         LinkedPrograms.Remove(handle);
+        ProgramInfoLogs.Remove(handle);
         if (CurrentProgram == handle) CurrentProgram = null;
     }
     public void SetClearColor(float r, float g, float b, float a) => (ClearR, ClearG, ClearB, ClearA) = (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1), Math.Clamp(a, 0, 1));
-    public void Clear(uint mask)
-    {
-        var clearColor = (mask & 0x4000) != 0;
-        var clearDepth = (mask & 0x0100) != 0;
-        if (!clearColor && !clearDepth)
-            return;
-        var clear = new[] { (byte)Math.Round(ClearR * 255), (byte)Math.Round(ClearG * 255), (byte)Math.Round(ClearB * 255), (byte)Math.Round(ClearA * 255) };
-        var clipped = EnabledCapabilities.Contains(0x0C11);
-        if (BoundFramebuffer is { } framebuffer)
-        {
-            if (clearColor && FramebufferColorAttachments.TryGetValue(framebuffer, out var texture) && Textures.TryGetValue(texture, out var texturePixels))
-            {
-                Fill(texturePixels.Pixels, clear, texturePixels.Width, texturePixels.Height, clipped);
-                Textures[texture] = texturePixels;
-            }
-            else if (clearColor && FramebufferRenderbufferAttachments.TryGetValue(framebuffer, out var renderbuffer) && Renderbuffers.TryGetValue(renderbuffer, out var renderbufferPixels))
-            {
-                Fill(renderbufferPixels.Pixels, clear, renderbufferPixels.Width, renderbufferPixels.Height, clipped);
-                Renderbuffers[renderbuffer] = renderbufferPixels;
-            }
-            if (clearDepth && DepthMask && FramebufferDepthRenderbufferAttachments.TryGetValue(framebuffer, out var depthBuffer) && Renderbuffers.TryGetValue(depthBuffer, out var depthPixels))
-            {
-                FillDepth(depthPixels.Pixels, ClearDepth, depthPixels.Width, depthPixels.Height, clipped);
-                Renderbuffers[depthBuffer] = depthPixels;
-            }
-            return;
-        }
-        if (!clearColor || _canvas.Surface() is not { } surface)
-            return;
-        var color = new Rgba(ClearR, ClearG, ClearB, ClearA);
-        if (!ColorMaskRed || !ColorMaskGreen || !ColorMaskBlue || !ColorMaskAlpha)
-        {
-            var pixels = surface.ReadPixels(0, 0, surface.Width, surface.Height);
-            Fill(pixels, clear, surface.Width, surface.Height, clipped);
-            surface.WritePixels(0, 0, surface.Width, surface.Height, pixels);
-            _canvas.Touch();
-            return;
-        }
-        if (clipped)
-            surface.Canvas.Save();
-        if (clipped)
-            surface.Canvas.ClipRoundedRect(new RoundedRect(new RectF(ScissorX, ScissorY, ScissorWidth, ScissorHeight), default));
-        surface.Canvas.FillPath(new PathData().AddRoundedRect(new RoundedRect(new RectF(0, 0, surface.Width, surface.Height), default)), FillRule.NonZero,
-            new Paint(color, Blend: BlendMode.Copy));
-        if (clipped)
-            surface.Canvas.Restore();
-        _canvas.Touch();
-
-        void Fill(byte[] pixels, byte[] color, int width, int height, bool clipped)
-        {
-            if (!clipped)
-            {
-                for (var i = 0; i + 3 < pixels.Length; i += 4)
-                    WriteColor(pixels, i, color);
-                return;
-            }
-            var left = Math.Clamp(ScissorX, 0, width);
-            var top = Math.Clamp(ScissorY, 0, height);
-            var right = Math.Clamp((long)ScissorX + ScissorWidth, 0, width);
-            var bottom = Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
-            for (var y = top; y < bottom; y++)
-                for (var x = left; x < right; x++)
-                    WriteColor(pixels, (y * width + x) * 4, color);
-        }
-
-        void WriteColor(byte[] pixels, int offset, byte[] color)
-        {
-            if (ColorMaskRed) pixels[offset] = color[0];
-            if (ColorMaskGreen) pixels[offset + 1] = color[1];
-            if (ColorMaskBlue) pixels[offset + 2] = color[2];
-            if (ColorMaskAlpha) pixels[offset + 3] = color[3];
-        }
-
-        void FillDepth(byte[] pixels, float depth, int width, int height, bool clipped)
-        {
-            var bits = BitConverter.SingleToInt32Bits(depth);
-            if (!clipped)
-            {
-                for (var i = 0; i + 3 < pixels.Length; i += 4)
-                    BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan(i, 4), bits);
-                return;
-            }
-            var left = Math.Clamp(ScissorX, 0, width);
-            var top = Math.Clamp(ScissorY, 0, height);
-            var right = Math.Clamp((long)ScissorX + ScissorWidth, 0, width);
-            var bottom = Math.Clamp((long)ScissorY + ScissorHeight, 0, height);
-            for (var y = top; y < bottom; y++)
-                for (var x = left; x < right; x++)
-                    BinaryPrimitives.WriteInt32LittleEndian(pixels.AsSpan((y * width + x) * 4, 4), bits);
-        }
-    }
 }

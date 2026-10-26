@@ -154,7 +154,7 @@ internal sealed class CanvasTemplates
     }
 
     // The pixels of an ImageData as a script has left them.
-    private byte[] PixelsOf(CanvasImageData image) =>
+    internal byte[] PixelsOf(CanvasImageData image) =>
         image.Data is { } data && _context.Engine.TryGetBytes(data, out var bytes) && bytes.Length == image.Pixels.Length ? bytes : image.Pixels;
 
     private static FillRule RuleOf(ReadOnlySpan<ScriptValue> args, int index) =>

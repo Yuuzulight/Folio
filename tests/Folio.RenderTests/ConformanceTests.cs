@@ -10,6 +10,123 @@ public class ConformanceTests
         Assert.True(result.Outcome == ConformanceOutcome.Pass, $"{result.Outcome}: {result.Detail}");
     }
 
+    [Fact]
+    public void D1ArtifactsGiveIdenticalSettledImagesOnTwoRunsAndInteractionScriptsRun()
+    {
+        var d1Artifacts = Conformance.Discover().Where(a => a.Category == "D1").ToList();
+        Assert.True(d1Artifacts.Count >= 2);
+        foreach (var artifact in d1Artifacts)
+        {
+            var run1 = Conformance.Run(artifact);
+            var run2 = Conformance.Run(artifact);
+
+            Assert.Equal(run1.Outcome, run2.Outcome);
+            Assert.False(run1.Broke, $"{artifact.Id} run 1 broke: {run1.Outcome} {run1.Detail}");
+            Assert.False(run2.Broke, $"{artifact.Id} run 2 broke: {run2.Outcome} {run2.Detail}");
+        }
+    }
+
+    [Fact]
+    public void PagePrintingDateNowAndMathRandomIsStableUnderVirtualClock()
+    {
+        const string html = """
+            <!DOCTYPE html>
+            <p id="out"></p>
+            <script>
+                document.getElementById('out').textContent = Date.now() + ' ' + Math.random() + ' ' + (typeof crypto !== 'undefined' && crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(4)).join(',') : '');
+            </script>
+            """;
+        var artifact = new ConformanceArtifact("", RepoPaths.Tests, "D1", "virtual-clock-stability");
+        using var lifecycle1 = Conformance.ArtifactLifecycle.Start(artifact, html, 0);
+        var text1 = lifecycle1.Document.QuerySelector("#out")?.TextContent;
+
+        using var lifecycle2 = Conformance.ArtifactLifecycle.Start(artifact, html, 0);
+        var text2 = lifecycle2.Document.QuerySelector("#out")?.TextContent;
+
+        Assert.NotNull(text1);
+        Assert.NotEmpty(text1);
+        Assert.Equal(text1, text2);
+    }
+
+    [Fact]
+    public void TheWebGlCategoryD8MatchesItsReferencesInEveryArtifact()
+    {
+        var d8Artifacts = Conformance.Discover().Where(a => a.Category == "D8").ToList();
+        Assert.Equal(6, d8Artifacts.Count);
+
+        // The shaders run, so the pages draw what Chrome draws for them: nothing in D8 is expected to fail any more.
+        var results = d8Artifacts.Select(a => Conformance.Run(a)).ToList();
+        Assert.All(results, r => Assert.True(r.Outcome is ConformanceOutcome.Pass or ConformanceOutcome.PassSecondary, $"{r.Artifact.Id}: {r.Outcome} {r.Detail}"));
+        Assert.All(d8Artifacts, a => Assert.Null(Conformance.ManifestOf(a).ExpectedToFail));
+
+        var report = Conformance.Report(results);
+        Assert.Contains("| D8 | 6 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 100.0% of 6 |", report);
+    }
+
+    [Fact]
+    public void D8InteractionScriptsExecuteSuccessfully()
+    {
+        var d8Artifacts = Conformance.Discover().Where(a => a.Category == "D8").ToList();
+        Assert.Equal(6, d8Artifacts.Count);
+
+        foreach (var artifact in d8Artifacts)
+        {
+            var manifest = Conformance.ManifestOf(artifact);
+            Assert.NotNull(manifest.Interaction);
+            Assert.NotEmpty(manifest.Interaction);
+
+            var result = Conformance.Run(artifact);
+            Assert.False(result.Broke, $"{artifact.Id} broke: {result.Outcome} {result.Detail}");
+        }
+    }
+
+    [Fact]
+    public void ConformanceReportListsD9WithAllExpectedToFail()
+    {
+        var d9Artifacts = Conformance.Discover().Where(a => a.Category == "D9").ToList();
+        Assert.True(d9Artifacts.Count >= 5);
+
+        var results = d9Artifacts.Select(a => Conformance.Run(a)).ToList();
+        Assert.All(results, r => Assert.Equal(ConformanceOutcome.ExpectedFail, r.Outcome));
+
+        var count = d9Artifacts.Count;
+        Assert.Contains($"| D9 | {count} | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | {count} | 0.0% of {count} |", Conformance.Report(results));
+    }
+
+    [Fact]
+    public void D9ArtifactsHavePlayableSourcesReferencesAndInteractionScripts()
+    {
+        foreach (var artifact in Conformance.Discover().Where(a => a.Category == "D9"))
+        {
+            var manifest = Conformance.ManifestOf(artifact);
+            Assert.NotEmpty(manifest.Interaction ?? []);
+            Assert.False(string.IsNullOrWhiteSpace(manifest.ExpectedToFail), $"{artifact.Id} needs an expectedToFail reason");
+            Assert.True(File.Exists(Path.Combine(artifact.Folder, "reference.png")), $"{artifact.Id} has no reference");
+            var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
+            Assert.True(html.Contains("data:video/mp4;base64,", StringComparison.Ordinal) || html.Contains("data:audio/wav;base64,", StringComparison.Ordinal),
+                $"{artifact.Id} has no playable media source");
+            Assert.False(Conformance.Run(artifact).Broke, $"{artifact.Id} broke");
+        }
+    }
+
+    [Fact]
+    public void ConformanceReportListsD1ThroughD7WithPassRates()
+    {
+        ConformanceArtifact Artifact(string category, string name) => new("", "root", category, name);
+        var results = new List<ConformanceResult>();
+        for (var i = 1; i <= 7; i++)
+        {
+            results.Add(new(Artifact($"D{i}", $"item-{i}"), ConformanceOutcome.Pass, null));
+        }
+
+        var report = Conformance.Report(results);
+        for (var i = 1; i <= 7; i++)
+        {
+            Assert.Contains($"| D{i} |", report);
+            Assert.Contains("100.0% of 1", report);
+        }
+    }
+
     private const string None = "(none)";
 
     public static TheoryData<string> Artifacts =>

@@ -71,7 +71,7 @@ public sealed class InputRouter
             if (targetNode is not null && visible && (targetNode.Flags & NodeFlags.FocusVisible) == 0)
             {
                 SetElementAndAncestorsState(targetNode, NodeFlags.FocusVisible, true);
-                _document.Update();
+                _document.UpdateIfPainted();
             }
             return;
         }
@@ -102,7 +102,7 @@ public sealed class InputRouter
             }
         }
 
-        _document.Update();
+        _document.UpdateIfPainted();
         FocusChanged?.Invoke(this, new FocusChangedEventArgs(_focused is not null ? _document.Wrap(_focused) : null));
 
         // Focus events sequence:
@@ -735,9 +735,9 @@ public sealed class InputRouter
                     if (type is not ("checkbox" or "radio" or "range"))
                     {
                         // Single-line text input implicit submission
-                        if (Document.FindParentForm(_focused) is { } parentForm)
+                        if (_document.Forms.FormOwner(_focused) is { } parentForm)
                         {
-                            _document.SubmitForm(parentForm);
+                            _document.Forms.RequestSubmit(parentForm, null);
                             return;
                         }
                     }
@@ -1114,13 +1114,13 @@ public sealed class InputRouter
             ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
             if (btnType == "submit")
             {
-                if (Document.FindParentForm(element) is { } form)
-                    _document.SubmitForm(form, element);
+                if (_document.Forms.FormOwner(element) is { } form)
+                    _document.Forms.RequestSubmit(form, element);
             }
             else if (btnType == "reset")
             {
-                if (Document.FindParentForm(element) is { } form)
-                    _document.ResetForm(form);
+                if (_document.Forms.FormOwner(element) is { } form)
+                    _document.Forms.RequestReset(form);
             }
             return;
         }
@@ -1139,14 +1139,14 @@ public sealed class InputRouter
             else if (type == "submit")
             {
                 ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
-                if (Document.FindParentForm(element) is { } form)
-                    _document.SubmitForm(form, element);
+                if (_document.Forms.FormOwner(element) is { } form)
+                    _document.Forms.RequestSubmit(form, element);
             }
             else if (type == "reset")
             {
                 ButtonClicked?.Invoke(this, new ButtonClickedEventArgs(_document.Wrap(element)));
-                if (Document.FindParentForm(element) is { } form)
-                    _document.ResetForm(form);
+                if (_document.Forms.FormOwner(element) is { } form)
+                    _document.Forms.RequestReset(form);
             }
             else if (type == "button")
             {

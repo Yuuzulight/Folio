@@ -1,5 +1,15 @@
 {
   "prompt": "Make a team directory table I can sort by clicking any column header and filter with a search box and a department dropdown. Highlight the matching text and show how many rows match.",
   "features": ["script", "dom-events", "innerhtml", "template-literals", "regexp", "forms", "aria", "table", "flex", "custom-properties"],
-  "viewport": 800
+  "viewport": 800,
+  "interaction": [
+    "exists #q",
+    "exists #count",
+    "text #count 24 of 24",
+    "type #q Amara",
+    "text #count 1 of 24",
+    "exists #rows tr",
+    "click th[data-key='projects'] button",
+    "exists th[data-key='projects'][aria-sort='ascending']"
+  ]
 }

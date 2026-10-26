@@ -47,7 +47,25 @@ byte[] png = HeadlessRenderer.RenderPng("<h1>Quarterly report</h1><p>Revenue ros
 File.WriteAllBytes("report.png", png);
 ```
 
-On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it. Scripted documents can use `Folio.ContentHost` through `ContentProcessClient`; configure `FolioOptions.Scripting` as `ContentProcess` and provide `ContentProcessPath`.
+On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it.
+
+To enable sandboxed out-of-process scripting for interactive artifacts, configure `ScriptingPolicy.ContentProcess`:
+
+```csharp
+using Folio;
+using Folio.WinForms;
+
+var options = new FolioOptions
+{
+    Scripting = ScriptingPolicy.ContentProcess,
+    ContentProcessPath = "Folio.ContentHost.exe",
+    ArtifactId = "my-interactive-artifact",
+    ArtifactStorage = new DiskArtifactStorage(storageDirectory), // optional persistent storage
+};
+
+var view = new FolioView { Options = options };
+view.LoadHtml(html);
+```
 
 ## Building
 Needs the .NET 10 SDK. The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.

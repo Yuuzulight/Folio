@@ -481,6 +481,7 @@ public static class Conformance
                 document.Paint(_viewportWidth, _viewportHeight);
                 engine = _engineFactory();
                 var clock = new VirtualEventLoopClock();
+                engine = new JintScriptEngine(new ScriptEngineOptions { Clock = () => clock.NowUtc, RandomSeed = 42 });
                 loop = new HtmlEventLoop(engine, clock);
                 DomBindings.Install(engine, document, eventLoop: loop);
                 ScriptGlobalsInstaller.Install(loop, engine);

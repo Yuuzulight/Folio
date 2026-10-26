@@ -320,7 +320,7 @@ public sealed class ContentCacheTests
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
         var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
-        return ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+        return ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15), CpuRatePercent: 100),
             artifactStorage: storage, artifactId: artifact, documentLimits: ResourceLimits.Default with { MaxServiceWorkerCacheBytes = quota }, resourceLoader: loader);
     }
     private static async Task<string> Load(ContentProcessClient client, string script, bool serviceWorkers = false, bool storageEnabled = false)

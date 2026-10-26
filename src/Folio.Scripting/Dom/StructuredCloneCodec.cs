@@ -296,6 +296,14 @@ internal static class StructuredCloneCodec
           const mapGet = Map.prototype.get, mapSet = Map.prototype.set, mapHas = Map.prototype.has;
           const mapForEach = Map.prototype.forEach, setForEach = Set.prototype.forEach, setAdd = Set.prototype.add;
           const dateTime = Date.prototype.getTime;
+          const boxedValueOf = [Number.prototype.valueOf, String.prototype.valueOf, Boolean.prototype.valueOf, BigInt.prototype.valueOf];
+          // The primitive a Number, String, Boolean or BigInt object wraps, as a one-element array; nothing for any other object.
+          function unbox(value) {
+            for (let i = 0; i < boxedValueOf.length; i++) {
+              try { const primitive = apply(boxedValueOf[i], value, []); const result = array(); push(result, primitive); return result; } catch (_) { }
+            }
+            return undefined;
+          }
           const typedPrototype = getPrototype(Uint8Array.prototype);
           const descriptor = Object.getOwnPropertyDescriptor;
           const typedBuffer = descriptor(typedPrototype, 'buffer').get;
@@ -383,7 +391,11 @@ internal static class StructuredCloneCodec
                 for (let i = 0; i < names.length; i++) {
                   const pair = array(); push(pair, names[i]); push(pair, visit(value[names[i]])); push(item.e, pair);
                 }
-              } else cloneError();
+              } else {
+                const wrapped = unbox(value);
+                if (wrapped === undefined) cloneError();
+                item.t = 'boxed'; item.v = visit(wrapped[0]);
+              }
               return record('r', index);
             }
             const data = record('root', visit(root)); data.records = records;
@@ -404,6 +416,7 @@ internal static class StructuredCloneCodec
               if (item.t === 'port') objects[i] = resolver.find(item.k);
               else if (item.t === 'buffer') objects[i] = resolver.buffer(item.b);
               else if (item.t === 'date') objects[i] = new DateCtor(NaN);
+              else if (item.t === 'boxed') objects[i] = Object(read(item.v));
               else if (item.t === 'regexp') objects[i] = new RegExpCtor(item.s, item.f);
               else if (item.t === 'map') objects[i] = new MapCtor();
               else if (item.t === 'set') objects[i] = new SetCtor();

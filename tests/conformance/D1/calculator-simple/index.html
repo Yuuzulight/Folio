@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktop Calculator</title>
+<style>
+  :root {
+    --bg: #f1f5f9;
+    --calc: #ffffff;
+    --display: #0f172a;
+    --btn: #f8fafc;
+    --btn-ink: #1e293b;
+    --btn-border: #cbd5e1;
+    --op-btn: #3b82f6;
+    --op-ink: #ffffff;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  .calculator {
+    width: 320px;
+    background: var(--calc);
+    padding: 24px;
+    border-radius: var(--radius);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+    border: 1px solid var(--btn-border);
+  }
+  .display {
+    width: 100%;
+    height: 64px;
+    background: var(--display);
+    color: #ffffff;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 28px;
+    font-weight: 600;
+    overflow: hidden;
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  button {
+    height: 52px;
+    border: 1px solid var(--btn-border);
+    background: var(--btn);
+    color: var(--btn-ink);
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: #e2e8f0; }
+  button.operator {
+    background: var(--op-btn);
+    color: var(--op-ink);
+    border-color: var(--op-btn);
+  }
+  button.operator:hover { background: #2563eb; }
+  button.action {
+    background: #ef4444;
+    color: #ffffff;
+    border-color: #ef4444;
+  }
+  button.action:hover { background: #dc2626; }
+</style>
+</head>
+<body>
+  <div class="calculator">
+    <div class="display" id="calc-display">0</div>
+    <div class="keys">
+      <button class="action" data-action="clear">C</button>
+      <button class="operator" data-op="/">/</button>
+      <button class="operator" data-op="*">*</button>
+      <button class="operator" data-op="-">-</button>
+      <button data-val="7">7</button>
+      <button data-val="8">8</button>
+      <button data-val="9">9</button>
+      <button class="operator" data-op="+">+</button>
+      <button data-val="4">4</button>
+      <button data-val="5">5</button>
+      <button data-val="6">6</button>
+      <button class="operator" data-action="equals">=</button>
+      <button data-val="1">1</button>
+      <button data-val="2">2</button>
+      <button data-val="3">3</button>
+      <button data-val="0">0</button>
+    </div>
+  </div>
+<script>
+  let currentVal = '0';
+  let prevVal = null;
+  let currentOp = null;
+  let resetDisplay = false;
+  const display = document.getElementById('calc-display');
+
+  function update() {
+    display.textContent = currentVal;
+  }
+
+  document.querySelectorAll('button[data-val]').forEach(b => {
+    b.addEventListener('click', () => {
+      const v = b.getAttribute('data-val');
+      if (currentVal === '0' || resetDisplay) {
+        currentVal = v;
+        resetDisplay = false;
+      } else {
+        currentVal += v;
+      }
+      update();
+    });
+  });
+
+  document.querySelectorAll('button[data-op]').forEach(b => {
+    b.addEventListener('click', () => {
+      const op = b.getAttribute('data-op');
+      prevVal = parseFloat(currentVal);
+      currentOp = op;
+      resetDisplay = true;
+    });
+  });
+
+  document.querySelector('button[data-action="equals"]').addEventListener('click', () => {
+    if (prevVal === null || currentOp === null) return;
+    const cur = parseFloat(currentVal);
+    let res = 0;
+    if (currentOp === '+') res = prevVal + cur;
+    else if (currentOp === '-') res = prevVal - cur;
+    else if (currentOp === '*') res = prevVal * cur;
+    else if (currentOp === '/') res = cur === 0 ? 0 : prevVal / cur;
+    currentVal = String(res);
+    prevVal = null;
+    currentOp = null;
+    resetDisplay = true;
+    update();
+  });
+
+  document.querySelector('button[data-action="clear"]').addEventListener('click', () => {
+    currentVal = '0';
+    prevVal = null;
+    currentOp = null;
+    resetDisplay = false;
+    update();
+  });
+</script>
+</body>
+</html>

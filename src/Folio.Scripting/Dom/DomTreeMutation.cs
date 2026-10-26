@@ -170,11 +170,27 @@ internal static class DomTreeMutation
         return fragment;
     }
 
+    private static void NotifyConnectedIframes(DomContext context, Node node)
+    {
+        if (node is ElementNode el && el.LocalName == "iframe")
+        {
+            var iframe = context.GetIframe(el);
+            iframe.ElementObject = context.Wrap(el);
+            iframe.LoadInlineDocument();
+        }
+        if (node is ContainerNode container)
+        {
+            for (var c = container.FirstChild; c is not null; c = c.NextSibling)
+                NotifyConnectedIframes(context, c);
+        }
+    }
+
     public static ScriptValue AppendChild(DomContext context, ContainerNode parent, ScriptValue childVal)
     {
         var node = context.UnwrapNode(childVal);
         EnsurePreInsertionValidity(parent, node, null);
         parent.AppendChild(node);
+        NotifyConnectedIframes(context, node);
         return childVal;
     }
 
@@ -184,6 +200,7 @@ internal static class DomTreeMutation
         var child = context.UnwrapNodeOptional(childVal);
         EnsurePreInsertionValidity(parent, node, child);
         parent.InsertBefore(node, child);
+        NotifyConnectedIframes(context, node);
         return nodeVal;
     }
 

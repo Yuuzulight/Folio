@@ -97,6 +97,7 @@ public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFacto
         if (_options.RandomSeed is { } seed)
         {
             var rng = new Random(seed);
+            Folio.Scripting.Dom.ScriptEngineSeeds.Register(this, seed);
             _engine.SetValue("__folio_seed_random", (Func<double>)(() => rng.NextDouble()));
             _engine.Evaluate("Math.random = __folio_seed_random; delete globalThis.__folio_seed_random;");
         }

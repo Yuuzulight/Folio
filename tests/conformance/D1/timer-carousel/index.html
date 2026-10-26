@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Featured Highlights Carousel</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --brand: #2563eb;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 50px 20px;
+    display: flex;
+    justify-content: center;
+  }
+  .carousel-wrap {
+    width: 100%;
+    max-width: 600px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 32px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  }
+  .slide-box {
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  h3 { margin: 0 0 10px; font-size: 20px; }
+  p.desc { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0; }
+  .controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+  }
+  .btn-nav {
+    background: #f1f5f9;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-nav:hover { background: #e2e8f0; }
+  .dots { display: flex; gap: 8px; }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #cbd5e1;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .dot.active { background: var(--brand); }
+</style>
+</head>
+<body>
+  <div class="carousel-wrap" id="carousel">
+    <div class="slide-box">
+      <h3 id="slide-title">Slide One: Fast Execution</h3>
+      <p class="desc" id="slide-desc">Pre-compiled style engine with zero runtime CSS selector parsing latency.</p>
+    </div>
+    <div class="controls">
+      <button class="btn-nav" id="btn-prev">Previous</button>
+      <div class="dots">
+        <button class="dot active" data-slide="0"></button>
+        <button class="dot" data-slide="1"></button>
+        <button class="dot" data-slide="2"></button>
+      </div>
+      <button class="btn-nav" id="btn-next">Next</button>
+    </div>
+  </div>
+<script>
+  const slides = [
+    { title: "Slide One: Fast Execution", desc: "Pre-compiled style engine with zero runtime CSS selector parsing latency." },
+    { title: "Slide Two: Sandboxed Security", desc: "Hardened OS process boundary preventing unauthorized network and filesystem access." },
+    { title: "Slide Three: Spec Fidelity", desc: "Accurate CSS Box alignment, multi-line Flexbox, and standard Grid layouts." }
+  ];
+
+  let current = 0;
+  const titleEl = document.getElementById('slide-title');
+  const descEl = document.getElementById('slide-desc');
+  const dots = document.querySelectorAll('.dot');
+  const prevBtn = document.getElementById('btn-prev');
+  const nextBtn = document.getElementById('btn-next');
+  const carousel = document.getElementById('carousel');
+
+  function show(idx) {
+    current = (idx + slides.length) % slides.length;
+    titleEl.textContent = slides[current].title;
+    descEl.textContent = slides[current].desc;
+    dots.forEach((d, i) => d.className = 'dot' + (i === current ? ' active' : ''));
+  }
+
+  prevBtn.addEventListener('click', () => show(current - 1));
+  nextBtn.addEventListener('click', () => show(current + 1));
+  dots.forEach(d => {
+    d.addEventListener('click', () => show(parseInt(d.getAttribute('data-slide'))));
+  });
+
+  let timer = setInterval(() => show(current + 1), 4000);
+  carousel.addEventListener('mouseenter', () => clearInterval(timer));
+  carousel.addEventListener('mouseleave', () => {
+    clearInterval(timer);
+    timer = setInterval(() => show(current + 1), 4000);
+  });
+</script>
+</body>
+</html>

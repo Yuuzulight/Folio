@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #ffffff; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  canvas { display: block; border: 2px solid #333333; }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="300"></canvas>
+<script>
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl2');
+  gl.viewport(0, 0, 400, 300);
+  gl.clearColor(0.06, 0.20, 0.38, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  const vsSource = `
+    #version 300 es
+    in vec2 a_pos;
+    in vec2 a_offset;
+    void main() {
+      gl_Position = vec4(a_pos + a_offset, 0.0, 1.0);
+    }
+  `;
+  const fsSource = `
+    #version 300 es
+    precision mediump float;
+    uniform vec4 u_color;
+    out vec4 fragColor;
+    void main() {
+      fragColor = u_color;
+    }
+  `;
+
+  const vs = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs, vsSource);
+  gl.compileShader(vs);
+
+  const fs = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs, fsSource);
+  gl.compileShader(fs);
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const posLoc = gl.getAttribLocation(prog, 'a_pos');
+  const offsetLoc = gl.getAttribLocation(prog, 'a_offset');
+  const colorLoc = gl.getUniformLocation(prog, 'u_color');
+
+  // Base triangle geometry
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  const vertices = new Float32Array([
+     0.0,  0.25,
+    -0.2, -0.25,
+     0.2, -0.25
+  ]);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  // Instance offsets
+  const instVbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, instVbo);
+  const offsets = new Float32Array([
+    -0.5,  0.0,
+     0.0,  0.0,
+     0.5,  0.0
+  ]);
+  gl.bufferData(gl.ARRAY_BUFFER, offsets, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(offsetLoc);
+  gl.vertexAttribPointer(offsetLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(offsetLoc, 1);
+
+  gl.uniform4f(colorLoc, 0.4, 0.9, 0.5, 1.0);
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 3, 3);
+</script>
+</body>
+</html>

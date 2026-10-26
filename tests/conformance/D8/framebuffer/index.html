@@ -1,3 +1,5 @@
 <!doctype html><canvas id="c" width="800" height="450"></canvas><output id="result" style="display:none"></output><script>
 const canvas=document.getElementById('c'), result=document.getElementById('result'); const gl=canvas.getContext('webgl'); const f=gl&&gl.createFramebuffer(); if(gl){gl.bindFramebuffer(gl.FRAMEBUFFER,f);} result.textContent=f?'framebuffer-ready':'framebuffer-failed';
 </script>
+</body>
+</html>

@@ -10,6 +10,23 @@ public sealed class StageSixRoutingTests
 
     [Theory]
     [InlineData("<canvas id=c></canvas><script>c.getContext('webgl')</script>")]
+    [InlineData("<canvas id=c></canvas><script>c.getContext('webgl2')</script>")]
+    [InlineData("<script>c['getContext']('experimental-webgl')</script>")]
+    [InlineData("<script>c.getContext?.('webgl')</script>")]
+    public void WebGlClassifierTestsBothWays(string html)
+    {
+        // When host grants WebGL: classifies as Scripted
+        var granted = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true } });
+        Assert.Equal(ArtifactKind.Scripted, granted.Kind);
+        Assert.DoesNotContain(granted.Reasons, r => r.Contains("WebGL", StringComparison.OrdinalIgnoreCase) && r.Contains("not granted"));
+
+        // When host does not grant WebGL: classifies as NeedsBrowser
+        var denied = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = false } });
+        Assert.Equal(ArtifactKind.NeedsBrowser, denied.Kind);
+        Assert.Contains(denied.Reasons, r => r.Contains("uses WebGL; the host has not granted the WebGL capability"));
+    }
+
+    [Theory]
     [InlineData("<video></video>")]
     [InlineData("<audio></audio>")]
     [InlineData("<iframe></iframe>")]
@@ -52,7 +69,7 @@ public sealed class StageSixRoutingTests
         yield return ("<script>navigator.serviceWorker.register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
         yield return ("<script>navigator?.serviceWorker.register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
         yield return ("<script>navigator?.['serviceWorker'].register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
-        yield return ("<a href=\"javascript:navigator.serviceWorker.register('sw.js')\">run</a>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
+        yield return ("<a onclick=\"navigator.serviceWorker.register('sw.js')\">run</a>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
     }
 
     [Theory]

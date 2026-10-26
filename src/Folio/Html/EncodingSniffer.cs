@@ -48,7 +48,7 @@ internal static class EncodingSniffer
     };
 
     // https://encoding.spec.whatwg.org/#names-and-labels (the labels of the supported encodings)
-    private static Kind? FromLabel(string label) => label.Trim().ToLowerInvariant() switch
+    internal static Kind? FromLabel(string label) => label.Trim().ToLowerInvariant() switch
     {
         "unicode-1-1-utf-8" or "unicode11utf8" or "unicode20utf8" or "utf-8" or "utf8" or "x-unicode20utf8" => Kind.Utf8,
         "unicodefffe" or "utf-16be" => Kind.Utf16BE,

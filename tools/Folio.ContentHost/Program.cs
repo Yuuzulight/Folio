@@ -42,6 +42,7 @@ session.MessageReceived += async (message, cancellationToken) =>
             canvasCommands = result.CanvasCommands,
             diagnostics = result.Diagnostics,
             appliedCapabilities = runtime.Capabilities,
+            displayList = result.DisplayList,
             canvasFrame = new { path = framePath, width = frameStore.Width, height = frameStore.Height, stride = frameStore.Stride, sequence = frameStore.Sequence }
         }, cancellationToken);
     }

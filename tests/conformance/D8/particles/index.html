@@ -1,3 +1,5 @@
 <!doctype html><canvas id="c" width="800" height="450"></canvas><button id="pause">Pause</button><output id="result" style="display:none"></output><script>
 const canvas=document.getElementById('c'), pause=document.getElementById('pause'), result=document.getElementById('result'), gl=canvas.getContext('experimental-webgl')||canvas.getContext('webgl'); let running=true; result.textContent=gl?'particles-running':'particles-failed'; pause.onclick=()=>{running=!running;result.textContent=running?'particles-running':'particles-paused';};
 </script>
+</body>
+</html>

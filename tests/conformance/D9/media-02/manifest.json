@@ -1,1 +1,25 @@
-{"prompt":"Build an audio player with custom controls, a progress bar, and a mute toggle.","features":["script","media","audio","custom-controls"],"viewport":800,"interaction":["click #play","click #mute"],"tolerance":{"channelThreshold":48,"maxDifferingRatio":0.01,"reason":"Chrome and Folio use different antialiasing for the capability status text."}}
+{
+  "prompt": "Build an audio player with custom controls, a progress bar, and a mute toggle.",
+  "features": [
+    "script",
+    "media",
+    "audio",
+    "custom-controls"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #audio",
+    "exists #progress",
+    "text #muted sound on",
+    "click #mute",
+    "text #muted muted",
+    "click #play",
+    "text #state playing"
+  ],
+  "tolerance": {
+    "channelThreshold": 48,
+    "maxDifferingRatio": 0.01,
+    "reason": "Chrome and Folio use different antialiasing for the status text."
+  },
+  "expectedToFail": "Needs the media pipeline: OS decoding, the playback clock and frame/audio output (#533-#537); the fixture has a real playable source, Folio cannot play it yet."
+}
