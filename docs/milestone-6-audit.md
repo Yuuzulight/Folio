@@ -52,7 +52,7 @@ Native-engine execution/caching/routing requirement is unmet.
 
 ### #173 — Iframes and cross-document messaging (after milestone 5)
 
-**Partial.** Evidence: `Iframe findings #547–#550`, `IframeState.cs`, and `IframeLifecycleTests.cs`.
+**Acceptance verified; follow-up remains.** Evidence: `Iframe findings #547–#550`, `IframeState.cs`, `IframeLifecycleTests.cs`, iframe input/accessibility regressions, and native D12 passing 4/4.
 
 Permitted child scripts now run in isolated contexts, and parent/child windows exchange structured-cloned messages through an origin-checked bridge. Original sandbox-form coverage, shared nested limits, input-boundary and process-watchdog acceptance is not proven.
 
