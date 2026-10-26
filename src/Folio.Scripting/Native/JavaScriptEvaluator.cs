@@ -528,6 +528,9 @@ internal sealed class JavaScriptEvaluator
         string name when value is IReadOnlyDictionary<string, object?> properties
             && properties.TryGetValue("__constructor", out var constructorName)
             && string.Equals(constructorName as string, name, StringComparison.Ordinal) => true,
+        _ when value is IReadOnlyDictionary<string, object?> constructed
+            && constructed.TryGetValue("__constructor", out var marker)
+            && ReferenceEquals(marker, constructor) => true,
         _ => false,
     };
 
@@ -885,7 +888,7 @@ internal sealed class JavaScriptEvaluator
         return mode switch { "find" => UndefinedValue.Instance, "some" => false, _ => true };
     }
 
-    private static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
+    internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
     private static bool TryInvoke(object? value, IReadOnlyList<object?> args, out object? result)
     {
         switch (value)
@@ -1065,7 +1068,7 @@ internal sealed class JavaScriptEvaluator
         else _bindings[name] = value;
     }
 
-    private static bool Truth(object? value) => value switch { null or UndefinedValue => false, bool boolean => boolean, double number => number != 0 && !double.IsNaN(number), string text => text.Length != 0, _ => true };
+    internal static bool Truth(object? value) => value switch { null or UndefinedValue => false, bool boolean => boolean, double number => number != 0 && !double.IsNaN(number), string text => text.Length != 0, _ => true };
     private static double Number(object? value) => value switch { null => 0, UndefinedValue => double.NaN, bool boolean => boolean ? 1 : 0, double number => number, int integer => integer, string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number, _ => double.NaN };
     private static int ToInt32(double value) => unchecked((int)value);
     private static string StringValue(object? value) => value switch { null => "null", UndefinedValue => "undefined", bool boolean => boolean ? "true" : "false", double number => number.ToString("G15", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };

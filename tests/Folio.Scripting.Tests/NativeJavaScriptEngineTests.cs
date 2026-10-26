@@ -117,6 +117,15 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ProxyGetTrapReadsThroughTheNativeTarget()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("value", engine.Evaluate("var p = new Proxy({ value: 42 }, { get: function(target, name) { return name; } }); return p.value;").AsString());
+        Assert.Equal(42d, engine.Evaluate("var p = new Proxy({ value: 42 }, { get: function(target, name) { return target.value; } }); return p.value;").AsNumber());
+        Assert.Equal(43d, engine.Evaluate("var p = new Proxy({ value: 42 }, { get: function(target, name) { return target[name] + 1; } }); return p.value;").AsNumber());
+    }
+
+    [Fact]
     public void ProvidesNumberToStringToNativeBundles()
     {
         using var engine = new NativeJavaScriptEngine();

@@ -261,7 +261,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Date"] = dateConstructor;
         _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
         _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
-        _bindings["Proxy"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : new Dictionary<string, object?>());
+        _bindings["Proxy"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 ? new NativeProxyValue(args[0], args[1]) : args.Count > 0 ? args[0] : new Dictionary<string, object?>());
         _bindings["atob"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Encoding.Latin1.GetString(Convert.FromBase64String(StringValue(args[0]))));
         _bindings["btoa"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Convert.ToBase64String(Encoding.Latin1.GetBytes(StringValue(args[0]))));
         var arrayBuffer = new NativeFunction(args =>
@@ -1180,6 +1180,46 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => Names().Select(name => new KeyValuePair<string, object?>(name, this[name])).GetEnumerator();
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
         private IEnumerable<string> Names() => _expandos.Keys.Concat(Template.PropertyNames).Concat(Template.MethodNames).Concat(Template.DynamicPropertyEnumerator?.Invoke(Target, ScriptValue.FromObject(this)) ?? []).Distinct(StringComparer.Ordinal);
+    }
+
+    private sealed class NativeProxyValue(object? target, object? handler) : IReadOnlyDictionary<string, object?>, INativeHostObject
+    {
+        private object? TargetValue(string name)
+        {
+            if (target is INativeHostObject host && host.TryGetValue(name, out var hostValue)) return ReadProperty(hostValue);
+            if (target is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var propertyValue)) return ReadProperty(propertyValue);
+            return JavaScriptEvaluator.UndefinedValue.Instance;
+        }
+
+        private object? Trap(string trapName, string propertyName, object? fallback)
+        {
+            if (handler is IReadOnlyDictionary<string, object?> properties
+                && properties.TryGetValue(trapName, out var trap)
+                && JavaScriptEvaluator.IsCallable(trap))
+                return JavaScriptEvaluator.InvokeWithReceiver(trap!, handler, [target!, propertyName, this]);
+            return fallback;
+        }
+
+        public IEnumerable<string> Keys => target is IReadOnlyDictionary<string, object?> properties ? properties.Keys : [];
+        public IEnumerable<object?> Values => Keys.Select(name => this[name]);
+        public int Count => Keys.Count();
+        public object? this[string key] => TryGetValue(key, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance;
+        public bool ContainsKey(string key) => Contains(key);
+        public bool TryGetValue(string name, out object? value) { value = Trap("get", name, TargetValue(name)); return true; }
+        public bool TryGetPrototypeValue(string name, out object? value) { value = null; return false; }
+        public bool TrySetPrototypeValue(string name, object? value) => false;
+        public bool TrySetSetValue(string name, object? value)
+        {
+            var result = Trap("set", name, null);
+            if (result is not null && !JavaScriptEvaluator.Truth(result)) return false;
+            if (target is IDictionary<string, object?> dictionary) { dictionary[name] = value; return true; }
+            return target is INativeHostObject host && host.TrySetSetValue(name, value);
+        }
+        public bool TryDeleteValue(string name) => target is IDictionary<string, object?> dictionary && dictionary.Remove(name);
+        public bool TryGetIndex(int index, out object? value) => TryGetValue(index.ToString(CultureInfo.InvariantCulture), out value);
+        public bool Contains(string name) => TryGetValue(name, out _);
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => Keys.Select(name => new KeyValuePair<string, object?>(name, this[name])).GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private bool TryGetDomPrototypeValue(string templateName, string name, object receiver, out object? value)

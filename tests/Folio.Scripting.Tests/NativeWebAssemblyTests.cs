@@ -1,11 +1,31 @@
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Wasmtime;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class NativeWebAssemblyTests
 {
+    [Fact]
+    public void NativeJavaScriptEngineExposesNativeWebAssemblyExports()
+    {
+        // (module (func (export "run") (result i32) i32.const 42))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            1, 5, 1, 96, 0, 1, 127,
+            3, 2, 1, 0,
+            7, 7, 1, 3, (byte)'r', (byte)'u', (byte)'n', 0, 0,
+            10, 6, 1, 4, 0, 65, 42, 11
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        Assert.Equal(42, engine.Evaluate($"var module = new WebAssembly.Module(new Uint8Array([{values}])); var instance = new WebAssembly.Instance(module, {{}}); instance.exports.run()").AsNumber());
+    }
+
     [Fact]
     public void NativeEngineExecutesAFunctionAndEnforcesItsStoreLimit()
     {
