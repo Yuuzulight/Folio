@@ -94,6 +94,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ProvidesObjectEntriesAndValuesForArrays()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("0:a|1:b", engine.Evaluate("return Object.entries(['a', 'b']).map(pair => pair[0] + ':' + pair[1]).join('|');").AsString());
+        Assert.Equal("a|b", engine.Evaluate("return Object.values(['a', 'b']).join('|');").AsString());
+    }
+
+    [Fact]
     public void ProvidesStringFromCharCodeToNativeBundles()
     {
         using var engine = new NativeJavaScriptEngine();

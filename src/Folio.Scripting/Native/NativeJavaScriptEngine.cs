@@ -87,10 +87,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     _ => Array.Empty<object?>(),
                 }
                 : Array.Empty<object?>()),
-            ["entries"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyDictionary<string, object?> properties
-                ? properties.Select(pair => (object?)new object?[] { pair.Key, pair.Value }).ToArray()
+            ["entries"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0
+                ? args[0] switch
+                {
+                    IReadOnlyDictionary<string, object?> properties => properties.Select(pair => (object?)new object?[] { pair.Key, pair.Value }).ToArray(),
+                    IReadOnlyList<object?> values => values.Select((value, index) => (object?)new object?[] { index.ToString(CultureInfo.InvariantCulture), value }).ToArray(),
+                    _ => Array.Empty<object?>(),
+                }
                 : Array.Empty<object?>()),
-            ["values"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyDictionary<string, object?> properties ? properties.Values.ToArray() : Array.Empty<object?>()),
+            ["values"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0
+                ? args[0] switch
+                {
+                    IReadOnlyDictionary<string, object?> properties => properties.Values.ToArray(),
+                    IReadOnlyList<object?> values => values.ToArray(),
+                    _ => Array.Empty<object?>(),
+                }
+                : Array.Empty<object?>()),
             ["getOwnPropertyNames"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
