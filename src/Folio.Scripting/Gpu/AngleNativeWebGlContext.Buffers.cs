@@ -259,7 +259,7 @@ internal sealed partial class AngleNativeWebGlContext
         var rowBytes = checked(rowPixels * bytesPerPixel);
         var stride = (rowBytes + _packAlignment - 1) / _packAlignment * _packAlignment;
         var required = height == 0 ? 0L : checked((long)(_packSkipRows + height - 1) * stride + (long)_packSkipPixels * bytesPerPixel + (long)width * bytesPerPixel);
-        if (required > int.MaxValue || destination.Length < required) { failure = NativeFailure("The readback destination is too small.", 0x0501); return false; }
+        if (required > int.MaxValue || destination.Length < required) { failure = NativeFailure("The readback destination is too small.", 0x0502); return false; }
         if (!Begin(out failure)) return false;
         if (!ResolveMultisampleLocked(out failure)) { End(); return false; }
         var bytes = new byte[destination.Length];

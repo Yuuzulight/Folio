@@ -744,6 +744,22 @@ public sealed class NativeWebGlPageTests
     }
 
     [Fact]
+    public void NativeReadPixelsRejectsAnUndersizedDestination()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});gl.clearColor(1,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);var p=new Uint8Array(3);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);var e=gl.getError();");
+            Assert.Equal(1282, engine.Evaluate("e").AsNumber());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
     public void NativeReadPixelsSupportsPackedRgb565()
     {
         if (!OperatingSystem.IsWindows()) return;
