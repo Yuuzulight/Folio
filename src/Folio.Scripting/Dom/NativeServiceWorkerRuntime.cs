@@ -148,12 +148,6 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
     private void CreateEngine()
     {
         _engine = _factory.CreateIsolated();
-        _engine.Configure(new ScriptLimits
-        {
-            MaxStatements = 100_000,
-            MemoryLimitBytes = 64 * 1024 * 1024,
-            Timeout = _context.MaxWorkerExecutionTime
-        });
         DomBindings.InstallDomException(_engine);
         var isolatedFetchApi = FetchBindings.Install(_engine, _context);
         CacheBindings.Install(_engine, _context, isolatedFetchApi, registerDisposal: false);
@@ -316,6 +310,18 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                 };
             })(self);
             """, "folio:native-service-worker-dispatch");
+
+        // Trusted runtime/bootstrap code is installed before the worker's execution
+        // budget is armed. The limit must bound artifact handlers and dispatch, not
+        // Folio's own cache/fetch bindings and bootstrap scripts; a short configured
+        // worker deadline would otherwise make engine creation nondeterministically
+        // fail under load.
+        _engine.Configure(new ScriptLimits
+        {
+            MaxStatements = 100_000,
+            MemoryLimitBytes = 64 * 1024 * 1024,
+            Timeout = _context.MaxWorkerExecutionTime
+        });
     }
 
     private ScriptValue DispatchMessage(ScriptValue data)
