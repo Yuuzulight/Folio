@@ -92,6 +92,9 @@ interface WebGLRenderingContext {
     const unsigned long BUFFER_SIZE = 0x8764;
     const unsigned long BUFFER_USAGE = 0x8765;
     const unsigned long FLOAT = 0x1406;
+    const unsigned long BYTE = 0x1400;
+    const unsigned long SHORT = 0x1402;
+    const unsigned long INT = 0x1404;
     const unsigned long UNSIGNED_BYTE = 0x1401;
     const unsigned long UNSIGNED_SHORT = 0x1403;
     const unsigned long UNSIGNED_INT = 0x1405;

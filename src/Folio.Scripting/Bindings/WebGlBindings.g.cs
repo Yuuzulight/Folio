@@ -498,6 +498,9 @@ public interface IWebGLRenderingContextTarget
     const uint BUFFER_SIZE = 0x8764;
     const uint BUFFER_USAGE = 0x8765;
     const uint FLOAT = 0x1406;
+    const uint BYTE = 0x1400;
+    const uint SHORT = 0x1402;
+    const uint INT = 0x1404;
     const uint UNSIGNED_BYTE = 0x1401;
     const uint UNSIGNED_SHORT = 0x1403;
     const uint UNSIGNED_INT = 0x1405;
@@ -784,6 +787,9 @@ public static class WebGLRenderingContextBinding
         template.DefineProperty("BUFFER_SIZE", (target, thisVal) => ScriptValue.FromNumber(0x8764));
         template.DefineProperty("BUFFER_USAGE", (target, thisVal) => ScriptValue.FromNumber(0x8765));
         template.DefineProperty("FLOAT", (target, thisVal) => ScriptValue.FromNumber(0x1406));
+        template.DefineProperty("BYTE", (target, thisVal) => ScriptValue.FromNumber(0x1400));
+        template.DefineProperty("SHORT", (target, thisVal) => ScriptValue.FromNumber(0x1402));
+        template.DefineProperty("INT", (target, thisVal) => ScriptValue.FromNumber(0x1404));
         template.DefineProperty("UNSIGNED_BYTE", (target, thisVal) => ScriptValue.FromNumber(0x1401));
         template.DefineProperty("UNSIGNED_SHORT", (target, thisVal) => ScriptValue.FromNumber(0x1403));
         template.DefineProperty("UNSIGNED_INT", (target, thisVal) => ScriptValue.FromNumber(0x1405));
