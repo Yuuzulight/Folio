@@ -31,3 +31,10 @@ probe only: the default remains Jint until the native engine passes the full
 corpus, DOM, sandbox, resource-limit and failure-behavior gates. The switch lets
 real content-host paths run against Folio's engine without changing the shipping
 default prematurely.
+
+The render conformance harness also accepts `FOLIO_CONFORMANCE_ENGINE=native`.
+On 2026-10-26 the first D1 differential run was crash-free and produced 1/2
+passes: `settings-tabs-faq` matched exactly, while `sortable-filter-table`
+produced a deterministic 3.9% pixel mismatch. This is the first corpus-level
+native baseline; the mismatch remains an open replacement-engine failure, not an
+acceptance pass.

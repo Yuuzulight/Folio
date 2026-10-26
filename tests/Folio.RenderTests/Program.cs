@@ -3,6 +3,7 @@ using Xunit.Runner.InProc.SystemConsole;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Skia;
 using Folio.Painting;
 using Folio.Typography;
@@ -141,9 +142,12 @@ public static class Program
     // the GitHub Actions job summary). Fails on runtime/interaction failures and stale expected-failure marks.
     private static int ConformanceReport(string[] filters)
     {
+        var native = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase);
+        Func<IScriptEngine>? engineFactory = native ? static () => new NativeJavaScriptEngine() : null;
+        Console.WriteLine($"Conformance engine: {(native ? "native Folio" : "Jint compatibility")}");
         var results = Conformance.Discover()
             .Where(a => filters.Length == 0 || filters.Any(f => a.Id == f || a.Id.StartsWith(f.TrimEnd('/') + "/", StringComparison.Ordinal)))
-            .Select(a => Conformance.Run(a))
+            .Select(a => Conformance.Run(a, engineFactory: engineFactory))
             .ToList();
         var report = Conformance.Report(results);
         Console.WriteLine(report);
