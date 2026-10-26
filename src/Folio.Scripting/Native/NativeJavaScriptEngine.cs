@@ -38,6 +38,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Array"] = arrayConstructor;
         _bindings["Object"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["assign"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0 || args[0] is not IDictionary<string, object?> target) return args.Count > 0 ? args[0] : null;
+                foreach (var source in args.Skip(1))
+                    if (source is IReadOnlyDictionary<string, object?> properties)
+                        foreach (var pair in properties) target[pair.Key] = pair.Value;
+                return target;
+            }),
             ["keys"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0
                 ? args[0] switch
                 {

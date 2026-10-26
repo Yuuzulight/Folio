@@ -78,6 +78,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ProvidesObjectAssignToNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("ok", engine.Evaluate("return Object.assign({}, { value: 'ok' }).value;").AsString());
+    }
+
+    [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()
     {
         using var engine = new NativeJavaScriptEngine();
