@@ -281,6 +281,56 @@ public sealed class ServiceWorkerCapabilityTests
     }
 
     [Fact]
+    public void JintServiceWorkerFetchFallsThroughAndRefusesCrossOriginFetches()
+    {
+        using var document = Folio.Document.Parse("<p>service worker</p>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new TestServiceWorkerLoader("self.addEventListener('fetch', e => { if (e.request.url.endsWith('/offline.txt')) e.respondWith(new Response('offline')); else if (e.request.url.endsWith('/refused.txt')) e.respondWith(fetch('https://evil.example/blocked')); });"),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        });
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        var diagnostics = new List<Diagnostic>();
+        document.Node.DiagnosticSink = diagnostics.Add;
+        engine.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+        engine.PerformMicrotaskCheckpoint();
+        var interceptor = document.Options.ResourceInterceptor;
+        Assert.NotNull(interceptor);
+        Assert.Null(interceptor.Intercept(new ResourceRequest("https://worker.example/online.txt", ResourceKind.Document)));
+        var intercepted = interceptor.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document));
+        Assert.NotNull(intercepted);
+        Assert.Equal("offline", Encoding.UTF8.GetString(intercepted!.Data!));
+        Assert.Null(interceptor.Intercept(new ResourceRequest("https://worker.example/refused.txt", ResourceKind.Document)));
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Code == DiagnosticCode.ResourceNotLoaded);
+    }
+
+    [Fact]
+    public void NativeServiceWorkerFetchFallsThroughAndRefusesCrossOriginFetches()
+    {
+        using var document = Folio.Document.Parse("<p>service worker</p>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new TestServiceWorkerLoader("self.addEventListener('fetch', e => { if (e.request.url.endsWith('/offline.txt')) e.respondWith(new Response('offline')); else if (e.request.url.endsWith('/refused.txt')) e.respondWith(fetch('https://evil.example/blocked')); });"),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        });
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, document);
+        var diagnostics = new List<Diagnostic>();
+        document.Node.DiagnosticSink = diagnostics.Add;
+        engine.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+        engine.PerformMicrotaskCheckpoint();
+        var interceptor = document.Options.ResourceInterceptor;
+        Assert.NotNull(interceptor);
+        Assert.Null(interceptor.Intercept(new ResourceRequest("https://worker.example/online.txt", ResourceKind.Document)));
+        var intercepted = interceptor.Intercept(new ResourceRequest("https://worker.example/offline.txt", ResourceKind.Document));
+        Assert.NotNull(intercepted);
+        Assert.Equal("offline", Encoding.UTF8.GetString(intercepted!.Data!));
+        Assert.Null(interceptor.Intercept(new ResourceRequest("https://worker.example/refused.txt", ResourceKind.Document)));
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Code == DiagnosticCode.ResourceNotLoaded);
+    }
+
+    [Fact]
     public void RegistrationRejectsCrossOriginScriptBeforeHostLoad()
     {
         var loader = new ServiceWorkerDocumentLoader();
