@@ -483,7 +483,7 @@ internal sealed class JavaScriptEvaluator
         if (target is not Func<IReadOnlyList<object?>, object?>
             && target is not NativeJavaScriptEngine.INativeCallable
             && target is not NativeJavaScriptEngine.NativeReceiverFunction)
-            throw new NotSupportedException("Only explicitly supplied host functions can be called in the staged VM.");
+            throw new NotSupportedException($"Only explicitly supplied host functions can be called in the staged VM: {call.Callee} resolved to {target?.GetType().Name ?? "null"}.");
         var arguments = new object?[call.Arguments.Count];
         for (var i = 0; i < arguments.Length; i++) arguments[i] = Evaluate(call.Arguments[i]);
         if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable)
