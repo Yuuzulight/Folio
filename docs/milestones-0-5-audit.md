@@ -2,7 +2,7 @@
 
 Verification refresh (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
-`Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,359/1,359 with six
+`Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,365/1,365 with six
 documented software-backend skips. A complete Release solution run also passed
 4,094 tests with 0 failures and 7 documented skips (4,101 discovered). Earlier
 totals are historical snapshots.
