@@ -95,16 +95,17 @@ public sealed class WorkerCapabilityTests
     }
 
     [Fact]
-    public void NativeEngineStructuredCloneTransfersArrayBuffers()
+    public void NativeEngineStructuredCloneTransfersArrayBuffersAndTypedArrays()
     {
         using var engine = new NativeJavaScriptEngine();
-        var buffer = engine.Evaluate("var b=new ArrayBuffer(3); b");
-        var payload = StructuredCloneCodec.Encode(engine, buffer, engine.CreateArray([buffer]), 1024 * 1024, static (_, _) => null);
+        var buffer = engine.Evaluate("var b=new ArrayBuffer(3); var v=new Uint8Array(b); v[0]=4; v[1]=8; v[2]=15; b");
+        var view = engine.Evaluate("v");
+        var payload = StructuredCloneCodec.Encode(engine, view, engine.CreateArray([buffer]), 1024 * 1024, static (_, _) => null);
         Assert.False(engine.TryGetArrayBufferBytes(buffer, out _));
         using var destination = new NativeJavaScriptEngine();
         var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
-        Assert.True(destination.TryGetArrayBufferBytes(decoded.Value, out var bytes));
-        Assert.Equal(new byte[] { 0, 0, 0 }, bytes);
+        Assert.True(destination.TryGetBytes(decoded.Value, out var bytes));
+        Assert.Equal(new byte[] { 4, 8, 15 }, bytes);
     }
 
 

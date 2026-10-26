@@ -199,6 +199,25 @@ internal static class StructuredCloneCodec
             return ScriptValue.FromString(Convert.ToBase64String(bytes));
         }
 
+        public ScriptValue Typed(ScriptValue value)
+        {
+            if (!engine.TryGetBufferSourceInfo(value, out var info) || info.Kind is ScriptBufferSourceKind.ArrayBuffer or ScriptBufferSourceKind.DataView)
+                return ScriptValue.Undefined;
+            var bytes = new byte[info.ByteLength];
+            if (!engine.TryCopyBufferSource(value, 0, bytes)) return ScriptValue.Undefined;
+            var name = info.Kind switch
+            {
+                ScriptBufferSourceKind.Uint8 => "Uint8Array", ScriptBufferSourceKind.Uint8Clamped => "Uint8ClampedArray",
+                ScriptBufferSourceKind.Int8 => "Int8Array", ScriptBufferSourceKind.Uint16 => "Uint16Array",
+                ScriptBufferSourceKind.Int16 => "Int16Array", ScriptBufferSourceKind.Uint32 => "Uint32Array",
+                ScriptBufferSourceKind.Int32 => "Int32Array", ScriptBufferSourceKind.Float16 => "Float16Array",
+                ScriptBufferSourceKind.Float32 => "Float32Array", ScriptBufferSourceKind.Float64 => "Float64Array",
+                ScriptBufferSourceKind.BigInt64 => "BigInt64Array", ScriptBufferSourceKind.BigUint64 => "BigUint64Array",
+                _ => string.Empty,
+            };
+            return engine.CreateArray([ScriptValue.FromString(name), engine.CreateArrayBuffer(bytes), ScriptValue.FromNumber(0), ScriptValue.FromNumber(info.Length)]);
+        }
+
         public ScriptValue RegExp(ScriptValue value)
         {
             if (engine is not IStructuredCloneEngine native)
@@ -246,6 +265,7 @@ internal static class StructuredCloneCodec
     private static readonly HostObjectTemplate DetectorTemplate = new HostObjectTemplate("StructuredCloneDetector")
         .DefineMethod("find", (target, _, args) => ((Detector)target).Find(args.Length > 0 ? args[0] : ScriptValue.Undefined))
         .DefineMethod("kind", (target, _, args) => ((Detector)target).Kind(args[0]))
+        .DefineMethod("typed", (target, _, args) => ((Detector)target).Typed(args[0]))
         .DefineMethod("buffer", (target, _, args) => ((Detector)target).Buffer(args[0]))
         .DefineMethod("regexp", (target, _, args) => ((Detector)target).RegExp(args[0]));
     private static readonly HostObjectTemplate ResolverTemplate = new HostObjectTemplate("StructuredCloneResolver")
@@ -320,10 +340,15 @@ internal static class StructuredCloneCodec
               item.t = kind;
               if (kind === 'buffer') item.b = detector.buffer(value);
               else if (kind === 'typedarray') {
-                item.c = apply(typedTag, value, []);
-                if (!hasOwn(typed, item.c)) cloneError();
-                item.b = visit(apply(typedBuffer, value, []));
-                item.o = apply(typedOffset, value, []); item.l = apply(typedLength, value, []);
+                const nativeView = detector.typed(value);
+                if (nativeView !== undefined) {
+                  item.c = nativeView[0]; item.b = visit(nativeView[1]); item.o = nativeView[2]; item.l = nativeView[3];
+                } else {
+                  item.c = apply(typedTag, value, []);
+                  if (!hasOwn(typed, item.c)) cloneError();
+                  item.b = visit(apply(typedBuffer, value, []));
+                  item.o = apply(typedOffset, value, []); item.l = apply(typedLength, value, []);
+                }
               } else if (kind === 'dataview') {
                 item.b = visit(apply(viewBuffer, value, []));
                 item.o = apply(viewOffset, value, []); item.l = apply(viewLength, value, []);
