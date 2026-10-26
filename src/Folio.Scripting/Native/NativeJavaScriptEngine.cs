@@ -857,6 +857,34 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 var c = Math.Cos(angle); var s = Math.Sin(angle);
                 return MutateMultiply(receiver, [c, s, -s, c, 0, 0]);
             });
+            result["flipX"] = new NativeReceiverFunction((receiver, _) => MutateMultiply(receiver, [-1, 0, 0, 1, 0, 0]));
+            result["flipY"] = new NativeReceiverFunction((receiver, _) => MutateMultiply(receiver, [1, 0, 0, -1, 0, 0]));
+            result["skewX"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var tangent = Math.Tan((args.Count > 0 ? NumberValue(args[0]) : 0d) * Math.PI / 180d);
+                return MutateMultiply(receiver, [1, 0, tangent, 1, 0, 0]);
+            });
+            result["skewY"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var tangent = Math.Tan((args.Count > 0 ? NumberValue(args[0]) : 0d) * Math.PI / 180d);
+                return MutateMultiply(receiver, [1, tangent, 0, 1, 0, 0]);
+            });
+            result["transformPoint"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var matrix = MatrixValuesFromReceiver(receiver);
+                var point = args.Count > 0 && args[0] is IReadOnlyDictionary<string, object?> map ? map : null;
+                var x = NumberValue(point is not null && point.TryGetValue("x", out var px) ? px : null);
+                var y = NumberValue(point is not null && point.TryGetValue("y", out var py) ? py : null);
+                var z = NumberValue(point is not null && point.TryGetValue("z", out var pz) ? pz : null);
+                var w = NumberValue(point is not null && point.TryGetValue("w", out var pw) ? pw : 1d);
+                return new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["x"] = matrix[0] * x + matrix[2] * y + matrix[4] * w,
+                    ["y"] = matrix[1] * x + matrix[3] * y + matrix[5] * w,
+                    ["z"] = z,
+                    ["w"] = w,
+                };
+            });
             result["inverse"] = new NativeReceiverFunction((receiver, _) =>
             {
                 var m = MatrixValuesFromReceiver(receiver);

@@ -410,6 +410,8 @@ public sealed class NativeJavaScriptEngineTests
         DomBindings.Install(engine, document);
         Assert.Equal("2,0,0,3,10,14,true", engine.Evaluate("var m = new DOMMatrix([2,0,0,3,4,5]).translate(3, 3); var n = m.multiply(new DOMMatrix().scale(1, 1)); [n.a,n.b,n.c,n.d,n.e,n.f,n.is2D].join(',')").AsString());
         Assert.Equal("1,0,0,1,-7,-8", engine.Evaluate("var i = new DOMMatrix([1,0,0,1,7,8]).inverse(); [i.a,i.b,i.c,i.d,i.e,i.f].join(',')").AsString());
+        Assert.Equal("3,8,0,1", engine.Evaluate("var p = new DOMMatrix([2,0,0,3,1,2]).transformPoint({x:1,y:2}); [p.x,p.y,p.z,p.w].join(',')").AsString());
+        Assert.Equal("-1,1", engine.Evaluate("var q = new DOMMatrix().flipX().skewY(45); [q.a,q.b].join(',')").AsString());
     }
 
     [Fact]
