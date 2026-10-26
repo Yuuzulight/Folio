@@ -30,7 +30,7 @@ public sealed class IframeLifecycleTests
         using var document = Document.Parse("<iframe id='f'></iframe>", Options());
         using var engine = new NativeJavaScriptEngine();
         DomBindings.Install(engine, document);
-        engine.Evaluate("var parentValue=0; var f=document.getElementById('f'); f.srcdoc=\"<script>addEventListener('message',function(e){ parent.postMessage({answer:e.data.answer+1}, '*'); });</script>\"; f.contentDocument; f.contentWindow.onmessage=function(e){parentValue=e.data.answer;}; f.contentWindow.postMessage({answer:6}, 'https://parent.example');");
+        engine.Evaluate("var parentValue=0; var f=document.getElementById('f'); f.srcdoc=\"<script>onmessage=function(e){ parent.postMessage({answer:e.data.answer+1}, '*'); };</script>\"; f.contentDocument; f.contentWindow.onmessage=function(e){parentValue=e.data.answer;}; f.contentWindow.postMessage({answer:6}, 'https://parent.example');");
         Assert.Equal(7, engine.Evaluate("parentValue").AsNumber());
     }
 

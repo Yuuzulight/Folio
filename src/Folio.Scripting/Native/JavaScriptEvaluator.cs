@@ -454,7 +454,16 @@ internal sealed class JavaScriptEvaluator
                     throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
-                properties[member.Name] = assigned;
+                if (properties.TryGetValue(member.Name, out var existing)
+                    && existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
+                {
+                    if (!accessor.Set(properties, assigned))
+                        throw new InvalidDataException($"Property '{member.Name}' is read-only.");
+                }
+                else
+                {
+                    properties[member.Name] = assigned;
+                }
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values && member.Name == "length":
                 var length = (int)Number(assigned);
@@ -482,7 +491,17 @@ internal sealed class JavaScriptEvaluator
                 }
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IDictionary<string, object?> indexedProperties:
-                indexedProperties[StringValue(Evaluate(index.Index))] = assigned;
+                var indexName = StringValue(Evaluate(index.Index));
+                if (indexedProperties.TryGetValue(indexName, out var indexedExisting)
+                    && indexedExisting is NativeJavaScriptEngine.NativePropertyAccessor indexedAccessor)
+                {
+                    if (!indexedAccessor.Set(indexedProperties, assigned))
+                        throw new InvalidDataException($"Property '{indexName}' is read-only.");
+                }
+                else
+                {
+                    indexedProperties[indexName] = assigned;
+                }
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeBuffer buffer:
                 var bufferPosition = (int)Number(Evaluate(index.Index));
@@ -1061,11 +1080,23 @@ internal sealed class JavaScriptEvaluator
     private void Assign(string name, object? value)
     {
         for (var i = _withScopes.Count - 1; i >= 0; i--)
-            if (_withScopes[i].ContainsKey(name)) { _withScopes[i][name] = value; return; }
-        if (_bindings.ContainsKey(name) || _parentBindings is null) _bindings[name] = value;
-        else if (_parentBindings.ContainsKey(name)) _parentBindings[name] = value;
+            if (_withScopes[i].ContainsKey(name)) { SetBinding(_withScopes[i], name, value); return; }
+        if (_bindings.ContainsKey(name) || _parentBindings is null) SetBinding(_bindings, name, value);
+        else if (_parentBindings.ContainsKey(name)) SetBinding(_parentBindings, name, value);
         else if (_parentEvaluator is not null) _parentEvaluator.Assign(name, value);
-        else _bindings[name] = value;
+        else SetBinding(_bindings, name, value);
+    }
+
+    private static void SetBinding(IDictionary<string, object?> bindings, string name, object? value)
+    {
+        if (bindings.TryGetValue(name, out var existing)
+            && existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
+        {
+            if (!accessor.Set(bindings, value))
+                throw new InvalidDataException($"Property '{name}' is read-only.");
+            return;
+        }
+        bindings[name] = value;
     }
 
     internal static bool Truth(object? value) => value switch { null or UndefinedValue => false, bool boolean => boolean, double number => number != 0 && !double.IsNaN(number), string text => text.Length != 0, _ => true };

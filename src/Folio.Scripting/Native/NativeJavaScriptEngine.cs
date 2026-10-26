@@ -518,7 +518,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (target.Raw is NativeHostValue host)
             return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
-        if (target.Raw is IDictionary<string, object?> properties) { properties[name] = ToObject(value); return true; }
+        if (target.Raw is IDictionary<string, object?> properties)
+        {
+            var assigned = ToObject(value);
+            if (properties.TryGetValue(name, out var existing)
+                && existing is NativePropertyAccessor accessor)
+                return accessor.Set(properties, assigned);
+            properties[name] = assigned;
+            return true;
+        }
         return false;
     }
 
