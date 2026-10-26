@@ -252,7 +252,8 @@ isolated-engine limit propagation, and staged
 `IHostObjectTemplate` property/method/indexed access plus buffer-source
 ownership/copy/detachment operations and script-visible typed-buffer
 properties/indexed mutation in `Folio.Scripting.Native`;
-it is not wired as a production engine and does not
+it is available to the content host through the explicit
+`FOLIO_SCRIPT_ENGINE=native` probe, but is not selected by default and does not
 reduce the replacement gate by itself. The
 Folio-owned GIF decoder is production-selected, differentially checked against
 SkiaSharp, bounded to the 12-bit GIF LZW table, and included in the image fuzz
