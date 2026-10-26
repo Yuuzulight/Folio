@@ -559,6 +559,7 @@ internal sealed class JavaScriptEvaluator
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
         if (target is IList<object?> values)
         {
+            if (name == "length") return (double)values.Count;
             if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray());
             if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
         }
