@@ -150,6 +150,24 @@ public sealed class WorkerCapabilityTests
     }
 
     [Fact]
+    public void NativeEngineWorkerWatchdogInterruptsBusyLoopWithoutBlockingThePage()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(50) }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(){while(true){}}')); worker.onerror=function(e){error=e.message;}; worker.postMessage(0);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), "native worker watchdog did not report an error");
+        Assert.NotEmpty(engine.GetGlobalProperty("error").AsString());
+        Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
+    }
+
+    [Fact]
     public void NativeEngineMessageChannelRoundTripsStructuredData()
     {
         using var engine = new NativeJavaScriptEngine();
