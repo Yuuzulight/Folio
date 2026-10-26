@@ -539,17 +539,19 @@ internal sealed class JavaScriptEvaluator
         return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).Execute(function.Body);
     }
 
-    private sealed class RegexValue
+    internal sealed class RegexValue
     {
         private readonly Regex _regex;
-        private RegexValue(Regex regex) => _regex = regex;
+        internal string Source { get; }
+        internal string Flags { get; }
+        private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = flags; }
         internal static RegexValue Create(string source)
         {
             var slash = source.LastIndexOf('/');
             var pattern = slash > 0 ? source[1..slash] : source;
             var flags = slash > 0 ? source[(slash + 1)..] : string.Empty;
             var options = flags.Contains('i') ? RegexOptions.IgnoreCase : RegexOptions.None;
-            return new RegexValue(new Regex(pattern, options, TimeSpan.FromMilliseconds(100)));
+            return new RegexValue(new Regex(pattern, options, TimeSpan.FromMilliseconds(100)), pattern, flags);
         }
         internal bool TryGetProperty(string name, out object? value)
         {

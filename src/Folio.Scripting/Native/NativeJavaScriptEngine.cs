@@ -213,7 +213,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
         });
         _bindings["Function"] = (Func<IReadOnlyList<object?>, object?>)(args => CreateDynamicFunction(args));
         _bindings["Date"] = StubConstructor("Date");
-        _bindings["RegExp"] = StubConstructor("RegExp");
+        _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
         _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
         _bindings["Proxy"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : new Dictionary<string, object?>());
         _bindings["atob"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : Encoding.Latin1.GetString(Convert.FromBase64String(StringValue(args[0]))));
@@ -445,6 +445,8 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
     {
         if (target.Raw is NativeHostValue host && host.TryGetValue(name, out var hostValue))
             return ToScriptValue(hostValue);
+        if (target.Raw is JavaScriptEvaluator.RegexValue regex && regex.TryGetProperty(name, out var regexValue))
+            return ToScriptValue(regexValue);
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
         if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
@@ -562,13 +564,16 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             return buffer.Kind == ScriptBufferSourceKind.ArrayBuffer ? "buffer" : "typedarray";
         if (value.Raw is NativeMap) return "map";
         if (value.Raw is NativeSet) return "set";
+        if (value.Raw is JavaScriptEvaluator.RegexValue) return "regexp";
         if (value.Raw is IReadOnlyList<object?>) return "array";
         if (value.Raw is IReadOnlyDictionary<string, object?>) return "object";
         return "unsupported";
     }
 
     (string Source, string Flags) IStructuredCloneEngine.GetCloneRegExp(ScriptValue value) =>
-        throw new ArgumentException("The value is not a regular expression.", nameof(value));
+        value.Raw is JavaScriptEvaluator.RegexValue regex
+            ? (regex.Source, regex.Flags)
+            : throw new ArgumentException("The value is not a regular expression.", nameof(value));
     public void Dispose() { _disposed = true; _bindings.Clear(); _microtasks.Clear(); }
 
     private void EnsureLive() { if (_disposed) throw new ObjectDisposedException(nameof(NativeJavaScriptEngine)); }

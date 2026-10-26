@@ -53,6 +53,18 @@ public sealed class WorkerCapabilityTests
         Assert.Equal(41, destination.GetProperty(decoded.Value, "n").AsNumber());
     }
 
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsRegularExpressions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("/folio/i");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        var test = destination.GetProperty(decoded.Value, "test");
+        Assert.True(destination.Call(test, decoded.Value, [ScriptValue.FromString("FOLIO")]).AsBoolean());
+    }
+
 
 
     [Theory]
