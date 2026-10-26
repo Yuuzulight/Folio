@@ -216,6 +216,7 @@ public static class DomBindings
             // The script engine may pre-create a distinct Window-like object. For a top-level document it must be the
             // actual global object so browser libraries see the same methods and globals through both names.
             globalThis.window = globalThis;
+            globalThis.self = globalThis;
             // Some libraries call the Window method rather than the global alias. Keep both views identical even
             // when an embedding host supplied a distinct window proxy.
             if (globalThis.window && typeof globalThis.window.getComputedStyle !== 'function' && typeof globalThis.getComputedStyle === 'function')

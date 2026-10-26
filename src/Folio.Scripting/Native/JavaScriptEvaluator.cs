@@ -8,6 +8,14 @@ namespace Folio.Scripting.Native;
 internal sealed class JavaScriptEvaluator
 {
     private static readonly ConditionalWeakTable<object, Dictionary<string, object?>> CallableProperties = new();
+
+    internal static void SetCallableProperty(object callable, string name, object? value) => CallableProperties.GetOrCreateValue(callable)[name] = value;
+    internal static bool TryGetCallableProperty(object callable, string name, out object? value)
+    {
+        if (CallableProperties.TryGetValue(callable, out var properties) && properties.TryGetValue(name, out value)) return true;
+        value = null;
+        return false;
+    }
     private sealed class ReceiverBinding(Func<object?, IReadOnlyList<object?>, object?> invoke)
     {
         internal object? Invoke(object? receiver, IReadOnlyList<object?> args) => invoke(receiver, args);
@@ -434,7 +442,9 @@ internal sealed class JavaScriptEvaluator
             "/" => r == 0 ? double.NaN : l / r,
             "%" => r == 0 ? double.NaN : l % r,
             "<" => l < r, ">" => l > r, "<=" => l <= r, ">=" => l >= r,
-            "==" or "===" => Equals(left, right), "!=" or "!==" => !Equals(left, right),
+            "==" => JavaScriptEquals(left, right, strict: false),
+            "===" or "!==" => binary.Operator == "===" ? Equals(left, right) : !Equals(left, right),
+            "!=" => !JavaScriptEquals(left, right, strict: false),
             "<<" => (double)(ToInt32(l) << (ToInt32(r) & 31)),
             ">>" => (double)(ToInt32(l) >> (ToInt32(r) & 31)), ">>>" => (double)((uint)ToInt32(l) >> (ToInt32(r) & 31)),
             "&" => (double)(ToInt32(l) & ToInt32(r)), "^" => (double)(ToInt32(l) ^ ToInt32(r)), "|" => (double)(ToInt32(l) | ToInt32(r)),
@@ -538,20 +548,47 @@ internal sealed class JavaScriptEvaluator
         _ => false,
     };
 
-    private static bool IsInstanceOf(object? value, object? constructor) => constructor switch
+    private static bool IsInstanceOf(object? value, object? constructor)
     {
-        "Array" when value is IReadOnlyList<object?> => true,
-        "Object" when value is IReadOnlyDictionary<string, object?> => true,
-        "Function" when value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable => true,
-        string name when value is NativeJavaScriptEngine.INativeBuffer buffer && string.Equals(buffer.TypeName, name, StringComparison.Ordinal) => true,
-        string name when value is IReadOnlyDictionary<string, object?> properties
-            && properties.TryGetValue("__constructor", out var constructorName)
-            && string.Equals(constructorName as string, name, StringComparison.Ordinal) => true,
-        _ when value is IReadOnlyDictionary<string, object?> constructed
+        if (constructor is string name)
+        {
+            if (name == "Array") return value is IReadOnlyList<object?>;
+            if (name == "Object") return value is IReadOnlyDictionary<string, object?>;
+            if (name == "Function") return value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
+            if (value is NativeJavaScriptEngine.INativeBuffer buffer && string.Equals(buffer.TypeName, name, StringComparison.Ordinal)) return true;
+            if (value is IReadOnlyDictionary<string, object?> named
+                && named.TryGetValue("__constructor", out var constructorName)
+                && string.Equals(constructorName as string, name, StringComparison.Ordinal)) return true;
+            if (value is NativeJavaScriptEngine.NativeHostValue hostValue)
+            {
+                for (var template = hostValue.Template; template is not null; template = template.PrototypeTemplate)
+                    if (string.Equals(template.Name, name, StringComparison.Ordinal)) return true;
+            }
+        }
+        if (value is NativeJavaScriptEngine.NativeHostValue host
+            && TryGetCallableName(constructor, out var hostConstructorName))
+        {
+            for (var template = host.Template; template is not null; template = template.PrototypeTemplate)
+                if (string.Equals(template.Name, StringValue(hostConstructorName), StringComparison.Ordinal)) return true;
+        }
+        if (value is IReadOnlyDictionary<string, object?> constructed
             && constructed.TryGetValue("__constructor", out var marker)
-            && ReferenceEquals(marker, constructor) => true,
-        _ => false,
-    };
+            && ReferenceEquals(marker, constructor)) return true;
+        return false;
+    }
+
+    private static bool TryGetCallableName(object? constructor, out object? name)
+    {
+        if (constructor is NativeJavaScriptEngine.NativeFunction function
+            && function.TryGetProperty("name", out name)) return true;
+        if (constructor is NativeJavaScriptEngine.NativeReceiverFunction receiver
+            && receiver.TryGetProperty("name", out name)) return true;
+        if (constructor is Func<IReadOnlyList<object?>, object?> callable
+            && (TryGetCallableProperty(callable, "__folio_template", out name)
+                || TryGetCallableProperty(callable, "name", out name))) return true;
+        name = null;
+        return false;
+    }
 
     private object? Call(JavaScriptCallExpression call)
     {
@@ -777,6 +814,13 @@ internal sealed class JavaScriptEvaluator
             };
             return value is not null;
         }
+        internal object? Match(string input)
+        {
+            if (Flags.Contains('g'))
+                return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToArray();
+            var match = _regex.Match(input);
+            return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+        }
         internal string Replace(string input, Func<string, string> replacement) => _regex.Replace(input, match => replacement(match.Value));
         internal string Replace(string input, string replacement) => _regex.Replace(input, replacement);
     }
@@ -944,6 +988,14 @@ internal sealed class JavaScriptEvaluator
                 }
                 return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
             }),
+            "match" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return null;
+                if (args[0] is RegexValue regex) return regex.Match(value);
+                var needle = StringValue(args[0]);
+                var index = value.IndexOf(needle, StringComparison.Ordinal);
+                return index < 0 ? null : new object?[] { needle };
+            }),
             "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? new[] { value } : value.Split(StringValue(args[0]), StringSplitOptions.None)),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
@@ -1102,6 +1154,25 @@ internal sealed class JavaScriptEvaluator
     internal static bool Truth(object? value) => value switch { null or UndefinedValue => false, bool boolean => boolean, double number => number != 0 && !double.IsNaN(number), string text => text.Length != 0, _ => true };
     private static double Number(object? value) => value switch { null => 0, UndefinedValue => double.NaN, bool boolean => boolean ? 1 : 0, double number => number, int integer => integer, string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number, _ => double.NaN };
     private static int ToInt32(double value) => unchecked((int)value);
+
+    private static bool JavaScriptEquals(object? left, object? right, bool strict)
+    {
+        var leftUndefined = left is UndefinedValue;
+        var rightUndefined = right is UndefinedValue;
+        if (leftUndefined || rightUndefined)
+            return strict ? leftUndefined && rightUndefined : (leftUndefined || left is null) && (rightUndefined || right is null);
+        if (left is null || right is null) return false;
+        if (left is double leftNumber && right is double rightNumber) return !double.IsNaN(leftNumber) && leftNumber == rightNumber;
+        if (!strict)
+        {
+            if (left is bool) return JavaScriptEquals(Number(left), right, strict: false);
+            if (right is bool) return JavaScriptEquals(left, Number(right), strict: false);
+            if (left is string && right is double or int) return Number(left) == Number(right);
+            if (right is string && left is double or int) return Number(left) == Number(right);
+        }
+        return left.Equals(right);
+    }
+
     private static string StringValue(object? value) => value switch { null => "null", UndefinedValue => "undefined", bool boolean => boolean ? "true" : "false", double number => number.ToString("G15", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };
     private object? UndefinedOrNull() => _preserveUndefined ? UndefinedValue.Instance : null;
 

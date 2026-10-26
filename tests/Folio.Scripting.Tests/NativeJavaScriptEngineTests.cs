@@ -297,6 +297,19 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeDomConstructorsRecognizeTheirHostPrototypeChain()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var document = TreeBuilder.Parse("<!doctype html><html><body><div id='root'></div></body></html>");
+        using var loop = new HtmlEventLoop(engine);
+        _ = DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("X", engine.Evaluate("var f=function(){}; Object.defineProperty(f, 'name', { value: 'X' }); f.name").AsString());
+        Assert.Equal("Node", engine.Evaluate("Object.defineProperty(Node, 'name', { value: 'Node' }); Node.name").AsString());
+        Assert.Equal("function:Node:true", engine.Evaluate("var probe=document.createElement('div'); typeof Node + ':' + Node.name + ':' + (probe instanceof Node)").AsString());
+        Assert.Equal("true:true:true", engine.Evaluate("(probe instanceof Element) + ':' + (probe instanceof HTMLElement) + ':' + (probe instanceof HTMLDivElement)").AsString());
+    }
+
+    [Fact]
     public void ExecutesScopedWorkerBootstrapShape()
     {
         using var engine = new NativeJavaScriptEngine();

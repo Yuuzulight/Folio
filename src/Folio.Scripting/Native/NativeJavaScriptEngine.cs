@@ -86,6 +86,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     }
                     if (args[0] is IDictionary<string, object?> target)
                         target[name] = value;
+                    else if (args[0] is NativeFunction function)
+                        function.SetProperty(name, value);
+                    else if (args[0] is NativeReceiverFunction receiverFunction)
+                        receiverFunction.SetProperty(name, value);
+                    else if (args[0] is Func<IReadOnlyList<object?>, object?> callable)
+                        JavaScriptEvaluator.SetCallableProperty(callable, name, value);
                     else if (args[0] is INativeHostObject host)
                         host.TrySetSetValue(name, value);
                     else if (args[0] is IList<object?> values && int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0)
@@ -591,7 +597,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     internal void InstallDomConstructors()
     {
-        static NativeFunction Illegal(string name) => new(_ => new Dictionary<string, object?> { ["__constructor"] = name });
+        static NativeFunction Illegal(string name)
+        {
+            var constructor = new NativeFunction(_ => new Dictionary<string, object?> { ["__constructor"] = name });
+            constructor.SetProperty("name", name);
+            return constructor;
+        }
         var node = Illegal("Node");
         var nodePrototype = new Dictionary<string, object?>(StringComparer.Ordinal);
         node.SetProperty("prototype", nodePrototype);
@@ -899,7 +910,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal)
         {
-            ["name"] = name, ["message"] = message,
+            ["name"] = name, ["message"] = message, ["stack"] = string.IsNullOrEmpty(message) ? name : $"{name}: {message}",
         };
         public IEnumerable<string> Keys => _values.Keys;
         public IEnumerable<object?> Values => _values.Values;
@@ -1117,7 +1128,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         bool Contains(string name);
     }
 
-    private sealed class NativeHostValue : IReadOnlyDictionary<string, object?>, INativeHostObject
+    internal sealed class NativeHostValue : IReadOnlyDictionary<string, object?>, INativeHostObject
     {
         internal NativeHostValue(NativeJavaScriptEngine engine, IHostObjectTemplate template, object target) { Engine = engine; Template = template; Target = target; }
         internal NativeJavaScriptEngine Engine { get; }
