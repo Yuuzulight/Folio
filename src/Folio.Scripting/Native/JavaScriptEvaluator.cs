@@ -648,6 +648,8 @@ internal sealed class JavaScriptEvaluator
             };
             return value is not null;
         }
+        internal string Replace(string input, Func<string, string> replacement) => _regex.Replace(input, match => replacement(match.Value));
+        internal string Replace(string input, string replacement) => _regex.Replace(input, replacement);
     }
 
     private static bool TryArrayMethod(IList<object?> values, string name, out object? method)
@@ -800,7 +802,19 @@ internal sealed class JavaScriptEvaluator
             "startsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.StartsWith(StringValue(args[0]), StringComparison.Ordinal)),
             "endsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.EndsWith(StringValue(args[0]), StringComparison.Ordinal)),
             "localeCompare" => (Func<IReadOnlyList<object?>, object?>)(args => (double)string.Compare(value, args.Count > 0 ? StringValue(args[0]) : string.Empty, StringComparison.CurrentCulture)),
-            "replace" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 ? value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal) : value),
+            "replace" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count < 2) return value;
+                if (args[0] is RegexValue regex)
+                    return IsCallable(args[1]) ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match]))) : regex.Replace(value, StringValue(args[1]));
+                if (IsCallable(args[1]))
+                {
+                    var needle = StringValue(args[0]);
+                    var index = value.IndexOf(needle, StringComparison.Ordinal);
+                    return index < 0 ? value : value[..index] + StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle])) + value[(index + needle.Length)..];
+                }
+                return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
+            }),
             "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? new[] { value } : value.Split(StringValue(args[0]), StringSplitOptions.None)),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
