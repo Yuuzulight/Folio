@@ -308,9 +308,35 @@ internal static class FetchBindings
                         if (signal) signal.removeEventListener('abort', onAbort);
                         if (signal && signal.aborted) { reject(signal.reason); return; }
                         const controller = global.navigator && global.navigator.serviceWorker && global.navigator.serviceWorker.controller;
+                        if (controller && typeof controller._dispatchFetchSync === 'function') {
+                            try {
+                                var synchronous = controller._dispatchFetchSync(request);
+                                if (synchronous !== null && synchronous !== undefined) { resolve(synchronous); return; }
+                            } catch (error) { reject(error); return; }
+                        }
                         const interception = controller && typeof controller._dispatchFetch === 'function' ? controller._dispatchFetch(request) : Promise.resolve(null);
                         Promise.resolve(interception).then(function(intercepted) {
-                            if (intercepted instanceof Response) { resolve(intercepted); return; }
+                            var nativeDescriptor = null;
+                            if (typeof intercepted === 'string') {
+                                if (intercepted.indexOf('folio-response:') === 0) {
+                                    var fields = intercepted.slice(15).split(':');
+                                    nativeDescriptor = { ok: true, bodyBase64: fields[0], status: Number(fields[1]) || 200, contentType: fields.slice(2).join(':') ? decodeURIComponent(fields.slice(2).join(':')) : '' };
+                                } else {
+                                    try { nativeDescriptor = JSON.parse(intercepted); } catch (_) { nativeDescriptor = null; }
+                                }
+                            }
+                            if (nativeDescriptor && nativeDescriptor.ok === true && nativeDescriptor.bodyBase64 !== undefined) {
+                                var nativeResponse = new Response(base64Decode(nativeDescriptor.bodyBase64), { status: nativeDescriptor.status || 200, headers: { 'content-type': nativeDescriptor.contentType || '' } }, INTERNAL);
+                                Object.assign(responseState.get(nativeResponse), { url: request.url, type: 'basic', signal: signal });
+                                resolve(nativeResponse);
+                                return;
+                            }
+                            // A service-worker response can cross the host/isolated-engine
+                            // boundary. Preserve it when it has the Response surface even if
+                            // the engine cannot make `instanceof Response` succeed across that
+                            // boundary; otherwise the request incorrectly falls through to the
+                            // network loader.
+                            if (intercepted instanceof Response || (intercepted && typeof intercepted === 'object' && typeof intercepted.text === 'function' && typeof intercepted.status === 'number' && intercepted.headers)) { resolve(intercepted); return; }
                             try {
                                 const result = JSON.parse(host.load(request.url, request.method === 'HEAD'));
                                 if (!result.ok) { reject(new TypeError('Failed to fetch: ' + result.error)); return; }

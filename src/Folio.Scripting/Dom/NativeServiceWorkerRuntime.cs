@@ -58,6 +58,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         {
             ["ok"] = ScriptValue.True,
             ["body"] = _pageEngine.CreateTypedArray(ScriptBufferSourceKind.Uint8, bytes),
+            ["bodyBase64"] = ScriptValue.FromString(Convert.ToBase64String(bytes)),
             ["status"] = root.TryGetProperty("status", out var status) && status.TryGetInt32(out var statusCode) ? ScriptValue.FromNumber(statusCode) : ScriptValue.FromNumber(200),
             ["contentType"] = contentType is null ? ScriptValue.Null : ScriptValue.FromString(contentType),
         });
