@@ -89,6 +89,6 @@ the mandatory replacement gate.
 
 The post-change Release verification remains green across the repository suites:
 Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
-Scripting.Tests 1,365 with six documented software skips. These results verify
+Scripting.Tests 1,366 with six documented software skips. These results verify
 that the receiver-aware and stable-identity host fixes do not regress existing
 coverage; they do not close the React reconciliation or replacement gate.
