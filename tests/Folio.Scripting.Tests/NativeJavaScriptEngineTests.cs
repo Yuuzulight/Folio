@@ -79,6 +79,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeClassGettersRemainLiveAfterConstruction()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(14d, engine.Evaluate("class Sample { get answer() { return this.value * 2; } } let sample = new Sample(); sample.value = 7; return sample.answer;").AsNumber());
+    }
+
+    [Fact]
     public void ExecutesBootstrapSyntaxAndFunctionProperties()
     {
         using var engine = new NativeJavaScriptEngine();

@@ -21,4 +21,5 @@ public sealed class NativeDomEventTests
   Assert.Empty(errors);
   Assert.Equal("listener", engine.GetGlobalProperty("hit").AsString());
  }
+
 }
