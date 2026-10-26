@@ -8,6 +8,11 @@ namespace Folio.Scripting.Native;
 internal sealed class JavaScriptEvaluator
 {
     private static readonly ConditionalWeakTable<object, Dictionary<string, object?>> CallableProperties = new();
+    private sealed class ReceiverBinding(Func<object?, IReadOnlyList<object?>, object?> invoke)
+    {
+        internal object? Invoke(object? receiver, IReadOnlyList<object?> args) => invoke(receiver, args);
+    }
+    private static readonly ConditionalWeakTable<Func<IReadOnlyList<object?>, object?>, ReceiverBinding> ReceiverBindings = new();
     private readonly IDictionary<string, object?> _bindings;
     private readonly IDictionary<string, object?>? _parentBindings;
     private readonly JavaScriptEvaluator? _parentEvaluator;
@@ -263,7 +268,7 @@ internal sealed class JavaScriptEvaluator
         {
             NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => receiverFunction.Invoke(instance, arguments),
             NativeJavaScriptEngine.INativeCallable callable => callable.Invoke(arguments),
-            Func<IReadOnlyList<object?>, object?> function => function(arguments),
+            Func<IReadOnlyList<object?>, object?> function => InvokeFunction(function, instance, arguments),
             _ => throw new NotSupportedException($"Constructor is not callable (callee: {call.Callee})."),
         };
         return result is null or UndefinedValue ? instance : result;
@@ -429,7 +434,7 @@ internal sealed class JavaScriptEvaluator
             return receiverCallable.Invoke(receiver, arguments);
         return target is NativeJavaScriptEngine.INativeCallable callable
             ? callable.Invoke(arguments)
-            : ((Func<IReadOnlyList<object?>, object?>)target)(arguments);
+            : InvokeFunction((Func<IReadOnlyList<object?>, object?>)target, receiver, arguments);
     }
 
     private object? Index(JavaScriptIndexExpression index)
@@ -714,15 +719,23 @@ internal sealed class JavaScriptEvaluator
     {
         var captured = _bindings;
         var capturedWithScopes = _withScopes.ToArray();
-        return (Func<IReadOnlyList<object?>, object?>)(arguments =>
+        var functionValue = (Func<IReadOnlyList<object?>, object?>)(arguments => InvokeBody(null, arguments));
+        ReceiverBindings.Add(functionValue, new ReceiverBinding((receiver, arguments) => InvokeBody(receiver, arguments)));
+        return functionValue;
+
+        object? InvokeBody(object? receiver, IReadOnlyList<object?> arguments)
         {
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
             for (var i = 0; i < function.Parameters.Count; i++)
                 local[function.Parameters[i]] = i < arguments.Count ? arguments[i] : null;
+            local["this"] = receiver;
             local["arguments"] = arguments.ToList();
             return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).Execute(function.Body);
-        });
+        }
     }
+
+    private static object? InvokeFunction(Func<IReadOnlyList<object?>, object?> function, object? receiver, IReadOnlyList<object?> arguments)
+        => ReceiverBindings.TryGetValue(function, out var binding) ? binding.Invoke(receiver, arguments) : function(arguments);
 
     private NativeJavaScriptEngine.NativeFunction Class(JavaScriptClassExpression @class)
     {

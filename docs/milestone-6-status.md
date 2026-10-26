@@ -12,6 +12,8 @@ The native array surface now includes callback-based `find`, `some`, and `every`
 
 Native dedicated workers now have a verified separate-engine parent-to-worker-to-parent message round trip. Their bootstrap uses a bounded native worker platform and event target, with primitive structured-clone transport; the broader native worker Web-platform surface remains under audit.
 
+Native MessageChannel now preserves JavaScript constructor receivers, exposes callable MessagePort methods, and delivers structured-cloned object/array messages after an explicit `start()`. The regression is covered by `NativeEngineMessageChannelRoundTripsStructuredData` and passes in three independent restarts plus the full serialized solution suite.
+
 `ContentDocumentRuntime` now accepts an `IScriptEngine` factory and exposes the engine through the interface, so native-engine acceptance can exercise the real content-host bootstrap without changing the compatibility default prematurely.
 
 The direct `DomEvents.Install` probe now runs through the complete Folio-owned event bootstrap on the native engine, including class/static syntax, descriptor helpers, identity collections, and the event constructors. This is a bounded bootstrap result, not production routing: full `DomBindings.Install` and differential parity remain gated until the broader Web-platform surface is covered.

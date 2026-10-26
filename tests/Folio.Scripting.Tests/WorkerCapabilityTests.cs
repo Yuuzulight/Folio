@@ -135,6 +135,19 @@ public sealed class WorkerCapabilityTests
         Assert.False(engine.TryGetArrayBufferBytes(engine.GetGlobalProperty("buffer"), out _));
     }
 
+    [Fact]
+    public void NativeEngineMessageChannelRoundTripsStructuredData()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>message channel</p>", new FolioOptions());
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var channel=new MessageChannel(); channel.port1.addEventListener('message',function(e){response=e.data.n+':'+e.data.values[1];}); channel.port1.start(); channel.port2.postMessage({n:41,values:[7,42]});");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != ""; }, TimeSpan.FromSeconds(2)));
+        Assert.Equal("41:42", engine.GetGlobalProperty("response").AsString());
+    }
+
 
 
     [Theory]
