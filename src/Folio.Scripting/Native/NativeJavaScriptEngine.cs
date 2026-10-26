@@ -214,7 +214,12 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             return null;
         });
         _bindings["Function"] = (Func<IReadOnlyList<object?>, object?>)(args => CreateDynamicFunction(args));
-        _bindings["Date"] = StubConstructor("Date");
+        var dateConstructor = new NativeFunction(args => new NativeDate(args.Count > 0 ? NumberValue(args[0]) : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        dateConstructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["getTime"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date ? date.Milliseconds : double.NaN),
+        });
+        _bindings["Date"] = dateConstructor;
         _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
         _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
         _bindings["Proxy"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : new Dictionary<string, object?>());
@@ -453,6 +458,8 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             return ToScriptValue(mapValue);
         if (target.Raw is NativeSet set && set.TryGetProperty(name, out var setValue))
             return ToScriptValue(setValue);
+        if (target.Raw is NativeDate date && name == "getTime")
+            return ToScriptValue(new NativeReceiverFunction((_, _) => date.Milliseconds));
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
         if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
@@ -570,6 +577,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             return buffer.Kind == ScriptBufferSourceKind.ArrayBuffer ? "buffer" : "typedarray";
         if (value.Raw is NativeMap) return "map";
         if (value.Raw is NativeSet) return "set";
+        if (value.Raw is NativeDate) return "date";
         if (value.Raw is JavaScriptEvaluator.RegexValue) return "regexp";
         if (value.Raw is IReadOnlyList<object?>) return "array";
         if (value.Raw is IReadOnlyDictionary<string, object?>) return "object";
@@ -803,6 +811,12 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             return value is not null;
         }
     }
+
+    internal sealed class NativeDate(double milliseconds)
+    {
+        internal double Milliseconds { get; } = milliseconds;
+    }
+
     private static object? ParseJson(string source)
     {
         using var document = JsonDocument.Parse(source);

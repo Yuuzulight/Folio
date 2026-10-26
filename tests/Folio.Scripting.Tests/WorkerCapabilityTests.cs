@@ -82,6 +82,18 @@ public sealed class WorkerCapabilityTests
         Assert.True(destination.Call(has, set, [ScriptValue.FromNumber(7)]).AsBoolean());
     }
 
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsDates()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("new Date(123456789)");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        var getTime = destination.GetProperty(decoded.Value, "getTime");
+        Assert.Equal(123456789, destination.Call(getTime, decoded.Value, []).AsNumber());
+    }
+
 
 
     [Theory]
