@@ -282,9 +282,9 @@ Original acceptance:
 
 ### #538 — Conformance: a workers category
 
-**Partial.** Evidence: `tests/conformance/D10: 4 manifests`.
+**Acceptance verified.** Evidence: `tests/conformance/D10: 4 manifests`; native D10 passes 4/4.
 
-Artifact count is met and all four D10 manifests now include wait/text interaction scripts plus checked-in worker sources. The report executes all four interactions and they pass after the fixtures use explicit DOM lookups (the harness intentionally does not synthesize implicit element globals). Dedicated and module worker message delivery is therefore wired through the conformance event loop, with no D10 expected failures remaining.
+Artifact count is met and all four D10 manifests now include wait/text interaction scripts plus checked-in worker sources. The report executes all four interactions and they pass after the fixtures use explicit DOM lookups (the harness intentionally does not synthesize implicit element globals). Dedicated and module worker message delivery is therefore wired through the conformance event loop. The original expected-to-fail marker is intentionally absent now that the category passes; keeping a stale marker would turn the green result into an unexpected-pass failure.
 
 Original acceptance:
 
