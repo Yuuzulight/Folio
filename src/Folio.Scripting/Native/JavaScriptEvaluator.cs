@@ -878,7 +878,9 @@ internal sealed class JavaScriptEvaluator
         if (constructor is not null) type.SetProperty("__classConstructor", constructor);
         if (@class.Parent is not null) type.SetProperty("__classParent", @class.Parent);
         foreach (var method in methods.Where(method => method.Getter))
-            prototype[method.Name] = new NativeJavaScriptEngine.NativePropertyGetter(() => null);
+            prototype[method.Name] = new NativeJavaScriptEngine.NativePropertyAccessor(
+                receiver => ExecuteClassMethod(method.Function, receiver ?? new Dictionary<string, object?>(), []),
+                null);
         foreach (var method in @class.Methods.Where(method => method.Static && !method.Getter && !method.Setter))
             type.SetProperty(method.Name, (Func<IReadOnlyList<object?>, object?>)(args => ExecuteClassMethod(method.Function, new Dictionary<string, object?> { ["__constructor"] = @class.Name ?? "class" }, args)));
         foreach (var method in @class.Methods.Where(method => method.Static && method.Getter))
