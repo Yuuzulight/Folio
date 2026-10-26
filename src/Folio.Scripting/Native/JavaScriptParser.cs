@@ -372,7 +372,14 @@ internal sealed class JavaScriptParser
         }
         if (Match("("))
         {
-            var result = ParseBinary(0); Expect(")"); return result;
+            // Parenthesised sequence expressions are common in UMD wrappers,
+            // e.g. `(global = global || self, factory(global.React = {}))`.
+            // Commas remain delimiters in calls/arrays, so consume them only
+            // inside this explicit parenthesised-expression production.
+            var result = ParseBinary(0);
+            while (Match(","))
+                result = Node(new JavaScriptBinaryExpression(",", result, ParseBinary(0)));
+            Expect(")"); return result;
         }
         if (Match("["))
         {

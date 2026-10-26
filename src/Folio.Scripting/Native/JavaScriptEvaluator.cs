@@ -342,6 +342,11 @@ internal sealed class JavaScriptEvaluator
 
     private object? Binary(JavaScriptBinaryExpression binary)
     {
+        if (binary.Operator == ",")
+        {
+            Evaluate(binary.Left);
+            return Evaluate(binary.Right);
+        }
         if (binary.Operator is "&&=" or "||=" or "??=")
         {
             var current = Evaluate(binary.Left);

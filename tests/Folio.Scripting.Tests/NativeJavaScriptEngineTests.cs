@@ -15,6 +15,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void EvaluatesParenthesizedSequenceExpressions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(3d, engine.Evaluate("let value = 0; return (value = 1, value += 2, value);").AsNumber());
+    }
+
+    [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()
     {
         using var engine = new NativeJavaScriptEngine();
