@@ -18,6 +18,14 @@ open M6 acceptance audit or the mandatory M7 replacement gate.
 - Architecture with pipeline, project layout, public API sketch, threading model, error handling and the detailed M1 scope.
 - Open questions answered by the project owner.
 
+Project-owner decisions recorded in the design set: Folio owns parsing, DOM,
+style, layout, display-list construction and policy; operating-system services
+remain behind Folio interfaces; the content process is the script boundary;
+the classifier fails closed to the system browser; and the all-Folio
+replacement track is mandatory before release. These decisions are expanded
+in [architecture.md](architecture.md), [dependencies.md](dependencies.md),
+and [study 17](study/17-scripting.md).
+
 ## 1. Static rendering
 
 **Scope**: HTML parsing, DOM, CSS parsing and selector matching, cascade with custom properties and `calc()`, box tree, block/inline/flex/grid/table layout, positioning and overflow, text shaping with font fallback, emoji and bidi, PNG and JPEG decoding, painting of backgrounds (including gradients), borders, radii, box and text shadows, images and text through SkiaSharp. `FolioView` (display, relayout on resize, root-page scrolling with wheel and scrollbar, clickable links through a host callback that by default opens the system browser) and the headless render-to-image API. `ArtifactClassifier`. The test and CI infrastructure (reftests, golden images with tolerance, approve workflow, diff images on PRs, Linux and Windows runners), the benchmark harness and the first fuzz harnesses.
