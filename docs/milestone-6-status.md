@@ -1,5 +1,14 @@
 # Milestone 6 status
 
+Native React host-commit audit refresh (2026-10-27): a minimal Folio-owned
+`ReactDOM.createRoot(...).render(React.createElement('span', ...))` reproduction
+now has an isolated trace. MessageChannel scheduling and the event-loop task both
+run, but the first commit requests `removeChild(root, span)` while the span's
+`parentNode` is still `null`; no insertion mutation reaches Folio first. Direct
+native DOM append/remove and MessageChannel regressions remain green. This
+narrows #645 to native evaluator/Fiber host-commit semantics and does not relax
+the mandatory native replacement gate.
+
 Native DOM prototype wiring refresh (2026-10-27, commit `c2e872e1`): the Folio-owned
 native engine now exposes the receiver-preserving `Node.prototype` traversal and
 mutation methods (`appendChild`, `insertBefore`, `removeChild`, `replaceChild`,
