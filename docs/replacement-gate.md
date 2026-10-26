@@ -44,7 +44,7 @@ or a partial Folio implementation is progress, never completion.
 
 ## Verification refresh — 2026-10-26
 
-The replacement gate remains open. The current checks pass 54 native-engine and
+The replacement gate remains open. The current checks pass 56 native-engine and
 native-WebAssembly tests, and the Folio-owned GIF/WebP/BMP fuzz targets completed
 1,147,094, 63,926 and 3,753,186 mutations respectively with zero failures. These
 are progress and safety evidence, not completion: HybridShaper still routes
