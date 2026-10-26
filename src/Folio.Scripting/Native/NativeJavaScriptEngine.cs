@@ -47,8 +47,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToArray(),
                     _ => Array.Empty<object?>(),
                 };
-                var start = args.Count > 0 ? Math.Clamp((int)NumberValue(args[0]), 0, values.Count) : 0;
-                var end = args.Count > 1 ? Math.Clamp((int)NumberValue(args[1]), start, values.Count) : values.Count;
+                var start = JavaScriptEvaluator.RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
+                var end = JavaScriptEvaluator.RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, values.Count);
+                if (end < start) end = start;
                 return values.Skip(start).Take(end - start).ToArray();
             }),
         };

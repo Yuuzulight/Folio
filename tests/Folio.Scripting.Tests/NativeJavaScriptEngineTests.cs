@@ -107,6 +107,7 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("b,c", engine.Evaluate("return ['a', 'b', 'c'].slice(-2).join(',');").AsString());
         Assert.Equal("a||c", engine.Evaluate("return ['a', null, 'c'].join('|');").AsString());
+        Assert.Equal("b", engine.Evaluate("return Array.prototype.slice.call({0:'a', 1:'b', length:2}, -1).join('');").AsString());
     }
 
     [Fact]

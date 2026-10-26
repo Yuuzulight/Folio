@@ -911,7 +911,7 @@ internal sealed class JavaScriptEvaluator
         return method is not null;
     }
 
-    private static int RelativeArrayIndex(object? value, int length, int defaultIndex)
+    internal static int RelativeArrayIndex(object? value, int length, int defaultIndex)
     {
         if (value is null or JavaScriptEvaluator.UndefinedValue) return defaultIndex;
         var number = Number(value);
