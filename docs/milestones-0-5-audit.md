@@ -4,10 +4,10 @@ Verification refresh (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
 `Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,359/1,359 with six
 documented software-backend skips. A complete Release solution run also passed
-4,078 tests with 0 failures and 7 documented skips (4,085 discovered). Earlier
+4,094 tests with 0 failures and 7 documented skips (4,101 discovered). Earlier
 totals are historical snapshots.
 
-Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, and service-worker audit repairs: 4,085 tests discovered, 4,078 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
+Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, and service-worker audit repairs: 4,101 tests discovered, 4,094 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
 
 This is the requirement-to-evidence index for the completed pre-M6 milestones. It
 does not waive the M6 acceptance audit or the mandatory Folio-owned replacement
@@ -30,5 +30,5 @@ complete from this table.
 The repository-wide recheck on 2026-10-26 found no regressions in these
 completed pre-M6 milestones: the solution builds successfully with one existing
 nullable warning in the benchmark project, and the complete Release solution test
-run passes 4,078 tests with zero failures and seven documented skips.
+run passes 4,094 tests with zero failures and seven documented skips.
 
