@@ -458,7 +458,7 @@ Original acceptance:
 
 ### #551 — Conformance: a WebRTC category
 
-**Partial.** Evidence: `tests/conformance/D13: 4 manifests; category 4/4`.
+**Acceptance verified; follow-up remains.** Evidence: `tests/conformance/D13: 4 manifests; native category 4/4.
 
 The four D13 pages now exercise distinct offer negotiation, paired in-page data-channel setup, synthetic camera capture and synthetic microphone capture, each with an interaction assertion; D13 passes 4/4. The implementations are still synthetic/in-process: host device adapters, real transport denial and process teardown evidence remain open.
 
