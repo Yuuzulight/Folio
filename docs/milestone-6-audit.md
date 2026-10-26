@@ -418,7 +418,7 @@ Original acceptance:
 
 ### #548 — Iframes: sandbox flags, origins and src loads
 
-**Partial.** Evidence: `IframeState.cs; DomContext.GetIframe; IframeLifecycleTests.NativeEngineSandboxedIframeHonorsOriginAndScriptPolicy`.
+**Acceptance verified; follow-up remains.** Evidence: `IframeState.cs; DomContext.GetIframe; 34 iframe tests passing, including native sandbox/origin, refused-src fallback, capability inheritance, forms blocking, and nesting/count limits.
 
 Empty sandbox flags block scripts and create an opaque origin; data-document origins are opaque. Child options inherit the host capabilities, resource loader and media adapters, and runtime revocation retires the child. Depth and local counts are bounded, and nested contexts now share the root document's aggregate iframe budget. Child grants intersect the current host capabilities with explicit allow directives, including wildcard, none, self, src, quoted-origin and HTML-whitespace forms; the iframe lifecycle suite covers these cases (27/27 passing), including native-engine sandboxed script/origin behavior. `FormsAllowed` now propagates into child options and form `submit`/`requestSubmit` throw `SecurityError` when forms are not granted. The broader process/watchdog acceptance remains unproven.
 
