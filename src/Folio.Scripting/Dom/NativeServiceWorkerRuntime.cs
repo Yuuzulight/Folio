@@ -135,9 +135,8 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                     var status = _engine.GetGlobalProperty("__folio_service_worker_status");
                     return JsonSerializer.Serialize(new { ok = true, body = Convert.ToBase64String(bytes), status = status.IsNumber ? (int)status.AsNumber() : 200, contentType = type.IsString ? type.AsString() : null });
                 }
-                if (result.IsBoolean && !result.AsBoolean()) return JsonSerializer.Serialize(new { ok = false, error = "no-response" });
             }
-            return JsonSerializer.Serialize(new { ok = false, error = "microtask-timeout" });
+            return JsonSerializer.Serialize(new { ok = false, error = "no-response" });
         }
         catch (Exception error)
         {
@@ -295,14 +294,16 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                     globalThis.__folio_service_worker_result = false;
                     var event = { type: 'fetch', request: new Request(url), target: self,
                         respondWith: function(value) {
-                            Promise.resolve(value).then(function(response) {
+                            var resolveResponse = function(response) {
                                 if (!(response instanceof Response)) { globalThis.__folio_service_worker_result = false; return; }
                                 response.bytes().then(function(data) {
                                     globalThis.__folio_service_worker_type = response.headers && response.headers.get('content-type');
                                     globalThis.__folio_service_worker_status = response.status;
                                     globalThis.__folio_service_worker_result = data;
                                 }, function() { globalThis.__folio_service_worker_result = false; });
-                            }, function() { globalThis.__folio_service_worker_result = false; });
+                            };
+                            if (value && typeof value.then === 'function') value.then(resolveResponse, function() { globalThis.__folio_service_worker_result = false; });
+                            else resolveResponse(value);
                         }
                     };
                     self.dispatchFetch(event);

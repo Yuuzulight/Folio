@@ -148,7 +148,7 @@ public sealed class ServiceWorkerCapabilityTests
         using var document = Folio.Document.Parse("<p>service worker</p>", new FolioOptions
         {
             BaseUri = new Uri("https://worker.example/"),
-            ResourceLoader = new TestServiceWorkerLoader(),
+            ResourceLoader = new TestServiceWorkerLoader("self.addEventListener('fetch', e => e.respondWith(Promise.resolve(new Response('old'))));"),
             Capabilities = new FeatureCapabilities { ServiceWorkers = true }
         });
         using var engine = new NativeJavaScriptEngine();
