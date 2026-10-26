@@ -54,9 +54,11 @@ path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2, while the current native path passes only 2/60 in
-D2–D7 (the rest are script failures or image mismatches). It therefore cannot be
-selected as Folio's production engine yet.
+gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 37/60: D2
+8/10, D3 9/10, D4 0/10, D5 1/10, D6 9/10 and D7 10/10. The remaining results
+are image mismatches or the React hooks interaction failure tracked in #645.
+This is measurable progress, but it is still below the M5 90% category bar and
+cannot select the native engine as Folio's production engine yet.
 
 The first reproducible library failure is now diagnosed: the staged parser cannot
 execute the cached minified React/ReactDOM sources, so `React`/`ReactDOM` remain
