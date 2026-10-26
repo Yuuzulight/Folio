@@ -1,5 +1,14 @@
 # Milestone 6 status
 
+Native service-worker budget correction (2026-10-27, commit `38bcefc`): trusted
+cache/fetch bindings and bootstrap scripts are installed before the worker
+execution deadline is armed. A short `MaxWorkerExecutionTime` therefore limits
+artifact handlers and dispatch without making engine creation depend on setup
+timing. The focused native busy-fetch regression passes 1/1. A fresh broad
+scripting run currently still reports 17 service-worker/cache failures across
+Jint and resource-interception paths; those are tracked separately and prevent
+claiming a new full-suite green result.
+
 Native evaluator audit refresh (2026-10-27): commits `efb5e38`, `5149847`,
 `3f9960e`, `a435a29` and `1e03139` now cover native prototype lookup,
 receiver-aware `Object.prototype.toString` and `hasOwnProperty`, detached
