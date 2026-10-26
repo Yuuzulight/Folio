@@ -1,6 +1,6 @@
 # Milestones 0–5 acceptance audit
 
-Verification refresh (2026-10-26): the latest serialized solution run completed all non-long-running modules with 3,984 passed and 7 expected skips (3,991 discovered). The two long-running render/scripting modules were stopped after their focused acceptance suites had already passed; they produced no assertion failures. Earlier totals are historical snapshots.
+Verification refresh (2026-10-26): a complete Release solution run passed 4,039 tests with 0 failures and 7 documented skips (4,046 discovered). Earlier totals are historical snapshots.
 
 Latest solution verification after native service-worker controller interception, typed-array bridge coverage, worker-scope isolation, native worker message delivery, imported native funcref/externref bridging, brokered worker isolation, typed page-function table bridging, iframe allowlist parsing, native-engine timeout enforcement, host capture-provider wiring, GPU-reset coverage, iframe message-source/target/port coverage, media switch coverage, reviewed media goldens, starvation-safe host loading, transactional WebGL texture/renderbuffer reservations, retained media-frame budget accounting, transform-feedback capture/readback plus next-draw round trip, signed and unsigned integer vertex-attribute input, signed integer 2D/3D/2D-array texture sampling, `UNPACK_FLIP_Y_WEBGL` upload handling, pack row/skip readback controls and `clients.claim()` controller wiring in both engines: 3,828 total tests, 3,827 succeeded, 0 failed, and 1 environment-only symbolic-link skip. Earlier counts below are historical snapshots.
 
@@ -23,7 +23,7 @@ engine is a separate mandatory M7 requirement. M6 and M7 must not be inferred
 complete from this table.
 
 The repository-wide recheck on 2026-10-26 found no regressions in these
-completed pre-M6 milestones: the solution builds with zero warnings and errors,
-and the solution test run passes 3,828 tests (3,827 succeeded, zero failed, and one
-machine-only symbolic-link skip).
+completed pre-M6 milestones: the solution builds successfully with one existing
+nullable warning in the benchmark project, and the complete Release solution test
+run passes 4,039 tests with zero failures and seven documented skips.
 

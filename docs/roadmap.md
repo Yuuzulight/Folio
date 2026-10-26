@@ -1,6 +1,6 @@
 # Roadmap
 
-Verification refresh (2026-10-26): the latest serialized solution run completed all non-long-running modules with 3,984 passed and 7 expected skips (3,991 discovered). The long-running render and scripting modules were stopped after focused acceptance suites had passed; they produced no assertion failures. The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
+Verification refresh (2026-10-26): a complete Release solution run passed 4,039 tests with 0 failures and 7 documented skips (4,046 discovered). The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
 
 Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`.
 
@@ -24,7 +24,7 @@ open M6 acceptance audit or the mandatory M7 replacement gate.
 
 **Acceptance criteria**: the list in [architecture.md → Milestone 1 in detail](architecture.md#milestone-1-in-detail-static-rendering), in short:
 
-Current audit: S1 and S3 conformance are 12/12 each with no crashes, hangs or limit hits. The authoritative Release benchmark also meets the 50 ms first-paint target for `S3/bug-tracker-export` (16.9 ms median) and `S3/employee-directory-long` (11.7 ms median); earlier Debug-only warnings were not acceptance failures.
+Current audit: S1 and S3 conformance are 12/12 each with no crashes, hangs or limit hits. The authoritative Release benchmark also meets the 50 ms first-paint target for `S3/bug-tracker-export` (33.4 ms median) and `S3/employee-directory-long` (25.4 ms median).
 
 - CI green on Linux and Windows with unit, dump, Unicode conformance, reftests and golden tests; approve workflow and diff artifacts working.
 - Every M1 CSS feature covered by a test.
