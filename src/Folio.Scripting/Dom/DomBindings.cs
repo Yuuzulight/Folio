@@ -373,12 +373,14 @@ public static class DomBindings
         ", "folio:dom-globals");
         context.CaptureState = CaptureBindingState.Install(engine, context);
         context.WebRtcState = WebRtcBindingState.Install(engine, context);
+        // Install Fetch before the compatibility service-worker scope so worker
+        // scripts receive the same Request/Response constructors as the page.
+        var cacheFetchApi = FetchBindings.Install(engine, context);
         context.ServiceWorkerState = ServiceWorkerBindings.Install(engine, context, resourceLoader, baseUri, context.ArtifactStorage);
         parentOptions?.ResourceInterceptor = context.CreateServiceWorkerResourceInterceptor();
         WebAssemblyBindings.Install(engine, context);
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
-        var cacheFetchApi = FetchBindings.Install(engine, context);
         CacheBindings.Install(engine, context, cacheFetchApi);
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.

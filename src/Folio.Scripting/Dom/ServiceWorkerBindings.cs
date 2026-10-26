@@ -2,6 +2,7 @@ namespace Folio.Scripting.Dom;
 
 using System.Text;
 using Folio.Resources;
+using Folio.Scripting.Native;
 
 /// <summary>
 /// Host-owned authority for service-worker registration and retained worker handles.
@@ -163,7 +164,11 @@ internal static class ServiceWorkerBindings
             catch { return ScriptValue.FromString("error"); }
         });
         engine.SetGlobalProperty("__folio_service_worker_validator", engine.CreateHostObject(validator, authority));
-        IsolatedServiceWorkerRuntime? nativeRuntime = engine is IScriptEngineFactory factory
+        // The isolated runtime is the Folio-owned native-engine bridge. Jint also
+        // implements IScriptEngineFactory, but it must stay on the compatibility
+        // worker scope below; routing it through the native bridge loses the
+        // compatibility worker's `self`/controller bindings and response path.
+        IsolatedServiceWorkerRuntime? nativeRuntime = engine is NativeJavaScriptEngine && engine is IScriptEngineFactory factory
             ? new IsolatedServiceWorkerRuntime(engine, context, factory, resourceLoader, baseUri)
             : null;
         var authorityTemplate = new HostObjectTemplate("ServiceWorkerCapabilityAuthority")
@@ -341,7 +346,7 @@ internal static class ServiceWorkerBindings
                     workerSelf.self = workerSelf;
                     workerSelf.clients.claim = function() { ensureLive(); pageServiceWorkerContainer.controller = worker; pageServiceWorkerContainer.dispatchEvent({ type: 'controllerchange', target: pageServiceWorkerContainer }); return Promise.resolve(); };
                     workerSelf.globalThis = workerSelf;
-                    ['Promise','URL','Request','Response','Headers','Blob','TextEncoder','TextDecoder','ArrayBuffer','Uint8Array','Map','Set','WeakMap','WeakSet','Object','Array','String','Number','Boolean','Error','TypeError','RangeError','SyntaxError','RegExp','Reflect','Function','Date','Math','JSON','console','crypto','atob','btoa'].forEach(function(name) { if (globalThis[name] !== undefined) workerSelf[name] = globalThis[name]; });
+                    ['Promise','URL','Request','Response','Headers','Blob','TextEncoder','TextDecoder','ArrayBuffer','Uint8Array','Map','Set','WeakMap','WeakSet','Object','Array','String','Number','Boolean','Error','TypeError','RangeError','SyntaxError','RegExp','Reflect','Function','Date','Math','JSON','console','crypto','atob','btoa','fetch'].forEach(function(name) { if (globalThis[name] !== undefined) workerSelf[name] = globalThis[name]; });
                     runWorkerScript = function(source, filename) {
                         if (isolatedRuntime !== null && isolatedRuntime !== undefined) {
                             var nativeRuntime = isolatedRuntime;
@@ -376,7 +381,15 @@ internal static class ServiceWorkerBindings
                             };
                             return;
                         }
-                        return new Function('scope', 'with (scope) { ' + source + '\n }')(workerSelf);
+                        // A plain `with (scope)` still falls through to the page
+                        // global for names absent from the worker object. The
+                        // `has` trap makes the scope an exhaustive environment
+                        // record, so page-only globals (and arbitrary expandos)
+                        // resolve as worker-side `undefined` instead of leaking.
+                        var isolatedScope = typeof Proxy === 'function'
+                            ? new Proxy(workerSelf, { has: function() { return true; } })
+                            : workerSelf;
+                        return new Function('scope', 'with (scope) { ' + source + '\n }')(isolatedScope);
                     };
                     var scopePath = String(scope); if (scopePath.length === 0 || scopePath.charAt(0) !== '/') scopePath = '/' + scopePath; if (scopePath.charAt(scopePath.length - 1) !== '/') scopePath += '/';
                     var originOf = function(value) { var text = String(value), scheme = text.indexOf('://'); if (scheme < 1) return ''; var end = text.indexOf('/', scheme + 3); return text.slice(0, end < 0 ? text.length : end).toLowerCase(); };
