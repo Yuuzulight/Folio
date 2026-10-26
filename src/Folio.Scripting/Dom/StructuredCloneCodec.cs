@@ -218,6 +218,10 @@ internal static class StructuredCloneCodec
             return engine.CreateArray([ScriptValue.FromString(name), engine.CreateArrayBuffer(bytes), ScriptValue.FromNumber(0), ScriptValue.FromNumber(info.Length)]);
         }
 
+        public ScriptValue Error(ScriptValue value) => value.Raw is Folio.Scripting.Native.NativeJavaScriptEngine.NativeError error
+            ? engine.CreateArray([ScriptValue.FromString(error["name"]?.ToString() ?? "Error"), ScriptValue.FromString(error["message"]?.ToString() ?? ""), ScriptValue.FromString("")])
+            : ScriptValue.Undefined;
+
         public ScriptValue RegExp(ScriptValue value)
         {
             if (engine is not IStructuredCloneEngine native)
@@ -266,6 +270,7 @@ internal static class StructuredCloneCodec
         .DefineMethod("find", (target, _, args) => ((Detector)target).Find(args.Length > 0 ? args[0] : ScriptValue.Undefined))
         .DefineMethod("kind", (target, _, args) => ((Detector)target).Kind(args[0]))
         .DefineMethod("typed", (target, _, args) => ((Detector)target).Typed(args[0]))
+        .DefineMethod("error", (target, _, args) => ((Detector)target).Error(args[0]))
         .DefineMethod("buffer", (target, _, args) => ((Detector)target).Buffer(args[0]))
         .DefineMethod("regexp", (target, _, args) => ((Detector)target).RegExp(args[0]));
     private static readonly HostObjectTemplate ResolverTemplate = new HostObjectTemplate("StructuredCloneResolver")
@@ -363,9 +368,9 @@ internal static class StructuredCloneCodec
                 item.e = array(); apply(setForEach, value, [function(entry) { push(item.e, visit(entry)); }]);
               } else if (kind === 'error') {
                 const name = value.name, message = value.message, stack = value.stack;
-                item.n = typeof name === 'string' && hasOwn(errors, name) ? name : 'Error';
-                item.m = typeof message === 'string' ? message : '';
-                item.s = typeof stack === 'string' ? stack : '';
+                const nativeError = detector.error(value);
+                if (nativeError !== undefined) { item.n = nativeError[0]; item.m = nativeError[1]; item.s = nativeError[2]; }
+                else { item.n = typeof name === 'string' && hasOwn(errors, name) ? name : 'Error'; item.m = typeof message === 'string' ? message : ''; item.s = typeof stack === 'string' ? stack : ''; }
                 if (hasOwn(value, 'cause')) item.cause = visit(value.cause);
               } else if (kind === 'array' || kind === 'object') {
                 if (kind === 'array') item.l = value.length;

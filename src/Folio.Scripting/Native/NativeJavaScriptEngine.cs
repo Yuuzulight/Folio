@@ -578,6 +578,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
         if (value.Raw is NativeMap) return "map";
         if (value.Raw is NativeSet) return "set";
         if (value.Raw is NativeDate) return "date";
+        if (value.Raw is NativeError) return "error";
         if (value.Raw is JavaScriptEvaluator.RegexValue) return "regexp";
         if (value.Raw is IReadOnlyList<object?>) return "array";
         if (value.Raw is IReadOnlyDictionary<string, object?>) return "object";
@@ -609,11 +610,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
         });
     }
 
-    private static NativeFunction CreateErrorConstructor(string name) => new(args => new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        ["name"] = name,
-        ["message"] = args.Count > 0 ? StringValue(args[0]) : string.Empty,
-    });
+    private static NativeFunction CreateErrorConstructor(string name) => new(args => new NativeError(name, args.Count > 0 ? StringValue(args[0]) : string.Empty));
     private void Enqueue(Action action) { EnsureLive(); _microtasks.Enqueue(action); }
     private static object? ToObject(ScriptValue value) => value.Kind switch
     {
@@ -815,6 +812,22 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
     internal sealed class NativeDate(double milliseconds)
     {
         internal double Milliseconds { get; } = milliseconds;
+    }
+
+    internal sealed class NativeError(string name, string message) : IReadOnlyDictionary<string, object?>
+    {
+        private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal)
+        {
+            ["name"] = name, ["message"] = message,
+        };
+        public IEnumerable<string> Keys => _values.Keys;
+        public IEnumerable<object?> Values => _values.Values;
+        public int Count => _values.Count;
+        public object? this[string key] => _values[key];
+        public bool ContainsKey(string key) => _values.ContainsKey(key);
+        public bool TryGetValue(string key, out object? value) => _values.TryGetValue(key, out value);
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => _values.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private static object? ParseJson(string source)
