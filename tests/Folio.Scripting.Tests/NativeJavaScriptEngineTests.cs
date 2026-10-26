@@ -102,6 +102,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ImplementsArrayNegativeSliceAndEmptyJoinFields()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("b,c", engine.Evaluate("return ['a', 'b', 'c'].slice(-2).join(',');").AsString());
+        Assert.Equal("a||c", engine.Evaluate("return ['a', null, 'c'].join('|');").AsString());
+    }
+
+    [Fact]
     public void ProvidesStringFromCharCodeToNativeBundles()
     {
         using var engine = new NativeJavaScriptEngine();

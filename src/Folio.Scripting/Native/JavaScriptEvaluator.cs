@@ -849,7 +849,7 @@ internal sealed class JavaScriptEvaluator
     {
         method = name switch
         {
-            "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(StringValue))),
+            "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => Enumerable.Range(0, values.Count).FirstOrDefault(index => Equals(values[index], args.Count > 0 ? args[0] : null), -1)),
             "includes" => (Func<IReadOnlyList<object?>, object?>)(args => values.Any(item => Equals(item, args.Count > 0 ? args[0] : null))),
             "push" => (Func<IReadOnlyList<object?>, object?>)(args => { foreach (var value in args) values.Add(value); return (double)values.Count; }),
@@ -894,8 +894,9 @@ internal sealed class JavaScriptEvaluator
             }),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, values.Count) : 0;
-                var end = args.Count > 1 ? Math.Clamp((int)Number(args[1]), start, values.Count) : values.Count;
+                var start = RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
+                var end = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, values.Count);
+                if (end < start) end = start;
                 return values.Skip(start).Take(end - start).ToArray();
             }),
             "concat" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -908,6 +909,17 @@ internal sealed class JavaScriptEvaluator
             _ => null,
         };
         return method is not null;
+    }
+
+    private static int RelativeArrayIndex(object? value, int length, int defaultIndex)
+    {
+        if (value is null or JavaScriptEvaluator.UndefinedValue) return defaultIndex;
+        var number = Number(value);
+        if (double.IsNaN(number)) return 0;
+        if (double.IsNegativeInfinity(number)) return 0;
+        if (double.IsPositiveInfinity(number)) return length;
+        var integer = (int)Math.Truncate(number);
+        return integer < 0 ? Math.Max(length + integer, 0) : Math.Min(integer, length);
     }
 
     private static object? Pop(IList<object?> values)
