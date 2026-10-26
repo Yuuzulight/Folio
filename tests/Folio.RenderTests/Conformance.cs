@@ -167,7 +167,16 @@ public static class Conformance
             {
                 var scriptResult = RunScriptCore(document, script, manifest.Viewport, reference?.Height, lifecycle.Host, lifecycle);
                 if (scriptResult is not null)
+                {
+                    var scriptDiagnostics = lifecycle.Diagnostics
+                        .Where(diagnostic => diagnostic.Code == DiagnosticCode.ScriptError)
+                        .Select(diagnostic => diagnostic.Message)
+                        .TakeLast(3)
+                        .ToArray();
+                    if (scriptDiagnostics.Length > 0)
+                        scriptResult = $"{scriptResult}; script diagnostics: {string.Join(" | ", scriptDiagnostics)}";
                     return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
+                }
             }
             return (Image: (PixelBuffer?)image, Diagnostics: renderDiagnostics, ScriptFailure: (string?)null);
         });
@@ -422,6 +431,7 @@ public static class Conformance
         public Document Document => _current.Document;
         public ScriptHost Host => _current.Host;
         public IReadOnlyList<ArtifactPage> RetiredPages => _retired;
+        public IReadOnlyList<Diagnostic> Diagnostics => _current.Runner.Diagnostics;
         public IArtifactStorage Storage => _storage;
         public IReadOnlyList<ResourceRequest> OfflineRequests => _loader.Requests;
 
