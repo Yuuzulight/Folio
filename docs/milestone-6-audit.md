@@ -6,7 +6,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-26
 
-- The complete Release solution passes 4,072 tests with 0 failures and 7 documented environment/software skips (4,079 discovered). Commit `19d6220` additionally verifies a real native `WebAssembly.Instance(...).exports.run()` call through the Folio evaluator, with Proxy get-trap and constructor-identity regressions. The same run includes native worker structured-clone, watchdog/WebAssembly-worker, WebRTC loopback, iframe sandbox and iframe window-message coverage. This verifies the numeric export subset only; issue #543 remains open for the broader native WebAssembly API, worker, accounting and sandbox requirements.
+- The complete Release solution passes 4,078 tests with 0 failures and 7 documented environment/software skips (4,085 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
