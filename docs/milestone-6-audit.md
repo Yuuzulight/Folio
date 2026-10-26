@@ -340,9 +340,9 @@ Original acceptance:
 
 ### #542 — Conformance: a WebAssembly category
 
-**Partial.** Evidence: `tests/conformance/D11: 4 manifests`.
+**Acceptance verified; follow-up remains.** Evidence: `tests/conformance/D11: 4 manifests`; native D11 passes 4/4.
 
-Count and interaction evidence are now met: all four D11 manifests wait for and assert a distinct WebAssembly result, and D11 passes 4/4. Native compiled game/image-filter workloads, worker-side module coverage and animation performance are not established by these fixtures.
+Count and interaction evidence are now met: all four D11 manifests wait for and assert a distinct WebAssembly result, and native D11 passes 4/4. Native compiled game/image-filter workloads, worker-side module coverage and animation performance are follow-up coverage beyond this issue's stated acceptance.
 
 Original acceptance:
 
