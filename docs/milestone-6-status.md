@@ -1,5 +1,15 @@
 # Milestone 6 status
 
+Native evaluator audit refresh (2026-10-27): commits `efb5e38`, `5149847`,
+`3f9960e`, `a435a29` and `1e03139` now cover native prototype lookup,
+receiver-aware `Object.prototype.toString` and `hasOwnProperty`, detached
+function binding, descriptors for host/callable/array/buffer values, and a
+callable/constructible `Object` global. The focused native scripting suite is
+green at 68/68. This does not close the React acceptance artifact:
+`D2/pantry-react-jsx` still fails its initial interaction because the React
+root remains empty, so the reconciliation/shared-internals requirement stays
+open under issue #645.
+
 Current native service-worker conformance correction (2026-10-27): D14 now passes 3/3 on the native engine after fixing the reopened-page response bridge; the Jint compatibility engine also passes D14 3/3. The service-worker corpus gate is green on both engines, but the broader native service-worker backend, interruption, and sandbox requirements below remain open; the historical claims below must not be read as completion evidence for those requirements.
 
 Latest full Release verification (2026-10-27): 4,078 passed, 0 failed, 7 documented skips, 4,085 discovered. The older aggregate sentence below is retained as historical context.
