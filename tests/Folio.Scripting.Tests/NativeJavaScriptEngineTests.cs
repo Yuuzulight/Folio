@@ -310,6 +310,17 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeDomMutationMaintainsHostOwnership()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var document = TreeBuilder.Parse("<div id='root'></div>");
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        Assert.True(engine.Evaluate("const root=document.getElementById('root'); const button=document.createElement('button'); root.appendChild(button); root.firstChild===button && button.parentNode===root && root.removeChild(button)===button && root.firstChild===null").AsBoolean());
+    }
+
+    [Fact]
     public void ExecutesScopedWorkerBootstrapShape()
     {
         using var engine = new NativeJavaScriptEngine();
