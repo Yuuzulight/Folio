@@ -44,3 +44,10 @@ lookup reaches the script-level `EventTarget` methods on wrapped elements, and
 the corrected assignment parser now preserves the full conditional RHS used by
 `innerHTML` updates. The D1 result is accepted as evidence for this corpus
 slice only; full-corpus DOM, sandbox, limit, and failure-behavior gates remain.
+
+The subsequent native corpus sweep recorded these baselines on 2026-10-26:
+D2 `0/10`, D3 `0/10`, D4 `0/10`, D5 `1/10`, D6 `0/10`, and D7 `1/10`.
+Nine artifacts in each D2-D7 set are the same cached React/library path and
+crash when the staged VM cannot resolve a `screenX` assignment target; the
+remaining failures are independent interaction or rendering mismatches. These
+results keep the replacement gate open despite the complete D1 slice.
