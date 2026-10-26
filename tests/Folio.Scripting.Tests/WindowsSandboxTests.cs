@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Collections.Concurrent;
+using Folio;
+using Folio.Resources;
 using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Tests;
@@ -7,6 +10,32 @@ namespace Folio.Scripting.Tests;
 [Collection("Content process round trips")]
 public sealed class WindowsSandboxTests
 {
+    [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
+    public async Task ServiceWorkerCapabilityRowRunsThroughTheRealContentProcess()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("service-workers" or "all")) return;
+        var host = ContentHostPath();
+        Assert.True(File.Exists(host), $"Content host was not built: {host}");
+        var storage = new MatrixStorage();
+        await using var client = ContentProcessClient.Start("dotnet", $"\"{host}\"",
+            new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
+            resourceLoader: new MatrixServiceWorkerLoader(), artifactStorage: storage, artifactId: "matrix",
+            documentLimits: ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 64 * 1024 });
+        var frame = await Exchange(client, new
+        {
+            html = "<script>var result='unfinished';(async()=>{await navigator.serviceWorker.register('/sw.js');result=await (await fetch('/offline')).text();})().catch(e=>result=e.name+':'+e.message);</script>",
+            script = "result",
+            url = "https://matrix.example/",
+            artifactId = "matrix",
+            storageEnabled = true,
+            capabilities = CapabilityMatrixTests.CapabilitiesFor(row),
+            limits = ResourceLimits.Default with { MaxServiceWorkerCacheBytes = 64 * 1024 }
+        });
+        Assert.Equal("offline", frame.Payload.GetProperty("value").GetString());
+        Assert.Contains(storage.Keys("matrix:service-worker-registration/"), key => key.EndsWith("%2F", StringComparison.Ordinal));
+    }
+
     [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
     public async Task NativeSandboxProbeDeniesFileNetworkAndChildProcessForEveryCapabilityRow()
     {
@@ -223,6 +252,29 @@ public sealed class WindowsSandboxTests
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.SandboxProbe/bin", configuration,
             OperatingSystem.IsWindows() ? "net10.0/Folio.SandboxProbe.exe" : "net10.0/Folio.SandboxProbe.dll"));
+    }
+
+    private static string ContentHostPath()
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+    }
+
+    private sealed class MatrixServiceWorkerLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script && request.Url == "https://matrix.example/sw.js"
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('fetch', e => e.respondWith(new Response('offline')));"), "application/javascript")
+                : ResourceResponse.Refused("matrix host refusal"));
+    }
+
+    private sealed class MatrixStorage : IArtifactStorage
+    {
+        private readonly ConcurrentDictionary<string, string> _values = new(StringComparer.Ordinal);
+        public string? Read(string key) => _values.GetValueOrDefault(key);
+        public void Write(string key, string value) => _values[key] = value;
+        public void Delete(string key) => _values.TryRemove(key, out _);
+        public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
     }
 
     public static bool IsWindows => OperatingSystem.IsWindows();
