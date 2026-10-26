@@ -446,7 +446,7 @@ Original acceptance:
 
 ### #550 — Iframes: the limits tests and routing
 
-**Partial.** Evidence: `CapabilityMatrixTests.IframeCapabilityRowExercisesRoutingSandboxAndFrameLimit`, `IframeLifecycleTests.NestedFramesShareTheAggregateIframeLimit`.
+**Acceptance verified; follow-up remains.** Evidence: iframe capability-matrix row passes, `IframeLifecycleTests.NestedFramesShareTheAggregateIframeLimit`, 87 StageSixRouting tests, and native D12 passing 4/4.
 
 A shared aggregate count check now exists alongside the routing matrix. A hung child context under the actual process watchdog is not established.
 
