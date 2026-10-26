@@ -470,9 +470,9 @@ Original acceptance:
 
 ### #552 — WebRTC: camera and microphone capture with host permission
 
-**Incomplete.** Evidence: `CaptureBindings.cs`, `FolioOptions.MediaCaptureProvider`, `Canvas2D.cs`.
+**Acceptance verified; follow-up remains.** Evidence: `CaptureBindings.cs`, `FolioOptions.MediaCaptureProvider`, `CaptureCapabilityTests`, `ContentCaptureBridgeTests`, and activity/revocation regressions.
 
-The API now has an explicit host-owned `IMediaCaptureProvider`/`IMediaCaptureSession` seam: approved requests open a session, host RGBA frames reach a `video` element, and the session is disposed when the final track stops or the document retires. The separate content process receives the provider through a bounded capture IPC bridge and can poll or receive host-owned RGBA/PCM samples and revocation events, with the WinForms launcher forwarding the provider into that bridge. `ContentCaptureBridgeTests` proves a real content-host process opens the provider, receives a pushed frame, observes revocation, and disposes the session. Without a provider the compatibility path remains synthetic for existing in-process fixtures. Real OS camera/microphone adapters and device-level conformance remain outstanding.
+The API now has an explicit host-owned `IMediaCaptureProvider`/`IMediaCaptureSession` seam: approved requests open a session, host RGBA frames reach a `video` element, activity is reported while tracks are live, and the session is disposed when the final track stops or the document retires. The separate content process receives the provider through a bounded capture IPC bridge and can poll or receive host-owned RGBA/PCM samples and revocation events, with the WinForms launcher forwarding the provider into that bridge. `ContentCaptureBridgeTests` proves a real content-host process opens the provider, receives a pushed frame, observes revocation, and disposes the session. The issue's stated fake-device acceptance is met; real OS camera/microphone adapters and device-level conformance remain outstanding.
 
 Original acceptance:
 
