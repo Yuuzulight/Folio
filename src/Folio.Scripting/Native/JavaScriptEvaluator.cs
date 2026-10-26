@@ -282,7 +282,14 @@ internal sealed class JavaScriptEvaluator
         if (unary.Operator == "new")
         {
             if (unary.Operand is JavaScriptCallExpression constructorCall) return Construct(constructorCall);
-            return Evaluate(unary.Operand);
+            var constructor = Evaluate(unary.Operand);
+            return constructor switch
+            {
+                NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => receiverFunction.Invoke(null, []),
+                NativeJavaScriptEngine.INativeCallable callable => callable.Invoke([]),
+                Func<IReadOnlyList<object?>, object?> function => InvokeFunction(function, null, []),
+                _ => throw new NotSupportedException($"Constructor is not callable (callee: {unary.Operand})."),
+            };
         }
         if (unary.Operator == "delete") return Delete(unary.Operand);
         var value = Evaluate(unary.Operand);
@@ -564,6 +571,11 @@ internal sealed class JavaScriptEvaluator
             if (name == "length") return (double)values.Count;
             if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray());
             if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
+        }
+        if (target is double or int or long)
+        {
+            if (name == "toString")
+                return (Func<IReadOnlyList<object?>, object?>)(args => StringValue(target));
         }
         if (target is string stringValue && TryStringMethod(stringValue, name, out var stringMethod)) return stringMethod;
         if (target is RegexValue regex && regex.TryGetProperty(name, out var regexMethod)) return regexMethod;

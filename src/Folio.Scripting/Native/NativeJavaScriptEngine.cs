@@ -149,6 +149,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["ceil"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Ceiling(Number(args, 0))),
             ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : args.Max(value => value is double number ? number : 0)),
             ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : args.Min(value => value is double number ? number : 0)),
+            ["random"] = (Func<IReadOnlyList<object?>, object?>)(_ => Random.Shared.NextDouble()),
         };
         var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
         stringConstructor.SetProperty("fromCharCode", (Func<IReadOnlyList<object?>, object?>)(args =>

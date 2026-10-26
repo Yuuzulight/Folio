@@ -99,6 +99,20 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ProvidesMathRandomToNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("var value = Math.random(); return value >= 0 && value < 1;").AsBoolean());
+    }
+
+    [Fact]
+    public void ProvidesNumberToStringToNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("42", engine.Evaluate("return (42).toString();").AsString());
+    }
+
+    [Fact]
     public void PreservesNativeMapBindingsAcrossFunctions()
     {
         using var engine = new NativeJavaScriptEngine();
@@ -111,6 +125,14 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal(2d, engine.Evaluate("function factory(){var fh, value; fh=new Map(), value=1; function put(){fh.set(1, 2);} put(); return fh.get(1);} return factory();").AsNumber());
     }
+
+    [Fact]
+    public void PreservesMapFromMinifiedDeclaratorLists()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(2d, engine.Evaluate("function factory(){var jh=1,kh=2,mh=3,fh=new Map,Zi='x'; function put(){fh.set(1,2);} put(); return fh.get(1);} return factory();").AsNumber());
+    }
+
 
     [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()
