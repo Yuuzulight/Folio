@@ -185,7 +185,7 @@ Original acceptance:
 
 **Partial.** Evidence: `CanvasElementState.cs`, `WebGlBindingAdapter.cs`, `WebGlObjects.cs`, `NativeWebGlPageTests.cs`, and `WebGlContextState` tests.
 
-Native ANGLE loss and restoration now retire the old registry, invalidate old objects, recreate the native context on a capability regrant, and dispatch `webglcontextlost` / `webglcontextrestored` handlers. The native page suite verifies the transition and object retirement, including a host GPU/device-reset hook exposed through `DomBindings.NotifyGpuDeviceLost/Restored`. Ordinary GPU-budget exhaustion correctly remains an `OUT_OF_MEMORY` API error without implicitly losing the context; runaway-shader behavior, production host-switch integration and the complete sandbox matrix remain unproven.
+Native ANGLE loss and restoration now retire the old registry, invalidate old objects, recreate the native context on a capability regrant, and dispatch `webglcontextlost` / `webglcontextrestored` handlers. The native page suite verifies the transition and object retirement, including a host GPU/device-reset hook exposed through `DomBindings.NotifyGpuDeviceLost/Restored`. The real content-process regression `FeatureFallbackContentProcessTests.PermissionFailuresAndRecoveryPublishRealProcessPixels` also drives a live capability revoke/regrant through IPC and verifies both the fallback pixels and the restored native draw. Ordinary GPU-budget exhaustion correctly remains an `OUT_OF_MEMORY` API error without implicitly losing the context; runaway-shader behavior and the complete sandbox matrix remain unproven.
 
 Original acceptance:
 
