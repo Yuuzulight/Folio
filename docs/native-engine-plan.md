@@ -24,3 +24,10 @@ The replacement is staged so each step is testable:
 The current Jint backend stays available while this work is in progress so the
 existing artifact corpus remains runnable. It is a compatibility backend, not the
 native completion criterion.
+
+The content-host executable exposes the staged engine through the explicit
+`FOLIO_SCRIPT_ENGINE=native` environment switch. This is a differential/runtime
+probe only: the default remains Jint until the native engine passes the full
+corpus, DOM, sandbox, resource-limit and failure-behavior gates. The switch lets
+real content-host paths run against Folio's engine without changing the shipping
+default prematurely.

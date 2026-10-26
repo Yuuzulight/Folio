@@ -8,9 +8,11 @@ namespace Folio.Scripting.Native;
 /// <summary>
 /// Folio-owned staged engine adapter. It deliberately exposes only the semantics
 /// implemented by the bounded front end; production routing remains gated until
-/// differential parity is demonstrated.
+/// differential parity is demonstrated. The public surface exists so hosts and
+/// differential-test runners can select the engine explicitly without reaching
+/// into test-only internals.
 /// </summary>
-internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
+public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
     private readonly Dictionary<string, object?> _bindings = new(StringComparer.Ordinal);
     private readonly Queue<Action> _microtasks = new();
@@ -20,7 +22,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
     private bool _interrupted;
     private bool _disposed;
 
-    internal NativeJavaScriptEngine(int? inheritedMaxSteps = null, TimeSpan? inheritedTimeout = null)
+    public NativeJavaScriptEngine(int? inheritedMaxSteps = null, TimeSpan? inheritedTimeout = null)
     {
         if (inheritedMaxSteps is > 0) _maxSteps = inheritedMaxSteps.Value;
         if (inheritedTimeout is not null) _timeout = inheritedTimeout;

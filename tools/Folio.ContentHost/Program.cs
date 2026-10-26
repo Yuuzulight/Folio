@@ -1,12 +1,16 @@
 using Folio.Scripting;
 using Folio.Scripting.Ipc;
+using Folio.Scripting.Native;
 using Folio.ContentHost;
 
 var framePath = Environment.GetEnvironmentVariable("FOLIO_CONTENT_FRAME_PATH")
     ?? Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
-using var runtime = new ContentDocumentRuntime(session, frameStore);
+Func<IScriptEngine>? engineFactory = string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "native", StringComparison.OrdinalIgnoreCase)
+    ? static () => new NativeJavaScriptEngine()
+    : null;
+using var runtime = new ContentDocumentRuntime(session, frameStore, engineFactory);
 
 session.MessageReceived += async (message, cancellationToken) =>
 {
