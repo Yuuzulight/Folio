@@ -242,6 +242,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ArrayPrototypeSliceSupportsCallWithArrayLikeArguments()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("c,d", engine.Evaluate("return Array.prototype.slice.call({ 0: 'a', 1: 'b', 2: 'c', 3: 'd', length: 4 }, 2).join(',');").AsString());
+    }
+
+    [Fact]
     public void ExecutesNativeClassConstructorsMethodsAndGetters()
     {
         using var engine = new NativeJavaScriptEngine();

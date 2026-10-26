@@ -36,7 +36,23 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             : args.ToList());
         arrayConstructor.SetProperty("isArray", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?>));
         arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?> values ? values.ToArray() : Array.Empty<object?>()));
-        arrayConstructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal));
+        var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["slice"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var values = receiver switch
+                {
+                    IReadOnlyList<object?> list => list,
+                    IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
+                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToArray(),
+                    _ => Array.Empty<object?>(),
+                };
+                var start = args.Count > 0 ? Math.Clamp((int)NumberValue(args[0]), 0, values.Count) : 0;
+                var end = args.Count > 1 ? Math.Clamp((int)NumberValue(args[1]), start, values.Count) : values.Count;
+                return values.Skip(start).Take(end - start).ToArray();
+            }),
+        };
+        arrayConstructor.SetProperty("prototype", arrayPrototype);
         _bindings["Array"] = arrayConstructor;
         _bindings["Object"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
