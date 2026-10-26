@@ -105,7 +105,7 @@ This phase is a mandatory, non-waivable completion gate, not an optional follow-
 simple-script set plus Hebrew base and isolated-mark runs; multiple-mark Hebrew and
 other complex scripts still use the differential shaper. The GIF decoder, bounded
 BMP decoder and bounded ICO decoder are replacement slices under differential
-verification; rasterisation, WebP decoding and the JavaScript engine remain dependency-backed. This phase
+verification; rasterisation and the JavaScript engine remain dependency-backed. WebP decoding is now Folio-owned and production-wired. This phase
 cannot be marked complete until all five production replacement tracks are complete and their superseded production dependencies are removed.
 
 **Acceptance criteria**

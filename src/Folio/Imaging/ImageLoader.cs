@@ -5,7 +5,7 @@ using Folio.Resources;
 namespace Folio.Imaging;
 
 /// <summary>
-/// Loads the images a document asks for through its resource loader and decodes them (PNG, JPEG, GIF, BMP, and SVG for img
+/// Loads the images a document asks for through its resource loader and decodes them (PNG, JPEG, GIF, WebP, BMP, and SVG for img
 /// elements), once per URL. With the default loader only <c>data:</c> URLs load (docs/study/16-resources-and-security.md).
 /// </summary>
 /// <param name="report">
@@ -52,6 +52,7 @@ internal sealed class ImageLoader(ResourceLoader loader, string? baseUrl, Action
         PngDecoder.CanDecode(data) ? PngDecoder.Decode(data)
         : JpegDecoder.CanDecode(data) ? JpegDecoder.Decode(data)
         : GifDecoder.CanDecode(data) ? GifDecoder.Decode(data)
+        : WebpDecoder.CanDecode(data) ? WebpDecoder.Decode(data)
         : BmpDecoder.CanDecode(data) ? BmpDecoder.Decode(data)
         : IcoDecoder.CanDecode(data) ? IcoDecoder.Decode(data)
         : null;

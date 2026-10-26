@@ -24,7 +24,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | JPEG decoder | **Folio builds it** | Baseline and progressive, Huffman, 4:4:4/4:2:2/4:2:0, restart markers, EXIF orientation, DCT-domain downscaling; CMYK/arithmetic coding refused with a diagnostic |
 | GIF decoder | **Folio builds it** | First-frame GIF87a/GIF89a decoding with palettes, interlace, transparency and bounded LZW |
 | BMP decoder | **Folio builds it** | Bounded uncompressed 8/16/24/32-bit decoding, including top-down images and 16/32-bit BI_BITFIELDS masks; broader differential corpus expansion remains part of the replacement gate |
-| WebP decoder | **Not implemented in Folio's image path** | WebP remains an explicit Milestone 7 replacement requirement and is still refused rather than silently claiming codec parity |
+| WebP decoder | **Folio builds it** | RIFF/VP8L lossless and VP8 lossy key frames, ALPH alpha, extended/animated first-frame handling, bounded parsing and fuzz coverage |
 | ICO decoder | **Folio builds it** | Bounded selection of the largest 16/24/32-bit DIB or embedded PNG entry, with alpha-mask handling; broader differential corpus remains open |
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
 | 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
@@ -182,7 +182,7 @@ the content process direct network access.
 
 ### Image codecs not built in-house
 
-**Why**: animated GIF, WebP (lossy VP8 and lossless) and the long tail of BMP/ICO variants are rare in artifacts; Folio's own production path now covers PNG, JPEG, bounded first-frame GIF, and bounded BMP/ICO variants, while WebP remains outside the production image path.
+**Why**: the image replacement track is now Folio-owned for GIF and WebP. The remaining codec work is corpus expansion for long-tail BMP/ICO variants, not a production WebP fallback.
 
 **Swap-out interface**:
 
@@ -196,10 +196,11 @@ public interface IImageDecoder
 ```
 
 The current `ImageLoader.Decode` path tries Folio's `PngDecoder`, `JpegDecoder`,
-first-frame `GifDecoder`, bounded `BmpDecoder` and bounded `IcoDecoder`. There
-is no production WebP fallback in this path; adding it requires a Folio-owned
-decoder and the differential, fuzzing and corpus evidence required by the
-[replacement gate](replacement-gate.md).
+first-frame `GifDecoder`, bounded `WebpDecoder` (VP8L/VP8 plus ALPH), bounded
+`BmpDecoder` and bounded `IcoDecoder`. WebP lossless and lossy fixtures are
+checked against SkiaSharp, and both GIF and WebP are fuzz targets. The decoder
+returns null for malformed or over-limit data rather than exposing partial
+pixels.
 
 ### System services
 
@@ -232,7 +233,7 @@ parser has direct differential coverage; proven Hebrew base runs and isolated ma
 the Folio path, while multiple-mark and complex Hebrew runs remain on HarfBuzz
 until script-specific ordering and kerning parity is proven. Arabic shaping, Indic and
 South-East Asian scripts, and the differential corpus remain outstanding. The
-rasteriser, WebP decoder and JavaScript engine are still dependency-backed. The
+rasteriser and JavaScript engine are still dependency-backed. The
 Folio-owned JavaScript replacement has now started with a bounded lexer and
 source-location/error tests plus bounded expression, statement, explicit
 host-function, array-literal, indexed-access, object-literal, property-read,
@@ -267,7 +268,7 @@ SkiaSharp in the render-test suite.
 
 1. **Extend the in-house shaper** script by script: bounded Hebrew base and isolated-mark runs now meet the differential bar; multiple-mark Hebrew, then Arabic (joining forms, mark positioning, contextual lookups), Indic and South-East Asian scripts (reordering) follow. *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
 2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
-3. **In-house GIF and WebP decoders**. GIF's first-frame decoder is now production-selected and bounded; WebP remains dependency-backed. *Good enough*: both decoders must be fuzzed and preserve conformance images before this replacement is complete.
+3. **In-house GIF and WebP decoders**. Both decoders are production-selected and bounded. GIF covers first-frame GIF87a/GIF89a with interlace/transparency; WebP covers VP8L lossless, VP8 key-frame lossy, ALPH alpha, extended and animated first-frame files. Differential corpus and fuzz evidence are checked in; this image-codec replacement gate is complete.
 4. **JavaScript engine**: planned removal of the temporary Jint dependency after
    the Folio-owned engine passes the full scripting and conformance suites.
 5. **WebAssembly runtime**: replace Wasmtime and the compatibility interpreter

@@ -12,7 +12,7 @@
   <ItemGroup>
     <None Include="Html\**\*.txt;Css\**\*.txt;Style\**\*.txt;Layout\**\*.txt;Painting\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\fonts\*.ttf" LinkBase="fonts" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\images\*.png;..\images\*.jpg" LinkBase="images" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\images\*.png;..\images\*.jpg;..\images\*.gif;..\images\*.webp" LinkBase="images" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

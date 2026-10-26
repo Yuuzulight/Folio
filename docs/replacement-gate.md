@@ -16,6 +16,8 @@ production dependency has been removed:
    performance and fuzz bars preserved.
 3. **Image codecs** — Folio-owned GIF and WebP decoders are production
    selected, fuzzed and conformance-equivalent to the existing decoder path.
+   This gate is complete: GIF and WebP are wired through `ImageLoader`, with
+   checked-in differential fixtures, malformed/limit tests, and fuzz targets.
 4. **JavaScript** — Folio's parser, VM, DOM host layer and hot-path execution
    replace Jint in production and pass the complete scripting and conformance
    suites, including sandbox and resource-limit behavior.
