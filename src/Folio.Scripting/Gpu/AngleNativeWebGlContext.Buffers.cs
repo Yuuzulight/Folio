@@ -9,11 +9,13 @@ internal sealed partial class AngleNativeWebGlContext
     private const uint GlCopyReadBuffer = 0x8F36;
     private const uint GlCopyWriteBuffer = 0x8F37;
     private const uint GlUniformBuffer = 0x8A11;
+    private const uint GlTransformFeedbackBuffer = 0x8C8E;
     private const uint GlStaticDraw = 0x88E4;
     private const uint GlColorBufferBit = 0x4000;
 
     private uint? _boundArrayBuffer;
     private uint? _boundElementArrayBuffer;
+    private uint? _boundTransformFeedbackBuffer;
     private uint? _boundVertexArray;
 
     public bool TryCreateBuffer(out uint buffer, out GpuFailure? failure)
@@ -35,7 +37,7 @@ internal sealed partial class AngleNativeWebGlContext
             failure = null;
             if (buffer is { } value && !_buffers.Contains(value)) { failure = NativeFailure("The buffer handle is invalid for this context."); return false; }
             if (target != GlArrayBuffer && target != GlElementArrayBuffer && target != GlCopyReadBuffer && target != GlCopyWriteBuffer &&
-                (target != GlUniformBuffer || Options.Version != WebGlContextVersion.WebGl2)) { failure = NativeFailure("The buffer target is invalid for this context."); return false; }
+                (target != GlUniformBuffer && target != GlTransformFeedbackBuffer || Options.Version != WebGlContextVersion.WebGl2 && target is GlUniformBuffer or GlTransformFeedbackBuffer)) { failure = NativeFailure("The buffer target is invalid for this context."); return false; }
             if (!Begin(out failure)) return false;
             try
             {
@@ -50,6 +52,7 @@ internal sealed partial class AngleNativeWebGlContext
                 if (target == GlCopyReadBuffer) _boundCopyReadBuffer = buffer;
                 if (target == GlCopyWriteBuffer) _boundCopyWriteBuffer = buffer;
                 if (target == GlUniformBuffer) _boundUniformBuffer = buffer;
+                if (target == GlTransformFeedbackBuffer) _boundTransformFeedbackBuffer = buffer;
                 return true;
             }
             catch (Exception error) { failure = new(GpuFailureKind.NativeError, error.Message); return false; }
@@ -388,17 +391,17 @@ internal sealed partial class AngleNativeWebGlContext
         lock (_gate)
         {
             failure = null;
-            if (Options.Version != WebGlContextVersion.WebGl2 || target != GlUniformBuffer) { failure = NativeFailure("The indexed buffer target is invalid for this context."); return false; }
+            if (Options.Version != WebGlContextVersion.WebGl2 || target is not (GlUniformBuffer or GlTransformFeedbackBuffer)) { failure = NativeFailure("The indexed buffer target is invalid for this context."); return false; }
             if (buffer is { } value && !_buffers.Contains(value)) { failure = NativeFailure("The buffer handle is invalid for this context."); return false; }
             if (!Begin(out failure)) return false;
-            try { _gl.BindBufferBase(target, index, buffer ?? 0); if (!CheckError(out failure)) return false; if (index == 0) _boundUniformBuffer = buffer; return true; }
+            try { _gl.BindBufferBase(target, index, buffer ?? 0); if (!CheckError(out failure)) return false; if (index == 0) { if (target == GlUniformBuffer) _boundUniformBuffer = buffer; else _boundTransformFeedbackBuffer = buffer; } return true; }
             catch (Exception error) { failure = new(GpuFailureKind.NativeError, error.Message); return false; } finally { End(); }
         }
     }
 
     public bool TryBindBufferRange(uint target, uint index, uint? buffer, long offset, long size, out GpuFailure? failure)
     {
-        lock (_gate) { failure = null; if (Options.Version != WebGlContextVersion.WebGl2 || target != GlUniformBuffer || offset < 0 || size < 0 || buffer is null && size != 0) { failure = NativeFailure("The buffer range is invalid for this context."); return false; } if (buffer is { } value && (!_buffers.Contains(value) || !_bufferSizes.TryGetValue(value, out var bufferSize) || offset > bufferSize || size > bufferSize - offset)) { failure = NativeFailure("The buffer range exceeds the buffer size."); return false; } if (!Begin(out failure)) return false; try { _gl.BindBufferRange(target, index, buffer ?? 0, (IntPtr)offset, (IntPtr)size); if (!CheckError(out failure)) return false; if (index == 0) _boundUniformBuffer = buffer; return true; } catch (Exception error) { failure = new(GpuFailureKind.NativeError, error.Message); return false; } finally { End(); } }
+        lock (_gate) { failure = null; if (Options.Version != WebGlContextVersion.WebGl2 || target is not (GlUniformBuffer or GlTransformFeedbackBuffer) || offset < 0 || size < 0 || buffer is null && size != 0) { failure = NativeFailure("The buffer range is invalid for this context."); return false; } if (buffer is { } value && (!_buffers.Contains(value) || !_bufferSizes.TryGetValue(value, out var bufferSize) || offset > bufferSize || size > bufferSize - offset)) { failure = NativeFailure("The buffer range exceeds the buffer size."); return false; } if (!Begin(out failure)) return false; try { _gl.BindBufferRange(target, index, buffer ?? 0, (IntPtr)offset, (IntPtr)size); if (!CheckError(out failure)) return false; if (index == 0) { if (target == GlUniformBuffer) _boundUniformBuffer = buffer; else _boundTransformFeedbackBuffer = buffer; } return true; } catch (Exception error) { failure = new(GpuFailureKind.NativeError, error.Message); return false; } finally { End(); } }
     }
 
     public bool TryGetBufferParameter(uint target, uint parameter, out int value, out GpuFailure? failure)
@@ -434,6 +437,6 @@ internal sealed partial class AngleNativeWebGlContext
     {
         lock (_gate) { offset = IntPtr.Zero; failure = null; if (index > 32) { failure = NativeFailure("The vertex attribute index is invalid."); return false; } if (!Begin(out failure)) return false; try { _gl.GetVertexAttribPointerv(index, parameter, out offset); return CheckError(out failure); } catch (Exception error) { failure = new(GpuFailureKind.NativeError, error.Message); return false; } finally { End(); } }
     }
-    private uint? CurrentBuffer(uint target) => target == GlArrayBuffer ? _boundArrayBuffer : target == GlElementArrayBuffer ? _boundElementArrayBuffer : target == GlCopyReadBuffer ? _boundCopyReadBuffer : target == GlCopyWriteBuffer ? _boundCopyWriteBuffer : target == GlUniformBuffer ? _boundUniformBuffer : null;
+    private uint? CurrentBuffer(uint target) => target == GlArrayBuffer ? _boundArrayBuffer : target == GlElementArrayBuffer ? _boundElementArrayBuffer : target == GlCopyReadBuffer ? _boundCopyReadBuffer : target == GlCopyWriteBuffer ? _boundCopyWriteBuffer : target == GlUniformBuffer ? _boundUniformBuffer : target == GlTransformFeedbackBuffer ? _boundTransformFeedbackBuffer : null;
 }
 

@@ -102,6 +102,15 @@ internal abstract class NativeWebGlTestDouble : INativeWebGlContext
     public virtual bool TryCreateVertexArray(out WebGlVertexArrayHandle vertexArray, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryCreateVertexArray");
     public virtual bool TryDeleteVertexArray(WebGlVertexArrayHandle vertexArray, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryDeleteVertexArray");
     public virtual bool TryBindVertexArray(WebGlVertexArrayHandle? vertexArray, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryBindVertexArray");
+    public virtual bool TryCreateTransformFeedback(out WebGlTransformFeedbackHandle feedback, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryCreateTransformFeedback");
+    public virtual bool TryDeleteTransformFeedback(WebGlTransformFeedbackHandle feedback, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryDeleteTransformFeedback");
+    public virtual bool TryBindTransformFeedback(uint target, WebGlTransformFeedbackHandle? feedback, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryBindTransformFeedback");
+    public virtual bool TryBeginTransformFeedback(uint primitiveMode, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryBeginTransformFeedback");
+    public virtual bool TryEndTransformFeedback(out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryEndTransformFeedback");
+    public virtual bool TryPauseTransformFeedback(out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryPauseTransformFeedback");
+    public virtual bool TryResumeTransformFeedback(out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryResumeTransformFeedback");
+    public virtual bool TryTransformFeedbackVaryings(WebGlProgramHandle program, IReadOnlyList<string> varyings, uint bufferMode, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryTransformFeedbackVaryings");
+    public virtual bool TryGetTransformFeedbackVarying(WebGlProgramHandle program, uint index, out WebGlActiveInfo info, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryGetTransformFeedbackVarying");
     public virtual bool TryEnableVertexAttrib(WebGlAttribLocation location, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryEnableVertexAttrib");
     public virtual bool TryDisableVertexAttrib(WebGlAttribLocation location, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryDisableVertexAttrib");
     public virtual bool TryVertexAttribPointer(WebGlAttribLocation location, int size, uint type, bool normalized, int stride, int offset, out GpuFailure? failure) => throw new InvalidOperationException("Unexpected native call: TryVertexAttribPointer");

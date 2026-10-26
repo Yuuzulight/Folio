@@ -18,6 +18,7 @@ internal sealed class WebGlObjectRegistry : IDisposable
     private readonly Dictionary<WebGlShaderHandle, WebGlShaderObject> _shaders = [];
     private readonly Dictionary<WebGlProgramHandle, WebGlProgramObject> _programs = [];
     private readonly Dictionary<WebGlVertexArrayHandle, WebGlVertexArrayObject> _vertexArrays = [];
+    private readonly Dictionary<WebGlTransformFeedbackHandle, WebGlTransformFeedbackObject> _transformFeedbacks = [];
     private readonly Dictionary<(WebGlProgramHandle Program, long Generation, int Location), WebGlUniformLocationObject> _uniformLocations = [];
     private bool _disposed;
     private long _generation = 1;
@@ -45,6 +46,7 @@ internal sealed class WebGlObjectRegistry : IDisposable
             foreach (var value in _shaders.Values) value.Invalidate();
             foreach (var value in _programs.Values) value.Invalidate();
             foreach (var value in _vertexArrays.Values) value.Invalidate();
+            foreach (var value in _transformFeedbacks.Values) value.Invalidate();
         }
     }
 
@@ -96,6 +98,19 @@ internal sealed class WebGlObjectRegistry : IDisposable
             if (!Native.TryCreateVertexArray(out var handle, out failure)) return null;
             var result = new WebGlVertexArrayObject(this, handle, _generation);
             _vertexArrays[handle] = result;
+            return result;
+        }
+    }
+
+    internal WebGlTransformFeedbackObject? CreateTransformFeedback(out GpuFailure? failure)
+    {
+        lock (_gate)
+        {
+            failure = null;
+            EnsureContextLive();
+            if (!Native.TryCreateTransformFeedback(out var handle, out failure)) return null;
+            var result = new WebGlTransformFeedbackObject(this, handle, _generation);
+            _transformFeedbacks[handle] = result;
             return result;
         }
     }
@@ -193,6 +208,7 @@ internal sealed class WebGlObjectRegistry : IDisposable
                 case WebGlShaderObject shader: _shaders.Remove(shader.Handle); break;
                 case WebGlProgramObject program: _programs.Remove(program.Handle); break;
                 case WebGlVertexArrayObject array: _vertexArrays.Remove(array.Handle); break;
+                case WebGlTransformFeedbackObject feedback: _transformFeedbacks.Remove(feedback.Handle); break;
                 case WebGlUniformLocationObject uniform: _uniformLocations.Remove((uniform.Program.Handle, uniform.LinkGeneration, uniform.Handle.Value)); break;
             }
         }
@@ -221,6 +237,8 @@ internal sealed class WebGlObjectRegistry : IDisposable
                     Native.TryDeleteRenderbuffer(renderbuffer.Handle, out _); _renderbuffers.Remove(renderbuffer.Handle); break;
                 case WebGlVertexArrayObject array:
                     Native.TryDeleteVertexArray(array.Handle, out _); _vertexArrays.Remove(array.Handle); break;
+                case WebGlTransformFeedbackObject feedback:
+                    Native.TryDeleteTransformFeedback(feedback.Handle, out _); _transformFeedbacks.Remove(feedback.Handle); break;
                 case WebGlProgramObject program:
                     program.DeleteNative(); _programs.Remove(program.Handle); break;
                 case WebGlShaderObject shader:
@@ -246,7 +264,8 @@ internal sealed class WebGlObjectRegistry : IDisposable
             foreach (var renderbuffer in _renderbuffers.Values) renderbuffer.Invalidate();
             foreach (var array in _vertexArrays.Values) array.Invalidate();
             foreach (var uniform in _uniformLocations.Values) uniform.Invalidate();
-            _uniformLocations.Clear(); _buffers.Clear(); _textures.Clear(); _framebuffers.Clear(); _renderbuffers.Clear(); _shaders.Clear(); _programs.Clear(); _vertexArrays.Clear();
+            foreach (var feedback in _transformFeedbacks.Values) feedback.Invalidate();
+            _uniformLocations.Clear(); _buffers.Clear(); _textures.Clear(); _framebuffers.Clear(); _renderbuffers.Clear(); _shaders.Clear(); _programs.Clear(); _vertexArrays.Clear(); _transformFeedbacks.Clear();
             Native.Dispose();
         }
     }
@@ -298,6 +317,11 @@ internal sealed class WebGlRenderbufferObject(WebGlObjectRegistry owner, WebGlRe
 internal sealed class WebGlVertexArrayObject(WebGlObjectRegistry owner, WebGlVertexArrayHandle handle, long generation) : WebGlObject(owner, generation), IWebGLVertexArrayObjectTarget
 {
     internal WebGlVertexArrayHandle Handle { get; } = handle;
+}
+
+internal sealed class WebGlTransformFeedbackObject(WebGlObjectRegistry owner, WebGlTransformFeedbackHandle handle, long generation) : WebGlObject(owner, generation), IWebGLTransformFeedbackTarget
+{
+    internal WebGlTransformFeedbackHandle Handle { get; } = handle;
 }
 
 internal sealed class WebGlShaderObject(WebGlObjectRegistry owner, WebGlShaderHandle handle, long generation, uint type) : WebGlObject(owner, generation), IWebGLShaderTarget

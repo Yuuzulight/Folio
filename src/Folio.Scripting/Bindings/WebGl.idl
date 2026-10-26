@@ -50,6 +50,9 @@ interface WebGLUniformLocation {
 interface WebGLVertexArrayObject : WebGLObject {
 };
 
+interface WebGLTransformFeedback : WebGLObject {
+};
+
 interface WebGLActiveInfo {
     readonly attribute DOMString name;
     readonly attribute long size;
@@ -356,6 +359,9 @@ interface WebGL2RenderingContext : WebGLRenderingContext {
     const unsigned long DRAW_BUFFER0 = 0x8825;
     const unsigned long VERTEX_ARRAY_BINDING = 0x85B5;
     const unsigned long TRANSFORM_FEEDBACK_BUFFER = 0x8C8E;
+    const unsigned long TRANSFORM_FEEDBACK = 0x8E22;
+    const unsigned long INTERLEAVED_ATTRIBS = 0x8C8C;
+    const unsigned long SEPARATE_ATTRIBS = 0x8C8D;
     const unsigned long UNIFORM_BUFFER = 0x8A11;
     const unsigned long COPY_READ_BUFFER = 0x8F36;
     const unsigned long COPY_WRITE_BUFFER = 0x8F37;
@@ -392,4 +398,14 @@ interface WebGL2RenderingContext : WebGLRenderingContext {
     undefined uniform4uiv(WebGLUniformLocation? location, Uint32List value);
     undefined bindBufferBase(unsigned long target, unsigned long index, WebGLBuffer? buffer);
     undefined bindBufferRange(unsigned long target, unsigned long index, WebGLBuffer? buffer, long offset, long size);
+    WebGLTransformFeedback? createTransformFeedback();
+    undefined deleteTransformFeedback(WebGLTransformFeedback? feedback);
+    boolean isTransformFeedback(WebGLTransformFeedback? feedback);
+    undefined bindTransformFeedback(unsigned long target, WebGLTransformFeedback? feedback);
+    undefined beginTransformFeedback(unsigned long primitiveMode);
+    undefined endTransformFeedback();
+    undefined pauseTransformFeedback();
+    undefined resumeTransformFeedback();
+    undefined transformFeedbackVaryings(WebGLProgram program, sequence<DOMString> varyings, unsigned long bufferMode);
+    WebGLActiveInfo? getTransformFeedbackVarying(WebGLProgram program, unsigned long index);
 };

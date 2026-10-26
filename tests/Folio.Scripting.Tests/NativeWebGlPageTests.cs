@@ -1362,6 +1362,41 @@ public sealed class NativeWebGlPageTests
         finally { DomBindings.Dispose(engine); }
     }
 
+    [Fact]
+    public void TransformFeedbackCapturesVaryingAndCanBeReadBack()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("""
+                var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});
+                function makeShader(kind,source){var s=gl.createShader(kind);gl.shaderSource(s,source);gl.compileShader(s);return s;}
+                var vs=makeShader(gl.VERTEX_SHADER,'#version 300 es\nout float value;void main(){value=float(gl_VertexID+1);gl_Position=vec4(-1,-1,0,1);}');
+                var fs=makeShader(gl.FRAGMENT_SHADER,'#version 300 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}');
+                var p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.transformFeedbackVaryings(p,['value'],gl.SEPARATE_ATTRIBS);gl.linkProgram(p);
+                var b=gl.createBuffer();gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER,b);gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER,new Float32Array([0,0,0]),gl.DYNAMIC_DRAW);
+                var tf=gl.createTransformFeedback();gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK,tf);gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,b);gl.useProgram(p);gl.beginTransformFeedback(gl.POINTS);gl.drawArrays(gl.POINTS,0,3);gl.endTransformFeedback();
+                var outData=new Float32Array(3);gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER,b);gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER,0,outData);var error=gl.getError();
+                """);
+            Assert.True(engine.Evaluate("gl.getShaderParameter(vs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(vs)").AsString());
+            Assert.True(engine.Evaluate("gl.getShaderParameter(fs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(fs)").AsString());
+            Assert.True(engine.Evaluate("gl.getProgramParameter(p,gl.LINK_STATUS)").AsBoolean(), engine.Evaluate("gl.getProgramInfoLog(p)").AsString());
+            Assert.Equal(0, engine.Evaluate("error").AsNumber());
+            Assert.Equal(1, engine.Evaluate("outData[0]").AsNumber());
+            Assert.Equal(2, engine.Evaluate("outData[1]").AsNumber());
+            Assert.Equal(3, engine.Evaluate("outData[2]").AsNumber());
+            Assert.Equal("value", engine.Evaluate("gl.getTransformFeedbackVarying(p,0).name").AsString());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     private static void ConfigureWarp(JintScriptEngine engine)
     {
         var rid = RuntimeInformation.ProcessArchitecture switch

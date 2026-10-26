@@ -184,6 +184,10 @@ Original acceptance:
 
 - Classifier tests both ways; the WebGL conformance category passes.
 
+### #637 — WebGL 2 shading and transform feedback
+
+**Partial.** Cube maps, arbitrary-expression derivatives, unsigned/integer uniforms and samplers, 3D and 2D-array textures, uniform-buffer bindings and native readback are covered by the current ANGLE path. Transform feedback is now wired end to end: typed opaque objects have context ownership and retirement, native create/bind/delete and pause/resume/begin/end calls are routed through WebIDL, varying declarations and reflection reach ANGLE, transform-feedback buffer targets participate in allocation and readback, and a WARP regression captures three vertex values into a buffer and reads them back. The remaining #637 acceptance gaps are complete integer vertex-attribute coverage, broader UBO layout/reflection coverage, and a conformance-grade particle-step round trip across all supported paths.
+
 ### #532 — Conformance: an audio and video category
 
 **Acceptance verified.** Evidence: `tests/conformance/D9: 5 manifests and HTML files`; the report passes 5/5.

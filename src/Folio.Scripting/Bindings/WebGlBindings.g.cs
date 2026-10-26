@@ -361,6 +361,27 @@ public static class WebGLVertexArrayObjectBinding
     }
 }
 
+public interface IWebGLTransformFeedbackTarget : IWebGLObjectTarget
+{
+}
+
+public static class WebGLTransformFeedbackBinding
+{
+    public static ScriptValue CreateObject(IScriptEngine engine, IWebGLTransformFeedbackTarget target) => WebIdlConversions.WrapHostObject(engine, CreateTemplate(engine), target);
+    public static HostObjectTemplate CreateTemplate(IHostObjectTemplate? proto = null) => CreateTemplate(null, proto);
+    public static HostObjectTemplate CreateTemplate(IScriptEngine? engine, IHostObjectTemplate? proto = null)
+    {
+        if (engine is not null && proto is null) return WebIdlConversions.GetOrCreateTemplate(engine, "WebGLTransformFeedback", () => CreateTemplateCore(engine, null));
+        return CreateTemplateCore(engine, proto);
+    }
+    private static HostObjectTemplate CreateTemplateCore(IScriptEngine? engine, IHostObjectTemplate? proto)
+    {
+        proto ??= WebGLObjectBinding.CreateTemplate(engine);
+        var template = new HostObjectTemplate("WebGLTransformFeedback", proto);
+        return template;
+    }
+}
+
 public interface IWebGLActiveInfoTarget
 {
     string Name { get; }
@@ -2833,6 +2854,9 @@ public interface IWebGL2RenderingContextTarget : IWebGLRenderingContextTarget
     const uint DRAW_BUFFER0 = 0x8825;
     const uint VERTEX_ARRAY_BINDING = 0x85B5;
     const uint TRANSFORM_FEEDBACK_BUFFER = 0x8C8E;
+    const uint TRANSFORM_FEEDBACK = 0x8E22;
+    const uint INTERLEAVED_ATTRIBS = 0x8C8C;
+    const uint SEPARATE_ATTRIBS = 0x8C8D;
     const uint UNIFORM_BUFFER = 0x8A11;
     const uint COPY_READ_BUFFER = 0x8F36;
     const uint COPY_WRITE_BUFFER = 0x8F37;
@@ -2868,6 +2892,16 @@ public interface IWebGL2RenderingContextTarget : IWebGLRenderingContextTarget
     void Uniform4uiv(IWebGLUniformLocationTarget? location, IReadOnlyList<uint> value);
     void BindBufferBase(uint target, uint index, IWebGLBufferTarget? buffer);
     void BindBufferRange(uint target, uint index, IWebGLBufferTarget? buffer, int offset, int size);
+    IWebGLTransformFeedbackTarget? CreateTransformFeedback();
+    void DeleteTransformFeedback(IWebGLTransformFeedbackTarget? feedback);
+    bool IsTransformFeedback(IWebGLTransformFeedbackTarget? feedback);
+    void BindTransformFeedback(uint target, IWebGLTransformFeedbackTarget? feedback);
+    void BeginTransformFeedback(uint primitiveMode);
+    void EndTransformFeedback();
+    void PauseTransformFeedback();
+    void ResumeTransformFeedback();
+    void TransformFeedbackVaryings(IWebGLProgramTarget program, IReadOnlyList<string> varyings, uint bufferMode);
+    IWebGLActiveInfoTarget? GetTransformFeedbackVarying(IWebGLProgramTarget program, uint index);
 }
 
 public static class WebGL2RenderingContextBinding
@@ -2892,6 +2926,9 @@ public static class WebGL2RenderingContextBinding
         template.DefineProperty("DRAW_BUFFER0", (target, thisVal) => ScriptValue.FromNumber(0x8825));
         template.DefineProperty("VERTEX_ARRAY_BINDING", (target, thisVal) => ScriptValue.FromNumber(0x85B5));
         template.DefineProperty("TRANSFORM_FEEDBACK_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8C8E));
+        template.DefineProperty("TRANSFORM_FEEDBACK", (target, thisVal) => ScriptValue.FromNumber(0x8E22));
+        template.DefineProperty("INTERLEAVED_ATTRIBS", (target, thisVal) => ScriptValue.FromNumber(0x8C8C));
+        template.DefineProperty("SEPARATE_ATTRIBS", (target, thisVal) => ScriptValue.FromNumber(0x8C8D));
         template.DefineProperty("UNIFORM_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8A11));
         template.DefineProperty("COPY_READ_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8F36));
         template.DefineProperty("COPY_WRITE_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8F37));
@@ -3348,6 +3385,116 @@ public static class WebGL2RenderingContextBinding
             var arg_size = WebIdlConversions.ToInt32(engine, raw_size, enforceRange: false, clamp: false);
             typedTarget.BindBufferRange(arg_target, arg_index, arg_buffer, arg_offset, arg_size);
             return ScriptValue.Undefined;
+        });
+        template.DefineMethod("createTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 0) throw WebIdlException.TypeError("Not enough arguments");
+            var result = typedTarget.CreateTransformFeedback();
+            return result is null ? ScriptValue.Null : engine is null ? throw WebIdlException.TypeError("An engine is required to wrap WebGLTransformFeedback") : WebIdlConversions.WrapHostObject(engine, WebGLTransformFeedbackBinding.CreateTemplate(engine), result);
+        });
+        template.DefineMethod("deleteTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_feedback = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_feedback = raw_feedback.IsNullOrUndefined ? (IWebGLTransformFeedbackTarget?)null : WebIdlConversions.UnwrapHostObject<IWebGLTransformFeedbackTarget>(engine, raw_feedback, "WebGLTransformFeedback");
+            typedTarget.DeleteTransformFeedback(arg_feedback);
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("isTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_feedback = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_feedback = raw_feedback.IsNullOrUndefined ? (IWebGLTransformFeedbackTarget?)null : WebIdlConversions.UnwrapHostObject<IWebGLTransformFeedbackTarget>(engine, raw_feedback, "WebGLTransformFeedback");
+            var result = typedTarget.IsTransformFeedback(arg_feedback);
+            return ScriptValue.FromBoolean(result);
+        });
+        template.DefineMethod("bindTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 2) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_target = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_target = WebIdlConversions.ToUint32(engine, raw_target, enforceRange: false, clamp: false);
+            var raw_feedback = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+            var arg_feedback = raw_feedback.IsNullOrUndefined ? (IWebGLTransformFeedbackTarget?)null : WebIdlConversions.UnwrapHostObject<IWebGLTransformFeedbackTarget>(engine, raw_feedback, "WebGLTransformFeedback");
+            typedTarget.BindTransformFeedback(arg_target, arg_feedback);
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("beginTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_primitiveMode = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_primitiveMode = WebIdlConversions.ToUint32(engine, raw_primitiveMode, enforceRange: false, clamp: false);
+            typedTarget.BeginTransformFeedback(arg_primitiveMode);
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("endTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 0) throw WebIdlException.TypeError("Not enough arguments");
+            typedTarget.EndTransformFeedback();
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("pauseTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 0) throw WebIdlException.TypeError("Not enough arguments");
+            typedTarget.PauseTransformFeedback();
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("resumeTransformFeedback", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 0) throw WebIdlException.TypeError("Not enough arguments");
+            typedTarget.ResumeTransformFeedback();
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("transformFeedbackVaryings", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 3) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_program = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_program = WebIdlConversions.UnwrapHostObject<IWebGLProgramTarget>(engine, raw_program, "WebGLProgram");
+            var raw_varyings = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+            var arg_varyings = WebIdlConversions.ToSequence(engine, raw_varyings, item => WebIdlConversions.ToDOMString(engine, item));
+            var raw_bufferMode = args.Length > 2 ? args[2] : ScriptValue.Undefined;
+            var arg_bufferMode = WebIdlConversions.ToUint32(engine, raw_bufferMode, enforceRange: false, clamp: false);
+            typedTarget.TransformFeedbackVaryings(arg_program, arg_varyings, arg_bufferMode);
+            return ScriptValue.Undefined;
+        });
+        template.DefineMethod("getTransformFeedbackVarying", (target, thisVal, args) =>
+        {
+            if (target is not IWebGL2RenderingContextTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 2) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_program = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_program = WebIdlConversions.UnwrapHostObject<IWebGLProgramTarget>(engine, raw_program, "WebGLProgram");
+            var raw_index = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+            var arg_index = WebIdlConversions.ToUint32(engine, raw_index, enforceRange: false, clamp: false);
+            var result = typedTarget.GetTransformFeedbackVarying(arg_program, arg_index);
+            return result is null ? ScriptValue.Null : engine is null ? throw WebIdlException.TypeError("An engine is required to wrap WebGLActiveInfo") : WebIdlConversions.WrapHostObject(engine, WebGLActiveInfoBinding.CreateTemplate(engine), result);
         });
         return template;
     }

@@ -123,6 +123,7 @@ internal sealed partial class AngleNativeWebGlContext : IDisposable, INativeWebG
     private readonly Dictionary<uint, IDisposable> _bufferReservations = [];
     private readonly Dictionary<uint, long> _bufferSizes = [];
     private readonly HashSet<uint> _vertexArrays = [];
+    private readonly HashSet<uint> _transformFeedbacks = [];
     // ELEMENT_ARRAY_BUFFER is VAO state in GLES/WebGL. The default VAO is represented by key 0.
     private readonly Dictionary<uint, uint?> _vaoElementBuffers = [];
     private uint? _boundCopyReadBuffer;
@@ -370,9 +371,10 @@ internal sealed partial class AngleNativeWebGlContext : IDisposable, INativeWebG
                 foreach (var framebuffer in _framebuffers.ToArray()) { try { var value = framebuffer; _gl.DeleteFramebuffers(1, ref value); } catch { } }
                 foreach (var renderbuffer in _renderbuffers.ToArray()) { try { var value = renderbuffer; _gl.DeleteRenderbuffers(1, ref value); } catch { } }
                 foreach (var vertexArray in _vertexArrays.ToArray()) { try { var value = vertexArray; _gl.DeleteVertexArrays(1, ref value); } catch { } }
+                foreach (var feedback in _transformFeedbacks.ToArray()) { try { var value = feedback; _gl.DeleteTransformFeedbacks(1, ref value); } catch { } }
                 _programs.Clear(); _shaders.Clear();
                 foreach (var reservation in _renderbufferReservations.Values) { try { reservation.Dispose(); } catch { } }
-                _buffers.Clear(); _textures.Clear(); _framebuffers.Clear(); _renderbuffers.Clear(); _textureSizes.Clear(); _textureParameters.Clear(); _textureTargets.Clear(); _textureLevels.Clear(); _textureLevelSizes.Clear(); _renderbufferReservations.Clear(); _renderbufferSizes.Clear(); _vertexArrays.Clear();
+                _buffers.Clear(); _textures.Clear(); _framebuffers.Clear(); _renderbuffers.Clear(); _textureSizes.Clear(); _textureParameters.Clear(); _textureTargets.Clear(); _textureLevels.Clear(); _textureLevelSizes.Clear(); _renderbufferReservations.Clear(); _renderbufferSizes.Clear(); _vertexArrays.Clear(); _transformFeedbacks.Clear();
             }
             catch { }
             finally { ReleaseCurrentLocked(); }

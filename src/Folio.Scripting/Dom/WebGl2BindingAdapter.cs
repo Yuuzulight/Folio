@@ -71,6 +71,56 @@ internal sealed class WebGl2BindingAdapter : WebGlBindingAdapter, IWebGL2Renderi
         }
         catch (WebGlValidationException error) { RecordValidationFailure(error); }
     }
+
+    public IWebGLTransformFeedbackTarget? CreateTransformFeedback()
+    {
+        try
+        {
+            var value = Registry.CreateTransformFeedback(out var failure);
+            if (value is null) { RecordNativeFailure(failure); return null; }
+            return value;
+        }
+        catch (WebGlValidationException error) { RecordValidationFailure(error); return null; }
+    }
+    public void DeleteTransformFeedback(IWebGLTransformFeedbackTarget? feedback)
+    {
+        if (feedback is null) return;
+        try { RequireTransformFeedback(feedback).Delete(); }
+        catch (WebGlValidationException error) { RecordValidationFailure(error); }
+    }
+    public bool IsTransformFeedback(IWebGLTransformFeedbackTarget? feedback) => feedback is WebGlTransformFeedbackObject value && value.Owner == Registry && !value.Deleted;
+    public void BindTransformFeedback(uint target, IWebGLTransformFeedbackTarget? feedback)
+    {
+        try
+        {
+            WebGlTransformFeedbackHandle? handle = feedback is null ? null : RequireTransformFeedback(feedback).Handle;
+            if (!Native.TryBindTransformFeedback(target, handle, out var failure)) RecordNativeFailure(failure);
+        }
+        catch (WebGlValidationException error) { RecordValidationFailure(error); }
+    }
+    public void BeginTransformFeedback(uint primitiveMode) { if (!Native.TryBeginTransformFeedback(primitiveMode, out var failure)) RecordNativeFailure(failure); }
+    public void EndTransformFeedback() { if (!Native.TryEndTransformFeedback(out var failure)) RecordNativeFailure(failure); }
+    public void PauseTransformFeedback() { if (!Native.TryPauseTransformFeedback(out var failure)) RecordNativeFailure(failure); }
+    public void ResumeTransformFeedback() { if (!Native.TryResumeTransformFeedback(out var failure)) RecordNativeFailure(failure); }
+    public void TransformFeedbackVaryings(IWebGLProgramTarget program, IReadOnlyList<string> varyings, uint bufferMode)
+    {
+        try
+        {
+            var value = RequireProgram(program);
+            if (!Native.TryTransformFeedbackVaryings(value.Handle, varyings, bufferMode, out var failure)) RecordNativeFailure(failure);
+        }
+        catch (WebGlValidationException error) { RecordValidationFailure(error); }
+    }
+    public IWebGLActiveInfoTarget? GetTransformFeedbackVarying(IWebGLProgramTarget program, uint index)
+    {
+        try
+        {
+            var value = RequireProgram(program);
+            if (!Native.TryGetTransformFeedbackVarying(value.Handle, index, out var info, out var failure)) { RecordNativeFailure(failure); return null; }
+            return new WebGlActiveInfoObject(info);
+        }
+        catch (WebGlValidationException error) { RecordValidationFailure(error); return null; }
+    }
     public void ClearBufferfv(uint buffer, int drawbuffer, IReadOnlyList<float> values)
     {
         if (!Native.TryClearBufferfv(buffer, drawbuffer, values.ToArray(), out var failure)) RecordNativeFailure(failure);
@@ -96,6 +146,12 @@ internal sealed class WebGl2BindingAdapter : WebGlBindingAdapter, IWebGL2Renderi
     private WebGlBufferObject RequireBuffer(IWebGLBufferTarget target)
     {
         if (target is not WebGlBufferObject value) throw new WebGlValidationException(WebGlValidationFailure.InvalidOperation, "The WebGL buffer target is invalid.");
+        Registry.Validate(value);
+        return value;
+    }
+    private WebGlTransformFeedbackObject RequireTransformFeedback(IWebGLTransformFeedbackTarget target)
+    {
+        if (target is not WebGlTransformFeedbackObject value) throw new WebGlValidationException(WebGlValidationFailure.InvalidOperation, "The WebGL transform-feedback target is invalid.");
         Registry.Validate(value);
         return value;
     }

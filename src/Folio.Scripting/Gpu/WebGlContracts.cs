@@ -67,6 +67,7 @@ internal readonly record struct WebGlTextureHandle(uint Value);
 internal readonly record struct WebGlFramebufferHandle(uint Value);
 internal readonly record struct WebGlRenderbufferHandle(uint Value);
 internal readonly record struct WebGlVertexArrayHandle(uint Value);
+internal readonly record struct WebGlTransformFeedbackHandle(uint Value);
 internal readonly record struct WebGlUniformLocation(int Value);
 internal readonly record struct WebGlAttribLocation(int Value);
 
@@ -166,6 +167,15 @@ internal interface INativeWebGlContext : IDisposable
     bool TryCreateVertexArray(out WebGlVertexArrayHandle vertexArray, out GpuFailure? failure);
     bool TryDeleteVertexArray(WebGlVertexArrayHandle vertexArray, out GpuFailure? failure);
     bool TryBindVertexArray(WebGlVertexArrayHandle? vertexArray, out GpuFailure? failure);
+    bool TryCreateTransformFeedback(out WebGlTransformFeedbackHandle feedback, out GpuFailure? failure);
+    bool TryDeleteTransformFeedback(WebGlTransformFeedbackHandle feedback, out GpuFailure? failure);
+    bool TryBindTransformFeedback(uint target, WebGlTransformFeedbackHandle? feedback, out GpuFailure? failure);
+    bool TryBeginTransformFeedback(uint primitiveMode, out GpuFailure? failure);
+    bool TryEndTransformFeedback(out GpuFailure? failure);
+    bool TryPauseTransformFeedback(out GpuFailure? failure);
+    bool TryResumeTransformFeedback(out GpuFailure? failure);
+    bool TryTransformFeedbackVaryings(WebGlProgramHandle program, IReadOnlyList<string> varyings, uint bufferMode, out GpuFailure? failure);
+    bool TryGetTransformFeedbackVarying(WebGlProgramHandle program, uint index, out WebGlActiveInfo info, out GpuFailure? failure);
     bool TryEnableVertexAttrib(WebGlAttribLocation location, out GpuFailure? failure);
     bool TryDisableVertexAttrib(WebGlAttribLocation location, out GpuFailure? failure);
     bool TryVertexAttribPointer(WebGlAttribLocation location, int size, uint type, bool normalized, int stride, int offset, out GpuFailure? failure);
