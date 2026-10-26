@@ -85,6 +85,27 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ProvidesStringFromCharCodeToNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("AB", engine.Evaluate("return String.fromCharCode(65, 66);").AsString());
+    }
+
+    [Fact]
+    public void ProvidesDictionaryHasOwnPropertyToNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("return ({ value: 1 }).hasOwnProperty('value');").AsBoolean());
+    }
+
+    [Fact]
+    public void PreservesNativeMapBindingsAcrossFunctions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(2d, engine.Evaluate("var fh = new Map(); function put(){ fh.set(1, 2); } put(); return fh.get(1);").AsNumber());
+    }
+
+    [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()
     {
         using var engine = new NativeJavaScriptEngine();

@@ -528,6 +528,8 @@ internal sealed class JavaScriptEvaluator
 
     private object? MemberValue(object? target, string name)
     {
+        if (target is IReadOnlyDictionary<string, object?> dictionary && name == "hasOwnProperty")
+            return (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && dictionary.ContainsKey(StringValue(args[0])));
         if (target is NativeJavaScriptEngine.INativeCallable callable && callable.TryGetProperty(name, out var callableValue)) return callableValue;
         if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction)
         {

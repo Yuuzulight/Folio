@@ -150,7 +150,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : args.Max(value => value is double number ? number : 0)),
             ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : args.Min(value => value is double number ? number : 0)),
         };
-        _bindings["String"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
+        var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
+        stringConstructor.SetProperty("fromCharCode", (Func<IReadOnlyList<object?>, object?>)(args =>
+            string.Concat(args.Select(value => (char)((int)NumberValue(value) & 0xffff)))));
+        _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
         numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
         numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0]))));
