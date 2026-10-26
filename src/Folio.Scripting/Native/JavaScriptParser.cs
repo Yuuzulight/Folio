@@ -99,7 +99,7 @@ internal sealed class JavaScriptParser
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "return")
         {
             Take();
-            JavaScriptExpression? expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == ";" ? null : ParseBinary(0);
+            JavaScriptExpression? expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == ";" ? null : ParseSequenceExpression();
             Match(";");
             return new JavaScriptReturnStatement(expression);
         }
@@ -169,8 +169,17 @@ internal sealed class JavaScriptParser
                         var iterable = ParseSequenceExpression(); Expect(")");
                         return new JavaScriptForEachStatement(name, iterable, ParseStatement(), keys);
                     }
-                    JavaScriptExpression? value = Match("=") ? ParseBinary(0) : null;
-                    initializer = new JavaScriptVariableStatement(name, value);
+                    var declarations = new List<JavaScriptStatement>
+                    {
+                        new JavaScriptVariableStatement(name, Match("=") ? ParseBinary(0) : null)
+                    };
+                    while (Match(","))
+                    {
+                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a binding name");
+                        var nextName = _current.Text; Take();
+                        declarations.Add(new JavaScriptVariableStatement(nextName, Match("=") ? ParseBinary(0) : null));
+                    }
+                    initializer = declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations);
                 }
                 else
                 {
