@@ -63,6 +63,21 @@ public sealed class ContentResourceTransportTests
         Assert.Equal(new[] { .5f, -.5f }, frame.Samples.ToArray());
         Assert.Equal(new[] { "start", "flush" }, audio.Lifecycle);
     }
+
+    [Theory]
+    [InlineData("{\"sampleRate\":8000,\"channels\":2,\"samples\":[0.1]}")]
+    [InlineData("{\"sampleRate\":8000,\"channels\":1,\"samples\":[null]}")]
+    [InlineData("{\"sampleRate\":0,\"channels\":1,\"samples\":[0.1]}")]
+    public async Task InvalidMediaAudioMessagesAreDroppedBeforeHostOutput(string json)
+    {
+        using var payload = JsonDocument.Parse(json);
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaAudioSubmit, 1, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        var audio = new RecordingAudioOutput();
+        await using var session = new ContentHostSession(input, output, mediaAudioOutput: audio);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(audio.Frames);
+    }
     [Theory]
     [InlineData("null")]
     [InlineData("[]")]

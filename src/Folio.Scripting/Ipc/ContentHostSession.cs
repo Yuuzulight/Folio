@@ -211,8 +211,16 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         if (!payload.TryGetProperty("sampleRate", out var rate) || !rate.TryGetInt32(out var sampleRate)
             || !payload.TryGetProperty("channels", out var channels) || !channels.TryGetInt32(out var channelCount)
             || !payload.TryGetProperty("samples", out var samples) || samples.ValueKind != JsonValueKind.Array
-            || sampleRate <= 0 || channelCount <= 0 || samples.GetArrayLength() > 2_000_000) return false;
-        try { frame = new MediaAudioFrame(sampleRate, channelCount, samples.EnumerateArray().Select(item => item.GetSingle()).ToArray()); return true; }
+            || sampleRate is <= 0 or > 384000 || channelCount is <= 0 or > 32
+            || samples.GetArrayLength() == 0 || samples.GetArrayLength() > 2_000_000
+            || samples.GetArrayLength() % channelCount != 0) return false;
+        try
+        {
+            var values = samples.EnumerateArray().Select(item => item.GetSingle()).ToArray();
+            if (values.Any(value => !float.IsFinite(value))) return false;
+            frame = new MediaAudioFrame(sampleRate, channelCount, values);
+            return true;
+        }
         catch (Exception error) when (error is FormatException or InvalidOperationException or OverflowException) { return false; }
     }
 
