@@ -45,6 +45,19 @@ public sealed class ContentResourceTransportTests
     }
 
     [Fact]
+    public async Task MediaDecodeResponseChargesVideoAndAudioAgainstOneAggregateLimit()
+    {
+        using var payload = JsonSerializer.SerializeToDocument(new { data = Convert.ToBase64String(new byte[] { 1 }), video = true, maxOutputBytes = 12 });
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaDecodeRequest, 41, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output, mediaDecoder: new CombinedOutputDecoder());
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        output.Position = 0;
+        var response = (await ContentTransport.ReadAsync(output, TestContext.Current.CancellationToken))!;
+        Assert.Equal(JsonValueKind.Null, response.Payload.GetProperty("result").ValueKind);
+    }
+
+    [Fact]
     public async Task MediaAudioMessagesReachTheHostOutputAndLifecycle()
     {
         using var submit = JsonSerializer.SerializeToDocument(new { sampleRate = 8000, channels = 1, samples = new[] { .5f, -.5f } });
@@ -292,6 +305,17 @@ public sealed class ContentResourceTransportTests
     {
         public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
             new(1, null, new MediaAudioFrame(8000, 1, new float[2]));
+    }
+
+    private sealed class CombinedOutputDecoder : IMediaDecoder
+    {
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
+            new(1, new TestImage(2, 1, new byte[8]), new MediaAudioFrame(8000, 1, new float[2]));
+
+        private sealed record TestImage(int Width, int Height, byte[] Data) : IImageHandle
+        {
+            public ReadOnlyMemory<byte> Pixels => Data;
+        }
     }
 
     private sealed class RecordingAudioOutput : IMediaAudioOutput, IMediaAudioOutputLifecycle

@@ -241,8 +241,12 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             var frameBytes = result.VideoFrame?.Pixels.Length ?? 0;
             var sequenceBytes = result.VideoFrames?.Sum(item => (long)item.Frame.Pixels.Length) ?? 0;
             var audioBytes = (result.Audio?.Samples.Length ?? 0) * sizeof(float);
-            if (frameBytes > maxOutputBytes || sequenceBytes > maxOutputBytes || audioBytes > maxOutputBytes
-                || frameBytes > MaxResourceResponseBytes || sequenceBytes > MaxResourceResponseBytes || audioBytes > MaxResourceResponseBytes)
+            // A sequence includes its first frame in the retained output. Charge the
+            // sequence once, then add audio; checking each component independently
+            // would allow a response whose aggregate exceeds the document budget.
+            var videoBytes = sequenceBytes > 0 ? sequenceBytes : frameBytes;
+            var totalOutputBytes = checked(videoBytes + audioBytes);
+            if (totalOutputBytes > maxOutputBytes || totalOutputBytes > MaxResourceResponseBytes)
                 return null;
             var frame = result.VideoFrame is null ? null : new { width = result.VideoFrame.Width, height = result.VideoFrame.Height, pixels = Convert.ToBase64String(result.VideoFrame.Pixels.ToArray()) };
             var frames = result.VideoFrames?.Select(item => new { time = item.Time, width = item.Frame.Width, height = item.Frame.Height, pixels = Convert.ToBase64String(item.Frame.Pixels.ToArray()) }).ToArray();
