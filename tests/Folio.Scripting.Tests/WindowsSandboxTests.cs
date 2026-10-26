@@ -53,13 +53,14 @@ public sealed class WindowsSandboxTests
         var exercisesWorker = row is "workers" or "all";
         var exercisesWebAssembly = row is "webassembly" or "all";
         var exercisesWebRtc = row is "webrtc" or "all";
-        var script = exercisesWorker
-            ? "var w=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(String(e.data+1));}'));w.onmessage=e=>__folio_worker_result=e.data;w.onerror=e=>__folio_worker_error=e.message;w.postMessage(41);typeof document"
-            : exercisesWebAssembly
-                ? "try{var m=new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,65,42,11]));__folio_wasm_result=String(new WebAssembly.Instance(m,{}).exports.run());}catch(e){__folio_wasm_error=e.name+': '+e.message;}typeof document"
-                : exercisesWebRtc
-                    ? "try{var pc=new RTCPeerConnection();pc.createDataChannel('matrix');pc.close();__folio_webrtc_result='ok';}catch(e){__folio_webrtc_error=e.name+': '+e.message;}typeof document"
-                    : "typeof document";
+        var scriptParts = new List<string>();
+        if (exercisesWorker)
+            scriptParts.Add("var w=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(String(e.data+1));}'));w.onmessage=e=>__folio_worker_result=e.data;w.onerror=e=>__folio_worker_error=e.message;w.postMessage(41);");
+        if (exercisesWebAssembly)
+            scriptParts.Add("try{var m=new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,65,42,11]));__folio_wasm_result=String(new WebAssembly.Instance(m,{}).exports.run());}catch(e){__folio_wasm_error=e.name+': '+e.message;}");
+        if (exercisesWebRtc)
+            scriptParts.Add("try{var pc=new RTCPeerConnection();pc.createDataChannel('matrix');pc.close();__folio_webrtc_result='ok';}catch(e){__folio_webrtc_error=e.name+': '+e.message;}");
+        var script = string.Concat(scriptParts) + "typeof document";
         // A timeout against an unreachable endpoint is not sandbox evidence.
         using (var control = new TcpClient())
         {
