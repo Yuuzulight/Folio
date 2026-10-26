@@ -57,3 +57,9 @@ The native-engine differential conformance probe makes the remaining JavaScript
 gate concrete: D1 passes 2/2, while the current native path passes only 2/60 in
 D2–D7 (the rest are script failures or image mismatches). It therefore cannot be
 selected as Folio's production engine yet.
+
+The first reproducible library failure is now diagnosed: the staged parser cannot
+execute the cached minified React/ReactDOM sources, so `React`/`ReactDOM` remain
+undefined and the following inline handler never installs. A focused equivalent
+live-DOM event test passes, confirming this is an engine-language/library
+compatibility gap rather than a conformance-harness click bug.
