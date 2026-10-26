@@ -24,7 +24,7 @@ open M6 acceptance audit or the mandatory M7 replacement gate.
 
 **Acceptance criteria**: the list in [architecture.md → Milestone 1 in detail](architecture.md#milestone-1-in-detail-static-rendering), in short:
 
-Current audit: S1 and S3 conformance are 12/12 each with no crashes, hangs or limit hits. The documented 50 ms first-paint target is not yet met by `S3/bug-tracker-export` (109.4 ms) and `S3/employee-directory-long` (74.8 ms); optimization is tracked in [#642](https://github.com/Yuuzulight/Folio/issues/642).
+Current audit: S1 and S3 conformance are 12/12 each with no crashes, hangs or limit hits. The authoritative Release benchmark also meets the 50 ms first-paint target for `S3/bug-tracker-export` (16.9 ms median) and `S3/employee-directory-long` (11.7 ms median); earlier Debug-only warnings were not acceptance failures.
 
 - CI green on Linux and Windows with unit, dump, Unicode conformance, reftests and golden tests; approve workflow and diff artifacts working.
 - Every M1 CSS feature covered by a test.

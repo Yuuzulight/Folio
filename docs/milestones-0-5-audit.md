@@ -11,7 +11,7 @@ gate in [replacement-gate.md](replacement-gate.md).
 | Milestone | Requirement group | Current evidence | Result |
 |---|---|---|---|
 | 0 — Study and architecture | Subsystem studies, pipeline, public API, threading, error handling, M1 scope | `docs/study/01`–`19`, `docs/architecture.md`, `docs/dependencies.md`, `docs/roadmap.md` | Verified |
-| 1 — Static rendering | HTML/DOM/CSS, layout, text, painting, resources, host view, reftests, fuzzing and CI | `docs/roadmap.md` M1 acceptance section; `Folio.Tests`, `Folio.RenderTests`, `Folio.Fuzz`, `Folio.WinForms.Tests`; full solution run | Conformance verified; performance gate open in [#642](https://github.com/Yuuzulight/Folio/issues/642) |
+| 1 — Static rendering | HTML/DOM/CSS, layout, text, painting, resources, host view, reftests, fuzzing and CI | `docs/roadmap.md` M1 acceptance section; `Folio.Tests`, `Folio.RenderTests`, `Folio.Fuzz`, `Folio.WinForms.Tests`; full Release solution run | Verified; Release benchmark closes the prior Debug-only warning |
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `docs/roadmap.md` M2 acceptance section; typography, SVG, image and render regression suites | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `docs/roadmap.md` M3 audit note; interaction/accessibility/invalidation tests and the three-iteration performance evidence recorded there | Verified |
 | 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | `docs/milestone-4-scripting.md`; `Folio.Scripting.Tests`; process, sandbox, IPC and fuzz coverage | Verified |
