@@ -4,11 +4,26 @@ using Folio.Painting;
 using Folio.Resources;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class IframeLifecycleTests
 {
+    [Fact]
+    public void NativeEngineSandboxedIframeHonorsOriginAndScriptPolicy()
+    {
+        using var document = Document.Parse("<iframe id='f' sandbox='allow-scripts' srcdoc=\"<script>document.body.setAttribute('data-ran','yes')</script>\"></iframe>", Options());
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, document);
+        engine.Evaluate("var f=document.getElementById('f'); f.contentWindow.document;");
+        document.Paint(300, 200);
+        Assert.Equal("null", engine.Evaluate("f.contentWindow.origin").AsString());
+        Assert.Null(engine.Evaluate("f.contentDocument").Raw);
+        var child = Assert.IsType<Document>(document.QuerySelector("#f")!.Node.FramePresentation!.ChildDocument);
+        Assert.Equal("yes", child.QuerySelector("body")!.GetAttribute("data-ran"));
+    }
+
     [Theory]
     [InlineData(null, true)]
     [InlineData("", false)]
