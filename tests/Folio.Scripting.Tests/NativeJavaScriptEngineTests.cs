@@ -106,6 +106,15 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ProvidesMathBuiltinsUsedByNativeBundles()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(0d, engine.Evaluate("return Math.log(1);").AsNumber());
+        Assert.Equal(32d, engine.Evaluate("return Math.pow(2, 5);").AsNumber());
+        Assert.Equal(26d, engine.Evaluate("return Math.clz32(1) - 5;").AsNumber());
+    }
+
+    [Fact]
     public void ProvidesNumberToStringToNativeBundles()
     {
         using var engine = new NativeJavaScriptEngine();
