@@ -28,6 +28,10 @@ internal static class GaussianBlur
         var output = new byte[source.Length];
         var line = new float[length];
         var result = new float[length];
+        var scratchA = new float[length];
+        var scratchB = new float[length];
+        var radius = sigma < BoxThreshold ? Math.Max(1, (int)MathF.Ceiling(sigma * 3)) : 0;
+        var kernel = radius == 0 ? [] : KernelWeights(sigma, radius);
 
         for (var l = 0; l < lines; l++)
         {
@@ -44,9 +48,9 @@ internal static class GaussianBlur
                 if (!any)
                     continue;
                 if (sigma < BoxThreshold)
-                    Kernel(line, result, sigma);
+                    Kernel(line, result, kernel, radius);
                 else
-                    Boxes(line, result, sigma);
+                    Boxes(line, result, scratchA, scratchB, sigma);
                 for (var i = 0; i < length; i++)
                     output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
             }
@@ -54,9 +58,8 @@ internal static class GaussianBlur
         return output;
     }
 
-    private static void Kernel(float[] input, float[] output, float sigma)
+    private static float[] KernelWeights(float sigma, int radius)
     {
-        var radius = Math.Max(1, (int)MathF.Ceiling(sigma * 3));
         var kernel = new float[2 * radius + 1];
         var sum = 0f;
         for (var i = -radius; i <= radius; i++)
@@ -66,6 +69,11 @@ internal static class GaussianBlur
         }
         for (var i = 0; i < kernel.Length; i++)
             kernel[i] /= sum;
+        return kernel;
+    }
+
+    private static void Kernel(float[] input, float[] output, float[] kernel, int radius)
+    {
         var length = input.Length;
         for (var x = 0; x < length; x++)
         {
@@ -80,12 +88,12 @@ internal static class GaussianBlur
         }
     }
 
-    private static void Boxes(float[] input, float[] output, float sigma)
+    private static void Boxes(float[] input, float[] output, float[] scratchA, float[] scratchB, float sigma)
     {
         var d = (int)MathF.Floor(sigma * 3 * MathF.Sqrt(2 * MathF.PI) / 4 + 0.5f);
-        var length = input.Length;
-        var a = (float[])input.Clone();
-        var b = new float[length];
+        var a = scratchA;
+        var b = scratchB;
+        input.CopyTo(a, 0);
         if (d % 2 == 1)
         {
             Box(a, b, d, d / 2);
