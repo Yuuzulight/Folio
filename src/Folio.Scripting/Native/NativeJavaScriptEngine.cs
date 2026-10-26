@@ -1240,8 +1240,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }
             if (Template.TryGetMethod(name, out var method))
             {
-                value = (Func<IReadOnlyList<object?>, object?>)(args =>
-                    ToObject(method(Target, ScriptValue.FromObject(this), args.Select(ToScriptValue).ToArray())));
+                value = new NativeReceiverFunction((receiver, args) =>
+                {
+                    var host = receiver as NativeHostValue ?? this;
+                    return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                });
                 return true;
             }
             if (Template.NamedGetter is not null)
