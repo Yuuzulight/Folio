@@ -91,6 +91,16 @@ public sealed class ContentResourceTransportTests
         await session.RunAsync(TestContext.Current.CancellationToken);
         Assert.Empty(audio.Frames);
     }
+
+    [Theory]
+    [InlineData("{\"duration\":-1}")]
+    [InlineData("{\"audio\":{\"sampleRate\":8000,\"channels\":2,\"samples\":[0.1]}}")]
+    [InlineData("{\"audio\":{\"sampleRate\":8000,\"channels\":1,\"samples\":[null]}}")]
+    public void MediaDecodeWireRejectsMalformedDecodedPayloads(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        Assert.Throws<JsonException>(() => ContentHostSession.MediaDecodeWire.Read(document.RootElement));
+    }
     [Theory]
     [InlineData("null")]
     [InlineData("[]")]

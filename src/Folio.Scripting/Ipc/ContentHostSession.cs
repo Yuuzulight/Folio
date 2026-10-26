@@ -292,26 +292,43 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             && message.Payload.TryGetProperty("result", out var result)) request.TrySetResult(result.Clone());
     }
 
-    private static class MediaDecodeWire
+    internal static class MediaDecodeWire
     {
         public static MediaDecodeResult Read(JsonElement value)
         {
             var duration = value.TryGetProperty("duration", out var durationValue) && durationValue.TryGetDouble(out var durationNumber) ? durationNumber : 0;
+            if (!double.IsFinite(duration) || duration < 0) throw new JsonException("Invalid media duration.");
             IImageHandle? frame = ReadImage(value, "frame");
             List<MediaVideoFrame>? frames = null;
             if (value.TryGetProperty("frames", out var frameList) && frameList.ValueKind == JsonValueKind.Array)
             {
                 frames = [];
+                var previous = -1d;
                 foreach (var item in frameList.EnumerateArray())
-                    if (item.TryGetProperty("time", out var time) && time.TryGetDouble(out var timestamp) && ReadImage(item, out var image))
-                        frames.Add(new MediaVideoFrame(timestamp, image));
+                {
+                    if (!item.TryGetProperty("time", out var time) || !time.TryGetDouble(out var timestamp)
+                        || !double.IsFinite(timestamp) || timestamp < 0 || timestamp < previous || !ReadImage(item, out var image))
+                        throw new JsonException("Invalid media video frame.");
+                    frames.Add(new MediaVideoFrame(timestamp, image));
+                    previous = timestamp;
+                }
             }
             MediaAudioFrame? audio = null;
             if (value.TryGetProperty("audio", out var audioValue) && audioValue.ValueKind == JsonValueKind.Object
                 && audioValue.TryGetProperty("sampleRate", out var rate) && rate.TryGetInt32(out var sampleRate)
                 && audioValue.TryGetProperty("channels", out var channels) && channels.TryGetInt32(out var channelCount)
                 && audioValue.TryGetProperty("samples", out var samples) && samples.ValueKind == JsonValueKind.Array)
-                audio = new MediaAudioFrame(sampleRate, channelCount, samples.EnumerateArray().Select(item => item.GetSingle()).ToArray());
+            {
+                if (sampleRate is <= 0 or > 384000 || channelCount is <= 0 or > 32
+                    || samples.GetArrayLength() == 0 || samples.GetArrayLength() % channelCount != 0)
+                    throw new JsonException("Invalid media audio format.");
+                float[] values;
+                try { values = samples.EnumerateArray().Select(item => item.GetSingle()).ToArray(); }
+                catch (Exception error) when (error is InvalidOperationException or FormatException or OverflowException)
+                { throw new JsonException("Invalid media audio samples.", error); }
+                if (values.Any(value => !float.IsFinite(value))) throw new JsonException("Invalid media audio sample.");
+                audio = new MediaAudioFrame(sampleRate, channelCount, values);
+            }
             return new MediaDecodeResult(duration, frame, audio) { VideoFrames = frames };
         }
         private static IImageHandle? ReadImage(JsonElement parent, string name) => parent.TryGetProperty(name, out var value) ? ReadImage(value, out var image) ? image : null : null;
