@@ -498,9 +498,9 @@ Original acceptance:
 
 ### #554 — WebRTC: the limits tests and routing
 
-**Incomplete.** Evidence: `CapabilityMatrixTests.cs; content-process capture indicator`.
+**Incomplete; sandbox row execution is now directly covered, but process/device/network acceptance remains open.** Evidence: `CapabilityMatrixTests.cs; WindowsSandboxTests.NativeSandboxProbeDeniesFileNetworkAndChildProcessForEveryCapabilityRow`; content-process capture indicator tests.
 
-No real capture/transport to validate device release, bandwidth limits or network denial. In-process bookkeeping cannot prove this acceptance.
+The Windows content-process matrix now creates and closes a data channel for the `webrtc` and `all` rows under the real sandbox token/job restrictions. Real capture/transport is still absent, so device release after process death, bandwidth limits and network denial are not yet proven; in-process bookkeeping cannot satisfy those parts of the acceptance.
 
 Original acceptance:
 

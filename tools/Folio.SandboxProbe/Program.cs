@@ -185,6 +185,8 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
     var workerError = runtime.Engine?.GetGlobalProperty("__folio_worker_error");
     var wasmResult = runtime.Engine?.GetGlobalProperty("__folio_wasm_result");
     var wasmError = runtime.Engine?.GetGlobalProperty("__folio_wasm_error");
+    var webrtcResult = runtime.Engine?.GetGlobalProperty("__folio_webrtc_result");
+    var webrtcError = runtime.Engine?.GetGlobalProperty("__folio_webrtc_error");
     return new
     {
         runtimeReady = runtimeResult is not null,
@@ -193,6 +195,8 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
         workerError = workerError?.IsUndefined == false ? workerError.Value.AsString() : null,
         wasmResult = wasmResult?.IsUndefined == false ? wasmResult.Value.AsString() : null,
         wasmError = wasmError?.IsUndefined == false ? wasmError.Value.AsString() : null,
+        webrtcResult = webrtcResult?.IsUndefined == false ? webrtcResult.Value.AsString() : null,
+        webrtcError = webrtcError?.IsUndefined == false ? webrtcError.Value.AsString() : null,
         appliedCapabilities = runtime.Capabilities,
         isAppContainer = token.IsAppContainer,
         isLowIntegrity = token.IsLowIntegrity,
