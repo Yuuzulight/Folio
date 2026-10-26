@@ -42,10 +42,10 @@ The status table in [`docs/dependencies.md`](dependencies.md) and the milestone
 roadmap must be updated with links to this evidence. A dependency-backed pass
 or a partial Folio implementation is progress, never completion.
 
-## Verification refresh — 2026-10-26
+## Verification refresh — 2026-10-27
 
-The replacement gate remains open. The current checks pass 57 native-engine and
-native-WebAssembly tests, and the Folio-owned GIF/WebP/BMP fuzz targets completed
+The replacement gate remains open. The current focused native-engine/library
+probe set passes 75/75, and the Folio-owned GIF/WebP/BMP fuzz targets completed
 1,147,094, 63,926 and 3,753,186 mutations respectively with zero failures. These
 are progress and safety evidence, not completion: HybridShaper still routes
 complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
@@ -60,18 +60,20 @@ are image mismatches or the React hooks interaction failure tracked in #645.
 This is measurable progress, but it is still below the M5 90% category bar and
 cannot select the native engine as Folio's production engine yet.
 
-The first reproducible library failure is now diagnosed: the staged parser cannot
-execute the cached minified React/ReactDOM sources, so `React`/`ReactDOM` remain
-undefined and the following inline handler never installs. A focused equivalent
-live-DOM event test passes, confirming this is an engine-language/library
-compatibility gap rather than a conformance-harness click bug.
+The earlier reproducible library bootstrap failure is resolved: the staged parser
+now executes the cached minified React/ReactDOM sources, and the checked-in native
+probe loads both bundles successfully. The remaining React failure is later in
+the lifecycle: `createRoot(...).render(...)` does not produce the expected DOM
+tree, while a minimal synchronous render reaches a real DOM `NotFoundError`.
+The focused MessageChannel regression passes, so the remaining blocker is
+reconciliation/shared-internals behavior rather than basic scheduler transport.
 
-The first repair is now landed in `a0d2877`: native non-strict calls without an
-explicit receiver bind `this` to the global object, as required by UMD wrappers.
-The checked-in native probe now loads both cached React and ReactDOM bundles
-successfully, and the full scripting suite passes 1,357 tests with six documented
-skips. This removes the initial UMD bootstrap failure but does not yet establish
-React DOM mounting, the D2–D7 parity bar, or production replacement of Jint.
+The UMD repair landed in `a0d2877`: native non-strict calls without an explicit
+receiver bind `this` to the global object. Subsequent native engine work also
+corrected array enumeration, relative slicing, null/undefined join fields and
+`Array.from` strings/array-likes. The full scripting suite passes 1,357 tests
+with six documented skips. These fixes do not yet establish React DOM mounting,
+the D2–D7 parity bar, or production replacement of Jint.
 
 ## Verification refresh — 2026-10-27
 
