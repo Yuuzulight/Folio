@@ -59,8 +59,9 @@ public static class Program
     private static int CanvasFrames(int frameCount)
     {
         Console.WriteLine($"Script-driven canvas frame benchmark ({frameCount} frames, 16.7 ms virtual ticks)");
-        Console.WriteLine("| Artifact | Median ms | p95 ms | Target |");
-        Console.WriteLine("|---|--:|--:|---:|");
+        Console.WriteLine("| Artifact | Script/update p95 ms | Display-list p95 ms | Host paint p95 ms | Total p95 ms | Target |");
+        Console.WriteLine("|---|--:|--:|--:|--:|---:|");
+        var failed = false;
         foreach (var artifact in Conformance.Discover().Where(a => a.Category is "D5" or "D7"))
         {
             var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
@@ -92,22 +93,39 @@ public static class Program
                 loop.UpdateTheRendering();
                 Replay(BuildFrame());
             }
-            var samples = new List<double>(frameCount);
+            var scriptSamples = new List<double>(frameCount);
+            var buildSamples = new List<double>(frameCount);
+            var paintSamples = new List<double>(frameCount);
+            var totalSamples = new List<double>(frameCount);
             for (var i = 0; i < frameCount; i++)
             {
                 clock.Advance(16.7);
+                var totalStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                var scriptStart = totalStart;
                 loop.UpdateTheRendering();
+                scriptSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(scriptStart).TotalMilliseconds);
+                var buildStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 var displayList = BuildFrame();
-                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                buildSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(buildStart).TotalMilliseconds);
+                var paintStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 Replay(displayList);
-                samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                paintSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(paintStart).TotalMilliseconds);
+                totalSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(totalStart).TotalMilliseconds);
             }
-            samples.Sort();
-            var median = samples[samples.Count / 2];
-            var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
-            Console.WriteLine($"| {artifact.Id} | {median:F2} | {p95:F2} | 16.70 ms |");
+            var scriptP95 = Percentile95(scriptSamples);
+            var buildP95 = Percentile95(buildSamples);
+            var paintP95 = Percentile95(paintSamples);
+            var totalP95 = Percentile95(totalSamples);
+            failed |= totalP95 > 16.7;
+            Console.WriteLine($"| {artifact.Id} | {scriptP95:F2} | {buildP95:F2} | {paintP95:F2} | {totalP95:F2} | 16.70 ms |");
         }
-        return 0;
+        return failed ? 1 : 0;
+    }
+
+    private static double Percentile95(List<double> samples)
+    {
+        samples.Sort();
+        return samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
     }
 
     private static int CanvasSharedMemory(int frameCount)
