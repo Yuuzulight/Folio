@@ -71,8 +71,8 @@ reconciliation/shared-internals behavior rather than basic scheduler transport.
 The UMD repair landed in `a0d2877`: native non-strict calls without an explicit
 receiver bind `this` to the global object. Subsequent native engine work also
 corrected array enumeration, relative slicing, null/undefined join fields and
-`Array.from` strings/array-likes. The full scripting suite passes 1,368 tests
-with six documented skips. These fixes do not yet establish React DOM mounting,
+`Array.from` strings/array-likes. The full scripting suite passes 1,363 of 1,369
+discovered tests with six documented skips. These fixes do not yet establish React DOM mounting,
 the D2–D7 parity bar, or production replacement of Jint.
 
 ## Verification refresh — 2026-10-27
@@ -89,6 +89,6 @@ the mandatory replacement gate.
 
 The post-change Release verification remains green across the repository suites:
 Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
-Scripting.Tests 1,368 with six documented software skips. These results verify
+Scripting.Tests 1,369 discovered, 1,363 succeeded, with six documented software skips. These results verify
 that the receiver-aware and stable-identity host fixes do not regress existing
 coverage; they do not close the React reconciliation or replacement gate.
