@@ -78,8 +78,9 @@ React DOM mounting, the D2–D7 parity bar, or production replacement of Jint.
 A fresh probe using the real Folio document, DOM bindings and event loop still
 reproduces the next native-engine blocker: `ReactDOM.render(React.createElement('b',
 null, 'ready'), root)` reaches DOM reconciliation but throws Folio's spec-correct
-`NotFoundError` from `removeChild` because the reconciler's child/parent identity is
-stale; the root is left empty. The DOM validity check is intentionally unchanged.
+`NotFoundError` from `removeChild` because the reconciler supplies `body` as the
+host parent while the child `<p>` is still attached to a nested `<div>`; the root
+is left empty. The DOM validity check is intentionally unchanged.
 This is tracked in [#645](https://github.com/Yuuzulight/Folio/issues/645) and remains
 required before the native engine can pass the React/JSX interaction artifact or
 the mandatory replacement gate.
