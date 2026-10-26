@@ -121,6 +121,16 @@ public sealed class MediaPlaybackTests
     }
 
     [Fact]
+    public void RenderingClockAppliesPlaybackRateToMediaPosition()
+    {
+        using var session = new Session();
+        session.Engine.Evaluate("clip.playbackRate = 2; clip.play()");
+        session.AdvanceTo(250);
+        Assert.Equal(0.5, session.Engine.Evaluate("clip.currentTime").AsNumber(), 6);
+        Assert.False(session.Engine.Evaluate("clip.paused").AsBoolean());
+    }
+
+    [Fact]
     public void PosterDecodedPixelsAreCountedByTheSharedMediaBudget()
     {
         const string poster = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0nMicgaGVpZ2h0PScyJz48cmVjdCB3aWR0aD0nMicgaGVpZ2h0PScyJyBmaWxsPScjZmYwMDAwJy8+PC9zdmc+";
