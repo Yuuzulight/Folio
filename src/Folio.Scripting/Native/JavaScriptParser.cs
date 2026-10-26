@@ -166,13 +166,35 @@ internal sealed class JavaScriptParser
                     if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "of" or "in")
                     {
                         var keys = _current.Text == "in"; Take();
-                        var iterable = ParseBinary(0); Expect(")");
+                        var iterable = ParseSequenceExpression(); Expect(")");
                         return new JavaScriptForEachStatement(name, iterable, ParseStatement(), keys);
                     }
                     JavaScriptExpression? value = Match("=") ? ParseBinary(0) : null;
                     initializer = new JavaScriptVariableStatement(name, value);
                 }
-                else initializer = new JavaScriptExpressionStatement(ParseBinary(0));
+                else
+                {
+                    if (_current.Kind == JavaScriptTokenKind.Identifier && Peek(0).Text == "in")
+                    {
+                        var bareName = _current.Text;
+                        Take(); Take();
+                        var bareIterable = ParseSequenceExpression();
+                        Expect(")");
+                        return new JavaScriptForEachStatement(bareName, bareIterable, ParseStatement(), true);
+                    }
+                    var expression = ParseBinary(0);
+                    // `for (name in object)` is parsed by the binary parser as
+                    // an `in` expression; lower that form to the foreach AST
+                    // just like the declaration form above.
+                    if (expression is JavaScriptBinaryExpression { Operator: "in", Left: JavaScriptIdentifierExpression name, Right: var iterable })
+                    {
+                        while (Match(","))
+                            iterable = Node(new JavaScriptBinaryExpression(",", iterable, ParseBinary(0)));
+                        Expect(")");
+                        return new JavaScriptForEachStatement(name.Name, iterable, ParseStatement(), true);
+                    }
+                    initializer = new JavaScriptExpressionStatement(expression);
+                }
                 Expect(";");
             }
             JavaScriptExpression? condition = null;
@@ -376,9 +398,7 @@ internal sealed class JavaScriptParser
             // e.g. `(global = global || self, factory(global.React = {}))`.
             // Commas remain delimiters in calls/arrays, so consume them only
             // inside this explicit parenthesised-expression production.
-            var result = ParseBinary(0);
-            while (Match(","))
-                result = Node(new JavaScriptBinaryExpression(",", result, ParseBinary(0)));
+            var result = ParseSequenceExpression();
             Expect(")"); return result;
         }
         if (Match("["))
@@ -423,6 +443,14 @@ internal sealed class JavaScriptParser
             return Node(new JavaScriptObjectExpression(properties));
         }
         throw Error($"Expected an expression (got {_current.Kind} '{_current.Text}')");
+    }
+
+    private JavaScriptExpression ParseSequenceExpression()
+    {
+        var result = ParseBinary(0);
+        while (Match(","))
+            result = Node(new JavaScriptBinaryExpression(",", result, ParseBinary(0)));
+        return result;
     }
 
     private JavaScriptBlockStatement ParseBlockStatement()

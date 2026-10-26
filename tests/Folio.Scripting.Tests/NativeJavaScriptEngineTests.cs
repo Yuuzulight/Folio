@@ -22,6 +22,27 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void EvaluatesSequenceExpressionsInForInIterables()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("b", engine.Evaluate("let seen = ''; for (let key in (seen = 'a', { b: 1 })) { return key; }").AsString());
+    }
+
+    [Fact]
+    public void EvaluatesBareForInSequenceIterables()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("b", engine.Evaluate("let result = ''; for (result in (result = 'a', { b: 1 })) { return result; }").AsString());
+    }
+
+    [Fact]
+    public void EvaluatesReactForInFragment()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("key", engine.Evaluate("function run(b){var m,d={},c=null,h=null;if(null!=b)for(m in void 0!==b.ref&&(h=b.ref),void 0!==b.key&&(c='' + b.key),b)if(m==='x')return 'key'; return 'none';} return run({ref:1,key:2,x:3});").AsString());
+    }
+
+    [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()
     {
         using var engine = new NativeJavaScriptEngine();
