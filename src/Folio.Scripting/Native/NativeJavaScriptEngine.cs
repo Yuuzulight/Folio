@@ -759,18 +759,119 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         AddPrototypeMethods("Document", "createElement", "createElementNS", "createTextNode", "createComment", "createDocumentFragment", "getElementById", "querySelector", "querySelectorAll", "getElementsByTagName", "getElementsByClassName", "createEvent", "createRange", "addEventListener", "removeEventListener", "dispatchEvent");
         AddPrototypeMethods("Element", "setAttribute", "getAttribute", "removeAttribute", "hasAttribute", "toggleAttribute", "querySelector", "querySelectorAll", "closest", "matches", "insertAdjacentHTML", "addEventListener", "removeEventListener", "dispatchEvent", "getBoundingClientRect", "focus", "blur");
 
-        _bindings["DOMMatrix"] = _bindings["DOMMatrixReadOnly"] = new NativeFunction(args =>
+        static double[] MatrixValues(object? value)
         {
-            var values = new[] { 1d, 0d, 0d, 1d, 0d, 0d };
-            if (args.Count >= 6) for (var i = 0; i < 6; i++) values[i] = NumberValue(args[i]);
-            else if (args.Count > 0 && args[0] is IReadOnlyList<object?> list) for (var i = 0; i < Math.Min(6, list.Count); i++) values[i] = NumberValue(list[i]);
+            var result = new[] { 1d, 0d, 0d, 1d, 0d, 0d };
+            if (value is IReadOnlyList<object?> list)
+                for (var i = 0; i < Math.Min(6, list.Count); i++) result[i] = NumberValue(list[i]);
+            else if (value is IReadOnlyDictionary<string, object?> map)
+            {
+                var names = new[] { "a", "b", "c", "d", "e", "f" };
+                var aliases = new[] { "m11", "m12", "m21", "m22", "m41", "m42" };
+                for (var i = 0; i < 6; i++)
+                    if (map.TryGetValue(names[i], out var named)) result[i] = NumberValue(named);
+                    else if (map.TryGetValue(aliases[i], out var alias)) result[i] = NumberValue(alias);
+            }
+            return result;
+        }
+
+        static double[] MatrixValuesFromReceiver(object? receiver)
+        {
+            if (receiver is not IReadOnlyDictionary<string, object?> map) return new[] { 1d, 0d, 0d, 1d, 0d, 0d };
+            return [NumberValue(map.TryGetValue("a", out var a) ? a : null), NumberValue(map.TryGetValue("b", out var b) ? b : null),
+                NumberValue(map.TryGetValue("c", out var c) ? c : null), NumberValue(map.TryGetValue("d", out var d) ? d : null),
+                NumberValue(map.TryGetValue("e", out var e) ? e : null), NumberValue(map.TryGetValue("f", out var f) ? f : null)];
+        }
+
+        static Dictionary<string, object?> CreateMatrix(double[] values)
+        {
+            for (var i = 0; i < values.Length; i++) if (values[i] == 0) values[i] = 0;
             var result = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["a"] = values[0], ["b"] = values[1], ["c"] = values[2], ["d"] = values[3], ["e"] = values[4], ["f"] = values[5],
+                ["m11"] = values[0], ["m12"] = values[1], ["m13"] = 0d, ["m14"] = 0d,
+                ["m21"] = values[2], ["m22"] = values[3], ["m23"] = 0d, ["m24"] = 0d,
+                ["m31"] = 0d, ["m32"] = 0d, ["m33"] = 1d, ["m34"] = 0d,
+                ["m41"] = values[4], ["m42"] = values[5], ["m43"] = 0d, ["m44"] = 1d,
                 ["is2D"] = true, ["isIdentity"] = values.SequenceEqual(new[] { 1d, 0d, 0d, 1d, 0d, 0d }),
             };
-            result["toString"] = (Func<IReadOnlyList<object?>, object?>)(_ => "matrix(" + string.Join(", ", values.Select(value => value.ToString(CultureInfo.InvariantCulture))) + ")");
+            result["toString"] = new NativeReceiverFunction((receiver, _) =>
+                "matrix(" + string.Join(", ", MatrixValuesFromReceiver(receiver).Select(value => value.ToString(CultureInfo.InvariantCulture))) + ")");
+            result["multiply"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var left = MatrixValuesFromReceiver(receiver);
+                var right = MatrixValues(args.Count > 0 ? args[0] : null);
+                return CreateMatrix([
+                    left[0] * right[0] + left[2] * right[1], left[1] * right[0] + left[3] * right[1],
+                    left[0] * right[2] + left[2] * right[3], left[1] * right[2] + left[3] * right[3],
+                    left[0] * right[4] + left[2] * right[5] + left[4], left[1] * right[4] + left[3] * right[5] + left[5]]);
+            });
+            result["multiplySelf"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var left = MatrixValuesFromReceiver(receiver);
+                var right = MatrixValues(args.Count > 0 ? args[0] : null);
+                var product = new[]
+                {
+                    left[0] * right[0] + left[2] * right[1], left[1] * right[0] + left[3] * right[1],
+                    left[0] * right[2] + left[2] * right[3], left[1] * right[2] + left[3] * right[3],
+                    left[0] * right[4] + left[2] * right[5] + left[4], left[1] * right[4] + left[3] * right[5] + left[5],
+                };
+                if (receiver is IDictionary<string, object?> target)
+                {
+                    foreach (var pair in CreateMatrix(product)) target[pair.Key] = pair.Value;
+                    return target;
+                }
+                return receiver;
+            });
+            static object? MutateMultiply(object? receiver, double[] right)
+            {
+                var left = MatrixValuesFromReceiver(receiver);
+                var product = new[]
+                {
+                    left[0] * right[0] + left[2] * right[1], left[1] * right[0] + left[3] * right[1],
+                    left[0] * right[2] + left[2] * right[3], left[1] * right[2] + left[3] * right[3],
+                    left[0] * right[4] + left[2] * right[5] + left[4], left[1] * right[4] + left[3] * right[5] + left[5],
+                };
+                if (receiver is IDictionary<string, object?> target)
+                {
+                    foreach (var pair in CreateMatrix(product)) target[pair.Key] = pair.Value;
+                    return target;
+                }
+                return receiver;
+            }
+            result["translate"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var x = args.Count > 0 ? NumberValue(args[0]) : 0d;
+                var y = args.Count > 1 ? NumberValue(args[1]) : 0d;
+                return MutateMultiply(receiver, [1, 0, 0, 1, x, y]);
+            });
+            result["scale"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var x = args.Count > 0 ? NumberValue(args[0]) : 1d;
+                var y = args.Count > 1 ? NumberValue(args[1]) : x;
+                return MutateMultiply(receiver, [x, 0, 0, y, 0, 0]);
+            });
+            result["rotate"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var angle = (args.Count > 0 ? NumberValue(args[0]) : 0d) * Math.PI / 180d;
+                var c = Math.Cos(angle); var s = Math.Sin(angle);
+                return MutateMultiply(receiver, [c, s, -s, c, 0, 0]);
+            });
+            result["inverse"] = new NativeReceiverFunction((receiver, _) =>
+            {
+                var m = MatrixValuesFromReceiver(receiver);
+                var determinant = m[0] * m[3] - m[1] * m[2];
+                if (determinant == 0) throw new InvalidOperationException("The matrix is not invertible.");
+                return CreateMatrix([m[3] / determinant, -m[1] / determinant, -m[2] / determinant, m[0] / determinant,
+                    (m[2] * m[5] - m[3] * m[4]) / determinant, (m[1] * m[4] - m[0] * m[5]) / determinant]);
+            });
             return result;
+        }
+
+        _bindings["DOMMatrix"] = _bindings["DOMMatrixReadOnly"] = new NativeFunction(args =>
+        {
+            var values = args.Count >= 6 ? args.Take(6).Select(NumberValue).ToArray() : MatrixValues(args.Count > 0 ? args[0] : null);
+            return CreateMatrix(values);
         });
     }
 

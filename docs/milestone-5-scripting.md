@@ -15,6 +15,7 @@ The native Folio-engine run is not yet equivalent: the latest fresh result is 37
 ## Implemented surface
 
 - MutationObserver, CSSOM rule mutation, restricted `fetch`, integrity checks and allowlisted script handling.
+- The native Folio engine now exposes a functional `DOMMatrix`/`DOMMatrixReadOnly` surface for canvas transforms, including 2D/4x4 aliases, multiplication, translate/scale/rotate, inversion and serialization.
 - Canvas 2D state, paths, gradients, transforms, compositing, functional colors, image data mutation, and raster-backed content-host rendering.
 - Native diagram parsing/layout/SVG writing for flowchart, sequence, class, state, entity-relationship, Gantt, pie, and timeline forms. Sequence supports participants, aliases, message kinds, activation markers, notes, blocks, and autonumbering; class/state/entity forms expose members, relations, labels, notes, and attributes. Configured Mermaid-library routing uses the Folio stand-in with unsupported-syntax fallback.
 - Content-process shutdown and watchdog handling, including closed-pipe cleanup during termination.

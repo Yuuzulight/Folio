@@ -1,5 +1,12 @@
 # Milestone 6 status
 
+Native canvas transform refresh (2026-10-27): the Folio-owned native engine now
+implements `DOMMatrix` and `DOMMatrixReadOnly` multiplication, mutating
+translate/scale/rotate, inversion, 2D/4x4 aliases and serialization. The focused
+native regression covers transform composition and inverse readback; this closes
+the DOMMatrix API slice without changing the still-open native React and broader
+M6 backend gates.
+
 Native React host-commit audit refresh (2026-10-27): a minimal Folio-owned
 `ReactDOM.createRoot(...).render(React.createElement('span', ...))` reproduction
 now has an isolated trace. MessageChannel scheduling and the event-loop task both

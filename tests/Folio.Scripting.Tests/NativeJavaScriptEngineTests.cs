@@ -403,6 +403,16 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeDomMatrixSupportsCanvasTransformOperations()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<div></div>");
+        DomBindings.Install(engine, document);
+        Assert.Equal("2,0,0,3,10,14,true", engine.Evaluate("var m = new DOMMatrix([2,0,0,3,4,5]).translate(3, 3); var n = m.multiply(new DOMMatrix().scale(1, 1)); [n.a,n.b,n.c,n.d,n.e,n.f,n.is2D].join(',')").AsString());
+        Assert.Equal("1,0,0,1,-7,-8", engine.Evaluate("var i = new DOMMatrix([1,0,0,1,7,8]).inverse(); [i.a,i.b,i.c,i.d,i.e,i.f].join(',')").AsString());
+    }
+
+    [Fact]
     public void NativeDomTextContentConcatenationKeepsStringValues()
     {
         using var engine = new NativeJavaScriptEngine();
