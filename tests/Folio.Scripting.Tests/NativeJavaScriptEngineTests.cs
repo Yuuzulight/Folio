@@ -256,6 +256,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ObjectGetPrototypeOfReadsNativePrototypeLinks()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("inherited", engine.Evaluate("const proto = { value: 'inherited' }; const object = Object.create(proto); return Object.getPrototypeOf(object).value;").AsString());
+    }
+
+    [Fact]
     public void ExecutesNativeClassConstructorsMethodsAndGetters()
     {
         using var engine = new NativeJavaScriptEngine();

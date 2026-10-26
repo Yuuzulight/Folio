@@ -153,7 +153,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     target["__proto__"] = args[1];
                 return args.Count > 0 ? args[0] : null;
             }),
-            ["getPrototypeOf"] = (Func<IReadOnlyList<object?>, object?>)(_ => null),
+            ["getPrototypeOf"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue)
+                    return null;
+                if (args[0] is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue("__proto__", out var prototype))
+                    return prototype;
+                return null;
+            }),
             ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
             ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && Equals(args[0], args[1])),
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
