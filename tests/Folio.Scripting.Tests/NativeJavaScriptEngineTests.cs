@@ -111,6 +111,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ImplementsArrayFromForStringsArrayLikesAndMapping()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("a|𝄞", engine.Evaluate("return Array.from('a𝄞').join('|');").AsString());
+        Assert.Equal("x2|y4", engine.Evaluate("return Array.from({0:'x', 1:'y', length:2}, value => value + value === 'xx' ? 'x2' : 'y4').join('|');").AsString());
+    }
+
+    [Fact]
     public void ProvidesStringFromCharCodeToNativeBundles()
     {
         using var engine = new NativeJavaScriptEngine();

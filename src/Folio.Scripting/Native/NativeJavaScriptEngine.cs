@@ -35,7 +35,23 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ? Enumerable.Repeat<object?>(JavaScriptEvaluator.UndefinedValue.Instance, Math.Max(0, (int)length)).ToList()
             : args.ToList());
         arrayConstructor.SetProperty("isArray", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?>));
-        arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?> values ? values.ToArray() : Array.Empty<object?>()));
+        arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args =>
+        {
+            if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
+            var values = args[0] switch
+            {
+                IReadOnlyList<object?> list => list.ToArray(),
+                string text => text.EnumerateRunes().Select(rune => (object?)rune.ToString()).ToArray(),
+                IReadOnlyDictionary<string, object?> arrayLike when arrayLike.TryGetValue("length", out var length)
+                    => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
+                        .Select(index => arrayLike.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance))
+                        .ToArray(),
+                _ => Array.Empty<object?>(),
+            };
+            if (args.Count > 1 && IsCallable(args[1]))
+                for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index]);
+            return values;
+        }));
         var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["slice"] = new NativeReceiverFunction((receiver, args) =>
