@@ -1,5 +1,13 @@
 # Milestone 6 status
 
+Native DOM prototype wiring refresh (2026-10-27, commit `c2e872e1`): the Folio-owned
+native engine now exposes the receiver-preserving `Node.prototype` traversal and
+mutation methods (`appendChild`, `insertBefore`, `removeChild`, `replaceChild`,
+`cloneNode`, `normalize`, `isEqualNode`, and `compareDocumentPosition`). The focused
+native probe suite passes 5/5. This closes a missing DOM contract but does not close
+the React replacement gate: React's first render still reaches an invalid
+`removeChild` path, tracked in [#645](https://github.com/Yuuzulight/Folio/issues/645).
+
 Native service-worker budget correction (2026-10-27, commit `38bcefc`): trusted
 cache/fetch bindings and bootstrap scripts are installed before the worker
 execution deadline is armed. A short `MaxWorkerExecutionTime` therefore limits
