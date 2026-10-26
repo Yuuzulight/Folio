@@ -41,3 +41,14 @@ production dependency has been removed:
 The status table in [`docs/dependencies.md`](dependencies.md) and the milestone
 roadmap must be updated with links to this evidence. A dependency-backed pass
 or a partial Folio implementation is progress, never completion.
+
+## Verification refresh — 2026-10-26
+
+The replacement gate remains open. The current checks pass 54 native-engine and
+native-WebAssembly tests, and the Folio-owned GIF/WebP/BMP fuzz targets completed
+1,147,094, 63,926 and 3,753,186 mutations respectively with zero failures. These
+are progress and safety evidence, not completion: HybridShaper still routes
+complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
+production JavaScript engine, and Wasmtime remains part of the native WebAssembly
+path. The complete differential corpus, production selection, parity bars and
+dependency removal are still required for those tracks.
