@@ -242,6 +242,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeClassInstancesPreserveInstanceofIdentity()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("class Event { constructor(type) { this.type = type; } } const event = new Event('click'); return event instanceof Event;").AsBoolean());
+    }
+
+    [Fact]
     public void NativeClassGettersRemainLiveAfterConstruction()
     {
         using var engine = new NativeJavaScriptEngine();

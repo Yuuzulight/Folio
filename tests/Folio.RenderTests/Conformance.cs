@@ -175,6 +175,14 @@ public static class Conformance
                         .ToArray();
                     if (scriptDiagnostics.Length > 0)
                         scriptResult = $"{scriptResult}; script diagnostics: {string.Join(" | ", scriptDiagnostics)}";
+                    else if (engineFactory is not null)
+                    {
+                        // Native-engine interaction failures can occur after a library has swallowed an
+                        // exception. Include the live root markup so a failed acceptance step stays actionable.
+                        var root = document.GetElementById("root");
+                        if (root is not null)
+                            scriptResult = $"{scriptResult}; #root textContent: {root.TextContent}";
+                    }
                     return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
                 }
             }

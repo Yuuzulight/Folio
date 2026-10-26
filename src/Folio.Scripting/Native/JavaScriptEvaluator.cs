@@ -587,7 +587,9 @@ internal sealed class JavaScriptEvaluator
         }
         if (value is IReadOnlyDictionary<string, object?> constructed
             && constructed.TryGetValue("__constructor", out var marker)
-            && ReferenceEquals(marker, constructor)) return true;
+            && (ReferenceEquals(marker, constructor)
+                || (marker is string markerName && TryGetCallableName(constructor, out var markerConstructorName)
+                    && string.Equals(markerName, StringValue(markerConstructorName), StringComparison.Ordinal)))) return true;
         return false;
     }
 
@@ -1090,7 +1092,12 @@ internal sealed class JavaScriptEvaluator
                     null);
             return instance;
         });
+        // Class instances carry their source-level name as a marker. Preserve the
+        // same name on the constructor so `instanceof` can identify native class
+        // instances (DOM Event subclasses and React's host checks rely on this).
+        type.SetProperty("name", @class.Name ?? "class");
         type.SetProperty("prototype", prototype);
+        prototype["constructor"] = type;
         if (@class.Parent is not null && _bindings.TryGetValue(@class.Parent, out var parentType) && parentType is NativeJavaScriptEngine.NativeFunction parentCtor && parentCtor.TryGetProperty("prototype", out var parentPrototype))
             prototype["__proto__"] = parentPrototype;
         foreach (var method in methods)
