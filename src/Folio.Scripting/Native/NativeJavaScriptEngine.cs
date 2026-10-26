@@ -15,6 +15,7 @@ namespace Folio.Scripting.Native;
 public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
     private readonly Dictionary<string, object?> _bindings = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, object?> _domPrototypes = new(StringComparer.Ordinal);
     private readonly Queue<Action> _microtasks = new();
     private int _maxSteps = ScriptLimits.Default.MaxStatements ?? 100_000;
     private TimeSpan? _timeout = ScriptLimits.Default.Timeout;
@@ -89,7 +90,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         }
                 return args.Count > 0 ? args[0] : null;
             }),
-            ["setPrototypeOf"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
+            ["setPrototypeOf"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count > 1 && args[0] is IDictionary<string, object?> target)
+                    target["__proto__"] = args[1];
+                return args.Count > 0 ? args[0] : null;
+            }),
             ["getPrototypeOf"] = (Func<IReadOnlyList<object?>, object?>)(_ => null),
             ["hasOwn"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && args[0] is IReadOnlyDictionary<string, object?> own && own.ContainsKey(StringValue(args[1]))),
             ["is"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 && Equals(args[0], args[1])),
@@ -355,7 +361,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     private bool IsDeadlineExceeded() => _deadlineTicks != 0 && Stopwatch.GetTimestamp() >= _deadlineTicks;
 
-    public ScriptValue CreateHostObject(IHostObjectTemplate template, object target) => ScriptValue.FromObject(new NativeHostValue(template, target));
+    public ScriptValue CreateHostObject(IHostObjectTemplate template, object target) => ScriptValue.FromObject(new NativeHostValue(this, template, target));
     public bool TryGetHostTarget(ScriptValue value, out object? target)
     {
         if (value.Raw is NativeHostValue host) { target = host.Target; return true; }
@@ -527,6 +533,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         static NativeFunction Illegal(string name) => new(_ => new Dictionary<string, object?> { ["__constructor"] = name });
         var node = Illegal("Node");
+        var nodePrototype = new Dictionary<string, object?>(StringComparer.Ordinal);
+        node.SetProperty("prototype", nodePrototype);
+        _domPrototypes["Node"] = nodePrototype;
         foreach (var (name, value) in new (string, double)[]
         {
             ("ELEMENT_NODE", 1), ("ATTRIBUTE_NODE", 2), ("TEXT_NODE", 3), ("CDATA_SECTION_NODE", 4),
@@ -547,7 +556,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             "HTMLTitleElement", "HTMLDivElement", "HTMLSpanElement", "HTMLParagraphElement", "HTMLAnchorElement",
             "HTMLInputElement", "HTMLButtonElement", "HTMLImageElement", "HTMLOptionElement", "HTMLSelectElement",
             "HTMLTextAreaElement", "HTMLTemplateElement", "HTMLScriptElement", "HTMLUnknownElement",
-        }) _bindings[name] = Illegal(name);
+        })
+        {
+            var ctor = Illegal(name);
+            var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
+            prototype["__proto__"] = nodePrototype;
+            ctor.SetProperty("prototype", prototype);
+            _domPrototypes[name] = prototype;
+            _bindings[name] = ctor;
+        }
 
         _bindings["DOMMatrix"] = _bindings["DOMMatrixReadOnly"] = new NativeFunction(args =>
         {
@@ -1032,6 +1049,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     internal interface INativeHostObject
     {
         bool TryGetValue(string name, out object? value);
+        bool TryGetPrototypeValue(string name, out object? value);
         bool TrySetSetValue(string name, object? value);
         bool TryDeleteValue(string name);
         bool TryGetIndex(int index, out object? value);
@@ -1040,7 +1058,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     private sealed class NativeHostValue : IReadOnlyDictionary<string, object?>, INativeHostObject
     {
-        internal NativeHostValue(IHostObjectTemplate template, object target) { Template = template; Target = target; }
+        internal NativeHostValue(NativeJavaScriptEngine engine, IHostObjectTemplate template, object target) { Engine = engine; Template = template; Target = target; }
+        internal NativeJavaScriptEngine Engine { get; }
         internal IHostObjectTemplate Template { get; }
         internal object Target { get; }
 
@@ -1070,6 +1089,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             value = null;
             return false;
         }
+        public bool TryGetPrototypeValue(string name, out object? value) => Engine.TryGetDomPrototypeValue(Template.Name, name, out value);
         public bool TrySetSetValue(string name, object? value)
         {
             if (Template.TryGetProperty(name, out _, out var setter) && setter is not null)
@@ -1099,5 +1119,30 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => Names().Select(name => new KeyValuePair<string, object?>(name, this[name])).GetEnumerator();
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
         private IEnumerable<string> Names() => Template.PropertyNames.Concat(Template.MethodNames).Concat(Template.DynamicPropertyEnumerator?.Invoke(Target, ScriptValue.FromObject(this)) ?? []).Distinct(StringComparer.Ordinal);
+    }
+
+    private bool TryGetDomPrototypeValue(string templateName, string name, out object? value)
+    {
+        for (var current = templateName; ;)
+        {
+            if (_domPrototypes.TryGetValue(current, out var prototype) && TryPrototypeChain(prototype, name, out value)) return true;
+            if (current is "Node" || current.StartsWith("HTML", StringComparison.Ordinal) is false && current is not "Element" and not "HTMLElement") break;
+            current = current switch
+            {
+                "HTMLElement" => "Element",
+                "Element" => "Node",
+                _ => "HTMLElement",
+            };
+        }
+        value = null;
+        return false;
+    }
+
+    private static bool TryPrototypeChain(object? prototype, string name, out object? value)
+    {
+        if (prototype is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out value)) return true;
+        if (prototype is IReadOnlyDictionary<string, object?> chain && chain.TryGetValue("__proto__", out var parent)) return TryPrototypeChain(parent, name, out value);
+        value = null;
+        return false;
     }
 }

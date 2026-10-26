@@ -538,6 +538,18 @@ internal sealed class JavaScriptEvaluator
             if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToArray() : []));
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
+        if (target is NativeJavaScriptEngine.NativeFunction nativeFunction)
+        {
+            if (name == "prototype")
+            {
+                if (!nativeFunction.TryGetProperty("prototype", out var prototype))
+                {
+                    prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
+                    nativeFunction.SetProperty("prototype", prototype);
+                }
+                return prototype;
+            }
+        }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
         if (target is IList<object?> values)
         {
@@ -557,6 +569,7 @@ internal sealed class JavaScriptEvaluator
         }
         if (target is NativeJavaScriptEngine.INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue)) return bufferValue;
         if (target is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue(name, out var hostValue)) return hostValue;
+        if (target is NativeJavaScriptEngine.INativeHostObject prototypeHost && prototypeHost.TryGetPrototypeValue(name, out var prototypeValue)) return prototypeValue;
         if (target is Func<IReadOnlyList<object?>, object?> delegateValue)
         {
             var delegateProperties = CallableProperties.GetOrCreateValue(delegateValue);
@@ -837,6 +850,14 @@ internal sealed class JavaScriptEvaluator
             foreach (var method in methods.Where(method => method.Getter)) instance[method.Name] = ExecuteClassMethod(method.Function, instance, []);
             return instance;
         });
+        var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
+        type.SetProperty("prototype", prototype);
+        foreach (var method in methods)
+            if (!method.Getter && !method.Setter)
+                prototype[method.Name] = new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) =>
+                    ExecuteClassMethod(method.Function, receiver as IDictionary<string, object?> ?? new Dictionary<string, object?>(), args));
+        foreach (var method in methods.Where(method => method.Getter))
+            prototype[method.Name] = new NativeJavaScriptEngine.NativePropertyGetter(() => null);
         foreach (var method in @class.Methods.Where(method => method.Static && !method.Getter && !method.Setter))
             type.SetProperty(method.Name, (Func<IReadOnlyList<object?>, object?>)(args => ExecuteClassMethod(method.Function, new Dictionary<string, object?> { ["__constructor"] = @class.Name ?? "class" }, args)));
         foreach (var method in @class.Methods.Where(method => method.Static && method.Getter))
