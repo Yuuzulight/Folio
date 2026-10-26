@@ -39,3 +39,9 @@ exposed a deterministic 3.9% pixel mismatch; after filling syntax gaps in the
 native front end (sort, spread, destructuring and templates), it now reaches
 DOM setup but stops at an unsupported host DOM call. This remains an open
 replacement-engine failure, not an acceptance pass.
+
+The focused native DOM probe confirms the remaining failure is in the DOM event
+bootstrap: direct `querySelector` and host wrapping work, but the script-level
+`EventTarget` prototype installation does not attach `addEventListener` to
+wrapped elements under the staged VM. Native prototype/event-target wiring is
+required before this corpus result can be accepted.
