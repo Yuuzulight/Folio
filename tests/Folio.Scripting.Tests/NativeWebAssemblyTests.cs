@@ -427,4 +427,15 @@ public sealed class NativeWebAssemblyTests
         Assert.Equal(42, engine.Evaluate("streamedRun").AsNumber());
         Assert.Equal(1, bridge.CachedModuleCount);
     }
+
+    [Fact]
+    public void StreamingCompilationRejectsAnInvalidMimeType()
+    {
+        using var engine = new JintScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        engine.Evaluate("var response={ok:true,status:200,headers:{get:function(name){return name.toLowerCase()==='content-type'?'text/plain':null;}},arrayBuffer:function(){return Promise.resolve(new Uint8Array([0,97,115,109,1,0,0,0]).buffer);}}; var failure; WebAssembly.instantiateStreaming(response, {}).catch(function(error){failure=error.name;});");
+        for (var checkpoint = 0; checkpoint < 16; checkpoint++) engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("TypeError", engine.Evaluate("failure").AsString());
+    }
 }
