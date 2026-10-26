@@ -665,7 +665,8 @@ internal sealed class JavaScriptEvaluator
     {
         if (target is IReadOnlyDictionary<string, object?> dictionary && name == "hasOwnProperty")
             return (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && dictionary.ContainsKey(StringValue(args[0])));
-        if (target is NativeJavaScriptEngine.INativeCallable callable && callable.TryGetProperty(name, out var callableValue)) return callableValue;
+        if (target is IReadOnlyDictionary<string, object?> ownProperties && name == "prototype" && ownProperties.TryGetValue("prototype", out var ownPrototype))
+            return ownPrototype;
         if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverFunction)
         {
             if (name == "prototype")
@@ -686,6 +687,7 @@ internal sealed class JavaScriptEvaluator
             if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToArray() : []));
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
+        if (target is NativeJavaScriptEngine.INativeCallable callable && callable.TryGetProperty(name, out var callableValue)) return callableValue;
         if (target is NativeJavaScriptEngine.NativeFunction nativeFunction)
         {
             if (name == "prototype")

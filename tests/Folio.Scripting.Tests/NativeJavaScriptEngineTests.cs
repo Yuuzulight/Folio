@@ -249,6 +249,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ObjectPrototypeToStringSupportsCall()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("[object Object]|[object Array]|[object Null]", engine.Evaluate("return [Object.prototype.toString.call({}), Object.prototype.toString.call([]), Object.prototype.toString.call(null)].join('|');").AsString());
+    }
+
+    [Fact]
     public void ExecutesNativeClassConstructorsMethodsAndGetters()
     {
         using var engine = new NativeJavaScriptEngine();
