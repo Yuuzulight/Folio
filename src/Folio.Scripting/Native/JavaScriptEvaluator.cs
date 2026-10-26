@@ -580,8 +580,25 @@ internal sealed class JavaScriptEvaluator
             if (delegateProperties.TryGetValue(name, out var delegateProperty)) return delegateProperty;
             if (name == "prototype") return delegateProperties[name] = new Dictionary<string, object?>(StringComparer.Ordinal);
         }
-        if (target is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var value))
-            return NativeJavaScriptEngine.ReadProperty(value);
+        if (target is IReadOnlyDictionary<string, object?> properties)
+            return PrototypeMemberValue(properties, name, target);
+        return UndefinedOrNull();
+    }
+
+    private object? PrototypeMemberValue(IReadOnlyDictionary<string, object?> properties, string name, object receiver)
+    {
+        if (properties.TryGetValue(name, out var value))
+        {
+            return value switch
+            {
+                NativeJavaScriptEngine.NativePropertyAccessor accessor => accessor.Get(receiver),
+                NativeJavaScriptEngine.NativePropertyGetter getter => getter.Get(),
+                NativeJavaScriptEngine.NativeReceiverFunction method => (Func<IReadOnlyList<object?>, object?>)(args => method.Invoke(receiver, args)),
+                _ => NativeJavaScriptEngine.ReadProperty(value),
+            };
+        }
+        if (properties.TryGetValue("__proto__", out var parent) && parent is IReadOnlyDictionary<string, object?> parentProperties)
+            return PrototypeMemberValue(parentProperties, name, receiver);
         return UndefinedOrNull();
     }
 
@@ -858,9 +875,11 @@ internal sealed class JavaScriptEvaluator
     {
         var constructor = @class.Methods.FirstOrDefault(method => method.Name == "constructor" && !method.Static)?.Function;
         var methods = @class.Methods.Where(method => method.Name != "constructor" && !method.Static).ToArray();
+        var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
         var type = new NativeJavaScriptEngine.NativeFunction(arguments =>
         {
             var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = @class.Name ?? "class" };
+            instance["__proto__"] = prototype;
             foreach (var method in methods)
             {
                 if (!method.Getter && !method.Setter) instance[method.Name] = (Func<IReadOnlyList<object?>, object?>)(args => ExecuteClassMethod(method.Function, instance, args));
@@ -872,8 +891,9 @@ internal sealed class JavaScriptEvaluator
                     null);
             return instance;
         });
-        var prototype = new Dictionary<string, object?>(StringComparer.Ordinal);
         type.SetProperty("prototype", prototype);
+        if (@class.Parent is not null && _bindings.TryGetValue(@class.Parent, out var parentType) && parentType is NativeJavaScriptEngine.NativeFunction parentCtor && parentCtor.TryGetProperty("prototype", out var parentPrototype))
+            prototype["__proto__"] = parentPrototype;
         foreach (var method in methods)
             if (!method.Getter && !method.Setter)
                 prototype[method.Name] = new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) =>

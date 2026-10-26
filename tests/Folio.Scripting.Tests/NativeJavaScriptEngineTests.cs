@@ -86,6 +86,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeSubclassInheritsParentGettersAndMethods()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("7:ok", engine.Evaluate("class Base { get value() { return this.number; } ping() { return 'ok'; } } class Child extends Base { } let child = new Child(); child.number = 7; return child.value + ':' + child.ping();").AsString());
+    }
+
+    [Fact]
     public void ExecutesBootstrapSyntaxAndFunctionProperties()
     {
         using var engine = new NativeJavaScriptEngine();
