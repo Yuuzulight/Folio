@@ -22,6 +22,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ForAssignmentConditionStopsOnNull()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("0:null", engine.Evaluate("var source={ lastChild:null }; var value='main'; var count=0; for (; value=source.lastChild;) count++; return count + ':' + value;").AsString());
+    }
+
+    [Fact]
     public void EvaluatesSequenceExpressionsInForInIterables()
     {
         using var engine = new NativeJavaScriptEngine();
