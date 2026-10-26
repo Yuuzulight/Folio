@@ -64,8 +64,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     object? value = null;
                     if (args[2] is IReadOnlyDictionary<string, object?> descriptor)
                     {
-                        if (descriptor.TryGetValue("get", out var getter) && getter is INativeCallable callable)
-                            value = new NativePropertyGetter(() => callable.Invoke([]));
+                        var hasGetter = descriptor.TryGetValue("get", out var getter) && IsCallable(getter);
+                        var hasSetter = descriptor.TryGetValue("set", out var setter) && IsCallable(setter);
+                        if (hasGetter || hasSetter)
+                            value = new NativePropertyAccessor(
+                                hasGetter ? receiver => JavaScriptEvaluator.InvokeWithReceiver(getter!, receiver, []) : null,
+                                hasSetter ? (receiver, assigned) => JavaScriptEvaluator.InvokeWithReceiver(setter!, receiver, [assigned]) : null);
                         else if (descriptor.TryGetValue("value", out var descriptorValue)) value = descriptorValue;
                     }
                     if (args[0] is IDictionary<string, object?> target)
@@ -84,8 +88,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     foreach (var (name, descriptor) in descriptors)
                         if (descriptor is IReadOnlyDictionary<string, object?> entry)
                         {
-                            if (entry.TryGetValue("get", out var getter) && getter is INativeCallable callable)
-                                target[name] = new NativePropertyGetter(() => callable.Invoke([]));
+                            var hasGetter = entry.TryGetValue("get", out var getter) && IsCallable(getter);
+                            var hasSetter = entry.TryGetValue("set", out var setter) && IsCallable(setter);
+                            if (hasGetter || hasSetter)
+                                target[name] = new NativePropertyAccessor(
+                                    hasGetter ? receiver => JavaScriptEvaluator.InvokeWithReceiver(getter!, receiver, []) : null,
+                                    hasSetter ? (receiver, assigned) => JavaScriptEvaluator.InvokeWithReceiver(setter!, receiver, [assigned]) : null);
                             else if (entry.TryGetValue("value", out var value)) target[name] = value;
                         }
                 return args.Count > 0 ? args[0] : null;
@@ -473,19 +481,33 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
         if (target.Raw is string text && name == "length") return ScriptValue.FromNumber(text.Length);
         if (target.Raw is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var item))
-            return ToScriptValue(item is NativePropertyGetter getter ? getter.Get() : item);
+            return ToScriptValue(ReadProperty(item));
         return ScriptValue.Undefined;
     }
     public bool TrySetProperty(ScriptValue target, string name, ScriptValue value)
     {
-        if (target.Raw is NativeHostValue host) return host.TrySetSetValue(name, ToObject(value));
+        if (target.Raw is NativeHostValue host)
+            return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
         if (target.Raw is IDictionary<string, object?> properties) { properties[name] = ToObject(value); return true; }
         return false;
     }
 
+    internal static object? ReadProperty(object? value) => value switch
+    {
+        NativePropertyAccessor accessor => accessor.Get(),
+        NativePropertyGetter getter => getter.Get(),
+        _ => value,
+    };
+
     internal sealed class NativePropertyGetter(Func<object?> getter)
     {
         internal object? Get() => getter();
+    }
+
+    internal sealed class NativePropertyAccessor(Func<object?, object?>? getter, Func<object?, object?, object?>? setter)
+    {
+        internal object? Get(object? receiver = null) => getter?.Invoke(receiver);
+        internal bool Set(object? receiver, object? value) { if (setter is null) return false; setter(receiver, value); return true; }
     }
     public void SetGlobalProperty(string name, ScriptValue value) { EnsureLive(); _bindings[name] = ToObject(value); }
     public ScriptValue GetGlobalProperty(string name) => _bindings.TryGetValue(name, out var value) ? ToScriptValue(value) : ScriptValue.Undefined;
@@ -1050,6 +1072,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         bool TryGetValue(string name, out object? value);
         bool TryGetPrototypeValue(string name, out object? value);
+        bool TrySetPrototypeValue(string name, object? value);
         bool TrySetSetValue(string name, object? value);
         bool TryDeleteValue(string name);
         bool TryGetIndex(int index, out object? value);
@@ -1089,7 +1112,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             value = null;
             return false;
         }
-        public bool TryGetPrototypeValue(string name, out object? value) => Engine.TryGetDomPrototypeValue(Template.Name, name, out value);
+        public bool TryGetPrototypeValue(string name, out object? value) => Engine.TryGetDomPrototypeValue(Template.Name, name, this, out value);
+        public bool TrySetPrototypeValue(string name, object? value) => Engine.TrySetDomPrototypeValue(Template.Name, name, value, this);
         public bool TrySetSetValue(string name, object? value)
         {
             if (Template.TryGetProperty(name, out _, out var setter) && setter is not null)
@@ -1121,11 +1145,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         private IEnumerable<string> Names() => Template.PropertyNames.Concat(Template.MethodNames).Concat(Template.DynamicPropertyEnumerator?.Invoke(Target, ScriptValue.FromObject(this)) ?? []).Distinct(StringComparer.Ordinal);
     }
 
-    private bool TryGetDomPrototypeValue(string templateName, string name, out object? value)
+    private bool TryGetDomPrototypeValue(string templateName, string name, object receiver, out object? value)
     {
         for (var current = templateName; ;)
         {
-            if (_domPrototypes.TryGetValue(current, out var prototype) && TryPrototypeChain(prototype, name, out value)) return true;
+            if (_domPrototypes.TryGetValue(current, out var prototype) && TryPrototypeChain(prototype, name, receiver, out value)) return true;
             if (current is "Node" || current.StartsWith("HTML", StringComparison.Ordinal) is false && current is not "Element" and not "HTMLElement") break;
             current = current switch
             {
@@ -1138,10 +1162,33 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         return false;
     }
 
-    private static bool TryPrototypeChain(object? prototype, string name, out object? value)
+    private bool TrySetDomPrototypeValue(string templateName, string name, object? value, object receiver)
     {
-        if (prototype is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out value)) return true;
-        if (prototype is IReadOnlyDictionary<string, object?> chain && chain.TryGetValue("__proto__", out var parent)) return TryPrototypeChain(parent, name, out value);
+        for (var current = templateName; ;)
+        {
+            if (_domPrototypes.TryGetValue(current, out var prototype) && prototype is IReadOnlyDictionary<string, object?> prototypeProperties && prototypeProperties.TryGetValue(name, out var property))
+            {
+                if (property is NativePropertyAccessor accessor) return accessor.Set(receiver, value);
+                return false;
+            }
+            if (current is "Node" || current.StartsWith("HTML", StringComparison.Ordinal) is false && current is not "Element" and not "HTMLElement") break;
+            current = current switch
+            {
+                "HTMLDocument" => "Document", "HTMLBodyElement" => "HTMLElement", "HTMLElement" => "Element",
+                "SVGElement" => "Element", "Element" => "Node", "Document" => "Node", _ => "HTMLElement",
+            };
+        }
+        return false;
+    }
+
+    private static bool TryPrototypeChain(object? prototype, string name, object receiver, out object? value)
+    {
+        if (prototype is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var own))
+        {
+            value = own is NativePropertyAccessor accessor ? accessor.Get(receiver) : ReadProperty(own);
+            return true;
+        }
+        if (prototype is IReadOnlyDictionary<string, object?> chain && chain.TryGetValue("__proto__", out var parent)) return TryPrototypeChain(parent, name, receiver, out value);
         value = null;
         return false;
     }

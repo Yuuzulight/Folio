@@ -389,7 +389,8 @@ internal sealed class JavaScriptEvaluator
                 Assign(identifier.Name, assigned);
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.INativeHostObject host:
-                if (!host.TrySetSetValue(member.Name, assigned)) throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
+                if (!host.TrySetSetValue(member.Name, assigned) && !host.TrySetPrototypeValue(member.Name, assigned))
+                    throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
                 break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
                 properties[member.Name] = assigned;
@@ -568,7 +569,7 @@ internal sealed class JavaScriptEvaluator
             if (target is string text) return (double)text.Length;
         }
         if (target is NativeJavaScriptEngine.INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue)) return bufferValue;
-        if (target is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue(name, out var hostValue)) return hostValue;
+        if (target is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue(name, out var hostValue)) return NativeJavaScriptEngine.ReadProperty(hostValue);
         if (target is NativeJavaScriptEngine.INativeHostObject prototypeHost && prototypeHost.TryGetPrototypeValue(name, out var prototypeValue)) return prototypeValue;
         if (target is Func<IReadOnlyList<object?>, object?> delegateValue)
         {
@@ -580,7 +581,7 @@ internal sealed class JavaScriptEvaluator
             if (name == "prototype") return delegateProperties[name] = new Dictionary<string, object?>(StringComparer.Ordinal);
         }
         if (target is IReadOnlyDictionary<string, object?> properties && properties.TryGetValue(name, out var value))
-            return value is NativeJavaScriptEngine.NativePropertyGetter getter ? getter.Get() : value;
+            return NativeJavaScriptEngine.ReadProperty(value);
         return UndefinedOrNull();
     }
 
@@ -846,6 +847,10 @@ internal sealed class JavaScriptEvaluator
         }
     }
 
+    internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments) =>
+        function is Func<IReadOnlyList<object?>, object?> callback ? InvokeFunction(callback, receiver, arguments) :
+        function is NativeJavaScriptEngine.INativeCallable callable ? callable.Invoke(arguments) : null;
+
     private static object? InvokeFunction(Func<IReadOnlyList<object?>, object?> function, object? receiver, IReadOnlyList<object?> arguments)
         => ReceiverBindings.TryGetValue(function, out var binding) ? binding.Invoke(receiver, arguments) : function(arguments);
 
@@ -860,7 +865,7 @@ internal sealed class JavaScriptEvaluator
             {
                 if (!method.Getter && !method.Setter) instance[method.Name] = (Func<IReadOnlyList<object?>, object?>)(args => ExecuteClassMethod(method.Function, instance, args));
             }
-            if (constructor is not null) _ = ExecuteClassMethod(constructor, instance, arguments);
+                if (constructor is not null) _ = ExecuteClassMethod(constructor, instance, arguments, @class.Parent);
             foreach (var method in methods.Where(method => method.Getter)) instance[method.Name] = ExecuteClassMethod(method.Function, instance, []);
             return instance;
         });
@@ -870,6 +875,8 @@ internal sealed class JavaScriptEvaluator
             if (!method.Getter && !method.Setter)
                 prototype[method.Name] = new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) =>
                     ExecuteClassMethod(method.Function, receiver as IDictionary<string, object?> ?? new Dictionary<string, object?>(), args));
+        if (constructor is not null) type.SetProperty("__classConstructor", constructor);
+        if (@class.Parent is not null) type.SetProperty("__classParent", @class.Parent);
         foreach (var method in methods.Where(method => method.Getter))
             prototype[method.Name] = new NativeJavaScriptEngine.NativePropertyGetter(() => null);
         foreach (var method in @class.Methods.Where(method => method.Static && !method.Getter && !method.Setter))
@@ -879,12 +886,18 @@ internal sealed class JavaScriptEvaluator
         return type;
     }
 
-    private object? ExecuteClassMethod(JavaScriptFunctionExpression function, IDictionary<string, object?> instance, IReadOnlyList<object?> arguments)
+    private object? ExecuteClassMethod(JavaScriptFunctionExpression function, IDictionary<string, object?> instance, IReadOnlyList<object?> arguments, string? parentName = null)
     {
         var local = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["this"] = instance,
-            ["super"] = (Func<IReadOnlyList<object?>, object?>)(_ => null),
+            ["super"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (parentName is null || !_bindings.TryGetValue(parentName, out var parent) || parent is not NativeJavaScriptEngine.NativeFunction parentCtor || !parentCtor.TryGetProperty("__classConstructor", out var parentFunction) || parentFunction is not JavaScriptFunctionExpression parentBody)
+                    return null;
+                var inheritedParent = parentCtor.TryGetProperty("__classParent", out var inherited) ? inherited as string : null;
+                return ExecuteClassMethod(parentBody, instance, args, inheritedParent);
+            }),
             ["arguments"] = arguments.ToList(),
         };
             for (var i = 0; i < function.Parameters.Count; i++) local[function.Parameters[i]] = i < arguments.Count ? arguments[i] : UndefinedOrNull();
