@@ -363,6 +363,9 @@ interface WebGL2RenderingContext : WebGLRenderingContext {
     const unsigned long INTERLEAVED_ATTRIBS = 0x8C8C;
     const unsigned long SEPARATE_ATTRIBS = 0x8C8D;
     const unsigned long UNIFORM_BUFFER = 0x8A11;
+    const unsigned long UNIFORM_TYPE = 0x8A37;
+    const unsigned long UNIFORM_BLOCK_INDEX = 0x8A3A;
+    const unsigned long UNIFORM_OFFSET = 0x8A3B;
     const unsigned long COPY_READ_BUFFER = 0x8F36;
     const unsigned long COPY_WRITE_BUFFER = 0x8F37;
     const unsigned long RGBA8 = 0x8058;

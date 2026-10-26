@@ -2858,6 +2858,9 @@ public interface IWebGL2RenderingContextTarget : IWebGLRenderingContextTarget
     const uint INTERLEAVED_ATTRIBS = 0x8C8C;
     const uint SEPARATE_ATTRIBS = 0x8C8D;
     const uint UNIFORM_BUFFER = 0x8A11;
+    const uint UNIFORM_TYPE = 0x8A37;
+    const uint UNIFORM_BLOCK_INDEX = 0x8A3A;
+    const uint UNIFORM_OFFSET = 0x8A3B;
     const uint COPY_READ_BUFFER = 0x8F36;
     const uint COPY_WRITE_BUFFER = 0x8F37;
     const uint RGBA8 = 0x8058;
@@ -2930,6 +2933,9 @@ public static class WebGL2RenderingContextBinding
         template.DefineProperty("INTERLEAVED_ATTRIBS", (target, thisVal) => ScriptValue.FromNumber(0x8C8C));
         template.DefineProperty("SEPARATE_ATTRIBS", (target, thisVal) => ScriptValue.FromNumber(0x8C8D));
         template.DefineProperty("UNIFORM_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8A11));
+        template.DefineProperty("UNIFORM_TYPE", (target, thisVal) => ScriptValue.FromNumber(0x8A37));
+        template.DefineProperty("UNIFORM_BLOCK_INDEX", (target, thisVal) => ScriptValue.FromNumber(0x8A3A));
+        template.DefineProperty("UNIFORM_OFFSET", (target, thisVal) => ScriptValue.FromNumber(0x8A3B));
         template.DefineProperty("COPY_READ_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8F36));
         template.DefineProperty("COPY_WRITE_BUFFER", (target, thisVal) => ScriptValue.FromNumber(0x8F37));
         template.DefineProperty("RGBA8", (target, thisVal) => ScriptValue.FromNumber(0x8058));
