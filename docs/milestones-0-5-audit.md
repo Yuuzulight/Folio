@@ -1,8 +1,8 @@
 # Milestones 0–5 acceptance audit
 
-Verification refresh (2026-10-26): a complete Release solution run passed 4,072 tests with 0 failures and 7 documented skips (4,079 discovered). Earlier totals are historical snapshots.
+Verification refresh (2026-10-26): a complete Release solution run passed 4,071 tests with 0 failures and 7 documented skips (4,078 discovered). Earlier totals are historical snapshots.
 
-Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, and iframe repairs: 4,079 tests discovered, 4,072 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
+Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, and iframe repairs: 4,078 tests discovered, 4,071 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
 
 This is the requirement-to-evidence index for the completed pre-M6 milestones. It
 does not waive the M6 acceptance audit or the mandatory Folio-owned replacement
@@ -25,5 +25,5 @@ complete from this table.
 The repository-wide recheck on 2026-10-26 found no regressions in these
 completed pre-M6 milestones: the solution builds successfully with one existing
 nullable warning in the benchmark project, and the complete Release solution test
-run passes 4,072 tests with zero failures and seven documented skips.
+run passes 4,071 tests with zero failures and seven documented skips.
 
