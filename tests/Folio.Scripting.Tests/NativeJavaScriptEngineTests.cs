@@ -83,6 +83,7 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("ok", engine.Evaluate("return Object.assign({}, { value: 'ok' }).value;").AsString());
         Assert.Equal("function|object", engine.Evaluate("return typeof Object + '|' + typeof new Object();").AsString());
+        Assert.Equal("value|0|length", engine.Evaluate("const names = Object.getOwnPropertyNames({ value: 1 }); const arrayNames = Object.getOwnPropertyNames([1]); return names[0] + '|' + Object.getOwnPropertySymbols({}).length + '|' + arrayNames[1];").AsString());
     }
 
     [Fact]

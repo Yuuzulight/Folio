@@ -91,6 +91,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 ? properties.Select(pair => (object?)new object?[] { pair.Key, pair.Value }).ToArray()
                 : Array.Empty<object?>()),
             ["values"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyDictionary<string, object?> properties ? properties.Values.ToArray() : Array.Empty<object?>()),
+            ["getOwnPropertyNames"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
+                return args[0] switch
+                {
+                    IReadOnlyDictionary<string, object?> properties => properties.Keys.Cast<object?>().ToArray(),
+                    IList<object?> values => Enumerable.Range(0, values.Count).Select(index => (object?)index.ToString(CultureInfo.InvariantCulture)).Append("length").ToArray(),
+                    INativeCallable callable => callable.GetPropertyNames().Cast<object?>().ToArray(),
+                    _ => Array.Empty<object?>(),
+                };
+            }),
+            ["getOwnPropertySymbols"] = (Func<IReadOnlyList<object?>, object?>)(_ => Array.Empty<object?>()),
             ["create"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var result = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -839,6 +851,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         object? Invoke(IReadOnlyList<object?> args);
         bool TryGetProperty(string name, out object? value);
+        IEnumerable<string> GetPropertyNames();
     }
 
     internal sealed class NativeFunction(Func<IReadOnlyList<object?>, object?> callback) : INativeCallable
@@ -847,6 +860,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public object? Invoke(IReadOnlyList<object?> args) => callback(args);
         public void SetProperty(string name, object? value) => _properties[name] = value;
         public bool TryGetProperty(string name, out object? value) => _properties.TryGetValue(name, out value);
+        public IEnumerable<string> GetPropertyNames() => _properties.Keys;
     }
 
     internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or INativeCallable;
@@ -864,6 +878,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal bool TryGetProperty(string name, out object? value) => _properties.TryGetValue(name, out value);
         object? INativeCallable.Invoke(IReadOnlyList<object?> args) => callback(null, args);
         bool INativeCallable.TryGetProperty(string name, out object? value) => _properties.TryGetValue(name, out value);
+        IEnumerable<string> INativeCallable.GetPropertyNames() => _properties.Keys;
         internal void SetProperty(string name, object? value) => _properties[name] = value;
     }
 
