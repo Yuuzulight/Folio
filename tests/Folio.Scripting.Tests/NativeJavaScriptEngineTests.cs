@@ -132,6 +132,7 @@ public sealed class NativeJavaScriptEngineTests
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("42", engine.Evaluate("return (42).toString();").AsString());
+        Assert.True(engine.Evaluate("return Date.now() > 0;").AsBoolean());
     }
 
     [Fact]
