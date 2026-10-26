@@ -58,6 +58,18 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeNodePrototypeMutationMethodsOperateOnTheReceiver()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Folio.Document.Parse("<div id='root'></div>");
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        engine.Evaluate("var p=document.createElement('i'); Node.prototype.appendChild.call(document.getElementById('root'),p); var attached=document.getElementById('root').children.length; Node.prototype.removeChild.call(document.getElementById('root'),p); var detached=document.getElementById('root').children.length;");
+        Assert.Equal(1, engine.Evaluate("attached").AsNumber());
+        Assert.Equal(0, engine.Evaluate("detached").AsNumber());
+    }
+
+    [Fact]
     public void ProbeNativeMessageChannelDelivery()
     {
         using var engine = new NativeJavaScriptEngine();

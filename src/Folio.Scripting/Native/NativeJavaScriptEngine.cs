@@ -717,6 +717,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var nodePrototype = new Dictionary<string, object?>(StringComparer.Ordinal);
         node.SetProperty("prototype", nodePrototype);
         _domPrototypes["Node"] = nodePrototype;
+        foreach (var methodName in new[] { "isEqualNode", "compareDocumentPosition", "cloneNode", "normalize", "appendChild", "insertBefore", "removeChild", "replaceChild" })
+            nodePrototype[methodName] = new NativeReceiverFunction((receiver, args) => InvokeDomPrototypeMethod(receiver, methodName, args));
         foreach (var (name, value) in new (string, double)[]
         {
             ("ELEMENT_NODE", 1), ("ATTRIBUTE_NODE", 2), ("TEXT_NODE", 3), ("CDATA_SECTION_NODE", 4),
@@ -760,6 +762,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             result["toString"] = (Func<IReadOnlyList<object?>, object?>)(_ => "matrix(" + string.Join(", ", values.Select(value => value.ToString(CultureInfo.InvariantCulture))) + ")");
             return result;
         });
+    }
+
+    private static object? InvokeDomPrototypeMethod(object? receiver, string name, IReadOnlyList<object?> args)
+    {
+        if (receiver is not NativeHostValue host || !host.Template.TryGetMethod(name, out var method))
+            return null;
+        return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
     }
     public void PerformMicrotaskCheckpoint()
     {
