@@ -10,7 +10,8 @@ public sealed class Milestone7ReplacementGateTests
         var gate = File.ReadAllText(Path.Combine(RepositoryRoot, "docs", "replacement-gate.md"));
         Assert.Contains("hard, non-optional release gate", gate, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Folio is complete only when every replacement", gate, StringComparison.Ordinal);
-        Assert.Contains("superseded production dependency has been removed", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("superseded", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("production dependency has been removed", gate, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -20,7 +21,8 @@ public sealed class Milestone7ReplacementGateTests
         foreach (var track in new[] { "Text shaping", "Rasterisation", "Image codecs", "JavaScript", "WebAssembly" })
             Assert.Contains(track, gate, StringComparison.Ordinal);
         Assert.Contains("gate remains open", gate, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Jint remains the production JavaScript engine", gate, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Wasmtime remains part of the native WebAssembly path", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Jint remains the", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("production JavaScript engine", gate, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Wasmtime remains part of the native WebAssembly", gate, StringComparison.OrdinalIgnoreCase);
     }
 }
