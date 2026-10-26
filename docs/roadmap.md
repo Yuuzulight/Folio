@@ -1,6 +1,6 @@
 # Roadmap
 
-Verification refresh (2026-10-26): the serialized scripting suite passes 1,161/1,161 after adding signed integer 2D-array texture sampling and native `readPixels` error handling coverage. The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
+Verification refresh (2026-10-26): the serialized scripting suite passes 1,162/1,162 after adding signed integer 2D-array texture sampling and native `readPixels` error/packing coverage. The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
 
 Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`.
 
