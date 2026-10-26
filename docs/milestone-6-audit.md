@@ -1,13 +1,14 @@
-# Milestone 6 acceptance audit — 2026-10-26
+# Milestone 6 acceptance audit — 2026-10-27
 
 Milestone 6 is **not complete against its original issue scope**. Earlier closure and completion claims were premature. This audit retains the original requirements rather than defining completion as the existing bounded API surface.
 
 `Partial` means implemented behavior exists but does not prove the full acceptance; `Unverified` means the evidence is not strong enough to claim resolution. Only a later requirement-specific runtime check can change a row to verified. The table is a source/acceptance audit, not a claim that three complete review passes have already been performed for every issue.
 
-## Verification refresh — 2026-10-26
+## Verification refresh — 2026-10-27
 
 - The complete Release solution passes 4,078 tests with 0 failures and 7 documented environment/software skips (4,085 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
+- Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
 - These results verify the current compatibility paths and regressions only. They do not close the original M6 gates: complete WebGL 2/integer/volume conformance, continuous device-level media pacing and output, native-engine worker/Wasm execution, real permitted WebRTC capture/transport, isolated service-worker offline reopening, or equivalent non-Windows containment.
