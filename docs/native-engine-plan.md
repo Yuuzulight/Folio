@@ -35,14 +35,12 @@ default prematurely.
 The render conformance harness also accepts `FOLIO_CONFORMANCE_ENGINE=native`.
 On 2026-10-26 the first D1 differential run was crash-free and produced 1/2
 passes: `settings-tabs-faq` matched exactly. `sortable-filter-table` first
-exposed a deterministic 3.9% pixel mismatch; after filling syntax gaps in the
-native front end (sort, spread, destructuring and templates), it now reaches
-DOM setup but stops at an unsupported host DOM call. This remains an open
-replacement-engine failure, not an acceptance pass.
+exposed a deterministic 3.9% pixel mismatch; after filling native syntax,
+prototype/event, replacement, and assignment-expression gaps, both D1 artifacts
+now match exactly (2/2, no crash/hang/limit/script failure).
 
-The focused native DOM probe confirms the remaining failure is in the DOM event
-bootstrap: native prototype lookup now reaches the script-level `EventTarget`
-methods on wrapped elements, but listener registration still fails while the
-bootstrap resolves optional signal state. Native event-target state and
-prototype wiring must both be complete before this corpus result can be
-accepted.
+The focused native DOM probe was used to drive the fixes: native prototype
+lookup reaches the script-level `EventTarget` methods on wrapped elements, and
+the corrected assignment parser now preserves the full conditional RHS used by
+`innerHTML` updates. The D1 result is accepted as evidence for this corpus
+slice only; full-corpus DOM, sandbox, limit, and failure-behavior gates remain.

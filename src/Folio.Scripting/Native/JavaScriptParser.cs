@@ -235,7 +235,7 @@ internal sealed class JavaScriptParser
             if (op is "in" or "instanceof") precedence = 45;
             if (precedence < minimumPrecedence) break;
             Take();
-            var right = ParseBinary(precedence + (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" or "&&=" or "||=" or "??=" or "**" ? 0 : 1));
+            var right = ParseBinary(op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" or "&&=" or "||=" or "??=" ? 0 : precedence + 1);
             left = Node(new JavaScriptBinaryExpression(op, left, right));
         }
         if (minimumPrecedence <= 5 && Match("?"))
