@@ -159,6 +159,7 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("x:7:", engine.Evaluate("const box={ value: 7, read(prefix, suffix){ return prefix + this.value + suffix; } }; const bound=box.read.bind(box, 'x:'); return bound(':');").AsString());
         Assert.Equal(9d, engine.Evaluate("function add(a,b){return a+b;} const bound=add.bind(null, 4); return bound(5);").AsNumber());
+        Assert.Equal("x:7", engine.Evaluate("const read = function(prefix){ return prefix + this.value; }; const bound = read.bind({ value: 7 }, 'x:'); return bound();").AsString());
     }
 
     [Fact]

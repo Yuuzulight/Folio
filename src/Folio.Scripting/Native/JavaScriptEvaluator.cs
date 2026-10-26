@@ -731,8 +731,10 @@ internal sealed class JavaScriptEvaluator
             var delegateProperties = CallableProperties.GetOrCreateValue(delegateValue);
             if (name == "bind") return (Func<IReadOnlyList<object?>, object?>)(args =>
             {
+                var boundReceiver = args.Count > 0 ? args[0] : null;
                 var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
-                return (Func<IReadOnlyList<object?>, object?>)(callArgs => delegateValue([.. boundArguments, .. callArgs]));
+                return (Func<IReadOnlyList<object?>, object?>)(callArgs =>
+                    InvokeFunction(delegateValue, boundReceiver, [.. boundArguments, .. callArgs]));
             });
             if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>()));
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : Array.Empty<object?>()));
