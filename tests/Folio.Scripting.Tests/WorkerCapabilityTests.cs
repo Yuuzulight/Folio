@@ -65,6 +65,23 @@ public sealed class WorkerCapabilityTests
         Assert.True(destination.Call(test, decoded.Value, [ScriptValue.FromString("FOLIO")]).AsBoolean());
     }
 
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsCyclesMapsAndSets()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("var root={}; root.self=root; root.map=new Map([['answer',42]]); root.set=new Set([7]); root");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        Assert.Same(decoded.Value.Raw, destination.GetProperty(decoded.Value, "self").Raw);
+        var map = destination.GetProperty(decoded.Value, "map");
+        var get = destination.GetProperty(map, "get");
+        Assert.Equal(42, destination.Call(get, map, [ScriptValue.FromString("answer")]).AsNumber());
+        var set = destination.GetProperty(decoded.Value, "set");
+        var has = destination.GetProperty(set, "has");
+        Assert.True(destination.Call(has, set, [ScriptValue.FromNumber(7)]).AsBoolean());
+    }
+
 
 
     [Theory]

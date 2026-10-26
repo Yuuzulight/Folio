@@ -173,6 +173,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             ["add"] = new NativeReceiverFunction((receiver, args) => receiver is NativeSet set && args.Count > 0 ? set.Add(args[0]) : receiver),
             ["has"] = new NativeReceiverFunction((receiver, args) => receiver is NativeSet set && set.Has(args.Count > 0 ? args[0] : null)),
             ["delete"] = new NativeReceiverFunction((receiver, args) => receiver is NativeSet set && set.Delete(args.Count > 0 ? args[0] : null)),
+            ["forEach"] = new NativeReceiverFunction((receiver, args) => { if (receiver is NativeSet set && args.Count > 0 && IsCallable(args[0])) set.ForEach(args[0]!); return JavaScriptEvaluator.UndefinedValue.Instance; }),
         };
         var setConstructor = new NativeFunction(args => new NativeSet(args.Count > 0 ? args[0] : null));
         setConstructor.SetProperty("prototype", setPrototype);
@@ -183,6 +184,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             ["get"] = new NativeReceiverFunction((receiver, args) => receiver is NativeMap map && args.Count > 0 && args[0] is { } key ? map.Get(key) : JavaScriptEvaluator.UndefinedValue.Instance),
             ["has"] = new NativeReceiverFunction((receiver, args) => receiver is NativeMap map && args.Count > 0 && args[0] is { } key && map.Has(key)),
             ["delete"] = new NativeReceiverFunction((receiver, args) => receiver is NativeMap map && args.Count > 0 && args[0] is { } key && map.Delete(key)),
+            ["forEach"] = new NativeReceiverFunction((receiver, args) => { if (receiver is NativeMap map && args.Count > 0 && IsCallable(args[0])) map.ForEach(args[0]!); return JavaScriptEvaluator.UndefinedValue.Instance; }),
         };
         var mapConstructor = new NativeFunction(args => new NativeMap(args.Count > 0 ? args[0] : null));
         mapConstructor.SetProperty("prototype", mapPrototype);
@@ -447,6 +449,10 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             return ToScriptValue(hostValue);
         if (target.Raw is JavaScriptEvaluator.RegexValue regex && regex.TryGetProperty(name, out var regexValue))
             return ToScriptValue(regexValue);
+        if (target.Raw is NativeMap map && map.TryGetProperty(name, out var mapValue))
+            return ToScriptValue(mapValue);
+        if (target.Raw is NativeSet set && set.TryGetProperty(name, out var setValue))
+            return ToScriptValue(setValue);
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
         if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
@@ -749,6 +755,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
         internal object Add(object? value) { if (!_values.Contains(value)) _values.Add(value); return this; }
         internal bool Has(object? value) => _values.Contains(value);
         internal bool Delete(object? value) => _values.Remove(value);
+        internal void ForEach(object callback) { if (IsCallable(callback)) foreach (var item in _values) InvokeCallable(callback, [item, item, this]); }
         internal object?[] Values() => _values.ToArray();
         internal bool TryGetProperty(string name, out object? value)
         {
@@ -768,7 +775,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
 
     internal sealed class NativeMap
     {
-        private readonly Dictionary<object, object?> _values = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, object?> _values = new();
         internal NativeMap(object? initial)
         {
             if (initial is IReadOnlyList<object?> entries)
@@ -778,6 +785,7 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
         internal object? Get(object key) => _values.TryGetValue(key, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance;
         internal bool Has(object key) => _values.ContainsKey(key);
         internal bool Delete(object key) => _values.Remove(key);
+        internal void ForEach(object callback) { if (IsCallable(callback)) foreach (var pair in _values) InvokeCallable(callback, [pair.Value, pair.Key, this]); }
         internal object?[] Entries() => _values.Select(pair => (object?)new object?[] { pair.Key, pair.Value }).ToArray();
         internal bool TryGetProperty(string name, out object? value)
         {
