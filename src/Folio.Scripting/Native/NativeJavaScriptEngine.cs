@@ -170,9 +170,21 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["freeze"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? args[0] : null),
             ["getOwnPropertyDescriptor"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                if (args.Count < 2 || args[0] is not IReadOnlyDictionary<string, object?> target) return null;
+                if (args.Count < 2 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return null;
                 var name = StringValue(args[1]);
-                return target.TryGetValue(name, out var value) ? new Dictionary<string, object?> { ["value"] = value, ["writable"] = true, ["enumerable"] = true, ["configurable"] = true } : null;
+                object? value;
+                var found = args[0] switch
+                {
+                    IReadOnlyDictionary<string, object?> target => target.TryGetValue(name, out value),
+                    INativeHostObject host => host.TryGetValue(name, out value),
+                    INativeCallable callable => callable.TryGetProperty(name, out value),
+                    INativeBuffer buffer => buffer.TryGetProperty(name, out value),
+                    IList<object?> values when name == "length" => (value = (double)values.Count) is not null,
+                    IList<object?> values when int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0 && index < values.Count
+                        => (value = values[index]) is not null,
+                    _ => (value = null) is not null,
+                };
+                return found ? new Dictionary<string, object?> { ["value"] = value, ["writable"] = true, ["enumerable"] = name != "length", ["configurable"] = true } : null;
             }),
             ["prototype"] = new Dictionary<string, object?>(StringComparer.Ordinal),
         };
