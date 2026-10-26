@@ -122,7 +122,7 @@ internal sealed class JavaScriptEvaluator
                 case JavaScriptExpressionStatement expression: lastResult = Evaluate(expression.Expression); break;
                 case JavaScriptVariableStatement variable:
                 {
-                    var value = variable.Initializer is null ? null : Evaluate(variable.Initializer);
+                    var value = variable.Initializer is null ? UndefinedOrNull() : Evaluate(variable.Initializer);
                     if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
                     {
                         var names = variable.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
