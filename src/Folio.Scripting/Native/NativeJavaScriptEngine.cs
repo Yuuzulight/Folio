@@ -366,6 +366,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         // Keep it as a live view of the engine binding table so assignments made
         // through either spelling observe the same state.
         _bindings["globalThis"] = _bindings;
+        // At script top level (including UMD libraries) `this` is the global
+        // object. Function calls replace it with their actual receiver in the
+        // evaluator, so this does not leak into ordinary function scope.
+        _bindings["this"] = _bindings;
         if (_bindings["Object"] is NativeFunction objectConstructorBinding)
             objectConstructorBinding.SetProperty("prototype", objectPrototype);
     }

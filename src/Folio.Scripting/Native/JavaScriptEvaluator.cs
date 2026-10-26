@@ -1041,7 +1041,11 @@ internal sealed class JavaScriptEvaluator
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
             for (var i = 0; i < function.Parameters.Count; i++)
                 BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : null);
-            local["this"] = receiver;
+            // Non-strict top-level/function calls receive the global object when
+            // invoked without an explicit receiver. UMD libraries rely on this
+            // for their `(function(){ ... })(this)` wrapper; method calls still
+            // supply their actual receiver through ReceiverBindings.
+            local["this"] = receiver ?? captured;
             local["arguments"] = arguments.ToList();
             return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
         }
