@@ -24,6 +24,16 @@ public sealed class IframeLifecycleTests
         Assert.Equal("yes", child.QuerySelector("body")!.GetAttribute("data-ran"));
     }
 
+    [Fact]
+    public void NativeEngineIframeMessagesCrossTheWindowBoundary()
+    {
+        using var document = Document.Parse("<iframe id='f'></iframe>", Options());
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, document);
+        engine.Evaluate("var parentValue=0; var f=document.getElementById('f'); f.srcdoc=\"<script>addEventListener('message',function(e){ parent.postMessage({answer:e.data.answer+1}, '*'); });</script>\"; f.contentDocument; f.contentWindow.onmessage=function(e){parentValue=e.data.answer;}; f.contentWindow.postMessage({answer:6}, 'https://parent.example');");
+        Assert.Equal(7, engine.Evaluate("parentValue").AsNumber());
+    }
+
     [Theory]
     [InlineData(null, true)]
     [InlineData("", false)]
