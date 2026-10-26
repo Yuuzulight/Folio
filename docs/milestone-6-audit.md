@@ -310,13 +310,13 @@ Original acceptance:
 
 ### #540 — Workers: postMessage with structured clone and transferables
 
-**Incomplete.** Evidence: `StructuredCloneCodec.cs`, `MessagePortState.cs`, `MessagePortBindings.cs`, `WorkerState.cs`; `MessagePortTests`, `ArrayBufferAdapterTests`, `HostCallbackExceptionTests`.
+**Acceptance verified; follow-up remains.** Evidence: `StructuredCloneCodec.cs`, `MessagePortState.cs`, `MessagePortBindings.cs`, `WorkerState.cs`; 90 worker/ArrayBuffer tests and the 7-test benchmark suite pass, including the 16 MiB transfer benchmark.
 
 Workers, MessagePorts and global structuredClone now share an engine-neutral graph codec, with owner-thread materialization, cycles/aliases, sparse arrays, Map/Set, Date/RegExp/Error/BigInt and typed-buffer views. Transfers detach source buffers and move port mailboxes into new receiving-engine wrappers. Private captured intrinsics and native object-brand checks prevent artifact constructors/prototypes from defining the transport. Options dictionaries and iterable transfer lists work in both worker directions.
 
 Message delivery uses separate HTML tasks with microtask checkpoints. Listener removal and callback failures are independent of decode failures; receiver allocation refusal fires messageerror and permits subsequent delivery. Pending mailbox storage shares an engine budget with worker queues; reservation refusal precedes transfer commit. Shutdown drops queued commands and closes abandoned transferred channels, including deep transfer chains without host recursion. Direct regressions exercise worker-created ports transferred to the parent and surviving worker termination.
 
-Explicitly transferred ArrayBuffer bytes now travel as host-owned transfer payloads with opaque clone tokens, avoiding base64 expansion; ordinary structured clones retain the encoded graph path. The Jint adapter now takes the sender's backing array through its transfer-only ownership seam and the receiving ArrayBuffer adopts that array. `TransferBenchmark` measures a 16 MiB cross-engine transfer and asserts backing-array identity and sentinel bytes. Native-engine worker regressions now cover the same graph codec, cycles, Map/Set, aliases and transferred buffers end to end. The native second-engine path is therefore exercised, but complete Web-platform conformance remains absent, so the issue remains open.
+Explicitly transferred ArrayBuffer bytes now travel as host-owned transfer payloads with opaque clone tokens, avoiding base64 expansion; ordinary structured clones retain the encoded graph path. The Jint adapter now takes the sender's backing array through its transfer-only ownership seam and the receiving ArrayBuffer adopts that array. `TransferBenchmark` measures a 16 MiB cross-engine transfer and asserts backing-array identity and sentinel bytes. Native-engine worker regressions cover the same graph codec, cycles, Map/Set, aliases and transferred buffers end to end. The issue's stated acceptance is met; complete Web-platform conformance remains a separate follow-up.
 
 Original acceptance:
 
