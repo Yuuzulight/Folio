@@ -22,6 +22,6 @@ complete from this table.
 
 The repository-wide recheck on 2026-10-26 found no regressions in these
 completed pre-M6 milestones: the solution builds with zero warnings and errors,
-and the solution test run passes 3,816 tests (3,815 succeeded and one skipped) with one
-machine-only symbolic-link skip.
+and the solution test run passes 3,827 tests (3,826 succeeded, zero failed, and one
+machine-only symbolic-link skip).
 
