@@ -6,7 +6,7 @@ namespace Folio.Scripting.Dom;
 internal interface IFetchContext
 {
     Uri? BaseUri { get; }
-    (ResourceResponse? Response, string? Error) Fetch(string url);
+    (ResourceResponse? Response, string? Error) Fetch(string url, string? integrity = null);
     int StoreFetchBody(byte[] data);
     byte[]? FetchBody(int handle);
     void FreeFetchBody(int handle);

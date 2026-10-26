@@ -18,7 +18,7 @@ internal static class FetchBindings
                 ResourceLoader.Resolve(context.BaseUri?.AbsoluteUri, args.Length > 0 ? args[0].AsString() ?? "" : "") is { } url
                     ? ScriptValue.FromString(url)
                     : ScriptValue.Null)
-            .DefineMethod("load", (_, _, args) => ScriptValue.FromString(Load(context, args.Length > 0 ? args[0].AsString() ?? "" : "", args.Length > 1 && args[1].AsBoolean())))
+            .DefineMethod("load", (_, _, args) => ScriptValue.FromString(Load(context, args.Length > 0 ? args[0].AsString() ?? "" : "", args.Length > 1 && args[1].AsBoolean(), args.Length > 2 ? args[2].AsString() : null)))
             // A body stays in the host until read: text() decodes it as UTF-8 (a BOM is dropped), bytes() hands it over in base64.
             .DefineMethod("text", (_, _, args) => ScriptValue.FromString(Utf8(context.FetchBody(Handle(args)))))
             .DefineMethod("bytes", (_, _, args) => ScriptValue.FromString(Convert.ToBase64String(context.FetchBody(Handle(args)) ?? [])))
@@ -31,9 +31,9 @@ internal static class FetchBindings
     }
 
     // The outcome as JSON: { ok, contentType, length, body } (body is a handle, 0 for a HEAD) or { ok: false, error }.
-    private static string Load(IFetchContext context, string url, bool head)
+    private static string Load(IFetchContext context, string url, bool head, string? integrity)
     {
-        var (outcome, error) = context.Fetch(url);
+        var (outcome, error) = context.Fetch(url, integrity);
         if (outcome is not { } response)
             return JsonSerializer.Serialize(new { ok = false, error });
         return JsonSerializer.Serialize(new { ok = true, contentType = response.ContentType, length = response.Data!.Length, body = head ? 0 : context.StoreFetchBody(response.Data) });
@@ -171,10 +171,10 @@ internal static class FetchBindings
             class Request {
                 constructor(input, init) {
                     init = init === undefined || init === null ? {} : init;
-                    let url, method = 'GET', headers, signal = null;
+                    let url, method = 'GET', headers, signal = null, integrity = '';
                     if (input instanceof Request) {
                         const source = requestState.get(input);
-                        url = source.url; method = source.method; headers = new Headers(source.headers); signal = source.signal;
+                        url = source.url; method = source.method; headers = new Headers(source.headers); signal = source.signal; integrity = source.integrity;
                     } else {
                         const resolved = host.resolve(String(input));
                         if (resolved === null) throw new TypeError("Failed to construct 'Request': Failed to parse URL from " + String(input));
@@ -192,13 +192,19 @@ internal static class FetchBindings
                         if (init.signal !== null && !(init.signal instanceof AbortSignal)) throw new TypeError("Failed to construct 'Request': member signal is not of type AbortSignal.");
                         signal = init.signal;
                     }
+                    if (init.integrity !== undefined) {
+                        integrity = String(init.integrity);
+                        if (integrity.indexOf('sha256-') !== 0 && integrity.indexOf('sha384-') !== 0 && integrity.indexOf('sha512-') !== 0)
+                            throw new TypeError('The integrity option must use sha256-, sha384- or sha512-.');
+                    }
                     if (init.body !== undefined && init.body !== null) throw new TypeError("Failed to construct 'Request': Request with GET/HEAD method cannot have body.");
-                    requestState.set(this, { url, method, headers: headers || new Headers(), signal });
+                    requestState.set(this, { url, method, headers: headers || new Headers(), signal, integrity });
                 }
                 get url() { return requestState.get(this).url; }
                 get method() { return requestState.get(this).method; }
                 get headers() { return requestState.get(this).headers; }
                 get signal() { return requestState.get(this).signal; }
+                get integrity() { return requestState.get(this).integrity; }
                 // No credentials, cookies or Referer are ever sent, whatever the page asks for.
                 get credentials() { return 'omit'; }
                 get referrer() { return ''; }
@@ -338,7 +344,7 @@ internal static class FetchBindings
                             // network loader.
                             if (intercepted instanceof Response || (intercepted && typeof intercepted === 'object' && typeof intercepted.text === 'function' && typeof intercepted.status === 'number' && intercepted.headers)) { resolve(intercepted); return; }
                             try {
-                                const result = JSON.parse(host.load(request.url, request.method === 'HEAD'));
+                                const result = JSON.parse(host.load(request.url, request.method === 'HEAD', request.integrity));
                                 if (!result.ok) { reject(new TypeError('Failed to fetch: ' + result.error)); return; }
                                 const headers = new Headers();
                                 if (result.contentType) headers.set('content-type', result.contentType);

@@ -161,7 +161,7 @@ internal sealed class DomContext : IFetchContext
     /// A fetch() load: a data: URL or the host's loader, one response within the loader's size cap and all of them within
     /// <see cref="MaxFetchedBytes"/>. Refusals are reported as a diagnostic.
     /// </summary>
-    public (ResourceResponse? Response, string? Error) Fetch(string url)
+    public (ResourceResponse? Response, string? Error) Fetch(string url, string? integrity = null)
     {
         string? error = null;
         ResourceResponse? response = null;
@@ -171,8 +171,8 @@ internal sealed class DomContext : IFetchContext
             error = "Only data:, http: and https: URLs can be fetched.";
         else
         {
-            var loaded = new Folio.Resources.ResourceLoader(allowedFolders: null, maxBytes: Folio.Resources.ResourceLoader.MaxResourceBytes, host: ResourceLoader)
-                .Load(new ResourceRequest(url, ResourceKind.Fetch));
+                var loaded = new Folio.Resources.ResourceLoader(allowedFolders: null, maxBytes: Folio.Resources.ResourceLoader.MaxResourceBytes, host: ResourceLoader)
+                .Load(new ResourceRequest(url, ResourceKind.Fetch, integrity));
             if (!loaded.Succeeded)
                 error = loaded.Error ?? "The load failed.";
             else if (_fetchedBytes + loaded.Data!.Length > MaxFetchedBytes)
