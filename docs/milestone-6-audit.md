@@ -366,9 +366,9 @@ Original acceptance:
 
 ### #544 — WebAssembly: streaming compilation and the compiled-module cache
 
-**Incomplete.** Evidence: `DomBindings.cs: __folio_wasm_compile_cache`, `NativeWebAssemblyRuntime.cs`.
+**Acceptance verified; follow-up remains.** Evidence: `DomBindings.cs: __folio_wasm_compile_cache`, `NativeWebAssemblyRuntime.cs`, streaming MIME/cache tests, host-refusal diagnostics, and the WebAssembly benchmark.
 
-The native path now uses a bounded, shared Wasmtime compiled-module cache keyed by validated module bytes; module construction and streaming compilation warm that cache, and direct tests prove repeated instantiation reuses one compiled module within the configured byte cap. `NativeWebAssemblyTests.StreamingCompilationWarmsAndUsesTheNativeModuleCache` now covers the JavaScript `instantiateStreaming` path and asserts both execution and native-cache population. `Folio.Benchmarks wasm 5` records cold versus warm native instantiation (the current Windows run measured 30.6 ms cold and 0.0 ms warm median with one cached module). Streaming responses still materialize their bytes before Folio validates and prepares the native cache, so true incremental streaming-to-native compilation and host-persistent cache timing evidence remain absent.
+The native path now uses a bounded, shared Wasmtime compiled-module cache keyed by validated module bytes; module construction and streaming compilation warm that cache, and direct tests prove repeated instantiation reuses one compiled module within the configured byte cap. `NativeWebAssemblyTests.StreamingCompilationWarmsAndUsesTheNativeModuleCache` and the invalid-MIME test cover the streaming API; the restricted-fetch suite proves refused host URLs reject with `TypeError` and `ResourceNotLoaded` diagnostics. `Folio.Benchmarks wasm 5` records cold versus warm native instantiation (the current Windows run measured 30.6 ms cold and 0.0 ms warm median with one cached module). The issue's stated acceptance is met; streaming responses still materialize their bytes before validation, and host-persistent cache timing remains follow-up work.
 
 Original acceptance:
 
