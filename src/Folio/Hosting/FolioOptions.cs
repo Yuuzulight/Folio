@@ -64,8 +64,6 @@ public sealed record ResourceLimits
 
     /// <summary>Aggregate bytes available to a document's WebGL resources.</summary>
     public int MaxGpuBytes { get; init; } = 64 * 1024 * 1024;
-    /// <summary>Maximum time a WebGL shader or draw call may run before the watchdog loses the context.</summary>
-    public TimeSpan MaxShaderExecutionTime { get; init; } = TimeSpan.FromSeconds(2);
     public int MaxMediaBytes { get; init; } = 128 * 1024 * 1024;
     /// <summary>Maximum number of media decoders held by one document.</summary>
     public int MaxMediaDecoders { get; init; } = 8;
@@ -147,9 +145,9 @@ public sealed class FolioOptions
     /// <summary>Resolves relative URLs; null for documents without a location.</summary>
     public Uri? BaseUri { get; init; }
 
-    public ColorScheme ColorScheme { get; set; } = ColorScheme.Light;
+    public ColorScheme ColorScheme { get; init; } = ColorScheme.Light;
 
-    public bool ReducedMotion { get; set; }
+    public bool ReducedMotion { get; init; }
 
     /// <summary>Whether form submission is permitted. Sandboxed iframes clear this unless they grant allow-forms.</summary>
     public bool FormsAllowed { get; init; } = true;

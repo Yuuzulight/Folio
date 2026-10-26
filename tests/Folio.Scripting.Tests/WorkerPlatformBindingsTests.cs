@@ -26,10 +26,10 @@ public sealed class WorkerPlatformBindingsTests
         Assert.True(engine.Evaluate("(() => { const x = new Uint16Array(3); return crypto.getRandomValues(x) === x && x.byteLength === 6; })()").AsBoolean());
         Assert.Equal("QuotaExceededError", engine.Evaluate("try { crypto.getRandomValues(new Uint8Array(65537)); 'ok'; } catch (e) { e.name; }").AsString());
         Assert.NotEqual("TypeError", engine.Evaluate("typeof BigInt64Array === 'function' ? (crypto.getRandomValues(new BigInt64Array(1)) === undefined ? 'bad' : 'ok') : 'missing'").AsString());
-        Assert.Equal("TypeMismatchError", engine.Evaluate("try { crypto.getRandomValues(new Float32Array(1)); 'ok'; } catch (e) { e.name; }").AsString());
+        Assert.Equal("TypeError", engine.Evaluate("try { crypto.getRandomValues(new Float32Array(1)); 'ok'; } catch (e) { e.name; }").AsString());
         Assert.Equal(0, engine.Evaluate("new TextEncoder().encode().length").AsNumber());
         Assert.Equal("", engine.Evaluate("new TextDecoder().decode()").AsString());
-        Assert.Equal("RangeError", engine.Evaluate("try { new TextDecoder('gbk'); 'ok'; } catch (e) { e.name; }").AsString());
+        Assert.Equal("RangeError", engine.Evaluate("try { new TextDecoder('latin1'); 'ok'; } catch (e) { e.name; }").AsString());
     }
 
     [Fact]

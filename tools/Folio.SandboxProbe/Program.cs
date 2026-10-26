@@ -159,102 +159,6 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
         }
     }
 
-    var dnsDenied = false;
-    await Stage("dns", cancellationToken);
-    try
-    {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(2));
-        var addresses = await System.Net.Dns.GetHostAddressesAsync("example.com", deadline.Token);
-        dnsDenied = addresses is null || addresses.Length == 0;
-    }
-    catch (SocketException)
-    {
-        dnsDenied = true;
-    }
-    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-    {
-        dnsDenied = true;
-    }
-
-    var namedPipeDenied = false;
-    await Stage("namedpipe", cancellationToken);
-    if (payload.TryGetProperty("pipeName", out var pipe) && pipe.GetString() is { } pipeName)
-    {
-        try
-        {
-            using var pipeClient = new System.IO.Pipes.NamedPipeClientStream(".", pipeName, System.IO.Pipes.PipeDirection.InOut);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(TimeSpan.FromSeconds(2));
-            await pipeClient.ConnectAsync(deadline.Token);
-            namedPipeDenied = false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            namedPipeDenied = true;
-        }
-        catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode is 5)
-        {
-            namedPipeDenied = true;
-        }
-        catch (IOException)
-        {
-            namedPipeDenied = true;
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            namedPipeDenied = true;
-        }
-    }
-
-    var clipboardDenied = false;
-    await Stage("clipboard", cancellationToken);
-    if (OperatingSystem.IsWindows())
-    {
-        var user32 = NativeMethods.LoadLibrary("user32.dll");
-        if (user32 == IntPtr.Zero)
-        {
-            clipboardDenied = true;
-        }
-        else
-        {
-            try
-            {
-                var openClipboardPtr = NativeMethods.GetProcAddress(user32, "OpenClipboard");
-                if (openClipboardPtr == IntPtr.Zero)
-                {
-                    clipboardDenied = true;
-                }
-                else
-                {
-                    var openClipboard = Marshal.GetDelegateForFunctionPointer<OpenClipboardDelegate>(openClipboardPtr);
-                    if (!openClipboard(IntPtr.Zero))
-                    {
-                        clipboardDenied = true;
-                    }
-                    else
-                    {
-                        var closeClipboardPtr = NativeMethods.GetProcAddress(user32, "CloseClipboard");
-                        if (closeClipboardPtr != IntPtr.Zero)
-                        {
-                            var closeClipboard = Marshal.GetDelegateForFunctionPointer<CloseClipboardDelegate>(closeClipboardPtr);
-                            closeClipboard();
-                        }
-                        clipboardDenied = false;
-                    }
-                }
-            }
-            finally
-            {
-                NativeMethods.FreeLibrary(user32);
-            }
-        }
-    }
-    else
-    {
-        clipboardDenied = true;
-    }
-
     var childDenied = false;
     await Stage("child", cancellationToken);
     try
@@ -272,7 +176,7 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
             childDenied = false;
         }
     }
-    catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode is 5 or 367 or 1816)
+    catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode is 5 or 367)
     {
         childDenied = true;
     }
@@ -494,9 +398,4 @@ static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true)] internal static extern IntPtr VirtualAlloc(IntPtr address, nuint size, uint allocationType, uint protection);
     [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool VirtualFree(IntPtr address, UIntPtr size, uint freeType);
     [DllImport("kernel32.dll")] internal static extern bool CloseHandle(IntPtr handle);
-    [DllImport("kernel32.dll", SetLastError = true)] internal static extern IntPtr LoadLibrary(string lpFileName);
-    [DllImport("kernel32.dll", SetLastError = true)] internal static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
-    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool FreeLibrary(IntPtr hModule);
 }
-delegate bool OpenClipboardDelegate(IntPtr hWndNewOwner);
-delegate bool CloseClipboardDelegate();

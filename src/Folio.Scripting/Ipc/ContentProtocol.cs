@@ -24,12 +24,6 @@ public enum ContentMessageKind
     Capabilities,
     StorageRequest,
     StorageResponse,
-    Cursor,
-    Tooltip,
-    LinkActivated,
-    ClipboardCopy,
-    FormSubmitted,
-    SelectDropdown,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

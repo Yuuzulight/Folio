@@ -18,7 +18,6 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
     internal void SetDocumentUri(Uri? uri) => _baseUri = uri;
     private readonly Dictionary<string, Dictionary<string, CacheStorageHandle>> _contexts = new(StringComparer.Ordinal);
     private readonly string _registrationPrefix = artifact + ":service-worker-registration/";
-    private readonly string _webStoragePrefix = StorageArea.Prefix(artifact, "local");
     private int _handles;
 
     internal byte[] Execute(byte[] bytes)
@@ -53,7 +52,6 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
             return null;
         }
         if (request.Operation.StartsWith("metadata", StringComparison.Ordinal)) return Metadata(request);
-        if (request.Operation.StartsWith("web", StringComparison.Ordinal)) return WebStorage(request);
         if (!_contexts.TryGetValue(request.Context, out var context))
         {
             if (_contexts.Count >= 64) throw WebIdlException.DomException("QuotaExceededError", "Too many cache contexts.");
@@ -117,32 +115,6 @@ internal sealed class ContentCacheBroker(IArtifactStorage storage, string artifa
         }
     }
 
-    // localStorage of the artifact: the parent holds the quota, so a child cannot write past it nor outside its own namespace.
-    private object? WebStorage(Request request)
-    {
-        var key = request.Key ?? "";
-        if (!key.StartsWith(_webStoragePrefix, StringComparison.Ordinal) || key.Length > _webStoragePrefix.Length + 3 * 1024 * 1024)
-            throw WebIdlException.TypeError("Invalid web storage scope.");
-        lock (storage)
-        {
-            switch (request.Operation)
-            {
-                case "webRead": return storage.Read(key);
-                case "webKeys": return storage.Keys(key).Where(k => k.StartsWith(_webStoragePrefix, StringComparison.Ordinal)).ToArray();
-                case "webDelete": storage.Delete(key); return null;
-                case "webWrite":
-                    var value = request.Value ?? "";
-                    long Size(string stored) => Uri.UnescapeDataString(stored[_webStoragePrefix.Length..]).Length + (storage.Read(stored)?.Length ?? 0);
-                    var others = storage.Keys(_webStoragePrefix).Where(k => k.StartsWith(_webStoragePrefix, StringComparison.Ordinal) && k != key).Sum(Size);
-                    if (others + Uri.UnescapeDataString(key[_webStoragePrefix.Length..]).Length + value.Length > StorageArea.Quota)
-                        throw WebIdlException.DomException("QuotaExceededError", "The storage quota has been exceeded.");
-                    storage.Write(key, value);
-                    return null;
-                default: throw WebIdlException.TypeError("Unknown web storage operation.");
-            }
-        }
-    }
-
     public void Dispose() { _contexts.Clear(); _handles = 0; }
 }
 
@@ -161,12 +133,10 @@ internal sealed class BrokerArtifactStorage(ContentHostSession session) : IArtif
             : WebIdlException.TypeError(reply.ErrorMessage ?? "Invalid storage operation.");
         return reply.Value;
     }
-    // Web storage keys (localStorage) go to their own broker operations; everything else is registration metadata.
-    private static bool IsWebStorage(string key) => key.StartsWith("folio/local-v1/", StringComparison.Ordinal);
-    public string? Read(string key) => Call(new(IsWebStorage(key) ? "webRead" : "metadataRead", _context, Key: key)).GetString();
-    public void Write(string key, string value) => Call(new(IsWebStorage(key) ? "webWrite" : "metadataWrite", _context, Key: key, Value: value));
-    public void Delete(string key) => Call(new(IsWebStorage(key) ? "webDelete" : "metadataDelete", _context, Key: key));
-    public IReadOnlyList<string> Keys(string prefix) => Call(new(IsWebStorage(prefix) ? "webKeys" : "metadataKeys", _context, Key: prefix)).Deserialize<string[]>()!;
+    public string? Read(string key) => Call(new("metadataRead", _context, Key: key)).GetString();
+    public void Write(string key, string value) => Call(new("metadataWrite", _context, Key: key, Value: value));
+    public void Delete(string key) => Call(new("metadataDelete", _context, Key: key));
+    public IReadOnlyList<string> Keys(string prefix) => Call(new("metadataKeys", _context, Key: prefix)).Deserialize<string[]>()!;
     public ICacheStorageBackend CreateCacheBackend(string artifact, long quota) => new RemoteCacheBackend(this);
 
     private sealed class RemoteCacheBackend(BrokerArtifactStorage storage) : ICacheStorageBackend

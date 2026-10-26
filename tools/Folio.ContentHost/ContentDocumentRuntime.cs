@@ -8,8 +8,6 @@ using Folio.Scripting.Gpu;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Jint;
 using Folio.Skia;
-using Folio.Painting;
-using System.Numerics;
 using System.Text.Json;
 using System.Collections.Concurrent;
 
@@ -82,9 +80,6 @@ public sealed class ContentDocumentRuntime : IDisposable
 
     public Task<ContentDocumentResult> ExecuteAsync(ContentMessage message, CancellationToken cancellationToken)
     {
-        if (message.Payload.TryGetProperty("crash", out var crashNode) && crashNode.ValueKind is JsonValueKind.True or JsonValueKind.String)
-            Environment.FailFast("Crashing test hook triggered.");
-
         var script = message.Payload.TryGetProperty("script", out var source) ? source.GetString() ?? "" : "";
         var url = message.Payload.TryGetProperty("url", out var location) ? location.GetString() ?? "content" : "content";
         var replacesDocument = message.Payload.TryGetProperty("html", out var htmlElement);
@@ -136,153 +131,12 @@ public sealed class ContentDocumentRuntime : IDisposable
         _eventLoop?.SpinUntilIdle();
         var frame = _document?.Paint(1280, 720).List;
         var canvasCommands = _document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0;
-        if (_document is not null)
+        if (_document is not null && canvasCommands > 0)
         {
             PublishCurrentFrame();
         }
-        string? encodedList = frame is not null ? Convert.ToBase64String(DisplayListCodec.Encode(frame, _codecContext)) : null;
         return Task.FromResult(new ContentDocumentResult(result.ToString(), frame?.Items.Count ?? 0, canvasCommands,
-            _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray(),
-            encodedList));
-    }
-
-    public Task RouteInputAsync(ContentInputEvent input, long sequence, CancellationToken cancellationToken)
-    {
-        if (_document is null) return Task.CompletedTask;
-
-        switch (input.Type.ToLowerInvariant())
-        {
-            case "pointermove":
-                _document.Input.HandlePointerMove(new PointerEvent(new Vector2((float)input.X, (float)input.Y), PointerButton.None, (PointerButtons)input.Buttons, 0, (KeyModifiers)input.Modifiers));
-                break;
-            case "pointerdown":
-                _document.Input.HandlePointerDown(new PointerEvent(new Vector2((float)input.X, (float)input.Y), (PointerButton)input.Button, (PointerButtons)input.Buttons, 1, (KeyModifiers)input.Modifiers));
-                break;
-            case "pointerup":
-                _document.Input.HandlePointerUp(new PointerEvent(new Vector2((float)input.X, (float)input.Y), (PointerButton)input.Button, (PointerButtons)input.Buttons, 1, (KeyModifiers)input.Modifiers));
-                break;
-            case "click":
-                if (!string.IsNullOrEmpty(input.Key) && _document.GetElementById(input.Key) is { } targetEl)
-                {
-                    targetEl.Focus();
-                    targetEl.Click();
-                    if (_engine is not null)
-                    {
-                        try { _engine.Evaluate($"(function(){{ var el = document.getElementById('{input.Key}'); if (el) el.click(); }})()"); }
-                        catch { }
-                    }
-                }
-                else
-                {
-                    var clickPos = new Vector2((float)input.X, (float)input.Y);
-                    _document.Input.HandlePointerDown(new PointerEvent(clickPos, PointerButton.Primary, PointerButtons.Primary, 1, (KeyModifiers)input.Modifiers));
-                    _document.Input.HandlePointerUp(new PointerEvent(clickPos, PointerButton.Primary, PointerButtons.None, 1, (KeyModifiers)input.Modifiers));
-                }
-                break;
-            case "pointerleave":
-                _document.Input.HandlePointerLeave();
-                break;
-            case "wheel":
-                _document.Input.HandleWheel(new WheelEvent(new Vector2((float)input.X, (float)input.Y), new Vector2((float)input.DeltaX, (float)input.DeltaY), Modifiers: (KeyModifiers)input.Modifiers));
-                break;
-            case "keydown":
-                _document.Input.HandleKeyDown(new KeyEvent(input.Key ?? "", input.Code ?? "", (KeyModifiers)input.Modifiers));
-                break;
-            case "keyup":
-                _document.Input.HandleKeyUp(new KeyEvent(input.Key ?? "", input.Code ?? "", (KeyModifiers)input.Modifiers));
-                break;
-            case "textinput":
-                _document.Input.HandleTextInput(new TextInputEvent(input.Text ?? ""));
-                if (!string.IsNullOrEmpty(input.Key) && _document.GetElementById(input.Key) is { } textEl)
-                {
-                    textEl.Value += input.Text;
-                    if (_engine is not null)
-                    {
-                        try { _engine.Evaluate($"(function(){{ var el = document.getElementById('{input.Key}'); if (el) {{ el.value += '{input.Text}'; el.dispatchEvent(new Event('input', {{ bubbles: true }})); }} }})()"); }
-                        catch { }
-                    }
-                }
-                break;
-            case "focus":
-                if (!string.IsNullOrEmpty(input.Key) && _document.GetElementById(input.Key) is { } fEl)
-                {
-                    fEl.Focus();
-                }
-                break;
-            case "select" or "selectoption":
-                var targetSelect = !string.IsNullOrEmpty(input.Key)
-                    ? _document.GetElementById(input.Key)?.Node
-                    : (_document.Input.FocusedElement?.Node is { LocalName: "select" } fs
-                        ? fs
-                        : _document.Node.Descendants.OfType<ElementNode>().FirstOrDefault(e => e.LocalName == "select"));
-                if (targetSelect is not null)
-                {
-                    var options = targetSelect.Descendants.OfType<ElementNode>()
-                        .Where(e => e.LocalName == "option" && !ElementNode.IsDisabledControl(e))
-                        .ToList();
-                    var pickIdx = Math.Clamp(input.Button, 0, Math.Max(0, options.Count - 1));
-                    if (options.Count > 0)
-                    {
-                        for (var i = 0; i < options.Count; i++)
-                            options[i].Selected = (i == pickIdx);
-                        _document.Update();
-                        var sid = targetSelect.GetAttribute("id");
-                        if (!string.IsNullOrEmpty(sid) && _engine is not null)
-                        {
-                            try
-                            {
-                                _engine.Evaluate($"(function(){{ var s = document.getElementById('{sid}'); if (s) {{ s.selectedIndex = {pickIdx}; s.dispatchEvent(new Event('change', {{ bubbles: true }})); }} }})()");
-                            }
-                            catch { }
-                        }
-                    }
-                }
-                break;
-        }
-
-        _document.Update();
-        _eventLoop?.SpinUntilIdle();
-        PublishCurrentFrame();
-
-        var activeSelect = _document.Input.FocusedElement?.Node is { LocalName: "select" } fSelect
-            ? fSelect
-            : (!string.IsNullOrEmpty(input.Key) && _document.GetElementById(input.Key)?.Node is { LocalName: "select" } kSelect ? kSelect : null);
-
-        if (activeSelect is not null)
-        {
-            var options = activeSelect.Descendants.OfType<ElementNode>()
-                .Where(e => e.LocalName == "option")
-                .Select((opt, idx) =>
-                {
-                    var txt = (opt.TextContent ?? "").Trim();
-                    return new { index = idx, value = opt.GetAttribute("value") ?? txt, text = txt, selected = opt.IsSelected, disabled = ElementNode.IsDisabledControl(opt) };
-                })
-                .ToArray();
-            var selectedIdx = 0;
-            foreach (var opt in options)
-            {
-                if (opt.selected) { selectedIdx = opt.index; break; }
-            }
-            _ = _session.SendAsync(ContentMessageKind.SelectDropdown, new
-            {
-                sequence,
-                selectId = activeSelect.GetAttribute("id"),
-                selectedIndex = selectedIdx,
-                options
-            }, cancellationToken);
-        }
-
-        var painted = _document.Paint(1280, 720);
-        var encodedList = Convert.ToBase64String(DisplayListCodec.Encode(painted.List, _codecContext));
-        _ = _session.SendAsync(ContentMessageKind.Frame, new
-        {
-            sequence,
-            displayItems = painted.List.Items.Count,
-            displayList = encodedList,
-            canvasFrame = new { path = _frameStore.Path, width = _frameStore.Width, height = _frameStore.Height, stride = _frameStore.Stride, sequence = _frameStore.Sequence }
-        }, cancellationToken);
-
-        return Task.CompletedTask;
+            _runner?.Diagnostics.Select(diagnostic => diagnostic.Message).Concat(_taskDiagnostics).ToArray() ?? _taskDiagnostics.ToArray()));
     }
 
     public void Dispose()
@@ -403,7 +257,7 @@ public sealed class ContentDocumentRuntime : IDisposable
     }
 }
 
-public sealed record ContentDocumentResult(string Value, int DisplayItems, int CanvasCommands, string[] Diagnostics, string? DisplayList = null);
+public sealed record ContentDocumentResult(string Value, int DisplayItems, int CanvasCommands, string[] Diagnostics);
 
 public sealed record ContentGpuProbeResult(
     bool Succeeded,

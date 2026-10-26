@@ -69,25 +69,6 @@ internal sealed class DomContext : IFetchContext
     private readonly object _workerDiagnosticsGate = new();
     private readonly Queue<(Diagnostic Diagnostic, ScriptMessageBudget.Reservation Reservation)> _workerDiagnostics = new();
 
-    private const int MaxConsoleMessages = 1000;
-    private int _consoleMessages;
-
-    /// <summary>A console message as a diagnostic; after <see cref="MaxConsoleMessages"/> of them one warning says the rest are dropped.</summary>
-    internal void ReportConsole(string level, string text, int line, int column)
-    {
-        if (_consoleMessages > MaxConsoleMessages)
-            return;
-        if (++_consoleMessages > MaxConsoleMessages)
-        {
-            Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptConsole, Severity.Warning,
-                $"The document wrote more than {MaxConsoleMessages} console messages; the rest were dropped.", null, "console"));
-            return;
-        }
-        Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptConsole,
-            level == "error" ? Severity.Error : level == "warn" ? Severity.Warning : Severity.Info, text,
-            line > 0 ? new SourceLocation(line, Math.Max(column, 1)) : null, "console"));
-    }
-
     internal void ReportWorkerDiagnostic(Diagnostic diagnostic)
     {
         if (ScriptFeaturesDisposed) return;
@@ -220,7 +201,6 @@ internal sealed class DomContext : IFetchContext
         Capabilities = capabilities ?? FeatureCapabilities.Default;
         Document.SetFeatureAvailability(Capabilities.WebGl, Capabilities.Media, Capabilities.Sound, Capabilities.Iframes);
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
-        MaxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
         _gpuFactory = gpuFactory;
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
@@ -244,7 +224,7 @@ internal sealed class DomContext : IFetchContext
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
-        _rawResourceLoader = resourceLoader;
+        ResourceLoader = resourceLoader;
         BaseUri = baseUri;
         RasterBackend = raster;
         _canvasStyles = canvasStyles;
@@ -260,8 +240,7 @@ internal sealed class DomContext : IFetchContext
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
     private volatile FeatureCapabilities _capabilities = FeatureCapabilities.Default;
     public FeatureCapabilities Capabilities { get => _capabilities; private set => _capabilities = value; }
-    public int MaxGpuBytes { get; private set; }
-    public TimeSpan MaxShaderExecutionTime { get; private set; }
+    public int MaxGpuBytes { get; }
     public int MaxMediaBytes { get; }
     public int MaxMediaDecoders { get; }
     public int MaxWorkerMessageBytes { get; }
@@ -385,38 +364,9 @@ internal sealed class DomContext : IFetchContext
     private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;
     private readonly Dictionary<ElementNode, (string Source, Folio.Imaging.IImageHandle? Image)> _images = new(ReferenceEqualityComparer.Instance);
     public DomNodeTemplates Templates { get; }
-    /// <summary>The <see cref="Folio.Document"/> that draws and takes input for this tree, when scripts run against one.</summary>
-    internal Folio.Document? HostDocument { get; set; }
-
-    private FormControls? _forms;
-
-    /// <summary>The form logic: the host document's, or one over the bare tree.</summary>
-    internal FormControls Forms => _forms ??= HostDocument?.Forms ?? FormControls.For(Document);
-
-    private ElementNode? _scriptFocus;
-    public ElementNode? FocusedElement => HostDocument is { } host ? host.Input.FocusedNode : _scriptFocus;
-    public void Focus(ElementNode element)
-    {
-        if (HostDocument is { } host)
-            host.Input.Focus(element, visible: true);
-        else
-            _scriptFocus = element;
-    }
-    public void Blur(ElementNode element)
-    {
-        if (!ReferenceEquals(FocusedElement, element))
-            return;
-        if (HostDocument is { } host)
-            host.Input.Focus(null, visible: false);
-        else
-            _scriptFocus = null;
-    }
-
-    public bool TryUnwrapElement(ScriptValue value, [NotNullWhen(true)] out ElementNode? element)
-    {
-        element = Engine.TryGetHostTarget(value, out var target) ? target as ElementNode : null;
-        return element is not null;
-    }
+    public ElementNode? FocusedElement { get; private set; }
+    public void Focus(ElementNode element) => FocusedElement = element;
+    public void Blur(ElementNode element) { if (ReferenceEquals(FocusedElement, element)) FocusedElement = null; }
 
     public void UpdateCapabilities(FeatureCapabilities capabilities)
     {
@@ -703,11 +653,6 @@ internal sealed class DomContext : IFetchContext
             }
         }
     }
-    internal void PumpIframes()
-    {
-        foreach (var frame in _iframes.Values) frame.PumpChildLoop();
-    }
-
     public IframeState GetIframe(ElementNode element)
     {
         if (_iframes.TryGetValue(element, out var state)) return state;
@@ -785,23 +730,8 @@ internal sealed class DomContext : IFetchContext
         return WrapperCache.GetOrCreate(Engine, Templates.StyleDeclarationTemplate, new LiveStyleDeclaration(element));
     }
 
-    /// <summary>The declaration <c>getComputedStyle(element, pseudo)</c> returns; a pseudo-element selector that names nothing gives one that is empty.</summary>
-    public ScriptValue WrapComputedStyle(ElementNode element, string? pseudoSelector = null)
-    {
-        var pseudo = pseudoSelector?.TrimStart(':').ToLowerInvariant() switch
-        {
-            null or "" => Folio.Css.PseudoElement.None,
-            "before" => Folio.Css.PseudoElement.Before,
-            "after" => Folio.Css.PseudoElement.After,
-            "marker" => Folio.Css.PseudoElement.Marker,
-            "first-letter" => Folio.Css.PseudoElement.FirstLetter,
-            "selection" => Folio.Css.PseudoElement.Selection,
-            _ => (Folio.Css.PseudoElement?)null,
-        };
-        // An unknown pseudo-element is nothing to resolve: a declaration of an element that is not in any document.
-        var target = pseudo is null ? Document.CreateElement(Namespaces.Html, "span") : element;
-        return WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(target, this, pseudo ?? Folio.Css.PseudoElement.None));
-    }
+    public ScriptValue WrapComputedStyle(ElementNode element) =>
+        WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(element));
 
     public ScriptValue WrapRect(DomRect rect) =>
         WrapperCache.GetOrCreate(Engine, Templates.DomRectTemplate, rect);
@@ -835,7 +765,6 @@ internal sealed class DomContext : IFetchContext
             "option" => Templates.HtmlOptionElementTemplate,
             "select" => Templates.HtmlSelectElementTemplate,
             "textarea" => Templates.HtmlTextAreaElementTemplate,
-            "form" => Templates.HtmlFormElementTemplate,
             "template" => Templates.HtmlTemplateElementTemplate,
             "canvas" => Templates.HtmlCanvasElementTemplate,
             "video" => Templates.HtmlVideoElementTemplate,
@@ -929,16 +858,4 @@ internal sealed class LiveNodeList
 internal sealed class LiveHtmlCollection(ContainerNode container)
 {
     public ContainerNode Container { get; } = container;
-}
-internal sealed class ServiceWorkerInterceptingLoader(DomContext context, IResourceLoader? inner) : IResourceLoader
-{
-    public async Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
-    {
-        var intercepted = context.InterceptSubresource(request);
-        if (intercepted is not null)
-            return intercepted;
-        if (inner is not null)
-            return await inner.LoadAsync(request, cancellationToken);
-        return null;
-    }
 }

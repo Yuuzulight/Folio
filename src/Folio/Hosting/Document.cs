@@ -15,7 +15,7 @@ namespace Folio;
 /// A parsed HTML document, or a standalone SVG document when the text is one (an <c>svg</c> root element declared
 /// as XML or in the SVG namespace), parsed as XML (docs/architecture.md, public API sketch).
 /// </summary>
-public sealed partial class Document : IDisposable
+public sealed class Document : IDisposable
 {
     private readonly List<Diagnostic> _diagnostics;
 
@@ -23,49 +23,18 @@ public sealed partial class Document : IDisposable
     {
         Node = node;
         Options = options;
-        _colorScheme = options.ColorScheme;
-        _reducedMotion = options.ReducedMotion;
         node.SetFeatureAvailability(options.Capabilities.WebGl, options.Capabilities.Media, options.Capabilities.Sound, options.Capabilities.Iframes);
-        node.PrefersDarkColorScheme = _colorScheme == ColorScheme.Dark;
+        node.PrefersDarkColorScheme = options.ColorScheme == ColorScheme.Dark;
         _diagnostics = diagnostics;
-        node.DiagnosticSink ??= diagnostics.Add;
     }
 
     internal DocumentNode Node { get; }
 
     internal FolioOptions Options { get; }
 
-    /// <summary>The color scheme preference currently active for this document.</summary>
-    public ColorScheme ColorScheme
-    {
-        get => _colorScheme;
-        set
-        {
-            if (_colorScheme == value) return;
-            _colorScheme = value;
-            Node.PrefersDarkColorScheme = value == ColorScheme.Dark;
-            Node.SheetsMutated = true;
-        }
-    }
-    private ColorScheme _colorScheme;
-
-    /// <summary>Whether the reduced-motion preference is active for this document.</summary>
-    public bool ReducedMotion
-    {
-        get => _reducedMotion;
-        set
-        {
-            if (_reducedMotion == value) return;
-            _reducedMotion = value;
-            Node.SheetsMutated = true;
-        }
-    }
-    private bool _reducedMotion;
-
     /// <summary>Stage-6 capabilities granted by the host for this document.</summary>
     public FeatureCapabilities Capabilities => Options.Capabilities;
     public int MaxGpuBytes => Options.Limits.MaxGpuBytes;
-    public TimeSpan MaxShaderExecutionTime => Options.Limits.MaxShaderExecutionTime;
     public int MaxMediaBytes => Options.Limits.MaxMediaBytes;
     public int MaxMediaDecoders => Options.Limits.MaxMediaDecoders;
     public int MaxWorkerMessageBytes => Options.Limits.MaxWorkerMessageBytes;
@@ -219,10 +188,6 @@ public sealed partial class Document : IDisposable
     private readonly Dictionary<ElementNode, Element> _elements = [];
     private readonly Dictionary<ElementNode, TextControlState> _textControlStates = new(ReferenceEqualityComparer.Instance);
     private InputRouter? _inputRouter;
-    private FormControls? _forms;
-
-    /// <summary>Forms and their controls: validation, submission, activation.</summary>
-    internal FormControls Forms => _forms ??= new FormControls(Node, this);
 
     internal TextControlState? GetExistingTextControlState(ElementNode element) =>
         _textControlStates.GetValueOrDefault(element);
@@ -268,12 +233,12 @@ public sealed partial class Document : IDisposable
             state.Value = value;
             element.Value = state.Value;
             element.DisplayValue = state.DisplayText;
-            UpdateIfPainted();
+            Update();
         }
         else
         {
             element.Value = value;
-            UpdateIfPainted();
+            Update();
         }
     }
 
@@ -334,16 +299,7 @@ public sealed partial class Document : IDisposable
         var next = !element.IsChecked;
         element.Checked = next;
         SetState(element, NodeFlags.Checked, next);
-        UpdateIfPainted();
-        Forms.Activate(element, afterToggle: true);
-    }
-
-    /// <summary>The checked state of a checkbox or radio, and of the radios of its group, drawn again after a script changed it.</summary>
-    internal void RepaintForChecked(ElementNode element, IReadOnlyList<ElementNode>? group)
-    {
-        foreach (var e in group ?? [element])
-            SetState(e, NodeFlags.Checked, e.IsChecked);
-        UpdateIfPainted();
+        Update();
     }
 
     internal void CheckRadio(ElementNode element)
@@ -364,8 +320,7 @@ public sealed partial class Document : IDisposable
 
         element.Checked = true;
         SetState(element, NodeFlags.Checked, true);
-        UpdateIfPainted();
-        Forms.Activate(element, afterToggle: true);
+        Update();
     }
 
     internal void SelectAdjacentRadio(ElementNode current, int offset)
@@ -482,7 +437,57 @@ public sealed partial class Document : IDisposable
 
         var action = form.GetAttribute("action") ?? "";
         var method = (form.GetAttribute("method") ?? "GET").ToUpperInvariant();
-        var data = Forms.EntryList(form, submitter);
+        var data = new List<KeyValuePair<string, string>>();
+
+        var controls = form.Descendants.OfType<ElementNode>().Where(e => e.Name.Namespace == Namespaces.Html).ToList();
+        foreach (var control in controls)
+        {
+            if (ElementNode.IsDisabledControl(control))
+                continue;
+            var name = control.GetAttribute("name");
+            if (string.IsNullOrEmpty(name))
+                continue;
+
+            var tag = control.LocalName;
+            if (tag == "input")
+            {
+                var type = (control.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type is "submit" or "button" or "reset" or "image")
+                {
+                    if (control == submitter)
+                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
+                }
+                else if (type is "checkbox" or "radio")
+                {
+                    if (control.IsChecked)
+                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? "on"));
+                }
+                else if (type != "file")
+                {
+                    data.Add(new(name, GetControlValue(control)));
+                }
+            }
+            else if (tag == "textarea")
+            {
+                data.Add(new(name, GetControlValue(control)));
+            }
+            else if (tag == "select")
+            {
+                var options = control.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option" && !ElementNode.IsDisabledControl(e))
+                    .ToList();
+                var selected = options.Where(o => o.IsSelected).ToList();
+                if (selected.Count == 0 && options.Count > 0 && control.GetAttribute("multiple") is null)
+                    selected.Add(options[0]);
+                foreach (var opt in selected)
+                    data.Add(new(name, opt.Value ?? opt.GetAttribute("value") ?? opt.TextContent ?? ""));
+            }
+            else if (tag == "button")
+            {
+                if (control == submitter)
+                    data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
+            }
+        }
 
         Input.OnFormSubmitted(new FormSubmittedEventArgs(Wrap(form), action, method, data, submitter is not null ? Wrap(submitter) : null));
     }
@@ -525,7 +530,7 @@ public sealed partial class Document : IDisposable
                     opt.Selected = opt.GetAttribute("selected") is not null;
             }
         }
-        UpdateIfPainted();
+        Update();
     }
 
     internal void ToggleDetails(ElementNode details)
@@ -1202,7 +1207,7 @@ public sealed partial class Document : IDisposable
     {
         (_frame, _animatedBoxes) = (null, null);
         _lastPaint = (viewportWidth, viewportHeight, deviceScale, shaper, animationTime);
-        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
+        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
         _labelText = new Hosting.CanvasStyleEngine(_fonts, shaper);
         var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
@@ -1229,8 +1234,6 @@ public sealed partial class Document : IDisposable
         _allBoxes = null;
         Node.StructureMutated = false;
         Node.StyleMutated = false;
-        Node.SheetsMutated = false;
-        Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         if (animationTime.HasValue)
@@ -1257,17 +1260,17 @@ public sealed partial class Document : IDisposable
             var t = anim.Duration > 0 ? (time - anim.StartTime) / anim.Duration : 1.0;
             if (t >= 1.0)
             {
-                SetScrollOffset(node, anim.Target);
+                _scrollOffsets[node] = anim.Target;
                 completed.Add(node);
             }
             else if (t <= 0.0)
             {
-                SetScrollOffset(node, anim.Start);
+                _scrollOffsets[node] = anim.Start;
             }
             else
             {
                 var progress = (float)Easing.Ease.Apply(t);
-                SetScrollOffset(node, Vector2.Lerp(anim.Start, anim.Target, progress));
+                _scrollOffsets[node] = Vector2.Lerp(anim.Start, anim.Target, progress);
             }
         }
 
@@ -1345,13 +1348,6 @@ public sealed partial class Document : IDisposable
         }
     }
 
-    /// <summary>Restyles after a change, once there is something painted to restyle; before the first paint the change is simply there for it.</summary>
-    internal void UpdateIfPainted()
-    {
-        if (_lastPaint is not null && _images is not null)
-            Update();
-    }
-
     /// <summary>
     /// Restyles the document after DOM or attribute mutations, applying the minimum required damage level
     /// (<see cref="Damage.Paint"/>, <see cref="Damage.Layout"/>, or <see cref="Damage.Boxes"/>) and updating the display list.
@@ -1362,17 +1358,15 @@ public sealed partial class Document : IDisposable
         if (_lastPaint is not { } last || _images is null)
             throw new InvalidOperationException("The document has not been painted yet.");
 
-        if (Node.StructureMutated || Node.SheetsMutated)
+        if (Node.StructureMutated)
         {
-            var sheetsMutated = Node.SheetsMutated;
             Node.StructureMutated = false;
-            Node.SheetsMutated = false;
-            Node.StyleMutated = false;
-            Node.StyleRoots.Clear();
             // A style or link element came, went or changed its text: the styles are resolved again before the boxes are built.
-            if (sheetsMutated)
+            if (Node.SheetsMutated)
             {
-                var media = new MediaContext(last.Width, last.Height, last.Scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
+                Node.SheetsMutated = false;
+                Node.StyleMutated = false;
+                var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
                 _fonts ??= FontCollection.For(Options.Fonts);
                 var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
                 StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
@@ -1419,7 +1413,7 @@ public sealed partial class Document : IDisposable
         if (!partial)
         {
             Remember(Node);
-            var media = new MediaContext(last.Width, last.Height, last.Scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
+            var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
             _fonts ??= FontCollection.For(Options.Fonts);
             var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
             StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);

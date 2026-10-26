@@ -89,7 +89,7 @@ public static class Program
                 continue;
 
             var width = Viewport(folder);
-            var html = InjectDeterminism(LocalLibraries(File.ReadAllText(index), root)) + Injected(faces);
+            var html = LocalLibraries(File.ReadAllText(index), root) + Injected(faces);
             foreach (var (file, browser) in browsers)
             {
                 WaitForMemory();
@@ -190,57 +190,6 @@ public static class Program
         html { scrollbar-width: none !important; }
         </style>
         """;
-
-    private const string ScriptedDeterminismScript = """
-        <script>
-        (function() {
-          var seed = 42;
-          function seededRandom() {
-            seed = (seed * 16807) % 2147483647;
-            return (seed - 1) / 2147483646;
-          }
-          Math.random = seededRandom;
-          var fixedTime = 1791763200000;
-          var origDate = Date;
-          function FakeDate(y, m, d, h, mi, s, ms) {
-            if (!(this instanceof FakeDate)) return new origDate(fixedTime).toString();
-            if (arguments.length === 0) return new origDate(fixedTime);
-            return new (Function.prototype.bind.apply(origDate, [null].concat(Array.prototype.slice.call(arguments))))();
-          }
-          FakeDate.now = function() { return fixedTime; };
-          FakeDate.parse = origDate.parse;
-          FakeDate.UTC = origDate.UTC;
-          FakeDate.prototype = origDate.prototype;
-          Date = FakeDate;
-          if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-            var origGetRandomValues = crypto.getRandomValues.bind(crypto);
-            crypto.getRandomValues = function(arr) {
-              if (arr && arr.buffer) {
-                var view = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
-                for (var i = 0; i < view.length; i++) view[i] = Math.floor(seededRandom() * 256);
-                return arr;
-              }
-              return origGetRandomValues(arr);
-            };
-          }
-        })();
-        </script>
-        """;
-
-    private static string InjectDeterminism(string html)
-    {
-        var headIdx = html.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);
-        if (headIdx >= 0)
-            return html.Insert(headIdx + 6, "\n" + ScriptedDeterminismScript);
-        var htmlIdx = html.IndexOf("<html", StringComparison.OrdinalIgnoreCase);
-        if (htmlIdx >= 0)
-        {
-            var closeIdx = html.IndexOf('>', htmlIdx);
-            if (closeIdx >= 0)
-                return html.Insert(closeIdx + 1, "\n" + ScriptedDeterminismScript);
-        }
-        return ScriptedDeterminismScript + "\n" + html;
-    }
 
     private const string MeasureScript = """
 

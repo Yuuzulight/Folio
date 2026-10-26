@@ -31,15 +31,9 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ### #169 — WebGL (after milestone 5)
 
-**Complete as listed under #531, reopened and finished on 2026-10-24.** Evidence: issues #527–#531. WebGL 1, and the WebGL 2 surface the pages use, run on a software pipeline: a GLSL ES 1.00 and 3.00 compiler and interpreter (`src/Folio.Scripting/WebGl`), vertex fetch from typed buffers, primitive assembly with clipping, four-sample rasterisation with perspective-correct varyings, a fragment stage, and scissor, stencil, depth, blend and colour-mask operations, drawing into the canvas's drawing buffer, a texture's or a renderbuffer's pixels. The D8 category passes against Chrome's references.
+**Incomplete.** Evidence: `WebGL findings #528–#531`.
 
-The earlier closure of #529–#531 rested on a renderer that did not run shaders: it drew flat triangles from the first attribute and a colour taken from the first uniform, which is why the six real pages came out wrong (a flat white triangle, an empty rectangle). That was found by comparing D8 with its references and is what this section's evidence now covers.
-
-Every resource is a typed object (`WebGLBuffer`, `WebGLProgram`, `WebGLUniformLocation` and the rest) with a stable identity, a constructor to test against, and the type and ownership checks the specification asks for (`TypeError` for the wrong kind, `INVALID_OPERATION` for a deleted or foreign one). Extensions that work are listed by `getSupportedExtensions`: `ANGLE_instanced_arrays`, `OES_vertex_array_object`, `OES_standard_derivatives`, `OES_element_index_uint`, `EXT_blend_minmax`, `EXT_frag_depth`, `EXT_texture_filter_anisotropic` (the parameter is stored; sampling stays isotropic), `WEBGL_debug_renderer_info` and `WEBGL_lose_context`. Polygon offset, texture mip levels (`texImage2D`, `texSubImage2D` at any level) and `copyTexImage2D`/`copyTexSubImage2D` work.
-
-Images are stored in their own format (8-bit, half-float or 32-bit float components; one to four channels; depth and depth-stencil), so `RGBA32F`, `RGBA16F`, `R32F`, `RG16F` and the rest of the sized formats are uploaded from typed arrays, sampled (nearest always; linear for half-floats, and for 32-bit floats once `OES_texture_float_linear` is enabled, as a browser requires), rendered into (`EXT_color_buffer_float`, `EXT_color_buffer_half_float`, `WEBGL_color_buffer_float`, with the completeness rules that go with them), blended without clamping, and read back exactly by `readPixels`. Depth textures and depth-stencil renderbuffers attach to a framebuffer and are sampled, including `sampler2DShadow` with `TEXTURE_COMPARE_MODE` (percentage-closer filtered when the filter is linear). Framebuffers have up to four colour attachments written through `drawBuffers` (`gl_FragData[n]` under `GL_EXT_draw_buffers` and `layout(location = n) out` in GLSL ES 3.00), `readBuffer` picks the attachment `readPixels` reads, and `clearBufferfv`/`clearBufferiv`/`clearBufferuiv`/`clearBufferfi` clear one buffer. `checkFramebufferStatus` reports missing attachments, mismatched sizes and formats that are not renderable.
-
-What it does not do: cube maps (`textureCube` reads black), compressed textures, line widths above one pixel, derivatives of anything but a varying read directly (`dFdx` of other expressions is zero, and the mip level of a texture lookup then is the base level), uniform buffer objects, integer textures and transform feedback of WebGL 2. Shaders are interpreted on the CPU: a shader that runs past `MaxShaderExecutionTime` loses the context.
+Requires a GPU/GLSL backend, not only canvas path rasterization and resource state.
 
 ### #170 — Audio and video playback (after milestone 5)
 
@@ -133,7 +127,7 @@ Original acceptance:
 
 ### #527 — Conformance: a WebGL category
 
-**Acceptance verified, and the category now passes.** Evidence: `tests/conformance/D8: 6 artifacts with manifests, headless Chrome references and interaction scripts; ConformanceTests.TheWebGlCategoryD8MatchesItsReferencesInEveryArtifact, ConformanceTests.D8InteractionScriptsExecuteSuccessfully`.
+**Partial.** Evidence: `tests/conformance/D8: 6 manifests`.
 
 Artifact count and interaction evidence are now met: all six D8 manifests assert context/framebuffer/scene setup, and the particle/shader controls are exercised; D8 passes 6/6. Full scene/GLSL goldens, context-loss interaction and animation-performance evidence remain separate acceptance work in #529–#531.
 
@@ -141,7 +135,7 @@ Original acceptance:
 
 - At least six artifacts with manifests, references and interaction scripts.
 
-- The category shows up in the pass-rate report, all expected-to-fail (while the feature was missing; it passes now).
+- The category shows up in the pass-rate report, all expected-to-fail.
 
 ### #528 — WebGL: GPU surface in the content process, frames to the host, and the GPU budget
 

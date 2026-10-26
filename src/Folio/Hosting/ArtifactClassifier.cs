@@ -64,7 +64,7 @@ public static class ArtifactClassifier
 
     // Flip each entry only after its original feature acceptance is established.
     // Host permission alone cannot make a prototype backend complete.
-    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.WebGl;
+    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.None;
 
     public static ArtifactClassification Classify(string html, FolioOptions? options = null) =>
         Classify(html, options, ProductionFeatures);
@@ -89,8 +89,6 @@ public static class ArtifactClassifier
     {
         public readonly HashSet<string> Unsupported = [];
         public readonly HashSet<string> Scripts = [];
-        public const int ScriptSizeThreshold = 50 * 1024;
-        private int _totalScriptSize;
         private bool _diagramBlockSeen;
 
         // Media blocks count when they match some screen: a phone or a wide window.
@@ -153,9 +151,6 @@ public static class ArtifactClassifier
 
             foreach (var script in document.QuerySelectorAll("script"))
                 ScriptSource(script.TextContent);
-
-            if (_totalScriptSize > ScriptSizeThreshold)
-                Unsupported.Add($"script text size ({_totalScriptSize / 1024} KB) exceeds the scripted start-up threshold ({ScriptSizeThreshold / 1024} KB); heavy scripts must run in the browser");
         }
 
         private void Element(Element element)
@@ -181,7 +176,6 @@ public static class ArtifactClassifier
                          && value.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
                 {
                     Scripts.Add("runs scripts: a javascript: link");
-                    Unsupported.Add("uses javascript: URLs; javascript: URLs are ignored in Folio");
                     ScriptSource(value.Trim()["javascript:".Length..]);
                 }
             }
@@ -223,13 +217,6 @@ public static class ArtifactClassifier
                     break;
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
                     Scripts.Add("runs scripts: a script element");
-                    var scriptType = (element.GetAttribute("type") ?? "").Trim();
-                    if (string.Equals(scriptType, "module", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var textContent = element.TextContent;
-                        if (textContent.Contains("import ", StringComparison.Ordinal) || textContent.Contains("import(", StringComparison.Ordinal) || textContent.Contains("from ", StringComparison.Ordinal))
-                            Unsupported.Add("uses module script imports; ES modules with imports are not supported in M4");
-                    }
                     if (element.GetAttribute("src") is { } src)
                     {
                         if (IsKnownCanvasLibrary(src) && document.QuerySelectorAll("canvas").Count > 0)
@@ -300,19 +287,6 @@ public static class ArtifactClassifier
             if (Contains(compact, "getContext('webgl") || Contains(compact, "getContext(\"webgl") || Contains(compact, "getContext(`webgl")
                 || Contains(compact, "getContext('experimental-webgl") || Contains(compact, "getContext(\"experimental-webgl") || Contains(compact, "getContext(`experimental-webgl"))
                 Require(ImplementedFeatures.WebGl, options.Capabilities.WebGl, "uses WebGL", "WebGL");
-            _totalScriptSize += text.Length;
-            if (Constructs(compact, "MutationObserver"))
-                Unsupported.Add("uses MutationObserver; MutationObserver is planned for milestone 5");
-            if (Contains(compact, ".styleSheets") || Contains(compact, ".insertRule(") || Contains(compact, "CSS.supports("))
-                Unsupported.Add("uses stylesheet mutation or CSS.supports; dynamic CSSOM is planned for milestone 5");
-            if (Contains(compact, "getContext('2d") || Contains(compact, "getContext(\"2d") || Contains(compact, "getContext(`2d"))
-                Unsupported.Add("uses 2D canvas (getContext('2d')); 2D canvas is planned for milestone 5");
-            if (Contains(compact, "fetch(") || Constructs(compact, "XMLHttpRequest"))
-                Unsupported.Add("uses network requests (fetch / XMLHttpRequest); networking is not permitted in sandbox");
-            if (Constructs(compact, "WebSocket"))
-                Unsupported.Add("uses WebSocket; WebSocket is planned for milestone 6");
-            if (Contains(compact, "customElements.") || Contains(compact, ".attachShadow("))
-                Unsupported.Add("uses custom elements or shadow DOM; web components are planned for milestone 5");
             if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
                 Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
             if (Constructs(compact, "SharedWorker"))

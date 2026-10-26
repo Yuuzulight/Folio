@@ -246,17 +246,9 @@ public sealed class ContentProcessClient : IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested && !_process.HasExited)
             {
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
-                long memory = 0;
-                try
-                {
-                    _process.Refresh();
-                    if (_process.HasExited) break;
-                    memory = OperatingSystem.IsWindows() ? Math.Max(_process.WorkingSet64, _process.PrivateMemorySize64) : _process.WorkingSet64;
-                }
-                catch (InvalidOperationException) { break; }
-                if (!_supervisor.CheckMemory(memory)) break;
                 await _session.SendAsync(ContentMessageKind.Heartbeat, new { }, cancellationToken).ConfigureAwait(false);
                 if (!_supervisor.CheckHeartbeat()) break;
+                if (!_supervisor.CheckMemory(_process.WorkingSet64)) break;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }

@@ -27,9 +27,9 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | WebP decoder | **Folio builds it** | RIFF/VP8L lossless and VP8 lossy key frames, ALPH alpha, extended/animated first-frame handling, bounded parsing and fuzz coverage |
 | ICO decoder | **Folio builds it** | Bounded selection of the largest 16/24/32-bit DIB or embedded PNG entry, with alpha-mask handling; broader differential corpus remains open |
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
-| 2D rasterisation | **Dependency for now**: SkiaSharp; an in-house backend (`SoftwareRasterBackend`) is written and checked against it, not yet the default | Behind `IRasterBackend`/`ICanvas` |
-| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP. WebGL drawing itself runs on Folio's own GLSL ES compiler, interpreter and software pipeline (`src/Folio.Scripting/WebGl`), so shaders do not need ANGLE; ANGLE remains for the hardware surface path |
-| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Dependency for now**: SkiaSharp; glyf and CFF outlines and CBDT bitmaps are read in-house (`GlyphOutlines`), without hinting, CFF2 or COLR | Glyphs drawn by id through `ICanvas` |
+| 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
+| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
+| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Dependency for now**: SkiaSharp | Glyphs drawn by id through `ICanvas` |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |
 | Clipboard | **System-provided** | WinForms `Clipboard` |
@@ -39,7 +39,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Resource loaders, cache, integrity checks | **Folio builds it** | On `HttpClient` and `System.Security.Cryptography` ([study](study/16-resources-and-security.md)) |
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
-| Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided**: Windows APIs (`CreateAppContainerProfile`, `CreateProcessAsUser`, `CreateJobObject`, `SetInformationJobObject`) | Set up by Folio through Windows APIs |
+| Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
 | JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
 | WebRTC signalling and loopback transport | **Folio builds it** | Capability-gated offer/answer, ICE state, tracks and data channels; external ICE/peer transport remains a host-owned seam |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
@@ -130,8 +130,6 @@ This follows the dependency-first plan. Replacing ANGLE later would require a Fo
 **M6 native-path repair (2026-10-26):** `Wasmtime` 48.0.2 is now wired behind the WebAssembly binding seam. Granted numeric modules, including JavaScript function imports, execute in the native engine with a per-store linear-memory cap and epoch-based execution deadline; validated modules are reused through a bounded compiled-module cache, local/imported memories synchronize through the native boundary, numeric local/imported globals use type-safe native accessors, and instances plus the engine are retired with the document. Basic local funcref table exports are exposed with null-reference mutation, and native-origin or typed ordinary JavaScript numeric funcref entries can cross imported tables through signature-checked callbacks. Reference-valued signatures and other unsupported exports continue through the compatibility path while their native bridge is completed. Wasmtime is a dependency-backed transition step, not the final Folio-owned implementation; removing it remains mandatory under Milestone 7 and is explicitly listed in the [replacement gate](replacement-gate.md).
 
 ### JavaScript engine — Jint
-
-**Pinned version and licence:** Jint 4.17.0, licensed under **BSD-2-Clause**.
 
 **M6 audit repair (2026-10-19):** upgraded the compatibility backend to Jint 4.17.0. Jint 4.1 blocked during pending `await`, and Folio's background evaluation/host-pump workaround could run continuations concurrently and corrupt lexical scope. The wrapper now evaluates and calls functions directly on the event-loop owner, with promise jobs drained at checkpoints. Awaited timer/fetch/microtask and worker lifecycle regressions cover this path. Folio-owned installer scripts use a bounded prepared-code cache through an internal host-only path; artifact URLs cannot select it. Jint's native stack-overflow guard is enabled, while artifact execution limits remain unchanged. This repair does not satisfy M6's separate native-engine/WebAssembly requirements.
 

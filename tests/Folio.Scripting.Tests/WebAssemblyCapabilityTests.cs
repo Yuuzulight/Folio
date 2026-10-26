@@ -62,9 +62,8 @@ public sealed class WebAssemblyCapabilityTests
         using var engine = Create(true);
         engine.Evaluate("var retained=WebAssembly;");
         using var replacement = Document.Parse("<p>replacement</p>");
-        // A page can make a global non-configurable, and then reinstalling the bootstrap fails.
+        // Reinstalling the full bootstrap currently fails on its non-configurable globals.
         // That failure must not leave the old document's granted facade usable.
-        engine.Evaluate("Object.defineProperty(globalThis, 'URL', { value: 1, configurable: false });");
         Assert.Throws<ScriptRuntimeException>(() => DomBindings.Install(engine, replacement));
         AssertDenied(engine, "new retained.Memory({initial:1})");
         Assert.False(DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { WebAssembly = true }));

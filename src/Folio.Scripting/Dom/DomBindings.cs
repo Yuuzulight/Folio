@@ -2,7 +2,6 @@ using Folio;
 using Folio.Dom;
 using Folio.Resources;
 using System.Runtime.CompilerServices;
-using System.Text;
 using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
@@ -43,24 +42,6 @@ public static class DomBindings
     }
 
     /// <summary>Trusted host hook used by conformance probes; this is intentionally not installed on the page global.</summary>
-    public static bool UpdateLimits(IScriptEngine engine, ResourceLimits limits)
-    {
-        ArgumentNullException.ThrowIfNull(engine);
-        ArgumentNullException.ThrowIfNull(limits);
-        if (!Contexts.TryGetValue(engine, out var context)) return false;
-        context.UpdateLimits(limits);
-        return true;
-    }
-
-    /// <summary>Changes the GPU memory budget for an installed document.</summary>
-    public static bool UpdateGpuBudget(IScriptEngine engine, int maxGpuBytes)
-    {
-        ArgumentNullException.ThrowIfNull(engine);
-        if (!Contexts.TryGetValue(engine, out var context)) return false;
-        context.UpdateLimits((context.ParentOptions?.Limits ?? ResourceLimits.Default) with { MaxGpuBytes = maxGpuBytes });
-        return true;
-    }
-
     internal static bool TryClearNativeCanvas(IScriptEngine engine, ElementNode element, float red, float green, float blue, float alpha, out GpuFailure? failure)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -90,16 +71,6 @@ public static class DomBindings
     }
 
     /// <summary>Stops background work owned by the document before its content process closes.</summary>
-    internal static void PumpIframes(IScriptEngine engine)
-    {
-        if (Contexts.TryGetValue(engine, out var context)) context.PumpIframes();
-    }
-
-    internal static Folio.Imaging.IImageHandle? GetImageOf(IScriptEngine engine, ElementNode element)
-    {
-        return Contexts.TryGetValue(engine, out var context) ? context.ImageOf(element) : null;
-    }
-
     public static bool Dispose(IScriptEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -181,7 +152,6 @@ public static class DomBindings
         if (eventLoop is not null)
             eventLoop.MediaPlaybackTick = context.AdvanceMedia;
         context.ParentOptions = parentOptions;
-        context.HostDocument = hostDocument;
         context.OwnerEventLoop = eventLoop;
         try
         {
@@ -219,8 +189,7 @@ public static class DomBindings
             {
                 if (args.Length == 0 || !context.Engine.TryGetHostTarget(args[0], out var node) || node is not ElementNode element)
                     throw WebIdlException.TypeError("getComputedStyle requires an Element.");
-                var pseudo = args.Length > 1 && args[1].Kind == ScriptValueKind.String ? args[1].AsString() : null;
-                return context.WrapComputedStyle(element, pseudo);
+                return context.WrapComputedStyle(element);
             });
         engine.SetGlobalProperty("__folio_style_host", engine.CreateHostObject(styleHost, context));
         var mutationHost = new HostObjectTemplate("MutationObserverHost")
@@ -261,6 +230,52 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
+            globalThis.innerWidth = 800;
+            globalThis.innerHeight = 600;
+            globalThis.devicePixelRatio = 1;
+            globalThis.scrollX = 0;
+            globalThis.scrollY = 0;
+            Object.defineProperty(globalThis, 'pageXOffset', { get: function() { return globalThis.scrollX; } });
+            Object.defineProperty(globalThis, 'pageYOffset', { get: function() { return globalThis.scrollY; } });
+            globalThis.scrollTo = function(x, y) { globalThis.scrollX = Number(x) || 0; globalThis.scrollY = Number(y) || 0; };
+            globalThis.scrollBy = function(x, y) { globalThis.scrollX += Number(x) || 0; globalThis.scrollY += Number(y) || 0; };
+            globalThis.matchMedia = function(query) {
+                query = String(query);
+                const min = /min-width\s*:\s*(\d+)px/.exec(query);
+                const max = /max-width\s*:\s*(\d+)px/.exec(query);
+                const matches = (!min || globalThis.innerWidth >= Number(min[1])) && (!max || globalThis.innerWidth <= Number(max[1]));
+                const listeners = [];
+                return {
+                    media: query,
+                    matches: matches,
+                    onchange: null,
+                    addListener: function(fn) { if (typeof fn === 'function') listeners.push(fn); },
+                    removeListener: function(fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); },
+                    addEventListener: function(type, fn) { if (type === 'change') this.addListener(fn); },
+                    removeEventListener: function(type, fn) { if (type === 'change') this.removeListener(fn); },
+                    dispatchEvent: function() { return true; }
+                };
+            };
+            globalThis.ResizeObserver = function(callback) {
+                if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
+                this._callback = callback;
+                this._targets = [];
+            };
+            ResizeObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            ResizeObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            ResizeObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            globalThis.IntersectionObserver = function(callback, options) {
+                if (typeof callback !== 'function') throw new TypeError('IntersectionObserver callback must be callable');
+                this._callback = callback;
+                this.root = options && options.root || null;
+                this.rootMargin = options && options.rootMargin || '0px';
+                this.thresholds = options && options.threshold !== undefined ? [].concat(options.threshold) : [0];
+                this._targets = [];
+            };
+            IntersectionObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            IntersectionObserver.prototype.takeRecords = function() { return []; };
             {
                 const resolved = Promise.resolve();
                 const then = Promise.prototype.then;
@@ -346,6 +361,15 @@ public static class DomBindings
             URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
             URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
             globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
+            globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
+            globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };
+            globalThis.crypto = { getRandomValues: function(array) { for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256); return array; } };
+            globalThis.TextEncoder = function() {};
+            TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
+            globalThis.TextDecoder = function() {};
+            TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
+            globalThis.console = globalThis.console || {};
+            for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ", "folio:dom-globals");
         context.CaptureState = CaptureBindingState.Install(engine, context);
         context.WebRtcState = WebRtcBindingState.Install(engine, context);
@@ -633,31 +657,6 @@ public static class DomBindings
                 globalThis.DOMMatrixReadOnly = DOMMatrix;
             })();
         ", "folio:dom-constructors");
-        InstallWebGlInterfaces(engine);
-    }
-
-    /// <summary>
-    /// The WebGL interfaces, so <c>instanceof WebGLBuffer</c> works and <c>WebGLRenderingContext.TRIANGLES</c> reads. The two context
-    /// interfaces share a prototype, since one implementation serves both.
-    /// </summary>
-    private static void InstallWebGlInterfaces(IScriptEngine engine)
-    {
-        var script = new StringBuilder("(function() {\n");
-        script.Append("function defClass(name) { const ctor = function() { throw new TypeError('Illegal constructor'); };\n");
-        script.Append("Object.defineProperty(ctor, 'name', { value: name, configurable: true });\n");
-        script.Append("ctor.prototype = Object.create(Object.prototype, { constructor: { value: ctor, writable: true, configurable: true } });\n");
-        script.Append("globalThis[name] = ctor; return ctor; }\n");
-        foreach (var name in DomNodeTemplates.WebGlInterfaceNames)
-            script.Append("defClass('").Append(name).Append("');\n");
-        script.Append("globalThis.WebGLRenderingContext = defClass('WebGLRenderingContext');\n");
-        script.Append("WebGLRenderingContext.prototype = WebGL2RenderingContext.prototype;\n");
-        foreach (var (name, value) in Folio.Scripting.WebGl.GlConstants.All.Concat(Folio.Scripting.WebGl.GlConstants.Generated()))
-        {
-            script.Append("WebGL2RenderingContext.").Append(name).Append('=').Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(";\n");
-            script.Append("WebGLRenderingContext.").Append(name).Append('=').Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(";\n");
-        }
-        script.Append("})();");
-        engine.EvaluateHostScript(script.ToString(), "folio:webgl-interfaces");
     }
 }
 
