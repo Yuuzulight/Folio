@@ -6,6 +6,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-26
 
+- The complete Release solution passes 4,064 tests with 0 failures and 7 documented environment/software skips (4,071 discovered). A fresh run also repaired native prototype-setter dispatch and constructed-member evaluation; the native WebAssembly export bridge remains open and was not claimed complete.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
