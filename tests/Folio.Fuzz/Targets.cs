@@ -46,6 +46,7 @@ internal static class Targets
         new("png", data => PngDecoder.Decode(data, MaxPixels), () => Images("*.png"), []),
         new("jpeg", data => JpegDecoder.Decode(data, MaxPixels), () => Images("*.jpg"), []),
         new("gif", data => GifDecoder.Decode(data, MaxPixels), () => Images("*.gif"), []),
+        new("webp", data => WebpDecoder.Decode(data, MaxPixels), () => Images("*.webp"), ["RIFF", "WEBP", "VP8L", "VP8 ", "VP8X", "ALPH", "ANMF"]),
         new("bmp", data => BmpDecoder.Decode(data, MaxPixels), BmpSeeds, ["BM", "BITMAP", "\0"]),
         new("ico", data => IcoDecoder.Decode(data, MaxPixels), IcoSeeds, ["\0\0\u0001\0", "PNG", "BM"]),
         new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
