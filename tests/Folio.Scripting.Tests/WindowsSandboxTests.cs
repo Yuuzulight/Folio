@@ -21,6 +21,10 @@ public sealed class WindowsSandboxTests
         Environment.SetEnvironmentVariable(environmentKey, "host-secret");
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
+        var exercisesWorker = row is "workers" or "all";
+        var script = exercisesWorker
+            ? "var w=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(String(e.data+1));}'));w.onmessage=e=>__folio_worker_result=e.data;w.onerror=e=>__folio_worker_error=e.message;w.postMessage(41);typeof document"
+            : "typeof document";
         // A timeout against an unreachable endpoint is not sandbox evidence.
         using (var control = new TcpClient())
         {
@@ -40,12 +44,17 @@ public sealed class WindowsSandboxTests
                 environmentKey,
                 capabilities,
                 html = "<html><body></body></html>",
-                script = "typeof document",
+                script,
             });
             var payload = result.Payload.GetProperty("payload");
             Assert.Equal(capabilities, System.Text.Json.JsonSerializer.Deserialize<FeatureCapabilities>(payload.GetProperty("appliedCapabilities").GetRawText()));
             Assert.True(payload.GetProperty("runtimeReady").GetBoolean());
             Assert.Equal("object", payload.GetProperty("runtimeValue").GetString());
+            if (exercisesWorker)
+            {
+                Assert.Equal("42", payload.GetProperty("workerResult").GetString());
+                Assert.Null(payload.GetProperty("workerError").GetString());
+            }
             Assert.True(payload.GetProperty("isAppContainer").GetBoolean());
             Assert.True(payload.GetProperty("isLowIntegrity").GetBoolean());
             Assert.Equal(0, payload.GetProperty("capabilityCount").GetInt32());

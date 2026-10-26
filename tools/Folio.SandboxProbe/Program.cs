@@ -181,7 +181,28 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
         childDenied = true;
     }
 
-    return new { runtimeReady = runtimeResult is not null, runtimeValue = runtimeResult?.Value, appliedCapabilities = runtime.Capabilities, isAppContainer = token.IsAppContainer, isLowIntegrity = token.IsLowIntegrity, capabilityCount = token.CapabilityCount, environmentAbsent, jobMemoryBytes = job.JobMemoryBytes, activeProcessLimit = job.ActiveProcessLimit, cpuRatePercent = job.CpuRatePercent, uiRestrictions = job.UiRestrictions, fileReadDenied, fileWriteDenied, networkDenied, childDenied };
+    var workerResult = runtime.Engine?.GetGlobalProperty("__folio_worker_result");
+    var workerError = runtime.Engine?.GetGlobalProperty("__folio_worker_error");
+    return new
+    {
+        runtimeReady = runtimeResult is not null,
+        runtimeValue = runtimeResult?.Value,
+        workerResult = workerResult?.IsUndefined == false ? workerResult.Value.AsString() : null,
+        workerError = workerError?.IsUndefined == false ? workerError.Value.AsString() : null,
+        appliedCapabilities = runtime.Capabilities,
+        isAppContainer = token.IsAppContainer,
+        isLowIntegrity = token.IsLowIntegrity,
+        capabilityCount = token.CapabilityCount,
+        environmentAbsent,
+        jobMemoryBytes = job.JobMemoryBytes,
+        activeProcessLimit = job.ActiveProcessLimit,
+        cpuRatePercent = job.CpuRatePercent,
+        uiRestrictions = job.UiRestrictions,
+        fileReadDenied,
+        fileWriteDenied,
+        networkDenied,
+        childDenied
+    };
 }
 
 ValueTask Stage(string stage, CancellationToken cancellationToken) =>
