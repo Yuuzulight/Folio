@@ -1397,6 +1397,37 @@ public sealed class NativeWebGlPageTests
         finally { DomBindings.Dispose(engine); }
     }
 
+    [Fact]
+    public void IntegerVertexAttributeFeedsUnsignedShaderInput()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("""
+                var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});
+                function makeShader(kind,source){var s=gl.createShader(kind);gl.shaderSource(s,source);gl.compileShader(s);return s;}
+                var vs=makeShader(gl.VERTEX_SHADER,'#version 300 es\nlayout(location=0) in uint inputValue;flat out uint value;void main(){value=inputValue;gl_Position=vec4(-1,-1,0,1);if(gl_VertexID==1)gl_Position=vec4(3,-1,0,1);if(gl_VertexID==2)gl_Position=vec4(-1,3,0,1);}');
+                var fs=makeShader(gl.FRAGMENT_SHADER,'#version 300 es\nprecision highp float;flat in uint value;out vec4 color;void main(){color=vec4(float(value)/4294967295.0,0,0,1);}');
+                var p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);gl.useProgram(p);
+                var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Uint32Array([4294967295,4294967295,4294967295]),gl.STATIC_DRAW);gl.vertexAttribIPointer(0,1,gl.UNSIGNED_INT,4,0);gl.enableVertexAttribArray(0);gl.drawArrays(gl.TRIANGLES,0,3);
+                var pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);var error=gl.getError();
+                """);
+            Assert.True(engine.Evaluate("gl.getShaderParameter(vs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(vs)").AsString());
+            Assert.True(engine.Evaluate("gl.getShaderParameter(fs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(fs)").AsString());
+            Assert.True(engine.Evaluate("gl.getProgramParameter(p,gl.LINK_STATUS)").AsBoolean(), engine.Evaluate("gl.getProgramInfoLog(p)").AsString());
+            Assert.Equal(0, engine.Evaluate("error").AsNumber());
+            Assert.Equal(255, engine.Evaluate("pixel[0]").AsNumber());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     private static void ConfigureWarp(JintScriptEngine engine)
     {
         var rid = RuntimeInformation.ProcessArchitecture switch
