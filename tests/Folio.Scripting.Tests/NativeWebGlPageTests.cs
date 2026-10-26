@@ -1367,7 +1367,7 @@ public sealed class NativeWebGlPageTests
     }
 
     [Fact]
-    public void TransformFeedbackCapturesVaryingAndCanBeReadBack()
+    public void TransformFeedbackCapturesVaryingAndFeedsTheNextDraw()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var engine = new JintScriptEngine();
@@ -1387,16 +1387,29 @@ public sealed class NativeWebGlPageTests
                 var p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.transformFeedbackVaryings(p,['value'],gl.SEPARATE_ATTRIBS);gl.linkProgram(p);
                 var b=gl.createBuffer();gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER,b);gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER,new Float32Array([0,0,0]),gl.DYNAMIC_DRAW);
                 var tf=gl.createTransformFeedback();gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK,tf);gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,b);gl.useProgram(p);gl.beginTransformFeedback(gl.POINTS);gl.drawArrays(gl.POINTS,0,3);gl.endTransformFeedback();
-                var outData=new Float32Array(3);gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER,b);gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER,0,outData);var error=gl.getError();
+                var outData=new Float32Array(3);gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER,b);gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER,0,outData);var afterRead=gl.getError();gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,null);
+                var nextVs=makeShader(gl.VERTEX_SHADER,'#version 300 es\nlayout(location=0) in float inputValue;flat out float value;void main(){value=inputValue;gl_Position=vec4(-1,-1,0,1);if(gl_VertexID==1)gl_Position=vec4(3,-1,0,1);if(gl_VertexID==2)gl_Position=vec4(-1,3,0,1);}');
+                var nextFs=makeShader(gl.FRAGMENT_SHADER,'#version 300 es\nprecision highp float;flat in float value;out vec4 color;void main(){color=vec4(value/3.0,0,0,1);}');
+                var next=gl.createProgram();gl.attachShader(next,nextVs);gl.attachShader(next,nextFs);gl.linkProgram(next);var afterLink=gl.getError();gl.useProgram(next);var afterUse=gl.getError();gl.bindBuffer(gl.ARRAY_BUFFER,b);var afterBind=gl.getError();gl.vertexAttribPointer(0,1,gl.FLOAT,false,4,0);var afterPointer=gl.getError();gl.enableVertexAttribArray(0);var afterEnable=gl.getError();gl.drawArrays(gl.TRIANGLES,0,3);var afterDraw=gl.getError();
+                var pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);var error=gl.getError();
                 """);
             Assert.True(engine.Evaluate("gl.getShaderParameter(vs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(vs)").AsString());
             Assert.True(engine.Evaluate("gl.getShaderParameter(fs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(fs)").AsString());
             Assert.True(engine.Evaluate("gl.getProgramParameter(p,gl.LINK_STATUS)").AsBoolean(), engine.Evaluate("gl.getProgramInfoLog(p)").AsString());
             Assert.Equal(0, engine.Evaluate("error").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterRead").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterLink").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterUse").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterBind").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterPointer").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterEnable").AsNumber());
+            Assert.Equal(0, engine.Evaluate("afterDraw").AsNumber());
             Assert.Equal(1, engine.Evaluate("outData[0]").AsNumber());
             Assert.Equal(2, engine.Evaluate("outData[1]").AsNumber());
             Assert.Equal(3, engine.Evaluate("outData[2]").AsNumber());
             Assert.Equal("value", engine.Evaluate("gl.getTransformFeedbackVarying(p,0).name").AsString());
+            Assert.True(engine.Evaluate("gl.getProgramParameter(next,gl.LINK_STATUS)").AsBoolean(), engine.Evaluate("gl.getProgramInfoLog(next)").AsString());
+            Assert.Equal(255, engine.Evaluate("pixel[0]").AsNumber());
         }
         finally { DomBindings.Dispose(engine); }
     }
