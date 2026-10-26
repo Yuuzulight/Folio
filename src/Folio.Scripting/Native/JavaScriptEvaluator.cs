@@ -575,8 +575,8 @@ internal sealed class JavaScriptEvaluator
         {
             var delegateProperties = CallableProperties.GetOrCreateValue(delegateValue);
             if (name == "bind") return (Func<IReadOnlyList<object?>, object?>)(args => (Func<IReadOnlyList<object?>, object?>)(callArgs => delegateValue(callArgs)));
-            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => delegateValue(args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>()));
-            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => delegateValue(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : Array.Empty<object?>()));
+            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>()));
+            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => InvokeFunction(delegateValue, args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : Array.Empty<object?>()));
             if (delegateProperties.TryGetValue(name, out var delegateProperty)) return delegateProperty;
             if (name == "prototype") return delegateProperties[name] = new Dictionary<string, object?>(StringComparer.Ordinal);
         }
@@ -874,7 +874,7 @@ internal sealed class JavaScriptEvaluator
         foreach (var method in methods)
             if (!method.Getter && !method.Setter)
                 prototype[method.Name] = new NativeJavaScriptEngine.NativeReceiverFunction((receiver, args) =>
-                    ExecuteClassMethod(method.Function, receiver as IDictionary<string, object?> ?? new Dictionary<string, object?>(), args));
+                    ExecuteClassMethod(method.Function, receiver ?? new Dictionary<string, object?>(), args));
         if (constructor is not null) type.SetProperty("__classConstructor", constructor);
         if (@class.Parent is not null) type.SetProperty("__classParent", @class.Parent);
         foreach (var method in methods.Where(method => method.Getter))
@@ -886,7 +886,7 @@ internal sealed class JavaScriptEvaluator
         return type;
     }
 
-    private object? ExecuteClassMethod(JavaScriptFunctionExpression function, IDictionary<string, object?> instance, IReadOnlyList<object?> arguments, string? parentName = null)
+    private object? ExecuteClassMethod(JavaScriptFunctionExpression function, object instance, IReadOnlyList<object?> arguments, string? parentName = null)
     {
         var local = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
