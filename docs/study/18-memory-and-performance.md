@@ -1,5 +1,12 @@
 # Memory budget and performance targets
 
+## References
+
+- [CSSOM View Module](https://drafts.csswg.org/cssom-view/) for viewport, scroll and
+  geometry measurements used by the frame-time targets.
+- [HTML event loops](https://html.spec.whatwg.org/multipage/webappapis.html#event-loops)
+  for the scheduling boundary used when measuring scripted work.
+
 ## Where memory goes
 
 For a typical artifact (50–300 KB of HTML/CSS, 1–5k elements) the big consumers are not the DOM:
