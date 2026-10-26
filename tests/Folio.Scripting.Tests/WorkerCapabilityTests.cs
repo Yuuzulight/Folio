@@ -168,6 +168,24 @@ public sealed class WorkerCapabilityTests
     }
 
     [Fact]
+    public void NativeEngineWorkerWebAssemblyHonorsExecutionDeadline()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true, WebAssembly = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(100) }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        const string runaway = "[0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,7,7,1,3,114,117,110,0,0,10,9,1,7,0,3,64,12,0,11,11]";
+        engine.Evaluate($"var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=()=>{{var m=new WebAssembly.Module(new Uint8Array({runaway})); var i=new WebAssembly.Instance(m,{{}}); i.exports.run(); postMessage(\"unexpected\");}}')); worker.onerror=function(e){{error=e.message;}}; worker.postMessage(0);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), "native WebAssembly worker watchdog did not report an error");
+        Assert.Contains("execution", engine.GetGlobalProperty("error").AsString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void NativeEngineMessageChannelRoundTripsStructuredData()
     {
         using var engine = new NativeJavaScriptEngine();
