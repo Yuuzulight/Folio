@@ -2,7 +2,7 @@
 
 Verification refresh (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
-`Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,356/1,356 with six
+`Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,359/1,359 with six
 documented software-backend skips. A complete Release solution run also passed
 4,078 tests with 0 failures and 7 documented skips (4,085 discovered). Earlier
 totals are historical snapshots.
@@ -20,7 +20,7 @@ gate in [replacement-gate.md](replacement-gate.md).
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `docs/roadmap.md` M2 acceptance section; S1–S6 conformance 12/12 each; 140 focused typography/SVG/allowlist tests; 123 focused reftest/headless/font tests; SVG and font fuzzing (0 failures) | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `docs/roadmap.md` M3 audit note; 115 focused interaction/accessibility/invalidation tests; 164 incremental-equivalence tests; S1–S6 interaction scripts and three-iteration performance evidence | Verified |
 | 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | `docs/milestone-4-scripting.md`; D1 2/2; 116 focused scripting/process tests; 4 focused WinForms watchdog/lifecycle tests; IPC fuzz 503,085 mutations with 0 failures | Verified |
-| 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `docs/roadmap.md` M5 audit result; D2–D7 60/60; canvas frame p95 ≤ 4.01 ms; 370 focused scripting tests passed with 6 documented software-backend skips; 26 diagram and 17 cache/golden tests passed | Verified as dependency-backed product milestone; Folio-owned engine replacement remains mandatory |
+| 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `docs/roadmap.md` M5 audit result; dependency-backed D2–D7 60/60; native D2–D7 37/60; the artifact-level canvas benchmark now reports per-stage p95 and exposes misses against 16.7 ms; 370 focused scripting tests passed with 6 documented software-backend skips; 26 diagram and 17 cache/golden tests passed | Dependency-backed product baseline verified; native parity and the Folio-owned replacement gate remain open |
 
 The M5 result is intentionally qualified: its acceptance is complete for the
 dependency-backed product, while replacement of the dependency-backed scripting
