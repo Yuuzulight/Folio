@@ -724,6 +724,26 @@ public sealed class NativeWebGlPageTests
     }
 
     [Fact]
+    public void NativeReadPixelsHonorsPackRowAndSkipState()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});gl.clearColor(1,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.pixelStorei(gl.PACK_ROW_LENGTH,2);gl.pixelStorei(gl.PACK_SKIP_PIXELS,1);gl.pixelStorei(gl.PACK_SKIP_ROWS,1);var p=new Uint8Array(16);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);var e=gl.getError();");
+            Assert.Equal(0, engine.Evaluate("e").AsNumber());
+            Assert.Equal(255, engine.Evaluate("p[12]").AsNumber());
+            Assert.Equal(0, engine.Evaluate("p[13]").AsNumber());
+            Assert.Equal(0, engine.Evaluate("p[14]").AsNumber());
+            Assert.Equal(255, engine.Evaluate("p[15]").AsNumber());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
     public void NativeReadPixelsSupportsPackedRgb565()
     {
         if (!OperatingSystem.IsWindows()) return;

@@ -594,6 +594,9 @@ public interface IWebGLRenderingContextTarget
     const uint TEXTURE_2D_ARRAY = 0x8C1A;
     const uint UNPACK_ALIGNMENT = 0x0CF5;
     const uint PACK_ALIGNMENT = 0x0D05;
+    const uint PACK_ROW_LENGTH = 0x0D02;
+    const uint PACK_SKIP_ROWS = 0x0D03;
+    const uint PACK_SKIP_PIXELS = 0x0D04;
     const uint UNPACK_FLIP_Y_WEBGL = 0x9240;
     const uint VIEWPORT = 0x0BA2;
     const uint SCISSOR_BOX = 0x0C10;
@@ -885,6 +888,9 @@ public static class WebGLRenderingContextBinding
         template.DefineProperty("TEXTURE_2D_ARRAY", (target, thisVal) => ScriptValue.FromNumber(0x8C1A));
         template.DefineProperty("UNPACK_ALIGNMENT", (target, thisVal) => ScriptValue.FromNumber(0x0CF5));
         template.DefineProperty("PACK_ALIGNMENT", (target, thisVal) => ScriptValue.FromNumber(0x0D05));
+        template.DefineProperty("PACK_ROW_LENGTH", (target, thisVal) => ScriptValue.FromNumber(0x0D02));
+        template.DefineProperty("PACK_SKIP_ROWS", (target, thisVal) => ScriptValue.FromNumber(0x0D03));
+        template.DefineProperty("PACK_SKIP_PIXELS", (target, thisVal) => ScriptValue.FromNumber(0x0D04));
         template.DefineProperty("UNPACK_FLIP_Y_WEBGL", (target, thisVal) => ScriptValue.FromNumber(0x9240));
         template.DefineProperty("VIEWPORT", (target, thisVal) => ScriptValue.FromNumber(0x0BA2));
         template.DefineProperty("SCISSOR_BOX", (target, thisVal) => ScriptValue.FromNumber(0x0C10));
