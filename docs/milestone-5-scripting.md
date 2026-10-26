@@ -1,5 +1,7 @@
 # Milestone 5 scripting results
 
+Verification refresh (2026-10-26): the serialized scripting suite now passes 1,160/1,160, including signed and unsigned integer 2D-array sampling coverage added during the Milestone 6 audit.
+
 This document records the current M5 implementation and verification baseline.
 
 ## Conformance
