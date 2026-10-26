@@ -378,9 +378,9 @@ Original acceptance:
 
 ### #545 — WebAssembly: the limits tests and routing
 
-**Incomplete.** Evidence: `ArtifactClassifier.cs; CapabilityMatrixTests.cs`.
+**Partial; sandbox evidence verified, routing remains open.** Evidence: `ArtifactClassifier.cs; CapabilityMatrixTests.cs; WindowsSandboxTests.NativeSandboxProbeDeniesFileNetworkAndChildProcessForEveryCapabilityRow` (WebAssembly and all rows).
 
-Classifier admits the compatibility WebAssembly surface with a capability. The native path now has direct import-free execution, JavaScript function imports, imported funcref tables with native-origin and typed page numeric callbacks, store-limit and native epoch-deadline tests, and native worker regressions prove both module construction/execution and bounded runaway execution under the worker execution limit. The streaming integration regression also proves `instantiateStreaming` reaches the native cache, and invalid MIME rejection is covered directly. Native routing policy, reference-value tables, streaming-to-native timing evidence and full sandbox coverage remain unmet.
+Classifier admits the compatibility WebAssembly surface with a capability. The native path now has direct import-free execution, JavaScript function imports, imported funcref tables with native-origin and typed page numeric callbacks, store-limit and native epoch-deadline tests, and native worker regressions prove both module construction/execution and bounded runaway execution under the worker execution limit. The streaming integration regression also proves `instantiateStreaming` reaches the native cache, and invalid MIME rejection is covered directly. The Windows content-process matrix now executes a WebAssembly module for the `webassembly` and `all` rows while retaining the same token/job restrictions. Native routing policy, reference-value tables and streaming-to-native timing evidence remain unmet.
 
 Original acceptance:
 

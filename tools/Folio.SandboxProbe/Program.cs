@@ -183,12 +183,16 @@ async Task<object> Sandbox(JsonElement payload, CancellationToken cancellationTo
 
     var workerResult = runtime.Engine?.GetGlobalProperty("__folio_worker_result");
     var workerError = runtime.Engine?.GetGlobalProperty("__folio_worker_error");
+    var wasmResult = runtime.Engine?.GetGlobalProperty("__folio_wasm_result");
+    var wasmError = runtime.Engine?.GetGlobalProperty("__folio_wasm_error");
     return new
     {
         runtimeReady = runtimeResult is not null,
         runtimeValue = runtimeResult?.Value,
         workerResult = workerResult?.IsUndefined == false ? workerResult.Value.AsString() : null,
         workerError = workerError?.IsUndefined == false ? workerError.Value.AsString() : null,
+        wasmResult = wasmResult?.IsUndefined == false ? wasmResult.Value.AsString() : null,
+        wasmError = wasmError?.IsUndefined == false ? wasmError.Value.AsString() : null,
         appliedCapabilities = runtime.Capabilities,
         isAppContainer = token.IsAppContainer,
         isLowIntegrity = token.IsLowIntegrity,

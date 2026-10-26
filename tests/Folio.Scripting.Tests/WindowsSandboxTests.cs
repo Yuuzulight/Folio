@@ -22,9 +22,12 @@ public sealed class WindowsSandboxTests
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var exercisesWorker = row is "workers" or "all";
+        var exercisesWebAssembly = row is "webassembly" or "all";
         var script = exercisesWorker
             ? "var w=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(String(e.data+1));}'));w.onmessage=e=>__folio_worker_result=e.data;w.onerror=e=>__folio_worker_error=e.message;w.postMessage(41);typeof document"
-            : "typeof document";
+            : exercisesWebAssembly
+                ? "try{var m=new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,6,1,4,0,65,42,11]));__folio_wasm_result=String(new WebAssembly.Instance(m,{}).exports.run());}catch(e){__folio_wasm_error=e.name+': '+e.message;}typeof document"
+                : "typeof document";
         // A timeout against an unreachable endpoint is not sandbox evidence.
         using (var control = new TcpClient())
         {
@@ -54,6 +57,11 @@ public sealed class WindowsSandboxTests
             {
                 Assert.Equal("42", payload.GetProperty("workerResult").GetString());
                 Assert.Null(payload.GetProperty("workerError").GetString());
+            }
+            if (exercisesWebAssembly)
+            {
+                Assert.Equal("42", payload.GetProperty("wasmResult").GetString());
+                Assert.Null(payload.GetProperty("wasmError").GetString());
             }
             Assert.True(payload.GetProperty("isAppContainer").GetBoolean());
             Assert.True(payload.GetProperty("isLowIntegrity").GetBoolean());
