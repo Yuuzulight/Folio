@@ -10,7 +10,7 @@ namespace Folio.Scripting.Tests;
 [Collection("Content process round trips")]
 public sealed class WindowsSandboxTests
 {
-    [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
+    [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows))]
     public async Task ServiceWorkerCapabilityRowRunsThroughTheRealContentProcess()
     {
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
@@ -36,7 +36,7 @@ public sealed class WindowsSandboxTests
         Assert.Contains(storage.Keys("matrix:service-worker-registration/"), key => key.EndsWith("%2F", StringComparison.Ordinal));
     }
 
-    [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
+    [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows))]
     public async Task NativeSandboxProbeDeniesFileNetworkAndChildProcessForEveryCapabilityRow()
     {
         var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
@@ -123,7 +123,7 @@ public sealed class WindowsSandboxTests
         }
     }
 
-    [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
+    [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows))]
     public async Task NativeSandboxProbePublishesFrameThenMemoryPressureKillsTheChild()
     {
         var host = ProbePath();
@@ -142,7 +142,7 @@ public sealed class WindowsSandboxTests
         Assert.True(client.Process.HasExited);
     }
 
-    [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
+    [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows))]
     public async Task NativeSandboxProbeKeepsLastFrameWhenWatchdogKillsHungChild()
     {
         var host = ProbePath();
@@ -175,7 +175,7 @@ public sealed class WindowsSandboxTests
         Assert.Equal(before, after);
     }
 
-    [Fact(Skip = "Windows process sandbox required.", SkipUnless = nameof(IsWindows))]
+    [Fact(Skip = "Only supported on Windows.", SkipUnless = nameof(IsWindows))]
     public async Task RejectsForgedFrameDescriptorWithoutDispatchingOrTouchingHostFile()
     {
         var host = ProbePath();
