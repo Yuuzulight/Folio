@@ -51,3 +51,7 @@ Nine artifacts in each D2-D7 set are the same cached React/library path and
 crash when the staged VM cannot resolve a `screenX` assignment target; the
 remaining failures are independent interaction or rendering mismatches. These
 results keep the replacement gate open despite the complete D1 slice.
+D8 currently records `4/6` exact passes; `particles` and `webgl-shader`
+encounter the same shared screenX/bootstrap crash, while the other WebGL
+artifacts pass. This supports the WebGL implementation independently of the
+still-incomplete native JavaScript/library replacement.
