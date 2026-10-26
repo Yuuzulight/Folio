@@ -942,12 +942,15 @@ internal static class DomEvents
 
             function defineHandlerAccessors(proto, names) {
                 if (proto === undefined || proto === null) return;
-                for (const name of names) {
-                    Object.defineProperty(proto, 'on' + name, {
+                function accessorFor(name) {
+                    return {
                         get: function() { return getHandler(this, name); },
                         set: function(value) { setHandler(this, name, value); },
                         enumerable: true, configurable: true
-                    });
+                    };
+                }
+                for (const name of names) {
+                    Object.defineProperty(proto, 'on' + name, accessorFor(name));
                 }
             }
 

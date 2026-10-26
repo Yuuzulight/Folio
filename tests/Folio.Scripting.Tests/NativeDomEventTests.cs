@@ -14,11 +14,11 @@ public sealed class NativeDomEventTests
   {
    DomBindings.Install(engine, document, eventLoop: loop);
    ScriptGlobalsInstaller.Install(loop, engine);
-   engine.Evaluate("globalThis.hit='no'; let b=document.getElementById('b'); b.addEventListener('click',function(){globalThis.hit='listener'});");
+   engine.Evaluate("globalThis.hit='no'; let b=document.getElementById('b'); b.onclick=()=>{globalThis.hit='idl'};");
    document.QuerySelector("#b")!.Click();
   }
   finally { document.Dispose(); }
   Assert.Empty(errors);
-  Assert.Equal("listener", engine.GetGlobalProperty("hit").AsString());
+  Assert.Equal("idl", engine.GetGlobalProperty("hit").AsString());
  }
 }
