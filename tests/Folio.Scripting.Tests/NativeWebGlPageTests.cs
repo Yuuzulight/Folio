@@ -1349,7 +1349,7 @@ public sealed class NativeWebGlPageTests
                 var fs=makeShader(gl.FRAGMENT_SHADER,'#version 300 es\nprecision highp float;layout(std140) uniform Params { vec4 color; };out vec4 outColor;void main(){outColor=color;}');
                 var p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);gl.useProgram(p);
                 var block=gl.getUniformBlockIndex(p,'Params');var b=gl.createBuffer();gl.bindBuffer(gl.UNIFORM_BUFFER,b);gl.bufferData(gl.UNIFORM_BUFFER,new Float32Array([.2,.4,.6,1]),gl.STATIC_DRAW);gl.bindBufferBase(gl.UNIFORM_BUFFER,0,b);gl.uniformBlockBinding(p,block,0);var bindError=gl.getError();
-                gl.viewport(0,0,1,1);gl.drawArrays(gl.TRIANGLES,0,3);var pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+                gl.viewport(0,0,1,1);gl.drawArrays(gl.TRIANGLES,0,3);var pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);gl.bufferSubData(gl.UNIFORM_BUFFER,0,new Float32Array([.8,.1,.3,1]));var updateError=gl.getError();gl.drawArrays(gl.TRIANGLES,0,3);var updatedPixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,updatedPixel);
                 """);
             Assert.True(engine.Evaluate("gl.getShaderParameter(fs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(fs)").AsString());
             Assert.True(engine.Evaluate("gl.getProgramParameter(p,gl.LINK_STATUS)").AsBoolean(), engine.Evaluate("gl.getProgramInfoLog(p)").AsString());
@@ -1358,6 +1358,10 @@ public sealed class NativeWebGlPageTests
             Assert.Equal(51, engine.Evaluate("pixel[0]").AsNumber());
             Assert.Equal(102, engine.Evaluate("pixel[1]").AsNumber());
             Assert.Equal(153, engine.Evaluate("pixel[2]").AsNumber());
+            Assert.Equal(0, engine.Evaluate("updateError").AsNumber());
+            Assert.Equal(204, engine.Evaluate("updatedPixel[0]").AsNumber());
+            Assert.Equal(26, engine.Evaluate("updatedPixel[1]").AsNumber());
+            Assert.Equal(76, engine.Evaluate("updatedPixel[2]").AsNumber());
         }
         finally { DomBindings.Dispose(engine); }
     }
