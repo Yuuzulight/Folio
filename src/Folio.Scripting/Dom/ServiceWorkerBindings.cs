@@ -216,7 +216,7 @@ internal static class ServiceWorkerBindings
                 });
             engine.SetGlobalProperty("__folio_service_worker_isolated", engine.CreateHostObject(nativeTemplate, nativeRuntime));
         }
-        if (artifactStorage is not null)
+        if (artifactStorage is not null && context.Capabilities.ServiceWorkers)
         {
             string StorageKey(ScriptValue value)
             {
@@ -234,7 +234,7 @@ internal static class ServiceWorkerBindings
             engine.SetGlobalProperty("__folio_artifact_storage", engine.CreateHostObject(storage, authority));
         }
         engine.SetGlobalProperty("__folio_service_worker_base", ScriptValue.FromString(baseUri?.AbsoluteUri ?? ""));
-        try { InstallCompatibilityApi(engine, authority, artifactStorage is not null, artifactStorage is ICacheStorageBackendProvider); }
+        try { InstallCompatibilityApi(engine, authority, artifactStorage is not null && context.Capabilities.ServiceWorkers, artifactStorage is ICacheStorageBackendProvider); }
         catch { authority.Dispose(); throw; }
         finally
         {

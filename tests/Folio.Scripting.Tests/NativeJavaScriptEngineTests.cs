@@ -332,6 +332,21 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeIframeSrcdocCreatesLiveChildDocument()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body><iframe id='preview' srcdoc=\"<p id='child'>child</p><output id='message'>pending</output><script>document.getElementById('child').onclick=function(){document.getElementById('message').textContent='clicked';};</script>\" sandbox='allow-scripts'></iframe></body></html>", new FolioOptions
+        {
+            Scripting = ScriptingPolicy.ContentProcess,
+            Capabilities = new FeatureCapabilities { Iframes = true }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        document.Paint(800, 600);
+        Assert.IsType<Document>(document.GetElementById("preview")!.Node.FramePresentation!.ChildDocument);
+    }
+
+    [Fact]
     public void ExecutesScopedWorkerBootstrapShape()
     {
         using var engine = new NativeJavaScriptEngine();
