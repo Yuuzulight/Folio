@@ -1,6 +1,11 @@
 # Milestones 0–5 acceptance audit
 
-Verification refresh (2026-10-27): a complete Release solution run passed 4,078 tests with 0 failures and 7 documented skips (4,085 discovered). Earlier totals are historical snapshots.
+Verification refresh (2026-10-27): the focused pre-M6 Release runs passed
+`Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
+`Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,356/1,356 with six
+documented software-backend skips. A complete Release solution run also passed
+4,078 tests with 0 failures and 7 documented skips (4,085 discovered). Earlier
+totals are historical snapshots.
 
 Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, and service-worker audit repairs: 4,085 tests discovered, 4,078 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
 
