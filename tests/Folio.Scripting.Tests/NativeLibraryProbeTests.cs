@@ -22,6 +22,8 @@ public sealed class NativeLibraryProbeTests
         using var document = Folio.Document.Parse("<div id='source'></div><div id='target'></div>");
         DomBindings.Install(engine, document);
 
+        Assert.True(engine.Evaluate("document.getElementById('source').appendChild === document.getElementById('source').appendChild").AsBoolean());
+
         var append = engine.Evaluate("document.getElementById('source').appendChild");
         var target = engine.Evaluate("document.getElementById('target')");
         var child = engine.Evaluate("document.createElement('span')");

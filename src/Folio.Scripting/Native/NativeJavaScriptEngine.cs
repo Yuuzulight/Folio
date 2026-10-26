@@ -1220,6 +1220,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal IHostObjectTemplate Template { get; }
         internal object Target { get; }
         private readonly Dictionary<string, object?> _expandos = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, NativeReceiverFunction> _methods = new(StringComparer.Ordinal);
 
         public IEnumerable<string> Keys => Names();
         public IEnumerable<object?> Values => Names().Select(name => TryGetValue(name, out var value) ? value : null);
@@ -1240,11 +1241,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }
             if (Template.TryGetMethod(name, out var method))
             {
-                value = new NativeReceiverFunction((receiver, args) =>
+                if (!_methods.TryGetValue(name, out var receiverMethod))
                 {
-                    var host = receiver as NativeHostValue ?? this;
-                    return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
-                });
+                    receiverMethod = new NativeReceiverFunction((receiver, args) =>
+                    {
+                        var host = receiver as NativeHostValue ?? this;
+                        return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                    });
+                    _methods[name] = receiverMethod;
+                }
+                value = receiverMethod;
                 return true;
             }
             if (Template.NamedGetter is not null)
