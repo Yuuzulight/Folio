@@ -56,4 +56,16 @@ public sealed class NativeLibraryProbeTests
         Assert.Equal("object", engine.Evaluate("typeof ReactDOM").AsString());
 
     }
+
+    [Fact]
+    public void ProbeNativeMessageChannelDelivery()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Folio.Document.Parse("<div></div>");
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        engine.Evaluate("var hit = 0; var mc = new MessageChannel(); mc.port1.onmessage = function() { hit++; }; mc.port2.start(); mc.port1.start(); mc.port2.postMessage('x');");
+        for (var i = 0; i < 8 && engine.Evaluate("hit").AsNumber() == 0; i++) loop.RunOneTurn();
+        Assert.Equal(1, engine.Evaluate("hit").AsNumber());
+    }
 }
