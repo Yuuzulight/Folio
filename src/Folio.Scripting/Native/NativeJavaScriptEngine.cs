@@ -1153,6 +1153,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 setter(Target, ScriptValue.FromObject(this), ToScriptValue(value));
                 return true;
             }
+            // Script-installed Web IDL accessors live on the interface prototype
+            // (for example HTMLElement.prototype.onclick). Honour a prototype
+            // setter before creating an expando that would shadow that accessor.
+            if (Engine.TrySetDomPrototypeValue(Template.Name, name, value, this)) return true;
             if (Template.NamedSetter is not null)
             {
                 Template.NamedSetter(Target, ScriptValue.FromObject(this), name, ToScriptValue(value));

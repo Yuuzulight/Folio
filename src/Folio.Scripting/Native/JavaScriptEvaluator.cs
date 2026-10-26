@@ -338,6 +338,22 @@ internal sealed class JavaScriptEvaluator
 
     private object? Construct(JavaScriptCallExpression call)
     {
+        // `new Ctor(args).member` is parsed as a member call whose target is the
+        // constructor call. Construct the target first, then apply the member
+        // access; treating the whole member expression as the constructor makes
+        // the evaluator reject otherwise valid Web APIs such as `new URL(...).href`.
+        if (call.Callee is JavaScriptMemberExpression member && member.Target is JavaScriptCallExpression targetCall)
+        {
+            var receiver = Construct(targetCall);
+            var property = MemberValue(receiver, member.Name);
+            // The parser represents both `new Ctor().value` and
+            // `new Ctor().method()` as this shape. Invoke callable members so
+            // the latter keeps JavaScript's construction/member precedence;
+            // ordinary properties (such as URL.href) are returned directly.
+            return property is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable or NativeJavaScriptEngine.NativeReceiverFunction
+                ? InvokeWithReceiver(property!, receiver, call.Arguments.Select(Evaluate).ToArray())
+                : property;
+        }
         var constructor = call.Callee is JavaScriptIdentifierExpression identifier ? Lookup(identifier.Name) : Evaluate(call.Callee);
         var arguments = call.Arguments.Select(Evaluate).ToArray();
         var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
