@@ -56,6 +56,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Array"] = arrayConstructor;
         var objectPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["hasOwnProperty"] = new NativeReceiverFunction((receiver, args) =>
+                receiver is IReadOnlyDictionary<string, object?> properties
+                    && args.Count > 0
+                    && properties.ContainsKey(StringValue(args[0]))),
             ["toString"] = new NativeReceiverFunction((receiver, _) => receiver switch
             {
                 null => "[object Null]",

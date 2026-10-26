@@ -256,6 +256,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ObjectPrototypeHasOwnPropertySupportsCall()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("return Object.prototype.hasOwnProperty.call({ value: 1 }, 'value');").AsBoolean());
+        Assert.False(engine.Evaluate("return Object.prototype.hasOwnProperty.call({ value: 1 }, 'missing');").AsBoolean());
+    }
+
+    [Fact]
     public void ObjectGetPrototypeOfReadsNativePrototypeLinks()
     {
         using var engine = new NativeJavaScriptEngine();

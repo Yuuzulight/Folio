@@ -663,7 +663,7 @@ internal sealed class JavaScriptEvaluator
 
     private object? MemberValue(object? target, string name)
     {
-        if (target is IReadOnlyDictionary<string, object?> dictionary && name == "hasOwnProperty")
+        if (target is IReadOnlyDictionary<string, object?> dictionary && name == "hasOwnProperty" && !dictionary.ContainsKey(name))
             return (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && dictionary.ContainsKey(StringValue(args[0])));
         if (target is IReadOnlyDictionary<string, object?> ownProperties && name == "prototype" && ownProperties.TryGetValue("prototype", out var ownPrototype))
             return ownPrototype;
