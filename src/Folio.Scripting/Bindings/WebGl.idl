@@ -188,6 +188,7 @@ interface WebGLRenderingContext {
     const unsigned long TEXTURE_2D_ARRAY = 0x8C1A;
     const unsigned long UNPACK_ALIGNMENT = 0x0CF5;
     const unsigned long PACK_ALIGNMENT = 0x0D05;
+    const unsigned long UNPACK_FLIP_Y_WEBGL = 0x9240;
     const unsigned long VIEWPORT = 0x0BA2;
     const unsigned long SCISSOR_BOX = 0x0C10;
     const unsigned long COLOR_CLEAR_VALUE = 0x0C22;

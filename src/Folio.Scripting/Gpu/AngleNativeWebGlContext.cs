@@ -130,6 +130,7 @@ internal sealed partial class AngleNativeWebGlContext : IDisposable, INativeWebG
     private uint? _boundCopyWriteBuffer;
     private uint? _boundUniformBuffer;
     private int _packAlignment = 4;
+    private bool _unpackFlipY;
     private int _packRowLength;
     private int _packSkipPixels;
     private int _packSkipRows;

@@ -116,6 +116,7 @@ internal sealed partial class AngleNativeWebGlContext
             var channels = depth ? 1 : 4;
             if (!depth && !integer) channels = format == 0x1908 ? 4 : 3;
             var componentBytes = depth ? 2 : type is 0x1404 or 0x1405 or 0x1406 ? 4 : type is 0x1402 or 0x1403 or 0x140B ? 2 : 1;
+            if (_unpackFlipY && height > 1) upload = FlipRows(upload, checked(width * channels * componentBytes), height);
             var required = checked((long)width * height * channels * componentBytes);
             if (upload.Length != required) { failure = NativeFailure("The texture upload length is invalid.", 0x0501); return false; }
             var boundCandidate = target == 0x0DE1 ? _boundTexture2D : _boundTextureCube;
@@ -149,6 +150,13 @@ internal sealed partial class AngleNativeWebGlContext
             catch (Exception error) { replacement?.Dispose(); failure = new(GpuFailureKind.NativeError, error.Message); return false; }
             finally { if (pin.IsAllocated) pin.Free(); End(); }
         }
+    }
+
+    private static byte[] FlipRows(ReadOnlySpan<byte> source, int rowBytes, int rows)
+    {
+        var result = source.ToArray();
+        for (var row = 0; row < rows; row++) source.Slice(row * rowBytes, rowBytes).CopyTo(result.AsSpan((rows - 1 - row) * rowBytes, rowBytes));
+        return result;
     }
 
     private static byte[]? ExpandPackedPixels(ReadOnlySpan<byte> source, uint type, int channels, out GpuFailure? failure)
@@ -427,6 +435,7 @@ internal sealed partial class AngleNativeWebGlContext
             var channels = depth ? 1 : 4;
             if (!depth && !integer) channels = format == 0x1908 ? 4 : 3;
             var componentBytes = depth ? 2 : type is 0x1404 or 0x1405 or 0x1406 ? 4 : type is 0x1402 or 0x1403 or 0x140B ? 2 : 1;
+            if (_unpackFlipY && height > 1) upload = FlipRows(upload, checked(width * channels * componentBytes), height);
             var required = checked((long)width * height * channels * componentBytes);
             if (upload.Length != required) { failure = NativeFailure("The texture subimage length is invalid.", 0x0501); return false; }
             if (!Begin(out failure)) return false;
