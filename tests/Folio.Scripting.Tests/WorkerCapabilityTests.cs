@@ -120,6 +120,21 @@ public sealed class WorkerCapabilityTests
         Assert.Equal("bad worker data", destination.GetProperty(decoded.Value, "message").AsString());
     }
 
+    [Fact]
+    public void NativeEngineWorkerTransfersArrayBuffersEndToEnd()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(e.data.byteLength);}')); worker.onmessage=function(e){response=''+e.data;}; worker.onerror=function(e){error=e.message;}; var buffer=new ArrayBuffer(16); worker.postMessage(buffer,{transfer:[buffer]});");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != "" || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("16", engine.GetGlobalProperty("response").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+        Assert.False(engine.TryGetArrayBufferBytes(engine.GetGlobalProperty("buffer"), out _));
+    }
+
 
 
     [Theory]

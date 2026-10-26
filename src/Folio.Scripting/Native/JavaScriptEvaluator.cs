@@ -440,6 +440,8 @@ internal sealed class JavaScriptEvaluator
             && namedHost.TryGetValue(StringValue(key), out var namedValue)) return namedValue;
         if (target is IReadOnlyDictionary<string, object?> dictionary
             && dictionary.TryGetValue(StringValue(key), out var dictionaryValue)) return dictionaryValue;
+        if (target is IList<object?> iterable && StringValue(key) == "Symbol.iterator")
+            return (Func<IReadOnlyList<object?>, object?>)(_ => iterable.ToArray());
         var position = (int)Number(key);
         return target switch
         {
@@ -476,7 +478,11 @@ internal sealed class JavaScriptEvaluator
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => receiverFunction.Invoke(args.Count > 0 ? args[0] : null, args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
-        if (target is IList<object?> values && TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
+        if (target is IList<object?> values)
+        {
+            if (name == "Symbol.iterator") return (Func<IReadOnlyList<object?>, object?>)(_ => values.ToArray());
+            if (TryArrayMethod(values, name, out var arrayMethod)) return arrayMethod;
+        }
         if (target is string stringValue && TryStringMethod(stringValue, name, out var stringMethod)) return stringMethod;
         if (target is RegexValue regex && regex.TryGetProperty(name, out var regexMethod)) return regexMethod;
         if (target is NativeJavaScriptEngine.NativeWeakMap weakMap && weakMap.TryGetProperty(name, out var weakMapMethod)) return weakMapMethod;

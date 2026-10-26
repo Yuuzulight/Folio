@@ -482,6 +482,10 @@ internal sealed class WorkerState
             var prepared = StructuredCloneCodec.Prepare(Engine, value, transfer, MaxMessageBytes, MessagePortEndpoint.TryGetPort);
             using var reservation = _workerMessageBudget!.Reserve(prepared.Payload.MemoryCost);
             var payload = prepared.Commit();
+            // Keep the sender-side detachment invariant at the worker bridge even when
+            // an engine's transfer-list normalization wrapped the original values.
+            if (Engine.TryGetArrayItems(transfer, out var transferItems))
+                foreach (var item in transferItems) Engine.TryDetachArrayBuffer(item);
             // RunOnWorker queues the command when the worker is already executing a
             // callback, so delivery cannot be stranded behind a busy event turn.
             try { DeliverToWorker(payload); }

@@ -74,8 +74,12 @@ internal static class StructuredCloneCodec
     internal static void ResetHelpers(IScriptEngine engine) => HelpersByEngine.Remove(engine);
 
     internal static void EnsureHelpers(IScriptEngine engine) => _ = GetHelpers(engine);
-    internal static ScriptValue NormalizeTransfer(IScriptEngine engine, ScriptValue value, bool postMessage) =>
-        engine.Call(GetHelpers(engine).NormalizeTransfer, ScriptValue.Undefined, [value, ScriptValue.FromBoolean(postMessage)]);
+    internal static ScriptValue NormalizeTransfer(IScriptEngine engine, ScriptValue value, bool postMessage)
+    {
+        if (postMessage && engine is Folio.Scripting.Native.NativeJavaScriptEngine && value.Raw is IReadOnlyDictionary<string, object?> options && options.TryGetValue("transfer", out var transfer))
+            return transfer is null ? engine.CreateArray([]) : ScriptValue.FromObject(transfer);
+        return engine.Call(GetHelpers(engine).NormalizeTransfer, ScriptValue.Undefined, [value, ScriptValue.FromBoolean(postMessage)]);
+    }
 
     internal static ScriptValue CreatePorts(IScriptEngine engine, IReadOnlyList<ScriptValue> ports)
     {
