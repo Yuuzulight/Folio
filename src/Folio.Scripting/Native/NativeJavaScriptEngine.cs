@@ -63,6 +63,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["create"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+                if (args.Count > 0 && args[0] is IReadOnlyDictionary<string, object?> prototype)
+                    result["__proto__"] = prototype;
                 if (args.Count > 1 && args[1] is IReadOnlyDictionary<string, object?> descriptors)
                     foreach (var (name, descriptor) in descriptors)
                         if (descriptor is IReadOnlyDictionary<string, object?> entry && entry.TryGetValue("value", out var value)) result[name] = value;
