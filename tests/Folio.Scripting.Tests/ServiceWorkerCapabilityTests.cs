@@ -4,6 +4,7 @@ using Folio.Scripting.Native;
 using Folio.Resources;
 using Folio.Dom;
 using Folio.Typography;
+using System.Diagnostics;
 using System.Text;
 
 namespace Folio.Scripting.Tests;
@@ -328,6 +329,29 @@ public sealed class ServiceWorkerCapabilityTests
         Assert.Equal("offline", Encoding.UTF8.GetString(intercepted!.Data!));
         Assert.Null(interceptor.Intercept(new ResourceRequest("https://worker.example/refused.txt", ResourceKind.Document)));
         Assert.Contains(diagnostics, diagnostic => diagnostic.Code == DiagnosticCode.ResourceNotLoaded);
+    }
+
+    [Fact]
+    public void NativeServiceWorkerBusyFetchIsInterruptedWithoutStoppingThePage()
+    {
+        using var document = Folio.Document.Parse("<p>service worker</p>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new TestServiceWorkerLoader("self.addEventListener('fetch', e => { while (true) {} });"),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(50) }
+        });
+        using var engine = new NativeJavaScriptEngine();
+        DomBindings.Install(engine, document);
+        engine.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+        engine.PerformMicrotaskCheckpoint();
+        var interceptor = document.Options.ResourceInterceptor;
+        Assert.NotNull(interceptor);
+        var started = Stopwatch.GetTimestamp();
+        Assert.Null(interceptor!.Intercept(new ResourceRequest("https://worker.example/hung.txt", ResourceKind.Document)));
+        var elapsed = Stopwatch.GetElapsedTime(started);
+        Assert.True(elapsed < TimeSpan.FromSeconds(2), $"native service-worker fetch took {elapsed}");
+        Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
     }
 
     [Fact]

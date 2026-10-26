@@ -148,7 +148,12 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
     private void CreateEngine()
     {
         _engine = _factory.CreateIsolated();
-        _engine.Configure(new ScriptLimits { MaxStatements = 100_000, MemoryLimitBytes = 64 * 1024 * 1024 });
+        _engine.Configure(new ScriptLimits
+        {
+            MaxStatements = 100_000,
+            MemoryLimitBytes = 64 * 1024 * 1024,
+            Timeout = _context.MaxWorkerExecutionTime
+        });
         DomBindings.InstallDomException(_engine);
         var isolatedFetchApi = FetchBindings.Install(_engine, _context);
         CacheBindings.Install(_engine, _context, isolatedFetchApi, registerDisposal: false);
