@@ -333,6 +333,12 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
                 properties[member.Name] = assigned;
                 break;
+            case JavaScriptMemberExpression member when Evaluate(member.Target) is IList<object?> values && member.Name == "length":
+                var length = (int)Number(assigned);
+                if (length < 0) throw new ArgumentOutOfRangeException(nameof(assigned), "Invalid array length.");
+                while (values.Count > length) values.RemoveAt(values.Count - 1);
+                while (values.Count < length) values.Add(JavaScriptEvaluator.UndefinedValue.Instance);
+                break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is NativeJavaScriptEngine.NativeFunction function:
                 function.SetProperty(member.Name, assigned);
                 break;

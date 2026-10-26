@@ -26,6 +26,33 @@ public sealed class WorkerCapabilityTests
         Assert.Equal("", engine.GetGlobalProperty("error").AsString());
     }
 
+    [Fact]
+    public void NativeEngineWorkerRoundTripsObjectsAndArrays()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage({n:e.data.n+1,second:e.data.values[1]});}')); worker.onmessage=function(e){response=e.data.n+':'+e.data.second;}; worker.onerror=function(e){error=e.message;}; worker.onmessageerror=function(e){error='messageerror';}; worker.postMessage({n:41,values:[7,42]});");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != "" || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("42:42", engine.GetGlobalProperty("response").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneEncodesObjectsAndArrays()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("({n:41,values:[7,42]})");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        Assert.True(payload.Json.Contains("records", StringComparison.Ordinal), payload.Json);
+        Assert.False(payload.Json.Contains("\"t\":\"port\"", StringComparison.Ordinal), payload.Json);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        Assert.Equal(41, destination.GetProperty(decoded.Value, "n").AsNumber());
+    }
+
 
 
     [Theory]

@@ -10,7 +10,7 @@ namespace Folio.Scripting.Native;
 /// implemented by the bounded front end; production routing remains gated until
 /// differential parity is demonstrated.
 /// </summary>
-internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator
+internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
     private readonly Dictionary<string, object?> _bindings = new(StringComparer.Ordinal);
     private readonly Queue<Action> _microtasks = new();
@@ -55,14 +55,22 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
             }),
             ["defineProperty"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                if (args.Count > 2 && args[0] is IDictionary<string, object?> target && args[1] is not null)
+                if (args.Count > 2 && args[1] is not null)
                 {
                     var name = StringValue(args[1]);
+                    object? value = null;
                     if (args[2] is IReadOnlyDictionary<string, object?> descriptor)
                     {
                         if (descriptor.TryGetValue("get", out var getter) && getter is INativeCallable callable)
-                            target[name] = new NativePropertyGetter(() => callable.Invoke([]));
-                        else if (descriptor.TryGetValue("value", out var value)) target[name] = value;
+                            value = new NativePropertyGetter(() => callable.Invoke([]));
+                        else if (descriptor.TryGetValue("value", out var descriptorValue)) value = descriptorValue;
+                    }
+                    if (args[0] is IDictionary<string, object?> target)
+                        target[name] = value;
+                    else if (args[0] is IList<object?> values && int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out var index) && index >= 0)
+                    {
+                        while (values.Count <= index) values.Add(JavaScriptEvaluator.UndefinedValue.Instance);
+                        values[index] = value;
                     }
                 }
                 return args.Count > 0 ? args[0] : null;
@@ -547,6 +555,20 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
     }
     public void Interrupt() => _interrupted = true;
     public IScriptEngine CreateIsolated() => new NativeJavaScriptEngine(_maxSteps, _timeout);
+
+    string IStructuredCloneEngine.ClassifyCloneObject(ScriptValue value)
+    {
+        if (value.Raw is NativeBuffer buffer)
+            return buffer.Kind == ScriptBufferSourceKind.ArrayBuffer ? "buffer" : "typedarray";
+        if (value.Raw is NativeMap) return "map";
+        if (value.Raw is NativeSet) return "set";
+        if (value.Raw is IReadOnlyList<object?>) return "array";
+        if (value.Raw is IReadOnlyDictionary<string, object?>) return "object";
+        return "unsupported";
+    }
+
+    (string Source, string Flags) IStructuredCloneEngine.GetCloneRegExp(ScriptValue value) =>
+        throw new ArgumentException("The value is not a regular expression.", nameof(value));
     public void Dispose() { _disposed = true; _bindings.Clear(); _microtasks.Clear(); }
 
     private void EnsureLive() { if (_disposed) throw new ObjectDisposedException(nameof(NativeJavaScriptEngine)); }
@@ -576,7 +598,8 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
     private void Enqueue(Action action) { EnsureLive(); _microtasks.Enqueue(action); }
     private static object? ToObject(ScriptValue value) => value.Kind switch
     {
-        ScriptValueKind.Undefined or ScriptValueKind.Null => null,
+        ScriptValueKind.Undefined => JavaScriptEvaluator.UndefinedValue.Instance,
+        ScriptValueKind.Null => null,
         ScriptValueKind.Boolean => value.AsBoolean(),
         ScriptValueKind.Number => value.AsNumber(),
         ScriptValueKind.String => value.AsString(),
