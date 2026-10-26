@@ -25,8 +25,8 @@ internal sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFacto
         if (inheritedMaxSteps is > 0) _maxSteps = inheritedMaxSteps.Value;
         if (inheritedTimeout is not null) _timeout = inheritedTimeout;
         var arrayConstructor = new NativeFunction(args => args.Count == 1 && args[0] is double length
-            ? Enumerable.Repeat<object?>(JavaScriptEvaluator.UndefinedValue.Instance, Math.Max(0, (int)length)).ToArray()
-            : args.ToArray());
+            ? Enumerable.Repeat<object?>(JavaScriptEvaluator.UndefinedValue.Instance, Math.Max(0, (int)length)).ToList()
+            : args.ToList());
         arrayConstructor.SetProperty("isArray", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?>));
         arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?> values ? values.ToArray() : Array.Empty<object?>()));
         arrayConstructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal));

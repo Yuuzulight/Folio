@@ -57,6 +57,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeArraysGrowWhenIndexedPastTheirCurrentLength()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("3:7:null", engine.Evaluate("const values = []; values[0] = 3; values[2] = 7; return values.length + ':' + values[2] + ':' + values[1];").AsString());
+    }
+
+    [Fact]
     public void ProvidesObjectDescriptorAndErrorIntrinsics()
     {
         using var engine = new NativeJavaScriptEngine();

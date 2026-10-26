@@ -344,8 +344,13 @@ internal sealed class JavaScriptEvaluator
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IList<object?> values:
                 var position = (int)Number(Evaluate(index.Index));
-                if (position < 0 || position >= values.Count) throw new IndexOutOfRangeException();
-                values[position] = assigned;
+                if (position < 0) throw new IndexOutOfRangeException();
+                if (position < values.Count) values[position] = assigned;
+                else
+                {
+                    while (values.Count < position) values.Add(null);
+                    values.Add(assigned);
+                }
                 break;
             case JavaScriptIndexExpression index when Evaluate(index.Target) is IDictionary<string, object?> indexedProperties:
                 indexedProperties[StringValue(Evaluate(index.Index))] = assigned;
