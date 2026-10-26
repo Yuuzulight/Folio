@@ -373,9 +373,10 @@ internal sealed class JavaScriptEvaluator
     {
         var oldValue = Evaluate(update.Operand);
         var next = Number(oldValue) + (update.Operator == "++" ? 1 : -1);
-        if (update.Operand is not JavaScriptIdentifierExpression identifier)
-            throw new InvalidDataException("Only lexical update assignment is supported.");
-        Assign(identifier.Name, next);
+        if (update.Operand is JavaScriptIdentifierExpression identifier)
+            Assign(identifier.Name, next);
+        else
+            AssignValue(update.Operand, next);
         return update.Prefix ? next : oldValue;
     }
 

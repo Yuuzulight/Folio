@@ -112,6 +112,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(0d, engine.Evaluate("return Math.log(1);").AsNumber());
         Assert.Equal(32d, engine.Evaluate("return Math.pow(2, 5);").AsNumber());
         Assert.Equal(26d, engine.Evaluate("return Math.clz32(1) - 5;").AsNumber());
+        Assert.True(engine.Evaluate("return Number.isSafeInteger(9007199254740991);").AsBoolean());
+        Assert.False(engine.Evaluate("return Number.isSafeInteger(9007199254740992);").AsBoolean());
     }
 
     [Fact]
