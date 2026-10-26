@@ -19,6 +19,14 @@ public sealed class FfmpegMediaDecoder : IMediaDecoder
         _timeout = timeout is { } value && value > TimeSpan.Zero ? value : TimeSpan.FromSeconds(10);
     }
 
+    public bool CanDecode(string? contentType, bool video)
+    {
+        var mime = (contentType ?? "").Trim().ToLowerInvariant().Split(';', 2)[0];
+        return video
+            ? mime is "video/mp4" or "video/webm" or "video/ogg"
+            : mime is "audio/wav" or "audio/x-wav" or "audio/wave" or "audio/mpeg" or "audio/mp3" or "audio/ogg";
+    }
+
     public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes)
     {
         if (data.IsEmpty || maxOutputBytes <= 0) return null;
