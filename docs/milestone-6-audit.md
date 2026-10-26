@@ -379,7 +379,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `ArtifactClassifier.cs; CapabilityMatrixTests.cs`.
 
-Classifier admits the compatibility WebAssembly surface with a capability. The native path now has direct import-free execution, JavaScript function imports, imported funcref tables with native-origin and typed page numeric callbacks, store-limit and native epoch-deadline tests, and a worker regression proves a runaway native-capable module is bounded by the worker execution limit. The streaming integration regression also proves `instantiateStreaming` reaches the native cache. Native routing policy, reference-value tables, streaming-to-native timing evidence and full sandbox coverage remain unmet.
+Classifier admits the compatibility WebAssembly surface with a capability. The native path now has direct import-free execution, JavaScript function imports, imported funcref tables with native-origin and typed page numeric callbacks, store-limit and native epoch-deadline tests, and a worker regression proves a runaway native-capable module is bounded by the worker execution limit. The streaming integration regression also proves `instantiateStreaming` reaches the native cache, and invalid MIME rejection is covered directly. A native worker probe found that constructing a valid module inside the native worker does not complete, so #543's same-module-in-a-worker acceptance remains unmet. Native routing policy, reference-value tables, streaming-to-native timing evidence and full sandbox coverage remain unmet.
 
 Original acceptance:
 
