@@ -19,7 +19,7 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 
 - `dotnet build Folio.slnx --no-restore`: passes.
 - `dotnet tests/Folio.Tests/bin/Release/net10.0/Folio.Tests.dll`: 1,947 passed, 1 environment-dependent symlink test skipped.
-- `dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll`: 1,146/1,146 passed in serialized mode (including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, and iframe message-source/target/port regressions).
+- `dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll`: 1,158/1,158 passed in serialized mode (including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, and iframe message-source/target/port regressions).
 - `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7`: 60 passed, with no expected failures or unexpected failures.
 - `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 658/658 passed.
 
