@@ -14,7 +14,7 @@ internal sealed partial class AngleNativeWebGlContext
             if (value is not (0 or 1)) { failure = NativeFailure("The unpack flip-Y value is invalid."); return false; }
             _unpackFlipY = value != 0; failure = null; return true;
         }
-        if (value < 0 || (parameter == 0x0D05 && value is not (1 or 2 or 4 or 8))) { failure = NativeFailure("The pixel-store value is invalid."); return false; }
+        if (value < 0 || (parameter == 0x0D05 && value is not (1 or 2 or 4 or 8))) { failure = NativeFailure("The pixel-store value is invalid.", 0x0501); return false; }
         var ok = StateCall(() => _gl.PixelStorei(parameter, value), out failure);
         if (ok) { if (parameter == 0x0D05) _packAlignment = value; else if (parameter == 0x0D02) _packRowLength = value; else if (parameter == 0x0D04) _packSkipPixels = value; else if (parameter == 0x0D03) _packSkipRows = value; }
         return ok;

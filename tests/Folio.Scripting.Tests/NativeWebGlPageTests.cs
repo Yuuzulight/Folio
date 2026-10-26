@@ -777,6 +777,24 @@ public sealed class NativeWebGlPageTests
     }
 
     [Fact]
+    public void NativePixelStoreRejectsInvalidPackAlignmentWithoutChangingState()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});var before=gl.getParameter(gl.PACK_ALIGNMENT);gl.pixelStorei(gl.PACK_ALIGNMENT,3);var e=gl.getError();var after=gl.getParameter(gl.PACK_ALIGNMENT);");
+            Assert.Equal(4, engine.Evaluate("before").AsNumber());
+            Assert.Equal(1281, engine.Evaluate("e").AsNumber());
+            Assert.Equal(4, engine.Evaluate("after").AsNumber());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
     public void NativeReadPixelsSupportsPackedRgb565()
     {
         if (!OperatingSystem.IsWindows()) return;
