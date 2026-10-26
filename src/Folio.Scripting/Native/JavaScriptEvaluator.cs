@@ -442,9 +442,10 @@ internal sealed class JavaScriptEvaluator
             "/" => r == 0 ? double.NaN : l / r,
             "%" => r == 0 ? double.NaN : l % r,
             "<" => l < r, ">" => l > r, "<=" => l <= r, ">=" => l >= r,
-            "==" => JavaScriptEquals(left, right, strict: false),
-            "===" or "!==" => binary.Operator == "===" ? Equals(left, right) : !Equals(left, right),
-            "!=" => !JavaScriptEquals(left, right, strict: false),
+            "==" => JavaScriptNullishEquals(left, right) ?? Equals(left, right),
+            "===" => Equals(left, right),
+            "!=" => !(JavaScriptNullishEquals(left, right) ?? Equals(left, right)),
+            "!==" => !Equals(left, right),
             "<<" => (double)(ToInt32(l) << (ToInt32(r) & 31)),
             ">>" => (double)(ToInt32(l) >> (ToInt32(r) & 31)), ">>>" => (double)((uint)ToInt32(l) >> (ToInt32(r) & 31)),
             "&" => (double)(ToInt32(l) & ToInt32(r)), "^" => (double)(ToInt32(l) ^ ToInt32(r)), "|" => (double)(ToInt32(l) | ToInt32(r)),
@@ -1155,22 +1156,13 @@ internal sealed class JavaScriptEvaluator
     private static double Number(object? value) => value switch { null => 0, UndefinedValue => double.NaN, bool boolean => boolean ? 1 : 0, double number => number, int integer => integer, string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number, _ => double.NaN };
     private static int ToInt32(double value) => unchecked((int)value);
 
-    private static bool JavaScriptEquals(object? left, object? right, bool strict)
+    private static bool? JavaScriptNullishEquals(object? left, object? right)
     {
         var leftUndefined = left is UndefinedValue;
         var rightUndefined = right is UndefinedValue;
-        if (leftUndefined || rightUndefined)
-            return strict ? leftUndefined && rightUndefined : (leftUndefined || left is null) && (rightUndefined || right is null);
-        if (left is null || right is null) return false;
-        if (left is double leftNumber && right is double rightNumber) return !double.IsNaN(leftNumber) && leftNumber == rightNumber;
-        if (!strict)
-        {
-            if (left is bool) return JavaScriptEquals(Number(left), right, strict: false);
-            if (right is bool) return JavaScriptEquals(left, Number(right), strict: false);
-            if (left is string && right is double or int) return Number(left) == Number(right);
-            if (right is string && left is double or int) return Number(left) == Number(right);
-        }
-        return left.Equals(right);
+        if (leftUndefined || rightUndefined || left is null || right is null)
+            return (leftUndefined || left is null) && (rightUndefined || right is null);
+        return null;
     }
 
     private static string StringValue(object? value) => value switch { null => "null", UndefinedValue => "undefined", bool boolean => boolean ? "true" : "false", double number => number.ToString("G15", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };
