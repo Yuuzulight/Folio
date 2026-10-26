@@ -4,6 +4,13 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 `Partial` means implemented behavior exists but does not prove the full acceptance; `Unverified` means the evidence is not strong enough to claim resolution. Only a later requirement-specific runtime check can change a row to verified. The table is a source/acceptance audit, not a claim that three complete review passes have already been performed for every issue.
 
+## Verification refresh — 2026-10-26
+
+- Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
+- The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
+- Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
+- These results verify the current compatibility paths and regressions only. They do not close the original M6 gates: complete WebGL 2/integer/volume conformance, continuous device-level media pacing and output, native-engine worker/Wasm execution, real permitted WebRTC capture/transport, isolated service-worker offline reopening, or equivalent non-Windows containment.
+
 ## Repairs verified during this audit
 
 - Media Foundation: correct GUIDs, HRESULT/COM layout, inherited method slots, apartment/startup balancing, actual audio metadata, EOS handling, RGB conversion/stride/duration, budget rejection and cleanup.
