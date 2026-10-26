@@ -461,9 +461,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         try
         {
             var values = args.ToArray().Select(ToObject).ToArray();
+            var receiver = ToObject(thisValue);
             return function.Raw switch
             {
-                Func<IReadOnlyList<object?>, object?> callable => ToScriptValue(callable(values)),
+                Func<IReadOnlyList<object?>, object?> callable => ToScriptValue(JavaScriptEvaluator.InvokeWithReceiver(callable, receiver, values)),
+                NativeReceiverFunction callable => ToScriptValue(callable.Invoke(receiver, values)),
                 INativeCallable callable => ToScriptValue(callable.Invoke(values)),
                 _ => throw new InvalidOperationException("Value is not callable."),
             };

@@ -5,6 +5,16 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeLibraryProbeTests
 {
     [Fact]
+    public void NativeCallHonorsThisReceiver()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var function = engine.Evaluate("(function() { return this.value; })");
+        var receiver = engine.Evaluate("({ value: 42 })");
+
+        Assert.Equal(42, engine.Call(function, receiver, []).AsNumber());
+    }
+
+    [Fact]
     public void ProbeReactLibrary()
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));
