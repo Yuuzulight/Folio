@@ -1505,13 +1505,16 @@ public sealed class NativeWebGlPageTests
                 var vs=makeShader(gl.VERTEX_SHADER,'#version 300 es\nvoid main(){gl_Position=vec4(-1,-1,0,1);if(gl_VertexID==1)gl_Position=vec4(3,-1,0,1);if(gl_VertexID==2)gl_Position=vec4(-1,3,0,1);}');
                 var fs=makeShader(gl.FRAGMENT_SHADER,'#version 300 es\nprecision highp float;uniform highp isampler2D tex;out vec4 color;void main(){ivec4 x=texelFetch(tex,ivec2(0),0);color=vec4(x.r==-16?1.0:0.0,x.g==-128?1.0:0.0,0,1);}');
                 var p=gl.createProgram();gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);gl.useProgram(p);
-                var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8I,1,1,0,gl.RGBA_INTEGER,gl.BYTE,new Int8Array([-16,-128,7,127]));gl.uniform1i(gl.getUniformLocation(p,'tex'),0);gl.drawArrays(gl.TRIANGLES,0,3);
+                var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texStorage2D(gl.TEXTURE_2D,1,gl.RGBA8I,1,1);var storageError=gl.getError();gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,1,1,0,gl.RGBA_INTEGER,gl.BYTE,new Int8Array([-16,-128,7,127]));var uploadError=gl.getError();gl.uniform1i(gl.getUniformLocation(p,'tex'),0);gl.drawArrays(gl.TRIANGLES,0,3);var drawError=gl.getError();
                 var pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);var error=gl.getError();
                 """);
             Assert.True(engine.Evaluate("gl.getShaderParameter(vs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(vs)").AsString());
             Assert.True(engine.Evaluate("gl.getShaderParameter(fs,gl.COMPILE_STATUS)").AsBoolean(), engine.Evaluate("gl.getShaderInfoLog(fs)").AsString());
             Assert.True(engine.Evaluate("gl.getProgramParameter(p,gl.LINK_STATUS)").AsBoolean(), engine.Evaluate("gl.getProgramInfoLog(p)").AsString());
             Assert.Equal(0, engine.Evaluate("error").AsNumber());
+            Assert.Equal(0, engine.Evaluate("storageError").AsNumber());
+            Assert.Equal(0, engine.Evaluate("uploadError").AsNumber());
+            Assert.Equal(0, engine.Evaluate("drawError").AsNumber());
             Assert.Equal(255, engine.Evaluate("pixel[0]").AsNumber());
             Assert.Equal(255, engine.Evaluate("pixel[1]").AsNumber());
         }

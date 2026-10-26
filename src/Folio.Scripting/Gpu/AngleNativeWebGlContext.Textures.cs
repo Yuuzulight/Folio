@@ -191,7 +191,15 @@ internal sealed partial class AngleNativeWebGlContext
             failure = null;
             if (Options.Version != WebGlContextVersion.WebGl2 || target is not (0x0DE1 or 0x8513) || levels <= 0 || width <= 0 || height <= 0 || width > 16384 || height > 16384 || (target == 0x8513 && width != height))
             { failure = NativeFailure("The immutable texture storage target, dimensions or levels are invalid.", 0x0501); return false; }
-            var bytesPerPixel = internalFormat switch { 0x8058 or 0x8814 => internalFormat == 0x8814 ? 16 : 4, 0x8051 => 3, 0x881A => 8, 0x81A5 => 2, _ => 0 };
+            var bytesPerPixel = internalFormat switch
+            {
+                0x8058 or 0x8D7C or 0x8D8E or 0x8814 => internalFormat == 0x8814 ? 16 : 4,
+                0x8051 or 0x8D7D or 0x8D8F => 3,
+                0x881A or 0x8D77 or 0x8D79 => 8,
+                0x81A5 or 0x8D76 or 0x8D78 => 2,
+                0x8232 or 0x8231 => 1,
+                _ => 0
+            };
             if (bytesPerPixel == 0) { failure = NativeFailure("The immutable texture internal format is unsupported by this native path.", 0x0500); return false; }
             var boundCandidate = target == 0x0DE1 ? _boundTexture2D : _boundTextureCube;
             if (boundCandidate is not { } bound || !_textures.Contains(bound)) { failure = NativeFailure("No texture is bound to the requested target.", 0x0502); return false; }
@@ -352,10 +360,11 @@ internal sealed partial class AngleNativeWebGlContext
             { failure = NativeFailure("The immutable 3D texture storage target, dimensions or levels are invalid.", 0x0501); return false; }
             var bytesPerPixel = internalFormat switch
             {
-                0x8058 or 0x8814 or 0x8D7C or 0x8D70 => internalFormat is 0x8814 or 0x8D70 ? 16 : 4,
-                0x8051 or 0x8D7D => 3,
-                0x881A or 0x8D77 => 8,
-                0x81A5 or 0x8D76 => 2,
+                0x8058 or 0x8814 or 0x8D7C or 0x8D8E or 0x8D70 => internalFormat is 0x8814 or 0x8D70 ? 16 : 4,
+                0x8051 or 0x8D7D or 0x8D8F => 3,
+                0x881A or 0x8D77 or 0x8D79 => 8,
+                0x81A5 or 0x8D76 or 0x8D78 => 2,
+                0x8232 or 0x8231 => 1,
                 _ => 0
             };
             if (bytesPerPixel == 0) { failure = NativeFailure("The immutable 3D texture internal format is unsupported by this native path.", 0x0500); return false; }
@@ -402,7 +411,7 @@ internal sealed partial class AngleNativeWebGlContext
             if (!_textureLevels.TryGetValue((bound, target, level), out var image) || xOffset > image.Width - width || yOffset > image.Height - height)
             { failure = NativeFailure("The texture subimage is outside the allocated level.", 0x0501); return false; }
             var depth = format == 0x1902 && type == 0x1403;
-            var integer = format == 0x8D99 && type == 0x1401;
+            var integer = format == 0x8D99 && type is 0x1400 or 0x1401 or 0x1402 or 0x1403 or 0x1404 or 0x1405;
             var packed = format == 0x1907 && type == 0x8363 || format == 0x1908 && type is 0x8033 or 0x8034;
             if ((!depth && !integer && !packed && format is not (0x1907 or 0x1908)) || (!depth && !integer && !packed && type is not (0x1401 or 0x1406 or 0x140B)))
             { failure = NativeFailure("The texture subimage format or type is unsupported by this native path.", 0x0500); return false; }
@@ -417,7 +426,7 @@ internal sealed partial class AngleNativeWebGlContext
             var upload = expanded is null ? pixels : expanded.AsSpan();
             var channels = depth ? 1 : 4;
             if (!depth && !integer) channels = format == 0x1908 ? 4 : 3;
-            var componentBytes = depth ? 2 : type == 0x1406 ? 4 : type == 0x140B ? 2 : 1;
+            var componentBytes = depth ? 2 : type is 0x1404 or 0x1405 or 0x1406 ? 4 : type is 0x1402 or 0x1403 or 0x140B ? 2 : 1;
             var required = checked((long)width * height * channels * componentBytes);
             if (upload.Length != required) { failure = NativeFailure("The texture subimage length is invalid.", 0x0501); return false; }
             if (!Begin(out failure)) return false;
