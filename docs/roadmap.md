@@ -85,7 +85,7 @@ Current audit note: the interaction behavior, accessibility tree, incremental-eq
 - D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
 
-**Audit result (2026-10-26):** D2–D7 pass 60/60, the current serialized scripting suite passes 1,176/1,176, and all Chart.js library artifacts execute through Folio's canvas path. The performance target and the mandatory replacement of the dependency-backed script engine remain separate gates.
+**Audit result (2026-10-26):** D2–D7 pass 60/60, and the focused scripting, canvas, fetch, CSSOM, observer, library and JSX checks pass. The 30-frame D5/D7 canvas benchmark stays below the 16.7 ms p95 target for every artifact (worst p95 4.01 ms). Diagram tests pass through `Folio.Diagrams`, and the pinned library cache/integrity tests pass. The dependency-backed product milestone is complete; the mandatory Folio-owned script-engine replacement remains a separate required gate.
 
 ## 6. Beyond artifacts
 
