@@ -428,6 +428,8 @@ Original acceptance:
 
 Wrong target origins are rejected, wildcard delivery works, opaque sandboxed frames report `origin === "null"`, and both directions expose the correct source and target identities. A transferred `MessagePort` crosses into a frame, is forwarded to a dedicated worker, and returns its result in order; the test drives the child event loop through the normal rendering path rather than calling private internals.
 
+The native staged engine now also preserves constructor receivers for `MessageChannel`, exposes callable native port methods, and passes a direct structured-clone object/array round trip after `MessagePort.start()` in three independent restarts. This strengthens native wiring evidence but does not close the broader iframe/process isolation requirements.
+
 Original acceptance:
 
 - Tests: a wrong `targetOrigin` is not delivered; `*` is; the origin of an opaque frame arrives as `null`.
