@@ -121,9 +121,10 @@ internal static class FrameBenchmark
     {
         using var document = Document.Parse(html, Options);
         var (list, _) = document.Paint(width, height, 1, new HarfBuzzShaper(), 0);
+        if (list is null) throw new InvalidOperationException("Benchmark paint did not produce a display list.");
         TimeSpan Median(IRasterBackend backend)
         {
-            using var surface = backend.CreateSurface(width, height);
+            using var surface = backend.CreateSurface(width, height) ?? throw new InvalidOperationException("Benchmark backend could not create a raster surface.");
             var times = new List<TimeSpan>();
             for (var i = -3; i < frames; i++) // three warm-up replays
             {
