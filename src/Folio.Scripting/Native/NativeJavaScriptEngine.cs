@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Native;
 
@@ -16,6 +17,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 {
     private readonly Dictionary<string, object?> _bindings = new(StringComparer.Ordinal);
     private readonly Dictionary<string, object?> _domPrototypes = new(StringComparer.Ordinal);
+    private readonly ConditionalWeakTable<object, Dictionary<IHostObjectTemplate, NativeHostValue>> _hostObjectCache = new();
     private readonly Queue<Action> _microtasks = new();
     private int _maxSteps = ScriptLimits.Default.MaxStatements ?? 100_000;
     private TimeSpan? _timeout = ScriptLimits.Default.Timeout;
@@ -369,7 +371,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     private bool IsDeadlineExceeded() => _deadlineTicks != 0 && Stopwatch.GetTimestamp() >= _deadlineTicks;
 
-    public ScriptValue CreateHostObject(IHostObjectTemplate template, object target) => ScriptValue.FromObject(new NativeHostValue(this, template, target));
+    public ScriptValue CreateHostObject(IHostObjectTemplate template, object target)
+    {
+        if (target.GetType().IsValueType) return ScriptValue.FromObject(new NativeHostValue(this, template, target));
+        var objects = _hostObjectCache.GetValue(target, static _ => new Dictionary<IHostObjectTemplate, NativeHostValue>());
+        if (!objects.TryGetValue(template, out var host))
+            objects[template] = host = new NativeHostValue(this, template, target);
+        return ScriptValue.FromObject(host);
+    }
     public bool TryGetHostTarget(ScriptValue value, out object? target)
     {
         if (value.Raw is NativeHostValue host) { target = host.Target; return true; }
