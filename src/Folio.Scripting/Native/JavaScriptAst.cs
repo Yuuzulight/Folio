@@ -2,6 +2,7 @@ namespace Folio.Scripting.Native;
 
 internal abstract record JavaScriptExpression;
 internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenKind Kind) : JavaScriptExpression;
+internal sealed record JavaScriptTemplateExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptRegexExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptIdentifierExpression(string Name) : JavaScriptExpression;
 internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpression Operand) : JavaScriptExpression;
@@ -11,6 +12,7 @@ internal sealed record JavaScriptConditionalExpression(JavaScriptExpression Cond
 internal sealed record JavaScriptMemberExpression(JavaScriptExpression Target, string Name) : JavaScriptExpression;
 internal sealed record JavaScriptCallExpression(JavaScriptExpression Callee, IReadOnlyList<JavaScriptExpression> Arguments) : JavaScriptExpression;
 internal sealed record JavaScriptArrayExpression(IReadOnlyList<JavaScriptExpression> Elements) : JavaScriptExpression;
+internal sealed record JavaScriptSpreadExpression(JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptIndexExpression(JavaScriptExpression Target, JavaScriptExpression Index) : JavaScriptExpression;
 internal sealed record JavaScriptObjectExpression(IReadOnlyList<(string Name, JavaScriptExpression Value)> Properties) : JavaScriptExpression;
 internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body) : JavaScriptExpression;

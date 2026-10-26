@@ -7,6 +7,7 @@ internal enum JavaScriptTokenKind
     Identifier,
     Number,
     String,
+    Template,
     Regex,
     Punctuation,
 }
@@ -51,6 +52,7 @@ internal sealed class JavaScriptLexer
         if (char.IsDigit(c) || c == '.' && _index + 1 < _source.Length && char.IsDigit(_source[_index + 1]))
             return ReadNumber(offset, line, column);
         if (c is '\'' or '"') return ReadString(offset, line, column, c);
+        if (c == '`') return ReadTemplate(offset, line, column);
         if (c == '/' && IsRegexStart()) return ReadRegex(offset, line, column);
 
         var two = _index + 1 < _source.Length ? _source.Substring(_index, 2) : string.Empty;
@@ -66,7 +68,7 @@ internal sealed class JavaScriptLexer
             Advance(); Advance(); Advance();
             return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
         }
-        if (three is "===" or "!==")
+        if (three is "===" or "!==" or "...")
         {
             Advance(); Advance(); Advance();
             return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
@@ -140,6 +142,16 @@ internal sealed class JavaScriptLexer
             });
         }
         throw Error("The string literal is unterminated.");
+    }
+
+    private JavaScriptToken ReadTemplate(int offset, int line, int column)
+    {
+        Advance();
+        var start = _index;
+        while (_index < _source.Length && _source[_index] != '`') Advance();
+        var text = _source[start.._index];
+        if (_index < _source.Length) Advance();
+        return new(JavaScriptTokenKind.Template, text, offset, line, column);
     }
 
     private bool IsRegexStart()

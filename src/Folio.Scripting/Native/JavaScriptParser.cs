@@ -70,8 +70,26 @@ internal sealed class JavaScriptParser
             var declarations = new List<JavaScriptStatement>();
             do
             {
-                if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a binding name");
-                var name = _current.Text; Take();
+                string name;
+                if (Match("["))
+                {
+                    var names = new List<string>();
+                    if (!Match("]"))
+                    {
+                        do
+                        {
+                            if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
+                            names.Add(_current.Text); Take();
+                        } while (Match(","));
+                        Expect("]");
+                    }
+                    name = "[" + string.Join(",", names) + "]";
+                }
+                else
+                {
+                    if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a binding name");
+                    name = _current.Text; Take();
+                }
                 JavaScriptExpression? initializer = Match("=") ? ParseBinary(0) : null;
                 declarations.Add(new JavaScriptVariableStatement(name, initializer));
             } while (Match(","));
@@ -287,6 +305,11 @@ internal sealed class JavaScriptParser
             if (op is "++" or "--") return Node(new JavaScriptUpdateExpression(op, operand, true));
             return Node(new JavaScriptUnaryExpression(op, operand));
         }
+        if (_current.Kind == JavaScriptTokenKind.Template)
+        {
+            var token = _current; Take();
+            return Node(new JavaScriptTemplateExpression(token.Text));
+        }
         if (_current.Kind is JavaScriptTokenKind.Number or JavaScriptTokenKind.String)
         {
             var token = _current; Take();
@@ -354,7 +377,10 @@ internal sealed class JavaScriptParser
             var elements = new List<JavaScriptExpression>();
             if (!Match("]"))
             {
-                do { elements.Add(ParseBinary(0)); } while (Match(","));
+                do
+                {
+                    elements.Add(Match("...") ? new JavaScriptSpreadExpression(ParseBinary(0)) : ParseBinary(0));
+                } while (Match(","));
                 Expect("]");
             }
             return Node(new JavaScriptArrayExpression(elements));

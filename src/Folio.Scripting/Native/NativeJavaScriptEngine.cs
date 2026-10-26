@@ -696,7 +696,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TryGetProperty(string name, out object? value) => _properties.TryGetValue(name, out value);
     }
 
-    private static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or INativeCallable;
+    internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or INativeCallable;
     internal static object? InvokeCallable(object? value, IReadOnlyList<object?> args) => value switch
     {
         Func<IReadOnlyList<object?>, object?> function => function(args),

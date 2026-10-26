@@ -41,6 +41,7 @@ internal sealed class JavaScriptEvaluator
         return expression switch
         {
             JavaScriptLiteralExpression literal => Literal(literal),
+            JavaScriptTemplateExpression template => Template(template.Text),
             JavaScriptRegexExpression regex => RegexValue.Create(regex.Text),
             JavaScriptIdentifierExpression identifier => Lookup(identifier.Name),
             JavaScriptUnaryExpression unary => Unary(unary),
@@ -49,13 +50,57 @@ internal sealed class JavaScriptEvaluator
             JavaScriptConditionalExpression conditional => Truth(Evaluate(conditional.Condition)) ? Evaluate(conditional.WhenTrue) : Evaluate(conditional.WhenFalse),
             JavaScriptMemberExpression member => Member(member),
             JavaScriptCallExpression call => Call(call),
-            JavaScriptArrayExpression array => array.Elements.Select(Evaluate).ToList(),
+            JavaScriptArrayExpression array => EvaluateArray(array),
+            JavaScriptSpreadExpression spread => Evaluate(spread.Operand),
             JavaScriptIndexExpression index => Index(index),
             JavaScriptObjectExpression objectExpression => Object(objectExpression),
             JavaScriptFunctionExpression function => Function(function),
             JavaScriptClassExpression @class => Class(@class),
             _ => throw new InvalidDataException("Unknown JavaScript expression node."),
         };
+    }
+
+    private object Template(string text)
+    {
+        var result = new System.Text.StringBuilder();
+        for (var offset = 0; offset < text.Length;)
+        {
+            var marker = text.IndexOf("${", offset, StringComparison.Ordinal);
+            if (marker < 0) { result.Append(text[offset..]); break; }
+            result.Append(text[offset..marker]);
+            var depth = 1;
+            var end = marker + 2;
+            while (end < text.Length && depth > 0)
+            {
+                if (text[end] == '{') depth++;
+                else if (text[end] == '}') depth--;
+                end++;
+            }
+            if (depth != 0) { result.Append(text[marker..]); break; }
+            var expression = new JavaScriptParser(text[(marker + 2)..(end - 1)]).ParseProgram();
+            var value = Execute(expression);
+            result.Append(StringValue(value));
+            offset = end;
+        }
+        return result.ToString();
+    }
+
+    private object? EvaluateArray(JavaScriptArrayExpression array)
+    {
+        var result = new List<object?>();
+        foreach (var element in array.Elements)
+        {
+            if (element is not JavaScriptSpreadExpression spread)
+            {
+                result.Add(Evaluate(element));
+                continue;
+            }
+
+            var value = Evaluate(spread.Operand);
+            if (value is NativeJavaScriptEngine.NativeSet set) result.AddRange(set.Values());
+            else if (value is IEnumerable<object?> sequence) result.AddRange(sequence);
+        }
+        return result;
     }
 
     internal object? Execute(IReadOnlyList<JavaScriptStatement> statements)
@@ -75,7 +120,18 @@ internal sealed class JavaScriptEvaluator
             switch (statement)
             {
                 case JavaScriptExpressionStatement expression: lastResult = Evaluate(expression.Expression); break;
-                case JavaScriptVariableStatement variable: _bindings[variable.Name] = variable.Initializer is null ? null : Evaluate(variable.Initializer); break;
+                case JavaScriptVariableStatement variable:
+                {
+                    var value = variable.Initializer is null ? null : Evaluate(variable.Initializer);
+                    if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
+                    {
+                        var names = variable.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        for (var index = 0; index < names.Length; index++)
+                            _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> readOnly && index < readOnly.Count ? readOnly[index] : UndefinedValue.Instance;
+                    }
+                    else _bindings[variable.Name] = value;
+                    break;
+                }
                 case JavaScriptFunctionDeclarationStatement function: _bindings[function.Name] = Evaluate(function.Function); break;
                 case JavaScriptClassDeclarationStatement @class: _bindings[@class.Name] = Evaluate(@class.Class); break;
                 case JavaScriptBlockStatement block:
@@ -600,6 +656,34 @@ internal sealed class JavaScriptEvaluator
             "find" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "find")),
             "some" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "some")),
             "every" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "every")),
+            "sort" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                // Array.prototype.sort mutates the receiver and returns it.  Keep the
+                // comparison bounded and deterministic for the native engine; this is
+                // also required by the conformance corpus' interactive table artifact.
+                Comparison<object?> comparison = (left, right) =>
+                {
+                    if (args.Count > 0 && NativeJavaScriptEngine.IsCallable(args[0]))
+                    {
+                        var result = NativeJavaScriptEngine.InvokeCallable(args[0], [left, right]);
+                        var number = result switch
+                        {
+                            double value => value,
+                            int value => value,
+                            long value => value,
+                            _ when double.TryParse(StringValue(result), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) => parsed,
+                            _ => 0,
+                        };
+                        return double.IsNaN(number) ? 0 : Math.Clamp((int)Math.Sign(number), -1, 1);
+                    }
+
+                    return string.Compare(StringValue(left), StringValue(right), StringComparison.Ordinal);
+                };
+                var sorted = values.ToList();
+                sorted.Sort(comparison);
+                for (var i = 0; i < sorted.Count; i++) values[i] = sorted[i];
+                return values;
+            }),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var start = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, values.Count) : 0;
@@ -702,6 +786,7 @@ internal sealed class JavaScriptEvaluator
             "includes" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.Contains(StringValue(args[0]), StringComparison.Ordinal)),
             "startsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.StartsWith(StringValue(args[0]), StringComparison.Ordinal)),
             "endsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.EndsWith(StringValue(args[0]), StringComparison.Ordinal)),
+            "localeCompare" => (Func<IReadOnlyList<object?>, object?>)(args => (double)string.Compare(value, args.Count > 0 ? StringValue(args[0]) : string.Empty, StringComparison.CurrentCulture)),
             "replace" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 1 ? value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal) : value),
             "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? new[] { value } : value.Split(StringValue(args[0]), StringSplitOptions.None)),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
