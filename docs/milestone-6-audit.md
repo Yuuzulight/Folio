@@ -512,7 +512,7 @@ Original acceptance:
 
 ### #555 — Conformance: a service workers category
 
-**Partial.** Evidence: `Conformance.cs: reopen command; tests/conformance/D14: 3 manifests and checked-in sw.js sources`.
+**Acceptance verified; follow-up remains.** Evidence: `Conformance.cs: reopen command; tests/conformance/D14: 3 manifests and checked-in sw.js sources`; native and Jint D14 both pass 3/3.
 
 Reopen now disposes the old bindings, runner, event loop, engine and document, then creates a fresh load retaining only artifact storage and an offline artifact/pinned-cache loader. Focused lifecycle tests prove different document/engine identities, invalidation of the old engine, storage survival and restoration of a persisted registration. The native conformance runner now reports D14 3/3 after the reopened-page response bridge was fixed: native dispatch uses a synchronous seam and reconstructs a page-owned `Response` instead of passing an isolated-engine prototype through the promise bridge. The broader native backend, interruption and sandbox requirements remain open.
 
