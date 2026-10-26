@@ -72,3 +72,14 @@ The checked-in native probe now loads both cached React and ReactDOM bundles
 successfully, and the full scripting suite passes 1,357 tests with six documented
 skips. This removes the initial UMD bootstrap failure but does not yet establish
 React DOM mounting, the D2–D7 parity bar, or production replacement of Jint.
+
+## Verification refresh — 2026-10-27
+
+A fresh probe using the real Folio document, DOM bindings and event loop still
+reproduces the next native-engine blocker: `ReactDOM.render(React.createElement('b',
+null, 'ready'), root)` reaches DOM reconciliation but throws Folio's spec-correct
+`NotFoundError` from `removeChild` because the reconciler's child/parent identity is
+stale; the root is left empty. The DOM validity check is intentionally unchanged.
+This is tracked in [#645](https://github.com/Yuuzulight/Folio/issues/645) and remains
+required before the native engine can pass the React/JSX interaction artifact or
+the mandatory replacement gate.
