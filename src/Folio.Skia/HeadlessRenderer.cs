@@ -72,7 +72,7 @@ public static class HeadlessRenderer
             throw new ArgumentOutOfRangeException(nameof(request), "DeviceScale must be above 0 and at most 8.");
 
         var layoutHeight = request.ViewportHeight ?? Math.Max(1, request.ViewportWidth * 3 / 4);
-        var (list, documentHeight) = document.Paint(request.ViewportWidth, layoutHeight, request.DeviceScale, new HarfBuzzShaper(),
+        var (list, documentHeight) = document.Paint(request.ViewportWidth, layoutHeight, request.DeviceScale, new HybridShaper(),
             request.AnimationTime?.TotalSeconds);
         var diagnostics = document.Diagnostics.ToList();
 

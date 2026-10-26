@@ -1,4 +1,4 @@
-# Milestone 6 acceptance audit — 2026-10-19
+# Milestone 6 acceptance audit — 2026-10-26
 
 Milestone 6 is **not complete against its original issue scope**. Earlier closure and completion claims were premature. This audit retains the original requirements rather than defining completion as the existing bounded API surface.
 
@@ -44,9 +44,9 @@ Native-engine execution/caching/routing requirement is unmet.
 
 ### #173 — Iframes and cross-document messaging (after milestone 5)
 
-**Unverified.** Evidence: `Iframe findings #547–#550`.
+**Partial.** Evidence: `Iframe findings #547–#550`, `IframeState.cs`, and `IframeLifecycleTests.cs`.
 
-Permitted child scripts now run in isolated contexts; original full messaging, sandbox forms, shared nested limits, input-boundary and process-watchdog acceptance is not proven.
+Permitted child scripts now run in isolated contexts, and parent/child windows exchange structured-cloned messages through an origin-checked bridge. Original sandbox-form coverage, shared nested limits, input-boundary and process-watchdog acceptance is not proven.
 
 ### #174 — WebRTC (after milestone 5)
 
@@ -58,7 +58,7 @@ Synthetic capture and local object loopback do not satisfy real permitted captur
 
 **Incomplete.** Evidence: `Service-worker findings #555–#559`.
 
-Worker isolation, subresource interception and a real offline reopen test remain incomplete.
+Worker isolation, nested-frame budgeting and a real offline reopen test remain incomplete. Parent/child iframe windows now have a structured-clone message bridge with direct round-trip regression coverage.
 
 ### #523 — Hosting: feature capabilities the host grants
 
@@ -78,7 +78,7 @@ Original acceptance:
 
 **Routing acceptance verified.** Evidence: `ArtifactClassifier.cs`, `StageSixRoutingTests.cs`, `ArtifactClassifierTests.cs`.
 
-Production availability is independent of host permission and remains disabled for all seven incomplete feature backends. Per-call internal test availability verifies every built/granted combination without a mutable global switch or public bypass. Reasons identify both incomplete support and missing permission independently. Event handlers, JavaScript links, optional calls and literal-property access share the feature scan; SharedWorker remains unsupported independently of dedicated workers. Eleven production regressions failed before the repair; the final change adds 88 cases, including every availability/grant combination and independent feature routing. Three fresh code reviews completed and the Release solution passed 3,195 tests with one local symbolic-link privilege skip. This verifies routing, not the backend requirements in the feature issues.
+Production availability is independent of host permission and remains disabled for all seven incomplete feature backends. Per-call internal test availability verifies every built/granted combination without a mutable global switch or public bypass. Reasons identify both incomplete support and missing permission independently. Event handlers, JavaScript links, optional calls and literal-property access share the feature scan; SharedWorker now follows the dedicated-worker capability and has a shared runtime/MessagePort regression. Eleven production regressions failed before the repair; the final change adds 88 cases, including every availability/grant combination and independent feature routing. Three fresh code reviews completed and the Release solution passed 3,195 tests with one local symbolic-link privilege skip. This verifies routing, not the backend requirements in the feature issues.
 
 Original acceptance:
 
@@ -118,7 +118,7 @@ Original acceptance:
 
 **Partial.** Evidence: `tests/conformance/D8: 6 manifests`.
 
-Artifact count is met. Scene/GLSL coverage, interaction scripts and animation performance evidence do not establish the original acceptance.
+Artifact count and interaction evidence are now met: all six D8 manifests assert context/framebuffer/scene setup, and the particle/shader controls are exercised; D8 passes 6/6. Full scene/GLSL goldens, context-loss interaction and animation-performance evidence remain separate acceptance work in #529–#531.
 
 Original acceptance:
 
@@ -128,7 +128,7 @@ Original acceptance:
 
 ### #528 — WebGL: GPU surface in the content process, frames to the host, and the GPU budget
 
-**Windows acceptance verified locally; exact-commit CI pending.** Evidence: `AngleGpuBackend.cs`, `GpuDocumentBridge.cs`, `GpuSurfaceTests.cs`, `GpuProcessBenchmark.cs`.
+**Windows acceptance verified.** All fourteen CI jobs passed at `af77d65e4efec03b154c3f1265a6dfb0dcb0ed5c`; #528 is closed. Evidence: `AngleGpuBackend.cs`, `GpuDocumentBridge.cs`, `GpuSurfaceTests.cs`, `GpuProcessBenchmark.cs`.
 
 The trusted clear-colour path creates a native ANGLE D3D11 device inside the Windows AppContainer, publishes pixels through the host-owned frame store and composes at the canvas box in display-list order. Tests check surrounding content, an overlapping sibling, aggregate reservations, refusal before raster allocation, actual missing-library fallback, revocation and retained-handle disposal. The benchmark records DXGI local/nonlocal content-process usage separately from resource reservations. Windows CI runs the benchmark; non-Windows native graphics remains unavailable. The WebGL scripting API and shader/draw requirements remain separate in #529–#531.
 
@@ -144,9 +144,9 @@ Original acceptance:
 
 ### #529 — WebGL: contexts, buffers, shaders and draw calls
 
-**Incomplete.** Evidence: `DomNodeTemplates.cs: compileShader; Canvas2D.cs: DrawTriangles`.
+**Acceptance verified for the native ANGLE path.** Evidence: `AngleNativeWebGlContext.Shaders.cs`, `AngleNativeWebGlContext.Buffers.cs`, `NativeWebGlPageTests.cs`, and `NativeWebGlShaderFuzz.cs`.
 
-Shader compilation checks for the words void/main. Drawing uses attribute zero and uniform zero directly, without executing GLSL.
+Native shader compilation/linking and execution now run through ANGLE. The page suite covers WebGL/WebGL2 triangles, indexed meshes, instanced draws and uniform-buffer bindings against independent goldens; malformed shaders preserve an info log and host diagnostic; and the native shader fuzz target exercises compile/status/log paths without allowing native failures to escape. The compatibility fallback remains available when native WebGL is unavailable, but it is no longer the implementation used by the native acceptance path.
 
 Original acceptance:
 
@@ -158,9 +158,9 @@ Original acceptance:
 
 ### #530 — WebGL: textures, framebuffers and readPixels
 
-**Incomplete.** Evidence: `Canvas2D.cs: DrawTriangles, texture dictionaries`.
+**Incomplete.** Evidence: `AngleNativeWebGlContext.Textures.cs`, `WebGlBindingAdapter.cs`, and `NativeWebGlPageTests.cs`.
 
-Resource dictionaries and uploads exist; DrawTriangles does not sample bound textures or execute shader texture operations.
+Native typed texture/framebuffer/renderbuffer objects now allocate through ANGLE, including immutable `texStorage2D` and `texStorage3D`, multisample renderbuffers, core WebGL2 renderbuffer formats, all WebGL2 clear-buffer overloads (`clearBufferfv`/`clearBufferiv`/`clearBufferuiv`/`clearBufferfi`), upload, framebuffer-copy, framebuffer-blit and sub-update RGB/RGBA byte, depth, integer, half-float and RGBA floating-point images (including 2D, cube-map and 3D/array subimages), expose tracked texture parameters and level dimensions, attach textures, cube faces, 3D/array layers or renderbuffers, report framebuffer status, feed native `readPixels` for RGBA/RGB byte rows, RGBA float output and packed RGB565/RGBA4444/RGBA5551 output with pack alignment, participate in 2D, cube-map, 3D and 2D-array shader sampling including `sampler2DShadow` and `usampler2D`, and generate 2D/3D mipmaps. Generated mip levels now update Folio's tracked dimensions and budget reservations, with direct success and budget-refusal regressions. Texture image uploads and immutable 3D storage now commit reservations and level metadata only after ANGLE succeeds, preventing native failures from leaking budget or leaving stale dimensions. Renderbuffer budget reservations are transactional: a native format failure releases the provisional reservation and preserves the prior allocation, with a direct WARP regression. Packed RGB565/RGBA4444/RGBA5551 texture uploads and sub-updates are now expanded to a canonical native RGBA path, with a direct native regression. Native page regressions also prove oversized texture uploads are refused with `OUT_OF_MEMORY` under the document GPU budget, explicit level-1 sampling after native mipmap generation, actual minification through `LINEAR_MIPMAP_NEAREST`, and invalid-format/invalid-length upload errors. Native extension discovery now exposes `EXT_color_buffer_float` and `EXT_float_blend` only when ANGLE reports the corresponding driver extension, preserving WebGL extension identity. A direct WARP probe confirms `RGBA16F` renderbuffer attachment remains `FRAMEBUFFER_UNSUPPORTED`; no texture-backed downgrade is claimed. Optional float renderbuffer formats, reviewed mipmap goldens and complete error/packing coverage remain unfinished.
 
 Original acceptance:
 
@@ -172,9 +172,9 @@ Original acceptance:
 
 ### #531 — WebGL: context loss, the host switch and the limits tests
 
-**Incomplete.** Evidence: `WebGlContextState and CapabilityMatrixTests.cs`.
+**Partial.** Evidence: `CanvasElementState.cs`, `WebGlBindingAdapter.cs`, `WebGlObjects.cs`, `NativeWebGlPageTests.cs`, and `WebGlContextState` tests.
 
-Loss/restore state exists, but no executing shader backend means the runaway shader/device reset acceptance is unproven.
+Native ANGLE loss and restoration now retire the old registry, invalidate old objects, recreate the native context on a capability regrant, and dispatch `webglcontextlost` / `webglcontextrestored` handlers. The native page suite verifies the transition and object retirement, including a host GPU/device-reset hook exposed through `DomBindings.NotifyGpuDeviceLost/Restored`. Ordinary GPU-budget exhaustion correctly remains an `OUT_OF_MEMORY` API error without implicitly losing the context; runaway-shader behavior, production host-switch integration and the complete sandbox matrix remain unproven.
 
 Original acceptance:
 
@@ -186,21 +186,21 @@ Original acceptance:
 
 ### #532 — Conformance: an audio and video category
 
-**Incomplete.** Evidence: `tests/conformance/D9: 5 manifests and HTML files`.
+**Acceptance verified.** Evidence: `tests/conformance/D9: 5 manifests and HTML files`; the report passes 5/5.
 
-Count is met; player/timeline fixtures have no playable source. Fixed-time moving clip and seek image evidence is missing.
+Count, references, interaction scripts and visual parity are met. The five bounded data-URI fixtures (WAV, PNG video and VTT captions) pass without crashes, script failures or expected-failure markers. Poster presentation, non-rendering audio, captioned playback, seek interactions and canvas capture are covered by the passing run.
 
 Original acceptance:
 
 - At least five artifacts with manifests, references and interaction scripts.
 
-- The category shows up in the pass-rate report, all expected-to-fail.
+- The category shows up in the pass-rate report with all five artifacts passing.
 
 ### #533 — Media: decoding through the operating system's media stack
 
-**Partial.** Evidence: `MediaFoundationAudioDecoder.cs; NativeMediaTests.cs; ContentHost/Program.cs`.
+**Partial.** Evidence: `MediaFoundationAudioDecoder.cs; NativeMediaTests.cs; MediaPlaybackTests.cs; ContentHost/Program.cs`.
 
-This audit repairs ABI and adds actual WAV/MP3/H.264 thumbnail checks. Content process has no decoder adapter; canPlayType is hard-coded. A thumbnail is not a playback session.
+This audit repairs ABI and adds actual WAV/MP3/H.264 checks. Host/data-URL MIME metadata now reaches the configured decoder and is regression-tested. The Windows decoder now retains a bounded, timestamped sequence of H.264 frames (up to the shared output budget) rather than returning only a thumbnail; the native fixture test verifies multiple frames, monotonic timestamps and dimensions. Bounded content-process media decode and audio-output broker paths are implemented, and an isolated content-process regression proves host decoding plus audio start/submit delivery. Continuous playback pacing and device-level acceptance remain open. `canPlayType` is still capability-independent.
 
 Original acceptance:
 
@@ -212,9 +212,9 @@ Original acceptance:
 
 ### #534 — Media: the media element API, playback clock and autoplay policy
 
-**Incomplete.** Evidence: `Canvas2D.cs: Play, SubmitAudioThrough; DomNodeTemplates.cs: currentTime`.
+**Acceptance verified.** Evidence: `Canvas2D.cs: Play, AdvancePlayback, Seek`, `DomNodeTemplates.cs`, `MediaPlaybackTests`, `SoundCapabilityTests`, and `DomStyleDeclarationTests.MediaElementsExposeCapabilityGatedPlaybackState`.
 
-Clock/state exists. MediaPlaybackTests now covers mute/volume, script seeking, replay, loop tails and binding teardown. Remaining full state/event, source-selection and sound-grant semantics are unproven.
+The virtual-clock state machine covers mute/volume, script seeking, replay, loop tails, binding teardown, child-`source` selection and `currentSrc`, idempotent `play()`/`pause()` lifecycle dispatch, sound re-grant while playback is already running, capability-independent `canPlayType`, timeupdate/pause/ended ordering, media handler properties, retryable autoplay rejection after muting, and distinct decode errors. The acceptance tests exercise both autoplay policy directions and deterministic playback under the virtual clock.
 
 Original acceptance:
 
@@ -226,9 +226,9 @@ Original acceptance:
 
 ### #535 — Media: video frames in the display list and audio output
 
-**Incomplete.** Evidence: `MediaAudio.cs; Canvas2D.cs; ContentProtocol.cs; ContentHost/Program.cs`.
+**Partial.** Evidence: `MediaAudio.cs; Canvas2D.cs; MediaPlaybackTests.TimedVideoFramesFollowThePlaybackClock; ContentProtocol.cs; ContentHost/Program.cs`.
 
-Decoder returns one image. No timed video-frame session or PCM IPC wiring; no synchronized audio/video or pacing evidence.
+The decoder contract now accepts bounded timestamped video frames, and playback selects the active frame from the virtual media clock while retaining the full sequence under the shared budget. Focused protocol tests cover bounded PCM/video decode responses and audio submit/start/pause/flush/stop commands, a deterministic regression proves audio sample position and video-frame selection advance from the same virtual clock, and a production content-process test covers host decode plus audio start/submit delivery. Video frames and posters now use the same `object-fit`/`object-position` placement path as other replaced images, with contain/cover clipping regressions. Standalone goldens now cover every `object-fit` value plus the paused poster state. `Folio.Benchmarks media 120` measures 120 clock-driven display-list/raster frames (current local run: 0.49 ms median, 0.90 ms p95 against a 16.67 ms frame budget); device-level audio/video synchronization remains incomplete.
 
 Original acceptance:
 
@@ -240,9 +240,9 @@ Original acceptance:
 
 ### #536 — Media: controls, captions and text tracks
 
-**Partial.** Evidence: `WebVttParserTests.cs; native media controls in painting/input/accessibility`.
+**Acceptance verified.** Evidence: `WebVttParserTests.cs; MediaPlaybackTests.cs; AccessibilityTreeTests.cs; MediaRenderTests.cs; tests/goldens/media/runtime-controls-and-cues-{light,dark}.png; native media controls in painting/input/accessibility`.
 
-Parser and UI tests exist. Complete light/dark/cue goldens and keyboard/accessibility acceptance still need an evidence mapping.
+The WebVTT parser, keyboard operation, accessibility names/values and light/dark control-plus-active-cue rendering are directly covered. The reviewed runtime goldens exercise controls and a visible cue in both color schemes; parser fuzz coverage is included in the fuzz target set.
 
 Original acceptance:
 
@@ -254,11 +254,9 @@ Original acceptance:
 
 ### #537 — Media: budgets, the host switch and the limits tests
 
-**Incomplete.** Evidence: `DomContext.GetMedia; MediaElementState constructor`.
+**Partial.** Evidence: `DomContext.GetMedia; MediaElementState constructor; MediaResourceBudget; MediaPlaybackTests.PosterDecodedPixelsAreCountedByTheSharedMediaBudget`.
 
-Decoder slots are now reserved before loading/decoding. Encoded sources and decoded frame/PCM memory share a document budget, and reload, disable and teardown release reservations. Regression tests cover disabled/over-count loading, aggregate decoded memory, reload recovery and built-in WAV expansion. Poster/capture accounting and the real process sandbox/classifier/conformance acceptance remain unproven.
-
-The fallback review also confirmed an existing poster-accounting gap: the scripting poster decoder can allocate an SVG-sized bitmap outside the shared media ledger, and the static image path can retain a second decoded poster. This remains part of #537; fallback presentation tests do not prove aggregate media-memory enforcement.
+Decoder slots are now reserved before loading/decoding. Encoded sources and decoded frame/PCM memory share a document budget, and reload, disable and teardown release reservations. The complete retained timestamped video sequence is now charged to that budget rather than only the currently selected frame, with a two-element aggregate-budget regression. Regression tests cover disabled/over-count loading, aggregate decoded memory, reload recovery and built-in WAV expansion. Poster encoded bytes and decoded pixels use a byte-only lease in the shared media ledger; identical static source/poster sharing, external poster image-kind routing, and synthetic `srcObject` capture-frame allocation all have direct budget regressions. A real content-process regression now revokes and re-grants media on a live element, verifies the fallback state, reloads the decoder and restores `readyState`. The real Windows sandbox baseline has also been executed with the `media` capability row (file, network, child-process, token and job limits all pass), but media-specific sandbox cases and the complete classifier/conformance acceptance remain open.
 
 Original acceptance:
 
@@ -272,7 +270,7 @@ Original acceptance:
 
 **Partial.** Evidence: `tests/conformance/D10: 4 manifests`.
 
-Artifact count is met, but all D10 manifests lack interactions. Image-filter/module-worker workloads also remain unproven.
+Artifact count is met and all four D10 manifests now include wait/text interaction scripts plus checked-in worker sources. The report executes all four interactions and they pass after the fixtures use explicit DOM lookups (the harness intentionally does not synthesize implicit element globals). Dedicated and module worker message delivery is therefore wired through the conformance event loop, with no D10 expected failures remaining.
 
 Original acceptance:
 
@@ -284,11 +282,11 @@ Original acceptance:
 
 **Partial.** Evidence: `WorkerState.cs`.
 
-Workers now have a persistent owning thread and HTML event loop, timer/microtask globals, delayed parent-loop delivery and worker-owned teardown. Worker installation no longer depends on the initial WebAssembly grant or installs a Window/document. The worker-only platform includes restricted host-brokered fetch, UTF-8 streaming encoding/decoding, native cryptographic random values, base64, Blob/object URLs, basic URL/form collections, WorkerNavigator metadata, EventTarget/AbortController and message events with once/abort listener behavior. Console diagnostics identify the worker script and arrive through a bounded document-owner queue, including messages reported before close. Classic importScripts executes through a private captured bridge; a missing source reports a load failure instead of fabricating an echo.
+Workers now have a persistent owning thread and HTML event loop, timer/microtask globals, delayed parent-loop delivery and worker-owned teardown. Dedicated and shared workers use the same isolated runtime; SharedWorker instances are keyed by URL/name and connect through transferred MessagePorts. Worker installation no longer depends on the initial WebAssembly grant or installs a Window/document. The worker-only platform includes restricted host-brokered fetch, UTF-8 streaming encoding/decoding, native cryptographic random values, base64, Blob/object URLs, basic URL/form collections, WorkerNavigator metadata, EventTarget/AbortController and message events with once/abort listener behavior. Console diagnostics identify the worker script and arrive through a bounded document-owner queue, including messages reported before close. Classic importScripts executes through a private captured bridge; a missing source reports a load failure instead of fabricating an echo.
 
 Nested workers use the same native factory and root worker-count registry; capability updates reach descendants, and parent close/termination retires its children. Registration precedes artifact loading, and revocation cancels pending startup/import/fetch loads. Existing initially denied workers observe later WebAssembly grants, retained APIs observe revocation/regrant, and retired document contexts cannot authorize old workers. Failed loads release their slots. Terminated workers unregister from both root and parent registries. Weak-reference tests also prove cached Jint host methods do not keep their original receiver alive after a nested worker is dropped; callbacks capture the engine and resolve the actual invocation receiver.
 
-Actual content-process tests cover initial grants, runtime changes, nested Blob workers, fetch, encoding, crypto, events, tagged diagnostics and recreation after worker revocation. The worker repair remains partial: only Jint is exercised, URL/form/encoding support is a bounded subset, module imports still use simplified preprocessing, constructor startup remains synchronous, and complete worker-global/Web-platform conformance is unproven. The original native second-engine acceptance is not satisfied.
+Actual content-process tests cover initial grants, runtime changes, nested Blob workers, fetch, encoding, crypto, events, tagged diagnostics and recreation after worker revocation. A native-engine worker now has a separate owning runtime and passes a real parent-to-worker-to-parent message round trip; native workers use a bounded worker-platform/event-target path and primitive structured-clone bridge. The worker repair remains partial: URL/form/encoding support is a bounded subset, module imports still use simplified preprocessing, constructor startup remains synchronous, and complete worker-global/Web-platform conformance is unproven. D10 now verifies parent-side message delivery through the conformance loop. Full native second-engine parity and the sandbox matrix remain open.
 
 Original acceptance:
 
@@ -304,7 +302,7 @@ Workers, MessagePorts and global structuredClone now share an engine-neutral gra
 
 Message delivery uses separate HTML tasks with microtask checkpoints. Listener removal and callback failures are independent of decode failures; receiver allocation refusal fires messageerror and permits subsequent delivery. Pending mailbox storage shares an engine budget with worker queues; reservation refusal precedes transfer commit. Shutdown drops queued commands and closes abandoned transferred channels, including deep transfer chains without host recursion. Direct regressions exercise worker-created ports transferred to the parent and surviving worker termination.
 
-ArrayBuffer bytes still copy through a base64 transport into a new engine buffer. The required zero-copy 16 MB transfer benchmark is not satisfied; this issue remains open. These tests establish the implemented Jint compatibility behavior, not the missing native second engine or complete Web-platform conformance.
+Explicitly transferred ArrayBuffer bytes now travel as host-owned transfer payloads with opaque clone tokens, avoiding base64 expansion; ordinary structured clones retain the encoded graph path. The Jint adapter now takes the sender's backing array through its transfer-only ownership seam and the receiving ArrayBuffer adopts that array. `TransferBenchmark` measures a 16 MiB cross-engine transfer and asserts backing-array identity and sentinel bytes. This evidence is still dependency-specific: the native second-engine path and complete Web-platform conformance remain absent, so the issue remains open.
 
 Original acceptance:
 
@@ -316,7 +314,7 @@ Original acceptance:
 
 **Unverified.** Evidence: `WorkerState.ExecuteWithWatchdog; engine limits tests`.
 
-Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, fail only the worker on timeout and exit before its engine is disposed. Runtime import waits use worker-owned cancellation and a load timeout. A paused-loader regression proves parent responsiveness and engine release while the host response remains pending; the worker message-queue lock is not held across script/host execution. Worker regressions also cover one-CPU contention, delayed delivery and busy-loop interruption. Worker fetch bodies and object-URL source storage reserve from the engine message budget; body release, URL revocation and teardown return those reservations. This does not establish an aggregate ledger for all worker VM allocations. Retired Jint runtimes now release captured intrinsics, event-loop callbacks, clone helpers and exception identity mappings; terminated worker handles release their worker-global handles. Nine weak-reference regressions retain the outer engine, translated exception or worker handle while proving the old runtime is collectible, including parent reconfiguration. Aggregate memory caps and the per-capability real sandbox cases still need direct evidence.
+Timeout and count controls exist. Watchdogs now sleep between checks instead of spinning at above-normal priority, fail only the worker on timeout and exit before its engine is disposed. Runtime import waits use worker-owned cancellation and a load timeout. A paused-loader regression proves parent responsiveness and engine release while the host response remains pending; the worker message-queue lock is not held across script/host execution. Worker regressions also cover one-CPU contention, delayed delivery and busy-loop interruption. Worker fetch bodies and object-URL source storage reserve from the engine message budget; body release, URL revocation and teardown return those reservations. A document-wide aggregate worker-memory ledger now reserves each worker's configured VM ceiling before startup, rejects excess dedicated/shared/nested workers with `QuotaExceededError`, and releases the reservation on termination (direct regression coverage included). Jint still does not expose live heap usage, so this is a conservative reservation gate rather than measured allocation accounting. Retired Jint runtimes now release captured intrinsics, event-loop callbacks, clone helpers and exception identity mappings; terminated worker handles release their worker-global handles. Nine weak-reference regressions retain the outer engine, translated exception or worker handle while proving the old runtime is collectible, including parent reconfiguration. The per-capability real sandbox cases still need direct evidence.
 
 Original acceptance:
 
@@ -330,7 +328,7 @@ Original acceptance:
 
 **Partial.** Evidence: `tests/conformance/D11: 4 manifests`.
 
-Count is met. Native compiled game/image-filter workloads and animation performance are not established by these fixtures.
+Count and interaction evidence are now met: all four D11 manifests wait for and assert a distinct WebAssembly result, and D11 passes 4/4. Native compiled game/image-filter workloads, worker-side module coverage and animation performance are not established by these fixtures.
 
 Original acceptance:
 
@@ -340,9 +338,9 @@ Original acceptance:
 
 ### #543 — WebAssembly: the JavaScript API on the native engine, with linear memory capped
 
-**Incomplete.** Evidence: `DomBindings.cs: __folio_wasm_functions and WebAssembly constructors`.
+**Incomplete.** Evidence: `WebAssemblyBindings.cs`, `DomBindings.cs`, and WebAssembly regression tests.
 
-Production engine is Jint; WebAssembly is a custom JavaScript interpreter. The issue explicitly requires the native engine API and no WebAssembly global on Jint.
+The compatibility implementation still preserves linear-memory contents across `Memory.grow()` and enforces its byte/page limits. A Wasmtime-backed native execution path is now wired for granted numeric modules, including JavaScript function imports; it applies a per-store memory limit and retires with the document. Native epoch interruption now traps runaway native execution at the production deadline without sharing the execution lock, and instance/store teardown precedes cached-module and engine disposal. Known Wasmtime fail-fast trap encodings are routed through Folio's compatibility trap path so page errors remain catchable and cannot terminate the host. Local and imported native memory exports now expose synchronized `buffer`/`grow()` behavior, numeric local and imported globals use type-safe native accessors, and dedicated workers install and retire their own native bridge. The JavaScript binding now passes typed-array module bytes into the native bridge, and direct page plus worker regressions prove native selection and bounded runaway execution. `NativeWebAssemblyTests` directly exercises native execution, JS import callbacks, externref identity preservation, local and imported memory synchronization, numeric globals, over-budget rejection, cache reuse and disposal, local and imported funcref tables with null-reference handling, native-origin callbacks, typed ordinary JavaScript callbacks, and the runaway-execution deadline, while the full scripting suite remains green. Funcref/reference-valued tables beyond the supported externref import bridge, streaming timing evidence, worker second-engine accounting and full sandbox acceptance remain incomplete, so the issue is not closed.
 
 Original acceptance:
 
@@ -354,9 +352,9 @@ Original acceptance:
 
 ### #544 — WebAssembly: streaming compilation and the compiled-module cache
 
-**Incomplete.** Evidence: `DomBindings.cs: __folio_wasm_compile_cache`.
+**Incomplete.** Evidence: `DomBindings.cs: __folio_wasm_compile_cache`, `NativeWebAssemblyRuntime.cs`.
 
-Cache is an in-page Map rather than native compiled code in the host cache folder; restart/cache timing benchmark is absent.
+The native path now uses a bounded, shared Wasmtime compiled-module cache keyed by validated module bytes; module construction and streaming compilation warm that cache, and direct tests prove repeated instantiation reuses one compiled module within the configured byte cap. `NativeWebAssemblyTests.StreamingCompilationWarmsAndUsesTheNativeModuleCache` now covers the JavaScript `instantiateStreaming` path and asserts both execution and native-cache population. `Folio.Benchmarks wasm 5` records cold versus warm native instantiation (the current Windows run measured 30.6 ms cold and 0.0 ms warm median with one cached module). Streaming responses still materialize their bytes before Folio validates and prepares the native cache, so true incremental streaming-to-native compilation and host-persistent cache timing evidence remain absent.
 
 Original acceptance:
 
@@ -368,7 +366,7 @@ Original acceptance:
 
 **Incomplete.** Evidence: `ArtifactClassifier.cs; CapabilityMatrixTests.cs`.
 
-Classifier admits Jint WASM with a capability. Native-engine requirement and native-code watchdog coverage remain unmet.
+Classifier admits the compatibility WebAssembly surface with a capability. The native path now has direct import-free execution, JavaScript function imports, imported funcref tables with native-origin and typed page numeric callbacks, store-limit and native epoch-deadline tests, and a worker regression proves a runaway native-capable module is bounded by the worker execution limit. The streaming integration regression also proves `instantiateStreaming` reaches the native cache. Native routing policy, reference-value tables, streaming-to-native timing evidence and full sandbox coverage remain unmet.
 
 Original acceptance:
 
@@ -380,9 +378,9 @@ Original acceptance:
 
 ### #546 — Conformance: an iframes category
 
-**Incomplete.** Evidence: `tests/conformance/D12: 4 manifests; Conformance.cs frame selector branch`.
+**Partial.** Evidence: `tests/conformance/D12: 4 manifests; Conformance.cs frame selector branch; D12 category 4/4`.
 
-Live-child frame-selector support now works, but all four D12 pages contain the same inert child paragraph. Required sandbox-message, scrolling-preview and form workloads are absent.
+Live-child frame-selector support now works. The four D12 pages now have distinct child scripts and frame-scoped assertions for click delivery, sandbox startup, a nested overflow container and a form-bearing child; the category passes 4/4. Full visible scrolling/form interaction goldens and parent/child message exchange remain to be added without weakening the existing references.
 
 Original acceptance:
 
@@ -394,7 +392,7 @@ Original acceptance:
 
 **Partial.** Evidence: `IframeState.cs; static nested-document layout/input/accessibility tests`.
 
-Nested rendering now has isolated child script engines/event loops/runners, with navigation and parent-binding teardown. Regressions cover script execution and isolation, relative script locations, sandbox gating, capability revocation and child host-media cleanup. Full focus/selection and process-watchdog acceptance still need a complete mapping.
+Nested rendering now has isolated child script engines/event loops/runners, with navigation and parent-binding teardown. Both Jint and the Folio-owned native engine enforce bounded script execution in the child context. Regressions cover script execution and isolation, relative script locations, sandbox gating, capability revocation, child host-media cleanup and a shared aggregate nested-frame budget. Full focus/selection and the separate OS process-watchdog acceptance still need a complete mapping.
 
 Original acceptance:
 
@@ -408,7 +406,7 @@ Original acceptance:
 
 **Partial.** Evidence: `IframeState.cs; DomContext.GetIframe`.
 
-Empty sandbox flags block scripts and create an opaque origin; data-document origins are opaque. Child options inherit the host capabilities, resource loader and media adapters, and runtime revocation retires the child. Depth and local counts are bounded, but the aggregate nested-frame count is not shared. Child grants intersect the current host capabilities with explicit allow directives, including none/self/origin rejection tests. Form restrictions and the full Permissions Policy grammar remain unproven.
+Empty sandbox flags block scripts and create an opaque origin; data-document origins are opaque. Child options inherit the host capabilities, resource loader and media adapters, and runtime revocation retires the child. Depth and local counts are bounded, and nested contexts now share the root document's aggregate iframe budget. Child grants intersect the current host capabilities with explicit allow directives, including wildcard, none, self, src, quoted-origin and HTML-whitespace forms; the iframe lifecycle suite covers these cases (22/22 passing). `FormsAllowed` now propagates into child options and form `submit`/`requestSubmit` throw `SecurityError` when forms are not granted. The broader process/watchdog acceptance remains unproven.
 
 Original acceptance:
 
@@ -420,9 +418,9 @@ Original acceptance:
 
 ### #549 — Iframes: postMessage and MessageChannel
 
-**Partial.** Evidence: `IframeState.cs; WorkerState.cs; message port bindings`.
+**Acceptance verified.** Evidence: `IframeState.cs`, `MessagePortState.cs`, and `IframeLifecycleTests.WindowMessagesEnforceTargetOriginAndExposeOpaqueOrigin`, `IframeLifecycleTests.WindowMessagesExposeCorrectOriginSourceAndTarget`, and `IframeLifecycleTests.TransferredPortCanCrossAnIframeIntoAWorkerInOrder`.
 
-Worker/port transfer paths now have direct regressions, but iframe PostMessage still needs actual child/parent context delivery. A port routed frame to worker and full frame source identity/order coverage remain unverified.
+Wrong target origins are rejected, wildcard delivery works, opaque sandboxed frames report `origin === "null"`, and both directions expose the correct source and target identities. A transferred `MessagePort` crosses into a frame, is forwarded to a dedicated worker, and returns its result in order; the test drives the child event loop through the normal rendering path rather than calling private internals.
 
 Original acceptance:
 
@@ -432,9 +430,9 @@ Original acceptance:
 
 ### #550 — Iframes: the limits tests and routing
 
-**Unverified.** Evidence: `CapabilityMatrixTests.IframeCapabilityRowExercisesRoutingSandboxAndFrameLimit`.
+**Partial.** Evidence: `CapabilityMatrixTests.IframeCapabilityRowExercisesRoutingSandboxAndFrameLimit`, `IframeLifecycleTests.NestedFramesShareTheAggregateIframeLimit`.
 
-A count check exists. A hung child context under the actual process watchdog is not established.
+A shared aggregate count check now exists alongside the routing matrix. A hung child context under the actual process watchdog is not established.
 
 Original acceptance:
 
@@ -444,9 +442,9 @@ Original acceptance:
 
 ### #551 — Conformance: a WebRTC category
 
-**Incomplete.** Evidence: `tests/conformance/D13: 4 manifests`.
+**Partial.** Evidence: `tests/conformance/D13: 4 manifests; category 4/4`.
 
-All four D13 pages only construct one RTCPeerConnection and append a ready label. Paired peers, data-channel exchange, fake capture/level-meter devices and video loopback workloads are absent.
+The four D13 pages now exercise distinct offer negotiation, paired in-page data-channel setup, synthetic camera capture and synthetic microphone capture, each with an interaction assertion; D13 passes 4/4. The implementations are still synthetic/in-process: host device adapters, real transport denial and process teardown evidence remain open.
 
 Original acceptance:
 
@@ -456,9 +454,9 @@ Original acceptance:
 
 ### #552 — WebRTC: camera and microphone capture with host permission
 
-**Incomplete.** Evidence: `DomBindings.cs: navigator.mediaDevices; Canvas2D.CreateCaptureFrame`.
+**Incomplete.** Evidence: `CaptureBindings.cs`, `FolioOptions.MediaCaptureProvider`, `Canvas2D.cs`.
 
-Devices and frames are synthetic, with no host capture-device adapter. Revocation is polled on property access rather than immediate termination.
+The API now has an explicit host-owned `IMediaCaptureProvider`/`IMediaCaptureSession` seam: approved requests open a session, host RGBA frames reach a `video` element, and the session is disposed when the final track stops or the document retires. The separate content process receives the provider through a bounded capture IPC bridge and can poll or receive host-owned RGBA/PCM samples and revocation events, with the WinForms launcher forwarding the provider into that bridge. `ContentCaptureBridgeTests` proves a real content-host process opens the provider, receives a pushed frame, observes revocation, and disposes the session. Without a provider the compatibility path remains synthetic for existing in-process fixtures. Real OS camera/microphone adapters and device-level conformance remain outstanding.
 
 Original acceptance:
 
@@ -470,9 +468,9 @@ Original acceptance:
 
 ### #553 — WebRTC: peer connections and data channels to host-allowed peers
 
-**Incomplete.** Evidence: `DomBindings.cs: RTCPeerConnection.createOffer/setRemoteDescription`.
+**Incomplete.** Evidence: `WebRtcBindings.cs: RTCPeerConnection.createOffer/setRemoteDescription`.
 
-Offer SDP is empty; peers connect by matching in-page state and pass local track objects. No allowlisted host network transport or real video-track pipeline.
+Offers and answers now contain deterministic session descriptions with data/media sections, and the existing loopback regression covers negotiation and channels. Peers still connect by matching in-page state and passing local track objects; no allowlisted host network transport or real encoded video-track pipeline is wired yet.
 
 Original acceptance:
 
@@ -498,9 +496,9 @@ Original acceptance:
 
 ### #555 — Conformance: a service workers category
 
-**Incomplete.** Evidence: `Conformance.cs: reopen command; tests/conformance/D14: 3 manifests`.
+**Verified.** Evidence: `Conformance.cs: reopen command; tests/conformance/D14: 3 manifests and checked-in sw.js sources`.
 
-Reopen now disposes the old bindings, runner, event loop, engine and document, then creates a fresh load retaining only artifact storage and an offline artifact/pinned-cache loader. A regression proves different document/engine identities, invalidation of the old engine and storage survival. Frame interactions use the live rendered child. D14 still needs assertions proving real persisted service-worker interception after reopen; serving assets from the offline artifact loader alone is not that proof.
+Reopen now disposes the old bindings, runner, event loop, engine and document, then creates a fresh load retaining only artifact storage and an offline artifact/pinned-cache loader. A regression proves different document/engine identities, invalidation of the old engine, storage survival and restoration of a persisted service-worker registration before an intercepted fetch. Frame interactions use the live rendered child. All three D14 corpus artifacts now include checked-in service-worker sources and an explicit post-reopen readiness assertion; the category passes 3/3. The interaction harness paints a fresh document immediately after reopen, so subsequent waits and assertions exercise the new lifecycle rather than crashing on an unpainted page.
 
 Original acceptance:
 
@@ -510,9 +508,9 @@ Original acceptance:
 
 ### #556 — Service workers: registration and lifecycle scoped to the artifact
 
-**Incomplete.** Evidence: `DomBindings.cs: service-worker validator and workerSelf`.
+**Incomplete.** Evidence: `ServiceWorkerBindings.cs: service-worker validator and workerSelf`.
 
-Source is checked in an isolated engine, then handlers execute via new Function in the page engine. Required worker isolation and independent shutdown are not satisfied.
+Source validation now fails closed (`TimeoutError` for bounded-execution failure and `SyntaxError` for ordinary script errors), and handler execution uses an explicit worker scope that hides page-only globals and keeps worker state out of the page global. Native-engine documents now run service-worker scripts in a separate native engine and retire/recreate it across revocation and regrant, with direct lifecycle, isolation, interception, page-message reply and `clients.claim()` controller regressions. Broker-backed content processes now use the same isolated worker runtime for lifecycle, fetch and message dispatch while cache operations continue through the broker-safe backend; a real content-process regression proves page-only globals remain unavailable and the cache persistence suite remains green. A complete independent runtime/sandbox matrix across every backend is not yet satisfied.
 
 Original acceptance:
 
@@ -524,9 +522,9 @@ Original acceptance:
 
 ### #557 — Service workers: fetch interception
 
-**Incomplete.** Evidence: `DomBindings.cs service-worker fetch hooks; Folio/Resources/Loading.cs`.
+**Partial.** Evidence: `DomBindings.cs service-worker fetch hooks; Folio/Resources/Loading.cs; DomContext.cs service-worker resource interceptor; DomStyleDeclarationTests.ServiceWorkerRegistrationIsCapabilityGated; D14/sw-01..03`.
 
-Fetch wrapper interception exists. Image and other document subresource requests do not share that hook before the loader.
+Fetch wrapper interception now restores persisted registrations before a reopened document's first fetch. Image, stylesheet, font, document and media requests share the controller hook, and intercepted subresources preserve the service-worker response `Content-Type` through the host loader; direct media regression proves the type reaches the audio decoder. Binary response extraction keeps the worker `Uint8Array` typed through the host bridge instead of expanding it to a comma-separated string. Native-engine service-worker responses now cross a separate engine through a typed response bridge. Child iframe document navigation now runs through the same interceptor, with a regression proving an offline controller response is consumed without contacting the host loader. Font requests preserve the `Font` resource kind and controller `Content-Type`; a real FolioBox TTF returned by the worker now passes through `WebFontDecoder` and `FontFace.Parse` in a direct regression. Worker script URLs are normalized against the artifact base URI; registration rejects cross-origin script URLs and absolute scopes before host loading, and the controller also refuses cross-origin requests before dispatching the fetch event. The strengthened D14 corpus proves three real service-worker fetch responses after reopen (offline asset, API response and gallery response). Jint isolation, fall-through/refused-origin coverage across both backends, interruption evidence and the sandbox matrix remain open.
 
 Original acceptance:
 

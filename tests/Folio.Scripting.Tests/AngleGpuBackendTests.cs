@@ -108,6 +108,121 @@ public sealed class AngleGpuBackendTests
     }
 
     [Fact]
+    public void NativeWarpCompilesLinksAndReportsShaderDiagnostics()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var device = (AngleGpuDevice)CreateDevice(GpuRendererPreference.WarpOnly, 64 * 1024 * 1024);
+        var attributes = new WebGlContextAttributes(WebGlContextVersion.WebGl2, true, false, false, false, true, true);
+        var options = new WebGlContextOptions(WebGlContextVersion.WebGl2, 32, 32, attributes, 64 * 1024 * 1024);
+        Assert.True(device.TryCreateNativeWebGlContext(options, out var context, out var contextFailure), contextFailure?.Message);
+        var nativeContext = context!;
+        using (nativeContext)
+        {
+            var vertexSource = System.Text.Encoding.UTF8.GetBytes("#version 300 es\nvoid main(){gl_Position=vec4(0.0);}\n");
+            var fragmentSource = System.Text.Encoding.UTF8.GetBytes("#version 300 es\nprecision mediump float; out vec4 color; void main(){color=vec4(1.0);}\n");
+            Assert.True(nativeContext.TryCreateShader(0x8B31, out uint vertex, out var failure), failure?.Message);
+            Assert.True(nativeContext.TrySetShaderSource(vertex, vertexSource, out failure), failure?.Message);
+            Assert.True(nativeContext.TryCompileShader(vertex, out var vertexCompiled, out var vertexLog, out failure), failure?.Message);
+            Assert.True(vertexCompiled, vertexLog);
+            Assert.True(nativeContext.TryCreateShader(0x8B30, out uint fragment, out failure), failure?.Message);
+            Assert.True(nativeContext.TrySetShaderSource(fragment, fragmentSource, out failure), failure?.Message);
+            Assert.True(nativeContext.TryCompileShader(fragment, out var fragmentCompiled, out var fragmentLog, out failure), failure?.Message);
+            Assert.True(fragmentCompiled, fragmentLog);
+            Assert.True(nativeContext.TryCreateProgram(out uint program, out failure), failure?.Message);
+            Assert.True(nativeContext.TryAttachShader(program, vertex, out failure), failure?.Message);
+            Assert.True(nativeContext.TryAttachShader(program, fragment, out failure), failure?.Message);
+            Assert.True(nativeContext.TryLinkProgram(program, out var linked, out var linkLog, out failure), failure?.Message);
+            Assert.True(linked, linkLog);
+            Assert.True(nativeContext.TryDeleteProgram(program, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteShader(vertex, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteShader(fragment, out failure), failure?.Message);
+
+            Assert.True(nativeContext.TryCreateShader(0x8B30, out uint malformed, out failure), failure?.Message);
+            Assert.True(nativeContext.TrySetShaderSource(malformed, "void main(){"u8.ToArray(), out failure), failure?.Message);
+            Assert.True(nativeContext.TryCompileShader(malformed, out var malformedCompiled, out var malformedLog, out failure), failure?.Message);
+            Assert.False(malformedCompiled);
+            Assert.NotEmpty(malformedLog);
+            Assert.True(nativeContext.TrySetShaderSource(malformed, "void main(){\0}"u8.ToArray(), out failure), failure?.Message);
+            Assert.True(nativeContext.TryCompileShader(malformed, out _, out _, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteShader(malformed, out failure), failure?.Message);
+
+            Assert.True(nativeContext.TryCreateShader(0x8B30, out uint oversizedShader, out failure), failure?.Message);
+            var oversized = new byte[options.MaxShaderSourceBytes + 1];
+            Assert.False(nativeContext.TrySetShaderSource(oversizedShader, oversized, out failure));
+            Assert.Equal(GpuFailureKind.BudgetExceeded, failure?.Kind);
+            Assert.True(nativeContext.TryDeleteShader(oversizedShader, out failure), failure?.Message);
+        }
+    }
+
+    [Fact]
+    public void NativeWarpUploadsBufferAndDrawsTriangleToReadback()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var device = (AngleGpuDevice)CreateDevice(GpuRendererPreference.WarpOnly, 64 * 1024 * 1024);
+        var attrs = new WebGlContextAttributes(WebGlContextVersion.WebGl2, true, false, false, false, true, true);
+        Assert.True(device.TryCreateNativeWebGlContext(new(WebGlContextVersion.WebGl2, 32, 32, attrs, 64 * 1024 * 1024), out var context, out var contextFailure), contextFailure?.Message);
+        var nativeContext = Assert.IsType<AngleNativeWebGlContext>(context);
+        using (nativeContext)
+        {
+            var vs = System.Text.Encoding.UTF8.GetBytes("#version 300 es\nlayout(location=0) in vec2 p; void main(){gl_Position=vec4(p,0.0,1.0);}\n");
+            var fs = System.Text.Encoding.UTF8.GetBytes("#version 300 es\nprecision mediump float; out vec4 c; void main(){c=vec4(1.0,0.0,0.0,1.0);}\n");
+            Assert.True(nativeContext.TryCreateShader(0x8B31, out uint vertex, out var failure), failure?.Message);
+            Assert.True(nativeContext.TrySetShaderSource(vertex, vs, out failure), failure?.Message);
+            Assert.True(nativeContext.TryCompileShader(vertex, out var vertexOk, out var vertexLog, out failure), failure?.Message);
+            Assert.True(vertexOk, vertexLog);
+            Assert.True(nativeContext.TryCreateShader(0x8B30, out uint fragment, out failure), failure?.Message);
+            Assert.True(nativeContext.TrySetShaderSource(fragment, fs, out failure), failure?.Message);
+            Assert.True(nativeContext.TryCompileShader(fragment, out var fragmentOk, out var fragmentLog, out failure), failure?.Message);
+            Assert.True(fragmentOk, fragmentLog);
+            Assert.True(nativeContext.TryCreateProgram(out uint program, out failure), failure?.Message);
+            Assert.True(nativeContext.TryAttachShader(program, vertex, out failure), failure?.Message);
+            Assert.True(nativeContext.TryAttachShader(program, fragment, out failure), failure?.Message);
+            Assert.True(nativeContext.TryLinkProgram(program, out var linked, out var linkLog, out failure), failure?.Message);
+            Assert.True(linked, linkLog);
+            Assert.True(nativeContext.TryUseProgram(program, out failure), failure?.Message);
+            Assert.True(nativeContext.TryCreateVertexArray(out uint vao, out failure), failure?.Message);
+            Assert.True(nativeContext.TryBindVertexArray(vao, out failure), failure?.Message);
+            Assert.True(nativeContext.TryCreateBuffer(out uint buffer, out failure), failure?.Message);
+            Assert.True(nativeContext.TryBindBuffer(0x8892, buffer, out failure), failure?.Message);
+            var vertices = new byte[24];
+            BitConverter.TryWriteBytes(vertices.AsSpan(0, 4), -0.8f); BitConverter.TryWriteBytes(vertices.AsSpan(4, 4), -0.8f);
+            BitConverter.TryWriteBytes(vertices.AsSpan(8, 4), 0.8f); BitConverter.TryWriteBytes(vertices.AsSpan(12, 4), -0.8f);
+            BitConverter.TryWriteBytes(vertices.AsSpan(16, 4), 0f); BitConverter.TryWriteBytes(vertices.AsSpan(20, 4), 0.8f);
+            Assert.True(nativeContext.TryUploadBuffer(0x8892, vertices, 0x88E4, out failure), failure?.Message);
+            Assert.True(nativeContext.TryVertexAttribPointer(0, 2, 0x1406, false, 8, 0, out failure), failure?.Message);
+            Assert.True(nativeContext.TryEnableVertexAttrib(0, true, out failure), failure?.Message);
+            Assert.True(nativeContext.TrySetViewport(0, 0, 32, 32, out failure), failure?.Message);
+            Assert.True(nativeContext.TryClear(0, 0, 0, 1, 0x4000, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDrawArrays(0x0004, 0, 3, out failure), failure?.Message);
+            var pixels = new byte[32 * 32 * 4];
+            Assert.True(nativeContext.TryReadPixels(0, 0, 32, 32, pixels, out failure), failure?.Message);
+            Assert.Contains((byte)255, pixels.Where((value, index) => index % 4 == 0));
+            Assert.True(nativeContext.TryDeleteBuffer(buffer, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteVertexArray(vao, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteProgram(program, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteShader(vertex, out failure), failure?.Message);
+            Assert.True(nativeContext.TryDeleteShader(fragment, out failure), failure?.Message);
+        }
+    }
+
+    [Fact]
+    public void FailedRenderbufferStorageDoesNotLeakGpuReservation()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var device = (AngleGpuDevice)CreateDevice(GpuRendererPreference.WarpOnly, 64 * 1024 * 1024);
+        var attrs = new WebGlContextAttributes(WebGlContextVersion.WebGl2, true, false, false, false, true, true);
+        Assert.True(device.TryCreateNativeWebGlContext(new(WebGlContextVersion.WebGl2, 2, 2, attrs, 64 * 1024 * 1024), out var context, out var createFailure), createFailure?.Message);
+        using var native = Assert.IsType<AngleNativeWebGlContext>(context);
+        Assert.True(native.TryCreateRenderbuffer(out var renderbuffer, out var failure), failure?.Message);
+        Assert.True(native.TryBindRenderbuffer(0x8D41, renderbuffer, out failure), failure?.Message);
+        var before = device.ReservedBytes;
+        Assert.False(native.TryRenderbufferStorage(0x8D41, 0x881A /* RGBA16F: unsupported by WARP */, 2, 2, out failure));
+        Assert.Equal(before, device.ReservedBytes);
+        Assert.True(native.TryRenderbufferStorage(0x8D41, 0x8058 /* RGBA8 */, 2, 2, out failure), failure?.Message);
+        Assert.True(device.ReservedBytes > before);
+    }
+
+    [Fact]
     public async Task ConcurrentSurfaceDisposalAndUseIsBoundedAndSafe()
     {
         if (!OperatingSystem.IsWindows()) return;
@@ -201,4 +316,28 @@ public sealed class AngleGpuBackendTests
         }
         throw new FileNotFoundException("The ANGLE native asset was not restored for this test target.", "av_libglesv2.dll");
     }
+
+    [Fact]
+    public void NativeWarpAntialiasAllocatesResolvesAndResizes()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var device = (AngleGpuDevice)CreateDevice(GpuRendererPreference.WarpOnly, 64 * 1024 * 1024);
+        var attributes = new WebGlContextAttributes(WebGlContextVersion.WebGl2, true, true, true, true, true, true);
+        var options = new WebGlContextOptions(WebGlContextVersion.WebGl2, 8, 8, attributes, 64 * 1024 * 1024);
+        Assert.True(device.TryCreateNativeWebGlContext(options, out var context, out var createFailure), createFailure?.Message);
+        var nativeContext = Assert.IsType<AngleNativeWebGlContext>(context);
+        using (nativeContext)
+        {
+            Assert.True(nativeContext.Attributes.Antialias);
+            Assert.True(nativeContext.TryClear(0.2f, 0.4f, 0.8f, 1, 0x4100, out var clearFailure), clearFailure?.Message);
+            var pixels = new byte[8 * 8 * 4];
+            Assert.True(nativeContext.TryReadPixels(0, 0, 8, 8, pixels, out var readFailure), readFailure?.Message);
+            Assert.Equal(new byte[] { 51, 102, 204, (byte)255 }, pixels[..4]);
+            Assert.True(nativeContext.TryResize(4, 6, out var resizeFailure), resizeFailure?.Message);
+            Assert.Equal(4, nativeContext.Width);
+            Assert.Equal(6, nativeContext.Height);
+        }
+        Assert.Equal(0, device.ReservedBytes);
+    }
+
 }

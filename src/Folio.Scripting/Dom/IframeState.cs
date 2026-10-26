@@ -3,12 +3,40 @@ using Folio.Dom;
 using Folio.Html;
 using Folio.Painting;
 using Folio.Resources;
+using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Dom;
 
 internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
 {
-    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null, FolioOptions? parentOptions = null, Func<bool>? checkPermission = null)
+    private sealed class AggregateBudget
+    {
+        private readonly object _gate = new();
+        private readonly int _limit;
+        private int _active;
+        public AggregateBudget(int limit) => _limit = Math.Max(0, limit);
+        public bool TryAcquire()
+        {
+            lock (_gate)
+            {
+                if (_active >= _limit) return false;
+                _active++;
+                return true;
+            }
+        }
+        public void Release() { lock (_gate) _active = Math.Max(0, _active - 1); }
+    }
+
+    private static readonly ConditionalWeakTable<FolioOptions, AggregateBudget> AggregateBudgets = new();
+    private static AggregateBudget GetOrCreateBudget(FolioOptions options) =>
+        AggregateBudgets.GetValue(options, static value => new AggregateBudget(value.Limits.MaxIframes));
+    private static void AssociateBudget(FolioOptions options, AggregateBudget budget)
+    {
+        AggregateBudgets.Remove(options);
+        AggregateBudgets.Add(options, budget);
+    }
+
+    public IframeState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, ElementNode element, bool enabled, IResourceLoader? resourceLoader = null, Uri? baseUri = null, Action<Uri>? navigationRequested = null, FolioOptions? parentOptions = null, Func<bool>? checkPermission = null, HtmlEventLoop? parentLoop = null)
     {
         Engine = engine;
         MessageEventTemplate = messageEventTemplate;
@@ -18,6 +46,8 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         BaseUri = baseUri;
         NavigationRequested = navigationRequested;
         ParentOptions = parentOptions;
+        ParentLoop = parentLoop;
+        _aggregateBudget = parentOptions is null ? null : GetOrCreateBudget(parentOptions);
         _checkPermission = checkPermission;
         _capabilities = parentOptions?.Capabilities ?? FeatureCapabilities.Default;
         element.FramePresentation = this;
@@ -29,7 +59,15 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
     public ElementNode Element { get; }
     public bool Enabled { get; private set; }
     private readonly Func<bool>? _checkPermission;
-    private bool PermissionGranted => Enabled && (_checkPermission?.Invoke() ?? true);
+    private bool PermissionGranted
+    {
+        get
+        {
+            if (!Enabled) return false;
+            try { return _checkPermission?.Invoke() ?? true; }
+            catch { return false; }
+        }
+    }
     public string Origin { get; private set; } = "null";
     public string ParentOrigin => NetworkOrigin(BaseUri);
     private bool SameOriginAllowed => !HasSandbox || SandboxTokens.Contains("allow-same-origin", StringComparer.OrdinalIgnoreCase);
@@ -44,31 +82,49 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         Origin = !SameOriginAllowed ? "null" : inherited ? ParentOrigin :
             Uri.TryCreate(ResolveSource(source), UriKind.Absolute, out var uri) ? NetworkOrigin(uri) : "null";
     }
+
+    private bool AllowsFeaturePolicy(string feature)
+    {
+        var raw = Element.GetAttribute("allow");
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        foreach (var policy in raw.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tokens = policy.Split([' ', '\t', '\n', '\f', '\r'], StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0 || !string.Equals(tokens[0], feature, StringComparison.OrdinalIgnoreCase)) continue;
+            // An omitted allowlist is the iframe's normal source allowlist.
+            if (tokens.Length == 1) return true;
+            if (tokens.Skip(1).Any(token => string.Equals(token, "'none'", StringComparison.OrdinalIgnoreCase))) return false;
+            foreach (var token in tokens.Skip(1))
+            {
+                if (token == "*") return true;
+                if (string.Equals(token, "'self'", StringComparison.OrdinalIgnoreCase)
+                    && Origin != "null" && Origin == ParentOrigin) return true;
+                if (string.Equals(token, "'src'", StringComparison.OrdinalIgnoreCase) && Origin != "null") return true;
+                if (Uri.TryCreate(token.Trim('\''), UriKind.Absolute, out var allowed)
+                    && Origin != "null" && NetworkOrigin(allowed) == Origin) return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
     private FeatureCapabilities ChildCapabilities
     {
         get
         {
-            var policies = (Element.GetAttribute("allow") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
-                .Select(policy => policy.Trim().Split([' ', '\t', '\n'], StringSplitOptions.RemoveEmptyEntries))
-                .Where(parts => parts.Length == 1 || parts.Length > 1 &&
-                    !parts.Skip(1).Contains("'none'", StringComparer.OrdinalIgnoreCase) &&
-                    parts.Skip(1).Any(origin => origin == "*" ||
-                        origin == "'self'" && Origin != "null" && Origin == ParentOrigin ||
-                        Uri.TryCreate(origin, UriKind.Absolute, out var allowed) && Origin != "null" && NetworkOrigin(allowed) == Origin))
-                .Select(parts => parts[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
             return new FeatureCapabilities
             {
-                WebGl = _capabilities.WebGl && policies.Contains("webgl"),
-                Media = _capabilities.Media && policies.Contains("media"),
-                Sound = _capabilities.Sound && policies.Contains("sound"),
-                Camera = _capabilities.Camera && policies.Contains("camera"),
-                Microphone = _capabilities.Microphone && policies.Contains("microphone"),
-                AllowSoundAutoplay = _capabilities.AllowSoundAutoplay && policies.Contains("autoplay"),
-                Workers = _capabilities.Workers && policies.Contains("workers"),
-                WebAssembly = _capabilities.WebAssembly && policies.Contains("webassembly"),
-                Iframes = _capabilities.Iframes && policies.Contains("iframes"),
-                WebRtc = _capabilities.WebRtc && policies.Contains("webrtc"),
-                ServiceWorkers = _capabilities.ServiceWorkers && policies.Contains("service-workers"),
+                WebGl = _capabilities.WebGl && AllowsFeaturePolicy("webgl"),
+                Media = _capabilities.Media && AllowsFeaturePolicy("media"),
+                Sound = _capabilities.Sound && AllowsFeaturePolicy("sound"),
+                Camera = _capabilities.Camera && AllowsFeaturePolicy("camera"),
+                Microphone = _capabilities.Microphone && AllowsFeaturePolicy("microphone"),
+                AllowSoundAutoplay = _capabilities.AllowSoundAutoplay && AllowsFeaturePolicy("autoplay"),
+                Workers = _capabilities.Workers && AllowsFeaturePolicy("workers"),
+                WebAssembly = _capabilities.WebAssembly && AllowsFeaturePolicy("webassembly"),
+                Iframes = _capabilities.Iframes && AllowsFeaturePolicy("iframes"),
+                WebRtc = _capabilities.WebRtc && AllowsFeaturePolicy("webrtc"),
+                ServiceWorkers = _capabilities.ServiceWorkers && AllowsFeaturePolicy("service-workers"),
             };
         }
     }
@@ -80,6 +136,15 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
     public Uri? BaseUri { get; }
     public Action<Uri>? NavigationRequested { get; }
     public FolioOptions? ParentOptions { get; }
+
+    private ResourceResponse? LoadDocumentResource(Uri uri)
+    {
+        var request = new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document);
+        if (ParentOptions?.ResourceInterceptor?.Intercept(request) is { } intercepted)
+            return intercepted;
+        return ResourceLoader?.LoadAsync(request, CancellationToken.None).GetAwaiter().GetResult();
+    }
+    private HtmlEventLoop? ParentLoop { get; }
     public bool Closed { get; private set; }
     public ScriptValue OnMessage { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoad { get; set; } = ScriptValue.Null;
@@ -99,6 +164,11 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
     bool IFramePresentation.HasFocusableContent => ChildRenderDocument?.Input.GetSequentialFocusableElements().Count > 0;
     string? IFramePresentation.FallbackText => ChildRenderDocument?.AccessibilityTree() is { } tree ? string.Join(" ", Text(tree)) : null;
     private readonly List<ScriptValue> _messageListeners = [];
+    private ScriptValue _childOnMessage = ScriptValue.Null;
+    private ScriptValue _childParentWindow = ScriptValue.Undefined;
+    private readonly List<ScriptValue> _childMessageListeners = [];
+    private readonly AggregateBudget? _aggregateBudget;
+    private bool _aggregateSlot;
     private string? _loadedSource;
     private bool _loadDispatched;
     private long _loadGeneration;
@@ -109,14 +179,101 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
     private string ResolveSource(string source) => string.IsNullOrWhiteSpace(source) ? "about:blank"
         : BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
 
+    private void InstallChildWindowBridge(IScriptEngine childEngine)
+    {
+        var bridgeTemplate = new HostObjectTemplate("IframeParentWindow")
+            .DefineMethod("postMessage", (target, _, args) =>
+            {
+                var bridge = (ChildWindowBridge)target;
+                if (args.Length > 0)
+                    bridge.State.PostMessageFromChild(bridge.Engine, args[0], args.Length > 1 ? WebIdlConversions.ToDOMString(args[1]) : "*", args.Length > 2 ? args[2] : ScriptValue.Undefined);
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("setOnMessage", (target, _, args) => { ((ChildWindowBridge)target).State.SetChildOnMessage(args.Length > 0 ? args[0] : ScriptValue.Null); return ScriptValue.Undefined; })
+            .DefineMethod("addMessageListener", (target, _, args) => { if (args.Length > 0) ((ChildWindowBridge)target).State.AddChildMessageListener(args[0]); return ScriptValue.Undefined; })
+            .DefineMethod("removeMessageListener", (target, _, args) => { if (args.Length > 0) ((ChildWindowBridge)target).State.RemoveChildMessageListener(args[0]); return ScriptValue.Undefined; });
+        var bridge = childEngine.CreateHostObject(bridgeTemplate, new ChildWindowBridge(this, childEngine));
+        _childParentWindow = bridge;
+        childEngine.SetGlobalProperty("__folio_iframe_parent", bridge);
+        childEngine.EvaluateHostScript("""
+            (function(parentWindow) {
+                globalThis.parent = parentWindow;
+                globalThis.top = parentWindow;
+                globalThis.addEventListener = function(type, handler) { if (type === 'message') parentWindow.addMessageListener(handler); };
+                globalThis.removeEventListener = function(type, handler) { if (type === 'message') parentWindow.removeMessageListener(handler); };
+                Object.defineProperty(globalThis, 'onmessage', { configurable: true, get: function() { return globalThis.__folio_iframe_onmessage || null; }, set: function(value) { globalThis.__folio_iframe_onmessage = value; parentWindow.setOnMessage(value); } });
+            })(__folio_iframe_parent);
+            delete globalThis.__folio_iframe_parent;
+            """, "folio:iframe-window");
+    }
+
+    private sealed class ChildWindowBridge(IframeState state, IScriptEngine engine)
+    {
+        public IframeState State { get; } = state;
+        public IScriptEngine Engine { get; } = engine;
+    }
+
     public void PostMessage(ScriptValue data, string targetOrigin, ScriptValue transfer = default)
     {
-        if (!PermissionGranted || Closed || (!OnMessage.IsFunction && _messageListeners.Count == 0) || (targetOrigin != "*" && targetOrigin != Origin)) return;
+        if (!PermissionGranted || Closed || (targetOrigin != "*" && targetOrigin != Origin)) return;
+        if (_childEngine is not null)
+        {
+            DispatchToChild(data, transfer, targetOrigin);
+            return;
+        }
+        if (!OnMessage.IsFunction && _messageListeners.Count == 0) return;
         var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(data, Origin, Window, target: Window, ports: StructuredCloneCodec.CreatePorts(Engine, [])));
         if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
         foreach (var listener in _messageListeners.ToArray())
             if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
     }
+
+    private void PostMessageFromChild(IScriptEngine childEngine, ScriptValue data, string targetOrigin, ScriptValue transfer)
+    {
+        if (!PermissionGranted || Closed || (targetOrigin != "*" && targetOrigin != ParentOrigin)) return;
+        if (!OnMessage.IsFunction && _messageListeners.Count == 0) return;
+        try
+        {
+            var payload = StructuredCloneCodec.Encode(childEngine, data, transfer, MaxMessageBytes, MessagePortEndpoint.TryGetPort);
+            var decoded = StructuredCloneCodec.Decode(Engine, payload,
+                (port, destination) => port.ClaimTransfer(destination, ParentLoop, MaxMessageBytes).GetWrapper());
+            var message = Engine.CreateHostObject(MessageEventTemplate, new MessageEventState(decoded.Value, Origin, Window, target: Window, ports: StructuredCloneCodec.CreatePorts(Engine, decoded.Ports)));
+            if (OnMessage.IsFunction) Engine.Call(OnMessage, ScriptValue.Undefined, [message]);
+            foreach (var listener in _messageListeners.ToArray())
+                if (listener.IsFunction) Engine.Call(listener, ScriptValue.Undefined, [message]);
+            if (ParentLoop is null) MessagePortEndpoint.DrainAll(Engine);
+        }
+        catch { }
+    }
+
+    private void DispatchToChild(ScriptValue data, ScriptValue transfer, string targetOrigin)
+    {
+        if (_childEngine is null || (!_childOnMessage.IsFunction && _childMessageListeners.Count == 0)) return;
+        try
+        {
+            var payload = StructuredCloneCodec.Encode(Engine, data, transfer, MaxMessageBytes, MessagePortEndpoint.TryGetPort);
+            var child = _childEngine;
+            var decoded = StructuredCloneCodec.Decode(child, payload,
+                (port, destination) => port.ClaimTransfer(destination, _childLoop, MaxMessageBytes).GetWrapper());
+            // The receiver is the child's own Window/global object.  Leaving target
+            // undefined would make MessageEventState fall back to source (the
+            // parent's WindowProxy), which is observably wrong in the child.
+            var childWindow = child.Evaluate("globalThis");
+            var message = child.CreateHostObject(MessageEventTemplate, new MessageEventState(decoded.Value, ParentOrigin, _childParentWindow, target: childWindow, ports: StructuredCloneCodec.CreatePorts(child, decoded.Ports)));
+            if (_childOnMessage.IsFunction) child.Call(_childOnMessage, ScriptValue.Undefined, [message]);
+            foreach (var listener in _childMessageListeners.ToArray())
+                if (listener.IsFunction) child.Call(listener, ScriptValue.Undefined, [message]);
+            if (ParentLoop is null) MessagePortEndpoint.DrainAll(Engine);
+            if (_childLoop is null) MessagePortEndpoint.DrainAll(child);
+        }
+        catch { }
+    }
+
+    private void SetChildOnMessage(ScriptValue value) => _childOnMessage = value.IsFunction ? value : ScriptValue.Null;
+    private void AddChildMessageListener(ScriptValue value) { if (value.IsFunction && !_childMessageListeners.Contains(value)) _childMessageListeners.Add(value); }
+    private void RemoveChildMessageListener(ScriptValue value) => _childMessageListeners.Remove(value);
+
+    private int MaxMessageBytes => ParentOptions?.Limits.MaxWorkerMessageBytes ?? 1 * 1024 * 1024;
 
     public void AddMessageListener(ScriptValue listener)
     {
@@ -132,7 +289,26 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         _fallback = new(FallbackFeature.Iframes, FallbackReason.Closed);
         OnMessage = ScriptValue.Null;
         _messageListeners.Clear();
+        _childOnMessage = ScriptValue.Null;
+        _childParentWindow = ScriptValue.Undefined;
+        _childMessageListeners.Clear();
         RetireChild();
+        ReleaseAggregateSlot();
+    }
+
+    internal bool TryAcquireAggregateSlot()
+    {
+        if (_aggregateBudget is null || _aggregateSlot) return true;
+        if (!_aggregateBudget.TryAcquire()) return false;
+        _aggregateSlot = true;
+        return true;
+    }
+
+    private void ReleaseAggregateSlot()
+    {
+        if (!_aggregateSlot) return;
+        _aggregateSlot = false;
+        _aggregateBudget?.Release();
     }
 
     internal void UpdateCapabilities(FeatureCapabilities capabilities)
@@ -171,6 +347,9 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
         _loadGeneration++;
         OnMessage = ScriptValue.Null;
         _messageListeners.Clear();
+        _childOnMessage = ScriptValue.Null;
+        _childParentWindow = ScriptValue.Undefined;
+        _childMessageListeners.Clear();
         Closed = false;
         _loadedSource = null;
         _loadDispatched = false;
@@ -238,7 +417,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             if (!IsCurrent()) return;
             if (ResourceLoader is null) { Fail(FallbackReason.SourceUnavailable); return; }
             ResourceResponse? response;
-            try { response = ResourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Document), CancellationToken.None).GetAwaiter().GetResult(); }
+            try { response = LoadDocumentResource(uri); }
             catch { Fail(FallbackReason.SourceUnavailable); return; }
             if (!IsCurrent()) return;
             if (response?.Data is not { } data) { Fail(FallbackReason.SourceUnavailable); return; }
@@ -258,6 +437,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             Limits = parent.Limits with { MaxIframes = Math.Max(0, parent.Limits.MaxIframes - 1) },
             MediaCaptureActivityChanged = parent.MediaCaptureActivityChanged,
             MediaCapturePermission = parent.MediaCapturePermission,
+            MediaCaptureProvider = parent.MediaCaptureProvider,
             MediaDecoder = parent.MediaDecoder,
             MediaAudioOutput = parent.MediaAudioOutput,
             Scripting = ScriptsAllowed ? parent.Scripting : ScriptingPolicy.Disabled,
@@ -265,11 +445,15 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
             ContentProcessPath = parent.ContentProcessPath,
             Raster = parent.Raster,
             ReducedMotion = parent.ReducedMotion,
+            FormsAllowed = FormsAllowed,
             ResourceLoader = parent.ResourceLoader,
+            ResourceInterceptor = parent.ResourceInterceptor,
             UserStyleSheet = parent.UserStyleSheet,
             WebRtcAllowedOrigins = parent.WebRtcAllowedOrigins,
             CollectDiagnostics = parent.CollectDiagnostics,
         };
+        if (_aggregateBudget is not null)
+            AssociateBudget(options, _aggregateBudget);
         Document childDocument;
         try { childDocument = Document.Parse(html, options); }
         catch { Fail(FallbackReason.DecodeFailed); return; }
@@ -294,6 +478,7 @@ internal sealed class IframeState : IFramePresentation, IFeatureFallbackSource
                 _childLoop = childLoop;
                 ScriptGlobalsInstaller.Install(childLoop, childEngine);
                 DomBindings.Install(childEngine, childDocument, eventLoop: childLoop);
+                InstallChildWindowBridge(childEngine);
                 if (!IsCurrent()) return;
                 childRunner = new ScriptRunner(childDocument, childEngine, childLoop, options);
                 _childRunner = childRunner;

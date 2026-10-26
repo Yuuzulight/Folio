@@ -9,17 +9,22 @@ internal sealed class MediaResourceBudget(int maxBytes, int maxDecoders)
     private long _bytes;
     private int _decoders;
 
-    public Lease? Acquire()
+    public Lease? Acquire() => Acquire(decoder: true);
+
+    /// <summary>Reserves decoded bytes without consuming a decoder slot.</summary>
+    public Lease? AcquireBytes() => Acquire(decoder: false);
+
+    private Lease? Acquire(bool decoder)
     {
         lock (_gate)
         {
-            if (_decoders >= _maxDecoders) return null;
-            _decoders++;
-            return new Lease(this);
+            if (decoder && _decoders >= _maxDecoders) return null;
+            if (decoder) _decoders++;
+            return new Lease(this, decoder);
         }
     }
 
-    internal sealed class Lease(MediaResourceBudget owner) : IDisposable
+    internal sealed class Lease(MediaResourceBudget owner, bool decoder) : IDisposable
     {
         private long _reserved;
         private bool _disposed;
@@ -46,7 +51,7 @@ internal sealed class MediaResourceBudget(int maxBytes, int maxDecoders)
             {
                 if (_disposed) return;
                 owner._bytes -= _reserved;
-                owner._decoders--;
+                if (decoder) owner._decoders--;
                 _disposed = true;
             }
         }

@@ -1,1 +1,1 @@
-{"viewport":800,"prompt":"Wasm memory workload using a small WebAssembly module.","features":["script","webassembly","canvas"]}
+{"viewport":800,"prompt":"Wasm memory workload using a small WebAssembly module.","interaction":["wait 50","text #status Wasm memory workload ready"],"features":["script","webassembly","canvas"]}

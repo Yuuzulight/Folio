@@ -25,7 +25,14 @@ public interface IMediaAudioOutputLifecycle
 }
 
 /// <summary>The result of decoding one bounded media resource.</summary>
-public sealed record MediaDecodeResult(double Duration, IImageHandle? VideoFrame, MediaAudioFrame? Audio);
+public sealed record MediaDecodeResult(double Duration, IImageHandle? VideoFrame, MediaAudioFrame? Audio)
+{
+    /// <summary>Optional timestamped video frames in presentation order. When omitted, <see cref="VideoFrame"/> is used.</summary>
+    public IReadOnlyList<MediaVideoFrame>? VideoFrames { get; init; }
+}
+
+/// <summary>A bounded decoded video frame at a media-time position in seconds.</summary>
+public sealed record MediaVideoFrame(double Time, IImageHandle Frame);
 
 /// <summary>Host-supplied decoder for media formats outside Folio's built-in image and WAV support.</summary>
 public interface IMediaDecoder

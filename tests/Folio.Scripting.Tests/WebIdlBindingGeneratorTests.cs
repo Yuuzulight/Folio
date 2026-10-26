@@ -29,6 +29,40 @@ public class WebIdlBindingGeneratorTests
         }
     }
 
+    private sealed class MockConversionProbe : IConversionProbeTarget
+    {
+        public MockConversionProbe()
+        {
+            First = new MockConversionProbe(initializeChildren: false);
+            Second = new MockConversionProbe(initializeChildren: false);
+        }
+
+        private MockConversionProbe(bool initializeChildren)
+        {
+            if (initializeChildren)
+            {
+                First = new MockConversionProbe(initializeChildren: false);
+                Second = new MockConversionProbe(initializeChildren: false);
+            }
+        }
+
+        public int ChangingReads { get; private set; }
+        public int? Changing { get { ChangingReads++; return 11; } }
+        public IConversionProbeTarget First { get; } = null!;
+        public IConversionProbeTarget Second { get; } = null!;
+        public IConversionProbeTarget? EchoResult { get; set; }
+        public IConversionProbeTarget Echo(IConversionProbeTarget value) => EchoResult ?? value;
+        public int ConsumeOptions(ConversionOptions options) => options.RequiredValue + options.Label.Length;
+        public ConversionOptions EchoOptions(ConversionOptions options) => options;
+        public bool ConsumeBoolean(bool value) => value;
+        public IReadOnlyList<float> ConsumeFloats(IReadOnlyList<float> values) => values;
+        public ScriptBufferSource ConsumeBuffer(ScriptBufferSource value) => value;
+        public ScriptBufferSource ConsumeFloat32(ScriptBufferSource value) => value;
+        public int Upload(uint target, int size, uint usage) => 1000 + size;
+        public int Upload(uint target, ScriptBufferSource? data, uint usage) => data is null ? 2000 : 2000 + data.Value.Info.ByteLength;
+        public int RequiredOptional(int requiredValue, int optionalValue) => requiredValue + optionalValue;
+    }
+
     [Fact]
     public void PrototypeChainAndConstantBinding()
     {
@@ -170,5 +204,70 @@ public class WebIdlBindingGeneratorTests
     {
         var invalidIdl = "invalid_keyword Foo { };";
         Assert.Throws<FormatException>(() => IdlParser.Parse(invalidIdl));
+    }
+
+    [Fact]
+    public void ParserPreservesTypedefsAndWebIdlBufferTypes()
+    {
+        var doc = IdlParser.Parse("typedef unsigned long Handle; interface BufferUser { attribute BufferSource data; Handle getHandle(); };");
+        Assert.Single(doc.Typedefs!);
+        Assert.Equal("Handle", doc.Typedefs![0].Name);
+        Assert.Equal(IdlTypeKind.BufferSource, doc.Interfaces[0].Attributes[0].Type.Kind);
+        Assert.Equal(IdlTypeKind.Interface, doc.Interfaces[0].Operations[0].ReturnType.Kind);
+    }
+
+    [Fact]
+    public void WebIdlNumericConversionsRespectFloatRules()
+    {
+        Assert.Equal(1.5f, WebIdlConversions.ToFloat(ScriptValue.FromNumber(1.5)));
+        Assert.Throws<WebIdlException>(() => WebIdlConversions.ToFloat(ScriptValue.FromNumber(double.PositiveInfinity)));
+        Assert.Equal(sbyte.MaxValue, WebIdlConversions.ToByte(ScriptValue.FromNumber(300), clamp: true));
+        Assert.Equal(-1, WebIdlConversions.ToByte(ScriptValue.FromNumber(255)));
+        Assert.True(float.IsInfinity(WebIdlConversions.ToFloat(ScriptValue.FromNumber(1e100), unrestricted: true)));
+        Assert.Throws<WebIdlException>(() => WebIdlConversions.ToUint64(ScriptValue.FromNumber(-1), enforceRange: true));
+        Assert.Equal(ulong.MaxValue, WebIdlConversions.ToUint64(ScriptValue.FromNumber(-1)));
+    }
+
+    [Fact]
+    public void GeneratedConversionProbeUsesRuntimeConversionsAndIdentity()
+    {
+        using var engine = new JintScriptEngine();
+        var target = new MockConversionProbe();
+        var value = ConversionProbeBinding.CreateObject(engine, target);
+        var repeated = ConversionProbeBinding.CreateObject(engine, target);
+        Assert.Equal(value, repeated);
+        engine.SetGlobalProperty("probe", value);
+        Assert.Equal(11, engine.Evaluate("probe.changing").AsNumber());
+        Assert.Equal(1, target.ChangingReads);
+        Assert.Equal(17, engine.Evaluate("probe.consumeOptions({ requiredValue: 9 })").AsNumber());
+        engine.Evaluate("Object.prototype.label = 99;");
+        Assert.Equal(9, engine.Evaluate("probe.echoOptions({ requiredValue: 9, label: 'safe' }).requiredValue").AsNumber());
+        Assert.Equal("safe", engine.Evaluate("probe.echoOptions({ requiredValue: 9, label: 'safe' }).label").AsString());
+        Assert.Equal(2, engine.Evaluate("probe.consumeFloats([1, 3]).length").AsNumber());
+        Assert.Equal(2, engine.Evaluate("probe.consumeFloats(new Set([1, 3])).length").AsNumber());
+        engine.Evaluate("globalThis.closed = 0; globalThis.iterable = { [Symbol.iterator]() { let i = 0; return { next() { return i++ < 2 ? { value: i, done: false } : { done: true }; }, return() { globalThis.closed++; return { done: true }; } }; } }");
+        Assert.Equal(2, engine.Evaluate("probe.consumeFloats(iterable).length").AsNumber());
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.consumeFloats({ [Symbol.iterator]() { return { next() { return { value: 'bad', done: false }; }, return() { globalThis.closed++; return { done: true }; } }; } })"));
+        Assert.Equal(1, engine.Evaluate("closed").AsNumber());
+        Assert.Equal(12, engine.Evaluate("probe.requiredOptional(5)").AsNumber());
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.requiredOptional()"));
+        Assert.Equal(23, engine.Evaluate("probe.requiredOptional({ valueOf() { return '0x10'; } })").AsNumber());
+        Assert.Equal(23, engine.Evaluate("probe.requiredOptional({ [Symbol.toPrimitive]() { return '0x10'; } })").AsNumber());
+        Assert.Equal(23, engine.Evaluate("globalThis.reads = 0; const coercible = { get valueOf() { reads++; return () => '0x10'; } }; probe.requiredOptional(coercible)").AsNumber());
+        Assert.Equal(1, engine.Evaluate("reads").AsNumber());
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.requiredOptional({ get [Symbol.toPrimitive]() { throw new Error('coercion'); } })"));
+        Assert.Equal(7, engine.Evaluate("probe.requiredOptional('')").AsNumber());
+        Assert.False(engine.Evaluate("probe.consumeBoolean(0n)").AsBoolean());
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.requiredOptional(Symbol('x'))"));
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.requiredOptional(1n)"));
+        Assert.True(engine.Evaluate("probe.echo(probe) === probe").AsBoolean());
+        Assert.True(engine.Evaluate("probe.first === probe.first").AsBoolean());
+        Assert.True(engine.Evaluate("probe.second === probe.second").AsBoolean());
+        Assert.True(engine.Evaluate("probe.first !== probe.second").AsBoolean());
+        Assert.Equal(2, engine.Evaluate("probe.consumeFloat32(new Float32Array(2)).length").AsNumber());
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.consumeFloat32(new Int16Array(2))"));
+        Assert.Equal(1012, engine.Evaluate("probe.upload('34962', 12, 35044, 'ignored')").AsNumber());
+        Assert.Equal(2000, engine.Evaluate("probe.upload(34962, null, 35044)").AsNumber());
+        Assert.Throws<ScriptRuntimeException>(() => engine.Evaluate("probe.echo({})"));
     }
 }

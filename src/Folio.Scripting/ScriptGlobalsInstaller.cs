@@ -157,7 +157,20 @@ public static class ScriptGlobalsInstaller
         engine.SetGlobalProperty("performance", engine.CreateHostObject(performanceTemplate, target));
 
         // Wire functions and clean up helper names
-        engine.EvaluateHostScript(@"
+        var timerSource = engine is Folio.Scripting.Native.NativeJavaScriptEngine ? @"
+            (function() {
+                var _st = __folio_setTimeout_obj, _ct = __folio_clearTimeout_obj;
+                var _si = __folio_setInterval_obj, _ci = __folio_clearInterval_obj;
+                var _qm = __folio_queueMicrotask_obj, _raf = __folio_raf_obj, _craf = __folio_cancelRaf_obj;
+                globalThis.setTimeout = function(handler, timeout) { return _st.invoke(handler, timeout); };
+                globalThis.clearTimeout = function(id) { return _ct.invoke(id); };
+                globalThis.setInterval = function(handler, timeout) { return _si.invoke(handler, timeout); };
+                globalThis.clearInterval = function(id) { return _ci.invoke(id); };
+                globalThis.queueMicrotask = function(callback) { return _qm.invoke(callback); };
+                globalThis.requestAnimationFrame = function(callback) { return _raf.invoke(callback); };
+                globalThis.cancelAnimationFrame = function(id) { return _craf.invoke(id); };
+            })();
+        " : @"
             (function() {
                 var _st = __folio_setTimeout_obj;
                 var _ct = __folio_clearTimeout_obj;
@@ -197,7 +210,8 @@ public static class ScriptGlobalsInstaller
                 delete globalThis.__folio_raf_obj;
                 delete globalThis.__folio_cancelRaf_obj;
             })();
-        ", "folio:event-loop");
+        ";
+        engine.EvaluateHostScript(timerSource, "folio:event-loop");
     }
 
     private static Action CreateTimerAction(

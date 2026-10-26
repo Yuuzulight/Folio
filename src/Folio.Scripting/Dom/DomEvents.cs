@@ -792,7 +792,7 @@ internal static class DomEvents
             const GLOBAL_HANDLER_NAMES = [
                 'abort', 'animationcancel', 'animationend', 'animationiteration', 'animationstart', 'auxclick',
                 'beforeinput', 'beforematch', 'beforetoggle', 'blur', 'cancel', 'canplay', 'canplaythrough', 'change',
-                'click', 'close', 'contextlost', 'contextmenu', 'contextrestored', 'copy', 'cuechange', 'cut',
+                'click', 'close', 'connect', 'contextlost', 'contextmenu', 'contextrestored', 'copy', 'cuechange', 'cut',
                 'dblclick', 'drag', 'dragend', 'dragenter', 'dragleave', 'dragover', 'dragstart', 'drop',
                 'durationchange', 'emptied', 'ended', 'error', 'focus', 'formdata', 'gotpointercapture', 'input',
                 'invalid', 'keydown', 'keypress', 'keyup', 'load', 'loadeddata', 'loadedmetadata', 'loadstart',
@@ -991,7 +991,7 @@ internal static class DomEvents
             defineHandlerAccessors(global.Document && global.Document.prototype, GLOBAL_HANDLER_NAMES.concat(DOCUMENT_HANDLER_NAMES));
             defineHandlerAccessors(global.HTMLBodyElement && global.HTMLBodyElement.prototype, WINDOW_HANDLER_NAMES);
             defineHandlerAccessors(global, host.workerScope
-                ? ['error', 'languagechange', 'message', 'messageerror', 'offline', 'online', 'rejectionhandled', 'unhandledrejection', 'securitypolicyviolation']
+                ? ['connect', 'error', 'languagechange', 'message', 'messageerror', 'offline', 'online', 'rejectionhandled', 'unhandledrejection', 'securitypolicyviolation']
                 : GLOBAL_HANDLER_NAMES.concat(WINDOW_HANDLER_NAMES));
 
             // The window: a plain EventTarget whose methods are installed directly on the global object.
@@ -1069,7 +1069,7 @@ internal static class DomEvents
             }
 
             function createHostEvent(type, a) {
-                if (type === 'message' || type === 'messageerror') return new MessageEvent(type, a);
+                if (type === 'message' || type === 'messageerror' || type === 'connect') return new MessageEvent(type, a);
                 // a is array or object
                 const dict = Array.isArray(a) ? {
                     bubbles: !!a[0],

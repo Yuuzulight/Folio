@@ -31,15 +31,17 @@ internal static class HitTester
     /// <param name="point">Page coordinates in CSS pixels.</param>
     /// <param name="deviceScale">The scale the page was painted at, whose device pixels box edges snapped to.</param>
     /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
-    public static HitResult? Hit(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
+    /// <param name="includeCaret">Whether to resolve a nearest text caret when the point is outside a text run. Pointer motion can skip this page-wide scan.</param>
+    public static HitResult? Hit(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Context? cachedRoot = null, bool includeCaret = true)
     {
-        if (PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { } root)
+        var root = cachedRoot ?? PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets);
+        if (root is null)
             return null;
         var visitor = new Visitor(point);
         PaintOrderWalker.Walk(root, visitor, frontToBack: true);
         if (visitor.Result is not { } hit)
             return null;
-        if (hit.Position is not null)
+        if (!includeCaret || hit.Position is not null)
             return hit;
         var snapped = SnapToNearestLineBox(initialContainingBlock, point);
         return snapped is not null ? hit with { Position = snapped } : hit;

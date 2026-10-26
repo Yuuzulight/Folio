@@ -20,6 +20,7 @@
     <Compile Include="..\..\src\Folio.WinForms\MediaFoundationAudioDecoder.cs" Link="Native\MediaFoundationAudioDecoder.cs" />
     <Compile Include="..\..\src\Folio.WinForms\WinMmMediaAudioOutput.cs" Link="Native\WinMmMediaAudioOutput.cs" />
     <None Include="Native\Fixtures\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Native\Fixtures\WebGl\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,6 @@
 {
   "prompt": "Show a GPU-drawn line chart with three colored series and a legend.",
+  "interaction": ["wait 50", "text #result chart-ready"],
   "features": ["script", "webgl", "buffers", "textures"],
   "viewport": 800
 }

@@ -50,4 +50,22 @@ public class BenchmarkTests
         Assert.True(median > TimeSpan.Zero);
         Assert.True(p95 >= median);
     }
+
+    [Fact]
+    public void NativeWebAssemblyCacheBenchmarkProducesColdAndWarmMeasurements()
+    {
+        var result = WebAssemblyBenchmark.Measure(2);
+        Assert.True(result.Cold > TimeSpan.Zero);
+        Assert.True(result.Warm > TimeSpan.Zero);
+        Assert.Equal(1, result.CachedModules);
+    }
+
+    [Fact]
+    public void SixteenMiBTransferredBufferAdoptsBackingStore()
+    {
+        var result = TransferBenchmark.Measure16MiB();
+        Assert.True(result.Elapsed > TimeSpan.Zero);
+        Assert.True(result.Allocated > 0);
+        Assert.True(result.Adopted);
+    }
 }

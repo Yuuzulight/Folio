@@ -316,14 +316,17 @@ public sealed class InputRouter
             return;
         }
 
-        var target = _document.ElementAt(e.Position.X, e.Position.Y);
+        // Pointer motion only needs the painted target. Resolving the nearest caret would
+        // walk every line box on the page and is unnecessary until a selection starts.
+        var targetHit = _document.HitAt(e.Position.X, e.Position.Y, includeCaret: false);
+        var target = targetHit?.Node;
         UpdateHover(target, e);
 
         // Dispatch pointermove then mousemove
         Dispatch(target ?? (Node)_document.Node, "pointermove", CreatePointerArgs(e, bubbles: true, cancelable: true));
         Dispatch(target ?? (Node)_document.Node, "mousemove", CreatePointerArgs(e, bubbles: true, cancelable: true));
 
-        UpdateCursorAndTooltip(e.Position.X, e.Position.Y);
+        UpdateCursorAndTooltip(targetHit);
 
         if (_isSelecting && _selectionPivot is { } pivot)
         {
@@ -525,7 +528,7 @@ public sealed class InputRouter
         if (changed)
             _document.Update();
 
-        UpdateCursorAndTooltip(null, null);
+        UpdateCursorAndTooltip(null);
     }
 
     /// <summary>Mouse wheel or touchpad scroll event.</summary>
@@ -1579,13 +1582,16 @@ public sealed class InputRouter
             entryPath.Reverse();
         }
 
-        if (oldHovered is not null)
-            SetElementAndAncestorsState(oldHovered, NodeFlags.Hover, false);
+        // Shared ancestors remain hovered while moving between descendants. Toggle only the paths that
+        // actually leave or enter the hover chain; clearing and re-setting the common chain causes duplicate
+        // style invalidation and needless restyling on every pointer move.
+        foreach (var element in exitPath)
+            _document.SetState(element, NodeFlags.Hover, false);
 
         _hovered = newHovered;
 
-        if (_hovered is not null)
-            SetElementAndAncestorsState(_hovered, NodeFlags.Hover, true);
+        foreach (var element in entryPath)
+            _document.SetState(element, NodeFlags.Hover, true);
 
         _document.Update();
 
@@ -1692,10 +1698,10 @@ public sealed class InputRouter
         }
     }
 
-    private void UpdateCursorAndTooltip(float? x, float? y)
+    private void UpdateCursorAndTooltip(HitResult? hit)
     {
-        var newCursor = x.HasValue && y.HasValue ? _document.CursorAt(x.Value, y.Value) : "default";
-        var newTooltip = x.HasValue && y.HasValue ? _document.TitleAt(x.Value, y.Value) : null;
+        var newCursor = _document.CursorAt(hit);
+        var newTooltip = _document.TitleAt(hit);
 
         if (_currentCursor != newCursor)
         {

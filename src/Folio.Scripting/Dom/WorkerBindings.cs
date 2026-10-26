@@ -43,10 +43,13 @@ internal static class WorkerBindings
                 if (workerType is not ("classic" or "module")) throw WebIdlException.TypeError("Worker options.type must be 'classic' or 'module'.");
                 if (baseUri is not null && Uri.TryCreate(baseUri, url, out var resolved)) url = resolved.AbsoluteUri;
                 if (!context.TryAcquireWorker()) throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The worker limit has been exceeded.");
+                if (!context.TryAcquireWorkerMemory()) { context.ReleaseWorker(); throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The aggregate worker memory limit has been exceeded."); }
                 IScriptEngine? isolated = null;
                 WorkerState? state = null;
                 var released = 0;
+                var memoryReleased = 0;
                 void ReleaseSlot() { if (Interlocked.Exchange(ref released, 1) == 0) context.ReleaseWorker(); }
+                void ReleaseMemory() { if (Interlocked.Exchange(ref memoryReleased, 1) == 0) context.ReleaseWorkerMemory(); }
                 try
                 {
                     isolated = (engine as IScriptEngineFactory)?.CreateIsolated()
@@ -54,7 +57,7 @@ internal static class WorkerBindings
                     void Register(WorkerState state) { context.RegisterWorker(state); registerChild?.Invoke(state); }
                     state = new WorkerState(engine, messageEventTemplate, messagePortTemplate, url, true, context.MaxWorkerMessageBytes,
                         isolated, resourceLoader, context.MaxWorkerMemoryBytes, context.MaxWebAssemblyBytes, context.Capabilities,
-                        context.MaxWorkerExecutionTime, ReleaseSlot, workerType == "module", blobSources, eventLoop, context, Register, unregisterChild);
+                        context.MaxWorkerExecutionTime, ReleaseSlot, ReleaseMemory, workerType == "module", blobSources, eventLoop, context, Register, unregisterChild);
                     var wrapper = engine.CreateHostObject(workerTemplate, state);
                     state.Source = wrapper;
                     return wrapper;
@@ -62,7 +65,7 @@ internal static class WorkerBindings
                 catch
                 {
                     if (state is not null) state.Terminate();
-                    else { ReleaseSlot(); isolated?.Dispose(); }
+                    else { ReleaseSlot(); ReleaseMemory(); isolated?.Dispose(); }
                     throw;
                 }
             });

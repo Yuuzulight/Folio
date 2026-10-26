@@ -14,7 +14,7 @@ internal enum GpuFailureKind
     NativeError,
 }
 
-internal sealed record GpuFailure(GpuFailureKind Kind, string Message);
+internal sealed record GpuFailure(GpuFailureKind Kind, string Message, uint? ApiError = null);
 
 internal sealed record GpuDeviceResult(IGpuDevice? Device, GpuFailure? Failure)
 {

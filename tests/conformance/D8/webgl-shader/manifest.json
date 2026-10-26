@@ -1,1 +1,1 @@
-{"prompt":"Build a WebGL shader playground with a gradient shader and a reset button.","features":["script","webgl2","fragment-shader","interaction"],"viewport":800}
+{"prompt":"Build a WebGL shader playground with a gradient shader and a reset button.","interaction":["wait 50","text #result shader-ready","click #reset","text #result shader-reset"],"features":["script","webgl2","fragment-shader","interaction"],"viewport":800}

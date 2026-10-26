@@ -1,5 +1,6 @@
 {
   "prompt": "Render a rotating WebGL triangle with a solid shader and a clear background.",
+  "interaction": ["wait 50", "text #result triangle-ready"],
   "features": ["script", "webgl", "shader", "draw-arrays"],
   "viewport": 800
 }

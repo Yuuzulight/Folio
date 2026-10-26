@@ -6,8 +6,8 @@ using Folio.Imaging;
 
 namespace Folio.WinForms;
 
-/// <summary>Decodes bounded audio and a video thumbnail through Windows Media Foundation.</summary>
-/// <remarks>This adapter returns a single video frame, not a moving video playback session.</remarks>
+/// <summary>Decodes bounded audio and timestamped video frames through Windows Media Foundation.</summary>
+/// <remarks>Video decoding is bounded by the caller's byte budget and returns a presentation-ordered frame sequence; playback pacing remains owned by the document clock.</remarks>
 public sealed class MediaFoundationAudioDecoder : IMediaDecoder
 {
     private const uint FirstAudioStream = 0xFFFFFFFD, FirstVideoStream = 0xFFFFFFFC;
@@ -158,10 +158,19 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
         if (width <= 0 || height <= 0 || bytes > Math.Min(budget, MaxOutputBytes)) return null;
         var stride = type.GetUINT32(DefaultStride, out var storedStride) >= 0 ? unchecked((int)storedStride) : checked(width * 4);
         if (Math.Abs((long)stride) < (long)width * 4) return null;
+        var frameLimit = Math.Min(240L, Math.Min(budget, MaxOutputBytes) / bytes);
+        if (frameLimit <= 0) return null;
+        var frames = new List<MediaVideoFrame>((int)frameLimit);
+        double duration = 0;
+        if (reader.GetPresentationAttribute(0xFFFFFFFF, DurationAttribute, out var presentation) >= 0)
+        {
+            try { if (presentation.Type == 21) duration = presentation.Unsigned / 10_000_000d; }
+            finally { PropVariantClear(ref presentation); }
+        }
         var clock = Stopwatch.StartNew();
         for (var iteration = 0; iteration < 10000 && clock.Elapsed < TimeSpan.FromSeconds(10); iteration++)
         {
-            Check(reader.ReadSample(FirstVideoStream, 0, out _, out var flags, out _, out var sample));
+            Check(reader.ReadSample(FirstVideoStream, 0, out _, out var flags, out var timestamp, out var sample));
             try
             {
                 if ((flags & (ErrorFlag | CurrentTypeChanged)) != 0) return null;
@@ -187,23 +196,21 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
                                     pixels[target + 2] = row[x]; pixels[target + 3] = 255;
                                 }
                             }
-                            var duration = 0d;
-                            if (reader.GetPresentationAttribute(0xFFFFFFFF, DurationAttribute, out var value) >= 0)
-                            {
-                                try { if (value.Type == 21) duration = value.Unsigned / 10_000_000d; }
-                                finally { PropVariantClear(ref value); }
-                            }
-                            return new MediaDecodeResult(duration, new NativeImage(width, height, pixels), null);
+                            var image = new NativeImage(width, height, pixels);
+                            frames.Add(new MediaVideoFrame(Math.Max(0, timestamp) / 10_000_000d, image));
+                            if (frames.Count >= frameLimit)
+                                return new MediaDecodeResult(duration, frames[0].Frame, null) { VideoFrames = frames };
                         }
                         finally { Check(buffer.Unlock()); }
                     }
                     finally { Marshal.FinalReleaseComObject(buffer); }
                 }
-                if ((flags & EndOfStream) != 0) return null;
+                if ((flags & EndOfStream) != 0)
+                    return frames.Count == 0 ? null : new MediaDecodeResult(duration, frames[0].Frame, null) { VideoFrames = frames };
             }
             finally { if (sample is not null) Marshal.FinalReleaseComObject(sample); }
         }
-        return null;
+        return frames.Count == 0 ? null : new MediaDecodeResult(duration, frames[0].Frame, null) { VideoFrames = frames };
     }
 
     private static void Check(int result) { if (result < 0) throw new COMException($"Media Foundation failed (0x{result:X8}).", result); }

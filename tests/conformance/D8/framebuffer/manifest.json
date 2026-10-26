@@ -1,1 +1,1 @@
-{"prompt":"Demonstrate a WebGL framebuffer with a textured offscreen pass.","features":["script","webgl","framebuffer","read-pixels"],"viewport":800}
+{"prompt":"Demonstrate a WebGL framebuffer with a textured offscreen pass.","interaction":["wait 50","text #result framebuffer-ready"],"features":["script","webgl","framebuffer","read-pixels"],"viewport":800}

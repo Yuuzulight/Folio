@@ -35,6 +35,18 @@ jobs:
 
       - run: dotnet build Folio.slnx -c Release
 
+      # The dependency-first path is allowed during development, but the Folio-owned replacement track is a hard
+      # completion gate. Keep the roadmap from regressing to the old optional-track wording.
+      - name: Enforce Folio-owned replacement gate
+        shell: pwsh
+        run: |
+          $files = @('README.md', 'docs/roadmap.md', 'docs/dependencies.md', 'docs/replacement-gate.md')
+          $matches = Select-String -Path $files -Pattern '## Optional track|replacements?[^\r\n]*(optional|never blocks)' -AllMatches
+          if ($matches) {
+            $matches | ForEach-Object { Write-Host $_.ToString() }
+            throw 'The Folio-owned replacement track must remain mandatory and non-waivable.'
+          }
+
       # The host packages build.
       - run: pwsh -File tools/pack.ps1
 
@@ -84,6 +96,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll gpu
 
+      - name: Native WebGL shader fuzzing
+        if: matrix.os == 'windows-latest'
+        timeout-minutes: 5
+        run: dotnet tests/Folio.Fuzz/bin/Release/net10.0/Folio.Fuzz.dll fuzz ${{ github.event_name == 'schedule' && 120 || 10 }} webgl-shader
+
       # Actual, expected and diff images of every failing or changed image test.
       - name: Upload image test output
         id: render-output
@@ -117,10 +134,10 @@ jobs:
 
       # Inputs the fuzzer failed on; add them to tests/Folio.Fuzz/Regressions/<target>/ with the fix.
       - name: Upload fuzz failures
-        if: failure() && matrix.os == 'ubuntu-latest'
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-output
+          name: fuzz-output-${{ matrix.os }}
           path: tests/fuzz-output/
           if-no-files-found: ignore
 

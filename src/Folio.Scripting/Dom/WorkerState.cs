@@ -8,6 +8,7 @@ namespace Folio.Scripting.Dom;
 internal sealed class WorkerState
 {
     private readonly Action? _releaseWorker;
+    private readonly Action? _releaseWorkerMemory;
     private readonly IHostObjectTemplate _messagePortTemplate;
     private readonly TimeSpan _workerExecutionTime;
     private readonly IReadOnlyDictionary<string, string>? _blobSources;
@@ -31,6 +32,7 @@ internal sealed class WorkerState
     private ScriptValue _workerScope;
     private ScriptValue _dispatchWorkerEvent;
     private ScriptValue _workerEventInit;
+    private readonly List<ScriptValue> _nativeMessageListeners = [];
     private Exception? _lastReportedError;
     private volatile FeatureCapabilities _capabilities;
     private readonly WeakReference<DomContext>? _parentContext;
@@ -38,6 +40,7 @@ internal sealed class WorkerState
     private int _pendingWasmDenial;
     private string? _pendingFetchFailure;
     private WorkerFetchContext? _fetchContext;
+    private Action? _disposeWebAssembly;
     private readonly HtmlEventLoop? _workerEventLoop;
     private sealed record WorkerCommand(Action Execute, Action Abandon);
     private readonly BlockingCollection<WorkerCommand>? _workerCommands;
@@ -45,7 +48,7 @@ internal sealed class WorkerState
     private int _workerThreadId;
     private long _executionStartedTick;
     private Thread? _watchdogThread;
-    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, FeatureCapabilities? capabilities = null, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null, HtmlEventLoop? parentEventLoop = null, DomContext? parentContext = null, Action<WorkerState>? registerWorker = null, Action<WorkerState>? unregisterFromParent = null)
+    public WorkerState(IScriptEngine engine, IHostObjectTemplate messageEventTemplate, IHostObjectTemplate messagePortTemplate, string scriptUrl, bool enabled, int maxMessageBytes, IScriptEngine? workerEngine = null, IResourceLoader? resourceLoader = null, long maxWorkerMemoryBytes = 64L * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, FeatureCapabilities? capabilities = null, TimeSpan maxWorkerExecutionTime = default, Action? releaseWorker = null, Action? releaseWorkerMemory = null, bool moduleWorker = false, IReadOnlyDictionary<string, string>? blobSources = null, HtmlEventLoop? parentEventLoop = null, DomContext? parentContext = null, Action<WorkerState>? registerWorker = null, Action<WorkerState>? unregisterFromParent = null)
     {
         Engine = engine;
         _unregisterFromParent = unregisterFromParent;
@@ -61,6 +64,7 @@ internal sealed class WorkerState
         MaxMessageBytes = Math.Max(0, maxMessageBytes);
         WorkerEngine = workerEngine;
         _releaseWorker = releaseWorker;
+        _releaseWorkerMemory = releaseWorkerMemory;
         _workerBlobs = _workerMessageBudget is null ? null : new WorkerBlobSources(blobSources, _workerMessageBudget);
         _blobSources = _workerBlobs ?? blobSources;
         _parentEventLoop = parentEventLoop;
@@ -100,12 +104,30 @@ internal sealed class WorkerState
                     DomBindings.InstallDomException(WorkerEngine);
                     WorkerPlatformBindings.Install(WorkerEngine, reportConsole: ReportConsole,
                         createBlobUrl: _workerBlobs!.Create, revokeBlobUrl: _workerBlobs!.Revoke);
-                    _dispatchWorkerEvent = DomEvents.Install(WorkerEngine, _workerEventLoop, workerScope: true).DispatchHostEvent;
-                    _workerEventInit = WorkerEngine.EvaluateHostScript("(function(data,ports){return {data:data,ports:ports};})", "folio:worker-event-init");
+                    if (WorkerEngine is Folio.Scripting.Native.NativeJavaScriptEngine)
+                    {
+                        var events = new HostObjectTemplate("NativeWorkerEvents")
+                            .DefineMethod("add", (target, _, args) => { if (args.Length > 1 && args[1].IsFunction) ((WorkerState)target)._nativeMessageListeners.Add(args[1]); return ScriptValue.Undefined; })
+                            .DefineMethod("remove", (target, _, args) => { var raw = args.Length > 1 ? args[1].Raw : null; if (raw is not null) ((WorkerState)target)._nativeMessageListeners.RemoveAll(item => item.Raw is not null && item.Raw.Equals(raw)); return ScriptValue.Undefined; })
+                            .DefineMethod("dispatch", (target, _, args) => { var message = args.Length > 2 ? args[2] : ScriptValue.Undefined; ((WorkerState)target).DispatchNativeWorkerEvent(args.Length > 1 ? args[1].AsString() ?? string.Empty : string.Empty, message.IsObject ? ((WorkerState)target).WorkerEngine!.GetProperty(message, "data") : message); return ScriptValue.Undefined; })
+                            .DefineMethod("init", static (target, _, args) => ((WorkerState)target).CreateNativeWorkerEvent(args));
+                        var eventsObject = WorkerEngine.CreateHostObject(events, this);
+                        WorkerEngine.SetGlobalProperty("__folio_worker_events", eventsObject);
+                        WorkerEngine.SetGlobalProperty("addEventListener", WorkerEngine.GetProperty(eventsObject, "add"));
+                        WorkerEngine.SetGlobalProperty("removeEventListener", WorkerEngine.GetProperty(eventsObject, "remove"));
+                        _dispatchWorkerEvent = WorkerEngine.GetProperty(eventsObject, "dispatch");
+                        _workerEventInit = WorkerEngine.GetProperty(eventsObject, "init");
+                    }
+                    else
+                    {
+                        _dispatchWorkerEvent = DomEvents.Install(WorkerEngine, _workerEventLoop, workerScope: true).DispatchHostEvent;
+                        _workerEventInit = WorkerEngine.EvaluateHostScript("(function(data,ports){return {data:data,ports:ports};})", "folio:worker-event-init");
+                    }
                     var workerPortTemplate = MessagePortBindings.Install(WorkerEngine, MessageEventTemplate, _workerEventLoop!, MaxMessageBytes, maxWorkerMemoryBytes);
                     if (_parentContext?.TryGetTarget(out var rootContext) == true)
                         WorkerBindings.Install(WorkerEngine, rootContext, MessageEventTemplate, workerPortTemplate, resourceLoader,
                             Uri.TryCreate(ScriptUrl, UriKind.Absolute, out var nestedBase) ? nestedBase : null, _blobSources, _workerEventLoop, RegisterChild, UnregisterChild);
+                    _disposeWebAssembly = NativeWebAssemblyBridge.Install(WorkerEngine, maxWebAssemblyBytes, _workerExecutionTime, IsWebAssemblyAllowed).Dispose;
                     WebAssemblyBindings.Install(WorkerEngine, IsWebAssemblyAllowed, maxWebAssemblyBytes);
                     _fetchContext = new WorkerFetchContext(Uri.TryCreate(ScriptUrl, UriKind.Absolute, out var workerBase) ? workerBase : null,
                         resourceLoader, _workerLoads.Token, _workerMessageBudget!, ReportFetchFailure);
@@ -350,6 +372,7 @@ internal sealed class WorkerState
         // watchdog exit before disposing the engine it may still interrupt.
         _watchdogThread?.Join();
         while (_workerCommands is not null && _workerCommands.TryTake(out var abandoned)) abandoned.Abandon();
+        try { _disposeWebAssembly?.Invoke(); } catch { }
         try { if (WorkerEngine is not null) DomBindings.Dispose(WorkerEngine); } catch { }
         _fetchContext?.Dispose();
         _fetchContext = null;
@@ -360,6 +383,7 @@ internal sealed class WorkerState
         // handles into the worker VM, unlike the page-owned event listeners.
         _workerScope = ScriptValue.Undefined;
         _dispatchWorkerEvent = ScriptValue.Undefined;
+        _nativeMessageListeners.Clear();
         _workerEventInit = ScriptValue.Undefined;
         // Cleanup may win the race with the parent's Terminate call. Cancel
         // before disposing the source so pending startup loads still wake up.
@@ -375,6 +399,7 @@ internal sealed class WorkerState
             Interlocked.Exchange(ref _unregisterFromParent, null)?.Invoke(this);
             if (_parentContext?.TryGetTarget(out var parent) == true) parent.UnregisterWorker(this);
             _releaseWorker?.Invoke();
+            _releaseWorkerMemory?.Invoke();
             Volatile.Write(ref _released, true);
         }
     }
@@ -505,6 +530,30 @@ internal sealed class WorkerState
         }, abandon: payload.AbortTransfers);
     }
 
+    internal void ConnectSharedPort(StructuredClonePayload payload)
+    {
+        if (WorkerEngine is null || Terminated)
+        {
+            payload.AbortTransfers();
+            throw WebIdlException.DomException(DomExceptionNames.InvalidStateError, "The shared worker is not running.");
+        }
+        RunOnWorker(() =>
+        {
+            if (Terminated) { payload.AbortTransfers(); return; }
+            try
+            {
+                var decoded = StructuredCloneCodec.Decode(WorkerEngine!, payload,
+                    (port, destination) => port.ClaimTransfer(destination, _workerEventLoop, MaxMessageBytes).GetWrapper());
+                var message = WorkerEngine.Call(_workerEventInit, ScriptValue.Undefined,
+                    [ScriptValue.Undefined, StructuredCloneCodec.CreatePorts(WorkerEngine, decoded.Ports)]);
+                WorkerEngine.Call(_dispatchWorkerEvent, ScriptValue.Undefined,
+                    [_workerScope, ScriptValue.FromString("connect"), message]);
+            }
+            catch (Exception error) { QueueWorkerError(error); }
+        }, abandon: payload.AbortTransfers);
+        if (_parentEventLoop is null) MessagePortEndpoint.DrainAll(Engine);
+    }
+
     private void DispatchWorkerMessage(string type, ScriptValue data, IReadOnlyList<ScriptValue> ports)
     {
         ScriptValue message;
@@ -526,6 +575,27 @@ internal sealed class WorkerState
         }
         catch (Exception error) { QueueWorkerError(error); }
     }
+
+    private void DispatchNativeWorkerEvent(string type, ScriptValue data)
+    {
+        if (WorkerEngine is null) return;
+        var eventValue = WorkerEngine.CreatePlainObject(new Dictionary<string, ScriptValue>
+        {
+            ["type"] = ScriptValue.FromString(type), ["data"] = data,
+            ["target"] = _workerScope, ["currentTarget"] = _workerScope,
+            ["isTrusted"] = ScriptValue.True,
+        });
+        var handler = WorkerEngine.GetGlobalProperty(type == "message" ? "onmessage" : "onerror");
+        if (handler.IsFunction) WorkerEngine.Call(handler, _workerScope, [eventValue]);
+        if (type == "message")
+            foreach (var listener in _nativeMessageListeners.ToArray()) WorkerEngine.Call(listener, _workerScope, [eventValue]);
+    }
+
+    private ScriptValue CreateNativeWorkerEvent(ReadOnlySpan<ScriptValue> args) => WorkerEngine!.CreatePlainObject(new Dictionary<string, ScriptValue>
+    {
+        ["data"] = args.Length > 0 ? args[0] : ScriptValue.Undefined,
+        ["ports"] = args.Length > 1 ? args[1] : WorkerEngine.CreateArray([]),
+    });
 
     private void QueueWorkerError(Exception error)
     {

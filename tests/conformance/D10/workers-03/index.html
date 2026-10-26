@@ -1,1 +1,1 @@
-<!doctype html><meta charset='utf-8'><title>Large data sort</title><main><h1>Large data sort</h1><p id="status">sorting</p><script>const w=new Worker("data:text/javascript,postMessage(\"sorted\")");w.onmessage=e=>status.textContent=e.data;</script></main>
+<!doctype html><meta charset='utf-8'><title>Large data sort</title><main><h1>Large data sort</h1><p id="status">sorting</p><script>const status=document.getElementById("status");const w=new Worker("worker.js");w.onmessage=e=>status.textContent=e.data;w.postMessage(0);</script></main>

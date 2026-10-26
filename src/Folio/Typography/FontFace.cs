@@ -57,6 +57,7 @@ internal sealed class FontFace : IFontHandle
     private readonly ushort[] _advances;
     private readonly Dictionary<uint, short> _kerning;
     private readonly GposKerning? _gposKerning;
+    private readonly GposMarkPositioning? _gposMarks;
     private readonly GsubSubstitution? _gsub;
 
     private FontFace(FontData data, Dictionary<string, (int, int)> tables)
@@ -82,6 +83,7 @@ internal sealed class FontFace : IFontHandle
         _cmap = CharacterMap.Read(Table("cmap"));
         _kerning = TryTable("kern") is { } kern ? ReadKern(kern) : [];
         _gposKerning = TryTable("GPOS") is { } gpos ? GposKerning.Read(gpos) : null;
+        _gposMarks = TryTable("GPOS") is { } markGpos ? GposMarkPositioning.Read(markGpos) : null;
         _gsub = TryTable("GSUB") is { } gsub ? GsubSubstitution.Read(gsub) : null;
 
         Weight = (macStyle & 1) != 0 ? 700 : 400;
@@ -267,6 +269,12 @@ internal sealed class FontFace : IFontHandle
     /// </summary>
     public int Kerning(ushort left, ushort right) =>
         _gposKerning?.Kerning(left, right) ?? _kerning.GetValueOrDefault(((uint)left << 16) | right);
+
+    /// <summary>Returns a mark offset relative to the preceding base glyph, in font units.</summary>
+    public (int X, int Y)? MarkOffset(ushort baseGlyph, ushort markGlyph) => _gposMarks?.Offset(baseGlyph, markGlyph);
+
+    /// <summary>Returns a mark offset relative to the preceding mark glyph, in font units.</summary>
+    public (int X, int Y)? MarkToMarkOffset(ushort previousMark, ushort markGlyph) => _gposMarks?.MarkOffset(previousMark, markGlyph);
 
     private FontData Table(string tag) => TryTable(tag) ?? throw new InvalidDataException($"Missing {tag} table.");
 

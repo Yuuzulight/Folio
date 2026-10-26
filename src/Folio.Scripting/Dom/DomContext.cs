@@ -17,9 +17,12 @@ internal sealed class DomContext : IFetchContext
     private double _lastMediaTick = double.NaN;
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private readonly MediaResourceBudget _mediaBudget;
+    private IResourceLoader? _effectiveMediaLoader;
     private int _workerCount;
     private int _iframeCount;
     private readonly List<WorkerState> _workers = [];
+    private readonly WorkerMemoryBudget _workerMemoryBudget;
+    private readonly Dictionary<string, WorkerState> _sharedWorkers = new(StringComparer.Ordinal);
     private readonly object _workersGate = new();
     private CssomRegistry? _cssom;
     private readonly HashSet<string> _capabilityDenials = new(StringComparer.Ordinal);
@@ -27,14 +30,30 @@ internal sealed class DomContext : IFetchContext
     internal CaptureBindingState? CaptureState { get; set; }
     internal WebRtcBindingState? WebRtcState { get; set; }
     internal ServiceWorkerCapabilityAuthority? ServiceWorkerState { get; set; }
+    internal Action? DisposeServiceWorker { get; set; }
+    internal Action? DisposeWebAssembly { get; set; }
     private GpuDocumentBridge? _gpu;
     private GpuFailure? _gpuCreationFailure;
     private readonly Func<long, GpuDeviceResult>? _gpuFactory;
     internal GpuDocumentBridge? Gpu => _gpu;
+    internal INativeWebGlFactory? GetWebGlFactory(out GpuFailure? failure)
+    {
+        if (ScriptFeaturesDisposed || !Capabilities.WebGl || !Document.WebGlAllowed)
+        {
+            failure = new(GpuFailureKind.Unavailable, "Native WebGL access is denied for this document.");
+            return null;
+        }
+        if (_gpu is null && _gpuCreationFailure is null)
+            _gpu = GpuDocumentBridge.TryCreate(MaxGpuBytes, out _gpuCreationFailure, _gpuFactory);
+        failure = _gpuCreationFailure;
+        return _gpu?.WebGlFactory;
+    }
+    internal void ReportWebGlDiagnostic(string message) => Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptError, Severity.Warning, message, null, "webgl"));
     internal void LoseCanvasContexts()
     {
         foreach (var canvas in _canvases.Values.ToArray())
         {
+            canvas.LoseNativeWebGlContext();
             try { canvas.WebGlContext?.Lose(); }
             catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
         }
@@ -172,8 +191,8 @@ internal sealed class DomContext : IFetchContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null, Func<long, GpuDeviceResult>? gpuFactory = null)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxAggregateWorkerMemoryBytes = 512L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IMediaCaptureProvider? mediaCaptureProvider = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null, Func<long, GpuDeviceResult>? gpuFactory = null, bool formsAllowed = true)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -189,13 +208,16 @@ internal sealed class DomContext : IFetchContext
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
         MaxWorkers = Math.Max(0, maxWorkers);
         MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
+        _workerMemoryBudget = new WorkerMemoryBudget(maxAggregateWorkerMemoryBytes <= 0 ? MaxWorkerMemoryBytes : maxAggregateWorkerMemoryBytes);
         MaxWorkerExecutionTime = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime;
         MaxServiceWorkerCacheBytes = Math.Max(0, maxServiceWorkerCacheBytes);
         MaxIframes = Math.Max(0, maxIframes);
         MaxWebRtcConnections = Math.Max(0, maxWebRtcConnections);
         WebRtcAllowedOrigins = webRtcAllowedOrigins ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         MediaCapturePermission = mediaCapturePermission;
+        MediaCaptureProvider = mediaCaptureProvider;
         MediaCaptureActivityChanged = mediaCaptureActivityChanged;
+        FormsAllowed = formsAllowed;
         MediaAudioOutput = mediaAudioOutput;
         MediaDecoder = mediaDecoder;
         IframeNavigationRequested = iframeNavigationRequested;
@@ -224,13 +246,18 @@ internal sealed class DomContext : IFetchContext
     public int MaxWorkerMessageBytes { get; }
     public int MaxWorkers { get; }
     public long MaxWorkerMemoryBytes { get; }
+    public long MaxAggregateWorkerMemoryBytes => _workerMemoryBudget.Maximum;
+    internal long ReservedWorkerMemoryBytes => _workerMemoryBudget.ReservedBytes;
+    internal WorkerMemoryBudget WorkerMemoryBudget => _workerMemoryBudget;
     public TimeSpan MaxWorkerExecutionTime { get; }
     public long MaxServiceWorkerCacheBytes { get; }
     public int MaxIframes { get; }
     public int MaxWebRtcConnections { get; }
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; }
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; }
+    public IMediaCaptureProvider? MediaCaptureProvider { get; }
     public Action<bool>? MediaCaptureActivityChanged { get; }
+    public bool FormsAllowed { get; }
     public IMediaAudioOutput? MediaAudioOutput { get; }
     public IMediaDecoder? MediaDecoder { get; }
     public Action<Uri>? IframeNavigationRequested { get; }
@@ -244,6 +271,8 @@ internal sealed class DomContext : IFetchContext
         Interlocked.Decrement(ref _workerCount);
         return false;
     }
+    internal bool TryAcquireWorkerMemory() => _workerMemoryBudget.TryAcquire(MaxWorkerMemoryBytes);
+    internal void ReleaseWorkerMemory() => _workerMemoryBudget.Release(MaxWorkerMemoryBytes);
     public void ReleaseWorker() { if (Interlocked.Decrement(ref _workerCount) < 0) Interlocked.Exchange(ref _workerCount, 0); }
     internal void UnregisterWorker(WorkerState worker)
     {
@@ -259,6 +288,25 @@ internal sealed class DomContext : IFetchContext
             _workers.Add(worker);
         }
         if (!capabilities.Workers) worker.Terminate();
+    }
+
+    internal bool TryGetSharedWorker(string key, out WorkerState worker)
+    {
+        lock (_workersGate) return _sharedWorkers.TryGetValue(key, out worker!);
+    }
+
+    internal void RegisterSharedWorker(string key, WorkerState worker)
+    {
+        lock (_workersGate) _sharedWorkers[key] = worker;
+    }
+
+    internal void UnregisterSharedWorker(WorkerState worker)
+    {
+        lock (_workersGate)
+        {
+            foreach (var key in _sharedWorkers.Where(pair => ReferenceEquals(pair.Value, worker)).Select(pair => pair.Key).ToArray())
+                _sharedWorkers.Remove(key);
+        }
     }
 
     public void DisposeMedia()
@@ -284,10 +332,32 @@ internal sealed class DomContext : IFetchContext
             _workers.Clear();
         }
         foreach (var worker in workers) worker.Terminate();
+        WorkerState[] shared;
+        lock (_workersGate)
+        {
+            shared = _sharedWorkers.Values.Distinct(ReferenceEqualityComparer.Instance).Cast<WorkerState>().ToArray();
+            _sharedWorkers.Clear();
+        }
+        foreach (var worker in shared)
+            if (!workers.Contains(worker, ReferenceEqualityComparer.Instance)) worker.Terminate();
         ClearWorkerDiagnostics();
     }
     public int MaxWebAssemblyBytes { get; }
     public IResourceLoader? ResourceLoader { get; }
+    private IResourceLoader? EffectiveMediaLoader =>
+        ResourceLoader is { } loader
+            ? _effectiveMediaLoader ??= new InterceptingMediaLoader(loader, () => ParentOptions?.ResourceInterceptor)
+            : null;
+
+    private sealed class InterceptingMediaLoader(IResourceLoader host, Func<IResourceInterceptor?> interceptor) : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            if (interceptor()?.Intercept(request) is { } response)
+                return Task.FromResult<ResourceResponse?>(response);
+            return host.LoadAsync(request, cancellationToken);
+        }
+    }
     internal Action? DisposeCacheStorage { get; set; }
     public Uri? BaseUri { get; }
     public Folio.Painting.IRasterBackend? RasterBackend { get; }
@@ -332,6 +402,8 @@ internal sealed class DomContext : IFetchContext
         foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
         {
             if (canvas.CanvasSurface is not CanvasElementState state) continue;
+            if (!Capabilities.WebGl) state.LoseNativeWebGlContext();
+            else state.RestoreNativeWebGlContext();
             if (state.WebGlContext is { } context)
             {
                 try
@@ -341,6 +413,31 @@ internal sealed class DomContext : IFetchContext
                 }
                 catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
             }
+        }
+    }
+
+    /// <summary>Notifies every live WebGL canvas that its host GPU/device was reset.</summary>
+    internal void NotifyGpuDeviceLost()
+    {
+        if (ScriptFeaturesDisposed) return;
+        foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
+            if (canvas.CanvasSurface is CanvasElementState state) state.LoseNativeWebGlContext();
+        DisposeGpu();
+    }
+
+    /// <summary>Recreates native WebGL contexts after a host GPU/device reset.</summary>
+    internal void NotifyGpuDeviceRestored()
+    {
+        if (ScriptFeaturesDisposed || !Capabilities.WebGl || !Document.WebGlAllowed) return;
+        foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
+        {
+            if (canvas.CanvasSurface is not CanvasElementState state) continue;
+            try
+            {
+                state.RestoreNativeWebGlContext();
+                state.WebGlContext?.Restore();
+            }
+            catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
         }
     }
 
@@ -405,13 +502,99 @@ internal sealed class DomContext : IFetchContext
             {
                 var url = BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
                 if (Uri.TryCreate(url, UriKind.Absolute, out var absolute))
-                    bytes = loader.LoadAsync(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+                {
+                    bytes = TryServiceWorkerResource(absolute.AbsoluteUri)?.Data ??
+                        loader.LoadAsync(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+                }
             }
             decoded = bytes is null ? null : Folio.Imaging.ImageLoader.Decode(bytes);
         }
         _images[image] = (source, decoded);
         return decoded;
     }
+
+    private sealed record ServiceWorkerResourceResult(byte[] Data, string? ContentType);
+
+    private ServiceWorkerResourceResult? TryServiceWorkerResource(string url)
+    {
+        if (ServiceWorkerState is null || !Capabilities.ServiceWorkers || ScriptFeaturesDisposed)
+            return null;
+
+        const string resultName = "__folio_service_worker_image_result";
+        const string typeName = "__folio_service_worker_image_type";
+        Engine.SetGlobalProperty(resultName, ScriptValue.Null);
+        Engine.SetGlobalProperty(typeName, ScriptValue.Null);
+        try
+        {
+            Engine.SetGlobalProperty("__folio_service_worker_image_url", ScriptValue.FromString(url));
+            Engine.Evaluate("""
+                (function() {
+                    var controller = navigator.serviceWorker && navigator.serviceWorker.controller;
+                    if (!controller || typeof controller._dispatchFetch !== 'function') { globalThis.__folio_service_worker_image_result = false; return; }
+                    try {
+                        controller._dispatchFetch(new Request(globalThis.__folio_service_worker_image_url)).then(function(response) {
+                            if (!(response instanceof Response)) { globalThis.__folio_service_worker_image_result = false; return; }
+                            response.bytes().then(function(data) {
+                                globalThis.__folio_service_worker_image_type = response.headers && response.headers.get('content-type');
+                                // Keep the response as a typed array until the host extracts it. Converting
+                                // binary data to a comma-separated string multiplies memory and corrupts the
+                                // bridge's behavior for large media/font responses.
+                                globalThis.__folio_service_worker_image_result = data;
+                            }, function(error) {
+                                globalThis.__folio_service_worker_image_result = false;
+                                globalThis.__folio_service_worker_image_result = false;
+                            });
+                        }).catch(function(error) { globalThis.__folio_service_worker_image_result = false; globalThis.__folio_service_worker_debug = error && error.message; });
+                    } catch (_) { globalThis.__folio_service_worker_image_result = false; }
+                })();
+                """, "folio:service-worker-image");
+            for (var i = 0; i < 64; i++)
+            {
+                Engine.PerformMicrotaskCheckpoint();
+                var result = Engine.GetGlobalProperty(resultName);
+                if (Engine.TryGetBytes(result, out var bytes))
+                {
+                    var contentType = Engine.GetGlobalProperty(typeName);
+                    return new ServiceWorkerResourceResult(bytes, contentType.IsString ? contentType.AsString() : null);
+                }
+                if (result.IsBoolean && !result.AsBoolean()) return null;
+            }
+            return null;
+        }
+        finally
+        {
+            Engine.SetGlobalProperty("__folio_service_worker_image_url", ScriptValue.Undefined);
+            Engine.SetGlobalProperty(resultName, ScriptValue.Undefined);
+            Engine.SetGlobalProperty(typeName, ScriptValue.Undefined);
+        }
+    }
+
+    private sealed class ServiceWorkerResourceInterceptor(DomContext context) : Folio.Resources.IResourceInterceptor
+    {
+        public Folio.Resources.ResourceResponse? Intercept(Folio.Resources.ResourceRequest request)
+        {
+            // ResourceLoader is the common choke point for document-owned subresources. Keep the
+            // service-worker bridge limited to resources whose response bytes can be consumed by
+            // the existing Folio loaders; fetch()/script loading have their own lifecycle hooks.
+            if (request.Kind is not (ResourceKind.Image or ResourceKind.SvgImage or ResourceKind.Stylesheet or ResourceKind.Font or ResourceKind.Media or ResourceKind.Document))
+                return null;
+            var resource = context.TryServiceWorkerResource(request.Url);
+            if (resource is null) return null;
+            var contentType = resource.ContentType ?? request.Kind switch
+            {
+                ResourceKind.Stylesheet => "text/css",
+                ResourceKind.Font => "font/woff2",
+                ResourceKind.Media => "application/octet-stream",
+                ResourceKind.Document => "text/html",
+                ResourceKind.SvgImage => "image/svg+xml",
+                _ => "image/png",
+            };
+            return Folio.Resources.ResourceResponse.Loaded(resource.Data, contentType);
+        }
+    }
+
+    internal Folio.Resources.IResourceInterceptor CreateServiceWorkerResourceInterceptor() => new ServiceWorkerResourceInterceptor(this);
+
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
@@ -421,9 +604,11 @@ internal sealed class DomContext : IFetchContext
             retired.StopPlayback();
             return retired;
         }
-        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget,
+        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, EffectiveMediaLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget,
             soundEnabled: Capabilities.Sound, checkSoundPermission: () => CheckCapability("Sound", Capabilities.Sound),
-            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media), deferLoad: true);
+            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media),
+            captureFrame: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentVideoFrame(Engine.GetProperty(track, "_captureToken")),
+            captureAudio: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentAudioFrame(Engine.GetProperty(track, "_captureToken")), deferLoad: true);
         _media[element] = state;
         state.Initialize();
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
@@ -473,9 +658,12 @@ internal sealed class DomContext : IFetchContext
         if (_iframes.TryGetValue(element, out var state)) return state;
         if (Capabilities.Iframes && _iframeCount >= MaxIframes)
             throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The iframe limit has been exceeded.");
+        var created = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes && !ScriptFeaturesDisposed, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions,
+            checkPermission: () => CheckCapability("Iframes", Capabilities.Iframes), parentLoop: OwnerEventLoop);
+        if (Capabilities.Iframes && !created.TryAcquireAggregateSlot())
+            throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The aggregate iframe limit has been exceeded.");
         if (Capabilities.Iframes) _iframeCount++;
-        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes && !ScriptFeaturesDisposed, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions,
-            checkPermission: () => CheckCapability("Iframes", Capabilities.Iframes));
+        return _iframes[element] = created;
     }
 
     public ScriptValue Wrap(Node? node)

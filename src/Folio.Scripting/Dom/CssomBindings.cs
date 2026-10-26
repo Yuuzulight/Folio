@@ -126,21 +126,21 @@ internal static class CssomBindings
                 constructor(token, sheetId) { if (token !== INTERNAL) throw new TypeError('Illegal constructor'); mediaOwners.set(this, sheetId); }
                 get mediaText() { return JSON.parse(host.sheet(mediaOwners.get(this))).media; }
                 set mediaText(value) { host.setMedia(mediaOwners.get(this), value === null ? '' : String(value)); }
-                get length() { return this.#items().length; }
-                item(index) { const value = this.#items()[index >>> 0]; return value === undefined ? null : value; }
+                get length() { return this._items().length; }
+                item(index) { const value = this._items()[index >>> 0]; return value === undefined ? null : value; }
                 appendMedium(medium) {
                     medium = String(medium);
-                    const items = this.#items();
+                    const items = this._items();
                     if (!items.includes(medium)) host.setMedia(mediaOwners.get(this), items.concat(medium).join(', '));
                 }
                 deleteMedium(medium) {
                     medium = String(medium);
-                    const items = this.#items();
+                    const items = this._items();
                     if (!items.includes(medium)) throw new DOMException('The medium provided (' + medium + ') is not in the list.', 'NotFoundError');
                     host.setMedia(mediaOwners.get(this), items.filter((item) => item !== medium).join(', '));
                 }
                 toString() { return this.mediaText; }
-                #items() { const text = this.mediaText; return text === '' ? [] : text.split(',').map((item) => item.trim()); }
+                _items() { const text = this.mediaText; return text === '' ? [] : text.split(',').map((item) => item.trim()); }
             }
 
             // -------------------------------------------------------------------------- style sheets
@@ -279,10 +279,10 @@ internal static class CssomBindings
             }
             class CSSPropertyRule extends CSSRule {
                 get name() { return info(this._id).prelude; }
-                get syntax() { return this.#value('syntax').replace(/^"|"$/g, ''); }
-                get inherits() { return this.#value('inherits') === 'true'; }
-                get initialValue() { const value = this.#value('initial-value'); return value === '' ? null : value; }
-                #value(name) {
+                get syntax() { return this._value('syntax').replace(/^"|"$/g, ''); }
+                get inherits() { return this._value('inherits') === 'true'; }
+                get initialValue() { const value = this._value('initial-value'); return value === '' ? null : value; }
+                _value(name) {
                     const match = new RegExp('(?:^|[\\s;{])' + name + '\\s*:\\s*([^;}]*)').exec(info(this._id).cssText);
                     return match ? match[1].trim() : '';
                 }
@@ -301,11 +301,11 @@ internal static class CssomBindings
                     listOf(this, 'rule', this._id);
                 }
                 deleteRule(select) {
-                    const index = this.#find(select);
+                    const index = this._find(select);
                     if (index >= 0) { host.delete('rule', this._id, index); listOf(this, 'rule', this._id); }
                 }
-                findRule(select) { const index = this.#find(select); return index < 0 ? null : this.cssRules[index]; }
-                #find(select) {
+                findRule(select) { const index = this._find(select); return index < 0 ? null : this.cssRules[index]; }
+                _find(select) {
                     const key = String(select).trim().toLowerCase().split(',').map((part) => part.trim()).join(', ');
                     const list = this.cssRules;
                     for (let i = list.length - 1; i >= 0; i--) if (list[i].keyText === key) return i;

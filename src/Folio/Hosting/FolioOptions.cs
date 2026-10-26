@@ -3,6 +3,38 @@ namespace Folio;
 /// <summary>Requested camera and microphone tracks for a host permission decision.</summary>
 public readonly record struct MediaCaptureRequest(bool Audio, bool Video);
 
+/// <summary>A video frame supplied by a host-owned capture device in RGBA byte order.</summary>
+public readonly record struct MediaCaptureVideoFrame(int Width, int Height, ReadOnlyMemory<byte> Rgba)
+{
+    public bool IsValid => Width > 0 && Height > 0 && Rgba.Length == checked(Width * Height * 4);
+}
+
+/// <summary>The host-owned lifetime of an approved camera/microphone capture request.</summary>
+public interface IMediaCaptureSession : IDisposable
+{
+    /// <summary>The most recent camera frame, or <see langword="null"/> when no camera was requested or no frame is ready.</summary>
+    MediaCaptureVideoFrame? CurrentVideoFrame { get; }
+
+    /// <summary>The most recent microphone PCM block, or <see langword="null"/> when no microphone sample is ready.</summary>
+    MediaAudioFrame? CurrentAudioFrame { get; }
+
+    /// <summary>Raised when a newer camera frame is available.</summary>
+    event Action<MediaCaptureVideoFrame>? VideoFrameAvailable;
+
+    /// <summary>Raised when a newer microphone block is available.</summary>
+    event Action<MediaAudioFrame>? AudioFrameAvailable;
+
+    /// <summary>Raised when the host revokes or loses the underlying device.</summary>
+    event Action? Revoked;
+}
+
+/// <summary>Opens real host capture devices after Folio's capability and permission checks.</summary>
+public interface IMediaCaptureProvider
+{
+    /// <summary>Open the requested devices. Return <see langword="null"/> to deny or when no device is available.</summary>
+    IMediaCaptureSession? Open(MediaCaptureRequest request);
+}
+
 /// <summary>The colour scheme the host reports to <c>prefers-color-scheme</c>.</summary>
 public enum ColorScheme
 {
@@ -40,11 +72,13 @@ public sealed record ResourceLimits
     public int MaxWorkerMessageBytes { get; init; } = 1 * 1024 * 1024;
     public int MaxWorkers { get; init; } = 8;
     public long MaxWorkerMemoryBytes { get; init; } = 64L * 1024 * 1024;
+    /// <summary>Aggregate reservation available to all dedicated and shared worker runtimes in one document.</summary>
+    public long MaxAggregateWorkerMemoryBytes { get; init; } = 512L * 1024 * 1024;
     /// <summary>Maximum time a worker evaluation may run before it is interrupted.</summary>
     public TimeSpan MaxWorkerExecutionTime { get; init; } = TimeSpan.FromSeconds(5);
     /// <summary>Maximum UTF-8 snapshot bytes retained by the artifact's Cache API, including metadata and encoded bodies. Live deleted-cache handles also count until collected.</summary>
     public long MaxServiceWorkerCacheBytes { get; init; } = 64L * 1024 * 1024;
-    /// <summary>Maximum nested iframe contexts a document may create.</summary>
+    /// <summary>Maximum iframe contexts in the document's entire nested frame tree.</summary>
     public int MaxIframes { get; init; } = 16;
     /// <summary>Maximum simultaneously open WebRTC peer connections.</summary>
     public int MaxWebRtcConnections { get; init; } = 8;
@@ -87,6 +121,9 @@ public sealed class FolioOptions
     /// <summary>Optional host permission callback for camera and microphone capture. Null preserves the capability-only path.</summary>
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; init; }
 
+    /// <summary>Optional host-owned camera/microphone backend. When supplied, capture requests must open a real session.</summary>
+    public IMediaCaptureProvider? MediaCaptureProvider { get; init; }
+
     /// <summary>Called when an iframe requests navigation to a resolved document URI.</summary>
     public Action<Uri>? IframeNavigationRequested { get; init; }
 
@@ -112,6 +149,9 @@ public sealed class FolioOptions
 
     public bool ReducedMotion { get; init; }
 
+    /// <summary>Whether form submission is permitted. Sandboxed iframes clear this unless they grant allow-forms.</summary>
+    public bool FormsAllowed { get; init; } = true;
+
     /// <summary>A user stylesheet, applied between the user-agent and author styles.</summary>
     public string? UserStyleSheet { get; init; }
 
@@ -126,6 +166,9 @@ public sealed class FolioOptions
     /// allowlisted HTTPS origins.
     /// </summary>
     public Resources.IResourceLoader? ResourceLoader { get; init; }
+
+    /// <summary>Internal feature plumbing such as a granted service worker may intercept document resources.</summary>
+    public Resources.IResourceInterceptor? ResourceInterceptor { get; set; }
 
     /// <summary>
     /// Pinned diagram-library URLs that Folio may replace with its own diagram stand-in. The URL must match the

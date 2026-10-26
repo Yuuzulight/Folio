@@ -37,7 +37,7 @@
 ## Decision
 
 - **Shaping: option B.** `ITextShaper.Shape(text span, font face, size, script, direction, language, features) → ShapedRun` (glyph ids, cluster indices, advances, offsets, unsafe-to-break flags).
-  - `SimpleShaper` (Folio): `cmap` lookup, `hmtx` advances, kerning from `kern` and `GPOS` pair adjustment (lookup type 2), `GSUB` single substitution (type 1, for `tnum`, `smcp`, etc.) and ligatures (type 4, `liga`/`clig`), `GDEF` classes. Used for runs whose script is Latin/Greek/Cyrillic/Common/Inherited, that contain no combining marks needing mark positioning, and whose requested features are all in the supported set.
+  - `SimpleShaper` (Folio): `cmap` lookup, `hmtx` advances, kerning from `kern` and `GPOS` pair adjustment (lookup type 2), bounded mark-to-base positioning (lookup type 4), `GSUB` single substitution (type 1, for `tnum`, `smcp`, etc.) and ligatures (type 4, `liga`/`clig`), `GDEF` classes. Used for supported simple runs and isolated marks whose requested features are all in the supported set; multiple-mark attachment and complex joining remain on the differential shaper.
   - `HarfBuzzShaper` (in `Folio.Skia`, wraps HarfBuzzSharp): everything else.
   - The HarfBuzzSharp path lands first and serves as the reference. The simple shaper becomes the default for simple runs once a differential test over the text corpus shows identical glyph ids and advances.
 - **Unicode: option B.** A build-time tool (`tools/Folio.UnicodeGen`) reads UCD files and writes two-stage lookup tables into C# source (committed). Folio pins its tables to the same Unicode version as the .NET runtime's grapheme segmentation; a unit test checks the pin. Unicode's own conformance test files run in CI.

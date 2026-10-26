@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
+    <PackageReference Include="Wasmtime" Version="48.0.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,6 +22,7 @@
     <InternalsVisibleTo Include="Folio.ContentHost" />
     <InternalsVisibleTo Include="Folio.RenderTests" />
     <InternalsVisibleTo Include="Folio.Fuzz" />
+    <InternalsVisibleTo Include="Folio.Benchmarks" />
   </ItemGroup>
 
 </Project>

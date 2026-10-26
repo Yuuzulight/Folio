@@ -237,6 +237,7 @@ public sealed class FeatureFallbackPipelineTests
         DomBindings.Install(engine, document);
         AssertFailure(document, "Video unavailable: unsupported format");
         engine.Evaluate("document.getElementById('v').src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='");
+        engine.Evaluate("document.getElementById('v').play()");
         AssertHealthy(document);
         var image = Assert.Single(document.DisplayList!.Items, item => item.Kind == DisplayItemKind.Image).Image!;
         Assert.Equal((1, 1), (image.Width, image.Height));

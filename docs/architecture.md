@@ -74,7 +74,7 @@ src/
     Typography/              Unicode algorithms, OpenType reader, WOFF/WOFF2, font matching,
                              fallback, SimpleShaper, ShaperRouter, shaping cache
                              Interfaces: ITextShaper, IFontSource
-    Imaging/                 PngDecoder, JpegDecoder, ImageDecoderRegistry
+    Imaging/                 ImageLoader, PngDecoder, JpegDecoder, GifDecoder
                              Interface: IImageDecoder
     Layout/                  Box tree, block/inline/flex/grid/table/positioned layout, fragments
     Svg/                     SVG render tree, path data, paint servers
@@ -86,8 +86,8 @@ src/
                              Interface: IResourceLoader
     Hosting/                 Document, FolioOptions, Update(), diagnostics, limits,
                              ArtifactClassifier
-  Folio.Skia/                net10.0          SkiaRasterBackend (ICanvas), HarfBuzzShaper (ITextShaper),
-                                              SkiaCodecDecoder (IImageDecoder), SystemFontSource (IFontSource),
+  Folio.Skia/                net10.0          SkiaRasterBackend (ICanvas), HybridShaper (ITextShaper),
+                                              HarfBuzzShaper (differential oracle), SystemFontSource (IFontSource),
                                               HeadlessRenderer
   Folio.WinForms/            net10.0-windows  FolioView control: input, IME, clipboard, accessibility,
                                               cursors, tooltips, popups

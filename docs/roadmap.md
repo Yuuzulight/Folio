@@ -2,6 +2,10 @@
 
 Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`.
 
+The completed M0–M5 requirement-to-evidence index is maintained in
+[`milestones-0-5-audit.md`](milestones-0-5-audit.md). It does not supersede the
+open M6 acceptance audit or the mandatory M7 replacement gate.
+
 ## 0. Study and architecture
 
 **Scope**: how each part of an engine works, written up as Folio's own design: [`docs/study/`](study/), [`architecture.md`](architecture.md), [`dependencies.md`](dependencies.md), this roadmap.
@@ -47,6 +51,8 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 - Hover restyle and scroll frame targets met.
 - The accessibility tree exposes headings, links, lists, tables, text and form controls with names and values.
 
+Current audit note: the interaction behavior, accessibility tree, incremental-equivalence checks and mutation-fuzz coverage pass. Animated documents use targeted subtree restyling on state changes, display-list item and layer bounds are cached between replays, bounded off-screen layers are skipped during damage-region replay, inline declarations are cached during restyle passes, glyph-run damage comparison is semantic rather than backing-array identity, state-only restyles skip unaffected descendant walks when inherited groups are unchanged, and the WinForms view preserves a bitmap for damage-region hover repaints. The benchmark consumes the authoritative `Document.LastDamage` computed by the production host path and uses the production `HybridShaper`; the latest three-iteration run measured 6.5 ms median typical animation (8.2 ms p95), 4.0 ms median hover repaint (5.0 ms p95), and 6.7 ms median scroll (7.7 ms p95), all within the stated budgets. Milestone 3 is complete.
+
 ## 4. Scripting foundations
 
 **Scope**: the sandboxed content process (Job Object limits, no-network token, IPC, watchdog), the JavaScript engine behind `IScriptEngine` (Jint in this milestone), the HTML event loop, generated DOM bindings: DOM core, events, element styles, `getComputedStyle`, geometry and scrolling APIs, timers, promises, animation frames, `ResizeObserver`, `IntersectionObserver`, storage, `console`, and the other APIs listed for M4 in [study 17](study/17-scripting.md). `ArtifactClassifier` learns to recognise artifacts M4 can run.
@@ -60,7 +66,7 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 
 ## 5. Scripted parity
 
-**Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. Folio's own diagram renderer for diagram-description languages, used instead of running a large diagram library in the sandbox. Component code written with JSX arrives already compiled by the host. The existing dependency-backed engine is sufficient for this milestone; replacing it is follow-on work.
+**Scope**: `MutationObserver`, the CSS object model (`document.styleSheets`, `insertRule`, `CSS.supports`), canvas 2D (full context API, `Path2D`, shared-memory frames to the host), restricted `fetch`, script loading from the host's allowlisted CDN origins with integrity pins and cache, custom elements and shadow DOM if the corpus needs them. Folio's own diagram renderer for diagram-description languages, used instead of running a large diagram library in the sandbox. Component code written with JSX arrives already compiled by the host. The dependency-backed engine is sufficient for this milestone, but it must later be replaced by the required Folio-owned engine track.
 
 **Acceptance criteria**
 
@@ -69,6 +75,8 @@ Folio's end goal is parity with how a modern browser shows and runs AI-written H
 - DOM binding tests pass on the production engine; library artifacts start within the scripted start-up targets set from M4 measurements.
 - D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
+
+**Audit result (2026-10-26):** D2–D7 pass 60/60, the current serialized scripting suite passes 1,143/1,143, and all Chart.js library artifacts execute through Folio's canvas path. The performance target and the mandatory replacement of the dependency-backed script engine remain separate gates.
 
 ## 6. Beyond artifacts
 
@@ -83,6 +91,22 @@ Milestone 6 is in progress. The [2026-10-18 acceptance audit](milestone-6-audit.
 - GPU and media resources stay within budgets the host sets.
 - Until a feature lands, `ArtifactClassifier` keeps routing artifacts that need it to the system browser.
 
-## Optional track: towards all-Folio
+## 7. Folio-owned replacements
 
-Replacing dependencies with Folio's own code (extended shaper, own rasteriser, own GIF/WebP decoders) is optional and never blocks the milestones above. Scope and "good enough" criteria are in [dependencies.md → Towards all-Folio](dependencies.md#towards-all-folio).
+This is a required phase after the dependency-backed product and Milestone 6 feature work. Folio must progressively replace the dependency-backed shaper, rasteriser, GIF/WebP decoders, JavaScript engine and WebAssembly runtime with Folio-owned implementations behind the existing interfaces. The replacement order is incremental, with the mature dependency remaining as a differential-test oracle until each replacement reaches parity. Scope and "good enough" criteria are in [dependencies.md → Required Folio-owned replacement track](dependencies.md#required-folio-owned-replacement-track).
+
+This phase is a mandatory, non-waivable completion gate, not an optional follow-up or stretch goal. Folio is not finished, and the roadmap is not complete, until every listed replacement has passed its acceptance criteria and the corresponding production dependency has been removed. The exact release rule and evidence requirements are recorded in [`replacement-gate.md`](replacement-gate.md).
+
+**Current status:** in progress and incomplete. Hybrid shaping covers the proven
+simple-script set plus Hebrew base and isolated-mark runs; multiple-mark Hebrew and
+other complex scripts still use the differential shaper. The GIF decoder, bounded
+BMP decoder and bounded ICO decoder are replacement slices under differential
+verification; rasterisation, WebP decoding and the JavaScript engine remain dependency-backed. This phase
+cannot be marked complete until all five production replacement tracks are complete and their superseded production dependencies are removed.
+
+**Acceptance criteria**
+
+- Every targeted dependency has a Folio-owned implementation selected by the production backend.
+- Differential conformance, golden, fuzz, performance and failure-behaviour tests match the dependency-backed baseline.
+- The dependency is removable from the production build without reducing supported features or safety guarantees.
+- No replacement is considered complete based only on compilation or unit-test coverage; corpus and runtime evidence are required.

@@ -176,7 +176,7 @@ public class ConformanceTests
     {
         var artifact = Conformance.Discover().Single(a => a.Id == "D14/sw-01");
         const string html = "<p id=status>new offline load</p><script src='sw.js'></script><script>var worker = new Worker('data:text/javascript,' + encodeURIComponent(\"onmessage = function() { postMessage('worker started'); };\")); worker.onmessage = function(event) { document.getElementById('status').textContent = event.data; }; worker.postMessage(0);</script>";
-        using var lifecycle = Conformance.ArtifactLifecycle.Start(artifact, html, animationTime: 100);
+        using var lifecycle = Conformance.ArtifactLifecycle.Start(artifact, html, animationTime: 100, viewportWidth: 800, viewportHeight: 600);
         var oldDocument = lifecycle.Document;
         var oldEngine = Assert.IsType<Folio.Scripting.Jint.JintScriptEngine>(lifecycle.Host.Loop.Engine);
 

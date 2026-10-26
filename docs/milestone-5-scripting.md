@@ -4,9 +4,9 @@ This document records the current M5 implementation and verification baseline.
 
 ## Conformance
 
-The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total), each with an interaction script and reference. D6's ten Mermaid artifacts exercise flowchart, sequence, class, state, entity-relationship, timeline, Gantt and pie syntax. The current run passes D2, D3, D4, D6 and D7 at 100%; D5 has one pass and nine explicit expected failures for Chart.js canvas painting, which remains routed to the browser.
+The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total), each with an interaction script and reference. D6's ten Mermaid artifacts exercise flowchart, sequence, class, state, entity-relationship, timeline, Gantt and pie syntax. The current run passes every D2–D7 category at 100%, including all ten Chart.js canvas artifacts in D5.
 
-`ArtifactClassifier` now gives Chart.js canvas pages the same explicit browser routing reason as the conformance report, while retaining Folio's scripted path for the canvas features that meet the current parity bar.
+`ArtifactClassifier` retains Folio's scripted path for the canvas features covered by the parity corpus, including the pinned Chart.js artifacts.
 
 ## Implemented surface
 
@@ -18,11 +18,11 @@ The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, p
 ## Verification baseline
 
 - `dotnet build Folio.slnx --no-restore`: passes.
-- `dotnet test tests/Folio.Tests/Folio.Tests.csproj --no-restore`: 1,815 passed, 5 environment-dependent Unicode and symlink tests skipped.
-- `dotnet test tests/Folio.Scripting.Tests/Folio.Scripting.Tests.csproj --no-restore`: 461/461 passed.
-- `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7`: 51 passed and 9 explicit expected failures, with no unexpected failures.
-- `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj --no-restore`: 454/454 passed.
+- `dotnet tests/Folio.Tests/bin/Release/net10.0/Folio.Tests.dll`: 1,947 passed, 1 environment-dependent symlink test skipped.
+- `dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll`: 1,146/1,146 passed in serialized mode (including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, and iframe message-source/target/port regressions).
+- `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7`: 60 passed, with no expected failures or unexpected failures.
+- `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 658/658 passed.
 
 ## Milestone status
 
-Milestone 5 is complete on the dependency-backed Jint engine. The native-engine implementation and dual-engine matrix are deliberately deferred to the Folio-owned replacement project described in [`native-engine-plan.md`](native-engine-plan.md); the M5 tracker records those issues as deferred rather than presenting the dependency-backed path as native.
+The dependency-backed scripting surface is complete for the current product phase, but Folio is not complete on that basis alone. The native-engine implementation and dual-engine matrix are work required by the mandatory Folio-owned replacement phase described in [`native-engine-plan.md`](native-engine-plan.md). This document therefore records the dependency-backed acceptance baseline, not a waiver of the replacement gate.

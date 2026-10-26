@@ -1,0 +1,38 @@
+namespace Folio.Scripting.Native;
+
+internal abstract record JavaScriptExpression;
+internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenKind Kind) : JavaScriptExpression;
+internal sealed record JavaScriptRegexExpression(string Text) : JavaScriptExpression;
+internal sealed record JavaScriptIdentifierExpression(string Name) : JavaScriptExpression;
+internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpression Operand) : JavaScriptExpression;
+internal sealed record JavaScriptUpdateExpression(string Operator, JavaScriptExpression Operand, bool Prefix) : JavaScriptExpression;
+internal sealed record JavaScriptBinaryExpression(string Operator, JavaScriptExpression Left, JavaScriptExpression Right) : JavaScriptExpression;
+internal sealed record JavaScriptConditionalExpression(JavaScriptExpression Condition, JavaScriptExpression WhenTrue, JavaScriptExpression WhenFalse) : JavaScriptExpression;
+internal sealed record JavaScriptMemberExpression(JavaScriptExpression Target, string Name) : JavaScriptExpression;
+internal sealed record JavaScriptCallExpression(JavaScriptExpression Callee, IReadOnlyList<JavaScriptExpression> Arguments) : JavaScriptExpression;
+internal sealed record JavaScriptArrayExpression(IReadOnlyList<JavaScriptExpression> Elements) : JavaScriptExpression;
+internal sealed record JavaScriptIndexExpression(JavaScriptExpression Target, JavaScriptExpression Index) : JavaScriptExpression;
+internal sealed record JavaScriptObjectExpression(IReadOnlyList<(string Name, JavaScriptExpression Value)> Properties) : JavaScriptExpression;
+internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body) : JavaScriptExpression;
+internal sealed record JavaScriptClassMethod(string Name, bool Getter, bool Setter, bool Static, JavaScriptFunctionExpression Function);
+internal sealed record JavaScriptClassExpression(string? Name, string? Parent, IReadOnlyList<JavaScriptClassMethod> Methods) : JavaScriptExpression;
+
+internal abstract record JavaScriptStatement;
+internal sealed record JavaScriptExpressionStatement(JavaScriptExpression Expression) : JavaScriptStatement;
+internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpression? Initializer) : JavaScriptStatement;
+internal sealed record JavaScriptFunctionDeclarationStatement(string Name, JavaScriptFunctionExpression Function) : JavaScriptStatement;
+internal sealed record JavaScriptClassDeclarationStatement(string Name, JavaScriptClassExpression Class) : JavaScriptStatement;
+internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expression) : JavaScriptStatement;
+internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements) : JavaScriptStatement;
+internal sealed record JavaScriptIfStatement(JavaScriptExpression Condition, JavaScriptStatement Then, JavaScriptStatement? Else) : JavaScriptStatement;
+internal sealed record JavaScriptWhileStatement(JavaScriptExpression Condition, JavaScriptStatement Body) : JavaScriptStatement;
+internal sealed record JavaScriptDoWhileStatement(JavaScriptStatement Body, JavaScriptExpression Condition) : JavaScriptStatement;
+internal sealed record JavaScriptBreakStatement : JavaScriptStatement;
+internal sealed record JavaScriptContinueStatement : JavaScriptStatement;
+internal sealed record JavaScriptForStatement(JavaScriptStatement? Initializer, JavaScriptExpression? Condition, JavaScriptExpression? Update, JavaScriptStatement Body) : JavaScriptStatement;
+internal sealed record JavaScriptForEachStatement(string Name, JavaScriptExpression Iterable, JavaScriptStatement Body, bool Keys) : JavaScriptStatement;
+internal sealed record JavaScriptWithStatement(JavaScriptExpression Scope, JavaScriptStatement Body) : JavaScriptStatement;
+internal sealed record JavaScriptThrowStatement(JavaScriptExpression Expression) : JavaScriptStatement;
+internal sealed record JavaScriptTryStatement(JavaScriptBlockStatement Body, string? CatchName, JavaScriptBlockStatement? CatchBody, JavaScriptBlockStatement? FinallyBody) : JavaScriptStatement;
+internal sealed record JavaScriptSwitchCase(JavaScriptExpression? Test, IReadOnlyList<JavaScriptStatement> Statements);
+internal sealed record JavaScriptSwitchStatement(JavaScriptExpression Expression, IReadOnlyList<JavaScriptSwitchCase> Cases) : JavaScriptStatement;

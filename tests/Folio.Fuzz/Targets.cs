@@ -45,6 +45,9 @@ internal static class Targets
             "all:", "initial", "inherit", "unset", "revert", "revert-layer"]),
         new("png", data => PngDecoder.Decode(data, MaxPixels), () => Images("*.png"), []),
         new("jpeg", data => JpegDecoder.Decode(data, MaxPixels), () => Images("*.jpg"), []),
+        new("gif", data => GifDecoder.Decode(data, MaxPixels), () => Images("*.gif"), []),
+        new("bmp", data => BmpDecoder.Decode(data, MaxPixels), BmpSeeds, ["BM", "BITMAP", "\0"]),
+        new("ico", data => IcoDecoder.Decode(data, MaxPixels), IcoSeeds, ["\0\0\u0001\0", "PNG", "BM"]),
         new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
         new("svg", Svg, SvgSeeds, ["<svg xmlns=\"http://www.w3.org/2000/svg\">", "</svg>", "<?xml version=\"1.0\"?>", "<!DOCTYPE svg [", "]>",
             "<![CDATA[", "]]>", "<!--", "&#x", "&amp;", "xmlns:x=\"", "<g>", "</g>", "<path d=\"", "M0 0", "A1 1 0 1 1", "C", "Z", " viewBox=\"",
@@ -62,6 +65,7 @@ internal static class Targets
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
         new("cache-storage", CacheStorage, CacheStorageSeeds, ["Operation", "open", "put", "match", "delete", "release", "$last", "vary", "GET", "Headers", "null"]),
+        .. OperatingSystem.IsWindows() ? new[] { NativeWebGlShaderFuzz.Target } : [],
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -109,6 +113,56 @@ internal static class Targets
             return;
         face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
         face.Substitute(face.GlyphFor('1'), "pnum tnum");
+    }
+
+    private static IEnumerable<byte[]> BmpSeeds()
+    {
+        var seed = new byte[58];
+        seed[0] = (byte)'B'; seed[1] = (byte)'M';
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(2), (uint)seed.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(10), 54);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(14), 40);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(18), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(22), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(26), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(28), 24);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(34), 4);
+        seed[54] = 32; seed[55] = 64; seed[56] = 128; seed[57] = 0;
+        var rgb555 = new byte[58];
+        rgb555[0] = (byte)'B'; rgb555[1] = (byte)'M';
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(2), (uint)rgb555.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(10), 54);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(14), 40);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(rgb555.AsSpan(18), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(rgb555.AsSpan(22), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(rgb555.AsSpan(26), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(rgb555.AsSpan(28), 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(34), 4);
+        rgb555[54] = 0; rgb555[55] = 0x7C;
+        return Images("*.bmp").Append(seed).Append(rgb555);
+    }
+
+    private static IEnumerable<byte[]> IcoSeeds()
+    {
+        var seed = new byte[70];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(2), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(4), 1);
+        seed[6] = seed[7] = 1;
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(10), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(12), 32);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(14), 48);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(18), 22);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(22), 40);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(26), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(30), 2);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(34), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(36), 32);
+        seed[62] = 255; seed[65] = 255;
+        var dib16 = seed.ToArray();
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(dib16.AsSpan(12), 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(dib16.AsSpan(14), 48);
+        dib16[62] = 0; dib16[63] = 0x7C;
+        return Images("*.ico").Append(seed).Append(dib16);
     }
 
     private static IEnumerable<byte[]> FontSeeds()
@@ -393,5 +447,8 @@ internal static class Targets
     private static byte[] UserAgentStyleSheet() => File.ReadAllBytes(Path.Combine(RepoPaths.Root, "src", "Folio", "Style", "UserAgent.css"));
 
     private static IEnumerable<byte[]> Images(string pattern) =>
-        Directory.GetFiles(Path.Combine(RepoPaths.Tests, "images"), pattern).Select(File.ReadAllBytes);
+        Directory.GetFiles(Path.Combine(RepoPaths.Tests, "images"), pattern).Select(File.ReadAllBytes)
+            .Concat(pattern == "*.gif"
+                ? [Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")]
+                : []);
 }

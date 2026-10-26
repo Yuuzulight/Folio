@@ -21,6 +21,11 @@ session.MessageReceived += async (message, cancellationToken) =>
         await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities = runtime.Capabilities, accepted }, cancellationToken);
         return;
     }
+    if (message.Kind == ContentMessageKind.MediaCaptureActivity)
+    {
+        runtime.ApplyMediaCaptureActivity(message);
+        return;
+    }
     if (message.Kind != ContentMessageKind.Load) return;
     try
     {

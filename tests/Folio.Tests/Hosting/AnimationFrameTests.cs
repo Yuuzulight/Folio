@@ -39,6 +39,25 @@ public class AnimationFrameTests
     }
 
     [Fact]
+    public void HoverRestyleKeepsAffectedAnimationsOnTheTimeline()
+    {
+        const string html = "<!DOCTYPE html><style>@keyframes f { from { opacity: .2 } to { opacity: 1 } }" +
+            "#box { width: 80px; height: 20px; background: blue; animation: f 1s linear infinite }" +
+            "#box:hover { background: red }</style><div id=box></div>";
+        using var document = Document.Parse(html);
+        document.Paint(800, 600, animationTime: 0.25);
+        document.Input.HandlePointerMove(new Folio.PointerEvent(new System.Numerics.Vector2(10, 10)));
+
+        var frame = document.PaintFrame(0.5);
+        Assert.NotNull(frame);
+
+        using var fresh = Document.Parse(html);
+        fresh.QuerySelector("#box")!.Node.Flags |= Folio.Dom.NodeFlags.Hover;
+        var (full, _) = fresh.Paint(800, 600, animationTime: 0.5);
+        Assert.Equal(full.Items, frame.Items);
+    }
+
+    [Fact]
     public void AnAnimationThatChangesLayoutNeedsAFullPaint()
     {
         using var document = Document.Parse("<style>@keyframes m { to { margin-top: 40px } } div { animation: m 1s }</style><div>x</div>");

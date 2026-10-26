@@ -1,10 +1,10 @@
 namespace Folio.Typography;
 
 /// <summary>
-/// Pair kerning from the GPOS table (https://learn.microsoft.com/en-us/typography/opentype/spec/gpos): the pair
-/// adjustment lookups (type 2, formats 1 and 2, also behind extension lookups) of the <c>kern</c> feature, for
-/// <see cref="SimpleShaper"/>. Reads the table on demand; offsets are checked on every read, and a malformed table
-/// kerns nothing rather than failing layout.
+/// Pair spacing from the GPOS table (https://learn.microsoft.com/en-us/typography/opentype/spec/gpos): the pair
+/// adjustment lookups (type 2, formats 1 and 2, also behind extension lookups) of the <c>kern</c>/<c>dist</c>
+/// features, for <see cref="SimpleShaper"/>. Reads the table on demand; offsets are checked on every read, and a
+/// malformed table kerns nothing rather than failing layout.
 /// </summary>
 // ponytail: only the first glyph's x-advance is applied (what kerning uses); placements, the second glyph's value
 // record and device tables are left to the complex shaper.
@@ -61,38 +61,14 @@ internal sealed class GposKerning
         }
     }
 
-    // The kern features of the Latin script's default language system, else the default script's, else every kern
-    // feature in the list.
+    // Include every kern/dist feature. The shaper is already segmented by font/script, and the lookup set below
+    // deduplicates shared lookups; retaining the union is necessary for fonts such as Noto Sans Hebrew whose hebr
+    // script selects a different kern feature from latn.
     // ponytail: Greek and Cyrillic runs use the Latin choice too; per-script features come with script itemisation.
     private static IEnumerable<int> KernFeatures(FontData gpos, int scriptList, int featureList)
     {
         var featureCount = gpos.U16(featureList);
-        bool IsKern(int feature) => feature < featureCount && gpos.Tag(featureList + 2 + 6 * feature) == "kern";
-        foreach (var tag in (string[])["latn", "DFLT"])
-        {
-            for (var i = 0; i < gpos.U16(scriptList); i++)
-            {
-                var record = scriptList + 2 + 6 * i;
-                if (gpos.Tag(record) != tag)
-                    continue;
-                var script = scriptList + gpos.U16(record + 4);
-                int langSys = gpos.U16(script);
-                if (langSys == 0)
-                    continue;
-                langSys += script;
-                var found = new List<int>();
-                var required = gpos.U16(langSys + 2);
-                if (required != 0xFFFF && IsKern(required))
-                    found.Add(required);
-                for (var f = 0; f < gpos.U16(langSys + 4); f++)
-                {
-                    if (IsKern(gpos.U16(langSys + 6 + 2 * f)))
-                        found.Add(gpos.U16(langSys + 6 + 2 * f));
-                }
-                if (found.Count > 0)
-                    return found;
-            }
-        }
+        bool IsKern(int feature) => feature < featureCount && gpos.Tag(featureList + 2 + 6 * feature) is "kern" or "dist";
         return Enumerable.Range(0, featureCount).Where(IsKern);
     }
 

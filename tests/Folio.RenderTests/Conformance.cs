@@ -92,6 +92,8 @@ public static class Conformance
             Workers = true,
             WebAssembly = true,
             WebRtc = true,
+            Camera = true,
+            Microphone = true,
             ServiceWorkers = true,
         },
         // Library scripts come from the pinned test cache: no run needs the network (issue #487).
@@ -154,7 +156,7 @@ public static class Conformance
         // where work can really be stopped.
         var render = Task.Run(() =>
         {
-            using var lifecycle = ArtifactLifecycle.Start(artifact, html, manifest.AnimationTime ?? 100);
+            using var lifecycle = ArtifactLifecycle.Start(artifact, html, manifest.AnimationTime ?? 100, manifest.Viewport, reference?.Height ?? 600);
             var document = lifecycle.Document;
             document.Paint(manifest.Viewport, reference?.Height ?? 600);
             // The picture is the page as it loads, like the reference; the interaction script then runs against it as assertions.
@@ -326,6 +328,10 @@ public static class Conformance
                     for (var elapsed = 0; elapsed < milliseconds; elapsed += 16)
                     {
                         CurrentHost()?.Clock.Advance(Math.Min(16, milliseconds - elapsed));
+                        // Worker and networking callbacks are task-queue work, not microtasks. Drain the
+                        // bounded queue before the rendering update so interaction waits observe settled
+                        // worker messages as a real page turn would.
+                        for (var turns = 0; turns < 256 && CurrentHost()?.Loop.RunOneTurn() == true; turns++) { }
                         CurrentHost()?.Loop.UpdateTheRendering();
                         CurrentDocument().Update();
                     }
@@ -336,6 +342,10 @@ public static class Conformance
                     if (lifecycle is null)
                         return $"step {i + 1} ({line}): reopen needs an artifact lifecycle";
                     lifecycle.Reopen();
+                    // A reopened page starts with a fresh document and must complete its first
+                    // paint before later interaction steps read or update it.
+                    CurrentDocument().Paint(viewportWidth, viewportHeight ?? 600);
+                    CurrentHost()?.Loop.UpdateTheRendering();
                     break;
                 }
                 case "exists":
@@ -386,17 +396,21 @@ public static class Conformance
         private readonly ConformanceArtifact _artifact;
         private readonly string _html;
         private readonly double _animationTime;
+        private readonly int _viewportWidth;
+        private readonly int _viewportHeight;
         private readonly MemoryArtifactStorage _storage = new();
         private readonly OfflineArtifactLoader _loader;
         private readonly Uri _baseUri;
         private readonly List<ArtifactPage> _retired = [];
         private ArtifactPage _current;
 
-        private ArtifactLifecycle(ConformanceArtifact artifact, string html, double animationTime)
+        private ArtifactLifecycle(ConformanceArtifact artifact, string html, double animationTime, int viewportWidth, int viewportHeight)
         {
             _artifact = artifact;
             _html = html;
             _animationTime = animationTime;
+            _viewportWidth = viewportWidth;
+            _viewportHeight = viewportHeight;
             _baseUri = new Uri($"https://conformance.invalid/{Uri.EscapeDataString(artifact.Id)}/");
             _loader = new OfflineArtifactLoader(artifact.Folder, _baseUri);
             _current = Load();
@@ -408,8 +422,8 @@ public static class Conformance
         public IArtifactStorage Storage => _storage;
         public IReadOnlyList<ResourceRequest> OfflineRequests => _loader.Requests;
 
-        internal static ArtifactLifecycle Start(ConformanceArtifact artifact, string html, double animationTime) =>
-            new(artifact, html, animationTime);
+        internal static ArtifactLifecycle Start(ConformanceArtifact artifact, string html, double animationTime, int viewportWidth, int viewportHeight) =>
+            new(artifact, html, animationTime, viewportWidth, viewportHeight);
 
         public void Reopen()
         {
@@ -441,6 +455,9 @@ public static class Conformance
                     BaseUri = _baseUri,
                 };
                 document = Document.Parse(_html, options);
+                // Establish the initial layout before library scripts query computed geometry, as a browser does
+                // before executing a deferred script.
+                document.Paint(_viewportWidth, _viewportHeight);
                 engine = new JintScriptEngine();
                 var clock = new VirtualEventLoopClock();
                 loop = new HtmlEventLoop(engine, clock);

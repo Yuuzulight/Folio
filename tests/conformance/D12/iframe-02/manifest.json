@@ -1,1 +1,1 @@
-{"viewport":800,"prompt":"Sandboxed message widget with a nested document.","interaction":["frame #preview click p"],"features":["script","iframe","srcdoc"]}
+{"viewport":800,"prompt":"Sandboxed message widget with a nested document.","interaction":["wait 50","frame #preview text #message sandbox-ready","frame #preview click #child","frame #preview text #message sandbox-clicked"],"features":["script","iframe","srcdoc"]}

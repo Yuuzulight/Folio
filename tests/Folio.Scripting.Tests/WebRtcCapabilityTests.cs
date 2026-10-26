@@ -82,6 +82,17 @@ public sealed class WebRtcCapabilityTests
     }
 
     [Fact]
+    public void OffersContainAStableSessionDescription()
+    {
+        using var fixture = new Fixture(true, 1);
+        fixture.Engine.Evaluate("var peer=new RTCPeerConnection();peer.createDataChannel('chat');var offerSdp='';peer.createOffer().then(o=>offerSdp=o.sdp);");
+        fixture.Engine.PerformMicrotaskCheckpoint();
+        var sdp = fixture.Engine.Evaluate("offerSdp").AsString();
+        Assert.Contains("v=0", sdp);
+        Assert.Contains("m=application", sdp);
+    }
+
+    [Fact]
     public void ClosingRecipientInvalidatesBothLoopbackChannelEndpoints()
     {
         using var fixture = new Fixture(true, 2);

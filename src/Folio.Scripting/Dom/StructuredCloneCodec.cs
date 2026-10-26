@@ -1,21 +1,24 @@
 using System.Text;
+using System.Text.Json;
 using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Dom;
 
 internal sealed class StructuredClonePayload
 {
-    public StructuredClonePayload(string json, IReadOnlyList<MessagePortEndpoint> ports, long byteCount = 0)
+    public StructuredClonePayload(string json, IReadOnlyList<MessagePortEndpoint> ports, IReadOnlyList<byte[]>? transferredBuffers = null, long byteCount = 0)
     {
         Json = json;
         Ports = ports;
+        TransferredBuffers = transferredBuffers ?? [];
         ByteCount = byteCount;
     }
 
     public string Json { get; }
     public IReadOnlyList<MessagePortEndpoint> Ports { get; }
+    public IReadOnlyList<byte[]> TransferredBuffers { get; }
     public long ByteCount { get; }
-    public long MemoryCost => checked(128L + Json.Length * 2L + Ports.Count * 16L);
+    public long MemoryCost => checked(128L + Json.Length * 2L + Ports.Count * 16L + TransferredBuffers.Sum(buffer => (long)buffer.Length));
     internal void AbortTransfers()
     {
         foreach (var port in Ports) port.AbortTransfer();
@@ -87,28 +90,58 @@ internal static class StructuredCloneCodec
     internal static StructuredClonePreparation Prepare(IScriptEngine source, ScriptValue value, ScriptValue transfer,
         int maxBytes, Func<IScriptEngine, ScriptValue, MessagePortEndpoint?> findPort)
     {
+        if (source is Folio.Scripting.Native.NativeJavaScriptEngine && value.Kind is ScriptValueKind.Undefined or ScriptValueKind.Null or ScriptValueKind.Boolean or ScriptValueKind.Number or ScriptValueKind.String)
+        {
+            var primitiveJson = value.Kind switch
+            {
+                ScriptValueKind.Undefined => "null",
+                ScriptValueKind.Null => "null",
+                ScriptValueKind.Boolean => value.AsBoolean() ? "true" : "false",
+                ScriptValueKind.Number => value.AsNumber().ToString(System.Globalization.CultureInfo.InvariantCulture),
+                _ => JsonSerializer.Serialize(value.AsString() ?? string.Empty),
+            };
+            return new StructuredClonePreparation(source, new StructuredClonePayload(primitiveJson, [], byteCount: Encoding.UTF8.GetByteCount(primitiveJson)), []);
+        }
         var transferItems = ValidateTransferList(source, transfer, findPort, out var transferPorts, out var transferBuffers);
         var ports = transferItems.Select(item => findPort(source, item)).Where(port => port is not null).Cast<MessagePortEndpoint>().ToList();
-        var detector = source.CreateHostObject(DetectorTemplate, new Detector(source, findPort, transferPorts, ports));
+        var transferBufferIndexes = transferBuffers.Select((buffer, index) => (buffer, index)).ToDictionary(item => item.buffer, item => item.index);
+        var transferredBytes = new List<byte[]>(transferBuffers.Count);
+        var detector = source.CreateHostObject(DetectorTemplate, new Detector(source, findPort, transferPorts, ports, transferBufferIndexes, transferredBytes));
         var encoder = GetHelpers(source).Encode;
 
         var json = source.Call(encoder, ScriptValue.Undefined, [value, detector]).AsString()
             ?? throw WebIdlException.DomException("DataCloneError", "The value cannot be cloned.");
-        if (Encoding.UTF8.GetByteCount(json) > Math.Max(0, maxBytes))
+        var jsonBytes = Encoding.UTF8.GetByteCount(json);
+        var transferredByteCount = transferredBytes.Sum(buffer => (long)buffer.Length);
+        if (checked(jsonBytes + transferredByteCount) > Math.Max(0, maxBytes))
             throw WebIdlException.DomException("DataCloneError", "The message exceeds the host limit.");
         return new StructuredClonePreparation(source,
-            new StructuredClonePayload(json, ports, Encoding.UTF8.GetByteCount(json)), transferBuffers);
+            new StructuredClonePayload(json, ports, transferredBytes, checked(jsonBytes + transferredByteCount)), transferBuffers);
     }
 
     internal static StructuredCloneResult Decode(IScriptEngine destination, StructuredClonePayload payload,
         Func<MessagePortEndpoint, IScriptEngine, ScriptValue> materializePort)
     {
+        if (destination is Folio.Scripting.Native.NativeJavaScriptEngine && payload.Ports.Count == 0 && payload.TransferredBuffers.Count == 0)
+        {
+            using var primitive = JsonDocument.Parse(payload.Json);
+            var value = primitive.RootElement.ValueKind switch
+            {
+                JsonValueKind.Null => ScriptValue.Null,
+                JsonValueKind.True => ScriptValue.True,
+                JsonValueKind.False => ScriptValue.False,
+                JsonValueKind.Number => ScriptValue.FromNumber(primitive.RootElement.GetDouble()),
+                JsonValueKind.String => ScriptValue.FromString(primitive.RootElement.GetString() ?? string.Empty),
+                _ => (ScriptValue?)null,
+            };
+            if (value is { } simple) return new StructuredCloneResult(simple, []);
+        }
         var decoder = GetHelpers(destination).Decode;
         var materializedPorts = new List<ScriptValue>();
         try
         {
             foreach (var port in payload.Ports) materializedPorts.Add(materializePort(port, destination));
-            var resolver = destination.CreateHostObject(ResolverTemplate, new Resolver(destination, materializedPorts));
+            var resolver = destination.CreateHostObject(ResolverTemplate, new Resolver(destination, materializedPorts, payload.TransferredBuffers));
             var value = destination.Call(decoder, ScriptValue.Undefined, [ScriptValue.FromString(payload.Json), resolver]);
             return new StructuredCloneResult(value, materializedPorts);
         }
@@ -146,15 +179,23 @@ internal static class StructuredCloneCodec
     }
 
     private sealed class Detector(IScriptEngine engine, Func<IScriptEngine, ScriptValue, MessagePortEndpoint?> findPort,
-        HashSet<MessagePortEndpoint> transferPorts, List<MessagePortEndpoint> ports)
+        HashSet<MessagePortEndpoint> transferPorts, List<MessagePortEndpoint> ports,
+        IReadOnlyDictionary<ScriptValue, int> transferBufferIndexes, List<byte[]> transferredBytes)
     {
         public ScriptValue Kind(ScriptValue value) => ScriptValue.FromString(engine is IStructuredCloneEngine native
             ? native.ClassifyCloneObject(value) : "unsupported");
 
         public ScriptValue Buffer(ScriptValue value)
         {
-            if (!engine.TryGetArrayBufferBytes(value, out var bytes))
+            var isTransferred = transferBufferIndexes.ContainsKey(value);
+            if (!(isTransferred ? engine.TryGetArrayBufferBytesOwned(value, out var bytes) : engine.TryGetArrayBufferBytes(value, out bytes)))
                 throw WebIdlException.DomException("DataCloneError", "The ArrayBuffer is detached or unavailable.");
+            if (transferBufferIndexes.TryGetValue(value, out var index))
+            {
+                while (transferredBytes.Count <= index) transferredBytes.Add([]);
+                transferredBytes[index] = bytes;
+                return ScriptValue.FromString("transfer-buffer:" + index);
+            }
             return ScriptValue.FromString(Convert.ToBase64String(bytes));
         }
 
@@ -181,10 +222,17 @@ internal static class StructuredCloneCodec
         }
     }
 
-    private sealed class Resolver(IScriptEngine engine, IReadOnlyList<ScriptValue> ports)
+    private sealed class Resolver(IScriptEngine engine, IReadOnlyList<ScriptValue> ports, IReadOnlyList<byte[]> transferredBuffers)
     {
-        public ScriptValue Buffer(ScriptValue value) =>
-            engine.CreateArrayBuffer(Convert.FromBase64String(value.AsString() ?? throw new InvalidDataException("Invalid clone buffer.")));
+        public ScriptValue Buffer(ScriptValue value)
+        {
+            var encoded = value.AsString() ?? throw new InvalidDataException("Invalid clone buffer.");
+            if (encoded.StartsWith("transfer-buffer:", StringComparison.Ordinal)
+                && int.TryParse(encoded[16..], out var index)
+                && (uint)index < (uint)transferredBuffers.Count)
+                return engine.CreateArrayBufferOwned(transferredBuffers[index]);
+            return engine.CreateArrayBuffer(Convert.FromBase64String(encoded));
+        }
 
         public ScriptValue Find(ScriptValue token)
         {

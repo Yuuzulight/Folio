@@ -290,7 +290,7 @@ public static class ArtifactClassifier
             if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
                 Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
             if (Constructs(compact, "SharedWorker"))
-                Unsupported.Add("uses shared workers; SharedWorker is not implemented in Folio");
+                Require(ImplementedFeatures.Workers, options.Capabilities.Workers, "uses shared workers", "workers");
             if (Constructs(compact, "Worker"))
                 Require(ImplementedFeatures.Workers, options.Capabilities.Workers, "uses workers", "workers");
             if (Contains(compact, "WebAssembly.") || Contains(compact, "WebAssembly["))

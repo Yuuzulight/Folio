@@ -3,6 +3,8 @@ using System.Text;
 using Folio.Dom;
 using Folio.Painting;
 using Folio.Style;
+using Folio.Scripting.Bindings;
+using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
 
@@ -215,7 +217,7 @@ internal sealed class DomNodeTemplates
             ((ElementNode)target).SetAttribute("height", WebIdlConversions.ToUint32(value).ToString());
             _context.GetCanvas((ElementNode)target).Restart();
         });
-        t.DefineMethod("getContext", (target, _, args) =>
+        t.DefineMethod("getContext", (target, thisVal, args) =>
         {
             if (args.Length == 0) return ScriptValue.Null;
             var kind = WebIdlConversions.ToDOMString(args[0]);
@@ -233,17 +235,35 @@ internal sealed class DomNodeTemplates
             if (string.Equals(kind, "webgl", StringComparison.Ordinal) || string.Equals(kind, "webgl2", StringComparison.Ordinal))
             {
                 if (canvas.Context2D is not null) return ScriptValue.Null;
-                canvas.AttemptWebGl();
+                var isWebGl2 = string.Equals(kind, "webgl2", StringComparison.Ordinal);
+                // Capability grants remain authoritative for retained native
+                // contexts, including after a successful prior frame.
                 if (!_context.CheckCapability("WebGL", _context.Capabilities.WebGl))
                 {
                     canvas.MarkWebGlDenied();
                     return ScriptValue.Null;
                 }
-                canvas.ProbeGraphics();
-                if (canvas.WebGlContext is { } existing)
-                    return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, existing);
-                canvas.ClearFallback();
-                return _context.Engine.CreateHostObject(WebGlRenderingContextTemplate, canvas.WebGlContext ??= new WebGlContextState(_context.Engine, canvas, _context.MaxGpuBytes));
+                if (canvas.NativeWebGlContext is { } existingNative)
+                {
+                    if (canvas.NativeWebGl2 != isWebGl2) return ScriptValue.Null;
+                    return isWebGl2 && existingNative is IWebGL2RenderingContextTarget
+                        ? WebGL2RenderingContextBinding.CreateObject(_context.Engine, (IWebGL2RenderingContextTarget)existingNative)
+                        : WebGLRenderingContextBinding.CreateObject(_context.Engine, existingNative);
+                }
+                canvas.AttemptWebGl();
+                var requested = new WebGlContextAttributes(isWebGl2 ? WebGlContextVersion.WebGl2 : WebGlContextVersion.WebGl1, true, true, false, true, true, false);
+                var attributesValue = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+                if (attributesValue.IsObject)
+                {
+                    var parsed = WebGLContextAttributes.FromScriptValue(_context.Engine, attributesValue);
+                    requested = requested with { Alpha = parsed.Alpha, Depth = parsed.Depth, Stencil = parsed.Stencil, Antialias = parsed.Antialias, PremultipliedAlpha = parsed.PremultipliedAlpha, PreserveDrawingBuffer = parsed.PreserveDrawingBuffer };
+                }
+                if (_context.GetWebGlFactory(out _) is { } factory && canvas.TryCreateNativeWebGl(factory, _context.Engine, thisVal, isWebGl2, requested, _context.MaxGpuBytes, _context.ReportWebGlDiagnostic, factoryProvider: () => _context.GetWebGlFactory(out _)) is { } native)
+                    return isWebGl2 && native is IWebGL2RenderingContextTarget
+                        ? WebGL2RenderingContextBinding.CreateObject(_context.Engine, (IWebGL2RenderingContextTarget)native)
+                        : WebGLRenderingContextBinding.CreateObject(_context.Engine, native);
+                canvas.MarkGraphicsUnavailable();
+                return ScriptValue.Null;
             }
             return ScriptValue.Null;
         });
@@ -288,14 +308,14 @@ internal sealed class DomNodeTemplates
                 (target, _, value) => { var element = (ElementNode)target; element.SetAttribute("poster", WebIdlConversions.ToDOMString(value)); _context.GetMedia(element).RefreshPoster(); });
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => ((ElementNode)target).SetAttribute("src", WebIdlConversions.ToDOMString(value)));
-        t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
+        t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).CurrentSource));
         t.DefineProperty("srcObject", (target, _) => _context.GetMedia((ElementNode)target).SrcObject,
             (target, _, value) => _context.GetMedia((ElementNode)target).SetSrcObject(value));
         t.DefineProperty("currentTime", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).CurrentTime),
             (target, _, value) => _context.GetMedia((ElementNode)target).Seek(WebIdlConversions.ToDouble(value)));
         t.DefineProperty("src", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""),
             (target, _, value) => { var element = (ElementNode)target; element.SetAttribute("src", WebIdlConversions.ToDOMString(value)); _context.GetMedia(element).Load(); });
-        t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(((ElementNode)target).GetAttribute("src") ?? ""));
+        t.DefineProperty("currentSrc", (target, _) => ScriptValue.FromString(_context.GetMedia((ElementNode)target).CurrentSource));
         t.DefineProperty("duration", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Duration));
         t.DefineProperty("videoWidth", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Width));
         t.DefineProperty("videoHeight", (target, _) => ScriptValue.FromNumber(_context.GetMedia((ElementNode)target).Height));
@@ -333,6 +353,12 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).OnLoadedData = value);
         t.DefineProperty("oncanplay", (target, _) => _context.GetMedia((ElementNode)target).OnCanPlay,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnCanPlay = value);
+        t.DefineProperty("oncanplaythrough", (target, _) => _context.GetMedia((ElementNode)target).OnCanPlayThrough,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnCanPlayThrough = value);
+        t.DefineProperty("onloadstart", (target, _) => _context.GetMedia((ElementNode)target).OnLoadStart,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnLoadStart = value);
+        t.DefineProperty("ondurationchange", (target, _) => _context.GetMedia((ElementNode)target).OnDurationChange,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnDurationChange = value);
         t.DefineProperty("onplay", (target, _) => _context.GetMedia((ElementNode)target).OnPlay,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnPlay = value);
         t.DefineProperty("onplaying", (target, _) => _context.GetMedia((ElementNode)target).OnPlaying,
@@ -345,6 +371,10 @@ internal sealed class DomNodeTemplates
             (target, _, value) => _context.GetMedia((ElementNode)target).OnVolumeChange = value);
         t.DefineProperty("onerror", (target, _) => _context.GetMedia((ElementNode)target).OnError,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnError = value);
+        t.DefineProperty("onseeking", (target, _) => _context.GetMedia((ElementNode)target).OnSeeking,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnSeeking = value);
+        t.DefineProperty("onseeked", (target, _) => _context.GetMedia((ElementNode)target).OnSeeked,
+            (target, _, value) => _context.GetMedia((ElementNode)target).OnSeeked = value);
         t.DefineProperty("ontimeupdate", (target, _) => _context.GetMedia((ElementNode)target).OnTimeUpdate,
             (target, _, value) => _context.GetMedia((ElementNode)target).OnTimeUpdate = value);
         t.DefineProperty("onratechange", (target, _) => _context.GetMedia((ElementNode)target).OnRateChange,
@@ -369,7 +399,7 @@ internal sealed class DomNodeTemplates
             return ScriptValue.Undefined;
         });
         t.DefineMethod("setSinkId", (target, _, args) => _context.Engine.Evaluate("Promise.resolve()"));
-        t.DefineMethod("captureStream", (target, _, _) => _context.Engine.Evaluate("new MediaStream([])"));
+        t.DefineMethod("captureStream", (target, _, _) => _context.Engine.Evaluate("new MediaStream([new MediaStreamTrack('video')])"));
         t.DefineMethod("load", (target, _, _) => { _context.GetMedia((ElementNode)target).Load(); return ScriptValue.Undefined; });
         t.DefineMethod("canPlayType", (target, _, args) =>
         {
@@ -511,6 +541,9 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("UNSIGNED_BYTE", (_, _) => ScriptValue.FromNumber(0x1401));
         t.DefineProperty("UNSIGNED_SHORT", (_, _) => ScriptValue.FromNumber(0x1403));
         t.DefineProperty("UNSIGNED_INT", (_, _) => ScriptValue.FromNumber(0x1405));
+        t.DefineProperty("UNSIGNED_SHORT_5_6_5", (_, _) => ScriptValue.FromNumber(0x8363));
+        t.DefineProperty("UNSIGNED_SHORT_4_4_4_4", (_, _) => ScriptValue.FromNumber(0x8033));
+        t.DefineProperty("UNSIGNED_SHORT_5_5_5_1", (_, _) => ScriptValue.FromNumber(0x8034));
         t.DefineProperty("FLOAT", (_, _) => ScriptValue.FromNumber(0x1406));
         t.DefineProperty("VERTEX_ATTRIB_ARRAY_ENABLED", (_, _) => ScriptValue.FromNumber(0x8622));
         t.DefineProperty("VERTEX_ATTRIB_ARRAY_SIZE", (_, _) => ScriptValue.FromNumber(0x8623));
@@ -526,6 +559,10 @@ internal sealed class DomNodeTemplates
         t.DefineProperty("TEXTURE_INTERNAL_FORMAT", (_, _) => ScriptValue.FromNumber(0x1003));
         t.DefineProperty("LINEAR", (_, _) => ScriptValue.FromNumber(0x2601));
         t.DefineProperty("NEAREST", (_, _) => ScriptValue.FromNumber(0x2600));
+        t.DefineProperty("NEAREST_MIPMAP_NEAREST", (_, _) => ScriptValue.FromNumber(0x2700));
+        t.DefineProperty("LINEAR_MIPMAP_NEAREST", (_, _) => ScriptValue.FromNumber(0x2701));
+        t.DefineProperty("NEAREST_MIPMAP_LINEAR", (_, _) => ScriptValue.FromNumber(0x2702));
+        t.DefineProperty("LINEAR_MIPMAP_LINEAR", (_, _) => ScriptValue.FromNumber(0x2703));
         t.DefineProperty("CLAMP_TO_EDGE", (_, _) => ScriptValue.FromNumber(0x812F));
         t.DefineProperty("TEXTURE0", (_, _) => ScriptValue.FromNumber(0x84C0));
         t.DefineProperty("FRAMEBUFFER", (_, _) => ScriptValue.FromNumber(0x8D40));
@@ -1291,8 +1328,16 @@ internal sealed class DomNodeTemplates
                 if (control.LocalName == "input") control.Value = control.GetAttribute("value") ?? "";
             return ScriptValue.Undefined;
         });
-        t.DefineMethod("submit", (_, _, _) => ScriptValue.Undefined);
-        t.DefineMethod("requestSubmit", (_, _, _) => ScriptValue.Undefined);
+        t.DefineMethod("submit", (_, _, _) =>
+        {
+            if (!_context.FormsAllowed) throw WebIdlException.DomException("SecurityError", "Form submission is blocked by the document sandbox.");
+            return ScriptValue.Undefined;
+        });
+        t.DefineMethod("requestSubmit", (_, _, _) =>
+        {
+            if (!_context.FormsAllowed) throw WebIdlException.DomException("SecurityError", "Form submission is blocked by the document sandbox.");
+            return ScriptValue.Undefined;
+        });
         t.DefineProperty("firstElementChild", (target, _) =>
             _context.Wrap(((ElementNode)target).Children.OfType<ElementNode>().FirstOrDefault()));
         t.DefineProperty("lastElementChild", (target, _) =>
@@ -2000,6 +2045,10 @@ internal sealed class DomNodeTemplates
 
         t.DefineProperty("documentElement", (target, _) =>
             _context.Wrap(((DocumentNode)target).DocumentElement));
+
+        // Window libraries (including Chart.js) reach the viewport through element.ownerDocument.defaultView.
+        // Keep this live so it observes the embedding engine's top-level window object.
+        t.DefineProperty("defaultView", (_, _) => _context.Engine.GetGlobalProperty("window"));
 
         t.DefineProperty("head", (target, _) =>
         {

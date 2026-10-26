@@ -37,7 +37,7 @@ internal static class SvgPainter
         items.Add(new DisplayItem(DisplayItemKind.Pop));
     }
 
-    private static void Emit(SvgRenderNode node, List<DisplayItem> items)
+    private static void Emit(SvgRenderNode node, List<DisplayItem> items, float inheritedOpacity = 1)
     {
         if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
             return;
@@ -67,7 +67,7 @@ internal static class SvgPainter
         // A filter applies to the node before its clip path, mask and opacity
         // (https://drafts.csswg.org/filter-effects-1/#placement): one layer per filter, the last outermost, inside a
         // layer for the opacity.
-        var opacity = node.Opacity;
+        var opacity = node.Opacity * inheritedOpacity;
         if (node.Filters is { } chain)
         {
             var filters = SvgFilterPrimitives.Of(chain);
@@ -81,10 +81,13 @@ internal static class SvgPainter
         switch (node)
         {
             case SvgContainerNode container:
-                if (opacity < 1)
+                // A simple stroke-only group can carry its opacity into each stroke.  This avoids an off-screen
+                // layer for decorative SVG rays and preserves the ancestor transform for following siblings.
+                var flattenOpacity = opacity < 1 && container.Children.All(c => c is SvgShapeNode { Fill: null, Stroke: not null });
+                if (opacity < 1 && !flattenOpacity)
                     Push(new DisplayItem(DisplayItemKind.PushLayer, Opacity: opacity));
                 foreach (var child in container.Children)
-                    Emit(child, items);
+                    Emit(child, items, flattenOpacity ? opacity : 1);
                 break;
             case SvgForeignNode foreign:
             {

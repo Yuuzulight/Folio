@@ -14,6 +14,8 @@ public enum IdlTypeKind
     Any,
     Object,
     CallbackFunction,
+    BufferSource,
+    TypedArray,
 }
 
 public sealed record IdlType(
@@ -79,6 +81,8 @@ public sealed record IdlEnum(
     IReadOnlyList<string> Values
 );
 
+public sealed record IdlTypedef(string Name, IdlType Type);
+
 public sealed record IdlInterface(
     string Name,
     string? Inherits,
@@ -91,11 +95,13 @@ public sealed record IdlInterface(
     IdlIndexedSetter? IndexedSetter = null,
     IdlNamedGetter? NamedGetter = null,
     IdlNamedSetter? NamedSetter = null,
-    IdlNamedDeleter? NamedDeleter = null
+    IdlNamedDeleter? NamedDeleter = null,
+    IReadOnlyDictionary<string, string?>? ExtendedAttributes = null
 );
 
 public sealed record IdlDocument(
     IReadOnlyList<IdlInterface> Interfaces,
     IReadOnlyList<IdlDictionary> Dictionaries,
-    IReadOnlyList<IdlEnum> Enums
+    IReadOnlyList<IdlEnum> Enums,
+    IReadOnlyList<IdlTypedef>? Typedefs = null
 );

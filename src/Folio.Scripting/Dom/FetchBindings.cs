@@ -123,7 +123,7 @@ internal static class FetchBindings
                 if (!TOKEN.test(name)) throw new TypeError("Invalid header name: '" + name + "'");
                 return name.toLowerCase();
             };
-            const sorted = (headers) => Array.from(state(headers), ([name, values]) => [name, values.join(', ')]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+            const sorted = (headers) => Array.from(state(headers)).map(entry => [entry[0], entry[1].join(', ')]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
             const headerValue = (value) => String(value).replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, '');
 
             class Headers {

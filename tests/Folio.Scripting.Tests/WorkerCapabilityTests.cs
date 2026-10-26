@@ -3,6 +3,7 @@ using System.Text;
 using Folio.Resources;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 
 namespace Folio.Scripting.Tests;
 
@@ -11,6 +12,21 @@ public sealed class WorkerCapabilityTests
 {
     private static FeatureCapabilities Grants(bool wasm = true) => new() { Workers = true, WebAssembly = wasm };
     private const string AddBytes = "[0,97,115,109,1,0,0,0,1,7,1,96,2,127,127,1,127,3,2,1,0,7,7,1,3,97,100,100,0,0,10,9,1,7,0,32,0,32,1,106,11]";
+
+    [Fact]
+    public void NativeEngineWorkerRunsAnIsolatedScript()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(e.data+1);}')); worker.onmessage=function(e){response=e.data;}; worker.onerror=function(e){error=e.message;}; worker.postMessage(41);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsNumber() == 42 || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+    }
+
+
 
     [Theory]
     [InlineData(false)]
@@ -274,6 +290,17 @@ public sealed class WorkerCapabilityTests
         Assert.DoesNotContain("unexpected return", fixture.Engine.Evaluate("responses.join('|')").AsString());
     }
 
+    [Fact]
+    public void NativeWebAssemblyWorkerHonorsExecutionDeadline()
+    {
+        using var fixture = new Installed(Grants(), parentLoop: true, maxWorkerExecution: TimeSpan.FromMilliseconds(100));
+        const string runaway = "[0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,7,7,1,3,114,117,110,0,0,10,9,1,7,0,3,64,12,0,11,11]";
+        fixture.Start($"onmessage=()=>{{var m=new WebAssembly.Module(new Uint8Array({runaway})); var i=new WebAssembly.Instance(m,{{}}); i.exports.run(); postMessage('unexpected');}};");
+        fixture.Engine.Evaluate("worker.postMessage(0);");
+        fixture.Until(() => fixture.Engine.Evaluate("errors.length > 0").AsBoolean());
+        Assert.Contains("execution", fixture.Engine.Evaluate("errors[0]").AsString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -378,6 +405,19 @@ public sealed class WorkerCapabilityTests
         fixture.Until(() => fixture.Worker("replacement").Terminated);
     }
 
+    [Fact]
+    public void AggregateWorkerMemoryBudgetRejectsAndReleasesWholeWorkerReservations()
+    {
+        using var fixture = new Installed(Grants(), maxWorkers: 2, maxWorkerMemory: 1 * 1024 * 1024, maxAggregateWorkerMemory: 1 * 1024 * 1024);
+        fixture.Start("onmessage=()=>postMessage('first');", "first");
+        fixture.Engine.Evaluate("var secondError=''; try { second = new Worker('data:text/javascript,'+encodeURIComponent(\"onmessage=()=>postMessage('second')\")); } catch(e) { secondError=e.name; }");
+        Assert.Equal("QuotaExceededError", fixture.Engine.Evaluate("secondError").AsString());
+        fixture.Engine.Evaluate("first.terminate();");
+        Assert.True(SpinWait.SpinUntil(() => fixture.Worker("first").ResourcesReleased, TimeSpan.FromSeconds(2)));
+        fixture.Start("onmessage=()=>postMessage('second');", "second");
+        Assert.False(fixture.Worker("second").Terminated);
+    }
+
     private sealed class MissingLoader(bool module) : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -394,14 +434,14 @@ public sealed class WorkerCapabilityTests
         public ScriptRunner Runner { get; }
         private readonly bool _parentLoop;
 
-        public Installed(FeatureCapabilities capabilities, bool parentLoop = false, int maxWorkers = 8, IResourceLoader? loader = null, long maxWorkerMemory = 64L * 1024 * 1024)
+        public Installed(FeatureCapabilities capabilities, bool parentLoop = false, int maxWorkers = 8, IResourceLoader? loader = null, long maxWorkerMemory = 64L * 1024 * 1024, long? maxAggregateWorkerMemory = null, TimeSpan? maxWorkerExecution = null)
         {
             _parentLoop = parentLoop;
             var options = new FolioOptions
             {
                 Capabilities = capabilities,
                 ResourceLoader = loader,
-                Limits = ResourceLimits.Default with { MaxWorkers = maxWorkers, MaxWebAssemblyBytes = 65536, MaxWorkerMemoryBytes = maxWorkerMemory }
+                Limits = ResourceLimits.Default with { MaxWorkers = maxWorkers, MaxWebAssemblyBytes = 65536, MaxWorkerMemoryBytes = maxWorkerMemory, MaxAggregateWorkerMemoryBytes = maxAggregateWorkerMemory ?? ResourceLimits.Default.MaxAggregateWorkerMemoryBytes, MaxWorkerExecutionTime = maxWorkerExecution ?? ResourceLimits.Default.MaxWorkerExecutionTime }
             };
             Document = Document.Parse("<p>worker capability test</p>", options);
             Loop = new HtmlEventLoop(Engine);

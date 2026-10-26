@@ -4,9 +4,9 @@ namespace Folio.Scripting.Dom;
 internal static class WebAssemblyBindings
 {
     internal static void Install(IScriptEngine engine, DomContext context) =>
-        Install(engine, () => context.CheckCapability("WebAssembly", context.Capabilities.WebAssembly), context.MaxWebAssemblyBytes);
+        Install(engine, () => context.CheckCapability("WebAssembly", context.Capabilities.WebAssembly), context.MaxWebAssemblyBytes, NativeWebAssemblyBridge.Install(engine, context, context.MaxWebAssemblyBytes));
 
-    internal static void Install(IScriptEngine engine, Func<bool> enabled, int maxBytes)
+    internal static void Install(IScriptEngine engine, Func<bool> enabled, int maxBytes, NativeWebAssemblyBridge? native = null)
     {
         var host = new HostObjectTemplate("WebAssemblyHost")
             .DefineMethod("enabled", (_, _, _) => ScriptValue.FromBoolean(enabled()))
@@ -18,6 +18,7 @@ internal static class WebAssemblyBindings
     private const string Source = """
         (function(host) {
             const apply = Reflect.apply, check = host.enabled;
+            const native = globalThis.__folio_native_wasm;
             const intrinsic_Math_abs = globalThis.Math.abs;
             const intrinsic_Math_ceil = globalThis.Math.ceil;
             const intrinsic_Math_clz32 = globalThis.Math.clz32;
@@ -31,6 +32,7 @@ internal static class WebAssemblyBindings
             const intrinsic_Number_isInteger = globalThis.Number.isInteger;
             const intrinsic_Number_isSafeInteger = globalThis.Number.isSafeInteger;
             const intrinsic_Object_defineProperty = globalThis.Object.defineProperty;
+            const intrinsic_Object_setPrototypeOf = globalThis.Object.setPrototypeOf;
             const intrinsic_Object_keys = globalThis.Object.keys;
             const intrinsic_String_fromCharCode = globalThis.String.fromCharCode;
             const String = globalThis.String, ArrayCtor = globalThis.Array, PromiseCtor = globalThis.Promise;
@@ -176,11 +178,41 @@ internal static class WebAssemblyBindings
                     var moduleSize = bytes && (bytes.byteLength || bytes.length) || 0;
                     if (moduleSize > Number(__folio_wasm_max_bytes)) throw new RangeError('WebAssembly module size limit exceeded.');
                     if (!WebAssembly.validate(bytes)) throw new WebAssembly.CompileError('Invalid WebAssembly module');
-                    this.bytes = bytes; this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2); this._functions = __folio_wasm_functions(bytes); this._globals = __folio_wasm_globals(bytes); this._memories = __folio_wasm_memories(bytes); this._tables = __folio_wasm_tables(bytes); this._functionImportCount = this._imports.filter(function(entry) { return entry.kind === 0; }).length;
+                    this.bytes = bytes; if (native) native.prepare(bytes); this._exports = __folio_wasm_metadata(bytes, 7); this._imports = __folio_wasm_metadata(bytes, 2); this._functions = __folio_wasm_functions(bytes); this._globals = __folio_wasm_globals(bytes); this._memories = __folio_wasm_memories(bytes); this._tables = __folio_wasm_tables(bytes); this._functionImportCount = this._imports.filter(function(entry) { return entry.kind === 0; }).length;
                 },
                 Instance: function(module, imports) {
                     requireAllowed();
                     if (!(module instanceof WebAssembly.Module)) throw new TypeError('WebAssembly.Instance requires a Module.');
+                    if (native) {
+                        const nativeInstance = native.instantiate(module.bytes, imports, module._imports);
+                        if (nativeInstance !== null && nativeInstance !== undefined) {
+                            this.module = module;
+                            this.exports = new Proxy({}, { get: function(_, name) {
+                                if (typeof name !== 'string') return undefined;
+                                var exportKind = -1;
+                                for (var exportIndex = 0; exportIndex < module._exports.length; exportIndex++)
+                                    if (module._exports[exportIndex].name === name) { exportKind = module._exports[exportIndex].kind; break; }
+                                if (exportKind === 2) {
+                                    var nativeMemory = native.getMemory(nativeInstance, name);
+                                    if (nativeMemory !== undefined && nativeMemory !== null) intrinsic_Object_setPrototypeOf(nativeMemory, WebAssembly.Memory.prototype);
+                                    return nativeMemory;
+                                }
+                                if (exportKind === 3) {
+                                    var nativeGlobal = native.getGlobal(nativeInstance, name);
+                                    if (nativeGlobal !== undefined && nativeGlobal !== null) intrinsic_Object_setPrototypeOf(nativeGlobal, WebAssembly.Global.prototype);
+                                    return nativeGlobal;
+                                }
+                                if (exportKind === 1) {
+                                    var nativeTable = native.getTable(nativeInstance, name);
+                                    if (nativeTable !== undefined && nativeTable !== null) intrinsic_Object_setPrototypeOf(nativeTable, WebAssembly.Table.prototype);
+                                    return nativeTable;
+                                }
+                                if (exportKind !== 0) return undefined;
+                                return function() { return native.invoke(nativeInstance, name, arrayFrom(arguments)); };
+                            }});
+                            return;
+                        }
+                    }
                     var importedFunctions = []; var importedMemories = []; var importedTables = []; var importedGlobals = []; module._imports.forEach(function(entry) { if (!imports || !imports[entry.module] || imports[entry.module][entry.name] === undefined) throw new TypeError('Missing WebAssembly import: ' + entry.module + '.' + entry.name); if (entry.kind === 0) { if (typeof imports[entry.module][entry.name] !== 'function') throw new TypeError('WebAssembly function import is not callable.'); importedFunctions.push(imports[entry.module][entry.name]); } else if (entry.kind === 1) { if (!(imports[entry.module][entry.name] instanceof WebAssembly.Table)) throw new TypeError('WebAssembly table import is not a Table.'); importedTables.push(imports[entry.module][entry.name]); } else if (entry.kind === 2) { if (!(imports[entry.module][entry.name] instanceof WebAssembly.Memory)) throw new TypeError('WebAssembly memory import is not a Memory.'); importedMemories.push(imports[entry.module][entry.name]); } else if (entry.kind === 3) { if (!(imports[entry.module][entry.name] instanceof WebAssembly.Global)) throw new TypeError('WebAssembly global import is not a Global.'); importedGlobals.push(imports[entry.module][entry.name]); } });
                     requireAllowed(); this.module = module; this.exports = {}; var functionTables = importedTables.slice(); var functionGlobals = importedGlobals.slice(); var invokeFunction = function(index, args) { requireAllowed(); if (index < module._functionImportCount) { var result = importedFunctions[index].apply(undefined, args); requireAllowed(); return result; } var localBody = module._functions[index - module._functionImportCount]; if (!localBody) throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); return __folio_wasm_call(localBody, args, this, importedFunctions, invokeFunction, functionTables, functionGlobals); };
                     module._exports.forEach(function(entry) { if (entry.kind === 0) { var functionIndex = entry.index - module._functionImportCount; this.exports[entry.name] = entry.index < module._functionImportCount ? function() { requireAllowed(); var result = importedFunctions[entry.index].apply(undefined, arguments); requireAllowed(); return result; } : functionIndex >= 0 && module._functions[functionIndex] ? function() { return __folio_wasm_call(module._functions[functionIndex], arguments, this, importedFunctions, invokeFunction, functionTables, functionGlobals); } : function() { throw new WebAssembly.CompileError('WebAssembly function body is unavailable.'); }; } else if (entry.kind === 1 && importedTables[entry.index]) this.exports[entry.name] = importedTables[entry.index]; else if (entry.kind === 1 && module._tables[entry.index - importedTables.length]) { var table = module._tables[entry.index - importedTables.length]; var localTable = new WebAssembly.Table({ initial: table.initial, maximum: table.maximum }); functionTables.push(localTable); this.exports[entry.name] = localTable; } else if (entry.kind === 2 && importedMemories[entry.index]) this.exports[entry.name] = importedMemories[entry.index]; else if (entry.kind === 2 && module._memories[entry.index - importedMemories.length]) { var memory = module._memories[entry.index - importedMemories.length]; this.exports[entry.name] = new WebAssembly.Memory({ initial: memory.initial, maximum: memory.maximum }); } else if (entry.kind === 3 && importedGlobals[entry.index]) this.exports[entry.name] = importedGlobals[entry.index]; else if (entry.kind === 3 && module._globals[entry.index - importedGlobals.length] !== undefined) { var localGlobal = new WebAssembly.Global({ value: 'i32', mutable: false }, module._globals[entry.index - importedGlobals.length]); functionGlobals.push(localGlobal); this.exports[entry.name] = localGlobal; } }, this);
@@ -204,7 +236,7 @@ internal static class WebAssemblyBindings
                 requireAllowed();
                 delta = Number(delta); var previous = this._pages; var next = previous + delta;
                 if (!intrinsic_Number_isInteger(delta) || delta < 0 || next > this._maximum || next > __folio_wasm_max_pages) throw new RangeError('WebAssembly memory limit exceeded.');
-                requireAllowed(); this._pages = next; this.buffer = new ArrayBuffer(next * 65536); return previous;
+                requireAllowed(); var previousBuffer = this.buffer; var nextBuffer = new ArrayBuffer(next * 65536); new Uint8Array(nextBuffer).set(new Uint8Array(previousBuffer)); this._pages = next; this.buffer = nextBuffer; return previous;
             };
             intrinsic_Object_defineProperty(WebAssembly.Table.prototype, 'length', { get: function() { return this._entries.length; } });
             WebAssembly.Table.prototype.grow = function(delta, value) {
@@ -234,5 +266,6 @@ internal static class WebAssemblyBindings
             globalThis.WebAssembly = facade;
         })(__folio_wasm_host);
         delete globalThis.__folio_wasm_host;
+        delete globalThis.__folio_native_wasm;
         """;
 }

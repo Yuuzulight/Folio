@@ -11,7 +11,7 @@ namespace Folio.Scripting.Dom;
 
 internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMediaFrameSource, IFeatureFallbackSource
 {
-    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null, bool deferLoad = false)
+    public MediaElementState(IScriptEngine engine, IHostObjectTemplate eventTemplate, ElementNode element, bool enabled, bool allowSoundAutoplay = false, IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? audioOutput = null, IMediaDecoder? decoder = null, int maxMediaBytes = 128 * 1024 * 1024, MediaResourceBudget? mediaBudget = null, bool soundEnabled = false, Func<bool>? checkSoundPermission = null, Func<bool>? checkMediaPermission = null, Func<ScriptValue, MediaCaptureVideoFrame?>? captureFrame = null, Func<ScriptValue, MediaAudioFrame?>? captureAudio = null, bool deferLoad = false)
     {
         Engine = engine;
         EventTemplate = eventTemplate;
@@ -31,6 +31,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         _soundEnabled = soundEnabled;
         _checkSoundPermission = checkSoundPermission;
         _checkMediaPermission = checkMediaPermission;
+        _captureFrame = captureFrame;
+        _captureAudio = captureAudio;
         _capabilityDisabled = !enabled;
         element.MediaPresentation = this;
         if (!deferLoad) Initialize();
@@ -48,9 +50,12 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     public bool Enabled { get; private set; }
     public bool AllowSoundAutoplay { get; }
     private bool _captureVideo;
-    public int Width => _captureVideo ? 640 : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : _frameImage?.Width ?? 300;
-    public int Height => _captureVideo ? 360 : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150;
+    private int _captureWidth = 640;
+    private int _captureHeight = 360;
+    public int Width => _captureVideo ? _captureWidth : int.TryParse(Element.GetAttribute("data-width"), out var width) ? Math.Clamp(width, 0, 4096) : _frameImage?.Width ?? 300;
+    public int Height => _captureVideo ? _captureHeight : int.TryParse(Element.GetAttribute("data-height"), out var height) ? Math.Clamp(height, 0, 4096) : _frameImage?.Height ?? 150;
     private IImageHandle? _frameImage;
+    private MediaVideoFrame[]? _videoFrames;
     private readonly IMediaAudioOutput? _audioOutput;
     private readonly IMediaDecoder? _decoder;
     private readonly int _maxMediaBytes;
@@ -58,24 +63,47 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     private volatile bool _soundEnabled;
     private readonly Func<bool>? _checkSoundPermission;
     private readonly Func<bool>? _checkMediaPermission;
+    private readonly Func<ScriptValue, MediaCaptureVideoFrame?>? _captureFrame;
+    private readonly Func<ScriptValue, MediaAudioFrame?>? _captureAudio;
+    private ScriptValue _captureTrack = ScriptValue.Undefined;
     private bool _soundPlaybackAuthorized;
     private MediaResourceBudget.Lease? _reservation;
+    private MediaResourceBudget.Lease? _posterReservation;
+    private MediaResourceBudget.Lease? _captureReservation;
     private long _loadGeneration;
     private long _posterGeneration;
+    private bool _posterSharesMediaSource;
     private bool _retired;
     private bool _hasSource;
+    private string _currentSource = "";
     private MediaAudioFrame? _audioFrame;
     private int _audioCursor;
     private byte[]? _framePixels;
-    public ReadOnlyMemory<byte> Pixels => _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
+    public ReadOnlyMemory<byte> Pixels
+    {
+        get
+        {
+            RefreshCaptureFrame();
+            return _frameImage?.Pixels ?? (_framePixels ??= new byte[Math.Min((long)Width * Height * 4, 16 * 1024 * 1024)]);
+        }
+    }
     public double CurrentTime { get; private set; }
     public double Duration { get; private set; }
     public bool Paused { get; set; } = true;
     public bool Ended { get; set; }
     public double Volume { get; set; } = 1;
     public IMediaPoster? Poster { get; private set; }
-    public IMediaPoster? CurrentFrame => _frameImage is { } image ? new FrameImage(image)
-        : _captureVideo && _framePixels is { } pixels ? new MediaPosterImage(Width, Height, pixels) : null;
+    // A decoded video frame is the presentation while playback is active. While paused at time zero the poster (or
+    // the media element's native placeholder) remains visible until play starts.
+    public IMediaPoster? CurrentFrame
+    {
+        get
+        {
+            RefreshCaptureFrame();
+            return !Paused && _frameImage is { } image ? new FrameImage(image)
+                : _captureVideo && _framePixels is { } pixels ? new MediaPosterImage(Width, Height, pixels) : null;
+        }
+    }
 
     private sealed class FrameImage(IImageHandle image) : IMediaPoster
     {
@@ -127,7 +155,10 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         ReleaseResource();
         SrcObject = value;
         _captureVideo = false;
+        _captureWidth = 640;
+        _captureHeight = 360;
         _framePixels = null;
+        _captureTrack = ScriptValue.Undefined;
         if (_retired || !Enabled || _checkMediaPermission is not null && !_checkMediaPermission())
         {
             Error = "Media is disabled by the host.";
@@ -148,6 +179,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (!LoadStillCurrent(generation)) return;
         var video = false;
         var audio = false;
+        _audioFrame = null;
         foreach (var track in tracks)
         {
             var kind = Engine.GetProperty(track, "kind").AsString();
@@ -155,17 +187,50 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             if (!LoadStillCurrent(generation)) return;
             video |= live && kind == "video";
             audio |= live && kind == "audio";
+            if (live && kind == "audio") _audioFrame ??= _captureAudio?.Invoke(track);
         }
         _captureVideo = video;
         _hasSource = video || audio;
         if (_captureVideo)
-            _framePixels = CreateCaptureFrame();
+        {
+            _framePixels = CreateCaptureFrame(tracks);
+            _captureReservation = _budget.AcquireBytes();
+            var captureBytes = (long)_framePixels.LongLength;
+            if (_captureReservation is null || !_captureReservation.Resize(captureBytes))
+            {
+                _captureReservation?.Dispose();
+                _captureReservation = null;
+                _captureVideo = false;
+                _hasSource = audio;
+                Error = "Captured video exceeds the host media budget.";
+                _fallback = new(FallbackFeature.Video, FallbackReason.ResourceLimit);
+                return;
+            }
+            foreach (var track in tracks)
+                if (Engine.GetProperty(track, "kind").AsString() == "video" && Engine.GetProperty(track, "readyState").AsString() == "live")
+                { _captureTrack = track; break; }
+        }
         if (video || audio)
             _fallback = Element.LocalName == "audio" && !_soundEnabled ? new(FallbackFeature.Sound, FallbackReason.HostDenied) : null;
     }
 
-    private byte[] CreateCaptureFrame()
+    private byte[] CreateCaptureFrame(IReadOnlyList<ScriptValue> tracks)
     {
+        if (_captureFrame is not null)
+        {
+            foreach (var track in tracks)
+            {
+                var kind = Engine.GetProperty(track, "kind").AsString();
+                if (kind != "video") continue;
+                var frame = _captureFrame(track);
+                if (frame is { IsValid: true } && frame.Value.Rgba.Length <= 16 * 1024 * 1024)
+                {
+                    _captureWidth = frame.Value.Width;
+                    _captureHeight = frame.Value.Height;
+                    return frame.Value.Rgba.ToArray();
+                }
+            }
+        }
         var width = Width;
         var height = Height;
         var pixels = new byte[Math.Min((long)width * height * 4, 16 * 1024 * 1024)];
@@ -179,6 +244,16 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             pixels[offset + 3] = 255;
         }
         return pixels;
+    }
+
+    private void RefreshCaptureFrame()
+    {
+        if (!_captureVideo || !_captureTrack.IsObject || _captureFrame is null) return;
+        var frame = _captureFrame(_captureTrack);
+        if (frame is not { IsValid: true } || frame.Value.Rgba.Length > 16 * 1024 * 1024) return;
+        _captureWidth = frame.Value.Width;
+        _captureHeight = frame.Value.Height;
+        _framePixels = frame.Value.Rgba.ToArray();
     }
     public int ReadyState => Enabled && Error is null && _hasSource ? 4 : 0;
     public int NetworkState => Enabled && Error is null && _hasSource ? 1 : 0;
@@ -199,6 +274,13 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     {
         if (Muted == muted) return;
         Muted = muted;
+        // A blocked audible autoplay is a policy failure, not a permanent media
+        // error. Once the element is muted, the caller may retry play().
+        if (muted && Error?.Contains("autoplay", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            Error = null;
+            _fallback = null;
+        }
         AudioFlush();
         Dispatch(OnVolumeChange, "volumechange");
     }
@@ -217,11 +299,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         value = Duration > 0 ? Math.Clamp(value, 0, Duration) : Math.Max(0, value);
         AudioFlush();
         if (_audioFrame is { } frame) _audioCursor = AudioPosition(frame, value);
-        Dispatch(ScriptValue.Null, "seeking");
+        Dispatch(OnSeeking, "seeking");
         var wasEnded = Ended;
         SetCurrentTime(value);
         if (Ended && !wasEnded) Dispatch(OnEnded, "ended");
-        Dispatch(ScriptValue.Null, "seeked");
+        Dispatch(OnSeeked, "seeked");
     }
     internal void StopPlayback()
     {
@@ -243,6 +325,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     {
         var previousTime = CurrentTime;
         CurrentTime = Math.Max(0, value);
+        SelectVideoFrame();
         if (CurrentTime < previousTime && _audioFrame is { } rewind)
             _audioCursor = AudioPosition(rewind, CurrentTime);
         foreach (var track in TextTracks)
@@ -275,7 +358,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             {
                 Mode = element.GetAttribute("default") is not null ? "showing" : "disabled"
             };
-            var bytes = LoadSourceBytes(element.GetAttribute("src"), _resourceLoader, _baseUri);
+            var bytes = LoadSource(element.GetAttribute("src"), _resourceLoader, _baseUri).Data;
             if (bytes is not null)
             {
                 foreach (var cue in WebVttParser.Parse(System.Text.Encoding.UTF8.GetString(bytes)))
@@ -328,6 +411,9 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     public ScriptValue OnLoadedMetadata { get; set; } = ScriptValue.Null;
     public ScriptValue OnLoadedData { get; set; } = ScriptValue.Null;
     public ScriptValue OnCanPlay { get; set; } = ScriptValue.Null;
+    public ScriptValue OnCanPlayThrough { get; set; } = ScriptValue.Null;
+    public ScriptValue OnLoadStart { get; set; } = ScriptValue.Null;
+    public ScriptValue OnDurationChange { get; set; } = ScriptValue.Null;
     public ScriptValue OnPlaying { get; set; } = ScriptValue.Null;
     public ScriptValue OnTimeUpdate { get; set; } = ScriptValue.Null;
     public ScriptValue OnRateChange { get; set; } = ScriptValue.Null;
@@ -336,6 +422,8 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     public ScriptValue OnEnded { get; set; } = ScriptValue.Null;
     public ScriptValue OnVolumeChange { get; set; } = ScriptValue.Null;
     public ScriptValue OnError { get; set; } = ScriptValue.Null;
+    public ScriptValue OnSeeking { get; set; } = ScriptValue.Null;
+    public ScriptValue OnSeeked { get; set; } = ScriptValue.Null;
     private readonly Dictionary<string, List<ScriptValue>> _listeners = new(StringComparer.Ordinal);
     private readonly IResourceLoader? _resourceLoader;
     private readonly Uri? _baseUri;
@@ -361,6 +449,22 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         var permitted = _checkMediaPermission?.Invoke() ?? Enabled;
         if (!permitted || !Enabled || Error is not null) { Error ??= "Media playback is unavailable."; return false; }
         if (autoplay && !Muted && !DefaultMuted && !AllowSoundAutoplay) { Error = "Audible autoplay is blocked by the host policy."; return false; }
+        if (!Paused)
+        {
+            // A sound-capability revocation may leave media playback running silently. A
+            // subsequent play() after re-grant must re-arm the output without duplicating
+            // the play/playing lifecycle events for an already-running element.
+            if (_audioFrame is not null && !_soundPlaybackAuthorized)
+            {
+                _soundPlaybackAuthorized = !Muted && Volume > 0 && SoundPermissionGranted();
+                if (_soundPlaybackAuthorized)
+                {
+                    AudioStart();
+                    SubmitAudioThrough(CurrentTime);
+                }
+            }
+            return true;
+        }
         if (Ended) Seek(0);
         Paused = false;
         _soundPlaybackAuthorized = _audioFrame is not null && !Muted && Volume > 0 ? SoundPermissionGranted() : _soundEnabled;
@@ -377,10 +481,13 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
 
     public void Pause()
     {
+        if (Paused) return;
         Paused = true;
         AudioPause();
         Dispatch(OnPause, "pause");
     }
+
+    internal string CurrentSource => _currentSource;
 
     internal void AdvancePlayback(double seconds)
     {
@@ -403,6 +510,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             {
                 Paused = true;
                 // The final queued PCM must drain. Stop/reset is reserved for teardown.
+                Dispatch(OnPause, "pause");
                 Dispatch(OnEnded, "ended");
             }
             return;
@@ -426,18 +534,17 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (Error is { }) Dispatch(OnError, "error");
         else
         {
-            Dispatch(ScriptValue.Null, "loadstart");
-            if (Duration != previousDuration) Dispatch(ScriptValue.Null, "durationchange");
+            Dispatch(OnLoadStart, "loadstart");
+            if (Duration != previousDuration) Dispatch(OnDurationChange, "durationchange");
             Dispatch(OnLoadedMetadata, "loadedmetadata");
             Dispatch(OnLoadedData, "loadeddata");
             Dispatch(OnCanPlay, "canplay");
-            Dispatch(ScriptValue.Null, "canplaythrough");
+            Dispatch(OnCanPlayThrough, "canplaythrough");
         }
     }
 
     public string CanPlayType(string type)
     {
-        if (!Enabled) return "";
         var mime = type.Trim().ToLowerInvariant().Split(';', 2)[0];
         return mime switch
         {
@@ -447,27 +554,62 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         };
     }
 
-    private static byte[]? LoadSourceBytes(string? source, IResourceLoader? resourceLoader, Uri? baseUri)
+    private static (byte[]? Data, string? ContentType) LoadSource(
+        string? source,
+        IResourceLoader? resourceLoader,
+        Uri? baseUri,
+        ResourceKind kind = ResourceKind.Media)
     {
-        if (string.IsNullOrWhiteSpace(source)) return null;
+        if (string.IsNullOrWhiteSpace(source)) return (null, null);
         if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             var comma = source.IndexOf(',');
-            if (comma < 0) return null;
+            if (comma < 0) return (null, null);
             try
             {
                 var payload = source[(comma + 1)..];
-                return source[..comma].Contains(";base64", StringComparison.OrdinalIgnoreCase)
+                var metadata = source[5..comma];
+                var contentType = metadata.Split(';', 2)[0] is { Length: > 0 } type ? type : null;
+                var data = metadata.Contains(";base64", StringComparison.OrdinalIgnoreCase)
                     ? Convert.FromBase64String(payload)
                     : System.Text.Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+                return (data, contentType);
             }
-            catch (FormatException) { return null; }
+            catch (FormatException) { return (null, null); }
         }
-        if (resourceLoader is null) return null;
+        if (resourceLoader is null) return (null, null);
         if (baseUri is not null && Uri.TryCreate(baseUri, source, out var resolved)) source = resolved.AbsoluteUri;
-        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return null;
-        try { return resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, ResourceKind.Media), CancellationToken.None).GetAwaiter().GetResult()?.Data; }
-        catch { return null; }
+        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return (null, null);
+        try
+        {
+            var response = resourceLoader.LoadAsync(new ResourceRequest(uri.AbsoluteUri, kind), CancellationToken.None).GetAwaiter().GetResult();
+            return response is null ? (null, null) : (response.Data, response.ContentType);
+        }
+        catch { return (null, null); }
+    }
+
+    private string? SelectMediaSource()
+    {
+        var direct = Element.GetAttribute("src");
+        if (!string.IsNullOrWhiteSpace(direct))
+            return direct;
+        foreach (var child in Element.Children.OfType<ElementNode>())
+        {
+            if (child.LocalName != "source")
+                continue;
+            var source = child.GetAttribute("src");
+            if (string.IsNullOrWhiteSpace(source))
+                continue;
+            var type = child.GetAttribute("type");
+            var mediaType = type?.Trim().ToLowerInvariant().Split(';', 2)[0];
+            if (!string.IsNullOrWhiteSpace(type)
+                && (Element.LocalName == "audio" && mediaType is not null && !mediaType.StartsWith("audio/", StringComparison.Ordinal)
+                    || Element.LocalName == "video" && mediaType is not null && !mediaType.StartsWith("video/", StringComparison.Ordinal)))
+                continue;
+            if (string.IsNullOrWhiteSpace(type) || CanPlayType(type) is not "")
+                return source;
+        }
+        return null;
     }
 
     private static double ParseMediaDuration(byte[]? bytes)
@@ -480,11 +622,17 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     {
         _reservation?.Dispose();
         _reservation = null;
+        _captureReservation?.Dispose();
+        _captureReservation = null;
+        ReleasePoster();
         _frameImage = null;
+        _videoFrames = null;
         _audioFrame = null;
         _framePixels = null;
         SourceBytes = 0;
         _hasSource = false;
+        _currentSource = "";
+        _posterSharesMediaSource = false;
     }
 
     private void LoadResource()
@@ -494,7 +642,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (_retired) return;
         Error = null;
         _fallback = null;
-        RefreshPoster();
+        var selectedSource = SelectMediaSource();
+        _posterSharesMediaSource = !string.IsNullOrWhiteSpace(selectedSource)
+            && string.Equals(Element.GetAttribute("poster"), selectedSource, StringComparison.Ordinal);
+        if (!_posterSharesMediaSource)
+            RefreshPoster();
         if (generation != _loadGeneration || _retired) return;
         Duration = double.TryParse(Element.GetAttribute("data-duration"), out var declaredDuration) ? Math.Max(0, declaredDuration) : 0;
         if (!Enabled || _checkMediaPermission is not null && !_checkMediaPermission())
@@ -503,14 +655,16 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _fallback = new(Element.LocalName == "video" ? FallbackFeature.Video : FallbackFeature.Audio, FallbackReason.HostDenied);
             return;
         }
-        var source = Element.GetAttribute("src");
+        var source = selectedSource;
         var video = Element.LocalName == "video";
         if (string.IsNullOrWhiteSpace(source))
             return;
+        _currentSource = source;
         _reservation = _budget.Acquire();
         if (_reservation is null) { RejectForBudget("Media decoder limit exceeded."); return; }
         _hasSource = true;
-        var bytes = LoadSourceBytes(source, _resourceLoader, _baseUri);
+        var sourceResult = LoadSource(source, _resourceLoader, _baseUri);
+        var bytes = sourceResult.Data;
         if (!LoadStillCurrent(generation))
         {
             if (generation == _loadGeneration)
@@ -542,7 +696,7 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         MediaDecodeResult? decoded = null;
         if (_decoder is not null && outputLimit > 0)
         {
-            try { decoded = _decoder.Decode(bytes, null, video, outputLimit); }
+            try { decoded = _decoder.Decode(bytes, sourceResult.ContentType, video, outputLimit); }
             catch
             {
                 if (generation != _loadGeneration) return;
@@ -563,17 +717,24 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (decoded is not null)
         {
             var frame = decoded.VideoFrame;
+            var frames = decoded.VideoFrames?.ToArray();
+            if (frames is { Length: > 0 })
+                frame = frames[0].Frame;
             var audio = decoded.Audio;
             // Check host output before retaining it or exposing it to canvas/audio.
             if (frame is not null && (frame.Width <= 0 || frame.Height <= 0 || frame.Width > outputLimit / 4 / frame.Height))
             { RejectResourceBudget(); return; }
-            var pixelBytes = frame is null ? 0 : (long)frame.Width * frame.Height * 4;
+            var frameBytes = 0L;
+            if (frames is not null && !ValidateVideoFrames(frames, outputLimit, out frameBytes))
+            { RejectResourceBudget(); return; }
+            var pixelBytes = frames is { Length: > 0 } ? frameBytes : frame is null ? 0 : (long)frame.Width * frame.Height * 4;
             var audioBytes = audio is null ? 0 : (long)audio.Value.Samples.Length * sizeof(float);
-            if (pixelBytes < 0 || frame is not null && (frame.Width <= 0 || frame.Height <= 0 || frame.Pixels.Length != pixelBytes) ||
+            if (pixelBytes < 0 || frames is null && frame is not null && (frame.Width <= 0 || frame.Height <= 0 || frame.Pixels.Length != pixelBytes) ||
                 audio is { } pcm && (pcm.SampleRate <= 0 || pcm.Channels <= 0 || pcm.Samples.Length % pcm.Channels != 0) ||
                 pixelBytes > outputLimit || audioBytes > outputLimit - pixelBytes)
             { RejectResourceBudget(); return; }
-            _frameImage = frame;
+            _videoFrames = frames;
+            _frameImage = frames is { Length: > 0 } ? frames[0].Frame : frame;
             _audioFrame = audio;
         }
         else if (video)
@@ -584,7 +745,14 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _audioFrame = DecodeWav(bytes, outputLimit, out var exceedsBudget);
             if (exceedsBudget) { RejectResourceBudget(); return; }
         }
-        var allocated = SourceBytes + (_frameImage?.Pixels.Length ?? 0) + (long)(_audioFrame?.Samples.Length ?? 0) * sizeof(float);
+        // A timestamped video decode retains the complete bounded sequence, not
+        // only the frame currently selected for painting. Charge every retained
+        // frame to the shared document budget so playback cannot under-account
+        // decoded pixels while advancing its clock.
+        var videoBytes = _videoFrames is { Length: > 0 }
+            ? _videoFrames.Sum(frame => (long)frame.Frame.Pixels.Length)
+            : _frameImage?.Pixels.Length ?? 0;
+        var allocated = SourceBytes + videoBytes + (long)(_audioFrame?.Samples.Length ?? 0) * sizeof(float);
         if (!_reservation.Resize(allocated)) { RejectResourceBudget(); return; }
         if (Duration <= 0) Duration = decoded?.Duration > 0 ? decoded.Duration : ParseMediaDuration(bytes);
         if (!LooksLikeMedia(bytes) && _frameImage is null && _audioFrame is null)
@@ -601,7 +769,47 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _fallback = !video && !_soundEnabled
                 ? new(FallbackFeature.Sound, FallbackReason.HostDenied)
                 : null;
+        if (_posterSharesMediaSource)
+        {
+            if (_frameImage is not null && _videoFrames is null)
+                Poster = new FrameImage(_frameImage);
+            else
+            {
+                _posterSharesMediaSource = false;
+                RefreshPoster();
+            }
+        }
         if (Error is not null) ReleaseResource();
+    }
+
+    private bool ValidateVideoFrames(MediaVideoFrame[] frames, int outputLimit, out long totalBytes)
+    {
+        totalBytes = 0;
+        var previous = -1d;
+        foreach (var item in frames)
+        {
+            if (!double.IsFinite(item.Time) || item.Time < 0 || item.Time < previous || item.Frame is null ||
+                item.Frame.Width <= 0 || item.Frame.Height <= 0 || item.Frame.Width > outputLimit / 4 / item.Frame.Height)
+                return false;
+            var bytes = checked((long)item.Frame.Width * item.Frame.Height * 4);
+            if (item.Frame.Pixels.Length != bytes || bytes > outputLimit - totalBytes)
+                return false;
+            totalBytes += bytes;
+            previous = item.Time;
+        }
+        return true;
+    }
+
+    private void SelectVideoFrame()
+    {
+        if (_videoFrames is not { Length: > 0 } frames) return;
+        var selected = frames[0].Frame;
+        foreach (var frame in frames)
+        {
+            if (frame.Time > CurrentTime) break;
+            selected = frame.Frame;
+        }
+        _frameImage = selected;
     }
 
     internal void RefreshPoster()
@@ -609,9 +817,36 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
         if (_retired) return;
         var generation = ++_posterGeneration;
         var source = Element.GetAttribute("poster");
-        var bytes = LoadSourceBytes(source, _resourceLoader, _baseUri);
+        if (_posterSharesMediaSource && _frameImage is not null && _videoFrames is null
+            && string.Equals(source, SelectMediaSource(), StringComparison.Ordinal))
+        {
+            Poster = new FrameImage(_frameImage);
+            return;
+        }
+        _posterSharesMediaSource = false;
+        var bytes = LoadSource(source, _resourceLoader, _baseUri, ResourceKind.Image).Data;
         if (generation != _posterGeneration || _retired || Element.GetAttribute("poster") != source) return;
-        Poster = DecodePoster(bytes);
+        ReleasePoster();
+        var poster = DecodePoster(bytes);
+        if (poster is null) { Poster = null; return; }
+        var reservation = _budget.AcquireBytes();
+        var posterBytes = (bytes?.LongLength ?? 0) + poster.Pixels.Length;
+        if (reservation is null || !reservation.Resize(posterBytes))
+        {
+            reservation?.Dispose();
+            Poster = null;
+            RejectForBudget("Media poster exceeds the host budget.");
+            return;
+        }
+        _posterReservation = reservation;
+        Poster = poster;
+    }
+
+    private void ReleasePoster()
+    {
+        _posterReservation?.Dispose();
+        _posterReservation = null;
+        Poster = null;
     }
 
     private void RejectResourceBudget()

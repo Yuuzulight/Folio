@@ -1,3 +1,3 @@
-<!doctype html><canvas id="c" width="800" height="450"></canvas><button id="reset">Reset</button><script>
-const gl=c.getContext('webgl2'); reset.onclick=()=>{if(gl){gl.clearColor(.12,.03,.18,1);gl.clear(gl.COLOR_BUFFER_BIT);}};
+<!doctype html><canvas id="c" width="800" height="450"></canvas><button id="reset">Reset</button><output id="result" style="display:none"></output><script>
+const canvas=document.getElementById('c'), reset=document.getElementById('reset'), result=document.getElementById('result'), gl=canvas.getContext('webgl2'); result.textContent=gl?'shader-ready':'shader-failed'; reset.onclick=()=>{if(gl){gl.clearColor(.12,.03,.18,1);gl.clear(gl.COLOR_BUFFER_BIT);}result.textContent='shader-reset';};
 </script>

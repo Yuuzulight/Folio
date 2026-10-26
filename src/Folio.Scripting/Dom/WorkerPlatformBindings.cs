@@ -26,6 +26,20 @@ internal static class WorkerPlatformBindings
             .DefineMethod("console", (t, _, a) => { ((HostState)t).Console(a.Length > 0 ? a[0].AsString() ?? "log" : "log", a.Length > 1 ? a[1].AsString() ?? "" : ""); return ScriptValue.Undefined; })
             .DefineMethod("blobUrl", (t, _, a) => ((HostState)t).BlobUrl(a.Length == 0 ? "" : a[0].AsString() ?? ""))
             .DefineMethod("revokeBlobUrl", (t, _, a) => { ((HostState)t).RevokeBlobUrl(a.Length > 0 ? a[0].AsString() ?? "" : ""); return ScriptValue.Undefined; });
+        if (engine is Folio.Scripting.Native.NativeJavaScriptEngine)
+        {
+            var navigator = engine.CreatePlainObject(new Dictionary<string, ScriptValue>
+            {
+                ["userAgent"] = ScriptValue.FromString("Folio"),
+                ["hardwareConcurrency"] = ScriptValue.FromNumber(Environment.ProcessorCount),
+                ["language"] = ScriptValue.FromString(System.Globalization.CultureInfo.CurrentUICulture.Name is { Length: > 0 } language ? language : "en-US"),
+            });
+            engine.SetGlobalProperty("navigator", navigator);
+            engine.SetGlobalProperty("console", engine.CreateHostObject(new HostObjectTemplate("NativeWorkerConsole")
+                .DefineMethod("log", (target, _, args) => { ((HostState)target).Console("log", args.Length > 0 ? args[0].AsString() ?? "" : ""); return ScriptValue.Undefined; })
+                .DefineMethod("warn", (target, _, args) => { ((HostState)target).Console("warn", args.Length > 0 ? args[0].AsString() ?? "" : ""); return ScriptValue.Undefined; }), host));
+            return;
+        }
         engine.SetGlobalProperty("__folio_worker_platform", engine.CreateHostObject(template, host));
         engine.EvaluateHostScript(Source, "folio:worker-platform");
         engine.Evaluate("delete globalThis.__folio_worker_platform;", "folio:worker-platform-cleanup");

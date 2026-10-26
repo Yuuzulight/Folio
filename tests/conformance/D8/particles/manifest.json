@@ -1,1 +1,1 @@
-{"prompt":"Create a particle field animated with WebGL points and a pause control.","features":["script","webgl","points","request-animation-frame"],"viewport":800}
+{"prompt":"Create a particle field animated with WebGL points and a pause control.","interaction":["wait 50","text #result particles-running","click #pause","text #result particles-paused"],"features":["script","webgl","points","request-animation-frame"],"viewport":800}

@@ -25,14 +25,16 @@ public sealed class IdlParser
         var interfaces = new List<IdlInterface>();
         var dictionaries = new List<IdlDictionary>();
         var enums = new List<IdlEnum>();
+        var typedefs = new List<IdlTypedef>();
 
         SkipWhitespaceAndComments();
         while (_pos < _source.Length)
         {
+            var topLevelAttrs = ParseExtendedAttributes();
             var word = PeekWord();
             if (word == "interface")
             {
-                interfaces.Add(ParseInterface());
+                interfaces.Add(ParseInterface(topLevelAttrs));
             }
             else if (word == "dictionary")
             {
@@ -42,6 +44,14 @@ public sealed class IdlParser
             {
                 enums.Add(ParseEnum());
             }
+            else if (word == "typedef")
+            {
+                Expect("typedef");
+                var type = ParseType();
+                var name = ReadIdentifier();
+                Expect(";");
+                typedefs.Add(new IdlTypedef(name, type));
+            }
             else
             {
                 throw new FormatException($"Unexpected top-level construct '{word}' at index {_pos}");
@@ -49,7 +59,7 @@ public sealed class IdlParser
             SkipWhitespaceAndComments();
         }
 
-        return new IdlDocument(interfaces, dictionaries, enums);
+        return new IdlDocument(interfaces, dictionaries, enums, typedefs);
     }
 
     private IdlEnum ParseEnum()
@@ -122,7 +132,7 @@ public sealed class IdlParser
         return new IdlDictionary(name, inherits, members);
     }
 
-    private IdlInterface ParseInterface()
+    private IdlInterface ParseInterface(IReadOnlyDictionary<string, string?>? topLevelAttrs = null)
     {
         Expect("interface");
         var name = ReadIdentifier();
@@ -258,7 +268,7 @@ public sealed class IdlParser
         Expect("}");
         Expect(";");
 
-        return new IdlInterface(name, inherits, constants, attributes, operations, hasIterable, iterableType, indexedGetter, indexedSetter, namedGetter, namedSetter, namedDeleter);
+        return new IdlInterface(name, inherits, constants, attributes, operations, hasIterable, iterableType, indexedGetter, indexedSetter, namedGetter, namedSetter, namedDeleter, topLevelAttrs);
     }
 
     private Dictionary<string, string?> ParseExtendedAttributes()
@@ -398,9 +408,29 @@ public sealed class IdlParser
                 "DOMString" or "ByteString" or "USVString" => IdlTypeKind.String,
                 "any" => IdlTypeKind.Any,
                 "object" => IdlTypeKind.Object,
+                "BufferSource" => IdlTypeKind.BufferSource,
+                "ArrayBufferView" or "ArrayBuffer" or "DataView" or "Int8Array" or "Uint8Array" or
+                "Uint8ClampedArray" or "Int16Array" or "Uint16Array" or "Int32Array" or "Uint32Array" or
+                "Float16Array" or "Float32Array" or "Float64Array" or "BigInt64Array" or "BigUint64Array" or
+                "Int8List" or "Uint8List" or "Uint8ClampedList" or "Int16List" or "Uint16List" or
+                "Int32List" or "Uint32List" or "Float32List" or "Float64List" => IdlTypeKind.TypedArray,
                 _ => IdlTypeKind.Interface,
             };
             type = new IdlType(kind, typeName, EnforceRange: enforceRange, Clamp: clamp);
+            if (typeName is "Int8List" or "Uint8List" or "Uint8ClampedList" or "Int16List" or "Uint16List" or
+                "Int32List" or "Uint32List" or "Float32List" or "Float64List")
+            {
+                var itemName = typeName switch
+                {
+                    "Int8List" => "byte", "Uint8List" or "Uint8ClampedList" => "octet",
+                    "Int16List" => "short", "Uint16List" => "unsigned short",
+                    "Int32List" => "long", "Uint32List" => "unsigned long",
+                    "Float32List" => "float", _ => "double"
+                };
+                type = new IdlType(IdlTypeKind.Sequence, "sequence",
+                    EnforceRange: enforceRange, Clamp: clamp,
+                    SubTypes: [new IdlType(IdlTypeKind.Primitive, itemName)]);
+            }
         }
 
         SkipWhitespaceAndComments();

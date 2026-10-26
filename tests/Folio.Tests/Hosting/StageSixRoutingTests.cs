@@ -19,7 +19,6 @@ public sealed class StageSixRoutingTests
     [InlineData("<script>navigator.serviceWorker.register('sw.js')</script>")]
     [InlineData("<button onclick=\"new Worker('worker.js')\">run</button>")]
     [InlineData("<a href=\"javascript:navigator.serviceWorker.register('sw.js')\">run</a>")]
-    [InlineData("<script>new SharedWorker('worker.js')</script>")]
     public void HostPermissionDoesNotMakeAnUnbuiltFeatureAvailable(string html)
     {
         var result = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = AllCapabilities });
@@ -90,15 +89,16 @@ public sealed class StageSixRoutingTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public void SharedWorkersRemainUnsupportedIndependentlyOfDedicatedWorkers(bool built, bool granted)
+    public void SharedWorkersFollowTheDedicatedWorkerCapability(bool built, bool granted)
     {
         var result = ArtifactClassifier.Classify("<script>new SharedWorker('worker.js')</script>",
             new FolioOptions { Capabilities = new() { Workers = granted } },
             built ? ArtifactClassifier.ImplementedFeatures.Workers : ArtifactClassifier.ImplementedFeatures.None);
-        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-        Assert.Contains(result.Reasons, reason => reason.Contains("SharedWorker"));
+        Assert.Equal(built && granted ? ArtifactKind.Scripted : ArtifactKind.NeedsBrowser, result.Kind);
+        if (!built) Assert.Contains(result.Reasons, reason => reason.Contains("workers") && reason.Contains("not yet complete"));
+        if (!granted) Assert.Contains(result.Reasons, reason => reason.Contains("workers") && reason.Contains("has not granted"));
         Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify("<script>new window['SharedWorker']('worker.js')</script>",
-            new FolioOptions { Capabilities = AllCapabilities }, ArtifactClassifier.ImplementedFeatures.Workers).Kind);
+            new FolioOptions { Capabilities = AllCapabilities }, ArtifactClassifier.ImplementedFeatures.None).Kind);
     }
 
     [Fact]

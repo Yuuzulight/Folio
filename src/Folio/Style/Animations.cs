@@ -27,6 +27,32 @@ internal sealed record AnimationGroup(IReadOnlyList<string?> Names, IReadOnlyLis
     public IReadOnlyList<Easing> TimingFunctions { get; init; } = [Easing.Ease];
 
     public IReadOnlyList<AnimationPlayState> PlayStates { get; init; } = [AnimationPlayState.Running];
+
+    // CSS value lists are rebuilt during a targeted restyle. Record equality would compare the list references and
+    // make an unchanged animation look different on every pass, defeating incremental invalidation.
+    public bool Equals(AnimationGroup? other) => other is not null
+        && Names.SequenceEqual(other.Names)
+        && IterationCounts.SequenceEqual(other.IterationCounts)
+        && Directions.SequenceEqual(other.Directions)
+        && FillModes.SequenceEqual(other.FillModes)
+        && Durations.SequenceEqual(other.Durations)
+        && Delays.SequenceEqual(other.Delays)
+        && TimingFunctions.SequenceEqual(other.TimingFunctions)
+        && PlayStates.SequenceEqual(other.PlayStates);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var value in Names) hash.Add(value);
+        foreach (var value in IterationCounts) hash.Add(value);
+        foreach (var value in Directions) hash.Add(value);
+        foreach (var value in FillModes) hash.Add(value);
+        foreach (var value in Durations) hash.Add(value);
+        foreach (var value in Delays) hash.Add(value);
+        foreach (var value in TimingFunctions) hash.Add(value);
+        foreach (var value in PlayStates) hash.Add(value);
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>
@@ -38,6 +64,24 @@ internal sealed record TransitionGroup(IReadOnlyList<string> Properties, IReadOn
                                        IReadOnlyList<float> Delays, IReadOnlyList<TransitionBehavior> Behaviors)
 {
     public static TransitionGroup Initial { get; } = new(["all"], [0], [Easing.Ease], [0], [TransitionBehavior.Normal]);
+
+    public bool Equals(TransitionGroup? other) => other is not null
+        && Properties.SequenceEqual(other.Properties)
+        && Durations.SequenceEqual(other.Durations)
+        && TimingFunctions.SequenceEqual(other.TimingFunctions)
+        && Delays.SequenceEqual(other.Delays)
+        && Behaviors.SequenceEqual(other.Behaviors);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var value in Properties) hash.Add(value);
+        foreach (var value in Durations) hash.Add(value);
+        foreach (var value in TimingFunctions) hash.Add(value);
+        foreach (var value in Delays) hash.Add(value);
+        foreach (var value in Behaviors) hash.Add(value);
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>One keyframe block of a <c>@keyframes</c> rule: its offsets (0 to 1) and declarations.</summary>

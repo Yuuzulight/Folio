@@ -4,6 +4,8 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Channels;
 using Folio.Resources;
+using Folio.Hosting;
+using Folio.Imaging;
 
 namespace Folio.Scripting.Ipc;
 
@@ -15,6 +17,10 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     private readonly ContentProcessSupervisor _supervisor;
     private readonly ContentResourcePolicy? _resourcePolicy;
     private readonly IResourceLoader? _resourceLoader;
+    private readonly IMediaDecoder? _mediaDecoder;
+    private readonly IMediaAudioOutput? _mediaAudioOutput;
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _mediaCaptureRequests = new();
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<MediaDecodeResult?>> _mediaDecodeRequests = new();
     private readonly ConcurrentDictionary<long, TaskCompletionSource<ResourceResponse>> _resourceRequests = new();
     private readonly SemaphoreSlim _requestSlots = new(16, 16);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
@@ -25,15 +31,17 @@ public sealed partial class ContentHostSession : IAsyncDisposable
 
     /// <summary>Creates a session without a resource loader.</summary>
     public ContentHostSession(Stream input, Stream output, ContentProcessSupervisor? supervisor, ContentResourcePolicy? resourcePolicy)
-        : this(input, output, supervisor, resourcePolicy, null) { }
+        : this(input, output, supervisor, resourcePolicy, null, null, null) { }
 
-    public ContentHostSession(Stream input, Stream output, ContentProcessSupervisor? supervisor = null, ContentResourcePolicy? resourcePolicy = null, IResourceLoader? resourceLoader = null)
+    public ContentHostSession(Stream input, Stream output, ContentProcessSupervisor? supervisor = null, ContentResourcePolicy? resourcePolicy = null, IResourceLoader? resourceLoader = null, IMediaDecoder? mediaDecoder = null, IMediaAudioOutput? mediaAudioOutput = null)
     {
         _input = input ?? throw new ArgumentNullException(nameof(input));
         _output = output ?? throw new ArgumentNullException(nameof(output));
         _supervisor = supervisor ?? new ContentProcessSupervisor();
         _resourcePolicy = resourcePolicy;
         _resourceLoader = resourceLoader;
+        _mediaDecoder = mediaDecoder;
+        _mediaAudioOutput = mediaAudioOutput;
     }
 
     public event Func<ContentMessage, CancellationToken, ValueTask>? MessageReceived;
@@ -94,6 +102,8 @@ public sealed partial class ContentHostSession : IAsyncDisposable
                 if (message is null || message.Kind == ContentMessageKind.Shutdown) break;
                 _supervisor.Heartbeat();
                 if (message.Kind == ContentMessageKind.ResourceResponse) CompleteResource(message);
+                else if (message.Kind == ContentMessageKind.MediaDecodeResponse) CompleteMediaDecode(message);
+                else if (message.Kind == ContentMessageKind.MediaCaptureResponse) CompleteMediaCapture(message);
                 else if (message.Kind == ContentMessageKind.StorageResponse) CompleteStorage(message);
                 else
                 {
@@ -138,6 +148,28 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             var response = await LoadResourceAsync(message, cancellationToken).ConfigureAwait(false);
             await SendAsync(ContentMessageKind.ResourceResponse, new { requestId = message.Sequence, status = response.Succeeded ? 200 : 0, data = response.Data, contentType = response.ContentType, error = response.Error }, cancellationToken).ConfigureAwait(false);
         }
+        else if (message.Kind == ContentMessageKind.MediaDecodeRequest)
+        {
+            var response = await DecodeMediaAsync(message, cancellationToken).ConfigureAwait(false);
+            await SendAsync(ContentMessageKind.MediaDecodeResponse, new { requestId = message.Sequence, result = response }, cancellationToken).ConfigureAwait(false);
+        }
+        else if (message.Kind == ContentMessageKind.MediaAudioSubmit)
+        {
+            if (_mediaAudioOutput is not null && TryReadAudio(message.Payload, out var frame)) _mediaAudioOutput.Submit(frame);
+        }
+        else if (message.Kind == ContentMessageKind.MediaAudioLifecycle)
+        {
+            if (_mediaAudioOutput is IMediaAudioOutputLifecycle lifecycle && message.Payload.TryGetProperty("action", out var action))
+            {
+                switch (action.GetString())
+                {
+                    case "start": lifecycle.Start(); break;
+                    case "pause": lifecycle.Pause(); break;
+                    case "flush": lifecycle.Flush(); break;
+                    case "stop": lifecycle.Stop(); break;
+                }
+            }
+        }
         else if (MessageReceived is { } handler)
             await handler(message, cancellationToken).ConfigureAwait(false);
     }
@@ -172,6 +204,123 @@ public sealed partial class ContentHostSession : IAsyncDisposable
     private static ResourceResponse BoundedResponse(ResourceResponse response) =>
         response.Data is { Length: > MaxResourceResponseBytes } || response.ContentType is { Length: > 4096 } || response.Error is { Length: > 4096 }
             ? ResourceResponse.Refused("The host resource response exceeds the content protocol limit.") : response;
+
+    private static bool TryReadAudio(JsonElement payload, out MediaAudioFrame frame)
+    {
+        frame = default;
+        if (!payload.TryGetProperty("sampleRate", out var rate) || !rate.TryGetInt32(out var sampleRate)
+            || !payload.TryGetProperty("channels", out var channels) || !channels.TryGetInt32(out var channelCount)
+            || !payload.TryGetProperty("samples", out var samples) || samples.ValueKind != JsonValueKind.Array
+            || sampleRate <= 0 || channelCount <= 0 || samples.GetArrayLength() > 2_000_000) return false;
+        try { frame = new MediaAudioFrame(sampleRate, channelCount, samples.EnumerateArray().Select(item => item.GetSingle()).ToArray()); return true; }
+        catch (Exception error) when (error is FormatException or InvalidOperationException or OverflowException) { return false; }
+    }
+
+    private async Task<object?> DecodeMediaAsync(ContentMessage message, CancellationToken cancellationToken)
+    {
+        if (_mediaDecoder is null || message.Payload.ValueKind != JsonValueKind.Object
+            || !message.Payload.TryGetProperty("data", out var dataValue) || dataValue.ValueKind != JsonValueKind.String
+            || !message.Payload.TryGetProperty("video", out var videoValue) || videoValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !message.Payload.TryGetProperty("maxOutputBytes", out var limitValue) || !limitValue.TryGetInt32(out var maxOutputBytes)
+            || maxOutputBytes < 0)
+            return null;
+        try
+        {
+            var bytes = Convert.FromBase64String(dataValue.GetString() ?? string.Empty);
+            if (bytes.Length > MaxResourceResponseBytes) return null;
+            var result = await Task.Run(() => _mediaDecoder.Decode(bytes, message.Payload.TryGetProperty("contentType", out var type) ? type.GetString() : null, videoValue.GetBoolean(), Math.Min(maxOutputBytes, MaxResourceResponseBytes)), cancellationToken).ConfigureAwait(false);
+            if (result is null) return null;
+            var frameBytes = result.VideoFrame?.Pixels.Length ?? 0;
+            var sequenceBytes = result.VideoFrames?.Sum(item => (long)item.Frame.Pixels.Length) ?? 0;
+            var audioBytes = (result.Audio?.Samples.Length ?? 0) * sizeof(float);
+            if (frameBytes > maxOutputBytes || sequenceBytes > maxOutputBytes || audioBytes > maxOutputBytes
+                || frameBytes > MaxResourceResponseBytes || sequenceBytes > MaxResourceResponseBytes || audioBytes > MaxResourceResponseBytes)
+                return null;
+            var frame = result.VideoFrame is null ? null : new { width = result.VideoFrame.Width, height = result.VideoFrame.Height, pixels = Convert.ToBase64String(result.VideoFrame.Pixels.ToArray()) };
+            var frames = result.VideoFrames?.Select(item => new { time = item.Time, width = item.Frame.Width, height = item.Frame.Height, pixels = Convert.ToBase64String(item.Frame.Pixels.ToArray()) }).ToArray();
+            var audio = result.Audio is { } sound ? new { sampleRate = sound.SampleRate, channels = sound.Channels, samples = sound.Samples.ToArray() } : null;
+            return new { duration = result.Duration, frame, frames, audio };
+        }
+        catch { return null; }
+    }
+
+    public MediaDecodeResult? RequestMediaDecode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes, CancellationToken cancellationToken = default)
+    {
+        if (_connectionClosed) throw new InvalidOperationException("The content connection is closed before media decode.");
+        if (data.Length > MaxResourceResponseBytes) throw new InvalidDataException("Media decode input exceeds the content limit.");
+        if (maxOutputBytes < 0) throw new InvalidDataException("Media decode output limit is invalid.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        _requestSlots.Wait(timeout.Token);
+        var sequence = Interlocked.Increment(ref _sequence);
+        var completion = new TaskCompletionSource<MediaDecodeResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mediaDecodeRequests[sequence] = completion;
+        try
+        {
+            WriteAsync(ContentMessageKind.MediaDecodeRequest, sequence, new { data = Convert.ToBase64String(data.Span), contentType, video, maxOutputBytes }, timeout.Token).AsTask().GetAwaiter().GetResult();
+            return completion.Task.WaitAsync(timeout.Token).GetAwaiter().GetResult();
+        }
+        finally { _mediaDecodeRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
+    }
+
+    private void CompleteMediaDecode(ContentMessage message)
+    {
+        if (!message.Payload.TryGetProperty("requestId", out var id) || !id.TryGetInt64(out var sequence)) throw new InvalidDataException("Invalid media decode correlation.");
+        if (!_mediaDecodeRequests.TryGetValue(sequence, out var request)) return;
+        if (!message.Payload.TryGetProperty("result", out var result) || result.ValueKind == JsonValueKind.Null) { request.TrySetResult(null); return; }
+        try { request.TrySetResult(MediaDecodeWire.Read(result)); }
+        catch (Exception error) when (error is FormatException or InvalidOperationException or JsonException) { throw new InvalidDataException("Invalid media decode response.", error); }
+    }
+
+    private void CompleteMediaCapture(ContentMessage message)
+    {
+        if (!message.Payload.TryGetProperty("requestId", out var id) || !id.TryGetInt64(out var sequence))
+            throw new InvalidDataException("Invalid media capture correlation.");
+        if (_mediaCaptureRequests.TryGetValue(sequence, out var request)
+            && message.Payload.TryGetProperty("result", out var result)) request.TrySetResult(result.Clone());
+    }
+
+    private static class MediaDecodeWire
+    {
+        public static MediaDecodeResult Read(JsonElement value)
+        {
+            var duration = value.TryGetProperty("duration", out var durationValue) && durationValue.TryGetDouble(out var durationNumber) ? durationNumber : 0;
+            IImageHandle? frame = ReadImage(value, "frame");
+            List<MediaVideoFrame>? frames = null;
+            if (value.TryGetProperty("frames", out var frameList) && frameList.ValueKind == JsonValueKind.Array)
+            {
+                frames = [];
+                foreach (var item in frameList.EnumerateArray())
+                    if (item.TryGetProperty("time", out var time) && time.TryGetDouble(out var timestamp) && ReadImage(item, out var image))
+                        frames.Add(new MediaVideoFrame(timestamp, image));
+            }
+            MediaAudioFrame? audio = null;
+            if (value.TryGetProperty("audio", out var audioValue) && audioValue.ValueKind == JsonValueKind.Object
+                && audioValue.TryGetProperty("sampleRate", out var rate) && rate.TryGetInt32(out var sampleRate)
+                && audioValue.TryGetProperty("channels", out var channels) && channels.TryGetInt32(out var channelCount)
+                && audioValue.TryGetProperty("samples", out var samples) && samples.ValueKind == JsonValueKind.Array)
+                audio = new MediaAudioFrame(sampleRate, channelCount, samples.EnumerateArray().Select(item => item.GetSingle()).ToArray());
+            return new MediaDecodeResult(duration, frame, audio) { VideoFrames = frames };
+        }
+        private static IImageHandle? ReadImage(JsonElement parent, string name) => parent.TryGetProperty(name, out var value) ? ReadImage(value, out var image) ? image : null : null;
+        private static bool ReadImage(JsonElement value, out IImageHandle image)
+        {
+            image = null!;
+            if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("width", out var width) || !width.TryGetInt32(out var w)
+                || !value.TryGetProperty("height", out var height) || !height.TryGetInt32(out var h)
+                || !value.TryGetProperty("pixels", out var pixels) || pixels.ValueKind != JsonValueKind.String) return false;
+            var bytes = Convert.FromBase64String(pixels.GetString() ?? string.Empty);
+            if (w <= 0 || h <= 0 || bytes.Length != checked(w * h * 4)) return false;
+            image = new WireImage(w, h, bytes);
+            return true;
+        }
+        private sealed class WireImage(int width, int height, byte[] pixels) : IImageHandle
+        {
+            public int Width => width;
+            public int Height => height;
+            public ReadOnlyMemory<byte> Pixels => pixels;
+        }
+    }
 
     private void CompleteResource(ContentMessage message)
     {
@@ -211,6 +360,24 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             return await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
         }
         finally { _resourceRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
+    }
+
+    /// <summary>Performs a bounded request against the other endpoint's host capture adapter.</summary>
+    public async Task<JsonElement> RequestMediaCaptureAsync(object payload, CancellationToken cancellationToken = default)
+    {
+        if (_connectionClosed) throw new IOException("The content connection closed.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        await _requestSlots.WaitAsync(timeout.Token).ConfigureAwait(false);
+        var sequence = Interlocked.Increment(ref _sequence);
+        var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mediaCaptureRequests[sequence] = completion;
+        try
+        {
+            await WriteAsync(ContentMessageKind.MediaCaptureRequest, sequence, payload, timeout.Token).ConfigureAwait(false);
+            return await completion.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        finally { _mediaCaptureRequests.TryRemove(sequence, out _); _requestSlots.Release(); }
     }
 
     public ValueTask SendAsync(ContentMessageKind kind, object payload, CancellationToken cancellationToken = default) =>

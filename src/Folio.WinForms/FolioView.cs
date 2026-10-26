@@ -41,12 +41,14 @@ public sealed class ScriptStoppedEventArgs(string reason) : EventArgs
 /// animations at the display's refresh rate while the control is shown. The document reports
 /// <c>prefers-reduced-motion: reduce</c> when the host's options ask for it or Windows has animations turned off.
 /// </summary>
-// ponytail: each paint replays the whole display list; invalidation by rectangle and hover states come in M3.
 public class FolioView : Control
 {
     private readonly VScrollBar _scrollBar = new() { Dock = DockStyle.Right, Visible = false, SmallChange = 40 };
     private Document? _document;
     private DisplayList? _list;
+    private SKBitmap? _renderBitmap;
+    private bool _renderNeedsFull = true;
+    private RectF? _pendingDamage;
     private float _contentHeight;
     private float _laidOutWidth = -1;
     private float _zoom = 1f;
@@ -82,7 +84,7 @@ public class FolioView : Control
     public FolioView()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        _scrollBar.ValueChanged += (_, _) => Invalidate();
+        _scrollBar.ValueChanged += (_, _) => { _renderNeedsFull = true; _pendingDamage = null; Invalidate(); };
         Controls.Add(_scrollBar);
         Controls.Add(_mediaCaptureIndicator);
         _mediaCaptureIndicator.BringToFront();
@@ -469,6 +471,7 @@ public class FolioView : Control
             ResourceLoader = Options.ResourceLoader, Scripting = Options.Scripting, ContentProcessPath = Options.ContentProcessPath,
             ArtifactId = Options.ArtifactId, ArtifactStorage = Options.ArtifactStorage,
             MediaCapturePermission = Options.MediaCapturePermission,
+            MediaCaptureProvider = Options.MediaCaptureProvider,
             MediaCaptureActivityChanged = active =>
             {
                 _mediaCaptureIndicator.Visible = active;
@@ -485,6 +488,10 @@ public class FolioView : Control
             Raster = Options.Raster ?? new Folio.Skia.SkiaRasterBackend(),
         };
         _document?.Dispose();
+        _renderBitmap?.Dispose();
+        _renderBitmap = null;
+        _renderNeedsFull = true;
+        _pendingDamage = null;
         _document = Document.Parse(html, options);
         _document.Input.LinkActivated += OnDocumentLinkActivated;
         _document.Input.CursorChanged += OnDocumentCursorChanged;
@@ -508,7 +515,7 @@ public class FolioView : Control
                 DisposeRetiredContentProcess(previous);
             try
             {
-                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits));
+                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits, mediaCaptureProvider: Options.MediaCaptureProvider));
                 var process = _contentProcess!;
                 _contentFramePath = process.FramePath;
                 QueueContentLoad(process, new
@@ -569,13 +576,15 @@ public class FolioView : Control
             return;
         for (var pass = 0; pass < 2; pass++)
         {
-            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HarfBuzzShaper(), Time);
+            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HybridShaper(), Time);
             var needsBar = _contentHeight > ViewportHeight;
             if (needsBar == _scrollBar.Visible)
                 break;
             _scrollBar.Visible = needsBar; // the width changed: lay out once more
         }
         _laidOutWidth = ViewportWidth;
+        _renderNeedsFull = true;
+        _pendingDamage = null;
         _scrollBar.Maximum = (int)Math.Ceiling(_contentHeight * PixelScale);
         _scrollBar.LargeChange = Math.Max(1, ClientSize.Height);
         if (_document.AnimationsRunning(Time) && !_frames.Enabled)
@@ -604,7 +613,25 @@ public class FolioView : Control
         try
         {
             if (_document.PaintFrame(Time) is { } list)
+            {
                 _list = list;
+                if (_document.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0
+                    && damage.Width < _laidOutWidth && damage.Height < Math.Max(1, ClientSize.Height / PixelScale))
+                {
+                    _renderNeedsFull = false;
+                    _pendingDamage = _pendingDamage is { } existing ? Union(existing, damage) : damage;
+                }
+                else if (_document.LastDamage is { Width: <= 0, Height: <= 0 })
+                {
+                    _renderNeedsFull = false;
+                    _pendingDamage = null;
+                }
+                else
+                {
+                    _renderNeedsFull = true;
+                    _pendingDamage = null;
+                }
+            }
             else
                 _laidOutWidth = -1;
         }
@@ -676,16 +703,38 @@ public class FolioView : Control
             _accessibleObject?.SyncTree(_document.AccessibilityTree());
             var width = Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
             var height = Math.Max(1, ClientSize.Height);
-            using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
-            using (var canvas = new SKCanvas(bitmap))
+            if (_renderBitmap is null || _renderBitmap.Width != width || _renderBitmap.Height != height)
             {
-                canvas.Clear(_document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
+                _renderBitmap?.Dispose();
+                _renderBitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
+                _renderNeedsFull = true;
+                _pendingDamage = null;
+            }
+            using (var canvas = new SKCanvas(_renderBitmap))
+            {
+                var background = _document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White;
+                canvas.Save();
                 canvas.Scale(PixelScale);
                 canvas.Translate(0, -ScrollTop);
-                DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
-                    new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+                if (_renderNeedsFull)
+                {
+                    canvas.Clear(background);
+                    DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
+                        new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+                }
+                else if (_pendingDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+                {
+                    canvas.Save();
+                    canvas.ClipRect(SKRect.Create(damage.X, damage.Y, damage.Width, damage.Height));
+                    canvas.Clear(background);
+                    DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2), damage);
+                    canvas.Restore();
+                }
+                canvas.Restore();
             }
-            using var image = new Bitmap(width, height, bitmap.RowBytes, PixelFormat.Format32bppPArgb, bitmap.GetPixels());
+            _renderNeedsFull = false;
+            _pendingDamage = null;
+            using var image = new Bitmap(width, height, _renderBitmap.RowBytes, PixelFormat.Format32bppPArgb, _renderBitmap.GetPixels());
             e.Graphics.DrawImageUnscaled(image, 0, 0);
             PaintScriptStoppedNotice(e.Graphics);
             Rendered?.Invoke(this, EventArgs.Empty);
@@ -735,6 +784,11 @@ public class FolioView : Control
         if (_document is { } doc)
         {
             doc.Input.HandlePointerMove(ToPointerEvent(e, PointerButton.None));
+            if (doc.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+            {
+                _pendingDamage = _pendingDamage is { } existing ? Union(existing, damage) : damage;
+                Invalidate(ToDeviceRectangle(_pendingDamage.Value));
+            }
             if (_contentProcess is not null)
             {
                 var pointer = ToPointerEvent(e, PointerButton.None);
@@ -981,6 +1035,22 @@ public class FolioView : Control
 
     private Uri? LinkAt(Point point) => _document?.LinkAt(point.X / PixelScale, point.Y / PixelScale + ScrollTop);
 
+    private Rectangle ToDeviceRectangle(RectF rect)
+    {
+        var left = (int)Math.Floor(rect.X * PixelScale);
+        var top = (int)Math.Floor((rect.Y - ScrollTop) * PixelScale);
+        var right = (int)Math.Ceiling(rect.Right * PixelScale);
+        var bottom = (int)Math.Ceiling((rect.Bottom - ScrollTop) * PixelScale);
+        return Rectangle.FromLTRB(Math.Max(0, left), Math.Max(0, top), Math.Min(ClientSize.Width, right), Math.Min(ClientSize.Height, bottom));
+    }
+
+    private static RectF Union(RectF a, RectF b)
+    {
+        var x = Math.Min(a.X, b.X);
+        var y = Math.Min(a.Y, b.Y);
+        return new RectF(x, y, Math.Max(a.Right, b.Right) - x, Math.Max(a.Bottom, b.Bottom) - y);
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -998,6 +1068,7 @@ public class FolioView : Control
                 {
                     _frames.Dispose();
                     _toolTip.Dispose();
+                    _renderBitmap?.Dispose();
                     _document?.Dispose();
                 }
                 finally { base.Dispose(disposing); }
