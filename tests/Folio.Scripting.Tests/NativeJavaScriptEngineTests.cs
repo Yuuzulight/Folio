@@ -133,6 +133,13 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(2d, engine.Evaluate("function factory(){var jh=1,kh=2,mh=3,fh=new Map,Zi='x'; function put(){fh.set(1,2);} put(); return fh.get(1);} return factory();").AsNumber());
     }
 
+    [Fact]
+    public void ConstructsPrototypeObjectsWithoutParentheses()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("function Base(){} function Child(){} var value = Child.prototype = new Base; value.constructor = Child; return value.constructor === Child;").AsBoolean());
+    }
+
 
     [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()

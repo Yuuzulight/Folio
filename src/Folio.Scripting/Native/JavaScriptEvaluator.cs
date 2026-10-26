@@ -282,14 +282,7 @@ internal sealed class JavaScriptEvaluator
         if (unary.Operator == "new")
         {
             if (unary.Operand is JavaScriptCallExpression constructorCall) return Construct(constructorCall);
-            var constructor = Evaluate(unary.Operand);
-            return constructor switch
-            {
-                NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => receiverFunction.Invoke(null, []),
-                NativeJavaScriptEngine.INativeCallable callable => callable.Invoke([]),
-                Func<IReadOnlyList<object?>, object?> function => InvokeFunction(function, null, []),
-                _ => throw new NotSupportedException($"Constructor is not callable (callee: {unary.Operand})."),
-            };
+            return Construct(new JavaScriptCallExpression(unary.Operand, []));
         }
         if (unary.Operator == "delete") return Delete(unary.Operand);
         var value = Evaluate(unary.Operand);
@@ -438,6 +431,10 @@ internal sealed class JavaScriptEvaluator
             case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeBuffer buffer:
                 var bufferPosition = (int)Number(Evaluate(index.Index));
                 if (!buffer.TrySetIndex(bufferPosition, assigned)) throw new IndexOutOfRangeException();
+                break;
+            case JavaScriptIndexExpression index when Evaluate(index.Target) is NativeJavaScriptEngine.INativeHostObject host:
+                if (!host.TrySetSetValue(StringValue(Evaluate(index.Index)), assigned))
+                    throw new InvalidDataException("Host indexed property is read-only.");
                 break;
             default:
                 throw new InvalidDataException($"Only lexical, object-property, and array-index assignment is supported (target: {target}).");

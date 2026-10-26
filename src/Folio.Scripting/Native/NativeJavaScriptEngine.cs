@@ -1107,6 +1107,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal NativeJavaScriptEngine Engine { get; }
         internal IHostObjectTemplate Template { get; }
         internal object Target { get; }
+        private readonly Dictionary<string, object?> _expandos = new(StringComparer.Ordinal);
 
         public IEnumerable<string> Keys => Names();
         public IEnumerable<object?> Values => Names().Select(name => TryGetValue(name, out var value) ? value : null);
@@ -1115,6 +1116,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool ContainsKey(string key) => Contains(key);
         public bool TryGetValue(string name, out object? value)
         {
+            if (_expandos.TryGetValue(name, out value)) return true;
             if (Template.TryGetProperty(name, out var getter, out _))
             {
                 value = ToObject(getter(Target, ScriptValue.FromObject(this)));
@@ -1148,9 +1150,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 Template.NamedSetter(Target, ScriptValue.FromObject(this), name, ToScriptValue(value));
                 return true;
             }
-            return false;
+            _expandos[name] = value;
+            return true;
         }
-        public bool TryDeleteValue(string name) => Template.NamedDeleter?.Invoke(Target, ScriptValue.FromObject(this), name) ?? false;
+        public bool TryDeleteValue(string name) => _expandos.Remove(name) || (Template.NamedDeleter?.Invoke(Target, ScriptValue.FromObject(this), name) ?? false);
         public bool TryGetIndex(int index, out object? value)
         {
             if (Template.IndexedGetter is not null)
@@ -1161,10 +1164,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             value = null;
             return false;
         }
-        public bool Contains(string name) => Template.TryGetProperty(name, out _, out _) || Template.TryGetMethod(name, out _) || Template.NamedGetter is not null;
+        public bool Contains(string name) => _expandos.ContainsKey(name) || Template.TryGetProperty(name, out _, out _) || Template.TryGetMethod(name, out _) || Template.NamedGetter is not null;
         public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => Names().Select(name => new KeyValuePair<string, object?>(name, this[name])).GetEnumerator();
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
-        private IEnumerable<string> Names() => Template.PropertyNames.Concat(Template.MethodNames).Concat(Template.DynamicPropertyEnumerator?.Invoke(Target, ScriptValue.FromObject(this)) ?? []).Distinct(StringComparer.Ordinal);
+        private IEnumerable<string> Names() => _expandos.Keys.Concat(Template.PropertyNames).Concat(Template.MethodNames).Concat(Template.DynamicPropertyEnumerator?.Invoke(Target, ScriptValue.FromObject(this)) ?? []).Distinct(StringComparer.Ordinal);
     }
 
     private bool TryGetDomPrototypeValue(string templateName, string name, object receiver, out object? value)
