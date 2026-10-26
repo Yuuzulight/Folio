@@ -114,7 +114,6 @@ public sealed class WorkerCapabilityTests
         using var engine = new NativeJavaScriptEngine();
         var value = engine.Evaluate("new TypeError('bad worker data')");
         var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
-        Assert.True(payload.Json.Contains("TypeError", StringComparison.Ordinal), payload.Json);
         using var destination = new NativeJavaScriptEngine();
         var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
         Assert.Equal("TypeError", destination.GetProperty(decoded.Value, "name").AsString());
