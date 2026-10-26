@@ -216,6 +216,8 @@ Original acceptance:
 
 ### #534 — Media: the media element API, playback clock and autoplay policy
 
+The rendering-clock path now has a direct regression proving that a playing element with `playbackRate = 2` advances by 0.5 seconds over a 250 ms rendering interval. This strengthens clock/rate evidence; continuous device-level pacing and hardware acceptance remain open.
+
 **Acceptance verified.** Evidence: `Canvas2D.cs: Play, AdvancePlayback, Seek`, `DomNodeTemplates.cs`, `MediaPlaybackTests`, `SoundCapabilityTests`, and `DomStyleDeclarationTests.MediaElementsExposeCapabilityGatedPlaybackState`.
 
 The virtual-clock state machine covers mute/volume, script seeking, replay, loop tails, binding teardown, child-`source` selection and `currentSrc`, idempotent `play()`/`pause()` lifecycle dispatch, sound re-grant while playback is already running, capability-independent `canPlayType`, timeupdate/pause/ended ordering, media handler properties, retryable autoplay rejection after muting, and distinct decode errors. The acceptance tests exercise both autoplay policy directions and deterministic playback under the virtual clock.
