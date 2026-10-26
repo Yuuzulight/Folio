@@ -205,6 +205,7 @@ internal static class StructuredCloneCodec
 
         public ScriptValue Typed(ScriptValue value)
         {
+            if (engine is not Folio.Scripting.Native.NativeJavaScriptEngine) return ScriptValue.Undefined;
             if (!engine.TryGetBufferSourceInfo(value, out var info) || info.Kind is ScriptBufferSourceKind.ArrayBuffer or ScriptBufferSourceKind.DataView)
                 return ScriptValue.Undefined;
             var bytes = new byte[info.ByteLength];
