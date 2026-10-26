@@ -9,6 +9,19 @@ namespace Folio.Scripting.Tests;
 public sealed class MediaPlaybackTests
 {
     [Fact]
+    public void CanPlayTypeUsesTheConfiguredDecoderCapability()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<audio id='clip'></audio>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Media = true },
+            MediaDecoder = new RejectingDecoder()
+        });
+        DomBindings.Install(engine, document);
+        Assert.Equal("", engine.Evaluate("document.getElementById('clip').canPlayType('audio/wav')").AsString());
+    }
+
+    [Fact]
     public void MutedPlaybackSubmitsNothingAndUnmuteUsesCurrentPositionAndVolume()
     {
         using var session = new Session();
@@ -318,6 +331,12 @@ public sealed class MediaPlaybackTests
             ContentType = type;
             return new(1, null, new MediaAudioFrame(8000, 1, Enumerable.Range(0, 8000).Select(index => index / 8000f).ToArray()));
         }
+    }
+
+    private sealed class RejectingDecoder : IMediaDecoder
+    {
+        public bool CanDecode(string? contentType, bool video) => false;
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? type, bool video, int budget) => null;
     }
 
     private sealed class TimedDecoder : IMediaDecoder

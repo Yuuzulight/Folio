@@ -546,12 +546,14 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
     public string CanPlayType(string type)
     {
         var mime = type.Trim().ToLowerInvariant().Split(';', 2)[0];
-        return mime switch
+        var supported = mime switch
         {
             "audio/wav" or "audio/x-wav" or "audio/wave" or "audio/mpeg" or "audio/mp3" or "audio/ogg" or
             "video/mp4" or "video/webm" or "video/ogg" => "maybe",
             _ => "",
         };
+        if (supported.Length == 0 || _decoder is null) return supported;
+        return _decoder.CanDecode(mime, Element.LocalName.Equals("video", StringComparison.OrdinalIgnoreCase)) ? supported : "";
     }
 
     private static (byte[]? Data, string? ContentType) LoadSource(

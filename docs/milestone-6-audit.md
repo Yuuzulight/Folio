@@ -214,7 +214,7 @@ Original acceptance:
 
 **Partial.** Evidence: `MediaFoundationAudioDecoder.cs; NativeMediaTests.cs; MediaPlaybackTests.cs; ContentHost/Program.cs`.
 
-This audit repairs ABI and adds actual WAV/MP3/H.264 checks. Host/data-URL MIME metadata now reaches the configured decoder and is regression-tested. The Windows decoder now retains a bounded, timestamped sequence of H.264 frames (up to the shared output budget) rather than returning only a thumbnail; the native fixture test verifies multiple frames, monotonic timestamps and dimensions. Bounded content-process media decode and audio-output broker paths are implemented, and an isolated content-process regression proves host decoding plus audio start/submit delivery. Continuous playback pacing and device-level acceptance remain open. `canPlayType` is still capability-independent.
+This audit repairs ABI and adds actual WAV/MP3/H.264 checks. Host/data-URL MIME metadata now reaches the configured decoder and is regression-tested. The Windows decoder now retains a bounded, timestamped sequence of H.264 frames (up to the shared output budget) rather than returning only a thumbnail; the native fixture test verifies multiple frames, monotonic timestamps and dimensions. Bounded content-process media decode and audio-output broker paths are implemented, and an isolated content-process regression proves host decoding plus audio start/submit delivery. `canPlayType` now consults the configured decoder capability while retaining Folio's built-in format list. Continuous playback pacing and device-level acceptance remain open.
 
 Original acceptance:
 
@@ -230,7 +230,7 @@ The rendering-clock path now has a direct regression proving that a playing elem
 
 **Acceptance verified.** Evidence: `Canvas2D.cs: Play, AdvancePlayback, Seek`, `DomNodeTemplates.cs`, `MediaPlaybackTests`, `SoundCapabilityTests`, and `DomStyleDeclarationTests.MediaElementsExposeCapabilityGatedPlaybackState`.
 
-The virtual-clock state machine covers mute/volume, script seeking, replay, loop tails, binding teardown, child-`source` selection and `currentSrc`, idempotent `play()`/`pause()` lifecycle dispatch, sound re-grant while playback is already running, capability-independent `canPlayType`, timeupdate/pause/ended ordering, media handler properties, retryable autoplay rejection after muting, and distinct decode errors. The acceptance tests exercise both autoplay policy directions and deterministic playback under the virtual clock.
+The virtual-clock state machine covers mute/volume, script seeking, replay, loop tails, binding teardown, child-`source` selection and `currentSrc`, idempotent `play()`/`pause()` lifecycle dispatch, decoder-aware `canPlayType`, sound re-grant while playback is already running, timeupdate/pause/ended ordering, media handler properties, retryable autoplay rejection after muting, and distinct decode errors. The acceptance tests exercise both autoplay policy directions and deterministic playback under the virtual clock.
 
 Original acceptance:
 

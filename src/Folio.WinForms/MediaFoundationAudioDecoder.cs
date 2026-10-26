@@ -28,6 +28,15 @@ public sealed class MediaFoundationAudioDecoder : IMediaDecoder
     private static readonly Guid VideoProcessing = new("fb394f3d-ccf1-42ee-bbb3-f9b845d5681d");
     private static readonly Guid DurationAttribute = new("6c990d33-bb8e-477a-8598-0d5d96fcd88a");
 
+    public bool CanDecode(string? contentType, bool video)
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        var mime = (contentType ?? "").Trim().ToLowerInvariant().Split(';', 2)[0];
+        return video
+            ? mime is "video/mp4" or "video/webm" or "video/ogg"
+            : mime is "audio/wav" or "audio/x-wav" or "audio/wave" or "audio/mpeg" or "audio/mp3" or "audio/ogg";
+    }
+
     public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes)
     {
         if (!OperatingSystem.IsWindows() || data.IsEmpty || maxOutputBytes <= 0 || data.Length > maxOutputBytes)

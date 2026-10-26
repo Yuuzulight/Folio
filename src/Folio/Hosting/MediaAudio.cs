@@ -38,4 +38,7 @@ public sealed record MediaVideoFrame(double Time, IImageHandle Frame);
 public interface IMediaDecoder
 {
     MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes);
+
+    /// <summary>Reports whether this decoder can handle a media MIME type for the requested element kind.</summary>
+    bool CanDecode(string? contentType, bool video) => true;
 }
