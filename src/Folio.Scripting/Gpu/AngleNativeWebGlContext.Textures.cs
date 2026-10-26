@@ -99,7 +99,7 @@ internal sealed partial class AngleNativeWebGlContext
             if ((target != 0x0DE1 && target is not (>= 0x8515 and <= 0x851A)) || level < 0 || width < 0 || height < 0 || width > 16384 || height > 16384)
             { failure = NativeFailure("The texture image dimensions or target are invalid.", 0x0501); return false; }
             var depth = format == 0x1902 && type == 0x1403;
-            var integer = format == 0x8D99 && type == 0x1401;
+            var integer = format == 0x8D99 && type is 0x1400 or 0x1401 or 0x1402 or 0x1403 or 0x1404 or 0x1405;
             var packed = format == 0x1907 && type == 0x8363 || format == 0x1908 && type is 0x8033 or 0x8034;
             if ((!depth && !integer && !packed && format is not (0x1907 or 0x1908)) || (!depth && !integer && !packed && type is not (0x1401 or 0x1406 or 0x140B)))
             { failure = NativeFailure("The texture upload format or type is unsupported by this native path.", 0x0500); return false; }
@@ -115,7 +115,7 @@ internal sealed partial class AngleNativeWebGlContext
             var upload = expanded is null ? pixels : expanded.AsSpan();
             var channels = depth ? 1 : 4;
             if (!depth && !integer) channels = format == 0x1908 ? 4 : 3;
-            var componentBytes = depth ? 2 : type == 0x1406 ? 4 : type == 0x140B ? 2 : 1;
+            var componentBytes = depth ? 2 : type is 0x1404 or 0x1405 or 0x1406 ? 4 : type is 0x1402 or 0x1403 or 0x140B ? 2 : 1;
             var required = checked((long)width * height * channels * componentBytes);
             if (upload.Length != required) { failure = NativeFailure("The texture upload length is invalid.", 0x0501); return false; }
             var boundCandidate = target == 0x0DE1 ? _boundTexture2D : _boundTextureCube;
@@ -306,9 +306,9 @@ internal sealed partial class AngleNativeWebGlContext
             if (Options.Version != WebGlContextVersion.WebGl2 || target is not (0x806F or 0x8C1A) || level < 0 || width < 0 || height < 0 || depth < 0 || width > 2048 || height > 2048 || depth > 2048)
             { failure = NativeFailure("The 3D texture target, context version or dimensions are invalid.", 0x0501); return false; }
             var integer = format is 0x8D98 or 0x8D99;
-            if ((!integer && format is not (0x1907 or 0x1908)) || (integer ? type is not (0x1401 or 0x1403 or 0x1405) : type is not (0x1401 or 0x1406 or 0x140B))) { failure = NativeFailure("The 3D texture upload format or type is unsupported.", 0x0500); return false; }
+            if ((!integer && format is not (0x1907 or 0x1908)) || (integer ? type is not (0x1400 or 0x1401 or 0x1402 or 0x1403 or 0x1404 or 0x1405) : type is not (0x1401 or 0x1406 or 0x140B))) { failure = NativeFailure("The 3D texture upload format or type is unsupported.", 0x0500); return false; }
             var channels = format is 0x1908 or 0x8D99 ? 4 : 3;
-            var componentBytes = type is 0x1406 or 0x1405 ? 4 : type is 0x140B or 0x1403 ? 2 : 1;
+            var componentBytes = type is 0x1404 or 0x1405 or 0x1406 ? 4 : type is 0x1402 or 0x1403 or 0x140B ? 2 : 1;
             var required = checked((long)width * height * depth * channels * componentBytes);
             if (pixels.Length != required) { failure = NativeFailure("The 3D texture upload length is invalid.", 0x0501); return false; }
             var bound = target == 0x806F ? _boundTexture3D : _boundTexture2DArray;

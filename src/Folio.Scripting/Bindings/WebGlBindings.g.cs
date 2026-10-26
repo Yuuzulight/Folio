@@ -544,6 +544,7 @@ public interface IWebGLRenderingContextTarget
     const uint DEPTH_COMPONENT32F = 0x8CAC;
     const uint DEPTH32F_STENCIL8 = 0x8CAD;
     const uint RGBA8UI = 0x8D7C;
+    const uint RGBA8I = 0x8D8E;
     const uint RGBA_INTEGER = 0x8D99;
     const uint HALF_FLOAT = 0x140B;
     const uint COMPILE_STATUS = 0x8B81;
@@ -833,6 +834,7 @@ public static class WebGLRenderingContextBinding
         template.DefineProperty("DEPTH_COMPONENT32F", (target, thisVal) => ScriptValue.FromNumber(0x8CAC));
         template.DefineProperty("DEPTH32F_STENCIL8", (target, thisVal) => ScriptValue.FromNumber(0x8CAD));
         template.DefineProperty("RGBA8UI", (target, thisVal) => ScriptValue.FromNumber(0x8D7C));
+        template.DefineProperty("RGBA8I", (target, thisVal) => ScriptValue.FromNumber(0x8D8E));
         template.DefineProperty("RGBA_INTEGER", (target, thisVal) => ScriptValue.FromNumber(0x8D99));
         template.DefineProperty("HALF_FLOAT", (target, thisVal) => ScriptValue.FromNumber(0x140B));
         template.DefineProperty("COMPILE_STATUS", (target, thisVal) => ScriptValue.FromNumber(0x8B81));

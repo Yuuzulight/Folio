@@ -138,6 +138,7 @@ interface WebGLRenderingContext {
     const unsigned long DEPTH_COMPONENT32F = 0x8CAC;
     const unsigned long DEPTH32F_STENCIL8 = 0x8CAD;
     const unsigned long RGBA8UI = 0x8D7C;
+    const unsigned long RGBA8I = 0x8D8E;
     const unsigned long RGBA_INTEGER = 0x8D99;
     const unsigned long HALF_FLOAT = 0x140B;
     const unsigned long COMPILE_STATUS = 0x8B81;
