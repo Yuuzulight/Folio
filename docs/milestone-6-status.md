@@ -1,5 +1,7 @@
 # Milestone 6 status
 
+Current native service-worker conformance correction (2026-10-27): D14 currently fails 0/3 on the native engine. Worker dispatch produces response bytes, but the page compatibility bridge loses response methods across the nested promise handoff and falls through to the offline loader. The native service-worker gate remains open; the historical claims below must not be read as completion evidence.
+
 Latest full Release verification (2026-10-26): 4,072 passed, 0 failed, 7 documented skips, 4,079 discovered. The older aggregate sentence below is retained as historical context.
 
 Verification refresh (2026-10-26): after the native evaluator prototype-setter, constructed-member and WebAssembly export-bridge repairs, the complete Release solution passes 4,072 tests (0 failed, 7 documented skips; 4,079 discovered). Native JavaScript focused coverage is 57/57, the serialized scripting suite is green, and native WebGL targeted coverage remains 74/74. Commit `19d6220` also verifies a real native `WebAssembly.Instance(...).exports.run()` call through the Folio evaluator, including Proxy get-trap and constructor-identity regressions. The latest full run also includes native worker structured-clone, watchdog/WebAssembly-worker, WebRTC loopback, iframe sandbox and iframe window-message coverage. This proves the numeric export subset only; issue #543 remains open for the broader native WebAssembly API, worker, accounting and sandbox requirements. Earlier totals in this document are historical snapshots.
