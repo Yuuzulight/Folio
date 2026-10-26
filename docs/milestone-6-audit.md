@@ -24,6 +24,8 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 - Worker lifecycle, iframe isolated scripting/retirement and real conformance reopen now have direct regressions. None of these repairs by itself proves completion of the original umbrella issues.
 
+- Native `MessageChannel` delivery now has a direct regression (`NativeLibraryProbeTests.ProbeNativeMessageChannelDelivery`): a posted message reaches its handler after a native `HtmlEventLoop` turn. This narrows the remaining native React/JSX failure to reconciliation/shared-internals behavior rather than the basic scheduler transport.
+
 ## Original issue acceptance and current evidence
 
 ### #169 — WebGL (after milestone 5)
