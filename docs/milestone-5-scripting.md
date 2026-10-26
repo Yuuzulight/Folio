@@ -1,6 +1,6 @@
 # Milestone 5 scripting results
 
-Verification refresh (2026-10-26): the serialized scripting suite now passes 1,167/1,167, including signed and unsigned integer 2D-array sampling, native `readPixels` error/packing coverage, and native array-growth semantics added during the Milestone 6 audit.
+Verification refresh (2026-10-26): the serialized scripting suite now passes 1,176/1,176, including native worker structured-clone and MessageChannel delivery coverage added during the Milestone 6 audit.
 
 This document records the current M5 implementation and verification baseline.
 
