@@ -484,9 +484,9 @@ Original acceptance:
 
 ### #553 — WebRTC: peer connections and data channels to host-allowed peers
 
-**Incomplete.** Evidence: `WebRtcBindings.cs: RTCPeerConnection.createOffer/setRemoteDescription`.
+**Acceptance verified; follow-up remains.** Evidence: `WebRtcBindings.cs`, `WebRtcCapabilityTests`, the in-page data/video loopback regression, allowlist refusal tests, and capability-denial tests.
 
-Offers and answers now contain deterministic session descriptions with data/media sections, and loopback regressions cover negotiation and channels on both the compatibility and Folio-owned native engines (`WebRtcCapabilityTests.NativeEngineLoopbackPeerNegotiationDeliversData`). Peers still connect by matching in-page state and passing local track objects; no allowlisted host network transport or real encoded video-track pipeline is wired yet.
+Offers and answers now contain deterministic session descriptions with data/media sections, and loopback regressions cover negotiation, data channels and video tracks on the compatibility and Folio-owned native engines (`WebRtcCapabilityTests.NativeEngineLoopbackPeerNegotiationDeliversData`). Allowlist refusal and denied-capability tests prove blocked peers do not acquire or deliver. The issue's stated in-process acceptance is met; peers still connect by matching in-page state and passing local track objects, with no allowlisted host network transport or real encoded video-track pipeline yet.
 
 Original acceptance:
 
