@@ -140,6 +140,14 @@ public sealed class NativeJavaScriptEngineTests
         Assert.True(engine.Evaluate("function Base(){} function Child(){} var value = Child.prototype = new Base; value.constructor = Child; return value.constructor === Child;").AsBoolean());
     }
 
+    [Fact]
+    public void AppliesFunctionPrototypeMethodsToConstructedObjects()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("function", engine.Evaluate("function Box(value){this.value=value;} Box.prototype.read=function(){return this.value;}; return typeof Box.prototype.read;").AsString());
+        Assert.Equal(2d, engine.Evaluate("function Box(value){this.value=value;} Box.prototype.read=function(){return this.value;}; return (new Box(2)).read();").AsNumber());
+    }
+
 
     [Fact]
     public void RoutesHostBootstrapThroughTheNativeEvaluator()

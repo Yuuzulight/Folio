@@ -79,26 +79,7 @@ internal sealed class JavaScriptParser
             var declarations = new List<JavaScriptStatement>();
             do
             {
-                string name;
-                if (Match("["))
-                {
-                    var names = new List<string>();
-                    if (!Match("]"))
-                    {
-                        do
-                        {
-                            if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
-                            names.Add(_current.Text); Take();
-                        } while (Match(","));
-                        Expect("]");
-                    }
-                    name = "[" + string.Join(",", names) + "]";
-                }
-                else
-                {
-                    if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a binding name");
-                    name = _current.Text; Take();
-                }
+                var name = ParseBindingName();
                 JavaScriptExpression? initializer = Match("=") ? ParseBinary(0) : null;
                 declarations.Add(new JavaScriptVariableStatement(name, initializer));
             } while (Match(","));
@@ -154,26 +135,7 @@ internal sealed class JavaScriptParser
                 if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "const" or "let" or "var")
                 {
                     Take();
-                    string name;
-                    if (Match("["))
-                    {
-                        var names = new List<string>();
-                        if (!Match("]"))
-                        {
-                            do
-                            {
-                                if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
-                                names.Add(_current.Text); Take();
-                            } while (Match(","));
-                            Expect("]");
-                        }
-                        name = "[" + string.Join(",", names) + "]";
-                    }
-                    else
-                    {
-                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a binding name");
-                        name = _current.Text; Take();
-                    }
+                    var name = ParseBindingName();
                     if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "of" or "in")
                     {
                         var keys = _current.Text == "in"; Take();
@@ -186,8 +148,7 @@ internal sealed class JavaScriptParser
                     };
                     while (Match(","))
                     {
-                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a binding name");
-                        var nextName = _current.Text; Take();
+                        var nextName = ParseBindingName();
                         declarations.Add(new JavaScriptVariableStatement(nextName, Match("=") ? ParseBinary(0) : null));
                     }
                     initializer = declarations.Count == 1 ? declarations[0] : new JavaScriptBlockStatement(declarations);
@@ -265,6 +226,47 @@ internal sealed class JavaScriptParser
             return new JavaScriptSwitchStatement(expression, cases);
         }
         var result = ParseSequenceExpression(); Match(";"); return new JavaScriptExpressionStatement(result);
+    }
+
+    private string ParseBindingName()
+    {
+        if (_current.Kind == JavaScriptTokenKind.Identifier)
+        {
+            var name = _current.Text; Take(); return name;
+        }
+        if (Match("["))
+        {
+            var names = new List<string>();
+            if (!Match("]"))
+            {
+                do { if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name"); names.Add(_current.Text); Take(); }
+                while (Match(","));
+                Expect("]");
+            }
+            return "[" + string.Join(",", names) + "]";
+        }
+        if (Match("{"))
+        {
+            var names = new List<string>();
+            if (!Match("}"))
+            {
+                do
+                {
+                    if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured property name");
+                    var property = _current.Text; Take();
+                    var local = property;
+                    if (Match(":"))
+                    {
+                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
+                        local = _current.Text; Take();
+                    }
+                    names.Add(property + ":" + local);
+                } while (Match(","));
+                Expect("}");
+            }
+            return "{" + string.Join(",", names) + "}";
+        }
+        throw Error("Expected a binding name");
     }
 
     private JavaScriptExpression ParseBinary(int minimumPrecedence)
@@ -441,6 +443,11 @@ internal sealed class JavaScriptParser
             {
                 do
                 {
+                    if (Match("..."))
+                    {
+                        properties.Add(("...", ParseBinary(0)));
+                        continue;
+                    }
                     if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");
                     var name = _current.Text; Take();
                     if (name == "get" && _current.Kind == JavaScriptTokenKind.Identifier)
@@ -501,8 +508,7 @@ internal sealed class JavaScriptParser
         {
             do
             {
-                if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a function parameter");
-                parameters.Add(_current.Text); Take();
+                parameters.Add(ParseBindingName());
             } while (Match(","));
             Expect(")");
         }

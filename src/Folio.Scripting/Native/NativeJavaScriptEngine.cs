@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
+using System.Numerics;
+
 namespace Folio.Scripting.Native;
 
 /// <summary>
@@ -150,6 +152,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : args.Max(value => value is double number ? number : 0)),
             ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : args.Min(value => value is double number ? number : 0)),
             ["random"] = (Func<IReadOnlyList<object?>, object?>)(_ => Random.Shared.NextDouble()),
+            ["log"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Log(Number(args, 0))),
+            ["pow"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Pow(Number(args, 0), Number(args, 1))),
+            ["clz32"] = (Func<IReadOnlyList<object?>, object?>)(args => BitOperations.LeadingZeroCount((uint)(long)Number(args, 0))),
         };
         var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
         stringConstructor.SetProperty("fromCharCode", (Func<IReadOnlyList<object?>, object?>)(args =>

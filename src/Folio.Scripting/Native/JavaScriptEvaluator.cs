@@ -109,6 +109,16 @@ internal sealed class JavaScriptEvaluator
         catch (ReturnSignal returned) { return returned.Value; }
     }
 
+    internal object? ExecuteFunctionBody(IReadOnlyList<JavaScriptStatement> statements)
+    {
+        try
+        {
+            ExecuteCore(statements);
+            return UndefinedOrNull();
+        }
+        catch (ReturnSignal returned) { return returned.Value; }
+    }
+
     private object? ExecuteCore(IReadOnlyList<JavaScriptStatement> statements)
     {
         ThrowIfExpired();
@@ -128,6 +138,17 @@ internal sealed class JavaScriptEvaluator
                         var names = variable.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
                         for (var index = 0; index < names.Length; index++)
                             _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> readOnly && index < readOnly.Count ? readOnly[index] : UndefinedValue.Instance;
+                    }
+                    else if (variable.Name.StartsWith("{", StringComparison.Ordinal) && variable.Name.EndsWith("}", StringComparison.Ordinal))
+                    {
+                        foreach (var entry in variable.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            var parts = entry.Split(':', 2);
+                            var property = parts[0];
+                            var local = parts.Length == 2 ? parts[1] : property;
+                            var propertyValue = MemberValue(value, property);
+                            _bindings[local] = propertyValue is UndefinedValue ? UndefinedValue.Instance : propertyValue;
+                        }
                     }
                     else _bindings[variable.Name] = value;
                     break;
@@ -327,7 +348,25 @@ internal sealed class JavaScriptEvaluator
             Func<IReadOnlyList<object?>, object?> function => InvokeFunction(function, instance, arguments),
             _ => throw new NotSupportedException($"Constructor is not callable (callee: {call.Callee})."),
         };
+        if (instance is IDictionary<string, object?> properties && TryGetPrototype(constructor, out var prototype))
+            foreach (var pair in prototype) properties.TryAdd(pair.Key, pair.Value);
         return result is null or UndefinedValue ? instance : result;
+    }
+
+    private static bool TryGetPrototype(object? constructor, out IReadOnlyDictionary<string, object?> prototype)
+    {
+        if (constructor is NativeJavaScriptEngine.INativeCallable callable && callable.TryGetProperty("prototype", out var nativePrototype) && nativePrototype is IReadOnlyDictionary<string, object?> nativeProperties)
+        {
+            prototype = nativeProperties;
+            return true;
+        }
+        if (constructor is Func<IReadOnlyList<object?>, object?> function && CallableProperties.TryGetValue(function, out var properties) && properties.TryGetValue("prototype", out var functionPrototype) && functionPrototype is IReadOnlyDictionary<string, object?> functionProperties)
+        {
+            prototype = functionProperties;
+            return true;
+        }
+        prototype = null!;
+        return false;
     }
 
     private object? Update(JavaScriptUpdateExpression update)
@@ -624,6 +663,13 @@ internal sealed class JavaScriptEvaluator
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var property in expression.Properties)
         {
+            if (property.Name == "...")
+            {
+                var spread = Evaluate(property.Value);
+                if (spread is IReadOnlyDictionary<string, object?> spreadDictionary)
+                    foreach (var item in spreadDictionary) result[item.Key] = item.Value;
+                continue;
+            }
             if (property.Name.StartsWith("__folio_getter__", StringComparison.Ordinal))
             {
                 result[property.Name[16..]] = new NativeJavaScriptEngine.NativePropertyGetter(() => Evaluate(property.Value) is Func<IReadOnlyList<object?>, object?> getter ? getter([]) : null);
@@ -650,8 +696,8 @@ internal sealed class JavaScriptEvaluator
             ["this"] = receiver,
             ["arguments"] = arguments.ToList(),
         };
-        for (var i = 0; i < function.Parameters.Count; i++) local[function.Parameters[i]] = i < arguments.Count ? arguments[i] : UndefinedOrNull();
-        return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).Execute(function.Body);
+        for (var i = 0; i < function.Parameters.Count; i++) BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : UndefinedOrNull());
+        return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
 
     internal sealed class RegexValue
@@ -874,11 +920,32 @@ internal sealed class JavaScriptEvaluator
         {
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
             for (var i = 0; i < function.Parameters.Count; i++)
-                local[function.Parameters[i]] = i < arguments.Count ? arguments[i] : null;
+                BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : null);
             local["this"] = receiver;
             local["arguments"] = arguments.ToList();
-            return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).Execute(function.Body);
+            return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
         }
+    }
+
+    private void BindParameter(IDictionary<string, object?> local, string parameter, object? value)
+    {
+        if (parameter.StartsWith("{", StringComparison.Ordinal) && parameter.EndsWith("}", StringComparison.Ordinal))
+        {
+            foreach (var entry in parameter[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = entry.Split(':', 2);
+                local[parts.Length == 2 ? parts[1] : parts[0]] = MemberValue(value, parts[0]);
+            }
+            return;
+        }
+        if (parameter.StartsWith("[", StringComparison.Ordinal) && parameter.EndsWith("]", StringComparison.Ordinal))
+        {
+            var values = value as IReadOnlyList<object?>;
+            var names = parameter[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < names.Length; i++) local[names[i]] = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
+            return;
+        }
+        local[parameter] = value;
     }
 
     internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments) =>
@@ -943,8 +1010,8 @@ internal sealed class JavaScriptEvaluator
             }),
             ["arguments"] = arguments.ToList(),
         };
-            for (var i = 0; i < function.Parameters.Count; i++) local[function.Parameters[i]] = i < arguments.Count ? arguments[i] : UndefinedOrNull();
-        return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).Execute(function.Body);
+            for (var i = 0; i < function.Parameters.Count; i++) BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : UndefinedOrNull());
+        return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
 
     private void ThrowIfExpired()
