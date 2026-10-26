@@ -593,7 +593,7 @@ internal sealed class JavaScriptEvaluator
             {
                 NativeJavaScriptEngine.NativePropertyAccessor accessor => accessor.Get(receiver),
                 NativeJavaScriptEngine.NativePropertyGetter getter => getter.Get(),
-                NativeJavaScriptEngine.NativeReceiverFunction method => (Func<IReadOnlyList<object?>, object?>)(args => method.Invoke(receiver, args)),
+                NativeJavaScriptEngine.NativeReceiverFunction method => method,
                 _ => NativeJavaScriptEngine.ReadProperty(value),
             };
         }
@@ -866,6 +866,7 @@ internal sealed class JavaScriptEvaluator
 
     internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments) =>
         function is Func<IReadOnlyList<object?>, object?> callback ? InvokeFunction(callback, receiver, arguments) :
+        function is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable ? receiverCallable.Invoke(receiver, arguments) :
         function is NativeJavaScriptEngine.INativeCallable callable ? callable.Invoke(arguments) : null;
 
     private static object? InvokeFunction(Func<IReadOnlyList<object?>, object?> function, object? receiver, IReadOnlyList<object?> arguments)
