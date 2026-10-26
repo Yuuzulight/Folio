@@ -550,13 +550,13 @@ Original acceptance:
 
 ### #558 — Service workers: the Cache API with host storage limits
 
-**Cache API repaired and regression-verified; issue retained open with its isolated-service-worker dependency.** Evidence: `CacheBindings.cs`, `CacheStorageState.cs`, `ContentCacheBroker.cs`, `ContentStorageTransport.cs`, `CacheApiTests`, and `ContentCacheTests`.
+**Acceptance verified; service-worker isolation remains tracked separately.** Evidence: `CacheBindings.cs`, `CacheStorageState.cs`, `ContentCacheBroker.cs`, `ContentStorageTransport.cs`, `CacheApiTests`, and `ContentCacheTests`.
 
 The native host owns the canonical per-artifact cache and quota ledger. All Cache/CacheStorage methods, request URL/method/search/Vary matching, independent binary responses and atomic addAll have direct regressions. A transaction is persisted with one atomic provider write before publishing memory; failure and quota tests establish rollback. Quota includes metadata, encoded bodies, unopened persisted caches and live retired handles. Private Fetch state and an inaccessible storage bridge prevent script-visible quota bypasses. Length-delimited artifact snapshot keys prevent colon/slash collisions.
 
 Real content processes now receive host-owned artifact storage and limits through FolioView and ContentProcessClient. Semantic storage operations reach the same canonical host state as in-process documents, preserving concurrent writes. Tests cover process restart without network, service-worker-originated cache writes, parent profile forgery, namespace isolation, failed writes, remote retired-handle collection, incomplete/corrupt uploads, connection closure, blocked host callbacks and terminal handling of uncertain commits. A 13 MiB binary payload exercises chunked requests and replies larger than the unchanged 16 MiB frame limit. Prototype cache entries migrate atomically, preserve backups on failure and fail closed when old Vary metadata cannot be recovered. See [storage configuration and limits](cache-api-storage.md).
 
-These checks verify Cache API storage; they do not establish the separate isolated service-worker engine, full subresource interception or the sandbox matrix required by #556/#557/#559. The issue remains open until that integration is established.
+These checks verify the Cache API contract, including service-worker-originated writes, host quotas, rollback and artifact isolation. They do not establish the separate isolated service-worker engine, full subresource interception or the sandbox matrix required by #556/#557/#559; those remain separate issues.
 
 Original acceptance:
 
