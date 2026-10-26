@@ -96,6 +96,9 @@ public sealed class ContentResourceTransportTests
     [InlineData("{\"duration\":-1}")]
     [InlineData("{\"audio\":{\"sampleRate\":8000,\"channels\":2,\"samples\":[0.1]}}")]
     [InlineData("{\"audio\":{\"sampleRate\":8000,\"channels\":1,\"samples\":[null]}}")]
+    [InlineData("{\"audio\":null}")]
+    [InlineData("{\"frames\":null}")]
+    [InlineData("{\"frame\":{\"width\":1}}")]
     public void MediaDecodeWireRejectsMalformedDecodedPayloads(string json)
     {
         using var document = JsonDocument.Parse(json);

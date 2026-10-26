@@ -298,10 +298,15 @@ public sealed partial class ContentHostSession : IAsyncDisposable
         {
             var duration = value.TryGetProperty("duration", out var durationValue) && durationValue.TryGetDouble(out var durationNumber) ? durationNumber : 0;
             if (!double.IsFinite(duration) || duration < 0) throw new JsonException("Invalid media duration.");
-            IImageHandle? frame = ReadImage(value, "frame");
-            List<MediaVideoFrame>? frames = null;
-            if (value.TryGetProperty("frames", out var frameList) && frameList.ValueKind == JsonValueKind.Array)
+            IImageHandle? frame = null;
+            if (value.TryGetProperty("frame", out var frameValue) && frameValue.ValueKind != JsonValueKind.Null)
             {
+                if (!ReadImage(frameValue, out frame)) throw new JsonException("Invalid media frame image.");
+            }
+            List<MediaVideoFrame>? frames = null;
+            if (value.TryGetProperty("frames", out var frameList))
+            {
+                if (frameList.ValueKind != JsonValueKind.Array) throw new JsonException("Invalid media frame sequence.");
                 frames = [];
                 var previous = -1d;
                 foreach (var item in frameList.EnumerateArray())
@@ -314,11 +319,13 @@ public sealed partial class ContentHostSession : IAsyncDisposable
                 }
             }
             MediaAudioFrame? audio = null;
-            if (value.TryGetProperty("audio", out var audioValue) && audioValue.ValueKind == JsonValueKind.Object
-                && audioValue.TryGetProperty("sampleRate", out var rate) && rate.TryGetInt32(out var sampleRate)
-                && audioValue.TryGetProperty("channels", out var channels) && channels.TryGetInt32(out var channelCount)
-                && audioValue.TryGetProperty("samples", out var samples) && samples.ValueKind == JsonValueKind.Array)
+            if (value.TryGetProperty("audio", out var audioValue))
             {
+                if (audioValue.ValueKind != JsonValueKind.Object
+                    || !audioValue.TryGetProperty("sampleRate", out var rate) || !rate.TryGetInt32(out var sampleRate)
+                    || !audioValue.TryGetProperty("channels", out var channels) || !channels.TryGetInt32(out var channelCount)
+                    || !audioValue.TryGetProperty("samples", out var samples) || samples.ValueKind != JsonValueKind.Array)
+                    throw new JsonException("Invalid media audio payload.");
                 if (sampleRate is <= 0 or > 384000 || channelCount is <= 0 or > 32
                     || samples.GetArrayLength() == 0 || samples.GetArrayLength() % channelCount != 0)
                     throw new JsonException("Invalid media audio format.");
