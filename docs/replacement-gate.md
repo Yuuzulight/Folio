@@ -84,3 +84,9 @@ is left empty. The DOM validity check is intentionally unchanged.
 This is tracked in [#645](https://github.com/Yuuzulight/Folio/issues/645) and remains
 required before the native engine can pass the React/JSX interaction artifact or
 the mandatory replacement gate.
+
+The post-change Release verification remains green across the repository suites:
+Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
+Scripting.Tests 1,359 with six documented software skips. These results verify
+that the receiver-aware and stable-identity host fixes do not regress existing
+coverage; they do not close the React reconciliation or replacement gate.
