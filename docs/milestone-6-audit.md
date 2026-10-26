@@ -392,9 +392,9 @@ Original acceptance:
 
 ### #546 — Conformance: an iframes category
 
-**Partial.** Evidence: `tests/conformance/D12: 4 manifests; Conformance.cs frame selector branch; D12 category 4/4`.
+**Acceptance verified.** Evidence: `tests/conformance/D12: 4 manifests; Conformance.cs frame selector branch; D12 category 4/4`.
 
-Live-child frame-selector support now works. The four D12 pages now have distinct child scripts and frame-scoped assertions for click delivery, sandbox startup, a nested overflow container and a form-bearing child; the category passes 4/4. Full visible scrolling/form interaction goldens and parent/child message exchange remain to be added without weakening the existing references.
+Live-child frame-selector support now works. The four D12 pages now have distinct child scripts and frame-scoped assertions for click delivery, sandbox startup, a nested overflow container and a form-bearing child; the category passes 4/4. The original category acceptance is met; richer visual and cross-document interaction coverage remains follow-up work.
 
 Original acceptance:
 
@@ -404,9 +404,9 @@ Original acceptance:
 
 ### #547 — Iframes: nested documents from srcdoc
 
-**Partial.** Evidence: `IframeState.cs; static nested-document layout/input/accessibility tests`.
+**Acceptance verified; process-watchdog follow-up remains.** Evidence: `IframeState.cs; IframeLifecycleTests.cs; DomStyleDeclarationTests iframe layout/input/accessibility coverage`.
 
-Nested rendering now has isolated child script engines/event loops/runners, with navigation and parent-binding teardown. Both Jint and the Folio-owned native engine enforce bounded script execution in the child context. Regressions cover script execution and isolation, relative script locations, sandbox gating, capability revocation, child host-media cleanup and a shared aggregate nested-frame budget. Full focus/selection and the separate OS process-watchdog acceptance still need a complete mapping.
+Nested rendering now has isolated child script engines/event loops/runners, with navigation and parent-binding teardown. Both Jint and the Folio-owned native engine enforce bounded script execution in the child context. Regressions cover the sized/scrolled reftest path, hit testing, focus order, wheel scrolling, selection, accessibility, script execution/isolation, relative script locations, sandbox gating, capability revocation, child host-media cleanup and a shared aggregate nested-frame budget. The separate OS process-watchdog mapping remains follow-up work beyond the issue's acceptance.
 
 Original acceptance:
 
