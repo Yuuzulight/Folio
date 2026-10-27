@@ -276,7 +276,7 @@ internal sealed class JavaScriptEvaluator
                 case JavaScriptReturnStatement returned: throw new ReturnSignal(returned.Expression is null ? UndefinedOrNull() : Evaluate(returned.Expression));
                 case JavaScriptYieldStatement yielded:
                     if (_yieldValues is null) throw new InvalidDataException("yield is only valid inside a generator.");
-                    _yieldValues.Add(yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression));
+                    AddYield(yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression), yielded.Delegate);
                     break;
                 default: throw new InvalidDataException("Unknown JavaScript statement node.");
             }
@@ -288,8 +288,15 @@ internal sealed class JavaScriptEvaluator
     {
         var value = yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression);
         if (_yieldValues is null) throw new InvalidDataException("yield is only valid inside a generator.");
-        _yieldValues.Add(value);
+        AddYield(value, yielded.Delegate);
         return value;
+    }
+
+    private void AddYield(object? value, bool delegated)
+    {
+        if (_yieldValues is null) throw new InvalidDataException("yield is only valid inside a generator.");
+        if (delegated && value is IEnumerable<object?> sequence) _yieldValues.AddRange(sequence);
+        else _yieldValues.Add(value);
     }
 
     private object? Literal(JavaScriptLiteralExpression literal)
@@ -1094,7 +1101,7 @@ internal sealed class JavaScriptEvaluator
                     BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
                     break;
                 }
-                var value = i < arguments.Count ? arguments[i] : null;
+                var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
                 var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
                 if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
                 BindParameter(local, parameter, value);

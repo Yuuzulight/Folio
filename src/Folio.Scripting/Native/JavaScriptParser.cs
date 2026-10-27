@@ -102,9 +102,10 @@ internal sealed class JavaScriptParser
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "yield")
         {
             Take();
+            var delegateYield = Match("*");
             var expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or "}" ? null : ParseSequenceExpression();
             Match(";");
-            return new JavaScriptYieldStatement(expression);
+            return new JavaScriptYieldStatement(expression, delegateYield);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "if")
         {
@@ -393,7 +394,10 @@ internal sealed class JavaScriptParser
             }
             var name = _current.Text; Take();
             if (name == "yield")
-                return Node(new JavaScriptYieldExpression(_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or ")" or "}" ? null : ParseBinary(0)));
+            {
+                var delegateYield = Match("*");
+                return Node(new JavaScriptYieldExpression(_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or ")" or "}" ? null : ParseBinary(0), delegateYield));
+            }
             if (name == "new" && Match("."))
             {
                 if (_current.Kind != JavaScriptTokenKind.Identifier || _current.Text != "target") throw Error("Expected new.target");
@@ -477,6 +481,22 @@ internal sealed class JavaScriptParser
                     if (Match("..."))
                     {
                         properties.Add(("...", ParseBinary(0)));
+                        continue;
+                    }
+                    if (Match("["))
+                    {
+                        var key = ParseBinary(0);
+                        Expect("]");
+                        var computedName = key switch
+                        {
+                            JavaScriptMemberExpression member when member.Target is JavaScriptIdentifierExpression target => target.Name + "." + member.Name,
+                            JavaScriptIdentifierExpression identifier => identifier.Name,
+                            JavaScriptLiteralExpression literal => literal.Text,
+                            _ => string.Empty,
+                        };
+                        if (Match(":")) properties.Add((computedName, ParseBinary(0)));
+                        else if (_current.Text == "(") properties.Add(("__folio_method__" + computedName, ParseFunctionTail()));
+                        else properties.Add((computedName, new JavaScriptIdentifierExpression(computedName)));
                         continue;
                     }
                     if (_current.Kind is not (JavaScriptTokenKind.Identifier or JavaScriptTokenKind.String or JavaScriptTokenKind.Number)) throw Error("Expected an object property name");

@@ -5,7 +5,7 @@ internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenK
 internal sealed record JavaScriptTemplateExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptRegexExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptIdentifierExpression(string Name) : JavaScriptExpression;
-internal sealed record JavaScriptYieldExpression(JavaScriptExpression? Expression) : JavaScriptExpression;
+internal sealed record JavaScriptYieldExpression(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptExpression;
 internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptUpdateExpression(string Operator, JavaScriptExpression Operand, bool Prefix) : JavaScriptExpression;
 internal sealed record JavaScriptBinaryExpression(string Operator, JavaScriptExpression Left, JavaScriptExpression Right) : JavaScriptExpression;
@@ -27,7 +27,7 @@ internal sealed record JavaScriptVariableStatement(string Name, JavaScriptExpres
 internal sealed record JavaScriptFunctionDeclarationStatement(string Name, JavaScriptFunctionExpression Function) : JavaScriptStatement;
 internal sealed record JavaScriptClassDeclarationStatement(string Name, JavaScriptClassExpression Class) : JavaScriptStatement;
 internal sealed record JavaScriptReturnStatement(JavaScriptExpression? Expression) : JavaScriptStatement;
-internal sealed record JavaScriptYieldStatement(JavaScriptExpression? Expression) : JavaScriptStatement;
+internal sealed record JavaScriptYieldStatement(JavaScriptExpression? Expression, bool Delegate = false) : JavaScriptStatement;
 internal sealed record JavaScriptBlockStatement(IReadOnlyList<JavaScriptStatement> Statements) : JavaScriptStatement;
 internal sealed record JavaScriptIfStatement(JavaScriptExpression Condition, JavaScriptStatement Then, JavaScriptStatement? Else) : JavaScriptStatement;
 internal sealed record JavaScriptWhileStatement(JavaScriptExpression Condition, JavaScriptStatement Body) : JavaScriptStatement;

@@ -75,6 +75,7 @@ public sealed class NativeJavaScriptEngineTests
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("1|2", engine.Evaluate("function* values(){yield 1; yield 2;} return Array.from(values()).join('|');").AsString());
+        Assert.Equal("1|2", engine.Evaluate("function* values(){yield*[1,2];} return Array.from(values()).join('|');").AsString());
     }
 
     [Fact]
