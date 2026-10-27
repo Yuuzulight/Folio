@@ -55,8 +55,10 @@ dependency removal are still required for those tracks.
 
 The native-engine differential conformance probe makes the remaining JavaScript
 gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 50/60: D2
-9/10, D3 10/10, D4 10/10, D5 1/10, D6 10/10 and D7 10/10. The remaining results
-are image mismatches or the React hooks interaction failure tracked in #645.
+9/10, D3 10/10, D4 10/10, D5 1/10, D6 10/10 and D7 10/10. The native D5 chart
+bridge now renders all nine previously blank charts, but they remain about 2.1%
+outside the reference tolerance; the React hooks interaction failure remains
+tracked in #645. These residual results are not accepted as parity.
 This is measurable progress, but it is still below the M5 90% category bar and
 cannot select the native engine as Folio's production engine yet.
 
