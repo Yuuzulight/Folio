@@ -79,6 +79,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void EvaluatesNestedTemplateLiteralInInterpolation()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("x1", engine.Evaluate("return `${true ? `x${1}` : 'y'}`;").AsString());
+    }
+
+    [Fact]
     public void ParsesReactDomErrorDecoderFunction()
     {
         using var engine = new NativeJavaScriptEngine();

@@ -647,8 +647,14 @@ internal sealed class JavaScriptEvaluator
             && target is not NativeJavaScriptEngine.INativeCallable
             && target is not NativeJavaScriptEngine.NativeReceiverFunction)
             throw new NotSupportedException($"Only explicitly supplied host functions can be called in the staged VM: {call.Callee} resolved to {target?.GetType().Name ?? "null"}.");
-        var arguments = new object?[call.Arguments.Count];
-        for (var i = 0; i < arguments.Length; i++) arguments[i] = Evaluate(call.Arguments[i]);
+        var expandedArguments = new List<object?>();
+        foreach (var argument in call.Arguments)
+        {
+            var value = Evaluate(argument is JavaScriptSpreadExpression spread ? spread.Operand : argument);
+            if (argument is JavaScriptSpreadExpression && value is IEnumerable<object?> sequence) expandedArguments.AddRange(sequence);
+            else expandedArguments.Add(value);
+        }
+        var arguments = expandedArguments.ToArray();
         if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable)
             return receiverCallable.Invoke(receiver, arguments);
         return target is NativeJavaScriptEngine.INativeCallable callable

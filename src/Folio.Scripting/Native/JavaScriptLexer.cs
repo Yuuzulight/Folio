@@ -148,7 +148,15 @@ internal sealed class JavaScriptLexer
     {
         Advance();
         var start = _index;
-        while (_index < _source.Length && _source[_index] != '`') Advance();
+        var interpolationBraces = 0;
+        while (_index < _source.Length)
+        {
+            var current = _source[_index];
+            if (current == '`' && interpolationBraces == 0) break;
+            if (current == '{') interpolationBraces++;
+            else if (current == '}' && interpolationBraces > 0) interpolationBraces--;
+            Advance();
+        }
         var text = _source[start.._index];
         if (_index < _source.Length) Advance();
         return new(JavaScriptTokenKind.Template, text, offset, line, column);

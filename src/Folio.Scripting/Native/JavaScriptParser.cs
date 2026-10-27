@@ -224,7 +224,7 @@ internal sealed class JavaScriptParser
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "switch")
         {
-            Take(); Expect("("); var expression = ParseBinary(0); Expect(")"); Expect("{");
+            Take(); Expect("("); var expression = ParseSequenceExpression(); Expect(")"); Expect("{");
             var cases = new List<JavaScriptSwitchCase>();
             while (_current.Kind != JavaScriptTokenKind.End && !Match("}"))
             {
@@ -253,8 +253,14 @@ internal sealed class JavaScriptParser
             var names = new List<string>();
             if (!Match("]"))
             {
-                do { if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name"); names.Add(_current.Text); Take(); }
-                while (Match(","));
+                while (true)
+                {
+                    if (Match(",")) { names.Add(string.Empty); continue; }
+                    if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
+                    names.Add(_current.Text); Take();
+                    if (!Match(",")) break;
+                    if (_current.Text == "]") { names.Add(string.Empty); break; }
+                }
                 Expect("]");
             }
             return "[" + string.Join(",", names) + "]";
@@ -271,8 +277,12 @@ internal sealed class JavaScriptParser
                     var local = property;
                     if (Match(":"))
                     {
-                        if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
-                        local = _current.Text; Take();
+                        if (_current.Text is "[" or "{") local = ParseBindingName();
+                        else
+                        {
+                            if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a destructured binding name");
+                            local = _current.Text; Take();
+                        }
                     }
                     names.Add(property + ":" + local);
                 } while (Match(","));
@@ -320,6 +330,13 @@ internal sealed class JavaScriptParser
         var expression = ParseUnary();
         while (true)
         {
+            if (_current.Kind == JavaScriptTokenKind.Template)
+            {
+                var template = new JavaScriptTemplateExpression(_current.Text);
+                Take();
+                expression = Node(new JavaScriptCallExpression(expression, [template]));
+                continue;
+            }
             if (Match("."))
             {
                 if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a member name");
@@ -332,7 +349,7 @@ internal sealed class JavaScriptParser
                 var arguments = new List<JavaScriptExpression>();
                 if (!Match(")"))
                 {
-                    do { arguments.Add(ParseBinary(0)); } while (Match(","));
+                    do { arguments.Add(Match("...") ? new JavaScriptSpreadExpression(ParseBinary(0)) : ParseBinary(0)); } while (Match(","));
                     Expect(")");
                 }
                 expression = Node(new JavaScriptCallExpression(expression, arguments));
@@ -592,6 +609,7 @@ internal sealed class JavaScriptParser
             var getter = false;
             var setter = false;
             var isStatic = false;
+            var generator = Match("*");
             if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "static")
             {
                 isStatic = true;
@@ -616,7 +634,7 @@ internal sealed class JavaScriptParser
                 if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a class method name");
                 methodName = _current.Text; Take();
             }
-            methods.Add(new JavaScriptClassMethod(methodName, getter, setter, isStatic, ParseFunctionTail()));
+            methods.Add(new JavaScriptClassMethod(methodName, getter, setter, isStatic, ParseFunctionTail(generator)));
         }
         return Node(new JavaScriptClassExpression(name, parent, methods));
     }
