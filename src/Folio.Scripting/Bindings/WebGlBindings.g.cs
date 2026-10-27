@@ -3521,4 +3521,3 @@ public static class WebGL2RenderingContextBinding
         return template;
     }
 }
-

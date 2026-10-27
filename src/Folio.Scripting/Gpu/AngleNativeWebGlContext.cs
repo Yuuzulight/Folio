@@ -391,4 +391,3 @@ internal sealed partial class AngleNativeWebGlContext : IDisposable, INativeWebG
         }
     }
 }
-

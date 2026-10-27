@@ -313,4 +313,3 @@ internal sealed partial class AngleNativeWebGlContext
         return error == 0;
     }
 }
-

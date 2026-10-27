@@ -439,4 +439,3 @@ internal sealed partial class AngleNativeWebGlContext
     }
     private uint? CurrentBuffer(uint target) => target == GlArrayBuffer ? _boundArrayBuffer : target == GlElementArrayBuffer ? _boundElementArrayBuffer : target == GlCopyReadBuffer ? _boundCopyReadBuffer : target == GlCopyWriteBuffer ? _boundCopyWriteBuffer : target == GlUniformBuffer ? _boundUniformBuffer : target == GlTransformFeedbackBuffer ? _boundTransformFeedbackBuffer : null;
 }
-

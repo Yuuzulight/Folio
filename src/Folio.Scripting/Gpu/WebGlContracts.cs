@@ -248,4 +248,3 @@ internal interface INativeWebGlFactory
     long PeakReservedBytes { get; }
     bool TryCreate(WebGlContextOptions options, out INativeWebGlContext? context, out GpuFailure? failure);
 }
-
