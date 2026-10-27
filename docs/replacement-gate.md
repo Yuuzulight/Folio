@@ -45,16 +45,25 @@ The status table in [`docs/dependencies.md`](dependencies.md) and the milestone
 roadmap must be updated with links to this evidence. A dependency-backed pass
 or a partial Folio implementation is progress, never completion.
 
-## Verification refresh — 2026-10-27
+## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The current focused native-engine/library
-probe set passes 75/75, and the Folio-owned GIF/WebP/BMP fuzz targets completed
+probe set passes 75/75, the direct M1–M6 acceptance suites pass, and the latest
+complete Release verification passes 4,160 tests with 0 failures and 7 documented
+skips (4,167 discovered). The Folio-owned GIF/WebP/BMP fuzz targets completed
 1,147,094, 63,926 and 3,753,186 mutations respectively with zero failures. These
 are progress and safety evidence, not completion: HybridShaper still routes
 complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
 production JavaScript engine, and Wasmtime remains part of the native WebAssembly
 path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
+
+The latest Release build succeeds from `Folio.slnx`. The native D2–D7 probe remains
+59/60: all library-card and canvas artifacts pass, while `D2/pantry-react-jsx`
+still fails at its first interaction with the surfaced detached-child
+`NotFoundError` diagnostic tracked by #645. The latest 30-frame canvas benchmark
+keeps every library-card artifact and the snake game below 16.7 ms p95, but
+`D5/canvas-animated-bars` remains at 43.93 ms p95 under #519.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
