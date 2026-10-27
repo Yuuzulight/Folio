@@ -68,6 +68,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (end < start) end = start;
                 return values.Skip(start).Take(end - start).ToArray();
             }),
+            ["map"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
+                return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToArray();
+            }),
         };
         arrayConstructor.SetProperty("prototype", arrayPrototype);
         _bindings["Array"] = arrayConstructor;
