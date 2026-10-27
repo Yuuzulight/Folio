@@ -13,7 +13,10 @@ public class ConformanceTests
     private const string None = "(none)";
 
     public static TheoryData<string> Artifacts =>
-        Conformance.Discover().Select(a => a.Id).ToList() is { Count: > 0 } ids ? new(ids) : new(None);
+        // D8 is validated by the dedicated native WebGL conformance command; the default compatibility
+        // engine intentionally routes WebGL away, and Linux has no Windows GPU backend.
+        Conformance.Discover().Where(a => !string.Equals(a.Category, "D8", StringComparison.Ordinal))
+            .Select(a => a.Id).ToList() is { Count: > 0 } ids ? new(ids) : new(None);
 
     /// <summary>
     /// Every artifact renders without an exception, hang or limit hit, and its interaction assertions succeed unless explicitly expected to fail.

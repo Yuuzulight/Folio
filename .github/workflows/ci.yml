@@ -89,7 +89,7 @@ jobs:
 
       # D8 is Folio's native WebGL acceptance category; the compatibility engine intentionally routes it away.
       - name: Native WebGL conformance
-        if: always()
+        if: always() && matrix.os == 'windows-latest'
         env:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance D8
