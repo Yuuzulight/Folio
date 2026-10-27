@@ -87,6 +87,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void HoistsFunctionDeclarationsWithinAFunctionBody()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(3d, engine.Evaluate("return run(); function run(){return 3;}").AsNumber());
+    }
+
+    [Fact]
     public void ParsesReactDomErrorDecoderFunction()
     {
         using var engine = new NativeJavaScriptEngine();

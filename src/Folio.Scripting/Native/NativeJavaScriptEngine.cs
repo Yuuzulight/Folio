@@ -263,6 +263,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["random"] = (Func<IReadOnlyList<object?>, object?>)(_ => Random.Shared.NextDouble()),
             ["log"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Log(Number(args, 0))),
             ["pow"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Pow(Number(args, 0), Number(args, 1))),
+            ["sqrt"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sqrt(Number(args, 0))),
+            ["sign"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sign(Number(args, 0))),
+            ["trunc"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Truncate(Number(args, 0))),
+            ["sin"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sin(Number(args, 0))),
+            ["cos"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Cos(Number(args, 0))),
+            ["atan2"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Atan2(Number(args, 0), Number(args, 1))),
+            ["asin"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Asin(Number(args, 0))),
+            ["acos"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Acos(Number(args, 0))),
+            ["tan"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Tan(Number(args, 0))),
+            ["exp"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Exp(Number(args, 0))),
             ["clz32"] = (Func<IReadOnlyList<object?>, object?>)(args => BitOperations.LeadingZeroCount((uint)(long)Number(args, 0))),
         };
         var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));

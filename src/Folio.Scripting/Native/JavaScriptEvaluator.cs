@@ -133,6 +133,8 @@ internal sealed class JavaScriptEvaluator
     private object? ExecuteCore(IReadOnlyList<JavaScriptStatement> statements)
     {
         ThrowIfExpired();
+        foreach (var declaration in statements.OfType<JavaScriptFunctionDeclarationStatement>())
+            _bindings[declaration.Name] = Evaluate(declaration.Function);
         object? lastResult = UndefinedValue.Instance;
         foreach (var statement in statements)
         {
