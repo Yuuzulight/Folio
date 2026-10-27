@@ -27,7 +27,7 @@ The native Folio-engine run is not yet equivalent: the latest fresh result is 59
 - The focused serialized scripting acceptance run passes its covered cases, including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, iframe message-source/target/port regressions, signed and unsigned array-texture sampling, native readback error/packing coverage, native array-growth semantics, and native worker structured-clone object/array/RegExp/cycle/Map/Set/Date/ArrayBuffer/typed-array/Error round trips plus native end-to-end worker transfer detachment.
 - `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7` (dependency-backed baseline): 60 passed, with no expected failures or unexpected failures.
 - Native-engine conformance (fresh 2026-10-27 run): 59/60 passed — D2 9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10, D7 10/10. D2's todo component now passes after wiring array flattening and the standard `Infinity` global; D6's text flowchart passes with the same mutable-array and regex-splitting support. D5's ten Chart.js artifacts now match after the bridge geometry correction in #647.
-- `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 742/742 passed.
+- `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 747/747 passed.
 
 The canvas frame-time harness now uses the retained `PaintFrame` path for canvas-only
 script mutations and reuses the document text shaper, so it no longer measures a full
