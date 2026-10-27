@@ -347,6 +347,20 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void DrawsTextFromCff2GlyphOutlines()
+    {
+        var face = Load("FolioCff2.otf");
+        var glyph = face.GlyphFor('A');
+        Assert.NotEqual((ushort)0, glyph);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
+            "The CFF2 glyph did not produce a raster outline.");
+    }
+
+    [Fact]
     public void DrawsBitmapColourGlyphs()
     {
         var face = Load("NotoColorEmoji.ttf");

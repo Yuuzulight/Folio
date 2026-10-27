@@ -119,8 +119,9 @@ simple-script set plus Hebrew base and isolated-mark runs; multiple-mark Hebrew 
 other complex scripts still use the differential shaper. GIF and WebP decoding are
 Folio-owned and production-wired with differential/fuzz evidence; bounded BMP and
 ICO decoding are also Folio-owned slices. Rasterisation and the JavaScript engine
-remain dependency-backed, and the CFF2 outline path still needs its dedicated
-fixture/differential gate. This phase
+remain dependency-backed. CFF2 now has a Folio-owned parser path, a pinned
+two-glyph fixture and a software-raster regression, but still needs the
+differential, variable-font and malformed/limit gates. This phase
 cannot be marked complete until all five production replacement tracks are complete and their superseded production dependencies are removed.
 
 **Acceptance criteria**
