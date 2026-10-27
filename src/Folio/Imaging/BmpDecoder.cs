@@ -65,8 +65,11 @@ internal static class BmpDecoder
                     pixels[destination] = Extract(value, redMask);
                     pixels[destination + 1] = Extract(value, greenMask);
                     pixels[destination + 2] = Extract(value, blueMask);
+                    // BI_RGB 32-bit BMP stores the fourth byte as reserved, not
+                    // alpha.  Treating it as transparency makes the common
+                    // opaque BGRA form disappear when that reserved byte is 0.
                     pixels[destination + 3] = bits == 32 && compression == 0
-                        ? data[source + 3]
+                        ? (byte)255
                         : alphaMask == 0 ? (byte)255 : Extract(value, alphaMask);
                 }
                 else
