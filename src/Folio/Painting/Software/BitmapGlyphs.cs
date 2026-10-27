@@ -72,8 +72,12 @@ internal static class BitmapGlyphs
         var imageBytes = sbix.Bytes(data + 8, end - start - 8);
         if (PngDecoder.Decode(imageBytes) is not { } image)
             return null;
-        // sbix originOffsetY is measured upward from the baseline; BitmapGlyphs uses a top bearing.
-        return new Bitmap(image, bestPpem, sbix.S16(data), -sbix.S16(data + 2) + image.Height, image.Width);
+        // sbix origins are in design units; convert to strike pixels. BitmapGlyphs uses a top bearing,
+        // while sbix's y origin names the bottom edge of the image relative to the glyph origin.
+        var designToPixels = (float)bestPpem / face.UnitsPerEm;
+        var bearingX = sbix.S16(data) * designToPixels;
+        var bearingY = sbix.S16(data + 2) * designToPixels + image.Height;
+        return new Bitmap(image, bestPpem, bearingX, bearingY, image.Width);
     }
 
     // The largest strike: its size and its index sub-tables.
