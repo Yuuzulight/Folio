@@ -28,19 +28,52 @@ internal static class BitmapGlyphs
 
     private static readonly ConditionalWeakTable<FontFace, Index?> Indexes = new();
 
-    public static bool Has(FontFace face) => face.RawTable("CBLC") is not null && face.RawTable("CBDT") is not null;
+    public static bool Has(FontFace face) => face.RawTable("CBLC") is not null && face.RawTable("CBDT") is not null || face.RawTable("sbix") is not null;
 
     public static Bitmap? Get(FontFace face, ushort glyph)
     {
         try
         {
             var index = Indexes.GetValue(face, f => f.RawTable("CBLC") is { } cblc && f.RawTable("CBDT") is { } cbdt && ReadStrike(cblc) is { } strike ? new Index(cblc, cbdt, strike) : null);
-            return index is null ? null : Find(index, glyph);
+            return index is not null ? Find(index, glyph) : FindSbix(face, glyph);
         }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
         {
             return null;
         }
+    }
+
+    private static Bitmap? FindSbix(FontFace face, ushort glyph)
+    {
+        if (face.RawTable("sbix") is not { } sbix || sbix.Length < 8)
+            return null;
+        var strikes = sbix.U32(4);
+        if (strikes == 0 || strikes > 256 || 8 + 4 * strikes > sbix.Length)
+            return null;
+        var bestPpem = 0;
+        var bestOffset = 0;
+        for (var i = 0; i < strikes; i++)
+        {
+            var offset = (int)sbix.U32(8 + 4 * i);
+            if (offset < 0 || offset + 4 > sbix.Length)
+                continue;
+            var ppem = sbix.U16(offset);
+            if (ppem > bestPpem) { bestPpem = ppem; bestOffset = offset; }
+        }
+        if (bestPpem == 0 || bestOffset + 4 + 4 * (face.GlyphCount + 1) > sbix.Length || glyph >= face.GlyphCount)
+            return null;
+        var start = (int)sbix.U32(bestOffset + 4 + 4 * glyph);
+        var end = (int)sbix.U32(bestOffset + 4 + 4 * (glyph + 1));
+        if (end <= start || bestOffset + start < 0 || bestOffset + end > sbix.Length)
+            return null;
+        var data = bestOffset + start;
+        if (data + 8 > sbix.Length || sbix.Tag(data + 4) != "png ")
+            return null;
+        var imageBytes = sbix.Bytes(data + 8, end - start - 8);
+        if (PngDecoder.Decode(imageBytes) is not { } image)
+            return null;
+        // sbix originOffsetY is measured upward from the baseline; BitmapGlyphs uses a top bearing.
+        return new Bitmap(image, bestPpem, sbix.S16(data), -sbix.S16(data + 2) + image.Height, image.Width);
     }
 
     // The largest strike: its size and its index sub-tables.

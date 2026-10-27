@@ -29,7 +29,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
 | 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
 | Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
-| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Folio-owned for glyf/loca, CFF Type 2, CBDT/CBLC and COLR v0**; Skia remains for CFF2, variation outlines and COLR v1 | SoftwareCanvas draws Folio-parsed outlines, PNG bitmap strikes and layered palette glyphs; remaining formats stay explicitly gated |
+| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Folio-owned for glyf/loca, CFF Type 2, CBDT/CBLC, PNG sbix and COLR v0**; Skia remains for CFF2, variation outlines and COLR v1 | SoftwareCanvas draws Folio-parsed outlines, PNG bitmap strikes and layered palette glyphs; remaining formats stay explicitly gated |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |
 | Clipboard | **System-provided** | WinForms `Clipboard` |
