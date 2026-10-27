@@ -94,6 +94,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ExposesNativeMathFunctions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(3d + Math.PI / 2, engine.Evaluate("return Math.sqrt(9) + Math.asin(1) + Math.acos(1);").AsNumber(), 10);
+    }
+
+    [Fact]
     public void ParsesReactDomErrorDecoderFunction()
     {
         using var engine = new NativeJavaScriptEngine();
