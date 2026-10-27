@@ -138,4 +138,28 @@ public sealed class NativeLibraryProbeTests
         for (var i = 0; i < 8 && engine.Evaluate("hit").AsNumber() == 0; i++) loop.RunOneTurn();
         Assert.Equal(1, engine.Evaluate("hit").AsNumber());
     }
+
+    [Fact]
+    public void NativeJavaScriptHonorsLabeledContinue()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("0:0,1:0,2:0", engine.Evaluate("var hits=[]; outer: for(var i=0;i<3;i++){for(var j=0;j<3;j++){if(j===1)continue outer; hits.push(i+':'+j);}} hits.join(',');").AsString());
+    }
+
+    [Fact]
+    public void NativeReactPlacementHonorsLabeledTraversal()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));
+        using var document = Folio.Document.Parse("<div id='root'></div>", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+        using var engine = new NativeJavaScriptEngine();
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        engine.Evaluate(File.ReadAllText(Path.Combine(root, "react.production.min.js")), "react.production.min.js");
+        engine.Evaluate(File.ReadAllText(Path.Combine(root, "react-dom.production.min.js")), "react-dom.production.min.js");
+        engine.Evaluate("var rr=ReactDOM.createRoot(document.getElementById('root')); rr.render(React.createElement('span',null,'hello')); ");
+        for (var i = 0; i < 12; i++) loop.RunOneTurn();
+        Assert.Equal(1, engine.Evaluate("document.getElementById('root').childNodes.length").AsNumber());
+        Assert.Equal("SPAN", engine.Evaluate("document.getElementById('root').firstChild.nodeName").AsString());
+    }
+
 }
