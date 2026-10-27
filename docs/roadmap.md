@@ -116,9 +116,11 @@ This phase is a mandatory, non-waivable completion gate, not an optional follow-
 
 **Current status:** in progress and incomplete. Hybrid shaping covers the proven
 simple-script set plus Hebrew base and isolated-mark runs; multiple-mark Hebrew and
-other complex scripts still use the differential shaper. The GIF decoder, bounded
-BMP decoder and bounded ICO decoder are replacement slices under differential
-verification; rasterisation and the JavaScript engine remain dependency-backed. WebP decoding is now Folio-owned and production-wired. This phase
+other complex scripts still use the differential shaper. GIF and WebP decoding are
+Folio-owned and production-wired with differential/fuzz evidence; bounded BMP and
+ICO decoding are also Folio-owned slices. Rasterisation and the JavaScript engine
+remain dependency-backed, and the CFF2 outline path still needs its dedicated
+fixture/differential gate. This phase
 cannot be marked complete until all five production replacement tracks are complete and their superseded production dependencies are removed.
 
 **Acceptance criteria**
