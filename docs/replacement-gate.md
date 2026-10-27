@@ -64,7 +64,7 @@ still fails at its first interaction with the surfaced detached-child
 `NotFoundError` diagnostic tracked by #645. The canvas frame benchmark now has
 an explicit native-engine diagnostic mode. In the current compatibility-engine
 30-frame run, every library-card artifact and the snake game are below 16.7 ms
-p95, but `D5/canvas-animated-bars` is 42.93 ms total p95, dominated by
+p95, but `D5/canvas-animated-bars` is 38.13–43.48 ms total p95 across three runs, dominated by
 script/update time, under #519. Native-mode results remain diagnostic until the
 native engine executes the complete canvas animation semantics; native D2–D7
 parity is tracked separately.

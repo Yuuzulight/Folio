@@ -6,7 +6,7 @@ The frame harness supports both the compatibility engine and an explicit
 Folio-native diagnostic mode through `FOLIO_CONFORMANCE_ENGINE=native`, and
 reports per-artifact script/update, display-list, host-paint and total p95
 timings. The current compatibility-engine 30-frame run exposes a real target
-miss in `D5/canvas-animated-bars` (42.93 ms total, dominated by script/update);
+miss in `D5/canvas-animated-bars` (38.13–43.48 ms total across three runs, dominated by script/update);
 the remaining D5/D7 artifacts are below 16.7 ms. Native-mode numbers remain
 diagnostic until the native engine executes the complete canvas animation
 semantics. The issue remains open pending optimization rather than being hidden
