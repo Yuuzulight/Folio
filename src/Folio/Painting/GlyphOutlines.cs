@@ -22,7 +22,9 @@ internal static class GlyphOutlines
             if (face.RawTable("glyf") is { } glyf && face.RawTable("loca") is { } loca)
                 return TrueType(face, glyf, loca, glyph);
             if (face.RawTable("CFF ") is { } cff)
-                return CffFont.For(face, cff).Outline(glyph);
+                return CffFont.For(face, cff, cff2: false).Outline(glyph);
+            if (face.RawTable("CFF2") is { } cff2)
+                return CffFont.For(face, cff2, cff2: true).Outline(glyph);
             return null;
         }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
@@ -345,7 +347,7 @@ internal static class GlyphOutlines
         private readonly int _fdSelectFormat;
         private readonly int _fdSelectOffset;
 
-        public static CffFont For(FontFace face, FontData cff) => Cache.GetValue(face, _ => new CffFont(cff));
+        public static CffFont For(FontFace face, FontData cff, bool cff2) => Cache.GetValue(face, _ => new CffFont(cff, cff2));
 
         private readonly record struct Index(FontData Data, int Count, int OffsetSize, int OffsetsStart, int DataStart, int End)
         {
@@ -446,15 +448,28 @@ internal static class GlyphOutlines
         private readonly double[] _defaultWidth;
         private readonly double[] _nominalWidth;
 
-        private CffFont(FontData data)
+        private CffFont(FontData data, bool cff2)
         {
             _data = data;
-            var headerSize = data.U8(2);
-            var nameIndex = Index.Read(data, headerSize);
-            var topIndex = Index.Read(data, nameIndex.End);
-            var stringIndex = Index.Read(data, topIndex.End);
-            _globalSubrs = Index.Read(data, stringIndex.End);
-            var top = Dict.Parse(topIndex.Item(0));
+            Dict top;
+            int globalSubrsOffset;
+            if (cff2)
+            {
+                var headerSize = data.U8(2);
+                var topLength = data.U16(3);
+                top = Dict.Parse(data.Slice(headerSize, topLength));
+                globalSubrsOffset = headerSize + topLength;
+            }
+            else
+            {
+                var headerSize = data.U8(2);
+                var nameIndex = Index.Read(data, headerSize);
+                var topIndex = Index.Read(data, nameIndex.End);
+                var stringIndex = Index.Read(data, topIndex.End);
+                globalSubrsOffset = stringIndex.End;
+                top = Dict.Parse(topIndex.Item(0));
+            }
+            _globalSubrs = Index.Read(data, globalSubrsOffset);
             if (top.Number(17) is not { } charStringsOffset)
                 throw new InvalidDataException("A CFF font without charstrings.");
             _charStrings = Index.Read(data, (int)charStringsOffset);
