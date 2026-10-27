@@ -235,8 +235,10 @@ keeps HarfBuzz as the complex-script oracle. Folio's GPOS mark-to-base/mark-to-m
 parser has direct differential coverage; the Folio complex shaper now matches the
 bundled Hebrew base, isolated-mark and selected RTL multi-mark cases, while production
 multiple-mark and complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
-GSUB and kerning parity is proven. Arabic shaping, Indic and
-South-East Asian scripts, and the differential corpus remain outstanding. The
+GSUB and kerning parity is proven. Arabic now has Folio-owned joining plus
+script-selected `locl`/`rlig`/`calt`/`liga` contextual substitutions for the
+representative corpus, but broad Arabic mark/corpus parity, Indic and South-East
+Asian scripts, and the differential corpus remain outstanding. The
 rasteriser and JavaScript engine are still dependency-backed. The
 Folio-owned JavaScript replacement has now started with a bounded lexer and
 source-location/error tests plus bounded expression, statement, explicit
