@@ -43,8 +43,12 @@ internal static class BitmapGlyphs
         }
     }
 
-    private static Bitmap? FindSbix(FontFace face, ushort glyph)
+    private static Bitmap? FindSbix(FontFace face, ushort glyph) => FindSbix(face, glyph, []);
+
+    private static Bitmap? FindSbix(FontFace face, ushort glyph, HashSet<ushort> seen)
     {
+        if (!seen.Add(glyph))
+            return null;
         if (face.RawTable("sbix") is not { } sbix || sbix.Length < 8)
             return null;
         var strikes = sbix.U32(4);
@@ -67,7 +71,12 @@ internal static class BitmapGlyphs
         if (end <= start || bestOffset + start < 0 || bestOffset + end > sbix.Length)
             return null;
         var data = bestOffset + start;
-        if (data + 8 > sbix.Length || sbix.Tag(data + 4) != "png ")
+        if (data + 8 > sbix.Length)
+            return null;
+        var graphicType = sbix.Tag(data + 4);
+        if (graphicType == "dupe")
+            return sbix.U16(data + 8) < face.GlyphCount ? FindSbix(face, sbix.U16(data + 8), seen) : null;
+        if (graphicType != "png ")
             return null;
         var imageBytes = sbix.Bytes(data + 8, end - start - 8);
         if (PngDecoder.Decode(imageBytes) is not { } image)
