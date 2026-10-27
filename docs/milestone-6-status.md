@@ -52,7 +52,7 @@ open under issue #645.
 
 Current native service-worker conformance correction (2026-10-27): D14 now passes 3/3 on the native engine after fixing the reopened-page response bridge; the Jint compatibility engine also passes D14 3/3. The service-worker corpus gate is green on both engines, but the broader native service-worker backend, interruption, and sandbox requirements below remain open; the historical claims below must not be read as completion evidence for those requirements.
 
-Latest full Release verification (2026-10-28): 4,159 passed, 0 failed, 7 documented skips, 4,166 discovered. The older aggregate sentence below is retained as historical context.
+Latest full Release verification (2026-10-28): 4,160 passed, 0 failed, 7 documented skips, 4,167 discovered. The older aggregate sentence below is retained as historical context.
 
 Verification refresh (2026-10-27): after the native evaluator and WebAssembly bridge repairs, the latest complete Release solution passes 4,147 tests (0 failed, 7 documented skips; 4,154 discovered). The latest run also includes worker, WebAssembly, WebRTC, iframe and service-worker content-process sandbox coverage. These results prove the covered subsets only; the remaining native backend, interruption and routing requirements remain open. Earlier totals in this document are historical snapshots.
 
