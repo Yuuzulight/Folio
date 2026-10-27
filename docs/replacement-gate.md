@@ -18,6 +18,9 @@ production dependency has been removed:
    selected, fuzzed and conformance-equivalent to the existing decoder path.
    This gate is complete: GIF and WebP are wired through `ImageLoader`, with
    checked-in differential fixtures, malformed/limit tests, and fuzz targets.
+   The shared `Folio.Imaging.ImageDecoder` entry point is also used by canvas
+   still-media fallback, so video/canvas decode no longer has a narrower
+   PNG/JPEG-only format matrix.
 4. **JavaScript** — Folio's parser, VM, DOM host layer and hot-path execution
    replace Jint in production and pass the complete scripting and conformance
    suites, including sandbox and resource-limit behavior.
