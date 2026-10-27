@@ -109,6 +109,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("1|2|2|3", engine.Evaluate("return [1,2].flatMap(x => [x,x+1]).join('|');").AsString());
         Assert.Equal(20d, engine.Evaluate("return Math.max(...[{values:[1,2],scale:10},{values:[3],scale:1}].flatMap(s => s.values.map(v => v * (s.scale || 1))));").AsNumber());
         Assert.Equal("2|1|2", engine.Evaluate("class X extends Array {}; const x = new X(); x.push(1,2); return [x.length,x[0],x[1]].join('|');").AsString());
+        Assert.Equal("Start|invalid", engine.Evaluate("return 'Start : invalid'.split(/\\s*:\\s*/).join('|');").AsString());
         Assert.Equal("Symbol:x|Symbol.iterator", engine.Evaluate("return Symbol('x')+'|'+Symbol.iterator;").AsString());
     }
 

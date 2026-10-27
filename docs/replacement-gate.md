@@ -54,8 +54,8 @@ path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 48/60: D2
-8/10, D3 10/10, D4 10/10, D5 1/10, D6 9/10 and D7 10/10. The remaining results
+gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 49/60: D2
+8/10, D3 10/10, D4 10/10, D5 1/10, D6 10/10 and D7 10/10. The remaining results
 are image mismatches or the React hooks interaction failure tracked in #645.
 This is measurable progress, but it is still below the M5 90% category bar and
 cannot select the native engine as Folio's production engine yet.

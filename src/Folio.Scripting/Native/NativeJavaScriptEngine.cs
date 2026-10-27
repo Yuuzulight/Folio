@@ -116,7 +116,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["map"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
-                return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToArray();
+                return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
@@ -125,7 +125,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 {
                     var mapped = InvokeCallable(args[0], [value, (double)index, values]);
                     return mapped is IEnumerable<object?> nested ? nested : [mapped];
-                }).ToArray();
+                }).ToList();
             }),
         };
         arrayConstructor.SetProperty("prototype", arrayPrototype);

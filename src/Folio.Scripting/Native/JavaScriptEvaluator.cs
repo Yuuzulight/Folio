@@ -921,6 +921,7 @@ internal sealed class JavaScriptEvaluator
         }
         internal string Replace(string input, Func<string, string> replacement) => _regex.Replace(input, match => replacement(match.Value));
         internal string Replace(string input, string replacement) => _regex.Replace(input, replacement);
+        internal string[] Split(string input) => _regex.Split(input);
     }
 
     private static bool TryArrayMethod(IList<object?> values, string name, out object? method)
@@ -1026,16 +1027,16 @@ internal sealed class JavaScriptEvaluator
         return removed;
     }
 
-    private static object?[] Map(IList<object?> values, IReadOnlyList<object?> args, bool filter, bool discard = false)
+    private static object? Map(IList<object?> values, IReadOnlyList<object?> args, bool filter, bool discard = false)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return [];
+        if (args.Count == 0 || !IsCallable(args[0])) return Array.Empty<object?>();
         var result = new List<object?>();
         for (var i = 0; i < values.Count; i++)
         {
             TryInvoke(args[0], [values[i], (double)i, values], out var mapped);
             if (!filter || Truth(mapped)) result.Add(filter ? values[i] : mapped);
         }
-        return discard ? [] : result.ToArray();
+        return discard ? Array.Empty<object?>() : result.ToList();
     }
 
     private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
@@ -1120,7 +1121,11 @@ internal sealed class JavaScriptEvaluator
                 var index = value.IndexOf(needle, StringComparison.Ordinal);
                 return index < 0 ? null : new object?[] { needle };
             }),
-            "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? new[] { value } : value.Split(StringValue(args[0]), StringSplitOptions.None)),
+            "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0
+                ? new List<object?> { value }
+                : args[0] is RegexValue regex
+                    ? regex.Split(value).Cast<object?>().ToList()
+                    : value.Split(StringValue(args[0]), StringSplitOptions.None).Cast<object?>().ToList()),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
