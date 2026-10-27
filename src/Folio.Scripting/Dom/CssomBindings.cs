@@ -115,7 +115,11 @@ internal static class CssomBindings
                 for (let i = 0; same && i < children.length; i++) same = rules.get(children[i][0]) === list[i];
                 if (!same) {
                     list.length = 0;
-                    for (const [childId, childKind] of children) list.push(ruleFor(childId, childKind));
+                    for (const [childId, childKind] of children) {
+                        const oldLength = list.length;
+                        list[oldLength] = ruleFor(childId, childKind);
+                        if (list.length === oldLength) list.length++;
+                    }
                 }
                 return list;
             }
@@ -192,13 +196,20 @@ internal static class CssomBindings
                 return sheet;
             }
 
-            const sheetList = new StyleSheetList();
             function styleSheets() {
+                if (styleSheets._cache === undefined) styleSheets._cache = new StyleSheetList();
                 const ids = JSON.parse(host.sheets());
-                let same = sheetList.length === ids.length;
-                for (let i = 0; same && i < ids.length; i++) same = sheets.get(ids[i]) === sheetList[i];
-                if (!same) { sheetList.length = 0; for (const id of ids) sheetList.push(sheetFor(id)); }
-                return sheetList;
+                let same = styleSheets._cache.length === ids.length;
+                for (let i = 0; same && i < ids.length; i++) same = sheets.get(ids[i]) === styleSheets._cache[i];
+                if (!same) {
+                    styleSheets._cache.length = 0;
+                    for (let i = 0; i < ids.length; i++) {
+                        const oldLength = styleSheets._cache.length;
+                        styleSheets._cache[oldLength] = sheetFor(ids[i]);
+                        if (styleSheets._cache.length === oldLength) styleSheets._cache.length++;
+                    }
+                }
+                return styleSheets._cache;
             }
             function sheetOf(element) { const id = host.sheetOf(element); return id === 0 ? null : sheetFor(id); }
 

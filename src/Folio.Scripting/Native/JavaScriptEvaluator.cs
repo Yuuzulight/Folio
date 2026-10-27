@@ -110,6 +110,12 @@ internal sealed class JavaScriptEvaluator
             var value = Evaluate(spread.Operand);
             if (value is NativeJavaScriptEngine.NativeSet set) result.AddRange(set.Values());
             else if (value is IEnumerable<object?> sequence) result.AddRange(sequence);
+            else if (value is NativeJavaScriptEngine.INativeHostObject host
+                && host.TryGetValue("length", out var length))
+            {
+                for (var index = 0; index < Math.Max(0, (int)Number(length)); index++)
+                    if (host.TryGetIndex(index, out var item)) result.Add(item);
+            }
         }
         return result;
     }
@@ -230,7 +236,11 @@ internal sealed class JavaScriptEvaluator
                     var source = Evaluate(each.Iterable);
                     var items = each.Keys && source is IReadOnlyDictionary<string, object?> dictionary
                         ? dictionary.Keys.Cast<object?>().ToArray()
-                        : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToArray() : array.ToArray()) : Array.Empty<object?>();
+                        : source is IReadOnlyList<object?> array ? (each.Keys ? Enumerable.Range(0, array.Count).Cast<object?>().ToArray() : array.ToArray())
+                        : source is NativeJavaScriptEngine.INativeHostObject host && host.TryGetValue("length", out var hostLength)
+                            ? Enumerable.Range(0, Math.Max(0, (int)Number(hostLength)))
+                                .Select(index => host.TryGetIndex(index, out var value) ? value : UndefinedOrNull()).ToArray()
+                            : Array.Empty<object?>();
                     try
                     {
                         foreach (var item in items)
@@ -1209,7 +1219,14 @@ internal sealed class JavaScriptEvaluator
             {
                 if (!method.Getter && !method.Setter) instance[method.Name] = (Func<IReadOnlyList<object?>, object?>)(args => ExecuteClassMethod(method.Function, instance, args));
             }
-                if (constructor is not null) _ = ExecuteClassMethod(constructor, instance, arguments, @class.Parent);
+            if (constructor is not null)
+                _ = ExecuteClassMethod(constructor, instance, arguments, @class.Parent);
+            else if (@class.Parent is not null)
+                // JavaScript supplies an implicit super(...arguments) when a derived
+                // class omits its own constructor. Preserve that initialization for
+                // DOM/CSSOM handle classes, including chains with several constructor-
+                // free intermediate classes (CSSStyleRule -> CSSGroupingRule -> CSSRule).
+                InitializeInheritedConstructor(@class.Parent, instance, arguments);
             foreach (var method in methods.Where(method => method.Getter))
                 instance[method.Name] = new NativeJavaScriptEngine.NativePropertyAccessor(
                     receiver => ExecuteClassMethod(method.Function, receiver ?? instance, []),
@@ -1239,6 +1256,20 @@ internal sealed class JavaScriptEvaluator
         foreach (var method in @class.Methods.Where(method => method.Static && method.Getter))
             type.SetProperty(method.Name, ExecuteClassMethod(method.Function, new Dictionary<string, object?> { ["__constructor"] = @class.Name ?? "class" }, []));
         return type;
+    }
+
+    private void InitializeInheritedConstructor(string parentName, object instance, IReadOnlyList<object?> arguments)
+    {
+        if (!_bindings.TryGetValue(parentName, out var parent)
+            || parent is not NativeJavaScriptEngine.NativeFunction constructor)
+            return;
+        if (constructor.TryGetProperty("__classConstructor", out var body) && body is JavaScriptFunctionExpression function)
+        {
+            _ = ExecuteClassMethod(function, instance, arguments, parentName);
+            return;
+        }
+        if (constructor.TryGetProperty("__classParent", out var grandParent) && grandParent is string grandParentName)
+            InitializeInheritedConstructor(grandParentName, instance, arguments);
     }
 
     private object? ExecuteClassMethod(JavaScriptFunctionExpression function, object instance, IReadOnlyList<object?> arguments, string? parentName = null)

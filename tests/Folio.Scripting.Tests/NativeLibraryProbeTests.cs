@@ -43,6 +43,25 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeDomTokenListIsIterable()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Folio.Document.Parse("<div id='source' class='a b c'></div>");
+        DomBindings.Install(engine, document);
+        Assert.Equal("a|b|c", engine.Evaluate("var result=[]; for (const token of document.getElementById('source').classList) result.push(token); result.join('|');").AsString());
+    }
+
+    [Fact]
+    public void NativeHostNodeListsExpandInArrayLiterals()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Folio.Document.Parse("<!doctype html><html><body><div class='item'></div><div class='item'></div></body></html>");
+        document.Paint(800, 600);
+        DomBindings.Install(engine, document);
+        Assert.Equal("2|object|2", engine.Evaluate("var nodes=document.querySelectorAll('.item'); [nodes.length,typeof nodes,[...nodes].length].join('|');").AsString());
+    }
+
+    [Fact]
     public void ProbeReactLibrary()
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));

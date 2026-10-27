@@ -8,7 +8,7 @@ This document records the current M5 implementation and verification baseline.
 
 The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total), each with an interaction script and reference. D6's ten Mermaid artifacts exercise flowchart, sequence, class, state, entity-relationship, timeline, Gantt and pie syntax. The dependency-backed compatibility baseline passes every D2–D7 category at 100%, including all ten Chart.js canvas artifacts in D5.
 
-The native Folio-engine run is not yet equivalent: the latest fresh result is 47/60 (D2 8/10, D3 9/10, D4 10/10, D5 1/10, D6 9/10, D7 10/10). The remaining failures are tracked by the mandatory replacement work, including the React reconciliation blocker in [#645](https://github.com/Yuuzulight/Folio/issues/645). The 60/60 compatibility result must not be used as evidence that native replacement is complete.
+The native Folio-engine run is not yet equivalent: the latest fresh result is 48/60 (D2 8/10, D3 10/10, D4 10/10, D5 1/10, D6 9/10, D7 10/10). The remaining failures are tracked by the mandatory replacement work, including the React reconciliation blocker in [#645](https://github.com/Yuuzulight/Folio/issues/645). The 60/60 compatibility result must not be used as evidence that native replacement is complete.
 
 `ArtifactClassifier` retains Folio's scripted path for the canvas features covered by the parity corpus, including the pinned Chart.js artifacts.
 
@@ -26,7 +26,7 @@ The native Folio-engine run is not yet equivalent: the latest fresh result is 47
 - `dotnet tests/Folio.Tests/bin/Release/net10.0/Folio.Tests.dll`: 1,961 passed, 1 environment-dependent symlink test skipped.
 - The focused serialized scripting acceptance run passes its covered cases, including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, iframe message-source/target/port regressions, signed and unsigned array-texture sampling, native readback error/packing coverage, native array-growth semantics, and native worker structured-clone object/array/RegExp/cycle/Map/Set/Date/ArrayBuffer/typed-array/Error round trips plus native end-to-end worker transfer detachment.
 - `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7` (dependency-backed baseline): 60 passed, with no expected failures or unexpected failures.
-- Native-engine conformance (fresh 2026-10-27 run): 47/60 passed — D2 8/10, D3 9/10, D4 10/10, D5 1/10, D6 9/10, D7 10/10. The D4 `svg-line-chart-tooltips` artifact now passes after wiring native `flatMap`, numeric formatting methods, and the associated rendering path.
+- Native-engine conformance (fresh 2026-10-27 run): 48/60 passed — D2 8/10, D3 10/10, D4 10/10, D5 1/10, D6 9/10, D7 10/10. D3's runtime utility artifact now passes after wiring host collection iteration, array-spread expansion, CSSOM list updates, and inherited constructors.
 - `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 744/744 passed.
 
 ## Milestone status

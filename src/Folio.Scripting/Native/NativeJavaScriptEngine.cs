@@ -54,6 +54,51 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }));
         var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["push"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is IDictionary<string, object?> properties)
+                {
+                    var length = properties.TryGetValue("length", out var current) ? (int)NumberValue(current) : 0;
+                    foreach (var value in args) properties[(length++).ToString(CultureInfo.InvariantCulture)] = value;
+                    properties["length"] = (double)length;
+                    return (double)length;
+                }
+                if (receiver is IList<object?> list)
+                {
+                    foreach (var value in args) list.Add(value);
+                    return (double)list.Count;
+                }
+                return 0d;
+            }),
+            ["pop"] = new NativeReceiverFunction((receiver, _) =>
+            {
+                if (receiver is IDictionary<string, object?> properties && properties.TryGetValue("length", out var current))
+                {
+                    var length = (int)NumberValue(current);
+                    if (length == 0) return JavaScriptEvaluator.UndefinedValue.Instance;
+                    var index = (--length).ToString(CultureInfo.InvariantCulture);
+                    var value = properties.TryGetValue(index, out var stored) ? stored : JavaScriptEvaluator.UndefinedValue.Instance;
+                    properties.Remove(index);
+                    properties["length"] = (double)length;
+                    return value;
+                }
+                if (receiver is IList<object?> list && list.Count > 0)
+                {
+                    var index = list.Count - 1;
+                    var value = list[index];
+                    list.RemoveAt(index);
+                    return value;
+                }
+                return JavaScriptEvaluator.UndefinedValue.Instance;
+            }),
+            ["Symbol.iterator"] = new NativeReceiverFunction((receiver, _) => receiver switch
+            {
+                IReadOnlyList<object?> list => list.ToArray(),
+                IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
+                    => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
+                        .Select(index => properties.TryGetValue(index.ToString(CultureInfo.InvariantCulture), out var stored) ? stored : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
+                _ => Array.Empty<object?>(),
+            }),
             ["slice"] = new NativeReceiverFunction((receiver, args) =>
             {
                 var values = receiver switch
