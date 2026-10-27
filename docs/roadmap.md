@@ -120,8 +120,9 @@ other complex scripts still use the differential shaper. GIF and WebP decoding a
 Folio-owned and production-wired with differential/fuzz evidence; bounded BMP and
 ICO decoding are also Folio-owned slices. Rasterisation and the JavaScript engine
 remain dependency-backed. CFF2 now has a Folio-owned parser path, a pinned
-two-glyph fixture and a software-raster regression, but still needs the
-differential, variable-font and malformed/limit gates. This phase
+two-glyph fixture and software-raster regressions, including Skia differential and
+malformed-limit checks for both OpenType and WOFF2; CFF2 variation-font support and
+a broader malformed/limit corpus remain. This phase
 cannot be marked complete until all five production replacement tracks are complete and their superseded production dependencies are removed.
 
 **Acceptance criteria**
