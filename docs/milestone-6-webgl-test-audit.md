@@ -18,9 +18,10 @@ draw against independent Chrome PNG references, byte for byte.
 Texture, framebuffer, synchronization, query and context-recovery assertions in
 the former test did not establish native execution. They must receive genuine
 coverage while implementing #530 and #531; their former simulated checks are not
-evidence that either issue is complete. The current native page suite has 57
+evidence that either issue is complete. The current native page suite has 75
 passing cases, including immutable 2D/3D storage, cube maps, array/layer
-attachments, framebuffer copies/blits, multisample renderbuffers, all clear
+attachments, framebuffer copies/blits, multisample renderbuffers, integer
+textures and samplers, uniform-buffer bindings, transform feedback, all clear
 buffer overloads and packed RGB565/RGBA4444/RGBA5551 readback. It also verifies
 explicit level-1 sampling after native mipmap generation, generated-level
 metadata, mip-level budget refusal, core WebGL2 renderbuffer formats, and
