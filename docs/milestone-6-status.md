@@ -20,14 +20,14 @@ Native DOM prototype wiring refresh (2026-10-27, commit `c2e872e1`): the Folio-o
 native engine now exposes the receiver-preserving `Node.prototype` traversal and
 mutation methods (`appendChild`, `insertBefore`, `removeChild`, `replaceChild`,
 `cloneNode`, `normalize`, `isEqualNode`, and `compareDocumentPosition`). The focused
-native probe suite passes 5/5. This closes a missing DOM contract but does not close
+native probe suite passes 10/10. This closes a missing DOM contract but does not close
 the React replacement gate: React's first render still reaches an invalid
 `removeChild` path, tracked in [#645](https://github.com/Yuuzulight/Folio/issues/645).
 
 Document/Element prototype refresh (2026-10-27, commit `a5e7e442`): the native
 engine now exposes the corresponding Folio-owned creation, query, attribute,
 event, focus and geometry methods on `Document.prototype` and `Element.prototype`.
-The native probe suite passes 6/6. The latest Release scripting suite passes
+The native probe suite passes 10/10. The latest Release scripting suite passes
 1,363 of 1,369 discovered tests with 0 failures and 6 documented skips; this is additional interface
 wiring, not a claim that React or the full native replacement gate is complete.
 
