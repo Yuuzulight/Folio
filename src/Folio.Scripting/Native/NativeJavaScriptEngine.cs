@@ -349,11 +349,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var mapConstructor = new NativeFunction(args => new NativeMap(args.Count > 0 ? args[0] : null));
         mapConstructor.SetProperty("prototype", mapPrototype);
         _bindings["Map"] = mapConstructor;
-        _bindings["Symbol"] = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["iterator"] = "Symbol.iterator", ["toStringTag"] = "Symbol.toStringTag",
-            ["for"] = (Func<IReadOnlyList<object?>, object?>)(args => $"Symbol.for:{(args.Count > 0 ? args[0] : "undefined")}"),
-        };
+        var symbolConstructor = new NativeFunction(args => $"Symbol:{(args.Count > 0 ? args[0] : "undefined")}");
+        symbolConstructor.SetProperty("iterator", "Symbol.iterator");
+        symbolConstructor.SetProperty("toStringTag", "Symbol.toStringTag");
+        symbolConstructor.SetProperty("for", (Func<IReadOnlyList<object?>, object?>)(args => $"Symbol.for:{(args.Count > 0 ? args[0] : "undefined")}"));
+        _bindings["Symbol"] = symbolConstructor;
         var promiseConstructor = new NativeFunction(args =>
         {
             var promise = new NativePromise(this, null, false, settled: false);

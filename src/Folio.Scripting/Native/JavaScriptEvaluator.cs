@@ -1100,7 +1100,8 @@ internal sealed class JavaScriptEvaluator
     {
         var captured = _bindings;
         var capturedWithScopes = _withScopes.ToArray();
-        var functionValue = (Func<IReadOnlyList<object?>, object?>)(arguments => InvokeBody(null, arguments));
+        Func<IReadOnlyList<object?>, object?>? functionValue = null;
+        functionValue = arguments => InvokeBody(null, arguments);
         ReceiverBindings.Add(functionValue, new ReceiverBinding((receiver, arguments) => InvokeBody(receiver, arguments)));
         return functionValue;
 
@@ -1108,6 +1109,7 @@ internal sealed class JavaScriptEvaluator
         {
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
             var parameterEvaluator = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
+            if (function.Name is { } functionName) local[functionName] = functionValue;
             for (var i = 0; i < function.Parameters.Count; i++)
             {
                 var parameter = function.Parameters[i];

@@ -569,8 +569,12 @@ internal sealed class JavaScriptParser
         // stack traces), e.g. `value: function createEvent(...) { ... }`.
         // The bounded evaluator does not need a separate named scope, but it
         // must consume the name before the parameter list.
+        string? functionName = null;
         if (_current.Kind == JavaScriptTokenKind.Identifier)
+        {
+            functionName = _current.Text;
             Take();
+        }
         Expect("(");
         var parameters = new List<string>();
         var defaults = new List<JavaScriptExpression?>();
@@ -588,7 +592,7 @@ internal sealed class JavaScriptParser
             Expect(")");
         }
         var body = ParseBlockStatement();
-        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator);
+        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator, functionName);
     }
 
     private JavaScriptClassExpression ParseClassTail()
