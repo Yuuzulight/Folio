@@ -53,6 +53,13 @@ production JavaScript engine, and Wasmtime remains part of the native WebAssembl
 path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
+Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
+the Folio-owned raster differential/conformance/unit suite passes 12/12, and
+the native D2–D7 matrix remains 50/60 (D2 9/10, D3 10/10, D4 10/10, D5 1/10,
+D6 10/10, D7 10/10). These results strengthen the verified slices but do not
+close the JavaScript, raster-performance, shaping, or WebAssembly replacement
+gates.
+
 The native-engine differential conformance probe makes the remaining JavaScript
 gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 50/60: D2
 9/10, D3 10/10, D4 10/10, D5 1/10, D6 10/10 and D7 10/10. The native D5 chart
