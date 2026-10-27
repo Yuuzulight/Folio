@@ -229,7 +229,7 @@ public sealed class ComplexShaper : ITextShaper
         // Folio-owned and the HarfBuzz route remains the differential oracle.
         if (glyphs.Count > 0)
         {
-            var contextual = face.Substitute([.. glyphs], "rlig", "arab");
+            var contextual = face.Substitute([.. glyphs], "locl rlig calt liga", "arab");
             for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
             {
                 if (contextual[i] == glyphs[i]) continue;

@@ -14,6 +14,7 @@ internal sealed class GsubSubstitution
     private const int Single = 1;
     private const int Ligature = 4;
     private const int Extension = 7;
+    private const int ReverseChainSingle = 8;
 
     private readonly FontData _gsub;
     private readonly ConcurrentDictionary<string, int[]> _subtables = new(StringComparer.Ordinal);
@@ -191,7 +192,42 @@ internal sealed class GsubSubstitution
         }
         if (type is 5 or 6)
             return ApplyContext(glyphs, position, type, subtable, depth + 1);
+        if (type == ReverseChainSingle)
+            return ApplyReverseContext(glyphs, position, subtable);
         return false;
+    }
+
+    private bool ApplyReverseContext(ushort[] glyphs, int position, int subtable)
+    {
+        if (_gsub.U16(subtable) != 1)
+            return false;
+
+        var cursor = subtable + 2;
+        var backtrackCount = _gsub.U16(cursor);
+        cursor += 2;
+        var backtrack = new int[backtrackCount];
+        for (var i = 0; i < backtrack.Length; i++, cursor += 2)
+            backtrack[i] = _gsub.U16(cursor);
+        var inputCoverage = subtable + _gsub.U16(cursor);
+        cursor += 2;
+        var lookaheadCount = _gsub.U16(cursor);
+        cursor += 2;
+        var lookahead = new int[lookaheadCount];
+        for (var i = 0; i < lookahead.Length; i++, cursor += 2)
+            lookahead[i] = _gsub.U16(cursor);
+        var glyphCount = _gsub.U16(cursor);
+        cursor += 2;
+        var inputIndex = CoverageIndex(inputCoverage, glyphs[position]);
+        if (inputIndex < 0 || inputIndex >= glyphCount || position < backtrack.Length)
+            return false;
+        for (var i = 0; i < backtrack.Length; i++)
+            if (CoverageIndex(subtable + backtrack[i], glyphs[position - 1 - i]) < 0) return false;
+        for (var i = 0; i < lookahead.Length; i++)
+            if (position + 1 + i >= glyphs.Length || CoverageIndex(subtable + lookahead[i], glyphs[position + 1 + i]) < 0) return false;
+        var replacement = _gsub.U16(cursor + 2 * inputIndex);
+        if (replacement == glyphs[position]) return false;
+        glyphs[position] = replacement;
+        return true;
     }
 
     private bool ApplyContext(ushort[] glyphs, int position, int type, int subtable, int depth)
