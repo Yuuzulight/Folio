@@ -18,6 +18,10 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 - The documentation acceptance suites for Milestones 1 through 6 also pass in the
   direct Release runner; these suites validate the documented wiring and evidence
   indexes, not the unresolved backend or replacement gates.
+- Tracker reconciliation on 2026-10-28 reopened the nine child issues whose
+  acceptance rows remain partial or incomplete: #527, #530, #531, #533, #535,
+  #537, #545, #554 and #556. Their original scope and acceptance text is retained
+  on GitHub with the audit status appended; verified-slice issues remain closed.
 - These results verify the current compatibility paths and regressions only. They do not close the original M6 gates: complete WebGL 2/integer/volume conformance, continuous device-level media pacing and output, native-engine worker/Wasm execution, real permitted WebRTC capture/transport, isolated service-worker offline reopening, or equivalent non-Windows containment.
 
 ## Repairs verified during this audit
