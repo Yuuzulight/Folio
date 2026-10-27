@@ -63,6 +63,11 @@ D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
 
+The shaping replacement now also has a checked-in four-case differential probe
+covering proven Latin, digit and Hebrew-base runs, plus a deliberately perturbed
+kerning value that the report detects. This is the first corpus slice for #561;
+the complete per-script corpus and complex-script routing work remain open.
+
 The native-engine differential conformance probe makes the remaining JavaScript
 gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 59/60: D2
 9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10 and D7 10/10. The native D5 chart
