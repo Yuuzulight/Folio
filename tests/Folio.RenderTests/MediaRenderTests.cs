@@ -13,6 +13,7 @@ public sealed class MediaRenderTests
     [InlineData(ColorScheme.Dark, 18, 18, 18)]
     public void ControlsAndActiveCuesPaintInBothColorSchemes(ColorScheme scheme, byte backgroundRed, byte backgroundGreen, byte backgroundBlue)
     {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Media control goldens use the Windows Skia font and text rasterization baseline.");
         using var document = Document.Parse(
             $"<body style='margin:0;background:rgb({backgroundRed},{backgroundGreen},{backgroundBlue})'><video controls style='width:200px;height:100px'></video></body>",
             new FolioOptions { ColorScheme = scheme, Fonts = TestRenderer.Options.Fonts,
