@@ -87,6 +87,23 @@ internal sealed class GsubSubstitution
         return result;
     }
 
+    /// <summary>Applies the requested script lookups only at one shaping-buffer position.</summary>
+    public void SubstituteAt(ushort[] glyphs, int position, string features, string scriptTag)
+    {
+        ArgumentNullException.ThrowIfNull(glyphs);
+        if ((uint)position >= (uint)glyphs.Length)
+            return;
+        try
+        {
+            foreach (var lookup in LookupIndices(features, scriptTag))
+                ApplyLookup(glyphs, position, lookup, 0);
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException or IndexOutOfRangeException)
+        {
+            // Malformed font data is ignored, matching the bulk substitution path.
+        }
+    }
+
     // The subtables of one lookup type (single or ligature substitutions) of the space-separated feature tags' lookups, in
     // lookup order, for the Latin script's default language system, else the default script's, else any feature with
     // that tag.
@@ -188,6 +205,13 @@ internal sealed class GsubSubstitution
             var replacement = Apply(subtable, glyphs[position]);
             if (replacement is not { } value || value == glyphs[position]) return false;
             glyphs[position] = value;
+            return true;
+        }
+        if (type == 2)
+        {
+            if (ApplyMultiple(subtable, glyphs[position]) is not { } replacement || replacement == glyphs[position])
+                return false;
+            glyphs[position] = replacement;
             return true;
         }
         if (type is 5 or 6)
@@ -320,6 +344,18 @@ internal sealed class GsubSubstitution
         // SingleSubst format 2 stores the replacement glyph IDs inline, after
         // GlyphCount; unlike a multiple substitution table it has no offsets.
         return _gsub.U16(subtable + 6 + 2 * index);
+    }
+
+    private ushort? ApplyMultiple(int subtable, ushort glyph)
+    {
+        if (_gsub.U16(subtable) != 1)
+            return null;
+        var index = CoverageIndex(subtable + _gsub.U16(subtable + 2), glyph);
+        var count = _gsub.U16(subtable + 4);
+        if (index < 0 || index >= count)
+            return null;
+        var sequence = subtable + _gsub.U16(subtable + 6 + 2 * index);
+        return _gsub.U16(sequence) == 1 ? _gsub.U16(sequence + 2) : null;
     }
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#coverage-table

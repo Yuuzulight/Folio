@@ -209,9 +209,7 @@ public sealed class ComplexShaper : ITextShaper
                 continue;
             }
 
-            var form = forms[i];
-            var mappedCode = MapArabicPresentationForm(code, form);
-            var mappedGlyph = face.Covers(mappedCode) ? face.GlyphFor(mappedCode) : face.GlyphFor(code);
+            var mappedGlyph = face.GlyphFor(code);
 
             glyphs.Add(mappedGlyph);
             clusters.Add(cluster);
@@ -229,7 +227,21 @@ public sealed class ComplexShaper : ITextShaper
         // Folio-owned and the HarfBuzz route remains the differential oracle.
         if (glyphs.Count > 0)
         {
-            var contextual = face.Substitute([.. glyphs], "locl rlig calt liga", "arab");
+            var contextual = glyphs.ToArray();
+            for (var i = 0; i < contextual.Length; i++)
+            {
+                var form = forms[i];
+                if (GetArabicJoining(runes[i].Rune.Value) == ArabicJoining.Transparent)
+                    continue;
+                face.SubstituteAt(contextual, i, form switch
+                {
+                    ArabicForm.Initial => "init",
+                    ArabicForm.Medial => "medi",
+                    ArabicForm.Final => "fina",
+                    _ => "isol",
+                }, "arab");
+            }
+            contextual = face.Substitute(contextual, "locl rlig calt liga", "arab");
             for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
             {
                 if (contextual[i] == glyphs[i]) continue;
