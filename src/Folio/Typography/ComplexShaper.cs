@@ -41,14 +41,6 @@ public sealed class ComplexShaper : ITextShaper
         {
             ShapeHebrew(runes, face, scale, glyphs, clusters, advances, offsets);
         }
-        else if (IsDevanagari(runes))
-        {
-            ShapeDevanagari(runes, face, scale, glyphs, clusters, advances, offsets);
-        }
-        else if (IsThai(runes))
-        {
-            ShapeThai(runes, face, scale, glyphs, clusters, advances, offsets);
-        }
         else
         {
             // Fallback simple 1:1 mapping
@@ -125,6 +117,11 @@ public sealed class ComplexShaper : ITextShaper
     {
         var forms = new ArabicForm[runes.Count];
 
+        ushort? previousBaseGlyph = null;
+        int? previousBaseCluster = null;
+        ushort? previousMarkGlyph = null;
+        var previousMarkOffset = Vector2.Zero;
+
         for (var i = 0; i < runes.Count; i++)
         {
             var joining = GetArabicJoining(runes[i].Rune.Value);
@@ -181,23 +178,76 @@ public sealed class ComplexShaper : ITextShaper
 
             if (joining == ArabicJoining.Transparent)
             {
-                // Mark glyph: advance = 0, offset = zero
+                // Arabic tashkeel: advance = 0, positioned through Folio-owned GPOS anchors.
                 var glyph = face.GlyphFor(code);
                 glyphs.Add(glyph);
-                clusters.Add(cluster);
+                clusters.Add(previousBaseCluster ?? cluster);
                 advances.Add(0f);
-                offsets.Add(Vector2.Zero);
+                var relativeToPreviousMark = false;
+                (int X, int Y)? markOffset = null;
+                if (previousMarkGlyph is { } previousMark)
+                {
+                    markOffset = face.MarkToMarkOffset(previousMark, glyph);
+                    relativeToPreviousMark = markOffset is not null;
+                }
+                if (markOffset is null && previousBaseGlyph is { } previousBase)
+                    markOffset = face.MarkOffset(previousBase, glyph);
+                if (markOffset is { } position)
+                {
+                    var offset = new Vector2(position.X * scale, -position.Y * scale);
+                    if (relativeToPreviousMark)
+                        offset += previousMarkOffset;
+                    offsets.Add(offset);
+                    previousMarkOffset = offset;
+                }
+                else
+                {
+                    offsets.Add(Vector2.Zero);
+                    previousMarkOffset = Vector2.Zero;
+                }
+                previousMarkGlyph = glyph;
                 continue;
             }
 
-            var form = forms[i];
-            var mappedCode = MapArabicPresentationForm(code, form);
-            var mappedGlyph = face.Covers(mappedCode) ? face.GlyphFor(mappedCode) : face.GlyphFor(code);
+            var mappedGlyph = face.GlyphFor(code);
 
             glyphs.Add(mappedGlyph);
             clusters.Add(cluster);
             advances.Add(face.Advance(mappedGlyph) * scale);
             offsets.Add(Vector2.Zero);
+            previousBaseGlyph = mappedGlyph;
+            previousBaseCluster = cluster;
+            previousMarkGlyph = null;
+            previousMarkOffset = Vector2.Zero;
+        }
+
+        // Arabic fonts commonly use required contextual substitutions after the
+        // joining-form pass (for example lam/alef rlig alternates). Apply only
+        // the script's required feature here; mark handling and advances remain
+        // Folio-owned and the HarfBuzz route remains the differential oracle.
+        if (glyphs.Count > 0)
+        {
+            var contextual = glyphs.ToArray();
+            for (var i = 0; i < contextual.Length; i++)
+            {
+                var form = forms[i];
+                if (GetArabicJoining(runes[i].Rune.Value) == ArabicJoining.Transparent)
+                    continue;
+                face.SubstituteAt(contextual, i, form switch
+                {
+                    ArabicForm.Initial => "init",
+                    ArabicForm.Medial => "medi",
+                    ArabicForm.Final => "fina",
+                    _ => "isol",
+                }, "arab");
+            }
+            contextual = face.Substitute(contextual, "locl rlig calt liga", "arab");
+            for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
+            {
+                if (contextual[i] == glyphs[i]) continue;
+                glyphs[i] = contextual[i];
+                advances[i] = face.Advance(contextual[i]) * scale;
+            }
         }
     }
 
@@ -242,148 +292,82 @@ public sealed class ComplexShaper : ITextShaper
         List<(Rune Rune, int Index)> runes, FontFace face, float scale,
         List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
     {
-        for (var i = 0; i < runes.Count; i++)
+        // HarfBuzz emits Hebrew combining marks in the visual attachment order
+        // (the mark sequence is reversed for the RTL run). Keep the source
+        // cluster on every mark while matching that ordering for the Folio path.
+        var orderedRunes = new List<(Rune Rune, int Index)>(runes.Count);
+        for (var i = 0; i < runes.Count;)
         {
-            var (rune, cluster) = runes[i];
+            orderedRunes.Add(runes[i]);
+            var end = i + 1;
+            while (end < runes.Count && IsHebrewMark(runes[end].Rune))
+                end++;
+            for (var mark = end - 1; mark > i; mark--)
+                orderedRunes.Add(runes[mark] with { Index = runes[i].Index });
+            i = end;
+        }
+
+        ushort? previousBaseGlyph = null;
+        int? previousBaseCluster = null;
+        ushort? previousMarkGlyph = null;
+        var previousMarkOffset = Vector2.Zero;
+
+        for (var i = 0; i < orderedRunes.Count; i++)
+        {
+            var (rune, cluster) = orderedRunes[i];
             var code = rune.Value;
-            var glyph = face.GlyphFor(code);
+            // Hebrew localisation can select a script-specific glyph before
+            // mark anchors are read; keep this single-substitution step
+            // Folio-owned and leave contextual/ligature work to the gate.
+            var glyph = face.Substitute([face.GlyphFor(code)], "locl", "hebr")[0];
             glyphs.Add(glyph);
-            clusters.Add(cluster);
 
             var category = Rune.GetUnicodeCategory(rune);
             if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark)
             {
-                // Hebrew mark (Niqqud): advance = 0, placed over/under preceding consonant
+                clusters.Add(previousBaseCluster ?? cluster);
+                // Hebrew mark (Niqqud): advance = 0, placed using the face's GPOS
+                // mark-to-base or mark-to-mark anchor. Mark-to-mark offsets are
+                // relative to the preceding mark, so retain the accumulated offset.
                 advances.Add(0f);
-                offsets.Add(Vector2.Zero);
-            }
-            else
-            {
-                advances.Add(face.Advance(glyph) * scale);
-                offsets.Add(Vector2.Zero);
-            }
-        }
-    }
-
-    private static bool IsDevanagari(List<(Rune Rune, int Index)> runes)
-    {
-        foreach (var (r, _) in runes)
-        {
-            if (r.Value is >= 0x0900 and <= 0x097F)
-                return true;
-        }
-        return false;
-    }
-
-    private static void ShapeDevanagari(
-        List<(Rune Rune, int Index)> runes, FontFace face, float scale,
-        List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
-    {
-        var reordered = new List<(Rune Rune, int Index)>(runes.Count);
-
-        for (var i = 0; i < runes.Count;)
-        {
-            var clusterStart = i;
-            var isConsonant = IsDevanagariConsonant(runes[i].Rune.Value);
-
-            if (isConsonant)
-            {
-                var clusterEnd = i + 1;
-                while (clusterEnd + 1 < runes.Count &&
-                       runes[clusterEnd].Rune.Value == 0x094D /* Virama */ &&
-                       IsDevanagariConsonant(runes[clusterEnd + 1].Rune.Value))
+                var relativeToPreviousMark = false;
+                (int X, int Y)? markOffset = null;
+                if (previousMarkGlyph is { } previousMark)
                 {
-                    clusterEnd += 2;
+                    markOffset = face.MarkToMarkOffset(previousMark, glyph);
+                    relativeToPreviousMark = markOffset is not null;
                 }
-
-                if (clusterEnd < runes.Count && runes[clusterEnd].Rune.Value == 0x093F)
+                if (markOffset is null && previousBaseGlyph is { } previousBase)
+                    markOffset = face.MarkOffset(previousBase, glyph);
+                if (markOffset is { } position)
                 {
-                    reordered.Add((runes[clusterEnd].Rune, runes[clusterStart].Index));
-                    for (var k = clusterStart; k < clusterEnd; k++)
-                        reordered.Add(runes[k]);
-                    i = clusterEnd + 1;
-                    continue;
+                    var offset = new Vector2(position.X * scale, -position.Y * scale);
+                    if (relativeToPreviousMark)
+                        offset += previousMarkOffset;
+                    offsets.Add(offset);
+                    previousMarkOffset = offset;
                 }
-            }
-
-            reordered.Add(runes[i]);
-            i++;
-        }
-
-        for (var i = 0; i < reordered.Count; i++)
-        {
-            var (rune, cluster) = reordered[i];
-            var code = rune.Value;
-            var glyph = face.GlyphFor(code);
-            glyphs.Add(glyph);
-            clusters.Add(cluster);
-
-            var cat = Rune.GetUnicodeCategory(rune);
-            if (code == 0x094D || code == 0x093C || cat == UnicodeCategory.NonSpacingMark)
-            {
-                advances.Add(0f);
-                offsets.Add(Vector2.Zero);
+                else
+                {
+                    offsets.Add(Vector2.Zero);
+                    previousMarkOffset = Vector2.Zero;
+                }
+                previousMarkGlyph = glyph;
             }
             else
             {
                 advances.Add(face.Advance(glyph) * scale);
                 offsets.Add(Vector2.Zero);
+                clusters.Add(cluster);
+                previousBaseGlyph = glyph;
+                previousBaseCluster = cluster;
+                previousMarkGlyph = null;
+                previousMarkOffset = Vector2.Zero;
             }
         }
     }
 
-    private static bool IsDevanagariConsonant(int code) =>
-        code is >= 0x0915 and <= 0x0939 or >= 0x0958 and <= 0x095F;
+    private static bool IsHebrewMark(Rune rune) => Rune.GetUnicodeCategory(rune) is
+        UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
 
-    private static bool IsThai(List<(Rune Rune, int Index)> runes)
-    {
-        foreach (var (r, _) in runes)
-        {
-            if (r.Value is >= 0x0E00 and <= 0x0E7F)
-                return true;
-        }
-        return false;
-    }
-
-    private static void ShapeThai(
-        List<(Rune Rune, int Index)> runes, FontFace face, float scale,
-        List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
-    {
-        var hasPrecedingUpperVowel = false;
-
-        for (var i = 0; i < runes.Count; i++)
-        {
-            var (rune, cluster) = runes[i];
-            var code = rune.Value;
-            var glyph = face.GlyphFor(code);
-            glyphs.Add(glyph);
-            clusters.Add(cluster);
-
-            if (code is >= 0x0E48 and <= 0x0E4B)
-            {
-                advances.Add(0f);
-                var yOffset = hasPrecedingUpperVowel ? -face.UnitsPerEm * 0.15f * scale : 0f;
-                offsets.Add(new Vector2(0, yOffset));
-                hasPrecedingUpperVowel = false;
-            }
-            else if (code is 0x0E31 or (>= 0x0E34 and <= 0x0E37) or 0x0E47 or (>= 0x0E4C and <= 0x0E4E))
-            {
-                advances.Add(0f);
-                offsets.Add(Vector2.Zero);
-                hasPrecedingUpperVowel = true;
-            }
-            else if (code is 0x0E38 or 0x0E39 or 0x0E3A)
-            {
-                advances.Add(0f);
-                offsets.Add(Vector2.Zero);
-                hasPrecedingUpperVowel = false;
-            }
-            else
-            {
-                advances.Add(face.Advance(glyph) * scale);
-                offsets.Add(Vector2.Zero);
-                hasPrecedingUpperVowel = false;
-            }
-        }
-    }
 }

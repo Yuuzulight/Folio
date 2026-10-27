@@ -25,12 +25,33 @@ The current Jint backend stays available while this work is in progress so the
 existing artifact corpus remains runnable. It is a compatibility backend, not the
 native completion criterion.
 
-## Implementation status (audited 2026-10-23)
+The content-host executable exposes the staged engine through the explicit
+`FOLIO_SCRIPT_ENGINE=native` environment switch. This is a differential/runtime
+probe only: the default remains Jint until the native engine passes the full
+corpus, DOM, sandbox, resource-limit and failure-behavior gates. The switch lets
+real content-host paths run against Folio's engine without changing the shipping
+default prematurely.
 
-- [ ] **Stage 1 (Language front end)**: partial. The tokenizer, parser and AST cover functions, closures, objects, arrays, loops, switch, do-while, try/catch/finally, arrow functions and basic operators. Missing: classes, destructuring, spread and rest, template-literal interpolation, regular-expression literals, `for...of`, `for...in`, default parameters, optional chaining, `??`, `**`, bitwise operators, labels, accessors, generators and async functions.
-- [ ] **Stage 2 (Bytecode and VM)**: partial. Chunked instructions, call frames, limits, a microtask queue and a watchdog exist. Known wrong: postfix `++` on a member returns the wrong value, `let` in a `for` loop is not per iteration, `Error` objects have no `message`, `Function.prototype.call/apply/bind` and `arguments` are missing.
-- [ ] **Stage 3 (DOM host layer)**: not done. `NativeHostObject` wraps a template for a unit test; the DOM bindings, the content host and the conformance corpus do not run on this engine, and the content host references only the Jint backend.
-- [ ] **Stage 4 (Optimizing execution)**: not done. A property inline cache exists; there is no code generator, and the standard library is a small part of what artifacts use (`JSON`, `Map`, `Set`, `RegExp`, `Array.from`, `Date` methods and sorting are missing).
-- [ ] **Stage 5 (Cutover)**: not started. It needs the full scripting, DOM and conformance suites to pass on this engine and the same fuzzing and limits as the Jint backend.
+The render conformance harness also accepts `FOLIO_CONFORMANCE_ENGINE=native`.
+On 2026-10-26 the first D1 differential run was crash-free and produced 1/2
+passes: `settings-tabs-faq` matched exactly. `sortable-filter-table` first
+exposed a deterministic 3.9% pixel mismatch; after filling native syntax,
+prototype/event, replacement, and assignment-expression gaps, both D1 artifacts
+now match exactly (2/2, no crash/hang/limit/script failure).
 
-Measured on 2026-10-23: a 40-case battery of ordinary scripts passes 4 on this engine and 40 on the Jint backend.
+The focused native DOM probe was used to drive the fixes: native prototype
+lookup reaches the script-level `EventTarget` methods on wrapped elements, and
+the corrected assignment parser now preserves the full conditional RHS used by
+`innerHTML` updates. The D1 result is accepted as evidence for this corpus
+slice only; full-corpus DOM, sandbox, limit, and failure-behavior gates remain.
+
+The subsequent native corpus sweep recorded these baselines on 2026-10-26:
+D2 `0/10`, D3 `0/10`, D4 `0/10`, D5 `1/10`, D6 `0/10`, and D7 `1/10`.
+Nine artifacts in each D2-D7 set are the same cached React/library path and
+crash when the staged VM cannot resolve a `screenX` assignment target; the
+remaining failures are independent interaction or rendering mismatches. These
+results keep the replacement gate open despite the complete D1 slice.
+D8 currently records `4/6` exact passes; `particles` and `webgl-shader`
+encounter the same shared screenX/bootstrap crash, while the other WebGL
+artifacts pass. This supports the WebGL implementation independently of the
+still-incomplete native JavaScript/library replacement.

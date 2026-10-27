@@ -18,7 +18,7 @@ internal static class FetchBindings
                 ResourceLoader.Resolve(context.BaseUri?.AbsoluteUri, args.Length > 0 ? args[0].AsString() ?? "" : "") is { } url
                     ? ScriptValue.FromString(url)
                     : ScriptValue.Null)
-            .DefineMethod("load", (_, _, args) => ScriptValue.FromString(Load(context, args.Length > 0 ? args[0].AsString() ?? "" : "", args.Length > 1 && args[1].AsBoolean())))
+            .DefineMethod("load", (_, _, args) => ScriptValue.FromString(Load(context, args.Length > 0 ? args[0].AsString() ?? "" : "", args.Length > 1 && args[1].AsBoolean(), args.Length > 2 ? args[2].AsString() : null)))
             // A body stays in the host until read: text() decodes it as UTF-8 (a BOM is dropped), bytes() hands it over in base64.
             .DefineMethod("text", (_, _, args) => ScriptValue.FromString(Utf8(context.FetchBody(Handle(args)))))
             .DefineMethod("bytes", (_, _, args) => ScriptValue.FromString(Convert.ToBase64String(context.FetchBody(Handle(args)) ?? [])))
@@ -31,9 +31,9 @@ internal static class FetchBindings
     }
 
     // The outcome as JSON: { ok, contentType, length, body } (body is a handle, 0 for a HEAD) or { ok: false, error }.
-    private static string Load(IFetchContext context, string url, bool head)
+    private static string Load(IFetchContext context, string url, bool head, string? integrity)
     {
-        var (outcome, error) = context.Fetch(url);
+        var (outcome, error) = context.Fetch(url, integrity);
         if (outcome is not { } response)
             return JsonSerializer.Serialize(new { ok = false, error });
         return JsonSerializer.Serialize(new { ok = true, contentType = response.ContentType, length = response.Data!.Length, body = head ? 0 : context.StoreFetchBody(response.Data) });
@@ -123,7 +123,7 @@ internal static class FetchBindings
                 if (!TOKEN.test(name)) throw new TypeError("Invalid header name: '" + name + "'");
                 return name.toLowerCase();
             };
-            const sorted = (headers) => Array.from(state(headers), ([name, values]) => [name, values.join(', ')]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+            const sorted = (headers) => Array.from(state(headers)).map(entry => [entry[0], entry[1].join(', ')]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
             const headerValue = (value) => String(value).replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, '');
 
             class Headers {
@@ -171,10 +171,10 @@ internal static class FetchBindings
             class Request {
                 constructor(input, init) {
                     init = init === undefined || init === null ? {} : init;
-                    let url, method = 'GET', headers, signal = null;
+                    let url, method = 'GET', headers, signal = null, integrity = '';
                     if (input instanceof Request) {
                         const source = requestState.get(input);
-                        url = source.url; method = source.method; headers = new Headers(source.headers); signal = source.signal;
+                        url = source.url; method = source.method; headers = new Headers(source.headers); signal = source.signal; integrity = source.integrity;
                     } else {
                         const resolved = host.resolve(String(input));
                         if (resolved === null) throw new TypeError("Failed to construct 'Request': Failed to parse URL from " + String(input));
@@ -192,13 +192,25 @@ internal static class FetchBindings
                         if (init.signal !== null && !(init.signal instanceof AbortSignal)) throw new TypeError("Failed to construct 'Request': member signal is not of type AbortSignal.");
                         signal = init.signal;
                     }
+                    if (init.integrity !== undefined) {
+                        integrity = String(init.integrity).trim();
+                        const metadata = integrity.split(/\s+/).filter(Boolean);
+                        for (const token of metadata) {
+                            const algorithm = token.split('-', 1)[0].toLowerCase();
+                            const dash = token.indexOf('-');
+                            const digest = dash < 0 ? '' : token.slice(dash + 1).split('?', 1)[0];
+                            if ((algorithm !== 'sha256' && algorithm !== 'sha384' && algorithm !== 'sha512') || digest.length === 0)
+                                throw new TypeError('The integrity option must use sha256-, sha384- or sha512- metadata.');
+                        }
+                    }
                     if (init.body !== undefined && init.body !== null) throw new TypeError("Failed to construct 'Request': Request with GET/HEAD method cannot have body.");
-                    requestState.set(this, { url, method, headers: headers || new Headers(), signal });
+                    requestState.set(this, { url, method, headers: headers || new Headers(), signal, integrity });
                 }
                 get url() { return requestState.get(this).url; }
                 get method() { return requestState.get(this).method; }
                 get headers() { return requestState.get(this).headers; }
                 get signal() { return requestState.get(this).signal; }
+                get integrity() { return requestState.get(this).integrity; }
                 // No credentials, cookies or Referer are ever sent, whatever the page asks for.
                 get credentials() { return 'omit'; }
                 get referrer() { return ''; }
@@ -308,11 +320,37 @@ internal static class FetchBindings
                         if (signal) signal.removeEventListener('abort', onAbort);
                         if (signal && signal.aborted) { reject(signal.reason); return; }
                         const controller = global.navigator && global.navigator.serviceWorker && global.navigator.serviceWorker.controller;
+                        if (controller && typeof controller._dispatchFetchSync === 'function') {
+                            try {
+                                var synchronous = controller._dispatchFetchSync(request);
+                                if (synchronous !== null && synchronous !== undefined) { resolve(synchronous); return; }
+                            } catch (error) { reject(error); return; }
+                        }
                         const interception = controller && typeof controller._dispatchFetch === 'function' ? controller._dispatchFetch(request) : Promise.resolve(null);
                         Promise.resolve(interception).then(function(intercepted) {
-                            if (intercepted instanceof Response) { resolve(intercepted); return; }
+                            var nativeDescriptor = null;
+                            if (typeof intercepted === 'string') {
+                                if (intercepted.indexOf('folio-response:') === 0) {
+                                    var fields = intercepted.slice(15).split(':');
+                                    nativeDescriptor = { ok: true, bodyBase64: fields[0], status: Number(fields[1]) || 200, contentType: fields.slice(2).join(':') ? decodeURIComponent(fields.slice(2).join(':')) : '' };
+                                } else {
+                                    try { nativeDescriptor = JSON.parse(intercepted); } catch (_) { nativeDescriptor = null; }
+                                }
+                            }
+                            if (nativeDescriptor && nativeDescriptor.ok === true && nativeDescriptor.bodyBase64 !== undefined) {
+                                var nativeResponse = new Response(base64Decode(nativeDescriptor.bodyBase64), { status: nativeDescriptor.status || 200, headers: { 'content-type': nativeDescriptor.contentType || '' } }, INTERNAL);
+                                Object.assign(responseState.get(nativeResponse), { url: request.url, type: 'basic', signal: signal });
+                                resolve(nativeResponse);
+                                return;
+                            }
+                            // A service-worker response can cross the host/isolated-engine
+                            // boundary. Preserve it when it has the Response surface even if
+                            // the engine cannot make `instanceof Response` succeed across that
+                            // boundary; otherwise the request incorrectly falls through to the
+                            // network loader.
+                            if (intercepted instanceof Response || (intercepted && typeof intercepted === 'object' && typeof intercepted.text === 'function' && typeof intercepted.status === 'number' && intercepted.headers)) { resolve(intercepted); return; }
                             try {
-                                const result = JSON.parse(host.load(request.url, request.method === 'HEAD'));
+                                const result = JSON.parse(host.load(request.url, request.method === 'HEAD', request.integrity));
                                 if (!result.ok) { reject(new TypeError('Failed to fetch: ' + result.error)); return; }
                                 const headers = new Headers();
                                 if (result.contentType) headers.set('content-type', result.contentType);

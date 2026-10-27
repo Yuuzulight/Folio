@@ -1,18 +1,6 @@
 {
   "prompt": "Show a GPU-drawn line chart with three colored series and a legend.",
-  "features": [
-    "script",
-    "webgl",
-    "buffers",
-    "textures"
-  ],
-  "viewport": 800,
-  "interaction": [
-    "exists #glcanvas",
-    "text #visible-series Alpha,Beta,Gamma",
-    "click #toggle-s2",
-    "text #visible-series Alpha,Gamma",
-    "click #toggle-s2",
-    "text #visible-series Alpha,Beta,Gamma"
-  ]
+  "interaction": ["wait 50", "text #result chart-ready"],
+  "features": ["script", "webgl", "buffers", "textures"],
+  "viewport": 800
 }

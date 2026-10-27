@@ -52,20 +52,20 @@ public class BenchmarkTests
     }
 
     [Fact]
-    public async Task ScriptedProcessBenchmarkCompletesUnderTarget()
+    public void NativeWebAssemblyCacheBenchmarkProducesColdAndWarmMeasurements()
     {
-        if (!OperatingSystem.IsWindows()) return;
-        var code = await ScriptedProcessBenchmark.RunAsync(["sample"]);
-        Assert.Equal(0, code);
+        var result = WebAssemblyBenchmark.Measure(2);
+        Assert.True(result.Cold > TimeSpan.Zero);
+        Assert.True(result.Warm > TimeSpan.Zero);
+        Assert.Equal(1, result.CachedModules);
     }
 
     [Fact]
-    public void MeasuresIpcFrameSize()
+    public void SixteenMiBTransferredBufferAdoptsBackingStore()
     {
-        var (initBytes, subBytes, itemCount) = FrameBenchmark.MeasureIpcFrameSize();
-        Assert.True(initBytes > 0, "Initial frame bytes");
-        Assert.True(subBytes > 0, "Subsequent frame bytes");
-        Assert.True(itemCount > 0, "Display item count");
+        var result = TransferBenchmark.Measure16MiB();
+        Assert.True(result.Elapsed > TimeSpan.Zero);
+        Assert.True(result.Allocated > 0);
+        Assert.True(result.Adopted);
     }
-
 }

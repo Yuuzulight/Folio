@@ -99,6 +99,35 @@ public class AccessibilityTreeTests
         Assert.Equal(["button", "slider", "slider", "button"], media.Children.Select(child => child.Role));
     }
 
+    [Fact]
+    public void MediaControlNamesAndValuesReflectPlaybackState()
+    {
+        using var document = Document.Parse("<video controls style='width:320px;height:180px'></video>");
+        document.Paint(800, 600);
+        var video = document.Node.Descendants.OfType<Folio.Dom.ElementNode>().Single(e => e.LocalName == "video");
+        video.MediaPresentation = new PlaybackMedia();
+
+        var media = Assert.Single(document.AccessibilityTree()!.Children, node => node.Role == "video");
+        Assert.Equal(["Pause", "Seek", "Volume", "Unmute"], media.Children.Select(child => child.Name));
+        Assert.Equal(["4 of 12", "35 muted"], media.Children.Where(child => child.Role == "slider").Select(child => child.Value));
+    }
+
+    private sealed class PlaybackMedia : Folio.Dom.IMediaPresentation
+    {
+        public bool Controls => true;
+        public bool Paused => false;
+        public bool Muted => true;
+        public double CurrentTime => 4;
+        public double Duration => 12;
+        public double Volume => .35;
+        public Folio.Dom.IMediaPoster? Poster => null;
+        public IReadOnlyList<Folio.Dom.IMediaCue> ActiveCues => [];
+        public void TogglePlayPause() { }
+        public void SeekBy(double seconds) { }
+        public void ToggleMute() { }
+        public void SetVolume(double volume) { }
+    }
+
 
     private static AccessibleNode Tree(string html)
     {

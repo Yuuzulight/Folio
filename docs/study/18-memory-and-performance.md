@@ -1,5 +1,12 @@
 # Memory budget and performance targets
 
+## References
+
+- [CSSOM View Module](https://drafts.csswg.org/cssom-view/) for viewport, scroll and
+  geometry measurements used by the frame-time targets.
+- [HTML event loops](https://html.spec.whatwg.org/multipage/webappapis.html#event-loops)
+  for the scheduling boundary used when measuring scripted work.
+
 ## Where memory goes
 
 For a typical artifact (50–300 KB of HTML/CSS, 1–5k elements) the big consumers are not the DOM:
@@ -24,7 +31,7 @@ Measured as the **increase in the host's working set** when a document is opened
 | Typical artifact (corpus median) | ≤ 30 MB |
 | Large artifact (corpus 95th percentile, e.g. a 5,000-row table) | ≤ 60 MB |
 | After closing the document and a GC | returns to within 2 MB of the baseline |
-| Scripted document (M4+): content process working set, typical | ≤ 80 MB (measured ~45–65 MB; the job's hard cap is 256 MB) |
+| Scripted document (M4+): content process working set, typical | ≤ 80 MB (the job's hard cap is separate and larger) |
 
 Time targets on a mid-range desktop CPU, warm process (JIT done), typical artifact:
 
@@ -37,10 +44,6 @@ Time targets on a mid-range desktop CPU, warm process (JIT done), typical artifa
 | Hover restyle + repaint (M3) | ≤ 4 ms |
 | Paint-only animation frame (M2) | ≤ 8 ms |
 | Canvas 2D animation (M5, conformance category) | p95 frame ≤ 16.7 ms |
-| Scripted first frame (warm, scripts ≤ 50 KB) | ≤ 50 ms (first frame through content process) |
-| Scripted first frame (cold process launch + JIT) | ≤ 400 ms |
-| IPC frame payload size (DisplayListCodec) | ~15–40 KB typical per frame with font/image dedup |
-| IPC round-trip input / ping latency | ≤ 1 ms |
 
 ## Hard parts and pitfalls
 
@@ -52,7 +55,6 @@ Time targets on a mid-range desktop CPU, warm process (JIT done), typical artifa
 
 - **Allocation discipline in hot paths**: `Span<T>`-based tokenizers, pooled buffers (`ArrayPool<T>`), struct-of-arrays for inline items, glyph runs, grid tracks and display items; no LINQ in hot paths; no per-glyph or per-token objects.
 - **Every cache is bounded** and keyed so that closing a document can drop its entries; a `Document.Dispose()` releases images, web fonts and caches owned by it.
-- **Script size threshold (50 KB)**: artifacts with scripts ≤ 50 KB qualify for the M4 scripted fast-path in `ArtifactClassifier`, consistently staying within the 50 ms first paint target; larger or heavier bundles are classified as requiring browser routing until Milestone 5 optimizations.
 - **Benchmark harness in the repo** (from M1): renders the conformance corpus headless and in the control, records time per pipeline stage and working-set deltas, and fails CI on a regression beyond a set tolerance against the stored baseline.
 - **Trimming and AOT**: the engine assembly avoids reflection-based code so the headless API is trimming- and NativeAOT-compatible (useful for the content process and for small tools). The WinForms control follows WinForms' own support.
 - **CPU raster first**: no GPU context memory; GPU rendering is only considered if CPU raster misses the scroll or animation targets.

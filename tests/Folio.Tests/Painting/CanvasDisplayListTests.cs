@@ -67,20 +67,24 @@ public sealed class CanvasDisplayListTests
         Assert.Equal((width, height), (bounds.Width, bounds.Height));
     }
 
-    private sealed class TestCanvasSurface(int width, int height) : ICanvasSurface
+    private sealed class TestCanvasSurface : ICanvasSurface
     {
-        public int Width { get; } = width;
+        public TestCanvasSurface(int width, int height) => (Width, Height) = (width, height);
 
-        public int Height { get; } = height;
+        public int Width { get; }
+
+        public int Height { get; }
 
         public IImageHandle? Snapshot() => new Pixels(Width, Height);
     }
 
-    private sealed class Pixels(int width, int height) : IImageHandle
+    private sealed class Pixels : IImageHandle
     {
-        public int Width { get; } = width;
+        public Pixels(int width, int height) => (Width, Height) = (width, height);
 
-        public int Height { get; } = height;
+        public int Width { get; }
+
+        public int Height { get; }
 
         public ReadOnlyMemory<byte> Pixels_ => new byte[Width * Height * 4];
 

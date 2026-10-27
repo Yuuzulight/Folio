@@ -6,6 +6,7 @@ using Folio.Skia;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Resources;
 
 namespace Folio.RenderTests;
@@ -92,6 +93,8 @@ public static class Conformance
             Workers = true,
             WebAssembly = true,
             WebRtc = true,
+            Camera = true,
+            Microphone = true,
             ServiceWorkers = true,
         },
         // Library scripts come from the pinned test cache: no run needs the network (issue #487).
@@ -128,9 +131,9 @@ public static class Conformance
         return manifest;
     }
 
-    public static ConformanceResult Run(ConformanceArtifact artifact, bool software = false)
+    public static ConformanceResult Run(ConformanceArtifact artifact, bool software = false, Func<IScriptEngine>? engineFactory = null)
     {
-        var result = RunArtifact(artifact, software);
+        var result = RunArtifact(artifact, software, engineFactory);
         if (ManifestOf(artifact).ExpectedToFail is not { } reason)
             return result;
         return result.Outcome switch
@@ -141,7 +144,7 @@ public static class Conformance
         };
     }
 
-    private static ConformanceResult RunArtifact(ConformanceArtifact artifact, bool software)
+    private static ConformanceResult RunArtifact(ConformanceArtifact artifact, bool software, Func<IScriptEngine>? engineFactory)
     {
         var manifest = ManifestOf(artifact);
         var reference = LoadIfExists(Path.Combine(artifact.Folder, "reference.png"));
@@ -154,7 +157,7 @@ public static class Conformance
         // where work can really be stopped.
         var render = Task.Run(() =>
         {
-            using var lifecycle = ArtifactLifecycle.Start(artifact, html, manifest.AnimationTime ?? 100);
+            using var lifecycle = ArtifactLifecycle.Start(artifact, html, manifest.AnimationTime ?? 100, manifest.Viewport, reference?.Height ?? 600, engineFactory);
             var document = lifecycle.Document;
             document.Paint(manifest.Viewport, reference?.Height ?? 600);
             // The picture is the page as it loads, like the reference; the interaction script then runs against it as assertions.
@@ -164,7 +167,24 @@ public static class Conformance
             {
                 var scriptResult = RunScriptCore(document, script, manifest.Viewport, reference?.Height, lifecycle.Host, lifecycle);
                 if (scriptResult is not null)
+                {
+                    var scriptDiagnostics = lifecycle.Diagnostics
+                        .Where(diagnostic => diagnostic.Code == DiagnosticCode.ScriptError)
+                        .Select(diagnostic => diagnostic.Message)
+                        .TakeLast(3)
+                        .ToArray();
+                    if (scriptDiagnostics.Length > 0)
+                        scriptResult = $"{scriptResult}; script diagnostics: {string.Join(" | ", scriptDiagnostics)}";
+                    else if (engineFactory is not null)
+                    {
+                        // Native-engine interaction failures can occur after a library has swallowed an
+                        // exception. Include the live root markup so a failed acceptance step stays actionable.
+                        var root = document.GetElementById("root");
+                        if (root is not null)
+                            scriptResult = $"{scriptResult}; #root textContent: {root.TextContent}";
+                    }
                     return (Image: (PixelBuffer?)null, Diagnostics: (IReadOnlyList<Diagnostic>)Array.Empty<Diagnostic>(), ScriptFailure: scriptResult);
+                }
             }
             return (Image: (PixelBuffer?)image, Diagnostics: renderDiagnostics, ScriptFailure: (string?)null);
         });
@@ -326,6 +346,10 @@ public static class Conformance
                     for (var elapsed = 0; elapsed < milliseconds; elapsed += 16)
                     {
                         CurrentHost()?.Clock.Advance(Math.Min(16, milliseconds - elapsed));
+                        // Worker and networking callbacks are task-queue work, not microtasks. Drain the
+                        // bounded queue before the rendering update so interaction waits observe settled
+                        // worker messages as a real page turn would.
+                        for (var turns = 0; turns < 256 && CurrentHost()?.Loop.RunOneTurn() == true; turns++) { }
                         CurrentHost()?.Loop.UpdateTheRendering();
                         CurrentDocument().Update();
                     }
@@ -336,6 +360,10 @@ public static class Conformance
                     if (lifecycle is null)
                         return $"step {i + 1} ({line}): reopen needs an artifact lifecycle";
                     lifecycle.Reopen();
+                    // A reopened page starts with a fresh document and must complete its first
+                    // paint before later interaction steps read or update it.
+                    CurrentDocument().Paint(viewportWidth, viewportHeight ?? 600);
+                    CurrentHost()?.Loop.UpdateTheRendering();
                     break;
                 }
                 case "exists":
@@ -386,17 +414,23 @@ public static class Conformance
         private readonly ConformanceArtifact _artifact;
         private readonly string _html;
         private readonly double _animationTime;
+        private readonly int _viewportWidth;
+        private readonly int _viewportHeight;
         private readonly MemoryArtifactStorage _storage = new();
         private readonly OfflineArtifactLoader _loader;
         private readonly Uri _baseUri;
         private readonly List<ArtifactPage> _retired = [];
+        private readonly Func<IScriptEngine> _engineFactory;
         private ArtifactPage _current;
 
-        private ArtifactLifecycle(ConformanceArtifact artifact, string html, double animationTime)
+        private ArtifactLifecycle(ConformanceArtifact artifact, string html, double animationTime, int viewportWidth, int viewportHeight, Func<IScriptEngine>? engineFactory)
         {
             _artifact = artifact;
             _html = html;
             _animationTime = animationTime;
+            _viewportWidth = viewportWidth;
+            _viewportHeight = viewportHeight;
+            _engineFactory = engineFactory ?? (static () => new JintScriptEngine());
             _baseUri = new Uri($"https://conformance.invalid/{Uri.EscapeDataString(artifact.Id)}/");
             _loader = new OfflineArtifactLoader(artifact.Folder, _baseUri);
             _current = Load();
@@ -405,11 +439,12 @@ public static class Conformance
         public Document Document => _current.Document;
         public ScriptHost Host => _current.Host;
         public IReadOnlyList<ArtifactPage> RetiredPages => _retired;
+        public IReadOnlyList<Diagnostic> Diagnostics => _current.Runner.Diagnostics;
         public IArtifactStorage Storage => _storage;
         public IReadOnlyList<ResourceRequest> OfflineRequests => _loader.Requests;
 
-        internal static ArtifactLifecycle Start(ConformanceArtifact artifact, string html, double animationTime) =>
-            new(artifact, html, animationTime);
+        internal static ArtifactLifecycle Start(ConformanceArtifact artifact, string html, double animationTime, int viewportWidth, int viewportHeight, Func<IScriptEngine>? engineFactory = null) =>
+            new(artifact, html, animationTime, viewportWidth, viewportHeight, engineFactory);
 
         public void Reopen()
         {
@@ -423,7 +458,7 @@ public static class Conformance
         private ArtifactPage Load()
         {
             Document? document = null;
-            JintScriptEngine? engine = null;
+            IScriptEngine? engine = null;
             HtmlEventLoop? loop = null;
             ScriptRunner? runner = null;
             try
@@ -441,8 +476,11 @@ public static class Conformance
                     BaseUri = _baseUri,
                 };
                 document = Document.Parse(_html, options);
+                // Establish the initial layout before library scripts query computed geometry, as a browser does
+                // before executing a deferred script.
+                document.Paint(_viewportWidth, _viewportHeight);
+                engine = _engineFactory();
                 var clock = new VirtualEventLoopClock();
-                engine = new JintScriptEngine(new ScriptEngineOptions { Clock = () => clock.NowUtc, RandomSeed = 42 });
                 loop = new HtmlEventLoop(engine, clock);
                 DomBindings.Install(engine, document, eventLoop: loop);
                 ScriptGlobalsInstaller.Install(loop, engine);
@@ -467,10 +505,10 @@ public static class Conformance
     }
 
     /// <summary>One load retired by <see cref="ArtifactLifecycle.Reopen"/>. Kept for lifecycle assertions in this test harness.</summary>
-    internal sealed class ArtifactPage(Document document, JintScriptEngine engine, HtmlEventLoop loop, ScriptRunner runner, ScriptHost host) : IDisposable
+    internal sealed class ArtifactPage(Document document, IScriptEngine engine, HtmlEventLoop loop, ScriptRunner runner, ScriptHost host) : IDisposable
     {
         public Document Document { get; } = document;
-        public JintScriptEngine Engine { get; } = engine;
+        public IScriptEngine Engine { get; } = engine;
         public HtmlEventLoop Loop { get; } = loop;
         public ScriptRunner Runner { get; } = runner;
         public ScriptHost Host { get; } = host;

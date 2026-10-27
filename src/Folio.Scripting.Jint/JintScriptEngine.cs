@@ -7,6 +7,7 @@ using Jint.Native.TypedArray;
 using Jint.Runtime;
 using Acornima.Ast;
 using System.Runtime.CompilerServices;
+using System.Reflection;
 
 namespace Folio.Scripting.Jint;
 
@@ -14,8 +15,10 @@ namespace Folio.Scripting.Jint;
 /// Jint-backed implementation of <see cref="IScriptEngine"/> (study 17, dependencies.md).
 /// Provides sandboxed ECMAScript evaluation with time, statement, recursion, and memory limits.
 /// </summary>
-public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
+public sealed partial class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHostScriptEvaluator, IStructuredCloneEngine
 {
+    private static readonly FieldInfo? ArrayBufferDataField = typeof(JsArrayBuffer).GetField("_arrayBufferData", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly PropertyInfo? ArrayBufferDetachedProperty = typeof(JsArrayBuffer).GetProperty("IsDetachedBuffer", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
     private static readonly Dictionary<(string Source, string Url), Lazy<Prepared<Script>>> HostScripts = new();
     private sealed record NativeScriptException(JavaScriptException Exception);
     // A caller may retain a translated exception after its VM is gone. Its
@@ -88,12 +91,12 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
         _arrayBufferDetachedGetter = arrayBufferPrototype.GetOwnProperty("detached").Get!;
         _arrayBufferTransfer = arrayBufferPrototype.Get("transfer");
         _dataViewByteLengthGetter = _engine.GetValue("DataView").Get("prototype").AsObject().GetOwnProperty("byteLength").Get!;
+        CaptureBufferSourceIntrinsics();
 
         // Seeded Math.random if specified
         if (_options.RandomSeed is { } seed)
         {
             var rng = new Random(seed);
-            Folio.Scripting.Dom.ScriptEngineSeeds.Register(this, seed);
             _engine.SetValue("__folio_seed_random", (Func<double>)(() => rng.NextDouble()));
             _engine.Evaluate("Math.random = __folio_seed_random; delete globalThis.__folio_seed_random;");
         }
@@ -225,6 +228,13 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
     public ScriptValue GetProperty(ScriptValue target, string name) =>
         target.Raw is ObjectInstance obj ? ToScriptValue(obj.Get(name)) : ScriptValue.Undefined;
 
+    public bool TrySetProperty(ScriptValue target, string name, ScriptValue value)
+    {
+        if (target.Raw is not ObjectInstance obj) return false;
+        obj.Set(name, ToJsValue(_engine!, value));
+        return true;
+    }
+
     public ScriptValue CreateUint8ClampedArray(ReadOnlySpan<byte> bytes)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -308,10 +318,28 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
         }
     }
 
+    public bool TryGetArrayBufferBytesOwned(ScriptValue value, out byte[] bytes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        bytes = [];
+        if (value.Raw is not JsArrayBuffer buffer || !ReferenceEquals(buffer.Engine, _engine)
+            || ArrayBufferDetachedProperty?.GetValue(buffer) is true)
+            return false;
+        bytes = ArrayBufferDataField?.GetValue(buffer) as byte[] ?? [];
+        return bytes.Length > 0 || ArrayBufferDataField is not null;
+    }
+
     public ScriptValue CreateArrayBuffer(ReadOnlySpan<byte> bytes)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return ToScriptValue(_engine!.Intrinsics.ArrayBuffer.Construct(bytes.ToArray()));
+    }
+
+    public ScriptValue CreateArrayBufferOwned(byte[] bytes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(bytes);
+        return ToScriptValue(_engine!.Intrinsics.ArrayBuffer.Construct(bytes));
     }
 
     public bool TryDetachArrayBuffer(ScriptValue value)
@@ -517,6 +545,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
         {
             _cts.Cancel();
             Dom.StructuredCloneCodec.ResetHelpers(this);
+            WebIdlConversions.ResetWrapperCache(this);
             NativeExceptions.Remove(_engine);
             try { _engine.Dispose(); }
             finally
@@ -525,6 +554,7 @@ public sealed class JintScriptEngine : IScriptEngine, IScriptEngineFactory, IHos
                 _arrayBufferDetachedGetter = JsValue.Undefined;
                 _arrayBufferTransfer = JsValue.Undefined;
                 _dataViewByteLengthGetter = JsValue.Undefined;
+                _bufferSourceIntrinsics = null;
                 _eventLoopPump = null;
             }
         }

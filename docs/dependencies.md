@@ -18,16 +18,18 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Unicode text algorithms | **Folio builds it**, BCL where it covers the need | See [Unicode](#unicode-what-the-bcl-covers-and-what-folio-implements) below |
 | Font file parsing (OpenType tables, WOFF, WOFF2) | **Folio builds it** | `cmap`, `head`, `hhea`, `hmtx`, `maxp`, `name`, `OS/2`, `post`, `kern`, `GSUB`/`GPOS`/`GDEF` basics, `fvar`; WOFF on `ZLibStream`, WOFF2 on `BrotliDecoder` plus Folio's `glyf` reconstruction |
 | Font matching and fallback logic | **Folio builds it** | CSS Fonts 4 matching, per-cluster fallback chain ([study](study/11-text.md)) |
-| Simple-script shaper (Latin, Greek, Cyrillic, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB` |
+| Simple-script shaper (Latin, Greek, Cyrillic, basic Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base runs and single niqqud marks are differential-proven, while multiple-mark and complex-script runs remain on the oracle |
 | Complex-script shaping | **Dependency for now**: HarfBuzzSharp | Behind `ITextShaper` |
 | PNG decoder | **Folio builds it** | On `System.IO.Compression.ZLibStream`; all colour types, bit depths, interlacing, `tRNS`, gamma ignored except sRGB; APNG shows the first frame |
 | JPEG decoder | **Folio builds it** | Baseline and progressive, Huffman, 4:4:4/4:2:2/4:2:0, restart markers, EXIF orientation, DCT-domain downscaling; CMYK/arithmetic coding refused with a diagnostic |
-| GIF and WebP decoders | **In-house** (`Folio.Imaging`), each equal to SkiaSharp's codec on the test images | `ImageLoader` |
-| BMP and ICO decoders | Not decoded yet | `ImageLoader` |
+| GIF decoder | **Folio builds it** | First-frame GIF87a/GIF89a decoding with palettes, interlace, transparency and bounded LZW |
+| BMP decoder | **Folio builds it** | Bounded uncompressed 8/16/24/32-bit decoding, including top-down images and 16/32-bit BI_BITFIELDS masks; broader differential corpus expansion remains part of the replacement gate |
+| WebP decoder | **Folio builds it** | RIFF/VP8L lossless and VP8 lossy key frames, ALPH alpha, extended/animated first-frame handling, bounded parsing and fuzz coverage |
+| ICO decoder | **Folio builds it** | Bounded selection of the largest 16/24/32-bit DIB or embedded PNG entry, with alpha-mask handling; broader differential corpus remains open |
 | Display list, paint order, border/gradient/shadow geometry | **Folio builds it** | [study](study/12-painting.md) |
-| 2D rasterisation | **Dependency for now**: SkiaSharp; an in-house backend (`SoftwareRasterBackend`) is written and checked against it, not yet the default | Behind `IRasterBackend`/`ICanvas` |
-| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP. WebGL drawing itself runs on Folio's own GLSL ES compiler, interpreter and software pipeline (`src/Folio.Scripting/WebGl`), so shaders do not need ANGLE; ANGLE remains for the hardware surface path |
-| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Dependency for now**: SkiaSharp; glyf and CFF outlines and CBDT bitmaps are read in-house (`GlyphOutlines`), without hinting, CFF2 or COLR | Glyphs drawn by id through `ICanvas` |
+| 2D rasterisation | **Dependency for now**: SkiaSharp | Behind `IRasterBackend`/`ICanvas` |
+| Native GPU surface and GLSL translation | **Dependency for now**: ANGLE | Windows surface pipe uses D3D11 hardware or explicitly identified WARP; native WebGL shader/draw integration remains unfinished |
+| Glyph rasterisation (outlines, hinting, colour glyph formats) | **Folio-owned for glyf/loca, CFF Type 2, CFF2, CBDT/CBLC, PNG sbix and COLR v0**; Skia remains for variation outlines and COLR v1 | SoftwareCanvas draws Folio-parsed outlines, including CFF2 Type 2 through pinned OpenType and WOFF2 fixture regressions; the CFF2 fixtures now have Skia differential and malformed-limit checks; PNG bitmap strikes and layered palette glyphs use Folio parsers; parsed outlines use an 8 MiB per-font LRU cache; CFF2 variation-font support and broader malformed/limit corpus remain required |
 | Font discovery and last-resort system fallback | **System-provided**: Windows (DirectWrite font collection and fallback) | Reached through `IFontSource`; the first implementation uses SkiaSharp's font manager, which calls DirectWrite on Windows |
 | Hit testing, selection, input routing, form editing | **Folio builds it** | [study](study/15-interaction.md) |
 | Clipboard | **System-provided** | WinForms `Clipboard` |
@@ -37,7 +39,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Resource loaders, cache, integrity checks | **Folio builds it** | On `HttpClient` and `System.Security.Cryptography` ([study](study/16-resources-and-security.md)) |
 | WinForms control | **Folio builds it** | On .NET WinForms |
 | Content process, IPC protocol, event loop, DOM bindings, canvas 2D API | **Folio builds it** (M4–M5) | [study](study/17-scripting.md) |
-| Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided**: Windows APIs (`CreateAppContainerProfile`, `CreateProcessAsUser`, `CreateJobObject`, `SetInformationJobObject`) | Set up by Folio through Windows APIs |
+| Process sandbox (Job Objects, AppContainer / low-integrity token) | **System-provided** | Set up by Folio through Windows APIs |
 | JavaScript engine | **Temporary compatibility dependency**: Jint | Behind `IScriptEngine`; the production engine is planned as Folio-owned code |
 | WebRTC signalling and loopback transport | **Folio builds it** | Capability-gated offer/answer, ICE state, tracks and data channels; external ICE/peer transport remains a host-owned seam |
 | Diagram renderer (diagram-description languages → SVG) | **Folio builds it** (M5) | `Folio.Diagrams`, instead of running a diagram library in the sandbox |
@@ -111,7 +113,7 @@ public interface ITextShaper
 }
 ```
 
-`ShaperRouter` asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` (in `Folio.Skia`). A configuration switch forces all text through one shaper for differential testing.
+`HybridShaper` (the production `Folio.Skia` shaper) asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` for complex runs. The differential harness now has an explicit per-script promotion switch with conservative mixed-script handling: a script can be moved to Folio's path only while its corpus is being proven, without changing the default safe routing. Folio's Arabic path now consumes bounded one-glyph GSUB MultipleSubst sequences and applies the computed isol/init/medi/fina form at its shaping position; representative joining cases are green, while broader Arabic corpus parity is still open. The differential tests compare both paths on bundled Latin and Hebrew fonts, including Hebrew base runs and isolated niqqud mark-to-base positioning. Multiple-mark attachment and complex scripts remain on HarfBuzz until each replacement track meets the criteria below.
 
 ### ANGLE — native GPU surfaces and shader translation
 
@@ -123,9 +125,11 @@ Resource reservations and peak reservations are distinct from native OS process 
 
 This follows the dependency-first plan. Replacing ANGLE later would require a Folio-owned shader translator and native graphics backend behind the same interfaces; it is not part of this implementation.
 
-### JavaScript engine — Jint
+### WebAssembly execution — Wasmtime
 
-**Pinned version and licence:** Jint 4.17.0, licensed under **BSD-2-Clause**.
+**M6 native-path repair (2026-10-26):** `Wasmtime` 48.0.2 is now wired behind the WebAssembly binding seam. Granted numeric modules, including JavaScript function imports, execute in the native engine with a per-store linear-memory cap and epoch-based execution deadline; validated modules are reused through a bounded compiled-module cache, local/imported memories synchronize through the native boundary, numeric local/imported globals use type-safe native accessors, and instances plus the engine are retired with the document. Basic local funcref table exports are exposed with null-reference mutation, and native-origin or typed ordinary JavaScript numeric funcref entries can cross imported tables through signature-checked callbacks. Reference-valued signatures and other unsupported exports continue through the compatibility path while their native bridge is completed. Wasmtime is a dependency-backed transition step, not the final Folio-owned implementation; removing it remains mandatory under Milestone 7 and is explicitly listed in the [replacement gate](replacement-gate.md).
+
+### JavaScript engine — Jint
 
 **M6 audit repair (2026-10-19):** upgraded the compatibility backend to Jint 4.17.0. Jint 4.1 blocked during pending `await`, and Folio's background evaluation/host-pump workaround could run continuations concurrently and corrupt lexical scope. The wrapper now evaluates and calls functions directly on the event-loop owner, with promise jobs drained at checkpoints. Awaited timer/fetch/microtask and worker lifecycle regressions cover this path. Folio-owned installer scripts use a bounded prepared-code cache through an internal host-only path; artifact URLs cannot select it. Jint's native stack-overflow guard is enabled, while artifact execution limits remain unchanged. This repair does not satisfy M6's separate native-engine/WebAssembly requirements.
 
@@ -178,7 +182,7 @@ the content process direct network access.
 
 ### Image codecs not built in-house
 
-**Why**: animated GIF, WebP (lossy VP8 and lossless) and the long tail of BMP/ICO variants are rare in artifacts; Folio's own decoders cover PNG and JPEG, which nearly all artifacts use.
+**Why**: the image replacement track is now Folio-owned for GIF and WebP. The remaining codec work is corpus expansion for long-tail BMP/ICO variants, not a production WebP fallback.
 
 **Swap-out interface**:
 
@@ -191,33 +195,91 @@ public interface IImageDecoder
 }
 ```
 
-`ImageDecoderRegistry` tries Folio's `PngDecoder` and `JpegDecoder` first, then `SkiaCodecDecoder` (in `Folio.Skia`).
+The current `ImageLoader.Decode` path tries Folio's `PngDecoder`, `JpegDecoder`,
+first-frame `GifDecoder`, bounded `WebpDecoder` (VP8L/VP8 plus ALPH), bounded
+`BmpDecoder` and bounded `IcoDecoder`. WebP lossless and lossy fixtures are
+checked against SkiaSharp, and both GIF and WebP are fuzz targets. The decoder
+returns null for malformed or over-limit data rather than exposing partial
+pixels.
 
 ### System services
 
 `IFontSource` (list families, open face data, match a character for last-resort fallback), `IClipboard`, and the IME/accessibility hooks are implemented by the host layer (`Folio.Skia` for fonts, `Folio.WinForms` for the rest). Tests use a bundled-fonts `IFontSource`, which is also what makes the engine and its tests run on Linux CI.
 
-### Windows sandbox APIs
+## Required Folio-owned replacement track (mandatory completion gate)
 
-The content process (`Folio.ContentHost`) is isolated using native Windows security APIs:
-- **AppContainer profiles**: `CreateAppContainerProfile`, `DeleteAppContainerProfile`, and `DeriveAppContainerSidFromAppContainerName` from `userenv.dll`. Process startup uses `STARTUPINFOEX` with `InitializeProcThreadAttributeList` and `UpdateProcThreadAttribute` to pass `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` to `CreateProcessAsUser` (or `CreateProcessW`).
-- **Job Objects**: `CreateJobObjectW`, `AssignProcessToJobObject`, and `SetInformationJobObject` configure `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, `JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`) and `JOBOBJECT_BASIC_UI_RESTRICTIONS` (`JOB_OBJECT_UILIMIT_HANDLES`, `JOB_OBJECT_UILIMIT_GLOBALATOMS`, `JOB_OBJECT_UILIMIT_DESKTOP`).
-
-## Towards all-Folio
+The authoritative release rule is [`replacement-gate.md`](replacement-gate.md).
+This track is non-optional and non-waivable: dependency-first delivery is only
+the order of work, never a substitute for replacing the production backends.
 
 The intended delivery strategy is dependency-first, replacement-last: finish the
 product on the mature backends, keep every backend behind a Folio-owned interface,
 then replace dependencies incrementally with differential tests and corpus
-benchmarks. This keeps product work moving while the replacements are built. A
-replacement is complete only when it matches the existing backend on conformance,
-goldens, fuzzing, performance, and failure behavior.
+benchmarks. The replacements are mandatory for Folio completion; dependency-first
+only defines the delivery order. A replacement is complete only when it matches
+the existing backend on conformance, goldens, fuzzing, performance, and failure
+behavior, and the dependency can be removed from the production build.
 
-1. **Extend the in-house shaper** script by script: Hebrew (marks), then Arabic (joining forms, mark positioning, contextual lookups), then Indic and South-East Asian scripts (reordering). *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
-   - *Status (audited 2026-10-23)*: `Folio.Typography.ComplexShaper` maps Arabic letters to their presentation forms, gives Hebrew marks zero advance, reorders only the Devanagari pre-base vowel sign (U+093F) and gives Thai marks zero advance. It reads no GSUB or GPOS table, so conjuncts, reph, half forms, contextual lookups and mark attachment are not done, and its output is not yet compared with HarfBuzz per script. It is reachable only through `SoftwareRasterBackend.TextShaper` (canvas text), not from HTML layout. This item is open.
-2. **Folio's own rasteriser** behind IRasterBackend: scanline coverage rasteriser with SIMD (Vector256), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from glyf/CFF/CFF2 outlines plus colour formats (COLR, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
-   - *Status (2026-10-23)*: `Folio.Painting.SoftwareRasterBackend` (code in `Folio.Painting.Software`) implements the whole `IRasterBackend`/`ICanvas` surface: antialiased fills (non-zero and even-odd, 16 vertical samples with exact horizontal coverage, edge ends snapped to a quarter pixel as Skia's analytic scan converter does), strokes with joins, caps and dashes, clips as coverage masks, all 26 blend modes, solid, linear, radial, focal and conic gradients, image shaders with mipmaps, Gaussian blur (box blurs from sigma 2), layers with their own bounds, every filter primitive (including turbulence, displacement, lighting and convolution) with Skia's rounding between primitives, backdrop filters, projective transforms, text from glyph outlines (`GlyphOutlines`: TrueType glyf with composites, CFF Type 2) and CBDT bitmap glyphs. Measured on Windows against the Skia backend: reftests 69 of 69, the 22 golden pages all within their tolerances, 14 differential scenes, and the conformance corpus 150 of 164 against Skia's 155. The 5 pages it fails and Skia passes (`D12/iframe-01`, `D12/iframe-02`, `S6/bilingual-train-timetable`, `S6/chinese-tech-news-article`, `S6/japanese-recipe-card`) are text pages 0.5% to 1% over the limit: DirectWrite snaps the horizontal stems of glyphs to whole pixels and Folio's outlines are not hinted. Unit tests check coverage against areas worked out by hand, every blend mode against the Compositing specification's formulas and image sampling at 0.5, 1 and 3 times, and the canvas 2D tests run on it too (127 of 130 pass; the rest need a JPEG encoder and the shaper's mark positioning). It is slow: replaying the typical dashboard's display list takes about 39 ms at 800×600 and 99 ms at 1920×1080 against Skia's 5 and 11 ms (7.6× and 9×; the benchmark harness prints it), so the 8 ms frame target is far off. Not done: CFF2 outlines, COLR colour glyphs, text hinting, a JPEG encoder, SIMD and any speed work. `FolioView` and the content host still use the Skia backend. This item is open.
-3. **In-house GIF and WebP decoders**. *Good enough*: fuzzed, conformance images unchanged.
-   - *Status (2026-10-23)*: `Folio.Imaging.GifDecoder` (GIF87a/GIF89a, LZW, interlacing, transparency; the first frame) and `Folio.Imaging.WebpDecoder` (lossless `VP8L` in `WebpLossless`, lossy `VP8` key frames in `Vp8Decoder` with `ALPH` alpha planes in `WebpAlpha`, an animated file's first frame) are used by `ImageLoader`; the SkiaSharp codecs are not used for either. Each is checked against SkiaSharp's decode on checked-in images (`DecoderReferenceTests`: zero tolerance for GIF and lossless WebP, one step for lossy WebP; equal today), against hostile input (truncation, bit flips, size limits) and by a fuzz target in CI. Done: #576, #577, #578.
+This is a hard release gate: no milestone, feature-complete claim, or Folio
+completion report may waive, defer, or mark this track optional. The product may
+ship intermediate dependency-backed implementations while the replacements are
+being built, but Folio itself is complete only after all five replacement tracks below
+are selected by production and their superseded dependencies are removable.
+
+**Current status (2026-10-28):** the latest Release build and direct M1–M6
+acceptance suites pass. Native D2–D7 remains 59/60 because React host
+reconciliation is still open in #645, and the mandatory replacement gate remains
+open. The production Skia path now selects
+`HybridShaper`, which routes provably simple runs through Folio's own shaper and
+keeps HarfBuzz as the complex-script oracle. Folio's GPOS mark-to-base/mark-to-mark
+parser has direct differential coverage; the Folio complex shaper now matches the
+bundled Hebrew base, isolated-mark and selected RTL multi-mark cases, while production
+multiple-mark and complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
+GSUB and kerning parity is proven. Arabic now has Folio-owned joining plus
+script-selected `locl`/`rlig`/`calt`/`liga` contextual substitutions for the
+representative corpus, but broad Arabic mark/corpus parity, Indic and South-East
+Asian scripts, and the differential corpus remain outstanding. The
+rasteriser and JavaScript engine are still dependency-backed. The
+Folio-owned JavaScript replacement has now started with a bounded lexer and
+source-location/error tests plus bounded expression, statement, explicit
+host-function, array-literal, indexed-access, object-literal, property-read,
+and object/array mutation, bounded while/for-loops with break/continue,
+throw/catch/finally control flow,
+prefix/postfix updates, conditional expressions, `typeof`/`void`, signed-Int32
+bitwise and shift operators, and exponentiation, plus
+captured function-expression AST evaluation with live outer-binding assignment,
+recursive nested closure capture, multi-character/logical operators, function
+declarations, single- and multi-parameter arrow functions, bounded `Array.isArray`,
+`Object.keys`, `Math`, coercion/parsing, console, bounded array/string member
+methods, callback-oriented collection methods, mutable script arrays with `push`/`pop`/`shift`/`unshift`/`splice`, JSON parse/stringify,
+`queueMicrotask`, basic Promise checkpoint scheduling, bounded `new` syntax,
+scoped `with` blocks and a bounded dynamic `Function` constructor,
+isolated-engine limit propagation, and staged
+`IHostObjectTemplate` property/method/indexed access plus buffer-source
+ownership/copy/detachment operations and script-visible typed-buffer
+properties/indexed mutation in `Folio.Scripting.Native`;
+it is available to the content host through the explicit
+`FOLIO_SCRIPT_ENGINE=native` probe, but is not selected by default and does not
+reduce the replacement gate by itself. The
+Folio-owned GIF decoder is production-selected, differentially checked against
+SkiaSharp, bounded to the 12-bit GIF LZW table, and included in the image fuzz
+target (a five-second run exercised 4,067,165 mutations with no failures). Four
+generated differential fixtures now cover interlaced and transparent frames in
+addition to the one-pixel corpus case. Its full conformance corpus is still to
+be assembled. The production ICO path now has an embedded-PNG differential
+fixture against Skia as well. BMP is also production
+selected through a bounded Folio decoder for uncompressed palette, 24-bit and
+32-bit images; its broader differential corpus still remains to be assembled.
+Generated bottom-up and top-down BMP cases are also pixel-compared with
+SkiaSharp in the render-test suite.
+
+1. **Extend the in-house shaper** script by script: bounded Hebrew base and isolated-mark runs now meet the differential bar; multiple-mark Hebrew, then Arabic (joining forms, mark positioning, contextual lookups), Indic and South-East Asian scripts (reordering) follow. *Good enough*: for each added script, glyph ids and positions identical to HarfBuzzSharp's output over the text corpus for the bundled and default system fonts; then that script stops routing to HarfBuzzSharp.
+2. **Folio's own rasteriser** behind `IRasterBackend`: scanline coverage rasteriser with SIMD (`Vector256`), stroker, gradients, blur, compositing and blend modes, clip masks, image resampling, and glyph rasterisation from `glyf`/`CFF`/`CFF2` outlines plus colour formats (`COLR`, bitmap glyphs through Folio's PNG decoder). *Good enough*: all reftests and goldens pass within their existing tolerances, text is judged equal in side-by-side review at 100% and 150% scale, and scroll and animation frame targets still hold at 1920×1080.
+3. **In-house GIF and WebP decoders**. Both decoders are production-selected and bounded. GIF covers first-frame GIF87a/GIF89a with interlace/transparency; WebP covers VP8L lossless, VP8 key-frame lossy, ALPH alpha, extended and animated first-frame files. Differential corpus and fuzz evidence are checked in; this image-codec replacement gate is complete.
 4. **JavaScript engine**: planned removal of the temporary Jint dependency after
    the Folio-owned engine passes the full scripting and conformance suites.
-   - *Status (audited 2026-10-23)*: `Folio.Scripting.Native` has a tokenizer, parser, bytecode compiler and stack VM for a small subset of the language: functions, closures, objects, arrays, loops, switch, simple try/catch, basic Promise and a few built-ins. It lacks classes, destructuring, spread, template-literal interpolation, regular expressions, `for...of`/`for...in`, default parameters, async functions, generators, `Map`/`Set`, `JSON`, accessors and more; postfix `++` on members and per-iteration `let` bindings are wrong. On a 40-case battery of ordinary scripts it passes 4 and the Jint backend passes all 40. It is not wired into the content host, and no suite runs the DOM bindings or the conformance corpus on it. Jint stays the engine.
+5. **WebAssembly runtime**: replace Wasmtime and the compatibility interpreter
+   with Folio-owned validation, compilation and execution covering imports,
+   linear memory, tables, globals, streaming, workers, traps, limits and
+   teardown. The native Wasmtime bridge is an intermediate M6 backend, never a
+   completion substitute.

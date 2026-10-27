@@ -1,7 +1,7 @@
 namespace Folio.Imaging;
 
 /// <summary>Decoded pixels: RGBA8 with straight (not premultiplied) alpha, row-major without padding.</summary>
-internal sealed record DecodedImage(int Width, int Height, byte[] Pixels) : IImageHandle
+public sealed record DecodedImage(int Width, int Height, byte[] Pixels) : IImageHandle
 {
     ReadOnlyMemory<byte> IImageHandle.Pixels => Pixels;
 }

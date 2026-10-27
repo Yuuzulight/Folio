@@ -1,0 +1,45 @@
+name: Approve golden images
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Golden test or category to approve (for example: css-grid or css-grid/001)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - run: dotnet build Folio.slnx -c Release
+
+      - name: Render golden candidates
+        continue-on-error: true
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll -class GoldenTests
+
+      - name: Approve the requested golden target
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll approve "$TARGET"
+
+      - name: Upload approved images for review
+        uses: actions/upload-artifact@v7
+        with:
+          name: approved-goldens-${{ inputs.target }}
+          path: |
+            tests/goldens/
+            tests/render-output/
+          if-no-files-found: error

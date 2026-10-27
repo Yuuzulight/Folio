@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using Folio.Imaging;
 using Folio.Painting;
@@ -344,6 +345,82 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         // Text edges are thinner features than shapes', and the two rasterisers weigh them differently; the limits are looser.
         Check("text 18px", c => c.DrawGlyphs(face, 18, glyphs, Origins(18).Select(o => o + new Vector2(0, 40)).ToArray(), Solid(0, 0, 0)), mean: 2.0, over8: 0.12, over40: 0.04, background: White);
         Check("text 40px", c => c.DrawGlyphs(face, 40, glyphs, Origins(40).Select(o => o + new Vector2(0, 90)).ToArray(), Solid(0.1f, 0.1f, 0.6f)), mean: 3.0, over8: 0.10, over40: 0.02, background: White, width: 300, height: 128);
+    }
+
+    [Fact]
+    public void DrawsTextFromCff2GlyphOutlines()
+    {
+        var face = Load("FolioCff2.otf");
+        var glyph = face.GlyphFor('A');
+        Assert.NotEqual((ushort)0, glyph);
+        var comparison = Compare(c => c.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f)),
+            width: 96, height: 96, background: White);
+        Assert.True(comparison.Mean < 8 && comparison.OverForty < 0.12,
+            $"CFF2 raster diverged from the Skia oracle: mean={comparison.Mean:F2}, over40={comparison.OverForty:P2}, max={comparison.Max}.");
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
+            "The CFF2 glyph did not produce a raster outline.");
+    }
+
+    [Fact]
+    public void DecodesAndDrawsCff2FromWoff2()
+    {
+        var compressed = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
+        var face = FontFace.Parse(WebFontDecoder.Decode(compressed));
+        Assert.NotNull(face);
+        var glyph = face!.GlyphFor('A');
+        var comparison = Compare(c => c.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f)),
+            width: 96, height: 96, background: White);
+        Assert.True(comparison.Mean < 8 && comparison.OverForty < 0.12,
+            $"WOFF2 CFF2 raster diverged from the Skia oracle: mean={comparison.Mean:F2}, over40={comparison.OverForty:P2}, max={comparison.Max}.");
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
+            "The WOFF2 CFF2 glyph did not produce a raster outline.");
+    }
+
+    [Fact]
+    public void RejectsMalformedCff2OutlineWithinRasterLimits()
+    {
+        var bytes = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
+        var tableCount = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(4));
+        var cff2Offset = -1;
+        for (var i = 0; i < tableCount; i++)
+        {
+            var record = 12 + i * 16;
+            if (bytes.AsSpan(record, 4).SequenceEqual("CFF2"u8))
+            {
+                cff2Offset = checked((int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(record + 8)));
+                break;
+            }
+        }
+        Assert.True(cff2Offset >= 0);
+        BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(cff2Offset + 2), ushort.MaxValue);
+
+        var face = FontFace.Parse(bytes);
+        Assert.NotNull(face);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        var glyph = face!.GlyphFor('A');
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.All(pixels.Chunk(4), pixel => Assert.True(pixel[0] == 255 && pixel[1] == 255 && pixel[2] == 255,
+            "Malformed CFF2 data escaped the outline limit and painted pixels."));
+    }
+
+    [Fact]
+    public void DrawsBitmapColourGlyphs()
+    {
+        var face = Load("NotoColorEmoji.ttf");
+        var glyph = face.GlyphFor(0x1F600); // 😀, a CBDT/CBLC PNG glyph.
+        Assert.NotEqual((ushort)0, glyph);
+        Check("bitmap colour glyph", c => c.DrawGlyphs(face, 48, [glyph], [new Vector2(12, 58)], Solid(1, 1, 1)),
+            mean: 4.0, over8: 0.12, over40: 0.04, background: White, width: 96, height: 80);
     }
 
     private static void White(ICanvas c) => c.FillRoundedRect(new RoundedRect(new RectF(0, 0, 1000, 1000), default), Solid(1, 1, 1));

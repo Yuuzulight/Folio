@@ -70,6 +70,7 @@ internal sealed class Context(PaintBox? owner, bool real, int z, int order)
     public List<Context> Positive { get; } = [];
     public List<PaintBox> Outlines { get; } = [];
 
+
     /// <summary>
     /// A box in the context blends with it: the context is an isolated group, painted into a layer of its own so
     /// the blending stops at its edge (https://drafts.csswg.org/compositing-2/#isolation).
@@ -125,6 +126,9 @@ internal static class PaintOrderWalker
         rootContext.Isolated = false;
         return rootContext;
     }
+
+
+
 
     private static bool IsScrollContainer(Box box) =>
         box.Style.Box.OverflowX is Overflow.Hidden or Overflow.Scroll or Overflow.Auto
@@ -402,8 +406,11 @@ internal static class PaintOrderWalker
     {
         if (!visitor.BeginContext(context))
             return;
-        var steps = Steps(context);
-        foreach (var step in frontToBack ? steps.Reverse() : steps)
+        foreach (var step in frontToBack ? Steps(context).Reverse() : Steps(context))
+            Visit(step);
+        visitor.EndContext(context);
+
+        void Visit(Step step)
         {
             switch (step.Kind)
             {
@@ -414,15 +421,14 @@ internal static class PaintOrderWalker
                 case StepKind.Outline: visitor.VisitOutline(step.Box!); break;
             }
         }
-        visitor.EndContext(context);
     }
 
+    // A context's paint order, back to front: its own background, negative z, blocks, floats, inline content, z-index
+    // auto and 0, positive z, then outlines over everything else (CSS 2.2 Appendix E, steps 1 to 10).
     private enum StepKind { Context, Background, CollapsedBorders, Text, Outline }
 
     private readonly record struct Step(StepKind Kind, PaintBox? Box = null, Context? Child = null);
 
-    // A context's paint order, back to front: its own background, negative z, blocks, floats, inline content, z-index
-    // auto and 0, positive z, then outlines over everything else (CSS 2.2 Appendix E, steps 1 to 10).
     private static IEnumerable<Step> Steps(Context context)
     {
         if (context.Owner is { } self)

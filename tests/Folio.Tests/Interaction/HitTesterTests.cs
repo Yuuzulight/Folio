@@ -106,4 +106,20 @@ public class HitTesterTests
         Assert.Equal("outer", At(html, 40, 5));
         Assert.Equal("b", At(html, 70, 5));
     }
+
+    [Fact]
+    public void PointerTargetCanSkipCaretResolution()
+    {
+        var page = BlockLayoutTests.LayOut(Page + "<p style='margin:0'>pointer target</p>");
+        // Inside the paragraph's box but past its glyphs: the normal hit is an
+        // element target, while caret mode snaps to the nearest line.
+        var point = new Vector2(200, 50);
+
+        var targetOnly = HitTester.Hit(page, point, includeCaret: false);
+        var withCaret = HitTester.Hit(page, point, includeCaret: true);
+
+        Assert.NotNull(targetOnly);
+        Assert.Null(targetOnly!.Position);
+        Assert.NotNull(withCaret?.Position);
+    }
 }

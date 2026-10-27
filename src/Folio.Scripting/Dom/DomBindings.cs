@@ -2,7 +2,6 @@ using Folio;
 using Folio.Dom;
 using Folio.Resources;
 using System.Runtime.CompilerServices;
-using System.Text;
 using Folio.Scripting.Gpu;
 
 namespace Folio.Scripting.Dom;
@@ -43,24 +42,6 @@ public static class DomBindings
     }
 
     /// <summary>Trusted host hook used by conformance probes; this is intentionally not installed on the page global.</summary>
-    public static bool UpdateLimits(IScriptEngine engine, ResourceLimits limits)
-    {
-        ArgumentNullException.ThrowIfNull(engine);
-        ArgumentNullException.ThrowIfNull(limits);
-        if (!Contexts.TryGetValue(engine, out var context)) return false;
-        context.UpdateLimits(limits);
-        return true;
-    }
-
-    /// <summary>Changes the GPU memory budget for an installed document.</summary>
-    public static bool UpdateGpuBudget(IScriptEngine engine, int maxGpuBytes)
-    {
-        ArgumentNullException.ThrowIfNull(engine);
-        if (!Contexts.TryGetValue(engine, out var context)) return false;
-        context.UpdateLimits((context.ParentOptions?.Limits ?? ResourceLimits.Default) with { MaxGpuBytes = maxGpuBytes });
-        return true;
-    }
-
     internal static bool TryClearNativeCanvas(IScriptEngine engine, ElementNode element, float red, float green, float blue, float alpha, out GpuFailure? failure)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -90,16 +71,6 @@ public static class DomBindings
     }
 
     /// <summary>Stops background work owned by the document before its content process closes.</summary>
-    internal static void PumpIframes(IScriptEngine engine)
-    {
-        if (Contexts.TryGetValue(engine, out var context)) context.PumpIframes();
-    }
-
-    internal static Folio.Imaging.IImageHandle? GetImageOf(IScriptEngine engine, ElementNode element)
-    {
-        return Contexts.TryGetValue(engine, out var context) ? context.ImageOf(element) : null;
-    }
-
     public static bool Dispose(IScriptEngine engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -108,6 +79,24 @@ public static class DomBindings
         Contexts.Remove(engine);
         GpuFactories.Remove(engine);
         RetireFeatures(context);
+        return true;
+    }
+
+    /// <summary>Host hook for a native GPU/device reset; all live WebGL contexts become lost.</summary>
+    public static bool NotifyGpuDeviceLost(IScriptEngine engine)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        if (!Contexts.TryGetValue(engine, out var context)) return false;
+        context.NotifyGpuDeviceLost();
+        return true;
+    }
+
+    /// <summary>Host hook after a native GPU/device reset; live granted WebGL contexts are recreated.</summary>
+    public static bool NotifyGpuDeviceRestored(IScriptEngine engine)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        if (!Contexts.TryGetValue(engine, out var context)) return false;
+        context.NotifyGpuDeviceRestored();
         return true;
     }
 
@@ -121,7 +110,8 @@ public static class DomBindings
             () => context.DisposeCacheStorage?.Invoke(), context.LoseCanvasContexts, context.DisposeIframes,
             context.DisposeWorkers, context.DisposeMedia,
             () => context.CaptureState?.Dispose(), () => context.WebRtcState?.Dispose(),
-            () => context.ServiceWorkerState?.Dispose(), context.DisposeGpu
+            () => context.ServiceWorkerState?.Dispose(), () => context.DisposeServiceWorker?.Invoke(), () => { if (context.ParentOptions is { } options) options.ResourceInterceptor = null; }, context.DisposeGpu
+            , () => context.DisposeWebAssembly?.Invoke()
         ];
         foreach (var cleanup in retire)
         {
@@ -133,17 +123,22 @@ public static class DomBindings
         }
     }
 
-    public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null) =>
-        Install(engine, document.Node, wrapperCache, eventLoop, element =>
+    public static ScriptWrapperCache Install(IScriptEngine engine, Document document, ScriptWrapperCache? wrapperCache = null, HtmlEventLoop? eventLoop = null)
+    {
+        var result = Install(engine, document.Node, wrapperCache, eventLoop, element =>
         {
             var bounds = document.GetElementBounds(element);
             return bounds is { } rect ? (rect.X, rect.Y, rect.Width, rect.Height) : null;
-        }, document, document.Capabilities, document.MaxGpuBytes, document.MaxShaderExecutionTime, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxWorkerExecutionTime, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MaxWebRtcConnections, document.WebRtcAllowedOrigins, document.MediaCapturePermission, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri, document.Options.MediaAudioOutput, document.Options.MediaDecoder,
-        document.Options.Raster, () => document.CanvasText, document.Options.MediaCaptureActivityChanged, document.Options.IframeNavigationRequested, document.Options);
+        }, document.Capabilities, document.MaxGpuBytes, document.MaxMediaBytes, document.MaxMediaDecoders, document.MaxWorkerMessageBytes, document.MaxWebAssemblyBytes, document.MaxWorkers, document.MaxWorkerMemoryBytes, document.MaxAggregateWorkerMemoryBytes, document.MaxWorkerExecutionTime, document.MaxServiceWorkerCacheBytes, document.MaxIframes, document.MaxWebRtcConnections, document.WebRtcAllowedOrigins, document.MediaCapturePermission, document.MediaCaptureProvider, document.ArtifactStorage, document.ArtifactId, document.Options.ResourceLoader, document.Options.BaseUri, document.Options.MediaAudioOutput, document.Options.MediaDecoder,
+        document.Options.Raster, () => document.CanvasText, document.Options.MediaCaptureActivityChanged, document.Options.IframeNavigationRequested, document.Options, document.FormsAllowed);
+        if (Contexts.TryGetValue(engine, out var context) && document.Options.ResourceInterceptor is null)
+            document.Options.ResourceInterceptor = context.CreateServiceWorkerResourceInterceptor();
+        return result;
+    }
     internal static ScriptWrapperCache Install(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         HtmlEventLoop? eventLoop = null, Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        Folio.Document? hostDocument = null, FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, TimeSpan maxShaderExecutionTime = default, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, FolioOptions? parentOptions = null)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxAggregateWorkerMemoryBytes = 512L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IMediaCaptureProvider? mediaCaptureProvider = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null,
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, FolioOptions? parentOptions = null, bool formsAllowed = true)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(document);
@@ -153,11 +148,10 @@ public static class DomBindings
         }
 
         var gpuFactory = GpuFactories.TryGetValue(engine, out var configuredFactory) ? configuredFactory.Factory : null;
-        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxShaderExecutionTime, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles, mediaCaptureActivityChanged, iframeNavigationRequested, mediaAudioOutput, mediaDecoder, gpuFactory);
+        var context = new DomContext(engine, document, wrapperCache, layout, capabilities, maxGpuBytes, maxMediaBytes, maxMediaDecoders, maxWorkerMessageBytes, maxWebAssemblyBytes, maxWorkers, maxWorkerMemoryBytes, maxAggregateWorkerMemoryBytes, maxWorkerExecutionTime, maxServiceWorkerCacheBytes, maxIframes, maxWebRtcConnections, webRtcAllowedOrigins, mediaCapturePermission, mediaCaptureProvider, artifactStorage, artifactId, resourceLoader, baseUri, raster, canvasStyles, mediaCaptureActivityChanged, iframeNavigationRequested, mediaAudioOutput, mediaDecoder, gpuFactory, formsAllowed);
         if (eventLoop is not null)
             eventLoop.MediaPlaybackTick = context.AdvanceMedia;
         context.ParentOptions = parentOptions;
-        context.HostDocument = hostDocument;
         context.OwnerEventLoop = eventLoop;
         try
         {
@@ -195,8 +189,7 @@ public static class DomBindings
             {
                 if (args.Length == 0 || !context.Engine.TryGetHostTarget(args[0], out var node) || node is not ElementNode element)
                     throw WebIdlException.TypeError("getComputedStyle requires an Element.");
-                var pseudo = args.Length > 1 && args[1].Kind == ScriptValueKind.String ? args[1].AsString() : null;
-                return context.WrapComputedStyle(element, pseudo);
+                return context.WrapComputedStyle(element);
             });
         engine.SetGlobalProperty("__folio_style_host", engine.CreateHostObject(styleHost, context));
         var mutationHost = new HostObjectTemplate("MutationObserverHost")
@@ -216,49 +209,18 @@ public static class DomBindings
             eventLoop, context.MaxWorkerMessageBytes, context.MaxWorkerMemoryBytes);
         WorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
             resourceLoader, baseUri, blobSources, eventLoop);
-        UrlBindings.Install(engine);
-        PlatformBindings.Install(engine, context.ReportConsole);
-        StorageBindings.Install(engine, artifactStorage, artifactId);
-        FormBindings.InstallFormData(engine, context);
-        CssomViewBindings.InstallWindow(engine, context);
-        CssomViewBindings.InstallObservers(engine, context);
-        if (eventLoop is not null)
-            eventLoop.RenderingHooks = new DomRenderingHooks(context);
+        SharedWorkerBindings.Install(engine, context, context.Templates.MessageEventTemplate, messagePortTemplate,
+            resourceLoader, baseUri, blobSources, eventLoop);
         engine.Evaluate("globalThis.getComputedStyle = (function(host) { return function(element, pseudo) { return host.getComputedStyle(element, pseudo); }; })(__folio_style_host); delete globalThis.__folio_style_host;");
         engine.EvaluateHostScript(@"
-            if (typeof window === 'undefined') {
-                globalThis.window = globalThis;
-            }
-            if (typeof parent === 'undefined') {
-                globalThis.parent = globalThis;
-            }
-            if (typeof top === 'undefined') {
-                globalThis.top = globalThis;
-            }
-            if (typeof self === 'undefined') {
-                globalThis.self = globalThis;
-            }
-            if (typeof globalThis.postMessage !== 'function') {
-                globalThis.postMessage = function(data, targetOrigin, transfer) {
-                    var origin = (globalThis.location && globalThis.location.origin) || 'null';
-                    if (targetOrigin && targetOrigin !== '*' && targetOrigin !== origin) return;
-                    var event = new MessageEvent('message', {
-                        data: data,
-                        origin: origin,
-                        source: globalThis,
-                        ports: transfer && Array.isArray(transfer) ? transfer : []
-                    });
-                    globalThis.dispatchEvent(event);
-                };
-            }
-            if (typeof globalThis.Image === 'undefined') {
-                globalThis.Image = function(width, height) {
-                    var img = document.createElement('img');
-                    if (width !== undefined) img.width = width;
-                    if (height !== undefined) img.height = height;
-                    return img;
-                };
-            }
+            // The script engine may pre-create a distinct Window-like object. For a top-level document it must be the
+            // actual global object so browser libraries see the same methods and globals through both names.
+            globalThis.window = globalThis;
+            globalThis.self = globalThis;
+            // Some libraries call the Window method rather than the global alias. Keep both views identical even
+            // when an embedding host supplied a distinct window proxy.
+            if (globalThis.window && typeof globalThis.window.getComputedStyle !== 'function' && typeof globalThis.getComputedStyle === 'function')
+                globalThis.window.getComputedStyle = globalThis.getComputedStyle;
             globalThis.navigator = globalThis.navigator || {};
             globalThis.MediaStream = function(tracks) { this.id = 'stream-' + Math.random().toString(16).slice(2); this._tracks = tracks && typeof tracks.getTracks === 'function' ? tracks.getTracks() : (tracks ? tracks.slice() : []); this.onaddtrack = null; this.onremovetrack = null; this._listeners = {}; this.addEventListener = function(type, handler) { if (typeof handler !== 'function') return; var list = this._listeners[type] || (this._listeners[type] = []); if (list.indexOf(handler) < 0) list.push(handler); }; this.removeEventListener = function(type, handler) { var list = this._listeners[type] || []; this._listeners[type] = list.filter(function(item) { return item !== handler; }); }; this._dispatch = function(event) { var handler = event.type === 'addtrack' ? this.onaddtrack : this.onremovetrack; if (handler) handler(event); (this._listeners[event.type] || []).slice().forEach(function(listener) { listener(event); }); }; };
             Object.defineProperty(MediaStream.prototype, 'active', { get: function() { return this._tracks.some(function(track) { return track.readyState === 'live'; }); } });
@@ -268,6 +230,52 @@ public static class DomBindings
             MediaStream.prototype.getVideoTracks = function() { return this._tracks.filter(function(track) { return track.kind === 'video'; }); };
             MediaStream.prototype.addTrack = function(track) { if (this._tracks.indexOf(track) < 0) { this._tracks.push(track); this._dispatch({ type: 'addtrack', target: this, track: track }); } };
             MediaStream.prototype.removeTrack = function(track) { var i = this._tracks.indexOf(track); if (i >= 0) { this._tracks.splice(i, 1); this._dispatch({ type: 'removetrack', target: this, track: track }); } };
+            globalThis.innerWidth = 800;
+            globalThis.innerHeight = 600;
+            globalThis.devicePixelRatio = 1;
+            globalThis.scrollX = 0;
+            globalThis.scrollY = 0;
+            Object.defineProperty(globalThis, 'pageXOffset', { get: function() { return globalThis.scrollX; } });
+            Object.defineProperty(globalThis, 'pageYOffset', { get: function() { return globalThis.scrollY; } });
+            globalThis.scrollTo = function(x, y) { globalThis.scrollX = Number(x) || 0; globalThis.scrollY = Number(y) || 0; };
+            globalThis.scrollBy = function(x, y) { globalThis.scrollX += Number(x) || 0; globalThis.scrollY += Number(y) || 0; };
+            globalThis.matchMedia = function(query) {
+                query = String(query);
+                const min = /min-width\s*:\s*(\d+)px/.exec(query);
+                const max = /max-width\s*:\s*(\d+)px/.exec(query);
+                const matches = (!min || globalThis.innerWidth >= Number(min[1])) && (!max || globalThis.innerWidth <= Number(max[1]));
+                const listeners = [];
+                return {
+                    media: query,
+                    matches: matches,
+                    onchange: null,
+                    addListener: function(fn) { if (typeof fn === 'function') listeners.push(fn); },
+                    removeListener: function(fn) { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); },
+                    addEventListener: function(type, fn) { if (type === 'change') this.addListener(fn); },
+                    removeEventListener: function(type, fn) { if (type === 'change') this.removeListener(fn); },
+                    dispatchEvent: function() { return true; }
+                };
+            };
+            globalThis.ResizeObserver = function(callback) {
+                if (typeof callback !== 'function') throw new TypeError('ResizeObserver callback must be callable');
+                this._callback = callback;
+                this._targets = [];
+            };
+            ResizeObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            ResizeObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            ResizeObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            globalThis.IntersectionObserver = function(callback, options) {
+                if (typeof callback !== 'function') throw new TypeError('IntersectionObserver callback must be callable');
+                this._callback = callback;
+                this.root = options && options.root || null;
+                this.rootMargin = options && options.rootMargin || '0px';
+                this.thresholds = options && options.threshold !== undefined ? [].concat(options.threshold) : [0];
+                this._targets = [];
+            };
+            IntersectionObserver.prototype.observe = function(target) { if (this._targets.indexOf(target) < 0) this._targets.push(target); };
+            IntersectionObserver.prototype.unobserve = function(target) { const i = this._targets.indexOf(target); if (i >= 0) this._targets.splice(i, 1); };
+            IntersectionObserver.prototype.disconnect = function() { this._targets.length = 0; };
+            IntersectionObserver.prototype.takeRecords = function() { return []; };
             {
                 const resolved = Promise.resolve();
                 const then = Promise.prototype.then;
@@ -276,10 +284,9 @@ public static class DomBindings
                 const flag = function(options, name) { return options[name] === undefined ? undefined : !!options[name]; };
                 const bad = function(why) { throw new TypeError(""Failed to execute 'observe' on 'MutationObserver': "" + why); };
                 globalThis.MutationObserver = class MutationObserver {
-                    #host;
                     constructor(callback) {
                         if (typeof callback !== 'function') throw new TypeError(""Failed to construct 'MutationObserver': The callback provided as parameter 1 is not a function."");
-                        this.#host = __folio_mutation_host.create(callback, this);
+                        this._host = __folio_mutation_host.create(callback, this);
                     }
                     observe(target, options) {
                         if (options === undefined || options === null) options = {};
@@ -294,30 +301,92 @@ public static class DomBindings
                         if (attributeOldValue && !attributes) bad('The options object may only set ""attributeOldValue"" to true when ""attributes"" is true or not present.');
                         if (filter !== undefined && !attributes) bad('The options object may only set ""attributeFilter"" when ""attributes"" is true or not present.');
                         if (characterDataOldValue && !characterData) bad('The options object may only set ""characterDataOldValue"" to true when ""characterData"" is true or not present.');
-                        this.#host.observe(target, childList, subtree, !!attributes, !!attributeOldValue, !!characterData, !!characterDataOldValue, filter === undefined ? null : filter);
+                        this._host.observe(target, childList, subtree, !!attributes, !!attributeOldValue, !!characterData, !!characterDataOldValue, filter === undefined ? null : filter);
                     }
-                    disconnect() { this.#host.disconnect(); }
-                    takeRecords() { return this.#host.takeRecords(); }
+                    disconnect() { this._host.disconnect(); }
+                    takeRecords() { return this._host.takeRecords(); }
                 };
             }
             globalThis.Path2D = function(path) { return arguments.length ? __folio_canvas_host.createPath(path) : __folio_canvas_host.createPath(); };
             globalThis.ImageData = function(a, b, c) { return __folio_canvas_host.imageData(a, b, c); };
             globalThis.Audio = function(src) { const element = document.createElement('audio'); if (src !== undefined) element.src = String(src); return element; };
+            globalThis.FormData = function(form) {
+                this._entries = [];
+                if (form && form.elements) for (const control of form.elements) if (control.name) this.append(control.name, control.value || '');
+            };
+            FormData.prototype.append = function(name, value) { this._entries.push([String(name), value]); };
+            FormData.prototype.set = function(name, value) { this.delete(name); this.append(name, value); };
+            FormData.prototype.get = function(name) { const e = this._entries.find(x => x[0] === String(name)); return e ? e[1] : null; };
+            FormData.prototype.getAll = function(name) { return this._entries.filter(x => x[0] === String(name)).map(x => x[1]); };
+            FormData.prototype.has = function(name) { return this._entries.some(x => x[0] === String(name)); };
+            FormData.prototype.delete = function(name) { name = String(name); this._entries = this._entries.filter(x => x[0] !== name); };
+            FormData.prototype.entries = function() { return this._entries[Symbol.iterator](); };
+            FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
+            FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
+            function makeStorage() {
+                const data = Object.create(null);
+                const storage = {
+                    get length() { return Object.keys(data).length; },
+                    key: function(index) { return Object.keys(data)[index] ?? null; },
+                    getItem: function(key) { key = String(key); return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
+                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; },
+                    removeItem: function(key) { delete data[String(key)]; },
+                    clear: function() { for (const key of Object.keys(data)) delete data[key]; }
+                };
+                return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
+            }
+            globalThis.localStorage = makeStorage();
+            globalThis.sessionStorage = makeStorage();
+            globalThis.URLSearchParams = function(init) {
+                const result = { _pairs: [] };
+                result.append = function(k,v) { result._pairs.push([String(k), String(v)]); };
+                result.set = function(k,v) { result.delete(k); result.append(k,v); };
+                result.get = function(k) { const p = result._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
+                result.has = function(k) { return result._pairs.some(x => x[0] === String(k)); };
+                result.delete = function(k) { k = String(k); result._pairs = result._pairs.filter(x => x[0] !== k); };
+                result.toString = function() { return result._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
+                if (typeof init === 'string') for (const part of init.replace(/^\?/, '').split('&')) if (part) { const i = part.indexOf('='); result.append(decodeURIComponent(i < 0 ? part : part.slice(0, i)), decodeURIComponent(i < 0 ? '' : part.slice(i + 1))); }
+                return result;
+            };
+            URLSearchParams.prototype.append = function(k,v) { this._pairs.push([String(k), String(v)]); };
+            URLSearchParams.prototype.set = function(k,v) { this.delete(k); this.append(k,v); };
+            URLSearchParams.prototype.get = function(k) { const p = this._pairs.find(x => x[0] === String(k)); return p ? p[1] : null; };
+            URLSearchParams.prototype.has = function(k) { return this._pairs.some(x => x[0] === String(k)); };
+            URLSearchParams.prototype.delete = function(k) { k = String(k); this._pairs = this._pairs.filter(x => x[0] !== k); };
+            URLSearchParams.prototype.toString = function() { return this._pairs.map(x => encodeURIComponent(x[0]) + '=' + encodeURIComponent(x[1])).join('&'); };
             globalThis.Blob = function(parts, options) { this._text = Array.from(parts || []).map(String).join(''); this.type = options && options.type ? String(options.type).toLowerCase() : ''; this.size = this._text.length; };
             Blob.prototype.text = function() { return Promise.resolve(this._text); };
             Blob.prototype.arrayBuffer = function() { const bytes = new Uint8Array(this._text.length); for (let i = 0; i < this._text.length; i++) bytes[i] = this._text.charCodeAt(i) & 255; return Promise.resolve(bytes.buffer); };
+            globalThis.URL = function(value, base) { const raw = String(value); const match = /^(?:(\w+):\/\/([^\/]+))?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(raw); const result = {}; result.protocol = match && match[1] ? match[1] + ':' : ''; result.host = match && match[2] ? match[2] : ''; result.origin = result.protocol && result.host ? result.protocol + '//' + result.host : ''; result.pathname = match && match[3] ? match[3] : '/'; result.search = match && match[4] ? match[4] : ''; result.hash = match && match[5] ? match[5] : ''; result.href = result.origin + result.pathname + result.search + result.hash; result.searchParams = new URLSearchParams(result.search); return result; };
             URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); };
             URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };
             globalThis.Option = function(text, value, defaultSelected, selected) { const option = document.createElement('option'); option.text = text === undefined ? '' : String(text); if (value !== undefined) option.value = String(value); if (defaultSelected) option.defaultSelected = true; if (selected) option.selected = true; return option; };
+            globalThis.btoa = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const bytes = String(value); let out = ''; for (let i = 0; i < bytes.length; i += 3) { const a = bytes.charCodeAt(i), b = i + 1 < bytes.length ? bytes.charCodeAt(i + 1) : 0, c = i + 2 < bytes.length ? bytes.charCodeAt(i + 2) : 0; out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? alphabet[c & 63] : '='); } return out; };
+            globalThis.atob = function(value) { const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; const input = String(value).replace(/=+$/, ''); let out = ''; for (let i = 0; i < input.length; i += 4) { const a = alphabet.indexOf(input[i]), b = alphabet.indexOf(input[i + 1]), c = alphabet.indexOf(input[i + 2]), d = alphabet.indexOf(input[i + 3]); out += String.fromCharCode((a << 2) | (b >> 4)); if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2)); if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d); } return out; };
+            globalThis.crypto = { getRandomValues: function(array) { for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256); return array; } };
+            globalThis.TextEncoder = function() {};
+            TextEncoder.prototype.encode = function(value) { const text = String(value); const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255; return bytes; };
+            globalThis.TextDecoder = function() {};
+            TextDecoder.prototype.decode = function(value) { let text = ''; for (let i = 0; i < value.length; i++) text += String.fromCharCode(value[i]); return text; };
+            globalThis.console = globalThis.console || {};
+            for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ", "folio:dom-globals");
         context.CaptureState = CaptureBindingState.Install(engine, context);
         context.WebRtcState = WebRtcBindingState.Install(engine, context);
+        // Install Fetch before the compatibility service-worker scope so worker
+        // scripts receive the same Request/Response constructors as the page.
+        var cacheFetchApi = FetchBindings.Install(engine, context);
         context.ServiceWorkerState = ServiceWorkerBindings.Install(engine, context, resourceLoader, baseUri, context.ArtifactStorage);
+        parentOptions?.ResourceInterceptor = context.CreateServiceWorkerResourceInterceptor();
         WebAssemblyBindings.Install(engine, context);
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
-        var cacheFetchApi = FetchBindings.Install(engine, context);
         CacheBindings.Install(engine, context, cacheFetchApi);
+        // Restore persisted service workers only after Cache/Fetch are installed. A
+        // worker's install handler is allowed to use caches.open(), and restoring
+        // during ServiceWorkerBindings.Install would run it before that API exists.
+        if (context.Capabilities.ServiceWorkers && context.ArtifactStorage is not null)
+            engine.Evaluate("if (globalThis.navigator && navigator.serviceWorker && typeof navigator.serviceWorker._restorePersisted === 'function') { navigator.serviceWorker._restorePersisted(); try { delete navigator.serviceWorker._restorePersisted; } catch (_) {} }");
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);
@@ -385,6 +454,11 @@ public static class DomBindings
 
     internal static void InstallDomException(IScriptEngine engine)
     {
+        if (engine is Folio.Scripting.Native.NativeJavaScriptEngine native)
+        {
+            native.InstallDomException();
+            return;
+        }
         engine.EvaluateHostScript(@"
             (function() {
                 if (typeof globalThis.DOMException === 'function') return;
@@ -450,6 +524,11 @@ public static class DomBindings
 
     private static void InstallConstructors(IScriptEngine engine)
     {
+        if (engine is Folio.Scripting.Native.NativeJavaScriptEngine native)
+        {
+            native.InstallDomConstructors();
+            return;
+        }
         engine.EvaluateHostScript(@"
             (function() {
                 function defClass(name, parent) {
@@ -583,31 +662,6 @@ public static class DomBindings
                 globalThis.DOMMatrixReadOnly = DOMMatrix;
             })();
         ", "folio:dom-constructors");
-        InstallWebGlInterfaces(engine);
-    }
-
-    /// <summary>
-    /// The WebGL interfaces, so <c>instanceof WebGLBuffer</c> works and <c>WebGLRenderingContext.TRIANGLES</c> reads. The two context
-    /// interfaces share a prototype, since one implementation serves both.
-    /// </summary>
-    private static void InstallWebGlInterfaces(IScriptEngine engine)
-    {
-        var script = new StringBuilder("(function() {\n");
-        script.Append("function defClass(name) { const ctor = function() { throw new TypeError('Illegal constructor'); };\n");
-        script.Append("Object.defineProperty(ctor, 'name', { value: name, configurable: true });\n");
-        script.Append("ctor.prototype = Object.create(Object.prototype, { constructor: { value: ctor, writable: true, configurable: true } });\n");
-        script.Append("globalThis[name] = ctor; return ctor; }\n");
-        foreach (var name in DomNodeTemplates.WebGlInterfaceNames)
-            script.Append("defClass('").Append(name).Append("');\n");
-        script.Append("globalThis.WebGLRenderingContext = defClass('WebGLRenderingContext');\n");
-        script.Append("WebGLRenderingContext.prototype = WebGL2RenderingContext.prototype;\n");
-        foreach (var (name, value) in Folio.Scripting.WebGl.GlConstants.All.Concat(Folio.Scripting.WebGl.GlConstants.Generated()))
-        {
-            script.Append("WebGL2RenderingContext.").Append(name).Append('=').Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(";\n");
-            script.Append("WebGLRenderingContext.").Append(name).Append('=').Append(value.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(";\n");
-        }
-        script.Append("})();");
-        engine.EvaluateHostScript(script.ToString(), "folio:webgl-interfaces");
     }
 }
 

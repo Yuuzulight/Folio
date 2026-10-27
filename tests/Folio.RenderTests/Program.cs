@@ -3,6 +3,7 @@ using Xunit.Runner.InProc.SystemConsole;
 using Folio.Scripting;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 using Folio.Skia;
 using Folio.Painting;
 using Folio.Typography;
@@ -58,14 +59,17 @@ public static class Program
     private static int CanvasFrames(int frameCount)
     {
         Console.WriteLine($"Script-driven canvas frame benchmark ({frameCount} frames, 16.7 ms virtual ticks)");
-        Console.WriteLine("| Artifact | Median ms | p95 ms | Target |");
-        Console.WriteLine("|---|--:|--:|---:|");
+        Console.WriteLine("| Artifact | Script/update p95 ms | Display-list p95 ms | Host paint p95 ms | Total p95 ms | Target |");
+        Console.WriteLine("|---|--:|--:|--:|--:|---:|");
+        var failed = false;
         foreach (var artifact in Conformance.Discover().Where(a => a.Category is "D5" or "D7"))
         {
             var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
             using var document = Document.Parse(html, Conformance.Options);
             document.Paint(Conformance.ManifestOf(artifact).Viewport, 600);
-            using var engine = new JintScriptEngine();
+            using var engine = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase)
+                ? (IScriptEngine)new NativeJavaScriptEngine()
+                : new JintScriptEngine();
             var clock = new VirtualEventLoopClock();
             using var loop = new HtmlEventLoop(engine, clock);
             DomBindings.Install(engine, document, eventLoop: loop);
@@ -75,9 +79,14 @@ public static class Program
             loop.UpdateTheRendering();
             using var bitmap = new SKBitmap(new SKImageInfo(artifact.Category == "D5" ? 800 : 800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
             using var canvas = new SKCanvas(bitmap);
+            var shaper = new HarfBuzzShaper();
             DisplayList BuildFrame()
             {
-                return document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, new HarfBuzzShaper()).List;
+                // Canvas scripts mutate the backing surface without changing layout. Reuse the
+                // retained layout/display-list path so this gate measures a frame update rather
+                // than rebuilding the entire document tree on every canvas draw.
+                return document.PaintFrame(clock.NowMs / 1000d)
+                    ?? document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, shaper).List;
             }
             void Replay(DisplayList displayList)
             {
@@ -91,22 +100,39 @@ public static class Program
                 loop.UpdateTheRendering();
                 Replay(BuildFrame());
             }
-            var samples = new List<double>(frameCount);
+            var scriptSamples = new List<double>(frameCount);
+            var buildSamples = new List<double>(frameCount);
+            var paintSamples = new List<double>(frameCount);
+            var totalSamples = new List<double>(frameCount);
             for (var i = 0; i < frameCount; i++)
             {
                 clock.Advance(16.7);
+                var totalStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                var scriptStart = totalStart;
                 loop.UpdateTheRendering();
+                scriptSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(scriptStart).TotalMilliseconds);
+                var buildStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 var displayList = BuildFrame();
-                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                buildSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(buildStart).TotalMilliseconds);
+                var paintStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 Replay(displayList);
-                samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                paintSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(paintStart).TotalMilliseconds);
+                totalSamples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(totalStart).TotalMilliseconds);
             }
-            samples.Sort();
-            var median = samples[samples.Count / 2];
-            var p95 = samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
-            Console.WriteLine($"| {artifact.Id} | {median:F2} | {p95:F2} | 16.70 ms |");
+            var scriptP95 = Percentile95(scriptSamples);
+            var buildP95 = Percentile95(buildSamples);
+            var paintP95 = Percentile95(paintSamples);
+            var totalP95 = Percentile95(totalSamples);
+            failed |= totalP95 > 16.7;
+            Console.WriteLine($"| {artifact.Id} | {scriptP95:F2} | {buildP95:F2} | {paintP95:F2} | {totalP95:F2} | 16.70 ms |");
         }
-        return 0;
+        return failed ? 1 : 0;
+    }
+
+    private static double Percentile95(List<double> samples)
+    {
+        samples.Sort();
+        return samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
     }
 
     private static int CanvasSharedMemory(int frameCount)
@@ -141,9 +167,20 @@ public static class Program
     // the GitHub Actions job summary). Fails on runtime/interaction failures and stale expected-failure marks.
     private static int ConformanceReport(string[] filters)
     {
-        var results = Conformance.Discover()
+        var native = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase);
+        Func<IScriptEngine>? engineFactory = native ? static () => new NativeJavaScriptEngine() : null;
+        Console.WriteLine($"Conformance engine: {(native ? "native Folio" : "Jint compatibility")}");
+        var discovered = Conformance.Discover();
+        if (!native)
+        {
+            // D8 exercises Folio's native WebGL implementation. The compatibility engine deliberately
+            // routes WebGL artifacts away, so running that category with Jint reports false failures.
+            discovered = discovered.Where(a => !string.Equals(a.Category, "D8", StringComparison.Ordinal));
+            Console.WriteLine("Skipping D8 for the Jint compatibility report; it is verified by the native-engine report.");
+        }
+        var results = discovered
             .Where(a => filters.Length == 0 || filters.Any(f => a.Id == f || a.Id.StartsWith(f.TrimEnd('/') + "/", StringComparison.Ordinal)))
-            .Select(a => Conformance.Run(a))
+            .Select(a => Conformance.Run(a, engineFactory: engineFactory))
             .ToList();
         var report = Conformance.Report(results);
         Console.WriteLine(report);

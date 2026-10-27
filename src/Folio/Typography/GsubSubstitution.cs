@@ -14,6 +14,7 @@ internal sealed class GsubSubstitution
     private const int Single = 1;
     private const int Ligature = 4;
     private const int Extension = 7;
+    private const int ReverseChainSingle = 8;
 
     private readonly FontData _gsub;
     private readonly ConcurrentDictionary<string, int[]> _subtables = new(StringComparer.Ordinal);
@@ -68,6 +69,41 @@ internal sealed class GsubSubstitution
         }
     }
 
+    /// <summary>Applies script-aware single and format-3 contextual substitutions to a glyph run.</summary>
+    public ushort[] Substitute(ushort[] glyphs, string features, string scriptTag)
+    {
+        ArgumentNullException.ThrowIfNull(glyphs);
+        var result = (ushort[])glyphs.Clone();
+        try
+        {
+            foreach (var lookup in LookupIndices(features, scriptTag))
+                for (var position = 0; position < result.Length; position++)
+                    ApplyLookup(result, position, lookup, 0);
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException or IndexOutOfRangeException)
+        {
+            return glyphs;
+        }
+        return result;
+    }
+
+    /// <summary>Applies the requested script lookups only at one shaping-buffer position.</summary>
+    public void SubstituteAt(ushort[] glyphs, int position, string features, string scriptTag)
+    {
+        ArgumentNullException.ThrowIfNull(glyphs);
+        if ((uint)position >= (uint)glyphs.Length)
+            return;
+        try
+        {
+            foreach (var lookup in LookupIndices(features, scriptTag))
+                ApplyLookup(glyphs, position, lookup, 0);
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException or IndexOutOfRangeException)
+        {
+            // Malformed font data is ignored, matching the bulk substitution path.
+        }
+    }
+
     // The subtables of one lookup type (single or ligature substitutions) of the space-separated feature tags' lookups, in
     // lookup order, for the Latin script's default language system, else the default script's, else any feature with
     // that tag.
@@ -111,10 +147,165 @@ internal sealed class GsubSubstitution
         }
     }
 
-    // The feature indices of the Latin script's default language system, else the default script's.
-    private IEnumerable<int> LanguageFeatures(int scriptList)
+    private int[] LookupIndices(string features, string scriptTag)
     {
-        foreach (var tag in (string[])["latn", "DFLT"])
+        try
+        {
+            var scripts = _gsub.U16(4);
+            var featureList = _gsub.U16(6);
+            var lookupList = _gsub.U16(8);
+            var featureCount = _gsub.U16(featureList);
+            bool Wanted(int feature) => feature < featureCount && features.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(_gsub.Tag(featureList + 2 + 6 * feature), StringComparer.Ordinal);
+            var featureIndices = LanguageFeatures(scripts, scriptTag).Where(Wanted).ToList();
+            if (featureIndices.Count == 0)
+                featureIndices = Enumerable.Range(0, featureCount).Where(Wanted).ToList();
+            var lookups = new SortedSet<int>();
+            foreach (var feature in featureIndices)
+            {
+                var table = featureList + _gsub.U16(featureList + 2 + 6 * feature + 4);
+                for (var i = 0; i < _gsub.U16(table + 2); i++)
+                    lookups.Add(_gsub.U16(table + 4 + 2 * i));
+            }
+            return [.. lookups.Where(i => i < _gsub.U16(lookupList))];
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException)
+        {
+            return [];
+        }
+    }
+
+    private bool ApplyLookup(ushort[] glyphs, int position, int lookupIndex, int depth)
+    {
+        if (depth > 8 || position < 0 || position >= glyphs.Length)
+            return false;
+        var lookupList = _gsub.U16(8);
+        var lookup = lookupList + _gsub.U16(lookupList + 2 + 2 * lookupIndex);
+        var type = _gsub.U16(lookup);
+        var count = _gsub.U16(lookup + 4);
+        var changed = false;
+        for (var i = 0; i < count; i++)
+        {
+            var subtable = lookup + _gsub.U16(lookup + 6 + 2 * i);
+            if (type == Extension && _gsub.U16(subtable) == 1)
+            {
+                var targetType = _gsub.U16(subtable + 2);
+                var target = checked(subtable + (int)_gsub.U32(subtable + 4));
+                changed |= ApplySubtable(glyphs, position, targetType, target, depth);
+            }
+            else
+                changed |= ApplySubtable(glyphs, position, type, subtable, depth);
+        }
+        return changed;
+    }
+
+    private bool ApplySubtable(ushort[] glyphs, int position, int type, int subtable, int depth)
+    {
+        if (type == 1)
+        {
+            var replacement = Apply(subtable, glyphs[position]);
+            if (replacement is not { } value || value == glyphs[position]) return false;
+            glyphs[position] = value;
+            return true;
+        }
+        if (type == 2)
+        {
+            if (ApplyMultiple(subtable, glyphs[position]) is not { } replacement || replacement == glyphs[position])
+                return false;
+            glyphs[position] = replacement;
+            return true;
+        }
+        if (type is 5 or 6)
+            return ApplyContext(glyphs, position, type, subtable, depth + 1);
+        if (type == ReverseChainSingle)
+            return ApplyReverseContext(glyphs, position, subtable);
+        return false;
+    }
+
+    private bool ApplyReverseContext(ushort[] glyphs, int position, int subtable)
+    {
+        if (_gsub.U16(subtable) != 1)
+            return false;
+
+        var cursor = subtable + 2;
+        var backtrackCount = _gsub.U16(cursor);
+        cursor += 2;
+        var backtrack = new int[backtrackCount];
+        for (var i = 0; i < backtrack.Length; i++, cursor += 2)
+            backtrack[i] = _gsub.U16(cursor);
+        var inputCoverage = subtable + _gsub.U16(cursor);
+        cursor += 2;
+        var lookaheadCount = _gsub.U16(cursor);
+        cursor += 2;
+        var lookahead = new int[lookaheadCount];
+        for (var i = 0; i < lookahead.Length; i++, cursor += 2)
+            lookahead[i] = _gsub.U16(cursor);
+        var glyphCount = _gsub.U16(cursor);
+        cursor += 2;
+        var inputIndex = CoverageIndex(inputCoverage, glyphs[position]);
+        if (inputIndex < 0 || inputIndex >= glyphCount || position < backtrack.Length)
+            return false;
+        for (var i = 0; i < backtrack.Length; i++)
+            if (CoverageIndex(subtable + backtrack[i], glyphs[position - 1 - i]) < 0) return false;
+        for (var i = 0; i < lookahead.Length; i++)
+            if (position + 1 + i >= glyphs.Length || CoverageIndex(subtable + lookahead[i], glyphs[position + 1 + i]) < 0) return false;
+        var replacement = _gsub.U16(cursor + 2 * inputIndex);
+        if (replacement == glyphs[position]) return false;
+        glyphs[position] = replacement;
+        return true;
+    }
+
+    private bool ApplyContext(ushort[] glyphs, int position, int type, int subtable, int depth)
+    {
+        if (_gsub.U16(subtable) != 3) return false;
+        var cursor = subtable + 2;
+        var backtrack = Array.Empty<int>();
+        if (type == 6)
+        {
+            var count = _gsub.U16(cursor); cursor += 2;
+            backtrack = new int[count];
+            for (var i = 0; i < count; i++, cursor += 2) backtrack[i] = _gsub.U16(cursor);
+        }
+        var inputCount = _gsub.U16(cursor);
+        // Contextual format 3 places SubstCount immediately after GlyphCount;
+        // chain contextual format 3 reaches InputGlyphCount here directly.
+        cursor += type == 5 ? 4 : 2;
+        var input = new int[inputCount];
+        for (var i = 0; i < inputCount; i++, cursor += 2) input[i] = _gsub.U16(cursor);
+        var lookahead = Array.Empty<int>();
+        if (type == 6)
+        {
+            var count = _gsub.U16(cursor); cursor += 2;
+            lookahead = new int[count];
+            for (var i = 0; i < count; i++, cursor += 2) lookahead[i] = _gsub.U16(cursor);
+        }
+        // Contextual format 3 stores SubstCount before the coverage offsets (at +4); chain
+        // contextual format 3 stores it after the lookahead coverage offsets.
+        var recordCount = type == 5 ? _gsub.U16(subtable + 4) : _gsub.U16(cursor);
+        if (type == 6)
+            cursor += 2;
+        if (position + inputCount > glyphs.Length || position < backtrack.Length || position + inputCount + lookahead.Length > glyphs.Length)
+            return false;
+        for (var i = 0; i < backtrack.Length; i++)
+            if (CoverageIndex(subtable + backtrack[i], glyphs[position - 1 - i]) < 0) return false;
+        for (var i = 0; i < input.Length; i++)
+            if (CoverageIndex(subtable + input[i], glyphs[position + i]) < 0) return false;
+        for (var i = 0; i < lookahead.Length; i++)
+            if (CoverageIndex(subtable + lookahead[i], glyphs[position + inputCount + i]) < 0) return false;
+        var changed = false;
+        for (var i = 0; i < recordCount; i++, cursor += 4)
+        {
+            var sequenceIndex = _gsub.U16(cursor);
+            var referencedLookup = _gsub.U16(cursor + 2);
+            if (sequenceIndex < inputCount)
+                changed |= ApplyLookup(glyphs, position + sequenceIndex, referencedLookup, depth);
+        }
+        return changed;
+    }
+
+    // The feature indices of the Latin script's default language system, else the default script's.
+    private IEnumerable<int> LanguageFeatures(int scriptList, string? preferredTag = null)
+    {
+        foreach (var tag in (new[] { preferredTag, "latn", "DFLT" }).Where(static tag => tag is not null).Select(static tag => tag!))
         {
             for (var i = 0; i < _gsub.U16(scriptList); i++)
             {
@@ -143,9 +334,28 @@ internal sealed class GsubSubstitution
         return _gsub.U16(subtable) switch
         {
             1 => (ushort)((glyph + _gsub.S16(subtable + 4)) & 0xFFFF),
-            2 when index < _gsub.U16(subtable + 4) => _gsub.U16(subtable + 6 + 2 * index),
+            2 when index < _gsub.U16(subtable + 4) => SingleReplacement(subtable, index),
             _ => null,
         };
+    }
+
+    private ushort? SingleReplacement(int subtable, int index)
+    {
+        // SingleSubst format 2 stores the replacement glyph IDs inline, after
+        // GlyphCount; unlike a multiple substitution table it has no offsets.
+        return _gsub.U16(subtable + 6 + 2 * index);
+    }
+
+    private ushort? ApplyMultiple(int subtable, ushort glyph)
+    {
+        if (_gsub.U16(subtable) != 1)
+            return null;
+        var index = CoverageIndex(subtable + _gsub.U16(subtable + 2), glyph);
+        var count = _gsub.U16(subtable + 4);
+        if (index < 0 || index >= count)
+            return null;
+        var sequence = subtable + _gsub.U16(subtable + 6 + 2 * index);
+        return _gsub.U16(sequence) == 1 ? _gsub.U16(sequence + 2) : null;
     }
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#coverage-table

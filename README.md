@@ -4,7 +4,7 @@ A lightweight HTML/CSS rendering engine for .NET, written from scratch in C#.
 
 Folio is being built for [Mana](https://github.com/Yuuzulight/Mana), a personal AI companion whose native Windows launcher is designed to stay light on memory. Mana writes HTML "artifacts" (reports, tables, charts, small interactive pages), and Folio shows them inside Mana's own window. It's a standalone project so other .NET apps can use it too.
 
-**Status:** Folio has dependency-backed rendering and scripting through milestone 5; [Chart.js canvas parity remains incomplete](docs/milestone-5-scripting.md). Milestone 6 is in progress: capability gates, API surfaces and tests exist, but the [acceptance audit](docs/milestone-6-audit.md) identifies unfinished GPU/GLSL execution, media playback/IPC, native WebAssembly, capture/transport and service-worker isolation. Transactional Cache API storage now works through the host in both in-process and separate-process documents; see the [storage guide](docs/cache-api-storage.md). Earlier Milestone 6 completion claims were premature.
+**Status:** Folio has dependency-backed rendering and scripting through milestone 5; the compatibility D2–D7 corpus passes, including Chart.js canvas parity. The Folio-owned native JavaScript path is still below the replacement bar (its current D2–D7 run is 59/60, with React reconciliation tracked in #645). Milestone 6 is in progress: the D8–D14 corpus passes end to end, while the [acceptance audit](docs/milestone-6-audit.md) still identifies unfinished native texture/backend completeness, media transport/pacing, native WebAssembly, capture/transport and isolated service-worker requirements. Transactional Cache API storage now works through the host in both in-process and separate-process documents; see the [storage guide](docs/cache-api-storage.md). Native raster work now bounds each font's parsed-outline cache to 8 MiB, while CFF2, variation outlines, COLR v1 and the performance gate remain open. Milestone 7 is a **mandatory, non-waivable completion gate**: Folio is not finished until the dependency-backed shaper, rasteriser, image codecs, JavaScript engine and WebAssembly runtime have all been replaced, differentially verified and removed from production. See the [replacement gate](docs/replacement-gate.md).
 
 ## Goal
 Render and run AI-written HTML artifacts as well as a modern browser does: pages that use modern CSS, web fonts, SVG charts and diagrams, and, in later milestones, the scripts, UI libraries and canvas graphics those artifacts rely on.
@@ -30,9 +30,9 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | Done | 0 |
-| 5. Scripted parity: canvas 2D at 60 fps, mutation observers, diagrams, and the UI and charting libraries artifacts load from a host-approved list of CDNs. | Done on dependency-backed path | 1 |
-| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 45 |
-| Optional: towards all-Folio: an in-house shaper, rasteriser and image decoders. Never a blocker for the milestones above. | Not started | 19 |
+| 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path verified; frame-time and native replacement gates open | 2 |
+| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 16 |
+| 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine and WebAssembly runtime with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 12 |
 
 Until a milestone lands, anything Folio can't handle yet opens in the system browser.
 
@@ -47,33 +47,25 @@ byte[] png = HeadlessRenderer.RenderPng("<h1>Quarterly report</h1><p>Revenue ros
 File.WriteAllBytes("report.png", png);
 ```
 
-On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it.
-
-To enable sandboxed out-of-process scripting for interactive artifacts, configure `ScriptingPolicy.ContentProcess`:
-
-```csharp
-using Folio;
-using Folio.WinForms;
-
-var options = new FolioOptions
-{
-    Scripting = ScriptingPolicy.ContentProcess,
-    ContentProcessPath = "Folio.ContentHost.exe",
-    ArtifactId = "my-interactive-artifact",
-    ArtifactStorage = new DiskArtifactStorage(storageDirectory), // optional persistent storage
-};
-
-var view = new FolioView { Options = options };
-view.LoadHtml(html);
-```
+On Windows, `FolioView` (in `Folio.WinForms`) shows a document in a window: call `LoadHtml(html)` on it. Scripted documents can use `Folio.ContentHost` through `ContentProcessClient`; configure `FolioOptions.Scripting` as `ContentProcess` and provide `ContentProcessPath`.
 
 ## Building
 Needs the .NET 10 SDK. The engine and its tests run on Windows and Linux; the WinForms control runs on Windows.
 
 ```
 dotnet build Folio.slnx
-dotnet test --solution Folio.slnx
+# The test projects use direct xUnit v3 in-process runners.
+dotnet tests/Folio.Tests/bin/Debug/net10.0/Folio.Tests.dll
+dotnet tests/Folio.RenderTests/bin/Debug/net10.0/Folio.RenderTests.dll
+dotnet tests/Folio.Scripting.Tests/bin/Debug/net10.0/Folio.Scripting.Tests.dll
+dotnet tests/Folio.Fuzz/bin/Debug/net10.0/Folio.Fuzz.dll
+dotnet tests/Folio.Benchmarks/bin/Debug/net10.0/Folio.Benchmarks.dll
+dotnet tests/Folio.WinForms.Tests/bin/Debug/net10.0-windows/Folio.WinForms.Tests.dll
 ```
+
+The solution-level `dotnet test` wrapper does not discover these in-process
+runners; use the direct commands above (or the equivalent `Release` paths after
+a Release build) so the tests actually execute.
 
 The render tests include an equivalence check: after random style changes to a page, an incremental update must draw exactly what a fresh render draws.
 

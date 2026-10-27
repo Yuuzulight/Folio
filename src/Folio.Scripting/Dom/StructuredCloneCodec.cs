@@ -1,21 +1,24 @@
 using System.Text;
+using System.Text.Json;
 using System.Runtime.CompilerServices;
 
 namespace Folio.Scripting.Dom;
 
 internal sealed class StructuredClonePayload
 {
-    public StructuredClonePayload(string json, IReadOnlyList<MessagePortEndpoint> ports, long byteCount = 0)
+    public StructuredClonePayload(string json, IReadOnlyList<MessagePortEndpoint> ports, IReadOnlyList<byte[]>? transferredBuffers = null, long byteCount = 0)
     {
         Json = json;
         Ports = ports;
+        TransferredBuffers = transferredBuffers ?? [];
         ByteCount = byteCount;
     }
 
     public string Json { get; }
     public IReadOnlyList<MessagePortEndpoint> Ports { get; }
+    public IReadOnlyList<byte[]> TransferredBuffers { get; }
     public long ByteCount { get; }
-    public long MemoryCost => checked(128L + Json.Length * 2L + Ports.Count * 16L);
+    public long MemoryCost => checked(128L + Json.Length * 2L + Ports.Count * 16L + TransferredBuffers.Sum(buffer => (long)buffer.Length));
     internal void AbortTransfers()
     {
         foreach (var port in Ports) port.AbortTransfer();
@@ -71,8 +74,12 @@ internal static class StructuredCloneCodec
     internal static void ResetHelpers(IScriptEngine engine) => HelpersByEngine.Remove(engine);
 
     internal static void EnsureHelpers(IScriptEngine engine) => _ = GetHelpers(engine);
-    internal static ScriptValue NormalizeTransfer(IScriptEngine engine, ScriptValue value, bool postMessage) =>
-        engine.Call(GetHelpers(engine).NormalizeTransfer, ScriptValue.Undefined, [value, ScriptValue.FromBoolean(postMessage)]);
+    internal static ScriptValue NormalizeTransfer(IScriptEngine engine, ScriptValue value, bool postMessage)
+    {
+        if (postMessage && engine is Folio.Scripting.Native.NativeJavaScriptEngine && value.Raw is IReadOnlyDictionary<string, object?> options && options.TryGetValue("transfer", out var transfer))
+            return transfer is null ? engine.CreateArray([]) : ScriptValue.FromObject(transfer);
+        return engine.Call(GetHelpers(engine).NormalizeTransfer, ScriptValue.Undefined, [value, ScriptValue.FromBoolean(postMessage)]);
+    }
 
     internal static ScriptValue CreatePorts(IScriptEngine engine, IReadOnlyList<ScriptValue> ports)
     {
@@ -87,28 +94,58 @@ internal static class StructuredCloneCodec
     internal static StructuredClonePreparation Prepare(IScriptEngine source, ScriptValue value, ScriptValue transfer,
         int maxBytes, Func<IScriptEngine, ScriptValue, MessagePortEndpoint?> findPort)
     {
+        if (source is Folio.Scripting.Native.NativeJavaScriptEngine && value.Kind is ScriptValueKind.Undefined or ScriptValueKind.Null or ScriptValueKind.Boolean or ScriptValueKind.Number or ScriptValueKind.String)
+        {
+            var primitiveJson = value.Kind switch
+            {
+                ScriptValueKind.Undefined => "null",
+                ScriptValueKind.Null => "null",
+                ScriptValueKind.Boolean => value.AsBoolean() ? "true" : "false",
+                ScriptValueKind.Number => value.AsNumber().ToString(System.Globalization.CultureInfo.InvariantCulture),
+                _ => JsonSerializer.Serialize(value.AsString() ?? string.Empty),
+            };
+            return new StructuredClonePreparation(source, new StructuredClonePayload(primitiveJson, [], byteCount: Encoding.UTF8.GetByteCount(primitiveJson)), []);
+        }
         var transferItems = ValidateTransferList(source, transfer, findPort, out var transferPorts, out var transferBuffers);
         var ports = transferItems.Select(item => findPort(source, item)).Where(port => port is not null).Cast<MessagePortEndpoint>().ToList();
-        var detector = source.CreateHostObject(DetectorTemplate, new Detector(source, findPort, transferPorts, ports));
+        var transferBufferIndexes = transferBuffers.Select((buffer, index) => (buffer, index)).ToDictionary(item => item.buffer, item => item.index);
+        var transferredBytes = new List<byte[]>(transferBuffers.Count);
+        var detector = source.CreateHostObject(DetectorTemplate, new Detector(source, findPort, transferPorts, ports, transferBufferIndexes, transferredBytes));
         var encoder = GetHelpers(source).Encode;
 
         var json = source.Call(encoder, ScriptValue.Undefined, [value, detector]).AsString()
             ?? throw WebIdlException.DomException("DataCloneError", "The value cannot be cloned.");
-        if (Encoding.UTF8.GetByteCount(json) > Math.Max(0, maxBytes))
+        var jsonBytes = Encoding.UTF8.GetByteCount(json);
+        var transferredByteCount = transferredBytes.Sum(buffer => (long)buffer.Length);
+        if (checked(jsonBytes + transferredByteCount) > Math.Max(0, maxBytes))
             throw WebIdlException.DomException("DataCloneError", "The message exceeds the host limit.");
         return new StructuredClonePreparation(source,
-            new StructuredClonePayload(json, ports, Encoding.UTF8.GetByteCount(json)), transferBuffers);
+            new StructuredClonePayload(json, ports, transferredBytes, checked(jsonBytes + transferredByteCount)), transferBuffers);
     }
 
     internal static StructuredCloneResult Decode(IScriptEngine destination, StructuredClonePayload payload,
         Func<MessagePortEndpoint, IScriptEngine, ScriptValue> materializePort)
     {
+        if (destination is Folio.Scripting.Native.NativeJavaScriptEngine && payload.Ports.Count == 0 && payload.TransferredBuffers.Count == 0)
+        {
+            using var primitive = JsonDocument.Parse(payload.Json);
+            var value = primitive.RootElement.ValueKind switch
+            {
+                JsonValueKind.Null => ScriptValue.Null,
+                JsonValueKind.True => ScriptValue.True,
+                JsonValueKind.False => ScriptValue.False,
+                JsonValueKind.Number => ScriptValue.FromNumber(primitive.RootElement.GetDouble()),
+                JsonValueKind.String => ScriptValue.FromString(primitive.RootElement.GetString() ?? string.Empty),
+                _ => (ScriptValue?)null,
+            };
+            if (value is { } simple) return new StructuredCloneResult(simple, []);
+        }
         var decoder = GetHelpers(destination).Decode;
         var materializedPorts = new List<ScriptValue>();
         try
         {
             foreach (var port in payload.Ports) materializedPorts.Add(materializePort(port, destination));
-            var resolver = destination.CreateHostObject(ResolverTemplate, new Resolver(destination, materializedPorts));
+            var resolver = destination.CreateHostObject(ResolverTemplate, new Resolver(destination, materializedPorts, payload.TransferredBuffers));
             var value = destination.Call(decoder, ScriptValue.Undefined, [ScriptValue.FromString(payload.Json), resolver]);
             return new StructuredCloneResult(value, materializedPorts);
         }
@@ -146,17 +183,49 @@ internal static class StructuredCloneCodec
     }
 
     private sealed class Detector(IScriptEngine engine, Func<IScriptEngine, ScriptValue, MessagePortEndpoint?> findPort,
-        HashSet<MessagePortEndpoint> transferPorts, List<MessagePortEndpoint> ports)
+        HashSet<MessagePortEndpoint> transferPorts, List<MessagePortEndpoint> ports,
+        IReadOnlyDictionary<ScriptValue, int> transferBufferIndexes, List<byte[]> transferredBytes)
     {
         public ScriptValue Kind(ScriptValue value) => ScriptValue.FromString(engine is IStructuredCloneEngine native
             ? native.ClassifyCloneObject(value) : "unsupported");
 
         public ScriptValue Buffer(ScriptValue value)
         {
-            if (!engine.TryGetArrayBufferBytes(value, out var bytes))
+            var isTransferred = transferBufferIndexes.ContainsKey(value);
+            if (!(isTransferred ? engine.TryGetArrayBufferBytesOwned(value, out var bytes) : engine.TryGetArrayBufferBytes(value, out bytes)))
                 throw WebIdlException.DomException("DataCloneError", "The ArrayBuffer is detached or unavailable.");
+            if (transferBufferIndexes.TryGetValue(value, out var index))
+            {
+                while (transferredBytes.Count <= index) transferredBytes.Add([]);
+                transferredBytes[index] = bytes;
+                return ScriptValue.FromString("transfer-buffer:" + index);
+            }
             return ScriptValue.FromString(Convert.ToBase64String(bytes));
         }
+
+        public ScriptValue Typed(ScriptValue value)
+        {
+            if (engine is not Folio.Scripting.Native.NativeJavaScriptEngine) return ScriptValue.Undefined;
+            if (!engine.TryGetBufferSourceInfo(value, out var info) || info.Kind is ScriptBufferSourceKind.ArrayBuffer or ScriptBufferSourceKind.DataView)
+                return ScriptValue.Undefined;
+            var bytes = new byte[info.ByteLength];
+            if (!engine.TryCopyBufferSource(value, 0, bytes)) return ScriptValue.Undefined;
+            var name = info.Kind switch
+            {
+                ScriptBufferSourceKind.Uint8 => "Uint8Array", ScriptBufferSourceKind.Uint8Clamped => "Uint8ClampedArray",
+                ScriptBufferSourceKind.Int8 => "Int8Array", ScriptBufferSourceKind.Uint16 => "Uint16Array",
+                ScriptBufferSourceKind.Int16 => "Int16Array", ScriptBufferSourceKind.Uint32 => "Uint32Array",
+                ScriptBufferSourceKind.Int32 => "Int32Array", ScriptBufferSourceKind.Float16 => "Float16Array",
+                ScriptBufferSourceKind.Float32 => "Float32Array", ScriptBufferSourceKind.Float64 => "Float64Array",
+                ScriptBufferSourceKind.BigInt64 => "BigInt64Array", ScriptBufferSourceKind.BigUint64 => "BigUint64Array",
+                _ => string.Empty,
+            };
+            return engine.CreateArray([ScriptValue.FromString(name), engine.CreateArrayBuffer(bytes), ScriptValue.FromNumber(0), ScriptValue.FromNumber(info.Length)]);
+        }
+
+        public ScriptValue Error(ScriptValue value) => value.Raw is Folio.Scripting.Native.NativeJavaScriptEngine.NativeError error
+            ? engine.CreateArray([ScriptValue.FromString(error["name"]?.ToString() ?? "Error"), ScriptValue.FromString(error["message"]?.ToString() ?? ""), ScriptValue.FromString("")])
+            : ScriptValue.Undefined;
 
         public ScriptValue RegExp(ScriptValue value)
         {
@@ -181,10 +250,17 @@ internal static class StructuredCloneCodec
         }
     }
 
-    private sealed class Resolver(IScriptEngine engine, IReadOnlyList<ScriptValue> ports)
+    private sealed class Resolver(IScriptEngine engine, IReadOnlyList<ScriptValue> ports, IReadOnlyList<byte[]> transferredBuffers)
     {
-        public ScriptValue Buffer(ScriptValue value) =>
-            engine.CreateArrayBuffer(Convert.FromBase64String(value.AsString() ?? throw new InvalidDataException("Invalid clone buffer.")));
+        public ScriptValue Buffer(ScriptValue value)
+        {
+            var encoded = value.AsString() ?? throw new InvalidDataException("Invalid clone buffer.");
+            if (encoded.StartsWith("transfer-buffer:", StringComparison.Ordinal)
+                && int.TryParse(encoded[16..], out var index)
+                && (uint)index < (uint)transferredBuffers.Count)
+                return engine.CreateArrayBufferOwned(transferredBuffers[index]);
+            return engine.CreateArrayBuffer(Convert.FromBase64String(encoded));
+        }
 
         public ScriptValue Find(ScriptValue token)
         {
@@ -198,6 +274,8 @@ internal static class StructuredCloneCodec
     private static readonly HostObjectTemplate DetectorTemplate = new HostObjectTemplate("StructuredCloneDetector")
         .DefineMethod("find", (target, _, args) => ((Detector)target).Find(args.Length > 0 ? args[0] : ScriptValue.Undefined))
         .DefineMethod("kind", (target, _, args) => ((Detector)target).Kind(args[0]))
+        .DefineMethod("typed", (target, _, args) => ((Detector)target).Typed(args[0]))
+        .DefineMethod("error", (target, _, args) => ((Detector)target).Error(args[0]))
         .DefineMethod("buffer", (target, _, args) => ((Detector)target).Buffer(args[0]))
         .DefineMethod("regexp", (target, _, args) => ((Detector)target).RegExp(args[0]));
     private static readonly HostObjectTemplate ResolverTemplate = new HostObjectTemplate("StructuredCloneResolver")
@@ -218,14 +296,6 @@ internal static class StructuredCloneCodec
           const mapGet = Map.prototype.get, mapSet = Map.prototype.set, mapHas = Map.prototype.has;
           const mapForEach = Map.prototype.forEach, setForEach = Set.prototype.forEach, setAdd = Set.prototype.add;
           const dateTime = Date.prototype.getTime;
-          const boxedValueOf = [Number.prototype.valueOf, String.prototype.valueOf, Boolean.prototype.valueOf, BigInt.prototype.valueOf];
-          // The primitive a Number, String, Boolean or BigInt object wraps, as a one-element array; nothing for any other object.
-          function unbox(value) {
-            for (let i = 0; i < boxedValueOf.length; i++) {
-              try { const primitive = apply(boxedValueOf[i], value, []); const result = array(); push(result, primitive); return result; } catch (_) { }
-            }
-            return undefined;
-          }
           const typedPrototype = getPrototype(Uint8Array.prototype);
           const descriptor = Object.getOwnPropertyDescriptor;
           const typedBuffer = descriptor(typedPrototype, 'buffer').get;
@@ -280,10 +350,15 @@ internal static class StructuredCloneCodec
               item.t = kind;
               if (kind === 'buffer') item.b = detector.buffer(value);
               else if (kind === 'typedarray') {
-                item.c = apply(typedTag, value, []);
-                if (!hasOwn(typed, item.c)) cloneError();
-                item.b = visit(apply(typedBuffer, value, []));
-                item.o = apply(typedOffset, value, []); item.l = apply(typedLength, value, []);
+                const nativeView = detector.typed(value);
+                if (nativeView !== undefined) {
+                  item.c = nativeView[0]; item.b = visit(nativeView[1]); item.o = nativeView[2]; item.l = nativeView[3];
+                } else {
+                  item.c = apply(typedTag, value, []);
+                  if (!hasOwn(typed, item.c)) cloneError();
+                  item.b = visit(apply(typedBuffer, value, []));
+                  item.o = apply(typedOffset, value, []); item.l = apply(typedLength, value, []);
+                }
               } else if (kind === 'dataview') {
                 item.b = visit(apply(viewBuffer, value, []));
                 item.o = apply(viewOffset, value, []); item.l = apply(viewLength, value, []);
@@ -298,9 +373,9 @@ internal static class StructuredCloneCodec
                 item.e = array(); apply(setForEach, value, [function(entry) { push(item.e, visit(entry)); }]);
               } else if (kind === 'error') {
                 const name = value.name, message = value.message, stack = value.stack;
-                item.n = typeof name === 'string' && hasOwn(errors, name) ? name : 'Error';
-                item.m = typeof message === 'string' ? message : '';
-                item.s = typeof stack === 'string' ? stack : '';
+                const nativeError = detector.error(value);
+                if (nativeError !== undefined) { item.n = nativeError[0]; item.m = nativeError[1]; item.s = nativeError[2]; }
+                else { item.n = typeof name === 'string' && hasOwn(errors, name) ? name : 'Error'; item.m = typeof message === 'string' ? message : ''; item.s = typeof stack === 'string' ? stack : ''; }
                 if (hasOwn(value, 'cause')) item.cause = visit(value.cause);
               } else if (kind === 'array' || kind === 'object') {
                 if (kind === 'array') item.l = value.length;
@@ -308,11 +383,7 @@ internal static class StructuredCloneCodec
                 for (let i = 0; i < names.length; i++) {
                   const pair = array(); push(pair, names[i]); push(pair, visit(value[names[i]])); push(item.e, pair);
                 }
-              } else {
-                const wrapped = unbox(value);
-                if (wrapped === undefined) cloneError();
-                item.t = 'boxed'; item.v = visit(wrapped[0]);
-              }
+              } else cloneError();
               return record('r', index);
             }
             const data = record('root', visit(root)); data.records = records;
@@ -333,7 +404,6 @@ internal static class StructuredCloneCodec
               if (item.t === 'port') objects[i] = resolver.find(item.k);
               else if (item.t === 'buffer') objects[i] = resolver.buffer(item.b);
               else if (item.t === 'date') objects[i] = new DateCtor(NaN);
-              else if (item.t === 'boxed') objects[i] = Object(read(item.v));
               else if (item.t === 'regexp') objects[i] = new RegExpCtor(item.s, item.f);
               else if (item.t === 'map') objects[i] = new MapCtor();
               else if (item.t === 'set') objects[i] = new SetCtor();

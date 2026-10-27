@@ -1,0 +1,422 @@
+// WebGL 1/2 contract for the generated binding layer.
+//
+// The object-valued interfaces below are deliberately opaque.  They are not
+// numeric WebGL names: the runtime owns the native handle, document/context
+// owner and generation and must reject objects from another context.
+
+dictionary WebGLContextAttributes {
+    boolean alpha = true;
+    boolean depth = true;
+    boolean stencil = false;
+    boolean antialias = true;
+    boolean premultipliedAlpha = true;
+    boolean preserveDrawingBuffer = false;
+};
+
+// These names are intentionally schema types rather than script constructors.
+// The generator maps BufferSource/ArrayBufferView and the typed-array families
+// to the engine's intrinsic-brand checked buffer helpers.
+interface ArrayBuffer { };
+interface ArrayBufferView { };
+interface BufferSource { };
+interface Float32List { };
+interface Int32List { };
+interface Uint32List { };
+
+interface WebGLObject {
+};
+
+interface WebGLBuffer : WebGLObject {
+};
+
+interface WebGLFramebuffer : WebGLObject {
+};
+
+interface WebGLRenderbuffer : WebGLObject {
+};
+
+interface WebGLTexture : WebGLObject {
+};
+
+interface WebGLProgram : WebGLObject {
+};
+
+interface WebGLShader : WebGLObject {
+};
+
+interface WebGLUniformLocation {
+};
+
+interface WebGLVertexArrayObject : WebGLObject {
+};
+
+interface WebGLTransformFeedback : WebGLObject {
+};
+
+interface WebGLActiveInfo {
+    readonly attribute DOMString name;
+    readonly attribute long size;
+    readonly attribute unsigned long type;
+};
+
+interface WebGLShaderPrecisionFormat {
+    readonly attribute long rangeMin;
+    readonly attribute long rangeMax;
+    readonly attribute long precision;
+};
+
+interface WebGLRenderingContext {
+    const unsigned long DEPTH_BUFFER_BIT = 0x00000100;
+    const unsigned long STENCIL_BUFFER_BIT = 0x00000400;
+    const unsigned long COLOR_BUFFER_BIT = 0x00004000;
+    const unsigned long POINTS = 0x0000;
+    const unsigned long LINES = 0x0001;
+    const unsigned long LINE_LOOP = 0x0002;
+    const unsigned long LINE_STRIP = 0x0003;
+    const unsigned long TRIANGLES = 0x0004;
+    const unsigned long TRIANGLE_STRIP = 0x0005;
+    const unsigned long TRIANGLE_FAN = 0x0006;
+    const unsigned long VERTEX_SHADER = 0x8B31;
+    const unsigned long FRAGMENT_SHADER = 0x8B30;
+    const unsigned long ZERO = 0;
+    const unsigned long ONE = 1;
+    const unsigned long SRC_ALPHA = 0x0302;
+    const unsigned long ONE_MINUS_SRC_ALPHA = 0x0303;
+    const unsigned long ARRAY_BUFFER = 0x8892;
+    const unsigned long ELEMENT_ARRAY_BUFFER = 0x8893;
+    const unsigned long STATIC_DRAW = 0x88E4;
+    const unsigned long DYNAMIC_DRAW = 0x88E8;
+    const unsigned long STREAM_DRAW = 0x88E0;
+    const unsigned long ARRAY_BUFFER_BINDING = 0x8894;
+    const unsigned long ELEMENT_ARRAY_BUFFER_BINDING = 0x8895;
+    const unsigned long BUFFER_SIZE = 0x8764;
+    const unsigned long BUFFER_USAGE = 0x8765;
+    const unsigned long FLOAT = 0x1406;
+    const unsigned long BYTE = 0x1400;
+    const unsigned long SHORT = 0x1402;
+    const unsigned long INT = 0x1404;
+    const unsigned long UNSIGNED_BYTE = 0x1401;
+    const unsigned long UNSIGNED_SHORT = 0x1403;
+    const unsigned long UNSIGNED_INT = 0x1405;
+    const unsigned long UNSIGNED_SHORT_5_6_5 = 0x8363;
+    const unsigned long UNSIGNED_SHORT_4_4_4_4 = 0x8033;
+    const unsigned long UNSIGNED_SHORT_5_5_5_1 = 0x8034;
+    const unsigned long RGBA = 0x1908;
+    const unsigned long RGB = 0x1907;
+    const unsigned long TEXTURE_MIN_FILTER = 0x2801;
+    const unsigned long TEXTURE_MAG_FILTER = 0x2800;
+    const unsigned long TEXTURE_WIDTH = 0x1000;
+    const unsigned long TEXTURE_HEIGHT = 0x1001;
+    const unsigned long TEXTURE_DEPTH = 0x8071;
+    const unsigned long NEAREST = 0x2600;
+    const unsigned long LINEAR = 0x2601;
+    const unsigned long NEAREST_MIPMAP_NEAREST = 0x2700;
+    const unsigned long LINEAR_MIPMAP_NEAREST = 0x2701;
+    const unsigned long NEAREST_MIPMAP_LINEAR = 0x2702;
+    const unsigned long LINEAR_MIPMAP_LINEAR = 0x2703;
+    const unsigned long FRAMEBUFFER = 0x8D40;
+    const unsigned long RENDERBUFFER = 0x8D41;
+    const unsigned long COLOR_ATTACHMENT0 = 0x8CE0;
+    const unsigned long DEPTH_ATTACHMENT = 0x8D00;
+    const unsigned long STENCIL_ATTACHMENT = 0x8D20;
+    const unsigned long DEPTH_STENCIL_ATTACHMENT = 0x821A;
+    const unsigned long RGBA4 = 0x8056;
+    const unsigned long RGB565 = 0x8D62;
+    const unsigned long DEPTH_COMPONENT16 = 0x81A5;
+    const unsigned long DEPTH_COMPONENT = 0x1902;
+    const unsigned long TEXTURE_COMPARE_MODE = 0x884C;
+    const unsigned long TEXTURE_COMPARE_FUNC = 0x884D;
+    const unsigned long COMPARE_REF_TO_TEXTURE = 0x884E;
+    const unsigned long LEQUAL = 0x0203;
+    const unsigned long STENCIL_INDEX8 = 0x8D48;
+    const unsigned long DEPTH_STENCIL = 0x84F9;
+    const unsigned long DEPTH24_STENCIL8 = 0x88F0;
+    const unsigned long RGBA32F = 0x8814;
+    const unsigned long RGBA16F = 0x881A;
+    const unsigned long RGB8 = 0x8051;
+    const unsigned long DEPTH_COMPONENT24 = 0x81A6;
+    const unsigned long DEPTH_COMPONENT32F = 0x8CAC;
+    const unsigned long DEPTH32F_STENCIL8 = 0x8CAD;
+    const unsigned long RGBA8UI = 0x8D7C;
+    const unsigned long RGBA8I = 0x8D8E;
+    const unsigned long RGBA_INTEGER = 0x8D99;
+    const unsigned long HALF_FLOAT = 0x140B;
+    const unsigned long COMPILE_STATUS = 0x8B81;
+    const unsigned long LINK_STATUS = 0x8B82;
+    const unsigned long DELETE_STATUS = 0x8B80;
+    const unsigned long VALIDATE_STATUS = 0x8B83;
+    const unsigned long ATTACHED_SHADERS = 0x8B85;
+    const unsigned long ACTIVE_ATTRIBUTES = 0x8B89;
+    const unsigned long ACTIVE_UNIFORMS = 0x8B86;
+    const unsigned long CURRENT_PROGRAM = 0x8B8D;
+    const unsigned long INFO_LOG_LENGTH = 0x8B84;
+    const unsigned long VERSION = 0x1F02;
+    const unsigned long SHADING_LANGUAGE_VERSION = 0x8B8C;
+    const unsigned long VENDOR = 0x1F00;
+    const unsigned long RENDERER = 0x1F01;
+    const unsigned long NO_ERROR = 0;
+    const unsigned long INVALID_ENUM = 0x0500;
+    const unsigned long INVALID_VALUE = 0x0501;
+    const unsigned long INVALID_OPERATION = 0x0502;
+    const unsigned long OUT_OF_MEMORY = 0x0505;
+    const unsigned long INVALID_FRAMEBUFFER_OPERATION = 0x0506;
+    const unsigned long BLEND = 0x0BE2;
+    const unsigned long CULL_FACE = 0x0B44;
+    const unsigned long DEPTH_TEST = 0x0B71;
+    const unsigned long DITHER = 0x0BD0;
+    const unsigned long POLYGON_OFFSET_FILL = 0x8037;
+    const unsigned long SAMPLE_ALPHA_TO_COVERAGE = 0x809E;
+    const unsigned long SAMPLE_COVERAGE = 0x80A0;
+    const unsigned long BLEND_DST_RGB = 0x80C8;
+    const unsigned long BLEND_SRC_RGB = 0x80C9;
+    const unsigned long BLEND_DST_ALPHA = 0x80CA;
+    const unsigned long BLEND_SRC_ALPHA = 0x80CB;
+    const unsigned long BLEND_EQUATION_RGB = 0x8009;
+    const unsigned long BLEND_EQUATION_ALPHA = 0x883D;
+    const unsigned long SCISSOR_TEST = 0x0C11;
+    const unsigned long STENCIL_TEST = 0x0B90;
+    const unsigned long TEXTURE0 = 0x84C0;
+    const unsigned long TEXTURE_2D = 0x0DE1;
+    const unsigned long TEXTURE_CUBE_MAP = 0x8513;
+    const unsigned long TEXTURE_CUBE_MAP_POSITIVE_X = 0x8515;
+    const unsigned long TEXTURE_CUBE_MAP_NEGATIVE_X = 0x8516;
+    const unsigned long TEXTURE_CUBE_MAP_POSITIVE_Y = 0x8517;
+    const unsigned long TEXTURE_CUBE_MAP_NEGATIVE_Y = 0x8518;
+    const unsigned long TEXTURE_CUBE_MAP_POSITIVE_Z = 0x8519;
+    const unsigned long TEXTURE_CUBE_MAP_NEGATIVE_Z = 0x851A;
+    const unsigned long TEXTURE_3D = 0x806F;
+    const unsigned long TEXTURE_2D_ARRAY = 0x8C1A;
+    const unsigned long UNPACK_ALIGNMENT = 0x0CF5;
+    const unsigned long PACK_ALIGNMENT = 0x0D05;
+    const unsigned long PACK_ROW_LENGTH = 0x0D02;
+    const unsigned long PACK_SKIP_ROWS = 0x0D03;
+    const unsigned long PACK_SKIP_PIXELS = 0x0D04;
+    const unsigned long UNPACK_FLIP_Y_WEBGL = 0x9240;
+    const unsigned long VIEWPORT = 0x0BA2;
+    const unsigned long SCISSOR_BOX = 0x0C10;
+    const unsigned long COLOR_CLEAR_VALUE = 0x0C22;
+    const unsigned long DEPTH_CLEAR_VALUE = 0x0B73;
+    const unsigned long STENCIL_CLEAR_VALUE = 0x0B91;
+    const unsigned long DEPTH_WRITEMASK = 0x0B72;
+    const unsigned long COLOR_WRITEMASK = 0x0C23;
+    const unsigned long MAX_VERTEX_ATTRIBS = 0x8869;
+    const unsigned long CURRENT_VERTEX_ATTRIB = 0x8626;
+    const unsigned long MAX_VERTEX_UNIFORM_VECTORS = 0x8DFB;
+    const unsigned long MAX_FRAGMENT_UNIFORM_VECTORS = 0x8DFD;
+
+    readonly attribute long drawingBufferWidth;
+    readonly attribute long drawingBufferHeight;
+    readonly attribute object canvas;
+    WebGLContextAttributes? getContextAttributes();
+    attribute object? oncontextlost;
+    attribute object? oncontextrestored;
+
+    WebGLBuffer? createBuffer();
+    undefined deleteBuffer(WebGLBuffer? buffer);
+    boolean isBuffer(WebGLBuffer? buffer);
+    undefined bindBuffer(unsigned long target, WebGLBuffer? buffer);
+    undefined bufferData(unsigned long target, long size, unsigned long usage);
+    undefined bufferData(unsigned long target, BufferSource data, unsigned long usage);
+    undefined bufferSubData(unsigned long target, long dstByteOffset, BufferSource srcData);
+    any getBufferParameter(unsigned long target, unsigned long pname);
+
+    WebGLTexture? createTexture();
+    undefined deleteTexture(WebGLTexture? texture);
+    boolean isTexture(WebGLTexture? texture);
+    undefined bindTexture(unsigned long target, WebGLTexture? texture);
+    undefined texParameteri(unsigned long target, unsigned long pname, long param);
+    any getTexParameter(unsigned long target, unsigned long pname);
+    any getTexLevelParameter(unsigned long target, long level, unsigned long pname);
+    undefined texImage2D(unsigned long target, long level, long internalformat, long width, long height, long border, unsigned long format, unsigned long type, ArrayBufferView pixels);
+    undefined texStorage2D(unsigned long target, long levels, unsigned long internalformat, long width, long height);
+    undefined texSubImage2D(unsigned long target, long level, long xoffset, long yoffset, long width, long height, long border, unsigned long format, unsigned long type, ArrayBufferView pixels);
+    undefined copyTexImage2D(unsigned long target, long level, unsigned long internalformat, long x, long y, long width, long height, long border);
+    undefined copyTexSubImage2D(unsigned long target, long level, long xoffset, long yoffset, long x, long y, long width, long height);
+    undefined texImage3D(unsigned long target, long level, long internalformat, long width, long height, long depth, long border, unsigned long format, unsigned long type, ArrayBufferView pixels);
+    undefined texStorage3D(unsigned long target, long levels, unsigned long internalformat, long width, long height, long depth);
+    undefined texSubImage3D(unsigned long target, long level, long xoffset, long yoffset, long zoffset, long width, long height, long depth, long border, unsigned long format, unsigned long type, ArrayBufferView pixels);
+    undefined generateMipmap(unsigned long target);
+
+    WebGLFramebuffer? createFramebuffer();
+    undefined deleteFramebuffer(WebGLFramebuffer? framebuffer);
+    boolean isFramebuffer(WebGLFramebuffer? framebuffer);
+    undefined bindFramebuffer(unsigned long target, WebGLFramebuffer? framebuffer);
+    undefined framebufferTexture2D(unsigned long target, unsigned long attachment, unsigned long textarget, WebGLTexture? texture, long level);
+    undefined framebufferTextureLayer(unsigned long target, unsigned long attachment, WebGLTexture? texture, long level, long layer);
+    unsigned long checkFramebufferStatus(unsigned long target);
+    WebGLRenderbuffer? createRenderbuffer();
+    undefined deleteRenderbuffer(WebGLRenderbuffer? renderbuffer);
+    boolean isRenderbuffer(WebGLRenderbuffer? renderbuffer);
+    undefined bindRenderbuffer(unsigned long target, WebGLRenderbuffer? renderbuffer);
+    undefined renderbufferStorage(unsigned long target, unsigned long internalformat, long width, long height);
+    undefined framebufferRenderbuffer(unsigned long target, unsigned long attachment, unsigned long renderbuffertarget, WebGLRenderbuffer? renderbuffer);
+
+    WebGLShader? createShader(unsigned long type);
+    undefined deleteShader(WebGLShader? shader);
+    boolean isShader(WebGLShader? shader);
+    undefined shaderSource(WebGLShader shader, DOMString source);
+    undefined compileShader(WebGLShader shader);
+    any getShaderParameter(WebGLShader shader, unsigned long pname);
+    WebGLShaderPrecisionFormat getShaderPrecisionFormat(unsigned long shaderType, unsigned long precisionType);
+    DOMString getShaderInfoLog(WebGLShader shader);
+    DOMString? getShaderSource(WebGLShader shader);
+
+    WebGLProgram? createProgram();
+    undefined deleteProgram(WebGLProgram? program);
+    boolean isProgram(WebGLProgram? program);
+    undefined attachShader(WebGLProgram program, WebGLShader shader);
+    undefined detachShader(WebGLProgram program, WebGLShader shader);
+    undefined linkProgram(WebGLProgram program);
+    any getProgramParameter(WebGLProgram program, unsigned long pname);
+    DOMString getProgramInfoLog(WebGLProgram program);
+    sequence<WebGLShader> getAttachedShaders(WebGLProgram program);
+    WebGLActiveInfo? getActiveAttrib(WebGLProgram program, unsigned long index);
+    WebGLActiveInfo? getActiveUniform(WebGLProgram program, unsigned long index);
+    any getUniform(WebGLProgram program, WebGLUniformLocation location);
+    undefined bindAttribLocation(WebGLProgram program, unsigned long index, DOMString name);
+    undefined validateProgram(WebGLProgram program);
+    undefined useProgram(WebGLProgram? program);
+    WebGLProgram? getCurrentProgram();
+
+    WebGLUniformLocation? getUniformLocation(WebGLProgram program, DOMString name);
+    undefined uniform1f(WebGLUniformLocation? location, float x);
+    undefined uniform1i(WebGLUniformLocation? location, long x);
+    undefined uniform4f(WebGLUniformLocation? location, float x, float y, float z, float w);
+    undefined uniform1fv(WebGLUniformLocation? location, Float32List value);
+    undefined uniform2f(WebGLUniformLocation? location, float x, float y);
+    undefined uniform2fv(WebGLUniformLocation? location, Float32List value);
+    undefined uniform3f(WebGLUniformLocation? location, float x, float y, float z);
+    undefined uniform3fv(WebGLUniformLocation? location, Float32List value);
+    undefined uniform4fv(WebGLUniformLocation? location, Float32List value);
+    undefined uniform1iv(WebGLUniformLocation? location, Int32List value);
+    undefined uniform2i(WebGLUniformLocation? location, long x, long y);
+    undefined uniform2iv(WebGLUniformLocation? location, Int32List value);
+    undefined uniform3i(WebGLUniformLocation? location, long x, long y, long z);
+    undefined uniform3iv(WebGLUniformLocation? location, Int32List value);
+    undefined uniform4i(WebGLUniformLocation? location, long x, long y, long z, long w);
+    undefined uniform4iv(WebGLUniformLocation? location, Int32List value);
+    undefined uniformMatrix2fv(WebGLUniformLocation? location, boolean transpose, Float32List value);
+    undefined uniformMatrix3fv(WebGLUniformLocation? location, boolean transpose, Float32List value);
+    undefined uniformMatrix4fv(WebGLUniformLocation? location, boolean transpose, Float32List value);
+
+    long getAttribLocation(WebGLProgram program, DOMString name);
+    undefined enableVertexAttribArray(long index);
+    undefined disableVertexAttribArray(long index);
+    undefined vertexAttribPointer(long index, long size, unsigned long type, boolean normalized, long stride, long offset);
+    undefined vertexAttrib1f(long index, float x);
+    undefined vertexAttrib2f(long index, float x, float y);
+    undefined vertexAttrib3f(long index, float x, float y, float z);
+    undefined vertexAttrib4f(long index, float x, float y, float z, float w);
+    undefined vertexAttrib1fv(long index, Float32List values);
+    undefined vertexAttrib2fv(long index, Float32List values);
+    undefined vertexAttrib3fv(long index, Float32List values);
+    undefined vertexAttrib4fv(long index, Float32List values);
+    any getVertexAttrib(long index, unsigned long pname);
+    long getVertexAttribOffset(long index, unsigned long pname);
+    undefined vertexAttribDivisor(long index, unsigned long divisor);
+
+    undefined viewport(long x, long y, long width, long height);
+    undefined scissor(long x, long y, long width, long height);
+    undefined enable(unsigned long cap);
+    undefined disable(unsigned long cap);
+    undefined blendFunc(unsigned long srcFactor, unsigned long dstFactor);
+    undefined blendFuncSeparate(unsigned long srcRgb, unsigned long dstRgb, unsigned long srcAlpha, unsigned long dstAlpha);
+    undefined blendEquation(unsigned long mode);
+    undefined blendEquationSeparate(unsigned long modeRgb, unsigned long modeAlpha);
+    undefined blendColor(float red, float green, float blue, float alpha);
+    undefined cullFace(unsigned long mode);
+    undefined frontFace(unsigned long mode);
+    undefined depthFunc(unsigned long func);
+    undefined depthMask(boolean flag);
+    undefined colorMask(boolean red, boolean green, boolean blue, boolean alpha);
+    undefined stencilFunc(unsigned long func, long reference, unsigned long mask);
+    undefined stencilFuncSeparate(unsigned long face, unsigned long func, long reference, unsigned long mask);
+    undefined stencilMask(unsigned long mask);
+    undefined stencilMaskSeparate(unsigned long face, unsigned long mask);
+    undefined stencilOp(unsigned long fail, unsigned long depthFail, unsigned long depthPass);
+    undefined stencilOpSeparate(unsigned long face, unsigned long fail, unsigned long depthFail, unsigned long depthPass);
+    undefined lineWidth(float width);
+    undefined polygonOffset(float factor, float units);
+    undefined sampleCoverage(float value, boolean invert);
+    undefined pixelStorei(unsigned long pname, long param);
+    undefined activeTexture(unsigned long texture);
+    boolean isEnabled(unsigned long cap);
+    undefined clearColor(float red, float green, float blue, float alpha);
+    undefined clear(unsigned long mask);
+    undefined drawArrays(unsigned long mode, long first, long count);
+    undefined drawElements(unsigned long mode, long count, unsigned long type, long offset);
+    undefined drawArraysInstanced(unsigned long mode, long first, long count, long instanceCount);
+    undefined drawElementsInstanced(unsigned long mode, long count, unsigned long type, long offset, long instanceCount);
+    any getParameter(unsigned long pname);
+    unsigned long getError();
+    boolean isContextLost();
+    sequence<DOMString> getSupportedExtensions();
+    any getExtension(DOMString name);
+    undefined flush();
+    undefined finish();
+    any readPixels(long x, long y, long width, long height, unsigned long format, unsigned long type, ArrayBufferView pixels);
+};
+
+interface WebGL2RenderingContext : WebGLRenderingContext {
+    const unsigned long READ_BUFFER = 0x0C02;
+    const unsigned long COLOR = 0x1800;
+    const unsigned long DEPTH = 0x1801;
+    const unsigned long STENCIL = 0x1802;
+    const unsigned long DRAW_FRAMEBUFFER = 0x8CA9;
+    const unsigned long READ_FRAMEBUFFER = 0x8CA8;
+    const unsigned long DRAW_BUFFER0 = 0x8825;
+    const unsigned long VERTEX_ARRAY_BINDING = 0x85B5;
+    const unsigned long TRANSFORM_FEEDBACK_BUFFER = 0x8C8E;
+    const unsigned long TRANSFORM_FEEDBACK = 0x8E22;
+    const unsigned long INTERLEAVED_ATTRIBS = 0x8C8C;
+    const unsigned long SEPARATE_ATTRIBS = 0x8C8D;
+    const unsigned long UNIFORM_BUFFER = 0x8A11;
+    const unsigned long UNIFORM_TYPE = 0x8A37;
+    const unsigned long UNIFORM_BLOCK_INDEX = 0x8A3A;
+    const unsigned long UNIFORM_OFFSET = 0x8A3B;
+    const unsigned long COPY_READ_BUFFER = 0x8F36;
+    const unsigned long COPY_WRITE_BUFFER = 0x8F37;
+    const unsigned long RGBA8 = 0x8058;
+    const unsigned long SAMPLER_2D = 0x8B5E;
+
+    WebGLVertexArrayObject? createVertexArray();
+    undefined deleteVertexArray(WebGLVertexArrayObject? array);
+    boolean isVertexArray(WebGLVertexArrayObject? array);
+    undefined bindVertexArray(WebGLVertexArrayObject? array);
+    undefined drawBuffers(sequence<unsigned long> buffers);
+    undefined clearBufferfv(unsigned long buffer, long drawbuffer, Float32List values);
+    undefined clearBufferiv(unsigned long buffer, long drawbuffer, Int32List values);
+    undefined clearBufferuiv(unsigned long buffer, long drawbuffer, Uint32List values);
+    undefined clearBufferfi(unsigned long buffer, long drawbuffer, float depth, long stencil);
+    undefined readBuffer(unsigned long src);
+    undefined renderbufferStorageMultisample(unsigned long target, long samples, unsigned long internalformat, long width, long height);
+    undefined blitFramebuffer(long srcX0, long srcY0, long srcX1, long srcY1, long dstX0, long dstY0, long dstX1, long dstY1, unsigned long mask, unsigned long filter);
+    undefined getBufferSubData(unsigned long target, long srcByteOffset, ArrayBufferView dstData);
+    undefined vertexAttribIPointer(long index, long size, unsigned long type, long stride, long offset);
+    undefined vertexAttribI4i(long index, long x, long y, long z, long w);
+    undefined vertexAttribI4ui(long index, unsigned long x, unsigned long y, unsigned long z, unsigned long w);
+    sequence<unsigned long> getUniformIndices(WebGLProgram program, sequence<DOMString> names);
+    sequence<unsigned long> getActiveUniforms(WebGLProgram program, sequence<unsigned long> indices, unsigned long pname);
+    unsigned long getUniformBlockIndex(WebGLProgram program, DOMString uniformBlockName);
+    undefined uniformBlockBinding(WebGLProgram program, unsigned long uniformBlockIndex, unsigned long uniformBlockBinding);
+    undefined uniform1ui(WebGLUniformLocation? location, unsigned long x);
+    undefined uniform2ui(WebGLUniformLocation? location, unsigned long x, unsigned long y);
+    undefined uniform3ui(WebGLUniformLocation? location, unsigned long x, unsigned long y, unsigned long z);
+    undefined uniform4ui(WebGLUniformLocation? location, unsigned long x, unsigned long y, unsigned long z, unsigned long w);
+    undefined uniform1uiv(WebGLUniformLocation? location, Uint32List value);
+    undefined uniform2uiv(WebGLUniformLocation? location, Uint32List value);
+    undefined uniform3uiv(WebGLUniformLocation? location, Uint32List value);
+    undefined uniform4uiv(WebGLUniformLocation? location, Uint32List value);
+    undefined bindBufferBase(unsigned long target, unsigned long index, WebGLBuffer? buffer);
+    undefined bindBufferRange(unsigned long target, unsigned long index, WebGLBuffer? buffer, long offset, long size);
+    WebGLTransformFeedback? createTransformFeedback();
+    undefined deleteTransformFeedback(WebGLTransformFeedback? feedback);
+    boolean isTransformFeedback(WebGLTransformFeedback? feedback);
+    undefined bindTransformFeedback(unsigned long target, WebGLTransformFeedback? feedback);
+    undefined beginTransformFeedback(unsigned long primitiveMode);
+    undefined endTransformFeedback();
+    undefined pauseTransformFeedback();
+    undefined resumeTransformFeedback();
+    undefined transformFeedbackVaryings(WebGLProgram program, sequence<DOMString> varyings, unsigned long bufferMode);
+    WebGLActiveInfo? getTransformFeedbackVarying(WebGLProgram program, unsigned long index);
+};

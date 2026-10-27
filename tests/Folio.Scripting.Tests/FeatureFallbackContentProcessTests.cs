@@ -8,6 +8,7 @@ public sealed class FeatureFallbackContentProcessTests
     [Fact]
     public async Task PermissionFailuresAndRecoveryPublishRealProcessPixels()
     {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "The real WebGL content-process pixel path is Windows-backed.");
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
         var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
         await using var client = ContentProcessClient.Start(host,

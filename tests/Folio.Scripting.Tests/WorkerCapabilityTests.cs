@@ -3,6 +3,7 @@ using System.Text;
 using Folio.Resources;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 
 namespace Folio.Scripting.Tests;
 
@@ -11,6 +12,193 @@ public sealed class WorkerCapabilityTests
 {
     private static FeatureCapabilities Grants(bool wasm = true) => new() { Workers = true, WebAssembly = wasm };
     private const string AddBytes = "[0,97,115,109,1,0,0,0,1,7,1,96,2,127,127,1,127,3,2,1,0,7,7,1,3,97,100,100,0,0,10,9,1,7,0,32,0,32,1,106,11]";
+
+    [Fact]
+    public void NativeEngineWorkerRunsAnIsolatedScript()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(e.data+1);}')); worker.onmessage=function(e){response=e.data;}; worker.onerror=function(e){error=e.message;}; worker.postMessage(41);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsNumber() == 42 || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+    }
+
+    [Fact]
+    public void NativeEngineWorkerRoundTripsObjectsAndArrays()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage({n:e.data.n+1,second:e.data.values[1]});}')); worker.onmessage=function(e){response=e.data.n+':'+e.data.second;}; worker.onerror=function(e){error=e.message;}; worker.onmessageerror=function(e){error='messageerror';}; worker.postMessage({n:41,values:[7,42]});");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != "" || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("42:42", engine.GetGlobalProperty("response").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+    }
+
+    [Fact]
+    public void NativeEngineWorkerRoundTripsCyclesMapsSetsAndAliases()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){var same=e.data.self===e.data && e.data.left===e.data.right; postMessage([same,e.data.map.get(\"answer\"),e.data.set.has(7)].join(\":\"));}')); worker.onmessage=function(e){response=e.data;}; worker.onerror=function(e){error=e.message;}; worker.onmessageerror=function(){error='messageerror';}; var root={}; root.self=root; root.map=new Map([[\"answer\",42]]); root.set=new Set([7]); root.left={value:9}; root.right=root.left; worker.postMessage(root);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != "" || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("true:42:true", engine.GetGlobalProperty("response").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneEncodesObjectsAndArrays()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("({n:41,values:[7,42]})");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        Assert.True(payload.Json.Contains("records", StringComparison.Ordinal), payload.Json);
+        Assert.False(payload.Json.Contains("\"t\":\"port\"", StringComparison.Ordinal), payload.Json);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        Assert.Equal(41, destination.GetProperty(decoded.Value, "n").AsNumber());
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsRegularExpressions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("/folio/i");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        var test = destination.GetProperty(decoded.Value, "test");
+        Assert.True(destination.Call(test, decoded.Value, [ScriptValue.FromString("FOLIO")]).AsBoolean());
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsCyclesMapsAndSets()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("var root={}; root.self=root; root.map=new Map([['answer',42]]); root.set=new Set([7]); root");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        Assert.Same(decoded.Value.Raw, destination.GetProperty(decoded.Value, "self").Raw);
+        var map = destination.GetProperty(decoded.Value, "map");
+        var get = destination.GetProperty(map, "get");
+        Assert.Equal(42, destination.Call(get, map, [ScriptValue.FromString("answer")]).AsNumber());
+        var set = destination.GetProperty(decoded.Value, "set");
+        var has = destination.GetProperty(set, "has");
+        Assert.True(destination.Call(has, set, [ScriptValue.FromNumber(7)]).AsBoolean());
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsDates()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("new Date(123456789)");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        var getTime = destination.GetProperty(decoded.Value, "getTime");
+        Assert.Equal(123456789, destination.Call(getTime, decoded.Value, []).AsNumber());
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneTransfersArrayBuffersAndTypedArrays()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var buffer = engine.Evaluate("var b=new ArrayBuffer(3); var v=new Uint8Array(b); v[0]=4; v[1]=8; v[2]=15; b");
+        var view = engine.Evaluate("v");
+        var payload = StructuredCloneCodec.Encode(engine, view, engine.CreateArray([buffer]), 1024 * 1024, static (_, _) => null);
+        Assert.False(engine.TryGetArrayBufferBytes(buffer, out _));
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        Assert.True(destination.TryGetBytes(decoded.Value, out var bytes));
+        Assert.Equal(new byte[] { 4, 8, 15 }, bytes);
+    }
+
+    [Fact]
+    public void NativeEngineStructuredCloneRoundTripsErrors()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var value = engine.Evaluate("new TypeError('bad worker data')");
+        var payload = StructuredCloneCodec.Encode(engine, value, ScriptValue.Undefined, 1024 * 1024, static (_, _) => null);
+        using var destination = new NativeJavaScriptEngine();
+        var decoded = StructuredCloneCodec.Decode(destination, payload, static (_, _) => ScriptValue.Undefined);
+        Assert.Equal("TypeError", destination.GetProperty(decoded.Value, "name").AsString());
+        Assert.Equal("bad worker data", destination.GetProperty(decoded.Value, "message").AsString());
+    }
+
+    [Fact]
+    public void NativeEngineWorkerTransfersArrayBuffersEndToEnd()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions { Capabilities = new FeatureCapabilities { Workers = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(e){postMessage(e.data.byteLength);}')); worker.onmessage=function(e){response=''+e.data;}; worker.onerror=function(e){error=e.message;}; var buffer=new ArrayBuffer(16); worker.postMessage(buffer,{transfer:[buffer]});");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != "" || engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), engine.GetGlobalProperty("error").AsString());
+        Assert.Equal("16", engine.GetGlobalProperty("response").AsString());
+        Assert.Equal("", engine.GetGlobalProperty("error").AsString());
+        Assert.False(engine.TryGetArrayBufferBytes(engine.GetGlobalProperty("buffer"), out _));
+    }
+
+    [Fact]
+    public void NativeEngineWorkerWatchdogInterruptsBusyLoopWithoutBlockingThePage()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(50) }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=function(){while(true){}}')); worker.onerror=function(e){error=e.message;}; worker.postMessage(0);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), "native worker watchdog did not report an error");
+        Assert.NotEmpty(engine.GetGlobalProperty("error").AsString() ?? "");
+        Assert.Equal(2, engine.Evaluate("1 + 1").AsNumber());
+    }
+
+    [Fact]
+    public void NativeEngineWorkerWebAssemblyHonorsExecutionDeadline()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>worker</p>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true, WebAssembly = true },
+            Limits = ResourceLimits.Default with { MaxWorkerExecutionTime = TimeSpan.FromMilliseconds(100) }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        const string runaway = "[0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,7,7,1,3,114,117,110,0,0,10,9,1,7,0,3,64,12,0,11,11]";
+        engine.Evaluate($"var error=''; var worker=new Worker('data:text/javascript,'+encodeURIComponent('onmessage=()=>{{var m=new WebAssembly.Module(new Uint8Array({runaway})); var i=new WebAssembly.Instance(m,{{}}); i.exports.run(); postMessage(\"unexpected\");}}')); worker.onerror=function(e){{error=e.message;}}; worker.postMessage(0);");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("error").AsString() != ""; }, TimeSpan.FromSeconds(2)), "native WebAssembly worker watchdog did not report an error");
+        Assert.Contains("execution", engine.GetGlobalProperty("error").AsString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NativeEngineMessageChannelRoundTripsStructuredData()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<p>message channel</p>", new FolioOptions());
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        engine.Evaluate("var response=''; var channel=new MessageChannel(); channel.port1.addEventListener('message',function(e){response=e.data.n+':'+e.data.values[1];}); channel.port1.start(); channel.port2.postMessage({n:41,values:[7,42]});");
+        Assert.True(SpinWait.SpinUntil(() => { loop.SpinUntilIdle(); return engine.GetGlobalProperty("response").AsString() != ""; }, TimeSpan.FromSeconds(2)));
+        Assert.Equal("41:42", engine.GetGlobalProperty("response").AsString());
+    }
+
+
 
     [Theory]
     [InlineData(false)]
@@ -274,6 +462,17 @@ public sealed class WorkerCapabilityTests
         Assert.DoesNotContain("unexpected return", fixture.Engine.Evaluate("responses.join('|')").AsString());
     }
 
+    [Fact]
+    public void NativeWebAssemblyWorkerHonorsExecutionDeadline()
+    {
+        using var fixture = new Installed(Grants(), parentLoop: true, maxWorkerExecution: TimeSpan.FromMilliseconds(100));
+        const string runaway = "[0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,7,7,1,3,114,117,110,0,0,10,9,1,7,0,3,64,12,0,11,11]";
+        fixture.Start($"onmessage=()=>{{var m=new WebAssembly.Module(new Uint8Array({runaway})); var i=new WebAssembly.Instance(m,{{}}); i.exports.run(); postMessage('unexpected');}};");
+        fixture.Engine.Evaluate("worker.postMessage(0);");
+        fixture.Until(() => fixture.Engine.Evaluate("errors.length > 0").AsBoolean());
+        Assert.Contains("execution", fixture.Engine.Evaluate("errors[0]").AsString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -378,6 +577,19 @@ public sealed class WorkerCapabilityTests
         fixture.Until(() => fixture.Worker("replacement").Terminated);
     }
 
+    [Fact]
+    public void AggregateWorkerMemoryBudgetRejectsAndReleasesWholeWorkerReservations()
+    {
+        using var fixture = new Installed(Grants(), maxWorkers: 2, maxWorkerMemory: 1 * 1024 * 1024, maxAggregateWorkerMemory: 1 * 1024 * 1024);
+        fixture.Start("onmessage=()=>postMessage('first');", "first");
+        fixture.Engine.Evaluate("var secondError=''; try { second = new Worker('data:text/javascript,'+encodeURIComponent(\"onmessage=()=>postMessage('second')\")); } catch(e) { secondError=e.name; }");
+        Assert.Equal("QuotaExceededError", fixture.Engine.Evaluate("secondError").AsString());
+        fixture.Engine.Evaluate("first.terminate();");
+        Assert.True(SpinWait.SpinUntil(() => fixture.Worker("first").ResourcesReleased, TimeSpan.FromSeconds(2)));
+        fixture.Start("onmessage=()=>postMessage('second');", "second");
+        Assert.False(fixture.Worker("second").Terminated);
+    }
+
     private sealed class MissingLoader(bool module) : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -394,14 +606,14 @@ public sealed class WorkerCapabilityTests
         public ScriptRunner Runner { get; }
         private readonly bool _parentLoop;
 
-        public Installed(FeatureCapabilities capabilities, bool parentLoop = false, int maxWorkers = 8, IResourceLoader? loader = null, long maxWorkerMemory = 64L * 1024 * 1024)
+        public Installed(FeatureCapabilities capabilities, bool parentLoop = false, int maxWorkers = 8, IResourceLoader? loader = null, long maxWorkerMemory = 64L * 1024 * 1024, long? maxAggregateWorkerMemory = null, TimeSpan? maxWorkerExecution = null)
         {
             _parentLoop = parentLoop;
             var options = new FolioOptions
             {
                 Capabilities = capabilities,
                 ResourceLoader = loader,
-                Limits = ResourceLimits.Default with { MaxWorkers = maxWorkers, MaxWebAssemblyBytes = 65536, MaxWorkerMemoryBytes = maxWorkerMemory }
+                Limits = ResourceLimits.Default with { MaxWorkers = maxWorkers, MaxWebAssemblyBytes = 65536, MaxWorkerMemoryBytes = maxWorkerMemory, MaxAggregateWorkerMemoryBytes = maxAggregateWorkerMemory ?? ResourceLimits.Default.MaxAggregateWorkerMemoryBytes, MaxWorkerExecutionTime = maxWorkerExecution ?? ResourceLimits.Default.MaxWorkerExecutionTime }
             };
             Document = Document.Parse("<p>worker capability test</p>", options);
             Loop = new HtmlEventLoop(Engine);

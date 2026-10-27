@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Folio.Css;
 using Folio.Style;
 
@@ -11,17 +13,41 @@ internal static class DisplayListPlayer
     /// items wholly outside it are not drawn. A tall page replayed into a viewport draws only what is in view.</param>
     public static void Replay(DisplayList list, ICanvas canvas, RectF? visible = null)
     {
-        var open = new Stack<(DisplayItemKind Kind, bool Bounded)>();
+        using var open = new PooledStack<(DisplayItemKind Kind, bool Bounded)>(Math.Max(4, list.Items.Count));
+        var itemBounds = list.ItemBoundsCache ??= BuildItemBounds(list);
         // Layer bounds walk the whole list: only worth it when there are layers.
-        var bounds = list.Items.Exists(i => i.Kind == DisplayItemKind.PushLayer) ? LayerBounds(list) : null;
+        RectF?[]? bounds = list.LayerBoundsCache;
+        if (!list.LayerBoundsChecked)
+        {
+            list.LayerBoundsChecked = true;
+            if (list.Items.Exists(i => i.Kind == DisplayItemKind.PushLayer))
+                bounds = list.LayerBoundsCache = LayerBounds(list);
+        }
         // Items are culled only in the page's own coordinates: not under a transform or inside a layer, whose filters
         // may draw beyond what is in it.
         var moved = 0;
+        var skippedLayers = 0;
         for (var index = 0; index < list.Items.Count; index++)
         {
             var item = list.Items[index];
+            if (skippedLayers > 0)
+            {
+                if (item.Kind == DisplayItemKind.PushLayer)
+                    skippedLayers++;
+                else if (item.Kind == DisplayItemKind.Pop)
+                    skippedLayers--;
+                continue;
+            }
+            if (visible is { } layerView && item.Kind == DisplayItemKind.PushLayer
+                && bounds?[index] is { } layerBounds && !Intersects(layerBounds, layerView))
+            {
+                // A bounded layer cannot affect pixels outside its bounds. Skip its complete balanced subtree;
+                // this is particularly important for damage-region repainting where most cards are untouched.
+                skippedLayers = 1;
+                continue;
+            }
             if (visible is { } view && moved == 0 && item.Kind is not (DisplayItemKind.PushClip or DisplayItemKind.PushLayer or DisplayItemKind.PushTransform or DisplayItemKind.Pop)
-                && !Intersects(ItemBounds(item), view))
+                && !Intersects(itemBounds[index], view))
                 continue;
             switch (item.Kind)
             {
@@ -184,6 +210,51 @@ internal static class DisplayListPlayer
         canvas.Restore();
     }
 
+    /// <summary>A replay-local stack whose backing storage is returned instead of allocating on every frame.</summary>
+    private ref struct PooledStack<T>
+    {
+        private T[]? _buffer;
+        private int _count;
+
+        public PooledStack(int capacity) => _buffer = ArrayPool<T>.Shared.Rent(capacity);
+
+        public void Push(T value)
+        {
+            if (_buffer is null)
+                throw new ObjectDisposedException(nameof(PooledStack<T>));
+            if (_count == _buffer.Length)
+            {
+                var replacement = ArrayPool<T>.Shared.Rent(_buffer.Length * 2);
+                _buffer.AsSpan(0, _count).CopyTo(replacement);
+                ArrayPool<T>.Shared.Return(_buffer, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+                _buffer = replacement;
+            }
+            _buffer[_count++] = value;
+        }
+
+        public bool TryPop(out T value)
+        {
+            if (_count == 0 || _buffer is null)
+            {
+                value = default!;
+                return false;
+            }
+            value = _buffer[--_count];
+            _buffer[_count] = default!;
+            return true;
+        }
+
+        public void Dispose()
+        {
+            if (_buffer is { } buffer)
+            {
+                ArrayPool<T>.Shared.Return(buffer, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+                _buffer = null;
+                _count = 0;
+            }
+        }
+    }
+
     // A box shadow: blurred, and clipped to the outside of the border box (outer) or the inside of the padding box
     // (inset, where the shadow is the region outside its shape).
     private static void PaintBoxShadow(ICanvas canvas, in DisplayItem item)
@@ -217,6 +288,7 @@ internal static class DisplayListPlayer
     // are not used to shrink it.
     internal static RectF?[] LayerBounds(DisplayList list)
     {
+        var itemBounds = list.ItemBoundsCache ??= BuildItemBounds(list);
         var result = new RectF?[list.Items.Count];
         // Open groups: the index of their push and the bounds of what they hold so far (null: nothing yet).
         var open = new Stack<(int Index, RectF? Bounds, bool Unknown)>();
@@ -259,7 +331,7 @@ internal static class DisplayListPlayer
                 case DisplayItemKind.Pop:
                     break;
                 default:
-                    Add(ItemBounds(item), false);
+                    Add(itemBounds[i], false);
                     break;
             }
         }
@@ -267,6 +339,47 @@ internal static class DisplayListPlayer
         foreach (var (index, _, _) in open)
             result[index] = null;
         return result;
+    }
+
+    /// <summary>Returns the union of items whose paint changed between two lists.</summary>
+    internal static RectF? Damage(DisplayList? previous, DisplayList current)
+    {
+        if (previous is null || previous.Items.Count != current.Items.Count)
+            return null;
+        var oldBounds = previous.ItemBoundsCache ??= BuildItemBounds(previous);
+        var newBounds = current.ItemBoundsCache ??= BuildItemBounds(current);
+        RectF? damage = null;
+        for (var i = 0; i < current.Items.Count; i++)
+        {
+            if (Equivalent(previous.Items[i], current.Items[i])) continue;
+            damage = damage is { } d ? Union(Union(d, oldBounds[i]), newBounds[i]) : Union(oldBounds[i], newBounds[i]);
+        }
+        return damage;
+    }
+
+    private static RectF[] BuildItemBounds(DisplayList list)
+    {
+        var bounds = new RectF[list.Items.Count];
+        for (var i = 0; i < bounds.Length; i++)
+            bounds[i] = ItemBounds(list.Items[i]);
+        return bounds;
+    }
+
+    // DisplayItem's generated record equality compares GlyphRun's backing arrays by identity. A rebuilt display list
+    // commonly allocates equivalent glyph arrays for unchanged text, so identity equality would mark the whole text
+    // layer dirty on every state-only update. Compare the glyph content while retaining generated equality for all
+    // other item fields.
+    private static bool Equivalent(in DisplayItem left, in DisplayItem right)
+    {
+        if (left.Glyphs is not null || right.Glyphs is not null)
+        {
+            if (left.Glyphs is not { } a || right.Glyphs is not { } b ||
+                !ReferenceEquals(a.Font, b.Font) || a.Size != b.Size ||
+                !a.Glyphs.AsSpan().SequenceEqual(b.Glyphs) || !a.Origins.AsSpan().SequenceEqual(b.Origins))
+                return false;
+        }
+
+        return (left with { Glyphs = null }).Equals(right with { Glyphs = null });
     }
 
     private static (RectF?, bool Unknown) Reach(RectF? bounds, bool unknown, IReadOnlyList<Filter>? filters)

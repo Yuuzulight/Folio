@@ -4,13 +4,13 @@ namespace Folio.Scripting.Dom;
 
 internal static class CacheBindings
 {
-    internal static void Install(IScriptEngine engine, DomContext context, ScriptValue fetchApi)
+    internal static void Install(IScriptEngine engine, DomContext context, ScriptValue fetchApi, bool registerDisposal = true)
     {
         ICacheStorageBackend? state = null;
         ICacheStorageBackend State() => state ??= context.ArtifactStorage is ICacheStorageBackendProvider provider
             ? provider.CreateCacheBackend(context.ArtifactId, context.MaxServiceWorkerCacheBytes)
             : CacheStorageState.For(context.ArtifactStorage, context.ArtifactId, context.BaseUri);
-        context.DisposeCacheStorage = () => state?.Dispose();
+        if (registerDisposal) context.DisposeCacheStorage = () => state?.Dispose();
         var handle = new HostObjectTemplate("FolioCacheHandle");
         var quota = context.MaxServiceWorkerCacheBytes;
         CacheStorageHandle Cache(ScriptValue value) =>

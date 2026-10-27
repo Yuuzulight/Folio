@@ -17,9 +17,12 @@ internal sealed class DomContext : IFetchContext
     private double _lastMediaTick = double.NaN;
     private readonly Dictionary<ElementNode, IframeState> _iframes = new(ReferenceEqualityComparer.Instance);
     private readonly MediaResourceBudget _mediaBudget;
+    private IResourceLoader? _effectiveMediaLoader;
     private int _workerCount;
     private int _iframeCount;
     private readonly List<WorkerState> _workers = [];
+    private readonly WorkerMemoryBudget _workerMemoryBudget;
+    private readonly Dictionary<string, WorkerState> _sharedWorkers = new(StringComparer.Ordinal);
     private readonly object _workersGate = new();
     private CssomRegistry? _cssom;
     private readonly HashSet<string> _capabilityDenials = new(StringComparer.Ordinal);
@@ -27,14 +30,30 @@ internal sealed class DomContext : IFetchContext
     internal CaptureBindingState? CaptureState { get; set; }
     internal WebRtcBindingState? WebRtcState { get; set; }
     internal ServiceWorkerCapabilityAuthority? ServiceWorkerState { get; set; }
+    internal Action? DisposeServiceWorker { get; set; }
+    internal Action? DisposeWebAssembly { get; set; }
     private GpuDocumentBridge? _gpu;
     private GpuFailure? _gpuCreationFailure;
     private readonly Func<long, GpuDeviceResult>? _gpuFactory;
     internal GpuDocumentBridge? Gpu => _gpu;
+    internal INativeWebGlFactory? GetWebGlFactory(out GpuFailure? failure)
+    {
+        if (ScriptFeaturesDisposed || !Capabilities.WebGl || !Document.WebGlAllowed)
+        {
+            failure = new(GpuFailureKind.Unavailable, "Native WebGL access is denied for this document.");
+            return null;
+        }
+        if (_gpu is null && _gpuCreationFailure is null)
+            _gpu = GpuDocumentBridge.TryCreate(MaxGpuBytes, out _gpuCreationFailure, _gpuFactory);
+        failure = _gpuCreationFailure;
+        return _gpu?.WebGlFactory;
+    }
+    internal void ReportWebGlDiagnostic(string message) => Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptError, Severity.Warning, message, null, "webgl"));
     internal void LoseCanvasContexts()
     {
         foreach (var canvas in _canvases.Values.ToArray())
         {
+            canvas.LoseNativeWebGlContext();
             try { canvas.WebGlContext?.Lose(); }
             catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
         }
@@ -49,25 +68,6 @@ internal sealed class DomContext : IFetchContext
     internal HtmlEventLoop? OwnerEventLoop { get; set; }
     private readonly object _workerDiagnosticsGate = new();
     private readonly Queue<(Diagnostic Diagnostic, ScriptMessageBudget.Reservation Reservation)> _workerDiagnostics = new();
-
-    private const int MaxConsoleMessages = 1000;
-    private int _consoleMessages;
-
-    /// <summary>A console message as a diagnostic; after <see cref="MaxConsoleMessages"/> of them one warning says the rest are dropped.</summary>
-    internal void ReportConsole(string level, string text, int line, int column)
-    {
-        if (_consoleMessages > MaxConsoleMessages)
-            return;
-        if (++_consoleMessages > MaxConsoleMessages)
-        {
-            Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptConsole, Severity.Warning,
-                $"The document wrote more than {MaxConsoleMessages} console messages; the rest were dropped.", null, "console"));
-            return;
-        }
-        Document.DiagnosticSink?.Invoke(new Diagnostic(DiagnosticCode.ScriptConsole,
-            level == "error" ? Severity.Error : level == "warn" ? Severity.Warning : Severity.Info, text,
-            line > 0 ? new SourceLocation(line, Math.Max(column, 1)) : null, "console"));
-    }
 
     internal void ReportWorkerDiagnostic(Diagnostic diagnostic)
     {
@@ -161,7 +161,7 @@ internal sealed class DomContext : IFetchContext
     /// A fetch() load: a data: URL or the host's loader, one response within the loader's size cap and all of them within
     /// <see cref="MaxFetchedBytes"/>. Refusals are reported as a diagnostic.
     /// </summary>
-    public (ResourceResponse? Response, string? Error) Fetch(string url)
+    public (ResourceResponse? Response, string? Error) Fetch(string url, string? integrity = null)
     {
         string? error = null;
         ResourceResponse? response = null;
@@ -171,8 +171,8 @@ internal sealed class DomContext : IFetchContext
             error = "Only data:, http: and https: URLs can be fetched.";
         else
         {
-            var loaded = new Folio.Resources.ResourceLoader(allowedFolders: null, maxBytes: Folio.Resources.ResourceLoader.MaxResourceBytes, host: ResourceLoader)
-                .Load(new ResourceRequest(url, ResourceKind.Fetch));
+                var loaded = new Folio.Resources.ResourceLoader(allowedFolders: null, maxBytes: Folio.Resources.ResourceLoader.MaxResourceBytes, host: ResourceLoader)
+                .Load(new ResourceRequest(url, ResourceKind.Fetch, integrity));
             if (!loaded.Succeeded)
                 error = loaded.Error ?? "The load failed.";
             else if (_fetchedBytes + loaded.Data!.Length > MaxFetchedBytes)
@@ -191,8 +191,8 @@ internal sealed class DomContext : IFetchContext
 
     public DomContext(IScriptEngine engine, DocumentNode document, ScriptWrapperCache? wrapperCache = null,
         Func<ElementNode, (float X, float Y, float Width, float Height)?>? layout = null,
-        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, TimeSpan maxShaderExecutionTime = default, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
-        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null, Func<long, GpuDeviceResult>? gpuFactory = null)
+        FeatureCapabilities? capabilities = null, int maxGpuBytes = 64 * 1024 * 1024, int maxMediaBytes = 128 * 1024 * 1024, int maxMediaDecoders = 8, int maxWorkerMessageBytes = 1 * 1024 * 1024, int maxWebAssemblyBytes = 64 * 1024 * 1024, int maxWorkers = 8, long maxWorkerMemoryBytes = 64L * 1024 * 1024, long maxAggregateWorkerMemoryBytes = 512L * 1024 * 1024, TimeSpan maxWorkerExecutionTime = default, long maxServiceWorkerCacheBytes = 64L * 1024 * 1024, int maxIframes = 16, int maxWebRtcConnections = 8, IReadOnlySet<string>? webRtcAllowedOrigins = null, Func<MediaCaptureRequest, bool>? mediaCapturePermission = null, IMediaCaptureProvider? mediaCaptureProvider = null, IArtifactStorage? artifactStorage = null, string artifactId = "default", IResourceLoader? resourceLoader = null, Uri? baseUri = null,
+        Folio.Painting.IRasterBackend? raster = null, Func<Folio.Hosting.CanvasStyleEngine?>? canvasStyles = null, Action<bool>? mediaCaptureActivityChanged = null, Action<Uri>? iframeNavigationRequested = null, IMediaAudioOutput? mediaAudioOutput = null, IMediaDecoder? mediaDecoder = null, Func<long, GpuDeviceResult>? gpuFactory = null, bool formsAllowed = true)
     {
         Engine = engine ?? throw new ArgumentNullException(nameof(engine));
         Document = document ?? throw new ArgumentNullException(nameof(document));
@@ -201,7 +201,6 @@ internal sealed class DomContext : IFetchContext
         Capabilities = capabilities ?? FeatureCapabilities.Default;
         Document.SetFeatureAvailability(Capabilities.WebGl, Capabilities.Media, Capabilities.Sound, Capabilities.Iframes);
         MaxGpuBytes = Math.Max(0, maxGpuBytes);
-        MaxShaderExecutionTime = maxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : maxShaderExecutionTime;
         _gpuFactory = gpuFactory;
         MaxMediaBytes = Math.Max(0, maxMediaBytes);
         MaxMediaDecoders = Math.Max(0, maxMediaDecoders);
@@ -209,20 +208,23 @@ internal sealed class DomContext : IFetchContext
         MaxWorkerMessageBytes = Math.Max(0, maxWorkerMessageBytes);
         MaxWorkers = Math.Max(0, maxWorkers);
         MaxWorkerMemoryBytes = Math.Max(1, maxWorkerMemoryBytes);
+        _workerMemoryBudget = new WorkerMemoryBudget(maxAggregateWorkerMemoryBytes <= 0 ? MaxWorkerMemoryBytes : maxAggregateWorkerMemoryBytes);
         MaxWorkerExecutionTime = maxWorkerExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(5) : maxWorkerExecutionTime;
         MaxServiceWorkerCacheBytes = Math.Max(0, maxServiceWorkerCacheBytes);
         MaxIframes = Math.Max(0, maxIframes);
         MaxWebRtcConnections = Math.Max(0, maxWebRtcConnections);
         WebRtcAllowedOrigins = webRtcAllowedOrigins ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         MediaCapturePermission = mediaCapturePermission;
+        MediaCaptureProvider = mediaCaptureProvider;
         MediaCaptureActivityChanged = mediaCaptureActivityChanged;
+        FormsAllowed = formsAllowed;
         MediaAudioOutput = mediaAudioOutput;
         MediaDecoder = mediaDecoder;
         IframeNavigationRequested = iframeNavigationRequested;
         ArtifactStorage = artifactStorage;
         ArtifactId = string.IsNullOrWhiteSpace(artifactId) ? "default" : artifactId;
         MaxWebAssemblyBytes = Math.Max(0, maxWebAssemblyBytes);
-        _rawResourceLoader = resourceLoader;
+        ResourceLoader = resourceLoader;
         BaseUri = baseUri;
         RasterBackend = raster;
         _canvasStyles = canvasStyles;
@@ -238,20 +240,24 @@ internal sealed class DomContext : IFetchContext
     public Func<ElementNode, (float X, float Y, float Width, float Height)?>? Layout { get; }
     private volatile FeatureCapabilities _capabilities = FeatureCapabilities.Default;
     public FeatureCapabilities Capabilities { get => _capabilities; private set => _capabilities = value; }
-    public int MaxGpuBytes { get; private set; }
-    public TimeSpan MaxShaderExecutionTime { get; private set; }
+    public int MaxGpuBytes { get; }
     public int MaxMediaBytes { get; }
     public int MaxMediaDecoders { get; }
     public int MaxWorkerMessageBytes { get; }
     public int MaxWorkers { get; }
     public long MaxWorkerMemoryBytes { get; }
+    public long MaxAggregateWorkerMemoryBytes => _workerMemoryBudget.Maximum;
+    internal long ReservedWorkerMemoryBytes => _workerMemoryBudget.ReservedBytes;
+    internal WorkerMemoryBudget WorkerMemoryBudget => _workerMemoryBudget;
     public TimeSpan MaxWorkerExecutionTime { get; }
     public long MaxServiceWorkerCacheBytes { get; }
     public int MaxIframes { get; }
     public int MaxWebRtcConnections { get; }
     public IReadOnlySet<string> WebRtcAllowedOrigins { get; }
     public Func<MediaCaptureRequest, bool>? MediaCapturePermission { get; }
+    public IMediaCaptureProvider? MediaCaptureProvider { get; }
     public Action<bool>? MediaCaptureActivityChanged { get; }
+    public bool FormsAllowed { get; }
     public IMediaAudioOutput? MediaAudioOutput { get; }
     public IMediaDecoder? MediaDecoder { get; }
     public Action<Uri>? IframeNavigationRequested { get; }
@@ -265,6 +271,8 @@ internal sealed class DomContext : IFetchContext
         Interlocked.Decrement(ref _workerCount);
         return false;
     }
+    internal bool TryAcquireWorkerMemory() => _workerMemoryBudget.TryAcquire(MaxWorkerMemoryBytes);
+    internal void ReleaseWorkerMemory() => _workerMemoryBudget.Release(MaxWorkerMemoryBytes);
     public void ReleaseWorker() { if (Interlocked.Decrement(ref _workerCount) < 0) Interlocked.Exchange(ref _workerCount, 0); }
     internal void UnregisterWorker(WorkerState worker)
     {
@@ -280,6 +288,25 @@ internal sealed class DomContext : IFetchContext
             _workers.Add(worker);
         }
         if (!capabilities.Workers) worker.Terminate();
+    }
+
+    internal bool TryGetSharedWorker(string key, out WorkerState worker)
+    {
+        lock (_workersGate) return _sharedWorkers.TryGetValue(key, out worker!);
+    }
+
+    internal void RegisterSharedWorker(string key, WorkerState worker)
+    {
+        lock (_workersGate) _sharedWorkers[key] = worker;
+    }
+
+    internal void UnregisterSharedWorker(WorkerState worker)
+    {
+        lock (_workersGate)
+        {
+            foreach (var key in _sharedWorkers.Where(pair => ReferenceEquals(pair.Value, worker)).Select(pair => pair.Key).ToArray())
+                _sharedWorkers.Remove(key);
+        }
     }
 
     public void DisposeMedia()
@@ -305,80 +332,30 @@ internal sealed class DomContext : IFetchContext
             _workers.Clear();
         }
         foreach (var worker in workers) worker.Terminate();
+        WorkerState[] shared;
+        lock (_workersGate)
+        {
+            shared = _sharedWorkers.Values.Distinct(ReferenceEqualityComparer.Instance).Cast<WorkerState>().ToArray();
+            _sharedWorkers.Clear();
+        }
+        foreach (var worker in shared)
+            if (!workers.Contains(worker, ReferenceEqualityComparer.Instance)) worker.Terminate();
         ClearWorkerDiagnostics();
     }
     public int MaxWebAssemblyBytes { get; }
-    private readonly IResourceLoader? _rawResourceLoader;
-    private IResourceLoader? _effectiveResourceLoader;
-    public IResourceLoader? ResourceLoader => _effectiveResourceLoader ??=
-        _rawResourceLoader is null && !Capabilities.ServiceWorkers
-            ? _rawResourceLoader
-            : new ServiceWorkerInterceptingLoader(this, _rawResourceLoader);
+    public IResourceLoader? ResourceLoader { get; }
+    private IResourceLoader? EffectiveMediaLoader =>
+        ResourceLoader is { } loader
+            ? _effectiveMediaLoader ??= new InterceptingMediaLoader(loader, () => ParentOptions?.ResourceInterceptor)
+            : null;
 
-    internal ResourceResponse? InterceptSubresource(ResourceRequest request)
+    private sealed class InterceptingMediaLoader(IResourceLoader host, Func<IResourceInterceptor?> interceptor) : IResourceLoader
     {
-        if (!Capabilities.ServiceWorkers || ScriptFeaturesDisposed) return null;
-
-        var urlVal = ScriptValue.FromString(request.Url);
-        Engine.SetGlobalProperty("__folio_sw_req_url", urlVal);
-        try
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
         {
-            var outcome = Engine.EvaluateHostScript("""
-                (function() {
-                    var controller = globalThis.navigator && globalThis.navigator.serviceWorker && globalThis.navigator.serviceWorker.controller;
-                    if (!controller || typeof controller._dispatchFetch !== 'function') return null;
-                    var req = null;
-                    try { req = new Request(__folio_sw_req_url); } catch (_) { return null; }
-                    var result = { handled: false, error: null, contentType: null, buffer: null };
-                    try {
-                        var p = controller._dispatchFetch(req);
-                        p.then(function(res) {
-                            if (res instanceof Response) {
-                                result.handled = true;
-                                result.contentType = res.headers ? res.headers.get('content-type') : null;
-                                return res.arrayBuffer().then(function(buf) {
-                                    result.buffer = buf;
-                                });
-                            }
-                        }).catch(function(err) {
-                            result.handled = true;
-                            result.error = String(err && err.message || err);
-                        });
-                    } catch (e) {
-                        result.handled = true;
-                        result.error = String(e && e.message || e);
-                    }
-                    return result;
-                })()
-            """, "folio:sw-subresource-dispatch");
-
-            if (outcome.IsNullOrUndefined) return null;
-
-            Engine.PerformMicrotaskCheckpoint();
-            Engine.PerformMicrotaskCheckpoint();
-
-            var handled = Engine.GetProperty(outcome, "handled").AsBoolean();
-            if (!handled) return null;
-
-            var error = Engine.GetProperty(outcome, "error").AsString();
-            if (!string.IsNullOrEmpty(error))
-                return ResourceResponse.Refused(error);
-
-            var bufferVal = Engine.GetProperty(outcome, "buffer");
-            var contentType = Engine.GetProperty(outcome, "contentType").AsString();
-
-            if (Engine.TryGetArrayBufferBytes(bufferVal, out var bytes))
-                return ResourceResponse.Loaded(bytes, contentType);
-
-            return ResourceResponse.Loaded([], contentType);
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            Engine.SetGlobalProperty("__folio_sw_req_url", ScriptValue.Undefined);
+            if (interceptor()?.Intercept(request) is { } response)
+                return Task.FromResult<ResourceResponse?>(response);
+            return host.LoadAsync(request, cancellationToken);
         }
     }
     internal Action? DisposeCacheStorage { get; set; }
@@ -387,38 +364,9 @@ internal sealed class DomContext : IFetchContext
     private readonly Func<Folio.Hosting.CanvasStyleEngine?>? _canvasStyles;
     private readonly Dictionary<ElementNode, (string Source, Folio.Imaging.IImageHandle? Image)> _images = new(ReferenceEqualityComparer.Instance);
     public DomNodeTemplates Templates { get; }
-    /// <summary>The <see cref="Folio.Document"/> that draws and takes input for this tree, when scripts run against one.</summary>
-    internal Folio.Document? HostDocument { get; set; }
-
-    private FormControls? _forms;
-
-    /// <summary>The form logic: the host document's, or one over the bare tree.</summary>
-    internal FormControls Forms => _forms ??= HostDocument?.Forms ?? FormControls.For(Document);
-
-    private ElementNode? _scriptFocus;
-    public ElementNode? FocusedElement => HostDocument is { } host ? host.Input.FocusedNode : _scriptFocus;
-    public void Focus(ElementNode element)
-    {
-        if (HostDocument is { } host)
-            host.Input.Focus(element, visible: true);
-        else
-            _scriptFocus = element;
-    }
-    public void Blur(ElementNode element)
-    {
-        if (!ReferenceEquals(FocusedElement, element))
-            return;
-        if (HostDocument is { } host)
-            host.Input.Focus(null, visible: false);
-        else
-            _scriptFocus = null;
-    }
-
-    public bool TryUnwrapElement(ScriptValue value, [NotNullWhen(true)] out ElementNode? element)
-    {
-        element = Engine.TryGetHostTarget(value, out var target) ? target as ElementNode : null;
-        return element is not null;
-    }
+    public ElementNode? FocusedElement { get; private set; }
+    public void Focus(ElementNode element) => FocusedElement = element;
+    public void Blur(ElementNode element) { if (ReferenceEquals(FocusedElement, element)) FocusedElement = null; }
 
     public void UpdateCapabilities(FeatureCapabilities capabilities)
     {
@@ -454,6 +402,8 @@ internal sealed class DomContext : IFetchContext
         foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
         {
             if (canvas.CanvasSurface is not CanvasElementState state) continue;
+            if (!Capabilities.WebGl) state.LoseNativeWebGlContext();
+            else state.RestoreNativeWebGlContext();
             if (state.WebGlContext is { } context)
             {
                 try
@@ -466,71 +416,33 @@ internal sealed class DomContext : IFetchContext
         }
     }
 
-    public void UpdateLimits(ResourceLimits limits)
+    /// <summary>Notifies every live WebGL canvas that its host GPU/device was reset.</summary>
+    internal void NotifyGpuDeviceLost()
     {
-        ArgumentNullException.ThrowIfNull(limits);
-        MaxGpuBytes = Math.Max(0, limits.MaxGpuBytes);
-        MaxShaderExecutionTime = limits.MaxShaderExecutionTime <= TimeSpan.Zero ? TimeSpan.FromSeconds(2) : limits.MaxShaderExecutionTime;
+        if (ScriptFeaturesDisposed) return;
+        foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
+            if (canvas.CanvasSurface is CanvasElementState state) state.LoseNativeWebGlContext();
+        DisposeGpu();
+    }
+
+    /// <summary>Recreates native WebGL contexts after a host GPU/device reset.</summary>
+    internal void NotifyGpuDeviceRestored()
+    {
+        if (ScriptFeaturesDisposed || !Capabilities.WebGl || !Document.WebGlAllowed) return;
         foreach (var canvas in Document.Descendants.OfType<ElementNode>().Where(element => element.LocalName == "canvas"))
         {
-            if (canvas.CanvasSurface is CanvasElementState state && state.WebGlContext is { } context)
+            if (canvas.CanvasSurface is not CanvasElementState state) continue;
+            try
             {
-                context.UpdateBudget(MaxGpuBytes);
-                context.UpdateShaderExecutionTime(MaxShaderExecutionTime);
+                state.RestoreNativeWebGlContext();
+                state.WebGlContext?.Restore();
             }
+            catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
         }
     }
 
-    public (double X, double Y) GetScroll(ElementNode element) =>
-        HostDocument is { } host ? (host.GetScrollLeft(element), host.GetScrollTop(element)) : _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
-
-    /// <summary>Scrolls an element, clamped to its range by the layout; without a host document, to the nearest non-negative position.</summary>
-    public void SetScroll(ElementNode element, double x, double y, string? behavior = null)
-    {
-        if (HostDocument is { } host)
-            host.ScrollToNode(element, (float)x, (float)y, behavior);
-        else
-            _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
-    }
-
-    private (double X, double Y) _windowScroll;
-
-    /// <summary>Where the window is scrolled, with no host document to ask.</summary>
-    public (double X, double Y) WindowScroll => _windowScroll;
-
-    public void ScrollWindow(double x, double y, string? behavior)
-    {
-        if (HostDocument is { } host && Document.DocumentElement is { } root)
-            host.ScrollToNode(root, (float)x, (float)y, behavior);
-        else
-            _windowScroll = (Math.Max(0, x), Math.Max(0, y));
-    }
-
-    /// <summary>The script function that runs the observer steps of the rendering update (ResizeObserver, IntersectionObserver).</summary>
-    public ScriptValue ObserverStepHandler { get; set; } = ScriptValue.Undefined;
-
-    public void CallObserverStep(string step)
-    {
-        if (ObserverStepHandler.IsUndefined || ScriptFeaturesDisposed)
-            return;
-        try { Engine.Call(ObserverStepHandler, ScriptValue.Undefined, [ScriptValue.FromString(step)]); }
-        catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
-    }
-
-    /// <summary>The script function that carries out the window's rendering steps (resize event, media query changes).</summary>
-    public ScriptValue RenderStepHandler { get; set; } = ScriptValue.Undefined;
-
-    public void CallRenderStep(string step)
-    {
-        if (RenderStepHandler.IsUndefined || ScriptFeaturesDisposed)
-            return;
-        try { Engine.Call(RenderStepHandler, ScriptValue.Undefined, [ScriptValue.FromString(step)]); }
-        catch (Exception error) { try { OwnerEventLoop?.ReportException(error); } catch { } }
-    }
-
-    /// <summary>Dispatches a trusted event to a node's listeners.</summary>
-    public bool FireEvent(Node target, string type, bool bubbles, bool cancelable) =>
-        Document.EventDispatcher is not { } dispatch || dispatch(target, type, new EventDispatchArgs { Bubbles = bubbles, Cancelable = cancelable, Composed = false });
+    public (double X, double Y) GetScroll(ElementNode element) => _scrollOffsets.TryGetValue(element, out var value) ? value : (0, 0);
+    public void SetScroll(ElementNode element, double x, double y) => _scrollOffsets[element] = (Math.Max(0, x), Math.Max(0, y));
 
     private MutationObserverRegistry? _mutationObservers;
 
@@ -590,13 +502,99 @@ internal sealed class DomContext : IFetchContext
             {
                 var url = BaseUri is not null && Uri.TryCreate(BaseUri, source, out var resolved) ? resolved.AbsoluteUri : source;
                 if (Uri.TryCreate(url, UriKind.Absolute, out var absolute))
-                    bytes = loader.LoadAsync(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+                {
+                    bytes = TryServiceWorkerResource(absolute.AbsoluteUri)?.Data ??
+                        loader.LoadAsync(new ResourceRequest(absolute.AbsoluteUri, ResourceKind.Image), CancellationToken.None).GetAwaiter().GetResult()?.Data;
+                }
             }
             decoded = bytes is null ? null : Folio.Imaging.ImageLoader.Decode(bytes);
         }
         _images[image] = (source, decoded);
         return decoded;
     }
+
+    private sealed record ServiceWorkerResourceResult(byte[] Data, string? ContentType);
+
+    private ServiceWorkerResourceResult? TryServiceWorkerResource(string url)
+    {
+        if (ServiceWorkerState is null || !Capabilities.ServiceWorkers || ScriptFeaturesDisposed)
+            return null;
+
+        const string resultName = "__folio_service_worker_image_result";
+        const string typeName = "__folio_service_worker_image_type";
+        Engine.SetGlobalProperty(resultName, ScriptValue.Null);
+        Engine.SetGlobalProperty(typeName, ScriptValue.Null);
+        try
+        {
+            Engine.SetGlobalProperty("__folio_service_worker_image_url", ScriptValue.FromString(url));
+            Engine.Evaluate("""
+                (function() {
+                    var controller = navigator.serviceWorker && navigator.serviceWorker.controller;
+                    if (!controller || typeof controller._dispatchFetch !== 'function') { globalThis.__folio_service_worker_image_result = false; return; }
+                    try {
+                        controller._dispatchFetch(new Request(globalThis.__folio_service_worker_image_url)).then(function(response) {
+                            if (!(response instanceof Response)) { globalThis.__folio_service_worker_image_result = false; return; }
+                            response.bytes().then(function(data) {
+                                globalThis.__folio_service_worker_image_type = response.headers && response.headers.get('content-type');
+                                // Keep the response as a typed array until the host extracts it. Converting
+                                // binary data to a comma-separated string multiplies memory and corrupts the
+                                // bridge's behavior for large media/font responses.
+                                globalThis.__folio_service_worker_image_result = data;
+                            }, function(error) {
+                                globalThis.__folio_service_worker_image_result = false;
+                                globalThis.__folio_service_worker_image_result = false;
+                            });
+                        }).catch(function(error) { globalThis.__folio_service_worker_image_result = false; globalThis.__folio_service_worker_debug = error && error.message; });
+                    } catch (_) { globalThis.__folio_service_worker_image_result = false; }
+                })();
+                """, "folio:service-worker-image");
+            for (var i = 0; i < 64; i++)
+            {
+                Engine.PerformMicrotaskCheckpoint();
+                var result = Engine.GetGlobalProperty(resultName);
+                if (Engine.TryGetBytes(result, out var bytes))
+                {
+                    var contentType = Engine.GetGlobalProperty(typeName);
+                    return new ServiceWorkerResourceResult(bytes, contentType.IsString ? contentType.AsString() : null);
+                }
+                if (result.IsBoolean && !result.AsBoolean()) return null;
+            }
+            return null;
+        }
+        finally
+        {
+            Engine.SetGlobalProperty("__folio_service_worker_image_url", ScriptValue.Undefined);
+            Engine.SetGlobalProperty(resultName, ScriptValue.Undefined);
+            Engine.SetGlobalProperty(typeName, ScriptValue.Undefined);
+        }
+    }
+
+    private sealed class ServiceWorkerResourceInterceptor(DomContext context) : Folio.Resources.IResourceInterceptor
+    {
+        public Folio.Resources.ResourceResponse? Intercept(Folio.Resources.ResourceRequest request)
+        {
+            // ResourceLoader is the common choke point for document-owned subresources. Keep the
+            // service-worker bridge limited to resources whose response bytes can be consumed by
+            // the existing Folio loaders; fetch()/script loading have their own lifecycle hooks.
+            if (request.Kind is not (ResourceKind.Image or ResourceKind.SvgImage or ResourceKind.Stylesheet or ResourceKind.Font or ResourceKind.Media or ResourceKind.Document))
+                return null;
+            var resource = context.TryServiceWorkerResource(request.Url);
+            if (resource is null) return null;
+            var contentType = resource.ContentType ?? request.Kind switch
+            {
+                ResourceKind.Stylesheet => "text/css",
+                ResourceKind.Font => "font/woff2",
+                ResourceKind.Media => "application/octet-stream",
+                ResourceKind.Document => "text/html",
+                ResourceKind.SvgImage => "image/svg+xml",
+                _ => "image/png",
+            };
+            return Folio.Resources.ResourceResponse.Loaded(resource.Data, contentType);
+        }
+    }
+
+    internal Folio.Resources.IResourceInterceptor CreateServiceWorkerResourceInterceptor() => new ServiceWorkerResourceInterceptor(this);
+
     public MediaElementState GetMedia(ElementNode element)
     {
         if (_media.TryGetValue(element, out var existing)) return existing;
@@ -606,9 +604,11 @@ internal sealed class DomContext : IFetchContext
             retired.StopPlayback();
             return retired;
         }
-        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, ResourceLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget,
+        var state = new MediaElementState(Engine, Templates.MediaEventTemplate, element, Capabilities.Media, Capabilities.AllowSoundAutoplay, EffectiveMediaLoader, BaseUri, MediaAudioOutput, MediaDecoder, MaxMediaBytes, _mediaBudget,
             soundEnabled: Capabilities.Sound, checkSoundPermission: () => CheckCapability("Sound", Capabilities.Sound),
-            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media), deferLoad: true);
+            checkMediaPermission: () => CheckCapability("Media", Capabilities.Media),
+            captureFrame: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentVideoFrame(Engine.GetProperty(track, "_captureToken")),
+            captureAudio: MediaCaptureProvider is null ? null : track => CaptureState?.CurrentAudioFrame(Engine.GetProperty(track, "_captureToken")), deferLoad: true);
         _media[element] = state;
         state.Initialize();
         if (element.GetAttribute("autoplay") is not null) state.Play(autoplay: true);
@@ -653,19 +653,17 @@ internal sealed class DomContext : IFetchContext
             }
         }
     }
-    internal void PumpIframes()
-    {
-        foreach (var frame in _iframes.Values) frame.PumpChildLoop();
-    }
-
     public IframeState GetIframe(ElementNode element)
     {
         if (_iframes.TryGetValue(element, out var state)) return state;
         if (Capabilities.Iframes && _iframeCount >= MaxIframes)
             throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The iframe limit has been exceeded.");
+        var created = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes && !ScriptFeaturesDisposed, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions,
+            checkPermission: () => CheckCapability("Iframes", Capabilities.Iframes), parentLoop: OwnerEventLoop);
+        if (Capabilities.Iframes && !created.TryAcquireAggregateSlot())
+            throw WebIdlException.DomException(DomExceptionNames.QuotaExceededError, "The aggregate iframe limit has been exceeded.");
         if (Capabilities.Iframes) _iframeCount++;
-        return _iframes[element] = new IframeState(Engine, Templates.MessageEventTemplate, element, Capabilities.Iframes && !ScriptFeaturesDisposed, ResourceLoader, BaseUri, IframeNavigationRequested, ParentOptions,
-            checkPermission: () => CheckCapability("Iframes", Capabilities.Iframes));
+        return _iframes[element] = created;
     }
 
     public ScriptValue Wrap(Node? node)
@@ -732,23 +730,8 @@ internal sealed class DomContext : IFetchContext
         return WrapperCache.GetOrCreate(Engine, Templates.StyleDeclarationTemplate, new LiveStyleDeclaration(element));
     }
 
-    /// <summary>The declaration <c>getComputedStyle(element, pseudo)</c> returns; a pseudo-element selector that names nothing gives one that is empty.</summary>
-    public ScriptValue WrapComputedStyle(ElementNode element, string? pseudoSelector = null)
-    {
-        var pseudo = pseudoSelector?.TrimStart(':').ToLowerInvariant() switch
-        {
-            null or "" => Folio.Css.PseudoElement.None,
-            "before" => Folio.Css.PseudoElement.Before,
-            "after" => Folio.Css.PseudoElement.After,
-            "marker" => Folio.Css.PseudoElement.Marker,
-            "first-letter" => Folio.Css.PseudoElement.FirstLetter,
-            "selection" => Folio.Css.PseudoElement.Selection,
-            _ => (Folio.Css.PseudoElement?)null,
-        };
-        // An unknown pseudo-element is nothing to resolve: a declaration of an element that is not in any document.
-        var target = pseudo is null ? Document.CreateElement(Namespaces.Html, "span") : element;
-        return WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(target, this, pseudo ?? Folio.Css.PseudoElement.None));
-    }
+    public ScriptValue WrapComputedStyle(ElementNode element) =>
+        WrapperCache.GetOrCreate(Engine, Templates.ComputedStyleDeclarationTemplate, new LiveComputedStyle(element));
 
     public ScriptValue WrapRect(DomRect rect) =>
         WrapperCache.GetOrCreate(Engine, Templates.DomRectTemplate, rect);
@@ -782,7 +765,6 @@ internal sealed class DomContext : IFetchContext
             "option" => Templates.HtmlOptionElementTemplate,
             "select" => Templates.HtmlSelectElementTemplate,
             "textarea" => Templates.HtmlTextAreaElementTemplate,
-            "form" => Templates.HtmlFormElementTemplate,
             "template" => Templates.HtmlTemplateElementTemplate,
             "canvas" => Templates.HtmlCanvasElementTemplate,
             "video" => Templates.HtmlVideoElementTemplate,
@@ -876,16 +858,4 @@ internal sealed class LiveNodeList
 internal sealed class LiveHtmlCollection(ContainerNode container)
 {
     public ContainerNode Container { get; } = container;
-}
-internal sealed class ServiceWorkerInterceptingLoader(DomContext context, IResourceLoader? inner) : IResourceLoader
-{
-    public async Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
-    {
-        var intercepted = context.InterceptSubresource(request);
-        if (intercepted is not null)
-            return intercepted;
-        if (inner is not null)
-            return await inner.LoadAsync(request, cancellationToken);
-        return null;
-    }
 }

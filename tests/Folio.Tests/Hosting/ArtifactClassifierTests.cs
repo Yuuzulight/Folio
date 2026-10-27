@@ -28,86 +28,12 @@ public class ArtifactClassifierTests
 
     [Theory]
     [InlineData("<p>x<script>document.title = 'y'</script>")]
-    [InlineData("<p>x<script type=module>const x = 1;</script>")]
+    [InlineData("<p>x<script type=module>import './a.js'</script>")]
     [InlineData("<button onclick=\"go()\">Go</button>")]
+    [InlineData("<a href=\" javascript:void(0)\">x</a>")]
     public void ScriptsMakeItScripted(string html)
     {
         Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify(html).Kind);
-    }
-
-    [Theory]
-    [InlineData("<a href=\"javascript:void(0)\">x</a>", "uses javascript: URLs")]
-    [InlineData("<script type=module>import './a.js'</script>", "uses module script imports")]
-    [InlineData("<script>new MutationObserver(() => {})</script>", "uses MutationObserver")]
-    [InlineData("<script>document.styleSheets[0].insertRule('body {}')</script>", "uses stylesheet mutation")]
-    [InlineData("<canvas id=c></canvas><script>c.getContext('2d')</script>", "uses 2D canvas")]
-    [InlineData("<script>fetch('https://api.example.com')</script>", "uses network requests")]
-    [InlineData("<script>new XMLHttpRequest()</script>", "uses network requests")]
-    [InlineData("<script>new WebSocket('wss://example.com')</script>", "uses WebSocket")]
-    [InlineData("<script>customElements.define('x-el', class extends HTMLElement {})</script>", "uses custom elements")]
-    [InlineData("<script>el.attachShadow({mode:'open'})</script>", "uses custom elements or shadow DOM")]
-    public void M5AndLaterScriptFeaturesNeedTheBrowser(string html, string reason)
-    {
-        var result = ArtifactClassifier.Classify(html);
-        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-        Assert.Contains(result.Reasons, r => r.Contains(reason, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void ScriptAboveSizeThresholdNeedsTheBrowser()
-    {
-        var largeScript = "<script>" + new string('x', 60 * 1024) + "</script>";
-        var result = ArtifactClassifier.Classify(largeScript);
-        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-        Assert.Contains(result.Reasons, r => r.Contains("exceeds the scripted start-up threshold", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void EveryD1ArtifactClassifiesAsScripted()
-    {
-        var d1Folder = Path.Combine(ConformanceRoot(), "D1");
-        if (!Directory.Exists(d1Folder)) return;
-        foreach (var dir in Directory.GetDirectories(d1Folder))
-        {
-            var html = File.ReadAllText(Path.Combine(dir, "index.html"));
-            var result = ArtifactClassifier.Classify(html);
-            Assert.Equal(ArtifactKind.Scripted, result.Kind);
-        }
-    }
-
-    [Fact]
-    public void D2ThroughD7ArtifactsThatNeedM5ClassifyAsNeedsBrowser()
-    {
-        var root = ConformanceRoot();
-        // D5 and D7 are canvas categories needing M5
-        foreach (var cat in new[] { "D5", "D7" })
-        {
-            var catDir = Path.Combine(root, cat);
-            if (!Directory.Exists(catDir)) continue;
-            foreach (var dir in Directory.GetDirectories(catDir))
-            {
-                var html = File.ReadAllText(Path.Combine(dir, "index.html"));
-                var result = ArtifactClassifier.Classify(html);
-                Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-                Assert.NotEmpty(result.Reasons);
-            }
-        }
-
-        // Library cards and framework artifacts in D2, D3, D4, D6 that need external libraries or M5 APIs
-        foreach (var cat in new[] { "D2", "D3", "D4", "D6" })
-        {
-            var catDir = Path.Combine(root, cat);
-            if (!Directory.Exists(catDir)) continue;
-            foreach (var dir in Directory.GetDirectories(catDir))
-            {
-                var name = Path.GetFileName(dir);
-                if (name is "svg-line-chart-tooltips" or "text-flowchart-svg") continue; // Vanilla artifacts runnable in M4
-                var html = File.ReadAllText(Path.Combine(dir, "index.html"));
-                var result = ArtifactClassifier.Classify(html);
-                Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-                Assert.NotEmpty(result.Reasons);
-            }
-        }
     }
 
     [Theory]
@@ -138,7 +64,7 @@ public class ArtifactClassifierTests
     [InlineData("<img srcset=\"data:image/png;base64,AA== 1x, big.png 2x\">", "loads an image these options do not allow")]
     [InlineData("<style>@import url(\"https://fonts.example.com/css\");</style>", "loads a stylesheet these options do not allow")]
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
-    [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
+    [InlineData("<img src=\"data:image/avif;base64,AA==\">", "uses an image format Folio does not decode: image/avif")]
     [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
     [InlineData("<svg><filter id=f><feImage href=\"#r\" /></filter><rect id=r filter=\"url(#f)\" /></svg>", "uses an SVG <feImage> of an element")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
@@ -316,6 +242,21 @@ public class ArtifactClassifierTests
         Assert.Contains(result.Reasons, reason => reason.Contains("Chart.js", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("image/gif")]
+    [InlineData("image/webp")]
+    [InlineData("image/bmp")]
+    [InlineData("image/x-icon")]
+    [InlineData("image/svg+xml")]
+    public void BuiltInImageFormatsStayInFolio(string mime)
+    {
+        var html = $"<img src=\"data:{mime};base64,AA==\">";
+        var result = ArtifactClassifier.Classify(html);
+
+        Assert.Equal(ArtifactKind.Static, result.Kind);
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("image format", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ALimitHitNeedsTheBrowser()
     {
@@ -323,15 +264,4 @@ public class ArtifactClassifierTests
 
         Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify("<div><div><div><div><div><div>deep", options).Kind);
     }
-
-    private static string ConformanceRoot()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "Folio.slnx")))
-                return Path.Combine(dir.FullName, "tests", "conformance");
-        }
-        throw new DirectoryNotFoundException("Folio.slnx not found above " + AppContext.BaseDirectory);
-    }
-
 }

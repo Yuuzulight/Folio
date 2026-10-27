@@ -25,6 +25,29 @@ public sealed class ServiceWorkerReentrancyTests
         Assert.Equal("TimeoutError", engine.Evaluate("result").AsString());
     }
 
+    [Fact]
+    public void ScriptErrorsFailValidationBeforeWorkerInstallation()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<p>service worker</p>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true },
+            ResourceLoader = new InvalidScriptLoader()
+        });
+        DomBindings.Install(engine, document);
+        engine.Evaluate("var result='pending';navigator.serviceWorker.register('/worker.js').then(()=>result='allowed',e=>result=e.name);");
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal("SyntaxError", engine.Evaluate("result").AsString());
+        Assert.True(engine.Evaluate("navigator.serviceWorker.controller === null").AsBoolean());
+    }
+
+    private sealed class InvalidScriptLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("throw new Error('invalid worker');"), "application/javascript"));
+    }
+
     private sealed class InfiniteLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
@@ -49,13 +72,15 @@ public sealed class ServiceWorkerReentrancyTests
             return ScriptValue.Undefined;
         });
         engine.SetGlobalProperty("hostControl", engine.CreateHostObject(bridge, new object()));
-        engine.Evaluate("var registration; navigator.serviceWorker.register('/worker.js').then(r=>registration=r);");
+        engine.Evaluate("var registration; var observedExecutions=0; navigator.serviceWorker.register('/worker.js').then(r=>{registration=r; r.active.onmessage=e=>observedExecutions=e.data; r.active.postMessage('probe');});");
         engine.PerformMicrotaskCheckpoint();
-        Assert.Equal(1, engine.Evaluate("executions").AsNumber());
+        engine.PerformMicrotaskCheckpoint();
+        Assert.Equal(1, engine.Evaluate("observedExecutions").AsNumber());
+        Assert.Equal("undefined", engine.Evaluate("typeof executions").AsString());
         engine.Evaluate("var result='pending';registration.onupdatefound=()=>hostControl.revoke();registration.update().then(()=>result='allowed',e=>result=e.name);");
         engine.PerformMicrotaskCheckpoint();
         Assert.Equal("InvalidStateError", engine.Evaluate("result").AsString());
-        Assert.Equal(1, engine.Evaluate("executions").AsNumber());
+        Assert.Equal(1, engine.Evaluate("observedExecutions").AsNumber());
         Assert.True(engine.Evaluate("navigator.serviceWorker.controller === null").AsBoolean());
     }
 
@@ -75,7 +100,7 @@ public sealed class ServiceWorkerReentrancyTests
         engine.Evaluate("var response='pending';registration.active._dispatchFetch(new Request('https://worker.example/data')).then(()=>response='allowed',e=>response=e.name);");
         DomBindings.UpdateCapabilities(engine, FeatureCapabilities.Default);
         DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { ServiceWorkers = true });
-        engine.Evaluate("finishResponse(new Response('old'));");
+        engine.Evaluate("try { registration.active.postMessage('finish'); } catch (e) { response=e.name; }");
         engine.PerformMicrotaskCheckpoint();
         Assert.Equal("InvalidStateError", engine.Evaluate("response").AsString());
     }
@@ -86,8 +111,8 @@ public sealed class ServiceWorkerReentrancyTests
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
         {
             var script = ++_loads == 1
-                ? "globalThis.executions=1;self.onfetch=e=>e.respondWith(new Promise(resolve=>globalThis.finishResponse=resolve));"
-                : "globalThis.executions+=100;";
+                ? "var executions=1;self.onmessage=e=>{if(e.data==='probe')self.postMessage(executions);if(e.data==='finish'&&finishResponse)finishResponse(new Response('old'));};self.onfetch=e=>e.respondWith(new Promise(resolve=>finishResponse=resolve));"
+                : "var executions=100;self.onmessage=e=>{if(e.data==='probe')self.postMessage(executions);};";
             return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes(script), "application/javascript"));
         }
     }

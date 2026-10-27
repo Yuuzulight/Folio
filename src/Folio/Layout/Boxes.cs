@@ -111,7 +111,9 @@ internal sealed class ReplacedBox(ComputedStyle style, Node node, ReplacedKind k
         ? (image.Width / Density, image.Height / Density)
         : Poster is Imaging.DecodedImage posterImage ? (posterImage.Width, posterImage.Height)
         : Kind == ReplacedKind.Media && Node is ElementNode { MediaPresentation: { } media }
-            ? media.Poster is { } poster ? (poster.Width, poster.Height) : (300, 150)
+            ? Node is ElementNode { LocalName: "audio" } && !media.Controls
+                ? (0, 0)
+                : media.Poster is { } poster ? (poster.Width, poster.Height) : (300, 150)
             : null;
 
     /// <summary>For an img showing an SVG image: the root svg element of its own, styled document.</summary>

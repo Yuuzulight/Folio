@@ -14,7 +14,6 @@ public sealed class CanvasFrameStore : IDisposable
     public CanvasFrameStore(string path, int width, int height, int stride)
     {
         if (!IsValidDescriptor(width, height, stride)) throw new ArgumentOutOfRangeException();
-        Path = path;
         Width = width;
         Height = height;
         Stride = stride;
@@ -61,7 +60,6 @@ public sealed class CanvasFrameStore : IDisposable
         catch (OverflowException) { return false; }
     }
 
-    public string Path { get; }
     public int Width { get; }
     public int Height { get; }
     public int Stride { get; }

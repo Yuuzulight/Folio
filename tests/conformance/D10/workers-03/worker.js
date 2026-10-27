@@ -1,0 +1,1 @@
+onmessage = function () { postMessage("sorted"); };

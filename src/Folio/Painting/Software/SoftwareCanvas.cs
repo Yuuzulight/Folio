@@ -213,19 +213,58 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // ---- text ----
 
-    private static readonly ConditionalWeakTable<FontFace, Dictionary<ushort, PathData?>> Outlines = new();
+    // Keep the native outline cache bounded per font.  The cache is shared by canvases for
+    // the same face, but a face can be released as soon as the font itself is no longer
+    // reachable through the ConditionalWeakTable.  Eight MiB is the documented default
+    // backend glyph-cache budget; entries are evicted least-recently-used when a font's
+    // parsed outlines exceed that budget.
+    private const long OutlineCacheBudget = 8L * 1024 * 1024;
+    private sealed class OutlineCache
+    {
+        private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
+        private readonly LinkedList<ushort> _lru = [];
+        private long _bytes;
+
+        public PathData? Get(FontFace face, ushort glyph)
+        {
+            lock (_entries)
+            {
+                if (_entries.TryGetValue(glyph, out var cached))
+                {
+                    _lru.Remove(cached.Node);
+                    cached.Node = _lru.AddFirst(glyph);
+                    _entries[glyph] = cached;
+                    return cached.Path;
+                }
+
+                var path = GlyphOutlines.Get(face, glyph);
+                var bytes = Estimate(path);
+                var node = _lru.AddFirst(glyph);
+                _entries[glyph] = (path, bytes, node);
+                _bytes += bytes;
+                while (_bytes > OutlineCacheBudget && _lru.Last is { } last)
+                {
+                    var evictedGlyph = last.Value;
+                    _lru.RemoveLast();
+                    if (_entries.Remove(evictedGlyph, out var evicted))
+                        _bytes -= evicted.Bytes;
+                }
+                return path;
+            }
+        }
+
+        private static long Estimate(PathData? path) => path is null
+            ? 128
+            : 256L + path.Commands.Count * 64L;
+    }
+
+    private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
 
     private PathData? Outline(IFontHandle font, ushort glyph)
     {
         if (font is not FontFace face)
             return null;
-        var cache = Outlines.GetOrCreateValue(face);
-        lock (cache)
-        {
-            if (!cache.TryGetValue(glyph, out var path))
-                cache[glyph] = path = GlyphOutlines.Get(face, glyph);
-            return path;
-        }
+        return Outlines.GetOrCreateValue(face).Get(face, glyph);
     }
 
     // The outlines of a run, in the space the run is drawn in (y down), as subpaths.
@@ -266,14 +305,51 @@ internal sealed class SoftwareCanvas : ICanvas
 
     public void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
     {
-        if (font is FontFace colorFace && BitmapGlyphs.Has(colorFace))
+        if (font is FontFace colorFace && ColorGlyphs.Has(colorFace))
         {
-            DrawBitmapGlyphs(colorFace, size, glyphs, origins, paint);
+            DrawColorGlyphs(colorFace, size, glyphs, origins, paint);
+            return;
+        }
+        if (font is FontFace colorFace2 && BitmapGlyphs.Has(colorFace2))
+        {
+            DrawBitmapGlyphs(colorFace2, size, glyphs, origins, paint);
             return;
         }
         var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs, origins), _state.Transform);
         if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
             Draw(coverage, paint);
+    }
+
+    private void DrawColorGlyphs(FontFace face, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
+    {
+        var scale = size / face.UnitsPerEm;
+        var tolerance = FlattenTolerance / Math.Max(scale * Math.Max(Scale(), 1e-3f), 1e-6f);
+        for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
+        {
+            if (ColorGlyphs.Get(face, glyphs[i]) is not { } layers)
+                continue;
+            var origin = SnapToTextGrid(origins[i]);
+            foreach (var layer in layers)
+            {
+                if (Outline(face, layer.Glyph) is not { } path)
+                    continue;
+                var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(origin);
+                var subpaths = PathGeometry.Flatten(path, tolerance);
+                var points = new List<Subpath>(subpaths.Count);
+                foreach (var subpath in subpaths)
+                {
+                    var transformed = new Vector2[subpath.Points.Length];
+                    for (var k = 0; k < transformed.Length; k++)
+                        transformed[k] = Vector2.Transform(subpath.Points[k], matrix);
+                    points.Add(new Subpath(transformed, subpath.Closed));
+                }
+                if (Rasterizer.Fill(PathGeometry.Polygons(points, _state.Transform), FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
+                {
+                    var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A };
+                    Draw(coverage, new Paint(colour, Blend: paint.Blend));
+                }
+            }
+        }
     }
 
     // Colour glyphs that are pictures: each bitmap scaled from its strike's size to the text's, placed by its bearings.

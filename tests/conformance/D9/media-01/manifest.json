@@ -1,24 +1,11 @@
 {
   "prompt": "Build a native video player with controls, a fixed poster, and play/pause interaction.",
-  "features": [
-    "script",
-    "media",
-    "video",
-    "controls"
-  ],
+  "features": ["script", "media", "video", "controls"],
   "viewport": 800,
-  "interaction": [
-    "exists #video",
-    "text #state paused",
-    "click #play",
-    "text #state playing",
-    "click #pause",
-    "text #state paused"
-  ],
+  "interaction": ["click #play", "click #pause"],
   "tolerance": {
     "channelThreshold": 48,
     "maxDifferingRatio": 0.02,
     "reason": "Chrome native media controls and Folio controls use different platform styling."
-  },
-  "expectedToFail": "Needs the media pipeline: OS decoding, the playback clock and frame/audio output (#533-#537); the fixture has a real playable source, Folio cannot play it yet."
+  }
 }

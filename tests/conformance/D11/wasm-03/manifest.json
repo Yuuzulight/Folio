@@ -1,1 +1,1 @@
-{"viewport":800,"prompt":"Wasm game loop using a small WebAssembly module.","features":["script","webassembly","canvas"]}
+{"viewport":800,"prompt":"Wasm game loop using a small WebAssembly module.","interaction":["wait 50","text #status Wasm game loop ready"],"features":["script","webassembly","canvas"]}

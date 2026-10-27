@@ -1,12 +1,16 @@
 using Folio.Scripting;
 using Folio.Scripting.Ipc;
+using Folio.Scripting.Native;
 using Folio.ContentHost;
 
 var framePath = Environment.GetEnvironmentVariable("FOLIO_CONTENT_FRAME_PATH")
     ?? Path.Combine(Path.GetTempPath(), $"folio-frame-{Environment.ProcessId}.bin");
 using var frameStore = new CanvasFrameStore(framePath, 1280, 720, 1280 * 4);
 await using var session = new ContentHostSession(Console.OpenStandardInput(), Console.OpenStandardOutput());
-using var runtime = new ContentDocumentRuntime(session, frameStore);
+Func<IScriptEngine>? engineFactory = string.Equals(Environment.GetEnvironmentVariable("FOLIO_SCRIPT_ENGINE"), "native", StringComparison.OrdinalIgnoreCase)
+    ? static () => new NativeJavaScriptEngine()
+    : null;
+using var runtime = new ContentDocumentRuntime(session, frameStore, engineFactory);
 
 session.MessageReceived += async (message, cancellationToken) =>
 {
@@ -21,19 +25,9 @@ session.MessageReceived += async (message, cancellationToken) =>
         await session.SendAsync(ContentMessageKind.Capabilities, new { sequence = message.Sequence, capabilities = runtime.Capabilities, accepted }, cancellationToken);
         return;
     }
-    if (message.Kind == ContentMessageKind.Input)
+    if (message.Kind == ContentMessageKind.MediaCaptureActivity)
     {
-        if (message.TryGetInput(out var input) && input is not null)
-        {
-            try
-            {
-                await runtime.RouteInputAsync(input, message.Sequence, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                await session.SendAsync(ContentMessageKind.Diagnostic, new { sequence = message.Sequence, code = "Input", message = exception.Message }, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        runtime.ApplyMediaCaptureActivity(message);
         return;
     }
     if (message.Kind != ContentMessageKind.Load) return;
@@ -48,7 +42,6 @@ session.MessageReceived += async (message, cancellationToken) =>
             canvasCommands = result.CanvasCommands,
             diagnostics = result.Diagnostics,
             appliedCapabilities = runtime.Capabilities,
-            displayList = result.DisplayList,
             canvasFrame = new { path = framePath, width = frameStore.Width, height = frameStore.Height, stride = frameStore.Stride, sequence = frameStore.Sequence }
         }, cancellationToken);
     }

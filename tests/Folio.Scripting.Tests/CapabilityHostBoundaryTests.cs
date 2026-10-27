@@ -2,6 +2,7 @@ using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Tests;
 
+[Collection("Content process round trips")]
 public sealed class CapabilityHostBoundaryTests
 {
     [Theory]

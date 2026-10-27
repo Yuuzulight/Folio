@@ -72,7 +72,7 @@ public static class HeadlessRenderer
             throw new ArgumentOutOfRangeException(nameof(request), "DeviceScale must be above 0 and at most 8.");
 
         var layoutHeight = request.ViewportHeight ?? Math.Max(1, request.ViewportWidth * 3 / 4);
-        var (list, documentHeight) = document.Paint(request.ViewportWidth, layoutHeight, request.DeviceScale, new HarfBuzzShaper(),
+        var (list, documentHeight) = document.Paint(request.ViewportWidth, layoutHeight, request.DeviceScale, new HybridShaper(),
             request.AnimationTime?.TotalSeconds);
         var diagnostics = document.Diagnostics.ToList();
 
@@ -89,7 +89,7 @@ public static class HeadlessRenderer
         using (var canvas = new SKCanvas(bitmap))
         {
             // The canvas behind the page: white, or near-black when the host asks for the dark scheme.
-            canvas.Clear(document.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
+            canvas.Clear(document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
             canvas.Scale(request.DeviceScale);
             DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, request.Text == TextAntialiasing.Subpixel),
                 new RectF(0, 0, pixelWidth / request.DeviceScale, pixelHeight / request.DeviceScale));

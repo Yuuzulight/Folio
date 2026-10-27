@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Collections.Concurrent;
+
 namespace Folio.Painting.Software;
 
 /// <summary>
@@ -8,6 +11,8 @@ namespace Folio.Painting.Software;
 internal static class GaussianBlur
 {
     private const float BoxThreshold = 2.0f;
+    private static readonly ConcurrentDictionary<(int SigmaBits, int Radius), float[]> Kernels = new();
+    private static readonly object KernelGate = new();
 
     public static byte[] Apply(byte[] source, int width, int height, int channels, float sigmaX, float sigmaY)
     {
@@ -26,37 +31,67 @@ internal static class GaussianBlur
         var stride = horizontal ? channels : width * channels; // distance between samples along a line
         var lineStride = horizontal ? width * channels : channels; // distance between lines
         var output = new byte[source.Length];
-        var line = new float[length];
-        var result = new float[length];
-
-        for (var l = 0; l < lines; l++)
+        var pool = ArrayPool<float>.Shared;
+        var line = pool.Rent(length);
+        var result = pool.Rent(length);
+        var scratchA = pool.Rent(length);
+        var scratchB = pool.Rent(length);
+        var radius = sigma < BoxThreshold ? Math.Max(1, (int)MathF.Ceiling(sigma * 3)) : 0;
+        var kernel = radius == 0 ? [] : GetKernel(sigma, radius);
+        try
         {
-            for (var c = 0; c < channels; c++)
+            for (var l = 0; l < lines; l++)
             {
-                var start = l * lineStride + c;
-                var any = false;
-                for (var i = 0; i < length; i++)
+                for (var c = 0; c < channels; c++)
                 {
-                    var v = source[start + i * stride];
-                    line[i] = v;
-                    any |= v != 0;
+                    var start = l * lineStride + c;
+                    var any = false;
+                    for (var i = 0; i < length; i++)
+                    {
+                        var v = source[start + i * stride];
+                        line[i] = v;
+                        any |= v != 0;
+                    }
+                    if (!any)
+                        continue;
+                    if (sigma < BoxThreshold)
+                        Kernel(line, result, length, kernel, radius);
+                    else
+                        Boxes(line, result, scratchA, scratchB, length, sigma);
+                    for (var i = 0; i < length; i++)
+                        output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
                 }
-                if (!any)
-                    continue;
-                if (sigma < BoxThreshold)
-                    Kernel(line, result, sigma);
-                else
-                    Boxes(line, result, sigma);
-                for (var i = 0; i < length; i++)
-                    output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
             }
+        }
+        finally
+        {
+            pool.Return(line);
+            pool.Return(result);
+            pool.Return(scratchA);
+            pool.Return(scratchB);
         }
         return output;
     }
 
-    private static void Kernel(float[] input, float[] output, float sigma)
+    private static float[] GetKernel(float sigma, int radius)
     {
-        var radius = Math.Max(1, (int)MathF.Ceiling(sigma * 3));
+        var key = (BitConverter.SingleToInt32Bits(sigma), radius);
+        if (Kernels.TryGetValue(key, out var kernel))
+            return kernel;
+        lock (KernelGate)
+        {
+            if (Kernels.TryGetValue(key, out kernel))
+                return kernel;
+            if (Kernels.Count >= 64)
+                Kernels.Clear();
+            kernel = KernelWeights(sigma, radius);
+            Kernels[key] = kernel;
+            return kernel;
+        }
+    }
+
+    private static float[] KernelWeights(float sigma, int radius)
+    {
         var kernel = new float[2 * radius + 1];
         var sum = 0f;
         for (var i = -radius; i <= radius; i++)
@@ -66,7 +101,11 @@ internal static class GaussianBlur
         }
         for (var i = 0; i < kernel.Length; i++)
             kernel[i] /= sum;
-        var length = input.Length;
+        return kernel;
+    }
+
+    private static void Kernel(float[] input, float[] output, int length, float[] kernel, int radius)
+    {
         for (var x = 0; x < length; x++)
         {
             var total = 0f;
@@ -80,31 +119,30 @@ internal static class GaussianBlur
         }
     }
 
-    private static void Boxes(float[] input, float[] output, float sigma)
+    private static void Boxes(float[] input, float[] output, float[] scratchA, float[] scratchB, int length, float sigma)
     {
         var d = (int)MathF.Floor(sigma * 3 * MathF.Sqrt(2 * MathF.PI) / 4 + 0.5f);
-        var length = input.Length;
-        var a = (float[])input.Clone();
-        var b = new float[length];
+        var a = scratchA;
+        var b = scratchB;
+        input.CopyTo(a, 0);
         if (d % 2 == 1)
         {
-            Box(a, b, d, d / 2);
-            Box(b, a, d, d / 2);
-            Box(a, output, d, d / 2);
+            Box(a, b, length, d, d / 2);
+            Box(b, a, length, d, d / 2);
+            Box(a, output, length, d, d / 2);
         }
         else
         {
             // Two boxes offset to either side of the pixel, then one one wider, centred.
-            Box(a, b, d, d / 2);
-            Box(b, a, d, d / 2 - 1);
-            Box(a, output, d + 1, d / 2);
+            Box(a, b, length, d, d / 2);
+            Box(b, a, length, d, d / 2 - 1);
+            Box(a, output, length, d + 1, d / 2);
         }
     }
 
     // A box of the given size whose first pixel is `before` pixels before the one being computed.
-    private static void Box(float[] input, float[] output, int size, int before)
+    private static void Box(float[] input, float[] output, int length, int size, int before)
     {
-        var length = input.Length;
         var window = 0f;
         var scale = 1f / size;
         for (var i = -before; i < size - before; i++)

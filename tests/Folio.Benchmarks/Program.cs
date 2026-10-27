@@ -21,8 +21,10 @@ public static class Program
             return Cold();
         if (args is ["gpu"])
             return GpuProcessBenchmark.RunAsync().GetAwaiter().GetResult();
-        if (args is ["scripted", .. var sRest])
-            return ScriptedProcessBenchmark.RunAsync(sRest).GetAwaiter().GetResult();
+        if (args is ["wasm", .. var wasmRest])
+            return Wasm(wasmRest is [var n] ? Math.Max(1, int.Parse(n, CultureInfo.InvariantCulture)) : 5);
+        if (args is ["media", .. var mediaRest])
+            return MediaFrameBenchmark.Run(mediaRest is [var n] ? Math.Max(30, int.Parse(n, CultureInfo.InvariantCulture)) : 120);
         if (args is ["gc", .. var gcRest])
             return Gc(gcRest is [var n] ? Math.Max(3, int.Parse(n, CultureInfo.InvariantCulture)) : 7);
 
@@ -81,12 +83,6 @@ public static class Program
             table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| {width}x{height} | {Ms(skia)} | {Ms(software)} | {software / skia:0.0}x |"));
         }
 
-        table.AppendLine().AppendLine("Display list IPC frame size (issue #476): serialised display list bytes across the process pipe.")
-            .AppendLine().AppendLine("| Artifact | Display Items | Initial Frame KB | Subsequent Frame KB | Deduplicated Ratio |").AppendLine("|---|--:|--:|--:|--:|");
-        var (initBytes, subBytes, itemCount) = FrameBenchmark.MeasureIpcFrameSize();
-        var ratio = subBytes > 0 ? (float)initBytes / subBytes : 1f;
-        table.AppendLine(string.Create(CultureInfo.InvariantCulture, $"| typical dashboard | {itemCount} | {initBytes / 1024.0:0.0} | {subBytes / 1024.0:0.0} | {ratio:0.0}x |"));
-
         Console.WriteLine(table);
         foreach (var warning in warnings)
             Console.WriteLine($"::warning::{warning}"); // A GitHub Actions annotation; plain text elsewhere.
@@ -119,6 +115,13 @@ public static class Program
                 $"| {name} | {Ms(m.Layout)} | {Ms(m.Pause)} | {m.Gen0} | {m.Gen1} | {m.Gen2} | {Mb(m.Allocated)} |"));
         }
         Console.WriteLine(table);
+        return 0;
+    }
+
+    private static int Wasm(int repetitions)
+    {
+        var result = WebAssemblyBenchmark.Measure(repetitions);
+        Console.WriteLine($"Native WebAssembly module cache, cold {Ms(result.Cold)} ms, warm median {Ms(result.Warm)} ms, cached modules {result.CachedModules}.");
         return 0;
     }
 

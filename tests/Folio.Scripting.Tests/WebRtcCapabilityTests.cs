@@ -1,6 +1,7 @@
 using Folio.Dom;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Native;
 
 namespace Folio.Scripting.Tests;
 
@@ -79,6 +80,29 @@ public sealed class WebRtcCapabilityTests
         fixture.Engine.PerformMicrotaskCheckpoint();
         Assert.True(fixture.Engine.Evaluate("statsHas").AsBoolean());
         Assert.True(fixture.Engine.Evaluate("statsCount >= 2").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeEngineLoopbackPeerNegotiationDeliversData()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html></html>", new Folio.FolioOptions { Capabilities = new Folio.FeatureCapabilities { WebRtc = true } });
+        DomBindings.Install(engine, document);
+        var context = new DomContext(engine, document.Node, capabilities: new Folio.FeatureCapabilities { WebRtc = true }, maxWebRtcConnections: 2);
+        using var state = WebRtcBindings.Install(engine, context);
+        engine.Evaluate("var a=new RTCPeerConnection(), b=new RTCPeerConnection(); var got=''; b.ondatachannel=function(e){ e.channel.onmessage=function(x){ got=x.data; }; }; a.setLocalDescription({type:'offer',sdp:''}); b.setRemoteDescription({type:'offer',sdp:''}); b.setLocalDescription({type:'answer',sdp:''}); a.setRemoteDescription({type:'answer',sdp:''}); var ch=a.createDataChannel('chat'); ch.send('hello');");
+        Assert.Equal("hello", engine.Evaluate("got").AsString());
+    }
+
+    [Fact]
+    public void OffersContainAStableSessionDescription()
+    {
+        using var fixture = new Fixture(true, 1);
+        fixture.Engine.Evaluate("var peer=new RTCPeerConnection();peer.createDataChannel('chat');var offerSdp='';peer.createOffer().then(o=>offerSdp=o.sdp);");
+        fixture.Engine.PerformMicrotaskCheckpoint();
+        var sdp = fixture.Engine.Evaluate("offerSdp").AsString();
+        Assert.Contains("v=0", sdp);
+        Assert.Contains("m=application", sdp);
     }
 
     [Fact]

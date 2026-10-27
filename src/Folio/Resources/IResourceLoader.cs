@@ -1,5 +1,11 @@
 namespace Folio.Resources;
 
+/// <summary>Optional document-owned interception for resources before the host loader is consulted.</summary>
+public interface IResourceInterceptor
+{
+    ResourceResponse? Intercept(ResourceRequest request);
+}
+
 /// <summary>
 /// Fetches the resources a document asks for beyond <c>data:</c> URLs, which Folio decodes itself; the host decides
 /// what is allowed (docs/study/16-resources-and-security.md, option B). Set one on <see cref="FolioOptions.ResourceLoader"/>;

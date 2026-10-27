@@ -12,6 +12,27 @@ public sealed class EngineLifetimeCollection;
 public sealed class ScriptEngineLifetimeTests
 {
     [Fact]
+    public void ReconfiguredEngineDoesNotRetainGeneratedWrappersFromTheRetiredRealm()
+    {
+        using var engine = new JintScriptEngine();
+        var target = new object();
+        var retired = RetireGeneratedWrapperRealm(engine, target);
+        AssertCollected(retired);
+        GC.KeepAlive(target);
+        GC.KeepAlive(engine);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference RetireGeneratedWrapperRealm(JintScriptEngine engine, object target)
+    {
+        var template = new HostObjectTemplate("OpaqueTestObject");
+        _ = WebIdlConversions.WrapHostObject(engine, template, target);
+        var retired = new WeakReference(engine.Evaluate("globalThis").Raw!);
+        engine.Configure(ScriptLimits.Default);
+        return retired;
+    }
+
+    [Fact]
     public void LiveDocumentDoesNotKeepIndividuallyTerminatedWorkersInItsRegistry()
     {
         using var engine = new JintScriptEngine();

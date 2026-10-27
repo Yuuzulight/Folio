@@ -1,1 +1,1 @@
-<!doctype html><meta charset='utf-8'><title>Module worker</title><main><h1>Module worker</h1><p id="status">loading</p><script>const w=new Worker("data:text/javascript,postMessage(\"module ready\")",{type:"module"});w.onmessage=e=>status.textContent=e.data;</script></main>
+<!doctype html><meta charset='utf-8'><title>Module worker</title><main><h1>Module worker</h1><p id="status">loading</p><script>const status=document.getElementById("status");const w=new Worker("worker.js",{type:"module"});w.onmessage=e=>status.textContent=e.data;w.postMessage(0);</script></main>

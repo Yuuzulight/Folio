@@ -8,7 +8,7 @@ namespace Folio.Skia;
 public sealed class SkiaRasterBackend : IRasterBackend
 {
     // One shaper for all the canvases made here: it holds no state of its own.
-    private readonly HarfBuzzShaper _shaper = new();
+    private readonly HybridShaper _shaper = new();
 
     public Folio.Typography.ITextShaper? TextShaper => _shaper;
 
@@ -76,7 +76,7 @@ internal sealed class SkiaRasterSurface : IRasterSurface
         canvas.ResetMatrix();
         canvas.ClipRect(SKRect.Create(0, 0, Width, Height));
         using var paint = new SKPaint { BlendMode = SKBlendMode.Src };
-        canvas.DrawImage(image, x, y, SKSamplingOptions.Default, paint);
+        canvas.DrawImage(image, x, y, new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None), paint);
         canvas.Restore();
     }
 

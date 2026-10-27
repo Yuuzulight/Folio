@@ -1,6 +1,3 @@
-using Folio.Scripting;
-using Folio.Scripting.Dom;
-using Folio.Scripting.Jint;
 using Folio.Skia;
 
 namespace Folio.RenderTests;
@@ -24,7 +21,7 @@ public static class SoftwareRender
         var surface = new Folio.Painting.SoftwareRasterSurface(pixelWidth, pixelHeight);
         var canvas = surface.Canvas;
         canvas.FillRoundedRect(new Folio.Painting.RoundedRect(new Folio.Painting.RectF(0, 0, pixelWidth, pixelHeight), default),
-            document.ColorScheme == ColorScheme.Dark ? new Folio.Painting.Paint(new Folio.Painting.Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1)) : new Folio.Painting.Paint(new Folio.Painting.Rgba(1, 1, 1, 1)));
+            document.Options.ColorScheme == ColorScheme.Dark ? new Folio.Painting.Paint(new Folio.Painting.Rgba(18 / 255f, 18 / 255f, 18 / 255f, 1)) : new Folio.Painting.Paint(new Folio.Painting.Rgba(1, 1, 1, 1)));
         canvas.Transform(System.Numerics.Matrix3x2.CreateScale(request.DeviceScale));
         Folio.Painting.DisplayListPlayer.Replay(list, canvas, new Folio.Painting.RectF(0, 0, pixelWidth / request.DeviceScale, pixelHeight / request.DeviceScale));
         // Premultiplied RGBA to premultiplied BGRA.
@@ -37,32 +34,8 @@ public static class SoftwareRender
     /// <summary>A test page in an 800x600 viewport, by the software backend.</summary>
     public static PixelBuffer RenderPage(string htmlPath)
     {
-        var html = File.ReadAllText(htmlPath);
-        using var document = Document.Parse(html, TestRenderer.Options);
-        JintScriptEngine? engine = null;
-        HtmlEventLoop? loop = null;
-        ScriptRunner? runner = null;
-        try
-        {
-            if (html.Contains("<script", StringComparison.OrdinalIgnoreCase))
-            {
-                engine = new JintScriptEngine();
-                loop = new HtmlEventLoop(engine);
-                DomBindings.Install(engine, document, eventLoop: loop);
-                ScriptGlobalsInstaller.Install(loop, engine);
-                runner = new ScriptRunner(document.Node, engine, loop, TestRenderer.Options);
-                runner.Run();
-                loop.PerformMicrotaskCheckpoint();
-                loop.UpdateTheRendering();
-            }
-            var (width, height, pixels, _) = Pixels(document, new RenderRequest(800, 600), software: true);
-            return new PixelBuffer(width, height, pixels);
-        }
-        finally
-        {
-            runner?.Dispose();
-            loop?.Dispose();
-            engine?.Dispose();
-        }
+        using var document = Document.Parse(File.ReadAllText(htmlPath), TestRenderer.Options);
+        var (width, height, pixels, _) = Pixels(document, new RenderRequest(800, 600), software: true);
+        return new PixelBuffer(width, height, pixels);
     }
 }

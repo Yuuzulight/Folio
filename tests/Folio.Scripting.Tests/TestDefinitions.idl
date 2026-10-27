@@ -28,3 +28,24 @@ interface TestElement : TestNode {
     long compute(long x, long y);
     void reset();
 };
+
+dictionary ConversionOptions {
+    required long requiredValue;
+    DOMString label = "fallback";
+};
+
+interface ConversionProbe {
+    readonly attribute long? changing;
+    [SameObject] readonly attribute ConversionProbe first;
+    [SameObject] readonly attribute ConversionProbe second;
+    ConversionProbe echo(ConversionProbe value);
+    long consumeOptions(ConversionOptions options);
+    ConversionOptions echoOptions(ConversionOptions options);
+    boolean consumeBoolean(boolean value);
+    sequence<float> consumeFloats(Float32List values);
+    BufferSource consumeBuffer(BufferSource value);
+    Float32Array consumeFloat32(Float32Array value);
+    long upload(unsigned long target, long size, unsigned long usage);
+    long upload(unsigned long target, BufferSource? data, unsigned long usage);
+    long requiredOptional(long requiredValue, optional long optionalValue = 7);
+};

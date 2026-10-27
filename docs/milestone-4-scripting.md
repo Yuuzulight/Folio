@@ -8,4 +8,4 @@ Conformance interaction scripts support click, hover, typing, keyboard, wheel, t
 
 The WinForms host attaches a `ContentProcessClient`, forwards scripted HTML loads, and shows a visible "Script stopped" notice when limits or the watchdog terminate execution. Display-list and input payloads are versioned and carried over the same transport; the host's static display list remains the authoritative paint path for the initial frame while scripted updates arrive through the content-process channel.
 
-Milestone 4 is complete. The implementation is covered by the scripting, core, render-conformance, process-host, sandbox, and IPC fuzz checks documented in the repository test commands.
+Milestone 4 is complete. The 2026-10-26 verification refresh passes D1 2/2, 116 focused scripting/process tests, and 4 focused WinForms watchdog/lifecycle tests. The IPC fuzz target completed 503,085 mutations with zero failures. The implementation is covered by the scripting, core, render-conformance, process-host, sandbox, and IPC fuzz checks documented in the repository test commands.

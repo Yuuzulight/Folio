@@ -45,18 +45,6 @@ internal static class WindowsContentLauncher
     internal static WindowsContentLaunch Start(string executablePath, string? arguments, ContentProcessLimits limits, string framePath)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
-        if (Environment.GetEnvironmentVariable("FOLIO_UNSANDBOXED") == "1")
-        {
-            var targetExe = ResolveExecutable(executablePath);
-            var isDll = Path.GetExtension(targetExe).Equals(".dll", StringComparison.OrdinalIgnoreCase);
-            var (fn, args) = isDll ? (ResolveDotnet(), $"{Quote(targetExe)}{(string.IsNullOrWhiteSpace(arguments) ? "" : $" {arguments}")}") : (targetExe, arguments ?? "");
-            var psi = new ProcessStartInfo(fn, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            psi.Environment["FOLIO_CONTENT_FRAME_PATH"] = framePath;
-            var proc = Process.Start(psi) ?? throw new InvalidOperationException("Unable to start the content process.");
-            WindowsJobObject? j = null;
-            try { j = WindowsJobObject.Attach(proc, limits); } catch { }
-            return new WindowsContentLaunch { Process = proc, Input = proc.StandardInput.BaseStream, Output = proc.StandardOutput.BaseStream, Error = proc.StandardError.BaseStream, Job = j, Security = new FallbackDisposable() };
-        }
         var executable = ResolveExecutable(executablePath);
         var isAssembly = Path.GetExtension(executable).Equals(".dll", StringComparison.OrdinalIgnoreCase);
         var isDotnet = Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
@@ -199,7 +187,6 @@ internal static class WindowsContentLauncher
         if (!CreatePipe(out var read, out var write, ref security, 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe failed.");
         child = read; parent = write; return parent;
     }
-    private sealed class FallbackDisposable : IDisposable { public void Dispose() { } }
     private static void SetInherit(SafeFileHandle handle, bool inherit) { if (!SetHandleInformation(handle, HandleFlagInherit, inherit ? HandleFlagInherit : 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "SetHandleInformation failed."); }
 
     private const uint ExtendedStartup = 0x00080000, Suspended = 0x00000004, UnicodeEnvironment = 0x00000400, NoWindow = 0x08000000, UseStdHandles = 0x100;
@@ -257,16 +244,11 @@ internal sealed class AppContainerSecurity : IDisposable
             GrantTraverse(sidObject, Path.GetDirectoryName(framePath)!, paths);
             GrantFile(sidObject, framePath, paths);
             SetLowIntegrityLabel(framePath);
-            GrantWindowStationAndDesktop(sidObject);
             return new AppContainerSecurity(name, sid, sidObject, paths);
         }
         catch
         {
-            if (sidObject is not null)
-            {
-                RevokeWindowStationAndDesktop(sidObject);
-                foreach (var path in paths) TryRemove(sidObject, path);
-            }
+            if (sidObject is not null) foreach (var path in paths) TryRemove(sidObject, path);
             var deleteResult = DeleteAppContainerProfile(name);
             if (deleteResult != 0) Trace.TraceWarning($"Content AppContainer profile cleanup failed (HRESULT 0x{deleteResult:X8}).");
             if (sid != IntPtr.Zero) FreeSid(sid);
@@ -285,7 +267,6 @@ internal sealed class AppContainerSecurity : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        RevokeWindowStationAndDesktop(Sid);
         foreach (var path in _aclPaths) TryRemove(Sid, path);
         if (AppContainerSid != IntPtr.Zero) FreeSid(AppContainerSid);
         var deleteResult = DeleteAppContainerProfile(_name);
@@ -302,7 +283,7 @@ internal sealed class AppContainerSecurity : IDisposable
     {
         try
         {
-            var packages = new SecurityIdentifier("S-1-15-2-2");
+            var packages = new SecurityIdentifier("S-1-15-2-1");
             return new DirectoryInfo(path).GetAccessControl().GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>()
                 .Any(rule => rule.IdentityReference.Equals(packages) && rule.AccessControlType == AccessControlType.Allow && (rule.FileSystemRights & FileSystemRights.ReadAndExecute) == FileSystemRights.ReadAndExecute);
         }
@@ -395,84 +376,6 @@ internal sealed class AppContainerSecurity : IDisposable
     private const uint MutexModifyState = 0x0001, Synchronize = 0x00100000, WaitObject0 = 0, WaitAbandoned = 0x00000080;
     [DllImport("ole32.dll")] private static extern void CoTaskMemFree(IntPtr pointer);
     [StructLayout(LayoutKind.Sequential)] private struct SidAndAttributes { public IntPtr Sid; public uint Attributes; }
-    private static void GrantWindowStationAndDesktop(SecurityIdentifier sid)
-    {
-        try
-        {
-            GrantHandle(GetProcessWindowStation(), sid, 1 /* GRANT_ACCESS */);
-            GrantHandle(GetThreadDesktop(GetCurrentThreadId()), sid, 1 /* GRANT_ACCESS */);
-        }
-        catch (Exception error) { Trace.TraceWarning($"Content window station grant failed: {error.Message}"); }
-    }
-
-    private static void RevokeWindowStationAndDesktop(SecurityIdentifier sid)
-    {
-        try
-        {
-            GrantHandle(GetProcessWindowStation(), sid, 3 /* REVOKE_ACCESS */);
-            GrantHandle(GetThreadDesktop(GetCurrentThreadId()), sid, 3 /* REVOKE_ACCESS */);
-        }
-        catch (Exception error) { Trace.TraceWarning($"Content window station revoke failed: {error.Message}"); }
-    }
-
-    private static void GrantHandle(IntPtr handle, SecurityIdentifier sid, int accessMode)
-    {
-        if (handle == IntPtr.Zero) return;
-        uint err = GetSecurityInfo(handle, 7 /* SE_WINDOW_OBJECT */, 4 /* DACL_SECURITY_INFORMATION */, out _, out _, out var oldDacl, out _, out _);
-        if (err != 0) return;
-
-        var sidBytes = new byte[sid.BinaryLength];
-        sid.GetBinaryForm(sidBytes, 0);
-        var pSid = Marshal.AllocHGlobal(sidBytes.Length);
-        try
-        {
-            Marshal.Copy(sidBytes, 0, pSid, sidBytes.Length);
-            var ea = new ExplicitAccess
-            {
-                Permissions = 0x10000000, // GENERIC_ALL
-                Mode = accessMode,
-                Inheritance = 3, // CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE
-                Trustee = new Trustee
-                {
-                    Form = 0, // TRUSTEE_IS_SID
-                    Type = 0, // TRUSTEE_IS_UNKNOWN
-                    Name = pSid
-                }
-            };
-            if (SetEntriesInAcl(1, ref ea, oldDacl, out var newDacl) == 0 && newDacl != IntPtr.Zero)
-            {
-                try { SetSecurityInfo(handle, 7, 4, IntPtr.Zero, IntPtr.Zero, newDacl, IntPtr.Zero); }
-                finally { LocalFree(newDacl); }
-            }
-        }
-        finally { Marshal.FreeHGlobal(pSid); }
-    }
-
-    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetProcessWindowStation();
-    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetThreadDesktop(uint threadId);
-    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
-    [DllImport("advapi32.dll", SetLastError = true)] private static extern uint GetSecurityInfo(IntPtr handle, int objectType, int securityInfo, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
-    [DllImport("advapi32.dll", SetLastError = true)] private static extern uint SetSecurityInfo(IntPtr handle, int objectType, int securityInfo, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
-    [DllImport("advapi32.dll", SetLastError = true)] private static extern uint SetEntriesInAcl(int count, ref ExplicitAccess list, IntPtr oldAcl, out IntPtr newAcl);
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private struct ExplicitAccess
-    {
-        public uint Permissions;
-        public int Mode;
-        public uint Inheritance;
-        public Trustee Trustee;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private struct Trustee
-    {
-        public IntPtr MultipleTrustee;
-        public int MultipleTrusteeOperation;
-        public int Form;
-        public int Type;
-        public IntPtr Name;
-    }
 }
 
 internal sealed class ProcAttributes : IDisposable

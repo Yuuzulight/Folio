@@ -148,4 +148,10 @@ internal sealed record GlyphRun(Typography.IFontHandle Font, float Size, ushort[
 internal sealed class DisplayList
 {
     public List<DisplayItem> Items { get; } = [];
+
+    // Replay metadata is immutable for the lifetime of a list. Keeping the scan result here avoids walking every
+    // item and rebuilding layer bounds on every animation, hover, or scroll repaint.
+    internal RectF[]? ItemBoundsCache { get; set; }
+    internal bool LayerBoundsChecked { get; set; }
+    internal RectF?[]? LayerBoundsCache { get; set; }
 }

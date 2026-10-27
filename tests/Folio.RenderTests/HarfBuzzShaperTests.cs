@@ -13,6 +13,12 @@ public class HarfBuzzShaperTests
 
     private static FontFace BoxFace => Fonts.Value.Match("Folio Box", FaceStyle.Normal, 400, 100)!;
 
+    [Fact]
+    public void SkiaProductionBackendSelectsTheHybridShaper()
+    {
+        Assert.IsType<HybridShaper>(new SkiaRasterBackend().TextShaper);
+    }
+
     // The study's differential check: same glyphs, clusters and advances (kerning included). The box font kerns with a
     // kern table, the text font with GPOS pair adjustment (text without ligatures).
     [Theory]
@@ -43,6 +49,143 @@ public class HarfBuzzShaperTests
             }
             return result;
         }
+    }
+
+    [Theory]
+    [InlineData("Folio Box", "The quick brown fox, 1234!")]
+    [InlineData("Source Sans 3", "To Vila Nova, AVATAR Tokyo")]
+    public void HybridShaperSelectsTheFolioPathWithoutChangingSimpleRuns(string family, string text)
+    {
+        var face = Fonts.Value.Match(family, FaceStyle.Normal, 400, 100)!;
+        var expected = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: false, language: null);
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+        Assert.Equal(expected.Advances, actual.Advances);
+        Assert.All(actual.Offsets, offset => Assert.Equal(System.Numerics.Vector2.Zero, offset));
+    }
+
+    [Fact]
+    public void HybridShaperRetainsHarfBuzzForCombiningText()
+    {
+        var face = Fonts.Value.Match("Source Sans 3", FaceStyle.Normal, 400, 100)!;
+        var hybrid = new HybridShaper().Shape("e\u0301", 0, 2, face, 16, rightToLeft: false, language: null);
+        var complex = new HarfBuzzShaper().Shape("e\u0301", 0, 2, face, 16, rightToLeft: false, language: null);
+
+        Assert.Equal(complex.Glyphs, hybrid.Glyphs);
+        Assert.Equal(complex.Clusters, hybrid.Clusters);
+        Assert.Equal(complex.Advances, hybrid.Advances);
+    }
+
+    [Fact]
+    public void HebrewBaseRunsUseTheFolioPathWhenDifferentialParityIsProven()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var text = "שלום";
+        Assert.True(SimpleShaper.CanShape(text, face));
+        var simple = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        Assert.Equal(simple.Glyphs, actual.Glyphs);
+        Assert.Equal(simple.Clusters, actual.Clusters);
+        Assert.Equal(simple.Advances, actual.Advances);
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+    }
+
+    [Fact]
+    public void HybridShaperUsesFolioMarkAnchorsForHebrewNiqqud()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var text = "שָ";
+        Assert.True(SimpleShaper.CanShape(text, face));
+        var direct = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        Assert.Equal(oracle.Glyphs, direct.Glyphs);
+        Assert.Equal(oracle.Clusters, direct.Clusters);
+        Assert.Equal(oracle.Advances, direct.Advances);
+        Assert.Equal(oracle.Offsets.Length, direct.Offsets?.Length ?? 0);
+        var hybrid = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        Assert.Equal(oracle.Glyphs, hybrid.Glyphs);
+        Assert.Equal(oracle.Clusters, hybrid.Clusters);
+        Assert.Equal(oracle.Advances, hybrid.Advances);
+        for (var i = 0; i < oracle.Offsets.Length; i++)
+        {
+            Assert.Equal(oracle.Offsets[i].X, hybrid.Offsets[i].X, 2);
+            Assert.Equal(oracle.Offsets[i].Y, hybrid.Offsets[i].Y, 2);
+        }
+    }
+
+    [Fact]
+    public void ComplexShaperUsesFolioMarkAnchorsForHebrewNiqqud()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var text = "שָ";
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Fact]
+    public void ComplexShaperMatchesHebrewMultipleMarkOrdering()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var text = "שָׁ";
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Fact]
+    public void ComplexShaperUsesArabicMarkAnchorsForIsolatedTashkeel()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var text = "سَ";
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Fact]
+    public void ComplexShaperMatchesArabicRequiredContextualForms()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var direct = face.Substitute(new ushort[] { 37, 70, 9, 74 }, "rlig", "arab");
+        Assert.Equal(new ushort[] { 37, 71, 11, 74 }, direct);
+        foreach (var text in new[] { "سلام", "لا", "لم" })
+        {
+            var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+            Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        }
+    }
+
+    [Fact]
+    public void MultipleHebrewMarksRemainOnTheComplexFallback()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var text = "שָׁ";
+        Assert.False(SimpleShaper.CanShape(text, face));
+        var hybrid = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        Assert.Equal(oracle.Glyphs, hybrid.Glyphs);
+        Assert.Equal(oracle.Clusters, hybrid.Clusters);
+        Assert.Equal(oracle.Advances, hybrid.Advances);
+        Assert.Equal(oracle.Offsets, hybrid.Offsets);
     }
 
     // font-variant-numeric asks for figure features: the text font's default figures are tabular, and pnum swaps in

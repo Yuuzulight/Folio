@@ -6,6 +6,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
 using Folio.Scripting;
 
 namespace Folio.Scripting.Bindings;
@@ -23,14 +25,57 @@ public class PointOptions
     public double Y { get; set; } = 0.0;
     public string Label { get; set; } = "default";
 
-    public static PointOptions FromScriptValue(ScriptValue value)
+    public static PointOptions FromScriptValue(IScriptEngine? engine, ScriptValue value)
     {
         var dict = new PointOptions();
         if (value.IsNullOrUndefined) return dict;
-        // Member: x
-        // Member: y
-        // Member: label
+        WebIdlConversions.RequireObject(value, "dictionary");
+        var actualEngine = WebIdlConversions.RequireEngine(engine);
+        var memberVal_X = actualEngine.GetProperty(value, "x");
+        if (memberVal_X.IsUndefined) throw WebIdlException.TypeError("Missing required dictionary member 'x'");
+        if (!memberVal_X.IsUndefined) dict.X = WebIdlConversions.ToDouble(engine, memberVal_X);
+        var memberVal_Y = actualEngine.GetProperty(value, "y");
+        dict.Y = memberVal_Y.IsUndefined ? 0.0 : WebIdlConversions.ToDouble(engine, memberVal_Y);
+        var memberVal_Label = actualEngine.GetProperty(value, "label");
+        dict.Label = memberVal_Label.IsUndefined ? "default" : WebIdlConversions.ToDOMString(engine, memberVal_Label);
         return dict;
+    }
+
+    public ScriptValue ToScriptValue(IScriptEngine? engine)
+    {
+        var properties = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
+        properties["x"] = ScriptValue.FromNumber(X);
+        properties["y"] = ScriptValue.FromNumber(Y);
+        properties["label"] = ScriptValue.FromString(Label);
+        return WebIdlConversions.RequireEngine(engine).CreatePlainObject(properties);
+    }
+}
+
+public class ConversionOptions
+{
+    public int RequiredValue { get; set; }
+    public string Label { get; set; } = "fallback";
+
+    public static ConversionOptions FromScriptValue(IScriptEngine? engine, ScriptValue value)
+    {
+        var dict = new ConversionOptions();
+        if (value.IsNullOrUndefined) return dict;
+        WebIdlConversions.RequireObject(value, "dictionary");
+        var actualEngine = WebIdlConversions.RequireEngine(engine);
+        var memberVal_RequiredValue = actualEngine.GetProperty(value, "requiredValue");
+        if (memberVal_RequiredValue.IsUndefined) throw WebIdlException.TypeError("Missing required dictionary member 'requiredValue'");
+        if (!memberVal_RequiredValue.IsUndefined) dict.RequiredValue = WebIdlConversions.ToInt32(engine, memberVal_RequiredValue, enforceRange: false, clamp: false);
+        var memberVal_Label = actualEngine.GetProperty(value, "label");
+        dict.Label = memberVal_Label.IsUndefined ? "fallback" : WebIdlConversions.ToDOMString(engine, memberVal_Label);
+        return dict;
+    }
+
+    public ScriptValue ToScriptValue(IScriptEngine? engine)
+    {
+        var properties = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
+        properties["requiredValue"] = ScriptValue.FromNumber(RequiredValue);
+        properties["label"] = ScriptValue.FromString(Label);
+        return WebIdlConversions.RequireEngine(engine).CreatePlainObject(properties);
     }
 }
 
@@ -43,15 +88,32 @@ public interface ITestNodeTarget
 
 public static class TestNodeBinding
 {
-    public static HostObjectTemplate CreateTemplate(IHostObjectTemplate? proto = null)
+    public static ScriptValue CreateObject(IScriptEngine engine, ITestNodeTarget target) => WebIdlConversions.WrapHostObject(engine, CreateTemplate(engine), target);
+    public static HostObjectTemplate CreateTemplate(IHostObjectTemplate? proto = null) => CreateTemplate(null, proto);
+    public static HostObjectTemplate CreateTemplate(IScriptEngine? engine, IHostObjectTemplate? proto = null)
+    {
+        if (engine is not null && proto is null) return WebIdlConversions.GetOrCreateTemplate(engine, "TestNode", () => CreateTemplateCore(engine, null));
+        return CreateTemplateCore(engine, proto);
+    }
+    private static HostObjectTemplate CreateTemplateCore(IScriptEngine? engine, IHostObjectTemplate? proto)
     {
         var template = new HostObjectTemplate("TestNode", proto);
         template.DefineProperty("ELEMENT_NODE", (target, thisVal) => ScriptValue.FromNumber(1));
         template.DefineProperty("nodeName",
-            (target, thisVal) => ScriptValue.FromString((( ITestNodeTarget )target).NodeName));
+            (target, thisVal) =>
+            {
+                if (target is not ITestNodeTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.NodeName;
+                return ScriptValue.FromString(result);
+            });
         template.DefineProperty("textContent",
-            (target, thisVal) => ScriptValue.FromString((( ITestNodeTarget )target).TextContent),
-            (target, thisVal, val) => (( ITestNodeTarget )target).TextContent = val.IsNullOrUndefined ? null : WebIdlConversions.ToDOMString(val));
+            (target, thisVal) =>
+            {
+                if (target is not ITestNodeTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.TextContent;
+                return result is null ? ScriptValue.Null : ScriptValue.FromString(result);
+            },
+            (target, thisVal, val) => (( ITestNodeTarget )target).TextContent = val.IsNullOrUndefined ? (string?)null : WebIdlConversions.ToDOMString(engine, val));
         return template;
     }
 }
@@ -71,33 +133,67 @@ public interface ITestElementTarget : ITestNodeTarget
 
 public static class TestElementBinding
 {
-    public static HostObjectTemplate CreateTemplate(IHostObjectTemplate? proto = null)
+    public static ScriptValue CreateObject(IScriptEngine engine, ITestElementTarget target) => WebIdlConversions.WrapHostObject(engine, CreateTemplate(engine), target);
+    public static HostObjectTemplate CreateTemplate(IHostObjectTemplate? proto = null) => CreateTemplate(null, proto);
+    public static HostObjectTemplate CreateTemplate(IScriptEngine? engine, IHostObjectTemplate? proto = null)
     {
+        if (engine is not null && proto is null) return WebIdlConversions.GetOrCreateTemplate(engine, "TestElement", () => CreateTemplateCore(engine, null));
+        return CreateTemplateCore(engine, proto);
+    }
+    private static HostObjectTemplate CreateTemplateCore(IScriptEngine? engine, IHostObjectTemplate? proto)
+    {
+        proto ??= TestNodeBinding.CreateTemplate(engine);
         var template = new HostObjectTemplate("TestElement", proto);
         template.DefineProperty("active",
-            (target, thisVal) => ScriptValue.FromBoolean((( ITestElementTarget )target).Active),
-            (target, thisVal, val) => (( ITestElementTarget )target).Active = WebIdlConversions.ToBoolean(val));
+            (target, thisVal) =>
+            {
+                if (target is not ITestElementTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.Active;
+                return ScriptValue.FromBoolean(result);
+            },
+            (target, thisVal, val) => (( ITestElementTarget )target).Active = WebIdlConversions.ToBoolean(engine, val));
         template.DefineProperty("score",
-            (target, thisVal) => ScriptValue.FromNumber((( ITestElementTarget )target).Score),
-            (target, thisVal, val) => (( ITestElementTarget )target).Score = WebIdlConversions.ToDouble(val));
+            (target, thisVal) =>
+            {
+                if (target is not ITestElementTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.Score;
+                return ScriptValue.FromNumber(result);
+            },
+            (target, thisVal, val) => (( ITestElementTarget )target).Score = WebIdlConversions.ToDouble(engine, val));
         template.DefineProperty("priority",
-            (target, thisVal) => ScriptValue.FromNumber((( ITestElementTarget )target).Priority),
-            (target, thisVal, val) => (( ITestElementTarget )target).Priority = WebIdlConversions.ToInt32(val, enforceRange: true, clamp: false));
+            (target, thisVal) =>
+            {
+                if (target is not ITestElementTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.Priority;
+                return ScriptValue.FromNumber(result);
+            },
+            (target, thisVal, val) => (( ITestElementTarget )target).Priority = WebIdlConversions.ToInt32(engine, val, enforceRange: true, clamp: false));
         template.DefineProperty("level",
-            (target, thisVal) => ScriptValue.FromNumber((( ITestElementTarget )target).Level),
-            (target, thisVal, val) => (( ITestElementTarget )target).Level = WebIdlConversions.ToUint8(val, enforceRange: false, clamp: true));
+            (target, thisVal) =>
+            {
+                if (target is not ITestElementTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.Level;
+                return ScriptValue.FromNumber(result);
+            },
+            (target, thisVal, val) => (( ITestElementTarget )target).Level = WebIdlConversions.ToUint8(engine, val, enforceRange: false, clamp: true));
         template.DefineProperty("unicodeText",
-            (target, thisVal) => ScriptValue.FromString((( ITestElementTarget )target).UnicodeText),
-            (target, thisVal, val) => (( ITestElementTarget )target).UnicodeText = WebIdlConversions.ToUSVString(val));
+            (target, thisVal) =>
+            {
+                if (target is not ITestElementTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.UnicodeText;
+                return ScriptValue.FromString(result);
+            },
+            (target, thisVal, val) => (( ITestElementTarget )target).UnicodeText = WebIdlConversions.ToUSVString(engine, val));
         template.DefineMethod("greet", (target, thisVal, args) =>
         {
             if (target is not ITestElementTarget typedTarget)
                 throw WebIdlException.TypeError("Illegal invocation");
 
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
             var raw_name = args.Length > 0 ? args[0] : ScriptValue.Undefined;
-            var arg_name = WebIdlConversions.ToDOMString(raw_name);
+            var arg_name = WebIdlConversions.ToDOMString(engine, raw_name);
             var raw_title = args.Length > 1 ? args[1] : ScriptValue.Undefined;
-            var arg_title = raw_title.IsUndefined ? "Mx." : WebIdlConversions.ToDOMString(raw_title);
+            var arg_title = raw_title.IsUndefined ? "Mx." : WebIdlConversions.ToDOMString(engine, raw_title);
             var result = typedTarget.Greet(arg_name, arg_title);
             return ScriptValue.FromString(result);
         });
@@ -106,35 +202,213 @@ public static class TestElementBinding
             if (target is not ITestElementTarget typedTarget)
                 throw WebIdlException.TypeError("Illegal invocation");
 
-            switch (args.Length)
+            if (args.Length >= 2)
             {
-                case 1:
-                {
-                    var raw_x = args.Length > 0 ? args[0] : ScriptValue.Undefined;
-                    var arg_x = WebIdlConversions.ToInt32(raw_x, enforceRange: false, clamp: false);
-                    var result = typedTarget.Compute(arg_x);
-                    return ScriptValue.FromNumber(result);
-                }
-                case 2:
-                {
-                    var raw_x = args.Length > 0 ? args[0] : ScriptValue.Undefined;
-                    var arg_x = WebIdlConversions.ToInt32(raw_x, enforceRange: false, clamp: false);
-                    var raw_y = args.Length > 1 ? args[1] : ScriptValue.Undefined;
-                    var arg_y = WebIdlConversions.ToInt32(raw_y, enforceRange: false, clamp: false);
-                    var result = typedTarget.Compute(arg_x, arg_y);
-                    return ScriptValue.FromNumber(result);
-                }
-                default:
-                    throw WebIdlException.TypeError("No matching overload found");
+                var raw_x = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+                var arg_x = WebIdlConversions.ToInt32(engine, raw_x, enforceRange: false, clamp: false);
+                var raw_y = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+                var arg_y = WebIdlConversions.ToInt32(engine, raw_y, enforceRange: false, clamp: false);
+                var result = typedTarget.Compute(arg_x, arg_y);
+                return ScriptValue.FromNumber(result);
             }
+            if (args.Length >= 1)
+            {
+                var raw_x = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+                var arg_x = WebIdlConversions.ToInt32(engine, raw_x, enforceRange: false, clamp: false);
+                var result = typedTarget.Compute(arg_x);
+                return ScriptValue.FromNumber(result);
+            }
+            throw WebIdlException.TypeError("No matching overload found");
         });
         template.DefineMethod("reset", (target, thisVal, args) =>
         {
             if (target is not ITestElementTarget typedTarget)
                 throw WebIdlException.TypeError("Illegal invocation");
 
+            if (args.Length < 0) throw WebIdlException.TypeError("Not enough arguments");
             typedTarget.Reset();
             return ScriptValue.Undefined;
+        });
+        return template;
+    }
+}
+
+public interface IConversionProbeTarget
+{
+    int? Changing { get; }
+    IConversionProbeTarget First { get; }
+    IConversionProbeTarget Second { get; }
+    IConversionProbeTarget Echo(IConversionProbeTarget value);
+    int ConsumeOptions(ConversionOptions options);
+    ConversionOptions EchoOptions(ConversionOptions options);
+    bool ConsumeBoolean(bool value);
+    IReadOnlyList<float> ConsumeFloats(IReadOnlyList<float> values);
+    ScriptBufferSource ConsumeBuffer(ScriptBufferSource value);
+    ScriptBufferSource ConsumeFloat32(ScriptBufferSource value);
+    int Upload(uint target, int size, uint usage);
+    int Upload(uint target, ScriptBufferSource? data, uint usage);
+    int RequiredOptional(int requiredValue, int optionalValue);
+}
+
+public static class ConversionProbeBinding
+{
+    public static ScriptValue CreateObject(IScriptEngine engine, IConversionProbeTarget target) => WebIdlConversions.WrapHostObject(engine, CreateTemplate(engine), target);
+    public static HostObjectTemplate CreateTemplate(IHostObjectTemplate? proto = null) => CreateTemplate(null, proto);
+    public static HostObjectTemplate CreateTemplate(IScriptEngine? engine, IHostObjectTemplate? proto = null)
+    {
+        if (engine is not null && proto is null) return WebIdlConversions.GetOrCreateTemplate(engine, "ConversionProbe", () => CreateTemplateCore(engine, null));
+        return CreateTemplateCore(engine, proto);
+    }
+    private static HostObjectTemplate CreateTemplateCore(IScriptEngine? engine, IHostObjectTemplate? proto)
+    {
+        var template = new HostObjectTemplate("ConversionProbe", proto);
+        var sameObjectCache_First = new ConditionalWeakTable<object, StrongBox<ScriptValue>>();
+        var sameObjectCache_Second = new ConditionalWeakTable<object, StrongBox<ScriptValue>>();
+        template.DefineProperty("changing",
+            (target, thisVal) =>
+            {
+                if (target is not IConversionProbeTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                var result = typedTarget.Changing;
+                return result.HasValue ? ScriptValue.FromNumber(result.Value) : ScriptValue.Null;
+            });
+        template.DefineProperty("first",
+            (target, thisVal) =>
+            {
+                if (target is not IConversionProbeTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                if (sameObjectCache_First.TryGetValue(target, out var cached)) return cached.Value;
+                var result = typedTarget.First;
+                var wrapped = engine is null ? throw WebIdlException.TypeError("An engine is required to wrap ConversionProbe") : WebIdlConversions.WrapHostObject(engine, ConversionProbeBinding.CreateTemplate(engine), result);
+                sameObjectCache_First.Add(target, new StrongBox<ScriptValue>(wrapped));
+                return wrapped;
+            });
+        template.DefineProperty("second",
+            (target, thisVal) =>
+            {
+                if (target is not IConversionProbeTarget typedTarget) throw WebIdlException.TypeError("Illegal invocation");
+                if (sameObjectCache_Second.TryGetValue(target, out var cached)) return cached.Value;
+                var result = typedTarget.Second;
+                var wrapped = engine is null ? throw WebIdlException.TypeError("An engine is required to wrap ConversionProbe") : WebIdlConversions.WrapHostObject(engine, ConversionProbeBinding.CreateTemplate(engine), result);
+                sameObjectCache_Second.Add(target, new StrongBox<ScriptValue>(wrapped));
+                return wrapped;
+            });
+        template.DefineMethod("echo", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_value = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_value = WebIdlConversions.UnwrapHostObject<IConversionProbeTarget>(engine, raw_value, "ConversionProbe");
+            var result = typedTarget.Echo(arg_value);
+            return engine is null ? throw WebIdlException.TypeError("An engine is required to wrap ConversionProbe") : WebIdlConversions.WrapHostObject(engine, ConversionProbeBinding.CreateTemplate(engine), result);
+        });
+        template.DefineMethod("consumeOptions", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_options = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_options = ConversionOptions.FromScriptValue(engine, raw_options);
+            var result = typedTarget.ConsumeOptions(arg_options);
+            return ScriptValue.FromNumber(result);
+        });
+        template.DefineMethod("echoOptions", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_options = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_options = ConversionOptions.FromScriptValue(engine, raw_options);
+            var result = typedTarget.EchoOptions(arg_options);
+            return result.ToScriptValue(engine);
+        });
+        template.DefineMethod("consumeBoolean", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_value = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_value = WebIdlConversions.ToBoolean(engine, raw_value);
+            var result = typedTarget.ConsumeBoolean(arg_value);
+            return ScriptValue.FromBoolean(result);
+        });
+        template.DefineMethod("consumeFloats", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_values = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_values = WebIdlConversions.ToSequence(engine, raw_values, item => WebIdlConversions.ToFloat(engine, item));
+            var result = typedTarget.ConsumeFloats(arg_values);
+            return WebIdlConversions.ToScriptSequence(engine, result, item => ScriptValue.FromNumber(item));
+        });
+        template.DefineMethod("consumeBuffer", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_value = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_value = WebIdlConversions.ToBufferSource(engine, raw_value);
+            var result = typedTarget.ConsumeBuffer(arg_value);
+            return result.Value;
+        });
+        template.DefineMethod("consumeFloat32", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_value = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_value = WebIdlConversions.ToBufferSource(engine, raw_value, allowArrayBuffer: false, requiredKind: ScriptBufferSourceKind.Float32);
+            var result = typedTarget.ConsumeFloat32(arg_value);
+            return result.Value;
+        });
+        template.DefineMethod("upload", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length >= 3 && !args[1].IsNullOrUndefined && (engine is null || !engine.TryGetBufferSourceInfo(args[1], out _)))
+            {
+                var raw_target = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+                var arg_target = WebIdlConversions.ToUint32(engine, raw_target, enforceRange: false, clamp: false);
+                var raw_size = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+                var arg_size = WebIdlConversions.ToInt32(engine, raw_size, enforceRange: false, clamp: false);
+                var raw_usage = args.Length > 2 ? args[2] : ScriptValue.Undefined;
+                var arg_usage = WebIdlConversions.ToUint32(engine, raw_usage, enforceRange: false, clamp: false);
+                var result = typedTarget.Upload(arg_target, arg_size, arg_usage);
+                return ScriptValue.FromNumber(result);
+            }
+            if (args.Length >= 3 && args[1].IsNullOrUndefined || (engine is not null && engine.TryGetBufferSourceInfo(args[1], out _)))
+            {
+                var raw_target = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+                var arg_target = WebIdlConversions.ToUint32(engine, raw_target, enforceRange: false, clamp: false);
+                var raw_data = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+                var arg_data = raw_data.IsNullOrUndefined ? (ScriptBufferSource?)null : WebIdlConversions.ToBufferSource(engine, raw_data);
+                var raw_usage = args.Length > 2 ? args[2] : ScriptValue.Undefined;
+                var arg_usage = WebIdlConversions.ToUint32(engine, raw_usage, enforceRange: false, clamp: false);
+                var result = typedTarget.Upload(arg_target, arg_data, arg_usage);
+                return ScriptValue.FromNumber(result);
+            }
+            throw WebIdlException.TypeError("No matching overload found");
+        });
+        template.DefineMethod("requiredOptional", (target, thisVal, args) =>
+        {
+            if (target is not IConversionProbeTarget typedTarget)
+                throw WebIdlException.TypeError("Illegal invocation");
+
+            if (args.Length < 1) throw WebIdlException.TypeError("Not enough arguments");
+            var raw_requiredValue = args.Length > 0 ? args[0] : ScriptValue.Undefined;
+            var arg_requiredValue = WebIdlConversions.ToInt32(engine, raw_requiredValue, enforceRange: false, clamp: false);
+            var raw_optionalValue = args.Length > 1 ? args[1] : ScriptValue.Undefined;
+            var arg_optionalValue = raw_optionalValue.IsUndefined ? 7 : WebIdlConversions.ToInt32(engine, raw_optionalValue, enforceRange: false, clamp: false);
+            var result = typedTarget.RequiredOptional(arg_requiredValue, arg_optionalValue);
+            return ScriptValue.FromNumber(result);
         });
         return template;
     }

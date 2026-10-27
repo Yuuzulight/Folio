@@ -12,6 +12,7 @@ public sealed class FeatureFallbackPipelineTests
     [Fact]
     public void WebGlPermissionAndLossReachPaintAndAccessibilityThenRecover()
     {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "This pipeline case requires the Windows WebGL backend.");
         using var document = Document.Parse("<body style='margin:0'><canvas id='c' aria-label='Chart' width='260' height='90'></canvas>",
             new FolioOptions { Raster = new SkiaRasterBackend() });
         using var engine = new JintScriptEngine();
@@ -103,6 +104,7 @@ public sealed class FeatureFallbackPipelineTests
     [Fact]
     public void OversizedWebGlShowsLimitAndClearsWhenResized()
     {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "This pipeline case requires the Windows WebGL backend.");
         using var document = Document.Parse("<canvas id='c' width='20000' style='width:220px;height:80px'></canvas>",
             new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend() });
         using var engine = new JintScriptEngine();
@@ -237,6 +239,7 @@ public sealed class FeatureFallbackPipelineTests
         DomBindings.Install(engine, document);
         AssertFailure(document, "Video unavailable: unsupported format");
         engine.Evaluate("document.getElementById('v').src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='");
+        engine.Evaluate("document.getElementById('v').play()");
         AssertHealthy(document);
         var image = Assert.Single(document.DisplayList!.Items, item => item.Kind == DisplayItemKind.Image).Image!;
         Assert.Equal((1, 1), (image.Width, image.Height));

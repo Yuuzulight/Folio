@@ -415,32 +415,6 @@ internal static class DomEvents
             }
             tag(InputEvent, 'InputEvent');
 
-            class SubmitEvent extends Event {
-                constructor(type, init) {
-                    requireArgs(1, arguments.length, 'SubmitEvent', 'SubmitEvent');
-                    super(type, init);
-                    const dict = initDictionary(init, 'SubmitEvent');
-                    if (dict.submitter !== undefined && dict.submitter !== null && !isElement(dict.submitter))
-                        throw new TypeError("Failed to construct 'SubmitEvent': The provided value is not of type 'HTMLElement'.");
-                    eventState.get(this).submitter = dict.submitter === undefined ? null : dict.submitter;
-                }
-                get submitter() { return stateOf(this).submitter; }
-            }
-            tag(SubmitEvent, 'SubmitEvent');
-
-            class FormDataEvent extends Event {
-                constructor(type, init) {
-                    requireArgs(2, arguments.length, 'FormDataEvent', 'FormDataEvent');
-                    super(type, init);
-                    const dict = initDictionary(init, 'FormDataEvent');
-                    if (dict.formData === undefined || dict.formData === null || typeof FormData !== 'function' || !(dict.formData instanceof FormData))
-                        throw new TypeError("Failed to construct 'FormDataEvent': required member formData is undefined.");
-                    eventState.get(this).formData = dict.formData;
-                }
-                get formData() { return stateOf(this).formData; }
-            }
-            tag(FormDataEvent, 'FormDataEvent');
-
             class FocusEvent extends UIEvent {
                 constructor(type, init) {
                     requireArgs(1, arguments.length, 'FocusEvent', 'FocusEvent');
@@ -818,7 +792,7 @@ internal static class DomEvents
             const GLOBAL_HANDLER_NAMES = [
                 'abort', 'animationcancel', 'animationend', 'animationiteration', 'animationstart', 'auxclick',
                 'beforeinput', 'beforematch', 'beforetoggle', 'blur', 'cancel', 'canplay', 'canplaythrough', 'change',
-                'click', 'close', 'contextlost', 'contextmenu', 'contextrestored', 'copy', 'cuechange', 'cut',
+                'click', 'close', 'connect', 'contextlost', 'contextmenu', 'contextrestored', 'copy', 'cuechange', 'cut',
                 'dblclick', 'drag', 'dragend', 'dragenter', 'dragleave', 'dragover', 'dragstart', 'drop',
                 'durationchange', 'emptied', 'ended', 'error', 'focus', 'formdata', 'gotpointercapture', 'input',
                 'invalid', 'keydown', 'keypress', 'keyup', 'load', 'loadeddata', 'loadedmetadata', 'loadstart',
@@ -968,12 +942,15 @@ internal static class DomEvents
 
             function defineHandlerAccessors(proto, names) {
                 if (proto === undefined || proto === null) return;
-                for (const name of names) {
-                    Object.defineProperty(proto, 'on' + name, {
+                function accessorFor(name) {
+                    return {
                         get: function() { return getHandler(this, name); },
                         set: function(value) { setHandler(this, name, value); },
                         enumerable: true, configurable: true
-                    });
+                    };
+                }
+                for (const name of names) {
+                    Object.defineProperty(proto, 'on' + name, accessorFor(name));
                 }
             }
 
@@ -1017,7 +994,7 @@ internal static class DomEvents
             defineHandlerAccessors(global.Document && global.Document.prototype, GLOBAL_HANDLER_NAMES.concat(DOCUMENT_HANDLER_NAMES));
             defineHandlerAccessors(global.HTMLBodyElement && global.HTMLBodyElement.prototype, WINDOW_HANDLER_NAMES);
             defineHandlerAccessors(global, host.workerScope
-                ? ['error', 'languagechange', 'message', 'messageerror', 'offline', 'online', 'rejectionhandled', 'unhandledrejection', 'securitypolicyviolation']
+                ? ['connect', 'error', 'languagechange', 'message', 'messageerror', 'offline', 'online', 'rejectionhandled', 'unhandledrejection', 'securitypolicyviolation']
                 : GLOBAL_HANDLER_NAMES.concat(WINDOW_HANDLER_NAMES));
 
             // The window: a plain EventTarget whose methods are installed directly on the global object.
@@ -1095,7 +1072,7 @@ internal static class DomEvents
             }
 
             function createHostEvent(type, a) {
-                if (type === 'message' || type === 'messageerror') return new MessageEvent(type, a);
+                if (type === 'message' || type === 'messageerror' || type === 'connect') return new MessageEvent(type, a);
                 // a is array or object
                 const dict = Array.isArray(a) ? {
                     bubbles: !!a[0],
@@ -1211,16 +1188,6 @@ internal static class DomEvents
                     case 'beforeinput':
                         return new InputEvent(type, dict);
 
-                    case 'submit':
-                        dict.submitter = dict.relatedTarget === undefined || dict.relatedTarget === null ? null : dict.relatedTarget;
-                        return new SubmitEvent(type, dict);
-
-                    case 'change':
-                    case 'invalid':
-                    case 'reset':
-                    case 'select':
-                        return new Event(type, dict);
-
                     case 'focus':
                     case 'blur':
                     case 'focusin':
@@ -1270,7 +1237,7 @@ internal static class DomEvents
             defineGlobal('Event', Event);
             defineGlobal('CustomEvent', CustomEvent);
             defineGlobal('ErrorEvent', ErrorEvent);
-            defineGlobal('MessageEvent', MessageEvent);
+            if (host.workerScope) defineGlobal('MessageEvent', MessageEvent);
             if (!host.workerScope) {
                 defineGlobal('UIEvent', UIEvent);
                 defineGlobal('MouseEvent', MouseEvent);
@@ -1279,8 +1246,6 @@ internal static class DomEvents
                 defineGlobal('KeyboardEvent', KeyboardEvent);
                 defineGlobal('InputEvent', InputEvent);
                 defineGlobal('FocusEvent', FocusEvent);
-                defineGlobal('SubmitEvent', SubmitEvent);
-                defineGlobal('FormDataEvent', FormDataEvent);
                 defineGlobal('CompositionEvent', CompositionEvent);
             }
             defineGlobal('EventTarget', EventTarget);

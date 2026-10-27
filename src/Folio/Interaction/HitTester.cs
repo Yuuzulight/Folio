@@ -31,38 +31,25 @@ internal static class HitTester
     /// <param name="point">Page coordinates in CSS pixels.</param>
     /// <param name="deviceScale">The scale the page was painted at, whose device pixels box edges snapped to.</param>
     /// <param name="scrollOffsets">Scroll offsets of scroll containers by element node (CSSOM View / #421).</param>
-    public static HitResult? Hit(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
+    /// <param name="includeCaret">Whether to resolve a nearest text caret when the point is outside a text run. Pointer motion can skip this page-wide scan.</param>
+    public static HitResult? Hit(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null, Context? cachedRoot = null, bool includeCaret = true)
     {
-        if (PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { } root)
+        var root = cachedRoot ?? PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets);
+        if (root is null)
             return null;
         var visitor = new Visitor(point);
         PaintOrderWalker.Walk(root, visitor, frontToBack: true);
         if (visitor.Result is not { } hit)
             return null;
-        if (hit.Position is not null)
+        if (!includeCaret || hit.Position is not null)
             return hit;
         var snapped = SnapToNearestLineBox(initialContainingBlock, point);
         return snapped is not null ? hit with { Position = snapped } : hit;
     }
 
-    /// <summary>Every element under a point, topmost first (https://www.w3.org/TR/cssom-view-1/#dom-document-elementsfrompoint).</summary>
-    public static List<ElementNode> HitAll(Fragment initialContainingBlock, Vector2 point, float deviceScale = 1, IReadOnlyDictionary<ElementNode, Vector2>? scrollOffsets = null)
-    {
-        if (PaintOrderWalker.StackingTree(initialContainingBlock, deviceScale, scrollOffsets) is not { } root)
-            return [];
-        var visitor = new Visitor(point) { CollectAll = true };
-        PaintOrderWalker.Walk(root, visitor, frontToBack: true);
-        return visitor.All;
-    }
-
     private sealed class Visitor(Vector2 point) : IPaintVisitor
     {
         public HitResult? Result { get; private set; }
-
-        /// <summary>Keep going after the first hit, collecting every element in <see cref="All"/>.</summary>
-        public bool CollectAll { get; init; }
-
-        public List<ElementNode> All { get; } = [];
 
         // The point in the current context's coordinates, and the clip its owner sits under: the clips from there up
         // were tested outside the context's transform, so its boxes test only the ones below.
@@ -72,7 +59,7 @@ internal static class HitTester
 
         public bool BeginContext(Context context)
         {
-            if (Result is not null && !CollectAll)
+            if (Result is not null)
                 return false;
             var owner = context.Real ? context.Owner : null;
             var transform = owner is { Box.IsTransformed: true } ? PaintOrderWalker.Transform(owner) : (Matrix4x4?)null;
@@ -118,7 +105,7 @@ internal static class HitTester
 
         private void Test(PaintBox box, RoundedRect shape, ComputedStyle style, Box? inline = null)
         {
-            if ((Result is not null && !CollectAll) || style.Inherited.Visibility != Visibility.Visible || style.Ui.PointerEvents == PointerEvents.None
+            if (Result is not null || style.Inherited.Visibility != Visibility.Visible || style.Ui.PointerEvents == PointerEvents.None
                 || !Contains(shape, _point) || !InClips(box.Clip))
                 return;
             // An anonymous box belongs to the element its nearest named ancestor box is for.
@@ -126,12 +113,6 @@ internal static class HitTester
             {
                 if (owner.Node is ElementNode element)
                 {
-                    if (CollectAll)
-                    {
-                        if (!All.Contains(element))
-                            All.Add(element);
-                        return;
-                    }
                     var local = _point - new Vector2(box.X, box.Y);
                     TextPosition? position = null;
                     if (box.Fragment.Kind == FragmentKind.Text && box.Fragment.Text is { } textRun)

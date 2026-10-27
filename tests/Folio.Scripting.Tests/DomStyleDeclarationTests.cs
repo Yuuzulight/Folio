@@ -89,6 +89,34 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.skipWaiting(); self.clients.claim(); onmessage = function(e) { postMessage(e.data + 2); };"), "application/javascript"));
     }
 
+    private sealed class PersistentServiceWorkerLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            if (request.Kind == ResourceKind.Script)
+                return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { e.respondWith(Promise.resolve(new Response('from restored worker'))); });"), "application/javascript"));
+            return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("from host"), "text/plain"));
+        }
+    }
+
+    private sealed class ImageServiceWorkerLoader : IResourceLoader
+    {
+        private static readonly byte[] Png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==");
+        public List<ResourceRequest> Requests { get; } = [];
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            if (request.Kind == ResourceKind.Script)
+            {
+                var values = string.Join(',', Png);
+                var css = string.Join(',', Encoding.UTF8.GetBytes("body { color: rgb(1, 2, 3); }"));
+                var script = $"self.addEventListener('fetch', function(e) {{ var path = new URL(e.request.url).pathname; if (path === '/image.png') e.respondWith(Promise.resolve(new Response(new Uint8Array([{values}]), {{ headers: {{ 'content-type': 'image/png' }} }}))); if (path === '/worker.css') e.respondWith(Promise.resolve(new Response(new Uint8Array([{css}]), {{ headers: {{ 'content-type': 'text/css' }} }}))); }});";
+                return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes(script), "application/javascript"));
+            }
+            return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Png, "image/png"));
+        }
+    }
+
     private sealed class ImportingServiceWorkerResourceLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken)
@@ -120,6 +148,14 @@ public sealed class DomStyleDeclarationTests
             Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
                 ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { if (e.request.url.endsWith('/offline')) e.respondWith(new Response('from worker', { status: 200 })); });"), "application/javascript")
                 : ResourceResponse.Loaded(Encoding.UTF8.GetBytes("from host"), "text/plain"));
+    }
+
+    private sealed class ServiceWorkerMediaLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Script
+                ? ResourceResponse.Loaded(Encoding.UTF8.GetBytes("self.addEventListener('fetch', function(e) { if (new URL(e.request.url).pathname.endsWith('/clip.wav')) e.respondWith(new Response('media', { status: 200, headers: { 'content-type': 'audio/wav' } })); });"), "application/javascript")
+                : ResourceResponse.Refused("The host must not serve media directly in this regression."));
     }
 
     private sealed class MutableServiceWorkerLoader : IResourceLoader
@@ -199,6 +235,18 @@ public sealed class DomStyleDeclarationTests
     {
         public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
             video ? null : new MediaDecodeResult(0.25, null, new MediaAudioFrame(16000, 1, new float[] { 0.25f, -0.25f }));
+    }
+
+    private sealed class RecordingMediaDecoder : IMediaDecoder
+    {
+        public int Calls { get; private set; }
+        public string? ContentType { get; private set; }
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes)
+        {
+            Calls++;
+            ContentType = contentType;
+            return video ? null : new MediaDecodeResult(0.25, null, new MediaAudioFrame(16000, 1, new float[] { 0.25f, -0.25f }));
+        }
     }
 
     [Fact]
@@ -282,116 +330,48 @@ public sealed class DomStyleDeclarationTests
     public void WebGlContextIsCapabilityGatedAndTracksBoundedState()
     {
         using var denied = new JintScriptEngine();
-        var deniedDocument = Document.Parse("<canvas id='c'></canvas>");
+        using var deniedDocument = Document.Parse("<canvas id='c'></canvas>");
         DomBindings.Install(denied, deniedDocument);
         Assert.True(denied.Evaluate("document.getElementById('c').getContext('webgl2') === null").AsBoolean());
 
         using var allowed = new JintScriptEngine();
-        var allowedDocument = Document.Parse("<canvas id='c'></canvas>", new FolioOptions
+        using var allowedDocument = Document.Parse("<canvas id='c' width='4' height='4'></canvas>", new FolioOptions
         {
             Capabilities = new FeatureCapabilities { WebGl = true },
             Raster = new Folio.Skia.SkiaRasterBackend(),
+            Limits = ResourceLimits.Default with { MaxGpuBytes = 2048 },
         });
         DomBindings.Install(allowed, allowedDocument);
-        Assert.True(allowed.Evaluate("const gl = document.getElementById('c').getContext('webgl2'); gl !== null && gl.ARRAY_BUFFER === 34962").AsBoolean());
-        Assert.True(allowed.Evaluate("const webgl1 = document.getElementById('c').getContext('webgl'); webgl1 !== null && webgl1.getParameter(webgl1.VERSION).includes('WebGL')").AsBoolean());
-        Assert.True(allowed.Evaluate("const glAgain = document.getElementById('c').getContext('webgl2'); glAgain.getParameter(glAgain.VERSION) === 'WebGL 2.0 Folio'").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.drawingBufferWidth === 300 && gl.drawingBufferHeight === 150 && gl.getContextAttributes().depth === true").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.viewport(1, 2, 120, 80); const vp = gl.getParameter(gl.VIEWPORT); gl.scissor(3, 4, 50, 60); const sc = gl.getParameter(gl.SCISSOR_BOX); const precision = gl.getShaderPrecisionFormat(gl.VERTEX_SHADER, gl.HIGH_FLOAT); vp[0] === 1 && vp[3] === 80 && sc[2] === 50 && precision.precision === 23").AsBoolean());
-        Assert.Equal(0, allowed.Evaluate("gl.enable(gl.DEPTH_TEST); gl.clearDepth(0.5); gl.depthFunc(gl.LEQUAL); gl.clear(gl.DEPTH_BUFFER_BIT); gl.getError()").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD); gl.getError()").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.enable(gl.STENCIL_TEST); gl.stencilFunc(0x0207, 1, 0xff); gl.stencilOp(0x1e00, 0x1e00, 0x1e00); gl.clearStencil(0); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("gl.getParameter(gl.MAX_TEXTURE_SIZE) === 4096 && gl.getParameter(gl.VERSION).includes('WebGL 2.0') && gl.getSupportedExtensions()[0] === 'WEBGL_lose_context'").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.drawBuffers([gl.BACK]); gl.readBuffer(gl.BACK); gl.getParameter(gl.MAX_DRAW_BUFFERS) === 4 && gl.getParameter(gl.DRAW_BUFFER0) === gl.BACK && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.isSync(sync) && gl.clientWaitSync(sync, 0, 0) === gl.CONDITION_SATISFIED; gl.deleteSync(sync); !gl.isSync(sync)").AsBoolean());
-        Assert.True(allowed.Evaluate("const query = gl.createQuery(); gl.beginQuery(gl.ANY_SAMPLES_PASSED, query); gl.endQuery(gl.ANY_SAMPLES_PASSED); gl.isQuery(query) && gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE) && gl.getQueryParameter(query, gl.QUERY_RESULT) === 1; gl.deleteQuery(query); !gl.isQuery(query)").AsBoolean());
-        Assert.Equal(0, allowed.Evaluate("const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, 32, gl.STATIC_DRAW); gl.getError()").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER, 4, 8); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("const readback = new Uint8Array(4); gl.getBufferSubData(gl.ARRAY_BUFFER, 4, readback); gl.getError() === 0 && readback[0] === 0").AsBoolean());
-        Assert.Equal(0x0501, allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER, 30, 8); gl.getError()").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("const typed = new Float32Array(4); gl.bufferData(gl.ARRAY_BUFFER, typed, gl.STATIC_DRAW); gl.getError()").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("const tex = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER) === gl.LINEAR ? gl.getError() : 0x0500").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(16)); gl.generateMipmap(gl.TEXTURE_2D); const texels = new Uint8Array([9, 8, 7, 6]); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, texels); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(16)); gl.getTexLevelParameter(gl.TEXTURE_2D, 0, gl.TEXTURE_WIDTH) === 2 && gl.getTexLevelParameter(gl.TEXTURE_2D, 0, gl.TEXTURE_HEIGHT) === 2 && gl.getTexLevelParameter(gl.TEXTURE_2D, 0, gl.TEXTURE_INTERNAL_FORMAT) === gl.RGBA").AsBoolean());
-        Assert.Equal(0x0502, allowed.Evaluate("gl.deleteBuffer(b); gl.bufferData(gl.ARRAY_BUFFER, 4, gl.STATIC_DRAW); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("const s = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(s, 'void main(){}'); gl.compileShader(s); gl.getShaderParameter(s, gl.COMPILE_STATUS)").AsBoolean());
-        Assert.Equal("void main(){}", allowed.Evaluate("gl.getShaderSource(s)").AsString());
-        Assert.Equal(0, allowed.Evaluate("const ds = gl.createShader(gl.VERTEX_SHADER); gl.deleteShader(ds); const dp = gl.createProgram(); gl.deleteProgram(dp); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("const checkBuffer = gl.createBuffer(); gl.isBuffer(checkBuffer) && (gl.deleteBuffer(checkBuffer), !gl.isBuffer(checkBuffer))").AsBoolean());
-        Assert.True(allowed.Evaluate("const vao = gl.createVertexArray(); gl.bindVertexArray(vao); gl.isVertexArray(vao) && (gl.deleteVertexArray(vao), !gl.isVertexArray(vao))").AsBoolean());
-        Assert.True(allowed.Evaluate("const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs, 'attribute vec3 a_position; uniform float u_value; void main(){ gl_Position = vec4(a_position * u_value, 1.0); }'); gl.compileShader(vs); const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs, 'void main(){}'); gl.compileShader(fs); const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog); gl.getProgramParameter(prog, gl.LINK_STATUS)").AsBoolean());
-        Assert.True(allowed.Evaluate("const attached = gl.getAttachedShaders(prog); attached.length === 2 && attached[0] === vs && attached[1] === fs").AsBoolean());
-        Assert.Equal("", allowed.Evaluate("gl.getShaderInfoLog(vs) + gl.getProgramInfoLog(prog)").AsString());
-        Assert.True(allowed.Evaluate("gl.useProgram(prog); const loc = gl.getAttribLocation(prog, 'a_position'); const uniform = gl.getUniformLocation(prog, 'u_value'); const vertices = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vertices); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(9), gl.STATIC_DRAW); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0); const indices = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2]), gl.STATIC_DRAW); gl.uniform1f(uniform, 1); loc === 0 && uniform !== null && gl.getUniform(prog, uniform) === 1 && gl.getUniformLocation(prog, 'nope') === null && gl.getAttribLocation(prog, 'nope') === -1 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_ENABLED) && gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_SIZE) === 3 && gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_TYPE) === gl.FLOAT; gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0); gl.getError() === 0").AsBoolean());
-        Assert.Equal(0, allowed.Evaluate("gl.drawArrays(gl.TRIANGLES, 0, 3); gl.getError()").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.vertexAttribDivisor(loc, 2); gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_DIVISOR) === 2 && (gl.drawArraysInstanced(gl.TRIANGLES, 0, 3, 2), gl.drawElementsInstanced(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0, 2), gl.getError())").AsNumber());
-        Assert.True(allowed.Evaluate("const bad = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(bad, 'precision mediump float;'); gl.compileShader(bad); !gl.getShaderParameter(bad, gl.COMPILE_STATUS) && gl.getShaderInfoLog(bad).length > 0").AsBoolean());
-        Assert.True(allowed.Evaluate("const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])); const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); const p = new Uint8Array(16); gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, p); gl.getError() === 0 && p[0] === 1 && p[3] === 4").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.clearColor(0, 0.5, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); const cleared = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, cleared); cleared[0] === 0 && cleared[1] === 128 && cleared[2] === 255 && cleared[3] === 255 && gl.getError() === 0").AsBoolean());
-        Assert.Equal(0x0501, allowed.Evaluate("gl.readPixels(0, 0, -1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());
-        Assert.Equal(0x0501, allowed.Evaluate("gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());
-        Assert.Equal(0x0500, allowed.Evaluate("gl.readPixels(0, 0, 1, 1, 0x1907, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE && gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE) === gl.TEXTURE && gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME) === t").AsBoolean());
-        Assert.True(allowed.Evaluate("const rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, 1, 1); gl.getError() === 0 && gl.isRenderbuffer(rb)").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.getRenderbufferParameter(gl.RENDERBUFFER, gl.RENDERBUFFER_WIDTH) === 1 && gl.getRenderbufferParameter(gl.RENDERBUFFER, gl.RENDERBUFFER_HEIGHT) === 1 && gl.getRenderbufferParameter(gl.RENDERBUFFER, gl.RENDERBUFFER_INTERNAL_FORMAT) === gl.RGBA8").AsBoolean());
-        Assert.True(allowed.Evaluate("const rf = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, rf); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb); gl.getError() === 0 && gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE) === gl.RENDERBUFFER && gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME) === rb").AsBoolean());
-        Assert.True(allowed.Evaluate("const depth = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 1, 1); gl.bindFramebuffer(gl.FRAMEBUFFER, rf); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth); gl.getError() === 0 && gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE) === gl.RENDERBUFFER && gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME) === depth").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.clearDepth(0.25); gl.clear(gl.DEPTH_BUFFER_BIT); const depthPixels = new Float32Array(1); gl.readPixels(0, 0, 1, 1, gl.DEPTH_COMPONENT, gl.FLOAT, depthPixels); depthPixels[0] > 0.24 && depthPixels[0] < 0.26 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.depthMask(false); gl.clearDepth(0.75); gl.clear(gl.DEPTH_BUFFER_BIT); const maskedDepth = new Float32Array(1); gl.readPixels(0, 0, 1, 1, gl.DEPTH_COMPONENT, gl.FLOAT, maskedDepth); const depthMask = gl.getParameter(gl.DEPTH_WRITEMASK); gl.depthMask(true); maskedDepth[0] > 0.24 && maskedDepth[0] < 0.26 && !depthMask && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.bindFramebuffer(gl.FRAMEBUFFER, rf); gl.bindRenderbuffer(gl.RENDERBUFFER, depth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 4, 4); gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, 4, 4); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.SCISSOR_TEST); gl.scissor(1, 1, 2, 2); gl.clearColor(0, 1, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); const fboInside = new Uint8Array(4); const fboOutside = new Uint8Array(4); gl.readPixels(1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, fboInside); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, fboOutside); gl.disable(gl.SCISSOR_TEST); fboInside[1] > 200 && fboInside[0] < 20 && fboOutside[0] > 200 && fboOutside[1] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.deleteRenderbuffer(rb); !gl.isRenderbuffer(rb)").AsBoolean());
-        Assert.Equal(1, allowed.Evaluate("p[0]").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.getError()").AsNumber());
-        allowed.Evaluate("gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT); var screen = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, screen); true");
-        Assert.Equal(255, allowed.Evaluate("screen[0]").AsNumber());
-        Assert.InRange(allowed.Evaluate("screen[1]").AsNumber(), 63, 64);
-        Assert.Equal(0, allowed.Evaluate("screen[2]").AsNumber());
-        Assert.Equal(255, allowed.Evaluate("screen[3]").AsNumber());
-        Assert.Equal(0, allowed.Evaluate("gl.getError()").AsNumber());
-        Assert.True(allowed.Evaluate("const pvs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(pvs, 'attribute vec3 a_pos; void main(){ gl_Position = vec4(a_pos, 1.0); }'); gl.compileShader(pvs); const pfs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(pfs, 'precision mediump float; uniform vec4 u_color; void main(){ gl_FragColor = u_color; }'); gl.compileShader(pfs); const paint = gl.createProgram(); gl.attachShader(paint, pvs); gl.attachShader(paint, pfs); gl.linkProgram(paint); gl.useProgram(paint); const paintColor = gl.getUniformLocation(paint, 'u_color'); const tri = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, tri); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-0.8,-0.8,0, 0.8,-0.8,0, 0,0.8,0]), gl.STATIC_DRAW); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(0); gl.vertexAttribDivisor(0, 0); gl.uniform4f(paintColor, 0, 1, 0, 1); gl.drawArrays(gl.TRIANGLES, 0, 3); const drawn = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, drawn); drawn[1] > 200 && drawn[0] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("const elements = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, elements); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2]), gl.STATIC_DRAW); gl.uniform4f(paintColor, 0, 0, 1, 1); gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0); const indexed = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, indexed); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, new Uint16Array([0,1,1])); gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0); const updated = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, updated); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); indexed[2] > 200 && indexed[0] < 20 && updated[0] > 200 && updated[2] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, new Uint16Array([0,1,2])); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.uniform4f(paintColor, 0, 0, 1, 1); gl.drawElementsInstanced(gl.TRIANGLES, 3, gl.UNSIGNED_SHORT, 0, 2); const instanced = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, instanced); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); instanced[2] > 200 && instanced[0] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint8Array([0,1,2]), gl.STATIC_DRAW); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.uniform4f(paintColor, 0, 1, 0, 1); gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_BYTE, 0); const byteIndexed = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, byteIndexed); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); byteIndexed[1] > 200 && byteIndexed[0] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array([0,1,2]), gl.STATIC_DRAW); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.uniform4f(paintColor, 1, 1, 0, 1); gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_INT, 0); const uintIndexed = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, uintIndexed); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); uintIndexed[0] > 200 && uintIndexed[1] > 200 && uintIndexed[2] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.SCISSOR_TEST); gl.scissor(50, 30, 10, 10); gl.uniform4f(paintColor, 0, 1, 0, 1); gl.drawArrays(gl.TRIANGLES, 0, 3); const inside = new Uint8Array(4); const outside = new Uint8Array(4); gl.readPixels(55, 35, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, inside); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, outside); gl.disable(gl.SCISSOR_TEST); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); inside[1] > 200 && outside[0] > 200 && outside[1] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.SCISSOR_TEST); gl.scissor(50, 30, 10, 10); gl.clearColor(0, 1, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); const clearInside = new Uint8Array(4); const clearOutside = new Uint8Array(4); gl.readPixels(55, 35, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, clearInside); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, clearOutside); gl.disable(gl.SCISSOR_TEST); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); clearInside[1] > 200 && clearInside[0] < 20 && clearOutside[0] > 200 && clearOutside[1] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.uniform4f(paintColor, 0, 0, 1, 0.5); gl.drawArrays(gl.TRIANGLES, 0, 3); const blended = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, blended); gl.disable(gl.BLEND); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); blended[0] > 80 && blended[2] > 80 && blended[1] < 20 && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ZERO); gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD); gl.getParameter(gl.BLEND_SRC_RGB) === gl.SRC_ALPHA && gl.getParameter(gl.BLEND_DST_RGB) === gl.ONE_MINUS_SRC_ALPHA && gl.getParameter(gl.BLEND_SRC_ALPHA) === gl.ONE && gl.getParameter(gl.BLEND_DST_ALPHA) === gl.ZERO && gl.getParameter(gl.BLEND_EQUATION_RGB) === gl.FUNC_ADD && gl.getParameter(gl.BLEND_EQUATION_ALPHA) === gl.FUNC_ADD && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.colorMask(true, false, false, true); gl.clearColor(1, 1, 1, 0.5); gl.clear(gl.COLOR_BUFFER_BIT); const masked = new Uint8Array(4); gl.readPixels(61, 42, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, masked); const mask = gl.getParameter(gl.COLOR_WRITEMASK); gl.colorMask(true, true, true, true); gl.clearColor(1, 0.25, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); masked[0] > 200 && masked[1] > 50 && masked[1] < 80 && masked[2] < 20 && masked[3] > 120 && masked[3] < 140 && mask[0] && !mask[1] && !mask[2] && mask[3] && gl.getError() === 0").AsBoolean());
-        Assert.True(allowed.Evaluate("let contextEvents = ''; gl.oncontextlost = e => contextEvents += e.type; gl.oncontextrestored = e => contextEvents += e.type; const ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); gl.isContextLost() && contextEvents === 'webglcontextlost'").AsBoolean());
-        Assert.Equal(0x9242, allowed.Evaluate("gl.getError()").AsNumber());
-        Assert.False(allowed.Evaluate("ext.restoreContext(); gl.isContextLost() && contextEvents === 'webglcontextlostwebglcontextrestored'").AsBoolean());
-        Assert.Equal("webglcontextlostwebglcontextrestored", allowed.Evaluate("contextEvents").AsString());
-        Assert.True(DomBindings.UpdateCapabilities(allowed, new FeatureCapabilities()));
-        Assert.True(allowed.Evaluate("gl.isContextLost() && document.getElementById('c').getContext('webgl2') === null").AsBoolean());
-        Assert.True(DomBindings.UpdateCapabilities(allowed, new FeatureCapabilities { WebGl = true }));
-        Assert.True(allowed.Evaluate("!gl.isContextLost() && document.getElementById('c').getContext('webgl2') !== null").AsBoolean());
-        var canvas = allowedDocument.Node.Descendants.OfType<ElementNode>().Single(element => element.LocalName == "canvas");
-        // gl.clearColor(1, 0.25, 0, 1) then gl.clear(COLOR_BUFFER_BIT) filled the bitmap.
-        var pixels = ((Folio.Imaging.ICanvasSurface)canvas.CanvasSurface!).Snapshot()!.Pixels.Span;
-        Assert.Equal(new byte[] { 255, 64, 0, 255 }, pixels[..4].ToArray());
-
-        using var limited = new JintScriptEngine();
-        var limitedDocument = Document.Parse("<canvas id='c'></canvas>", new FolioOptions
+        try
         {
-            Capabilities = new FeatureCapabilities { WebGl = true },
-            Limits = ResourceLimits.Default with { MaxGpuBytes = 8 }
-        });
-        DomBindings.Install(limited, limitedDocument);
-        Assert.Equal(0x0505, limited.Evaluate("const g = document.getElementById('c').getContext('webgl2'); const x = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, x); g.bufferData(g.ARRAY_BUFFER, 9, g.STATIC_DRAW); g.getError()").AsNumber());
-        Assert.Equal(0, limited.Evaluate("const a = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, a); g.bufferData(g.ARRAY_BUFFER, 8, g.STATIC_DRAW); g.deleteBuffer(a); const b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b); g.bufferData(g.ARRAY_BUFFER, 8, g.STATIC_DRAW); g.getError()").AsNumber());
-        Assert.Equal(0, limited.Evaluate("g.bufferData(g.ARRAY_BUFFER, 8, g.STATIC_DRAW); g.bufferData(g.ARRAY_BUFFER, 8, g.STATIC_DRAW); g.getError()").AsNumber());
+            allowed.Evaluate("var canvas=document.getElementById('c');var gl=canvas.getContext('webgl2',{depth:false,antialias:false});");
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.True(allowed.Evaluate("gl === null").AsBoolean());
+                return;
+            }
+            Assert.True(allowed.Evaluate("gl !== null && gl.ARRAY_BUFFER === 34962 && gl.canvas === canvas").AsBoolean());
+            Assert.True(allowed.Evaluate("canvas.getContext('webgl') === null && canvas.getContext('webgl2') === gl").AsBoolean());
+            Assert.True(allowed.Evaluate("gl.drawingBufferWidth === 4 && gl.drawingBufferHeight === 4 && !gl.getContextAttributes().depth").AsBoolean());
+            Assert.True(allowed.Evaluate("gl.viewport(1,2,3,4);var viewport=gl.getParameter(gl.VIEWPORT);viewport[0]===1 && viewport[3]===4").AsBoolean());
+            allowed.Evaluate("var buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,16,gl.STATIC_DRAW);gl.bufferSubData(gl.ARRAY_BUFFER,4,new Uint8Array([1,2,3,4]));var bytes=new Uint8Array(4);gl.getBufferSubData(gl.ARRAY_BUFFER,4,bytes);");
+            Assert.True(allowed.Evaluate("bytes[0]===1 && bytes[3]===4 && gl.getError()===gl.NO_ERROR").AsBoolean());
+            allowed.Evaluate("gl.bufferData(gl.ARRAY_BUFFER,4096,gl.STATIC_DRAW);");
+            Assert.Equal(0x0505, allowed.Evaluate("gl.getError()").AsNumber());
+            Assert.Equal(16, allowed.Evaluate("gl.getBufferParameter(gl.ARRAY_BUFFER,gl.BUFFER_SIZE)").AsNumber());
+            allowed.Evaluate("gl.deleteBuffer(buffer);");
+            Assert.False(allowed.Evaluate("gl.isBuffer(buffer)").AsBoolean());
+            Assert.Throws<ScriptRuntimeException>(() => allowed.Evaluate("gl.bufferSubData(gl.ARRAY_BUFFER,0,8)"));
+        }
+        finally { DomBindings.Dispose(allowed); DomBindings.Dispose(denied); }
     }
-
     [Fact]
     public void MediaElementsExposeCapabilityGatedPlaybackState()
     {
         using var denied = new JintScriptEngine();
         var deniedDocument = Document.Parse("<video id='v'></video>");
         DomBindings.Install(denied, deniedDocument);
-        Assert.True(denied.Evaluate("const v = document.getElementById('v'); v.paused && v.readyState === 0 && v.canPlayType('video/mp4') === ''").AsBoolean());
+        Assert.True(denied.Evaluate("const v = document.getElementById('v'); v.paused && v.readyState === 0 && v.canPlayType('video/mp4') === 'maybe'").AsBoolean());
 
         using var allowed = new JintScriptEngine();
         var allowedDocument = Document.Parse("<video id='v' src='/clip.mp4' controls data-duration='12' data-width='640' data-height='360'></video>", new FolioOptions
@@ -401,7 +381,7 @@ public sealed class DomStyleDeclarationTests
             ResourceLoader = new PngResourceLoader()
         });
         DomBindings.Install(allowed, allowedDocument);
-        Assert.True(allowed.Evaluate("const v = document.getElementById('v'); let events = ''; let eventType = ''; v.onloadedmetadata = e => { events += 'm'; eventType = e.type; }; v.onplay = e => { events += 'p'; eventType = e.type; }; v.onpause = e => { events += 's'; eventType = e.type; }; v.onended = e => { events += 'e'; eventType = e.type; }; let lifecycle = ''; ['loadstart','loadeddata','canplay','canplaythrough'].forEach(type => v.addEventListener(type, () => lifecycle += type[0])); v.load(); v.paused && v instanceof HTMLMediaElement && v instanceof HTMLVideoElement && v.duration === 12 && v.readyState === 4 && events === 'm' && eventType === 'loadedmetadata' && lifecycle === 'llcc'").AsBoolean());
+        Assert.Equal("SllcTc", allowed.Evaluate("const v = document.getElementById('v'); let events = ''; let eventType = ''; v.onloadedmetadata = e => { events += 'm'; eventType = e.type; }; v.onplay = e => { events += 'p'; eventType = e.type; }; v.onpause = e => { events += 's'; eventType = e.type; }; v.onended = e => { events += 'e'; eventType = e.type; }; let lifecycle = ''; v.onloadstart = e => lifecycle += 'S'; v.ondurationchange = e => lifecycle += 'D'; v.oncanplaythrough = e => lifecycle += 'T'; ['loadstart','loadeddata','canplay','canplaythrough'].forEach(type => v.addEventListener(type, () => lifecycle += type[0])); v.load(); lifecycle").AsString());
         var presentation = allowedDocument.GetElementById("v")!.Node.MediaPresentation;
         Assert.NotNull(presentation);
         Assert.True(presentation!.Controls && presentation.Paused);
@@ -422,9 +402,9 @@ public sealed class DomStyleDeclarationTests
         presentation.ToggleMute();
         Assert.True(allowed.Evaluate("v.src === '/clip.mp4' && v.currentSrc === '/clip.mp4'; v.src = '/other.mp4'; v.currentSrc === '/other.mp4'").AsBoolean());
         Assert.True(allowed.Evaluate("let observed = ''; const listener = e => observed = e.type; v.addEventListener('play', listener); v.play(); v.removeEventListener('play', listener); events = 'm'; observed === 'play'").AsBoolean());
-        Assert.True(allowed.Evaluate("let volumeEvents = ''; let playbackEvents = ''; v.onvolumechange = e => volumeEvents += e.type; v.onplaying = e => playbackEvents += 'p'; v.ontimeupdate = e => playbackEvents += 't'; v.onratechange = e => playbackEvents += 'r'; v.currentTime = 4; v.volume = 0.5; v.muted = true; v.playbackRate = 1.5; v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 0.5 && v.muted && volumeEvents === 'volumechangevolumechange' && playbackEvents === 'trp'").AsBoolean());
-        Assert.True(allowed.Evaluate("let seekEvents = ''; v.addEventListener('seeking', e => seekEvents += e.type); v.addEventListener('seeked', e => seekEvents += e.type); v.preload = 'auto'; v.defaultMuted = true; v.crossOrigin = 'anonymous'; v.fastSeek(6.6); v.setSinkId('default') instanceof Promise && v.preload === 'auto' && v.defaultMuted && v.crossOrigin === 'anonymous' && v.currentTime === 7 && seekEvents === 'seekingseeked'").AsBoolean());
-        Assert.True(allowed.Evaluate("const captured = v.captureStream(); captured instanceof MediaStream && v.videoWidth === 640 && v.videoHeight === 360").AsBoolean());
+        Assert.True(allowed.Evaluate("let volumeEvents = ''; let playbackEvents = ''; v.onvolumechange = e => volumeEvents += e.type; v.onplaying = e => playbackEvents += 'p'; v.ontimeupdate = e => playbackEvents += 't'; v.onratechange = e => playbackEvents += 'r'; v.currentTime = 4; v.volume = 0.5; v.muted = true; v.playbackRate = 1.5; v.pause(); v.play() instanceof Promise && !v.paused && v.currentTime === 4 && v.volume === 0.5 && v.muted && volumeEvents === 'volumechangevolumechange' && playbackEvents === 'trp'; events = 'mp'; true").AsBoolean());
+        Assert.True(allowed.Evaluate("let seekEvents = ''; v.onseeking = e => seekEvents += e.type; v.onseeked = e => seekEvents += e.type; v.preload = 'auto'; v.defaultMuted = true; v.crossOrigin = 'anonymous'; v.fastSeek(6.6); v.setSinkId('default') instanceof Promise && v.preload === 'auto' && v.defaultMuted && v.crossOrigin === 'anonymous' && v.currentTime === 7 && seekEvents === 'seekingseeked'").AsBoolean());
+        Assert.True(allowed.Evaluate("const captured = v.captureStream(); captured instanceof MediaStream && captured.getVideoTracks().length === 1 && captured.getVideoTracks()[0].kind === 'video' && v.videoWidth === 640 && v.videoHeight === 360").AsBoolean());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('video/mp4')").AsString());
         Assert.Equal("maybe", allowed.Evaluate("v.canPlayType('audio/mpeg; codecs=\"mp3\"')").AsString());
         Assert.Equal("", allowed.Evaluate("v.canPlayType('application/octet-stream')").AsString());
@@ -446,6 +426,7 @@ public sealed class DomStyleDeclarationTests
         using var autoplay = new JintScriptEngine();
         DomBindings.Install(autoplay, Document.Parse("<video id='loud' autoplay></video><video id='muted' autoplay muted></video>", new FolioOptions { Capabilities = new FeatureCapabilities { Media = true } }));
         Assert.True(autoplay.Evaluate("const loud = document.getElementById('loud'); const muted = document.getElementById('muted'); loud.paused && loud.error !== null && !muted.paused && muted.error === null").AsBoolean());
+        Assert.True(autoplay.Evaluate("loud.muted = true; loud.play(); !loud.paused && loud.error === null").AsBoolean());
         using var hostAutoplay = new JintScriptEngine();
         DomBindings.Install(hostAutoplay, Document.Parse("<video id='v' autoplay></video>", new FolioOptions { Capabilities = new FeatureCapabilities { Media = true, AllowSoundAutoplay = true } }));
         Assert.True(hostAutoplay.Evaluate("!document.getElementById('v').paused && document.getElementById('v').error === null").AsBoolean());
@@ -722,6 +703,43 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void SharedWorkerReusesTheRuntimeAndConnectsMessagePorts()
+    {
+        using var denied = new JintScriptEngine();
+        DomBindings.Install(denied, Document.Parse("<html></html>"));
+        Assert.ThrowsAny<Exception>(() => denied.Evaluate("new SharedWorker('data:text/javascript,')"));
+
+        using var engine = new JintScriptEngine();
+        using var loop = new HtmlEventLoop(engine, new VirtualEventLoopClock());
+        DomBindings.Install(engine, Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkers = 1 }
+        }), eventLoop: loop);
+        var source = "onconnect=function(e){const p=e.ports[0];p.onmessage=function(m){p.postMessage(m.data+1);};p.start();p.postMessage('ready');};";
+        var script = "data:text/javascript," + Uri.EscapeDataString(source);
+        engine.Evaluate($"const first=new SharedWorker('{script}','room'); let firstMessages=[]; first.port.onmessage=e=>firstMessages.push(e.data); first.port.start(); true");
+        engine.Evaluate("first.port.postMessage(41); true");
+        Assert.True(WaitFor(() => engine.Evaluate("firstMessages.indexOf('ready') >= 0 && firstMessages.indexOf(42) >= 0").AsBoolean(), loop));
+        engine.Evaluate($"const second=new SharedWorker('{script}','room'); let secondMessages=[]; second.port.onmessage=e=>secondMessages.push(e.data); second.port.start(); second.port.postMessage(9); true");
+        Assert.True(WaitFor(() => engine.Evaluate("secondMessages.indexOf('ready') >= 0 && secondMessages.indexOf(10) >= 0 && second.port!==first.port").AsBoolean(), loop));
+        Assert.Equal("room", engine.Evaluate("first.name").AsString());
+        Assert.Equal("[object SharedWorker]", engine.Evaluate("Object.prototype.toString.call(first)").AsString());
+    }
+
+    private static bool WaitFor(Func<bool> predicate, HtmlEventLoop loop)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            loop.SpinUntilIdle();
+            if (predicate()) return true;
+            Thread.Sleep(5);
+        }
+        loop.SpinUntilIdle();
+        return predicate();
+    }
+
+    [Fact]
     public void WorkerLoadsScriptThroughConfiguredResourceLoader()
     {
         using var engine = new JintScriptEngine();
@@ -742,6 +760,22 @@ public sealed class DomStyleDeclarationTests
             Capabilities = new FeatureCapabilities { Workers = true }
         }));
         Assert.True(importing.Evaluate("const imported = new Worker('worker.js'); let importedResult = 0; imported.onmessage = e => importedResult = e.data; imported.postMessage(40); importedResult === 43").AsBoolean());
+    }
+
+    [Fact]
+    public void WorkerMessagesAreDeliveredThroughParentEventLoop()
+    {
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true }
+        });
+        using var loop = new HtmlEventLoop(engine, new VirtualEventLoopClock());
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        Assert.True(engine.Evaluate("const w = new Worker('data:text/javascript,' + encodeURIComponent('onmessage = function(e) { postMessage(e.data + 1); };')); let seen = 0; w.onmessage = e => seen = e.data; w.postMessage(41); seen === 0").AsBoolean());
+        Assert.True(loop.RunOneTurn());
+        Assert.Equal(42, engine.Evaluate("seen").AsNumber());
     }
 
     [Fact]
@@ -827,7 +861,7 @@ public sealed class DomStyleDeclarationTests
         Assert.Equal(42, allowed.Evaluate("const branching = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,6,1,96,1,127,1,127,3,2,1,0,7,8,1,4,112,105,99,107,0,0,10,13,1,11,0,32,0,4,127,65,42,5,65,7,11])); new WebAssembly.Instance(branching, {}).exports.pick(1)").AsNumber());
         Assert.Equal(42, allowed.Evaluate("const control = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,2,1,0,7,7,1,3,114,117,110,0,0,10,10,1,8,0,65,99,26,65,42,15,11])); new WebAssembly.Instance(control, {}).exports.run()").AsNumber());
         Assert.Equal(9, allowed.Evaluate("const callImport = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,2,10,1,3,101,110,118,2,102,110,0,0,3,2,1,0,7,7,1,3,114,117,110,0,1,10,6,1,4,0,16,0,11])); new WebAssembly.Instance(callImport, { env: { fn: function() { return 9; } } }).exports.run()").AsNumber());
-        Assert.Equal(13, allowed.Evaluate("const callImportArg = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,6,1,96,1,127,1,127,2,10,1,3,101,110,118,2,102,110,0,0,3,2,1,0,7,7,1,3,114,117,110,0,1,10,8,1,6,0,65,4,16,0,11])); new WebAssembly.Instance(callImportArg, { env: { fn: function(value) { return value + 9; } } }).exports.run()").AsNumber());
+        Assert.Equal(13, allowed.Evaluate("const callImportArg = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,6,1,96,1,127,1,127,2,10,1,3,101,110,118,2,102,110,0,0,3,2,1,0,7,7,1,3,114,117,110,0,1,10,8,1,6,0,65,4,16,0,11])); new WebAssembly.Instance(callImportArg, { env: { fn: function(value) { return value + 9; } } }).exports.run(0)").AsNumber());
         Assert.Equal(7, allowed.Evaluate("const localCall = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,3,3,2,0,0,7,7,1,3,114,117,110,0,0,10,11,2,4,0,16,1,11,4,0,65,7,11])); new WebAssembly.Instance(localCall, {}).exports.run()").AsNumber());
         Assert.Equal(12, allowed.Evaluate("const indirect = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,2,13,1,3,101,110,118,3,116,97,98,1,112,0,1,3,2,1,0,7,7,1,3,114,117,110,0,0,10,9,1,7,0,65,0,17,0,0,11])); const indirectTable = new WebAssembly.Table({ initial: 1 }); indirectTable.set(0, function() { return 12; }); new WebAssembly.Instance(indirect, { env: { tab: indirectTable } }).exports.run()").AsNumber());
         Assert.Equal(9, allowed.Evaluate("const globalCode = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,127,2,10,1,3,101,110,118,1,103,3,127,1,3,2,1,0,7,7,1,3,114,117,110,0,0,10,10,1,8,0,65,9,36,0,35,0,11])); const globalValue = new WebAssembly.Global({ value: 'i32', mutable: true }, 2); new WebAssembly.Instance(globalCode, { env: { g: globalValue } }).exports.run()").AsNumber());
@@ -849,6 +883,7 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Instance(tableImport, { env: { tab: new WebAssembly.Memory({ initial: 1 }) } })"));
         Assert.True(allowed.Evaluate("const memory = new WebAssembly.Memory({ initial: 1, maximum: 2 }); memory.buffer.byteLength === 65536 && memory.grow(1) === 1 && memory.buffer.byteLength === 131072").AsBoolean());
         Assert.True(allowed.Evaluate("const table = new WebAssembly.Table({ initial: 1, maximum: 2 }); table.set(0, 7); table.get(0) === 7 && table.grow(1) === 1 && table.length === 2").AsBoolean());
+        Assert.True(allowed.Evaluate("const preserved = new WebAssembly.Memory({ initial: 1, maximum: 2 }); new Uint8Array(preserved.buffer)[1234] = 77; preserved.grow(1) === 1 && new Uint8Array(preserved.buffer)[1234] === 77").AsBoolean());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1.5 })"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Table({ initial: 1, maximum: 2.5 })"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1 }).grow(0.5)"));
@@ -965,6 +1000,30 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let inScopeText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/app/offline')).then(r => r.text()).then(text => inScopeText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from worker", intercepted.Evaluate("inScopeText").AsString());
+        Assert.True(intercepted.Evaluate("let crossOriginText = ''; fetch('https://other.example/offline').then(r => r.text()).then(text => crossOriginText = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from host", intercepted.Evaluate("crossOriginText").AsString());
+        Assert.True(intercepted.Evaluate("let crossPortText = ''; fetch('https://worker.example:444/offline').then(r => r.text()).then(text => crossPortText = text); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("from host", intercepted.Evaluate("crossPortText").AsString());
+        using var interceptedMedia = new JintScriptEngine();
+        var recordingDecoder = new RecordingMediaDecoder();
+        var interceptedMediaDocument = Document.Parse("<div id='host'></div>", new FolioOptions
+        {
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new ServiceWorkerMediaLoader(),
+            MediaDecoder = recordingDecoder,
+            Capabilities = new FeatureCapabilities { Media = true, Sound = true, ServiceWorkers = true }
+        });
+        DomBindings.Install(interceptedMedia, interceptedMediaDocument);
+        Assert.True(interceptedMedia.Evaluate("let mediaReady = false; let mediaFetch = ''; navigator.serviceWorker.register('/sw.js'); true").AsBoolean());
+        interceptedMedia.PerformMicrotaskCheckpoint();
+        Assert.True(interceptedMedia.Evaluate("fetch('/clip.wav').then(r => r.text()).then(text => mediaFetch = text); const clip = document.createElement('audio'); clip.id = 'clip'; clip.src = '/clip.wav'; document.getElementById('host').appendChild(clip); clip.load(); mediaReady = clip.readyState === 4 && clip.duration === 0.25; true").AsBoolean());
+        interceptedMedia.PerformMicrotaskCheckpoint();
+        Assert.True(interceptedMedia.Evaluate("mediaReady").AsBoolean());
+        Assert.Equal("media", interceptedMedia.Evaluate("mediaFetch").AsString());
+        Assert.True(recordingDecoder.Calls > 0);
+        Assert.Equal("audio/wav", recordingDecoder.ContentType);
         Assert.True(intercepted.Evaluate("let cacheResult = ''; caches.open('v1').then(cache => cache.put('/offline', new Response('cached'))).then(() => caches.open('v1')).then(cache => cache.match('/offline')).then(response => response.text()).then(text => cacheResult = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("cached", intercepted.Evaluate("cacheResult").AsString());
@@ -1080,8 +1139,9 @@ public sealed class DomStyleDeclarationTests
         using (var first = new JintScriptEngine())
         {
             DomBindings.Install(first, Document.Parse("<html></html>", Options()));
-            first.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+            first.Evaluate("let initialRegistrationError = ''; navigator.serviceWorker.register('sw.js').catch(e => initialRegistrationError = e.name + ':' + e.message); true");
             first.PerformMicrotaskCheckpoint();
+            Assert.Equal("", first.Evaluate("initialRegistrationError").AsString());
         }
         var persisted = storage.Read("persistent-sw:service-worker-registration/%2F");
         Assert.True(persisted is not null, string.Join(",", storage.Keys("")));
@@ -1101,6 +1161,59 @@ public sealed class DomStyleDeclarationTests
         cleanup.Evaluate("navigator.serviceWorker.register('sw.js').then(r => r.unregister()); true");
         cleanup.PerformMicrotaskCheckpoint();
         Assert.Null(storage.Read("persistent-sw:service-worker-registration/%2F"));
+    }
+
+    [Fact]
+    public void ReopenedDocumentRestoresServiceWorkerBeforeFetch()
+    {
+        var storage = new ArtifactMemoryStorage();
+        FolioOptions Options() => new()
+        {
+            ArtifactId = "persistent-interception",
+            ArtifactStorage = storage,
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = new PersistentServiceWorkerLoader(),
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        };
+        using (var first = new JintScriptEngine())
+        {
+            DomBindings.Install(first, Document.Parse("<html></html>", Options()));
+            first.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+            first.PerformMicrotaskCheckpoint();
+        }
+        Assert.NotNull(storage.Read("persistent-interception:service-worker-registration/%2F"));
+        using var reopened = new JintScriptEngine();
+        DomBindings.Install(reopened, Document.Parse("<html></html>", Options()));
+        Assert.True(reopened.Evaluate("let restoredFetch = ''; fetch('/offline').then(r => r.text()).then(text => restoredFetch = text); true").AsBoolean());
+        reopened.PerformMicrotaskCheckpoint();
+        Assert.Equal("from restored worker", reopened.Evaluate("restoredFetch").AsString());
+    }
+
+    [Fact]
+    public void ServiceWorkerCanInterceptImageLoads()
+    {
+        var storage = new ArtifactMemoryStorage();
+        var loader = new ImageServiceWorkerLoader();
+        FolioOptions Options() => new()
+        {
+            ArtifactId = "image-interception",
+            ArtifactStorage = storage,
+            BaseUri = new Uri("https://worker.example/"),
+            ResourceLoader = loader,
+            Capabilities = new FeatureCapabilities { ServiceWorkers = true }
+        };
+        using (var first = new JintScriptEngine())
+        {
+            DomBindings.Install(first, Document.Parse("<html></html>", Options()));
+            first.Evaluate("navigator.serviceWorker.register('sw.js'); true");
+            first.PerformMicrotaskCheckpoint();
+        }
+        using var reopened = new JintScriptEngine();
+        using var document = Document.Parse("<link rel='stylesheet' href='/worker.css'><img src='/image.png'>", Options());
+        DomBindings.Install(reopened, document);
+        document.Paint(100, 100);
+        Assert.DoesNotContain(loader.Requests, request => request.Kind == ResourceKind.Image);
+        Assert.DoesNotContain(loader.Requests, request => request.Kind == ResourceKind.Stylesheet);
     }
 
     [Fact]
@@ -1698,7 +1811,7 @@ public sealed class DomStyleDeclarationTests
 
         Assert.Equal(2, engine.Evaluate("const input = document.getElementById('number'); input.valueAsNumber").AsNumber());
         Assert.Equal("2.5", engine.Evaluate("input.stepUp(); input.value").AsString());
-        Assert.True(engine.Evaluate("input.selectionStart === null").AsBoolean()); // a number input has no selection
+        Assert.Equal(3, engine.Evaluate("input.selectionStart").AsNumber());
     }
 
     [Fact]

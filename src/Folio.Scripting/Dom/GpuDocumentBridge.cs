@@ -17,6 +17,7 @@ internal sealed class GpuDocumentBridge : IDisposable
     internal long ReservedBytes => _device.ReservedBytes;
     internal long PeakReservedBytes => _device.PeakReservedBytes;
     internal string RendererIdentity => _device.RendererIdentity;
+    internal INativeWebGlFactory? WebGlFactory => _device as INativeWebGlFactory;
 
     internal static GpuDocumentBridge? TryCreate(long maxBytes, out GpuFailure? failure, Func<long, GpuDeviceResult>? factory = null)
     {

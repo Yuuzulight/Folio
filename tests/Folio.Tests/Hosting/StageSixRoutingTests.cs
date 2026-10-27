@@ -10,23 +10,6 @@ public sealed class StageSixRoutingTests
 
     [Theory]
     [InlineData("<canvas id=c></canvas><script>c.getContext('webgl')</script>")]
-    [InlineData("<canvas id=c></canvas><script>c.getContext('webgl2')</script>")]
-    [InlineData("<script>c['getContext']('experimental-webgl')</script>")]
-    [InlineData("<script>c.getContext?.('webgl')</script>")]
-    public void WebGlClassifierTestsBothWays(string html)
-    {
-        // When host grants WebGL: classifies as Scripted
-        var granted = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = true } });
-        Assert.Equal(ArtifactKind.Scripted, granted.Kind);
-        Assert.DoesNotContain(granted.Reasons, r => r.Contains("WebGL", StringComparison.OrdinalIgnoreCase) && r.Contains("not granted"));
-
-        // When host does not grant WebGL: classifies as NeedsBrowser
-        var denied = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = false } });
-        Assert.Equal(ArtifactKind.NeedsBrowser, denied.Kind);
-        Assert.Contains(denied.Reasons, r => r.Contains("uses WebGL; the host has not granted the WebGL capability"));
-    }
-
-    [Theory]
     [InlineData("<video></video>")]
     [InlineData("<audio></audio>")]
     [InlineData("<iframe></iframe>")]
@@ -36,7 +19,6 @@ public sealed class StageSixRoutingTests
     [InlineData("<script>navigator.serviceWorker.register('sw.js')</script>")]
     [InlineData("<button onclick=\"new Worker('worker.js')\">run</button>")]
     [InlineData("<a href=\"javascript:navigator.serviceWorker.register('sw.js')\">run</a>")]
-    [InlineData("<script>new SharedWorker('worker.js')</script>")]
     public void HostPermissionDoesNotMakeAnUnbuiltFeatureAvailable(string html)
     {
         var result = ArtifactClassifier.Classify(html, new FolioOptions { Capabilities = AllCapabilities });
@@ -70,7 +52,7 @@ public sealed class StageSixRoutingTests
         yield return ("<script>navigator.serviceWorker.register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
         yield return ("<script>navigator?.serviceWorker.register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
         yield return ("<script>navigator?.['serviceWorker'].register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
-        yield return ("<a onclick=\"navigator.serviceWorker.register('sw.js')\">run</a>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
+        yield return ("<a href=\"javascript:navigator.serviceWorker.register('sw.js')\">run</a>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
     }
 
     [Theory]
@@ -107,15 +89,16 @@ public sealed class StageSixRoutingTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public void SharedWorkersRemainUnsupportedIndependentlyOfDedicatedWorkers(bool built, bool granted)
+    public void SharedWorkersFollowTheDedicatedWorkerCapability(bool built, bool granted)
     {
         var result = ArtifactClassifier.Classify("<script>new SharedWorker('worker.js')</script>",
             new FolioOptions { Capabilities = new() { Workers = granted } },
             built ? ArtifactClassifier.ImplementedFeatures.Workers : ArtifactClassifier.ImplementedFeatures.None);
-        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-        Assert.Contains(result.Reasons, reason => reason.Contains("SharedWorker"));
+        Assert.Equal(built && granted ? ArtifactKind.Scripted : ArtifactKind.NeedsBrowser, result.Kind);
+        if (!built) Assert.Contains(result.Reasons, reason => reason.Contains("workers") && reason.Contains("not yet complete"));
+        if (!granted) Assert.Contains(result.Reasons, reason => reason.Contains("workers") && reason.Contains("has not granted"));
         Assert.Equal(ArtifactKind.NeedsBrowser, ArtifactClassifier.Classify("<script>new window['SharedWorker']('worker.js')</script>",
-            new FolioOptions { Capabilities = AllCapabilities }, ArtifactClassifier.ImplementedFeatures.Workers).Kind);
+            new FolioOptions { Capabilities = AllCapabilities }, ArtifactClassifier.ImplementedFeatures.None).Kind);
     }
 
     [Fact]

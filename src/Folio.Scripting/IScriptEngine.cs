@@ -42,12 +42,30 @@ public interface IScriptEngine : IDisposable
     /// <summary>Creates a JavaScript array containing the specified elements.</summary>
     ScriptValue CreateArray(ReadOnlySpan<ScriptValue> elements);
 
+    /// <summary>Creates an ordinary object with writable, enumerable own data properties, without invoking inherited setters.</summary>
+    ScriptValue CreatePlainObject(IReadOnlyDictionary<string, ScriptValue> properties) => throw new NotSupportedException();
+
+    /// <summary>Applies ECMAScript coercion, including user-defined primitive conversion and its exceptions.</summary>
+    double CoerceNumber(ScriptValue value) => WebIdlConversions.ToUnrestrictedDouble(value);
+    string CoerceString(ScriptValue value) => WebIdlConversions.ToDOMString(value);
+    bool CoerceBoolean(ScriptValue value) => WebIdlConversions.ToBoolean(value);
+
     /// <summary>Reads a script array for bindings that accept sequence arguments.</summary>
     bool TryGetArrayItems(ScriptValue value, out IReadOnlyList<ScriptValue> items) { items = []; return false; }
+    /// <summary>Converts iterable elements in iteration order, closing the iterator if conversion fails.</summary>
+    bool TryReadSequence(ScriptValue value, Action<ScriptValue> append)
+    {
+        if (!TryGetArrayItems(value, out var items)) return false;
+        foreach (var item in items) append(item);
+        return true;
+    }
     bool TrySetArrayItem(ScriptValue value, int index, ScriptValue item) => false;
 
     /// <summary>Reads a property of an object (<c>undefined</c> when it has none, or the value is not an object).</summary>
     ScriptValue GetProperty(ScriptValue target, string name) => ScriptValue.Undefined;
+
+    /// <summary>Writes a property through the engine's ordinary JavaScript semantics.</summary>
+    bool TrySetProperty(ScriptValue target, string name, ScriptValue value) => false;
 
     /// <summary>Creates a <c>Uint8ClampedArray</c> holding a copy of <paramref name="bytes"/>.</summary>
     ScriptValue CreateUint8ClampedArray(ReadOnlySpan<byte> bytes) => throw new NotSupportedException();
@@ -61,8 +79,26 @@ public interface IScriptEngine : IDisposable
     /// <summary>Reads an ArrayBuffer without exposing the engine's object handle.</summary>
     bool TryGetArrayBufferBytes(ScriptValue value, out byte[] bytes) { bytes = []; return false; }
 
+    /// <summary>Reads an ArrayBuffer's backing array for an ownership transfer when the engine supports it.</summary>
+    bool TryGetArrayBufferBytesOwned(ScriptValue value, out byte[] bytes) => TryGetArrayBufferBytes(value, out bytes);
+
+    /// <summary>Inspects the intrinsic brand and current bounds of an owned, attached buffer or view.</summary>
+    bool TryGetBufferSourceInfo(ScriptValue value, out ScriptBufferSourceInfo info) { info = default; return false; }
+
+    /// <summary>Copies bytes relative to a view's beginning into caller-budgeted storage; rechecks current bounds.</summary>
+    bool TryCopyBufferSource(ScriptValue value, int byteOffset, Span<byte> destination) => false;
+
+    /// <summary>Writes bytes relative to a view's beginning; rechecks current bounds and attachment.</summary>
+    bool TryWriteBufferSource(ScriptValue value, int byteOffset, ReadOnlySpan<byte> source) => false;
+
+    /// <summary>Creates a new intrinsic typed array with the exact supplied storage bytes.</summary>
+    ScriptValue CreateTypedArray(ScriptBufferSourceKind kind, ReadOnlySpan<byte> bytes) => throw new NotSupportedException();
+
     /// <summary>Creates an ArrayBuffer owned by this engine.</summary>
     ScriptValue CreateArrayBuffer(ReadOnlySpan<byte> bytes) => throw new NotSupportedException();
+
+    /// <summary>Creates an ArrayBuffer by transferring ownership of an existing byte array when supported.</summary>
+    ScriptValue CreateArrayBufferOwned(byte[] bytes) => CreateArrayBuffer(bytes);
 
     /// <summary>Detaches an ArrayBuffer, as required by a transfer list.</summary>
     bool TryDetachArrayBuffer(ScriptValue value) => false;

@@ -39,7 +39,7 @@ public sealed record ResourceResponse(byte[]? Data, string? ContentType, string?
 // ponytail: loads are synchronous, made while styling before the first layout, each within HostTimeout; a load that
 // finishes later is not waited for.
 internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = null, int maxBytes = ResourceLoader.MaxResourceBytes,
-                                     IResourceLoader? host = null)
+                                     IResourceLoader? host = null, IResourceInterceptor? interceptor = null)
 {
     /// <summary>The largest resource loaded (the font file limit of study 16, the largest resource type).</summary>
     public const int MaxResourceBytes = 20 * 1024 * 1024;
@@ -80,6 +80,11 @@ internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = nul
             return ResourceResponse.Refused(lastError ?? "Not found.");
         }
 
+        if (interceptor?.Intercept(request) is { } intercepted)
+            return intercepted.Data is { Length: var interceptedLength } && interceptedLength > MaxBytes
+                ? ResourceResponse.Refused($"The resource is larger than {MaxBytes} bytes.")
+                : intercepted;
+
         if (host is not null && FromHost(host, request) is { } hosted)
             return hosted.Data is { Length: var length } && length > MaxBytes ? ResourceResponse.Refused($"The resource is larger than {MaxBytes} bytes.") : hosted;
         return ResourceResponse.Refused($"Loading {Scheme(url)} URLs is not allowed.");
@@ -92,7 +97,15 @@ internal sealed class ResourceLoader(IReadOnlyList<string>? allowedFolders = nul
         using var cancel = new CancellationTokenSource(HostTimeout);
         try
         {
-            var load = Task.Run(() => host.LoadAsync(request, cancel.Token), cancel.Token);
+            // A host loader may synchronously complete (the common case for in-process
+            // adapters) or may need asynchronous I/O. Run the adapter on a dedicated
+            // thread so a burst of synchronous waits here cannot exhaust the shared
+            // thread-pool and leave unrelated fetch continuations pending.
+            var load = Task.Factory.StartNew(
+                () => host.LoadAsync(request, cancel.Token),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
             return load.Wait(HostTimeout) ? load.Result : ResourceResponse.Refused("The load timed out.");
         }
         catch (AggregateException e)

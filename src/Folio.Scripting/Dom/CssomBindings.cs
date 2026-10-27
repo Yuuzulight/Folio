@@ -115,7 +115,11 @@ internal static class CssomBindings
                 for (let i = 0; same && i < children.length; i++) same = rules.get(children[i][0]) === list[i];
                 if (!same) {
                     list.length = 0;
-                    for (const [childId, childKind] of children) list.push(ruleFor(childId, childKind));
+                    for (const [childId, childKind] of children) {
+                        const oldLength = list.length;
+                        list[oldLength] = ruleFor(childId, childKind);
+                        if (list.length === oldLength) list.length++;
+                    }
                 }
                 return list;
             }
@@ -126,21 +130,21 @@ internal static class CssomBindings
                 constructor(token, sheetId) { if (token !== INTERNAL) throw new TypeError('Illegal constructor'); mediaOwners.set(this, sheetId); }
                 get mediaText() { return JSON.parse(host.sheet(mediaOwners.get(this))).media; }
                 set mediaText(value) { host.setMedia(mediaOwners.get(this), value === null ? '' : String(value)); }
-                get length() { return this.#items().length; }
-                item(index) { const value = this.#items()[index >>> 0]; return value === undefined ? null : value; }
+                get length() { return this._items().length; }
+                item(index) { const value = this._items()[index >>> 0]; return value === undefined ? null : value; }
                 appendMedium(medium) {
                     medium = String(medium);
-                    const items = this.#items();
+                    const items = this._items();
                     if (!items.includes(medium)) host.setMedia(mediaOwners.get(this), items.concat(medium).join(', '));
                 }
                 deleteMedium(medium) {
                     medium = String(medium);
-                    const items = this.#items();
+                    const items = this._items();
                     if (!items.includes(medium)) throw new DOMException('The medium provided (' + medium + ') is not in the list.', 'NotFoundError');
                     host.setMedia(mediaOwners.get(this), items.filter((item) => item !== medium).join(', '));
                 }
                 toString() { return this.mediaText; }
-                #items() { const text = this.mediaText; return text === '' ? [] : text.split(',').map((item) => item.trim()); }
+                _items() { const text = this.mediaText; return text === '' ? [] : text.split(',').map((item) => item.trim()); }
             }
 
             // -------------------------------------------------------------------------- style sheets
@@ -192,13 +196,20 @@ internal static class CssomBindings
                 return sheet;
             }
 
-            const sheetList = new StyleSheetList();
             function styleSheets() {
+                if (styleSheets._cache === undefined) styleSheets._cache = new StyleSheetList();
                 const ids = JSON.parse(host.sheets());
-                let same = sheetList.length === ids.length;
-                for (let i = 0; same && i < ids.length; i++) same = sheets.get(ids[i]) === sheetList[i];
-                if (!same) { sheetList.length = 0; for (const id of ids) sheetList.push(sheetFor(id)); }
-                return sheetList;
+                let same = styleSheets._cache.length === ids.length;
+                for (let i = 0; same && i < ids.length; i++) same = sheets.get(ids[i]) === styleSheets._cache[i];
+                if (!same) {
+                    styleSheets._cache.length = 0;
+                    for (let i = 0; i < ids.length; i++) {
+                        const oldLength = styleSheets._cache.length;
+                        styleSheets._cache[oldLength] = sheetFor(ids[i]);
+                        if (styleSheets._cache.length === oldLength) styleSheets._cache.length++;
+                    }
+                }
+                return styleSheets._cache;
             }
             function sheetOf(element) { const id = host.sheetOf(element); return id === 0 ? null : sheetFor(id); }
 
@@ -279,10 +290,10 @@ internal static class CssomBindings
             }
             class CSSPropertyRule extends CSSRule {
                 get name() { return info(this._id).prelude; }
-                get syntax() { return this.#value('syntax').replace(/^"|"$/g, ''); }
-                get inherits() { return this.#value('inherits') === 'true'; }
-                get initialValue() { const value = this.#value('initial-value'); return value === '' ? null : value; }
-                #value(name) {
+                get syntax() { return this._value('syntax').replace(/^"|"$/g, ''); }
+                get inherits() { return this._value('inherits') === 'true'; }
+                get initialValue() { const value = this._value('initial-value'); return value === '' ? null : value; }
+                _value(name) {
                     const match = new RegExp('(?:^|[\\s;{])' + name + '\\s*:\\s*([^;}]*)').exec(info(this._id).cssText);
                     return match ? match[1].trim() : '';
                 }
@@ -301,11 +312,11 @@ internal static class CssomBindings
                     listOf(this, 'rule', this._id);
                 }
                 deleteRule(select) {
-                    const index = this.#find(select);
+                    const index = this._find(select);
                     if (index >= 0) { host.delete('rule', this._id, index); listOf(this, 'rule', this._id); }
                 }
-                findRule(select) { const index = this.#find(select); return index < 0 ? null : this.cssRules[index]; }
-                #find(select) {
+                findRule(select) { const index = this._find(select); return index < 0 ? null : this.cssRules[index]; }
+                _find(select) {
                     const key = String(select).trim().toLowerCase().split(',').map((part) => part.trim()).join(', ');
                     const list = this.cssRules;
                     for (let i = list.length - 1; i >= 0; i--) if (list[i].keyText === key) return i;

@@ -2,311 +2,193 @@ using System.Buffers.Binary;
 
 namespace Folio.Imaging;
 
-/// <summary>
-/// Folio's GIF decoder (https://www.w3.org/Graphics/GIF/spec-gif89a.txt): GIF87a and GIF89a formats,
-/// global and local colour tables, graphic control extension with transparency, interlacing,
-/// and LZW decompressor. For animated GIFs, the first frame is returned.
-/// </summary>
+/// <summary>Folio's GIF decoder. It decodes the first frame, including interlacing and transparency.</summary>
 internal static class GifDecoder
 {
-    private static ReadOnlySpan<byte> Gif87a => "GIF87a"u8;
-    private static ReadOnlySpan<byte> Gif89a => "GIF89a"u8;
-
-    public static bool CanDecode(ReadOnlySpan<byte> header) =>
-        header.StartsWith(Gif87a) || header.StartsWith(Gif89a);
+    public static bool CanDecode(ReadOnlySpan<byte> header) => header.Length >= 6
+        && (header[..6].SequenceEqual("GIF87a"u8) || header[..6].SequenceEqual("GIF89a"u8));
 
     public static DecodedImage? Decode(ReadOnlySpan<byte> data, long maxPixels = ImageLimits.MaxPixels)
     {
-        try
-        {
-            return DecodeCore(data, maxPixels);
-        }
-        catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException)
-        {
-            return null;
-        }
+        try { return DecodeCore(data, maxPixels); }
+        catch (Exception e) when (e is InvalidDataException or ArgumentException or IndexOutOfRangeException)
+        { return null; }
     }
 
     private static DecodedImage? DecodeCore(ReadOnlySpan<byte> data, long maxPixels)
     {
-        if (!CanDecode(data) || data.Length < 13)
-            return null;
-
-        var width = BinaryPrimitives.ReadUInt16LittleEndian(data[6..]);
-        var height = BinaryPrimitives.ReadUInt16LittleEndian(data[8..]);
-        if (!ImageLimits.Allows(width, height, maxPixels))
-            return null;
-
-        var packed = data[10];
-        var hasGct = (packed & 0x80) != 0;
-        var gctSize = 1 << ((packed & 0x07) + 1);
-
-        var pos = 13;
-        byte[]? gct = null;
-        if (hasGct)
+        if (!CanDecode(data) || data.Length < 13) return null;
+        var p = 6;
+        var width = U16(data, ref p);
+        var height = U16(data, ref p);
+        if (!ImageLimits.Allows(width, height, maxPixels)) return null;
+        var packed = Byte(data, ref p);
+        _ = Byte(data, ref p); // background colour index
+        _ = Byte(data, ref p); // pixel aspect ratio
+        var global = (packed & 0x80) != 0 ? ReadPalette(data, ref p, 1 << ((packed & 7) + 1)) : null;
+        var transparent = -1;
+        while (p < data.Length)
         {
-            var gctByteCount = 3 * gctSize;
-            if (data.Length - pos < gctByteCount)
-                throw new InvalidDataException("Truncated global colour table.");
-            gct = data.Slice(pos, gctByteCount).ToArray();
-            pos += gctByteCount;
-        }
-
-        int? transparentIndex = null;
-
-        while (pos < data.Length)
-        {
-            var blockType = data[pos++];
-            if (blockType == 0x3B) // Trailer
-                break;
-
-            if (blockType == 0x21) // Extension block
+            var marker = Byte(data, ref p);
+            if (marker == 0x3B) break; // trailer, no frame
+            if (marker == 0x21)
             {
-                if (pos >= data.Length) throw new InvalidDataException("Truncated extension.");
-                var label = data[pos++];
-                if (label == 0xF9) // Graphic Control Extension
+                var label = Byte(data, ref p);
+                if (label == 0xF9)
                 {
-                    if (pos >= data.Length) throw new InvalidDataException("Truncated GCE.");
-                    var blockSize = data[pos++];
-                    if (blockSize >= 4 && pos + blockSize <= data.Length)
-                    {
-                        var flags = data[pos];
-                        var hasTransparent = (flags & 0x01) != 0;
-                        if (hasTransparent)
-                            transparentIndex = data[pos + 3];
-                    }
-                    pos += blockSize;
-                    // Skip any terminator
-                    while (pos < data.Length && data[pos] != 0)
-                        pos += 1 + data[pos];
-                    if (pos < data.Length && data[pos] == 0)
-                        pos++;
+                    if (Byte(data, ref p) != 4 || p + 4 > data.Length) throw new InvalidDataException();
+                    var gce = Byte(data, ref p);
+                    _ = U16(data, ref p); // delay
+                    var index = Byte(data, ref p);
+                    if ((gce & 1) != 0) transparent = index;
+                    else transparent = -1;
+                    if (Byte(data, ref p) != 0) throw new InvalidDataException();
                 }
                 else
-                {
-                    // Skip data sub-blocks
-                    while (pos < data.Length && data[pos] != 0)
-                        pos += 1 + data[pos];
-                    if (pos < data.Length && data[pos] == 0)
-                        pos++;
-                }
+                    SkipSubBlocks(data, ref p);
+                continue;
             }
-            else if (blockType == 0x2C) // Image Descriptor
-            {
-                if (data.Length - pos < 9)
-                    throw new InvalidDataException("Truncated image descriptor.");
+            if (marker != 0x2C) throw new InvalidDataException();
 
-                var imgLeft = BinaryPrimitives.ReadUInt16LittleEndian(data[pos..]);
-                var imgTop = BinaryPrimitives.ReadUInt16LittleEndian(data[(pos + 2)..]);
-                var imgWidth = BinaryPrimitives.ReadUInt16LittleEndian(data[(pos + 4)..]);
-                var imgHeight = BinaryPrimitives.ReadUInt16LittleEndian(data[(pos + 6)..]);
-                var imgPacked = data[pos + 8];
-                pos += 9;
-
-                // The frame's own size comes from the file too: checked before the index buffer is allocated.
-                if (!ImageLimits.Allows(imgWidth, imgHeight, maxPixels))
-                    return null;
-
-                var hasLct = (imgPacked & 0x80) != 0;
-                var isInterlaced = (imgPacked & 0x40) != 0;
-                var lctSize = 1 << ((imgPacked & 0x07) + 1);
-
-                byte[]? activePalette = gct;
-                if (hasLct)
+            var left = U16(data, ref p);
+            var top = U16(data, ref p);
+            var frameWidth = U16(data, ref p);
+            var frameHeight = U16(data, ref p);
+            var descriptor = Byte(data, ref p);
+            if (frameWidth == 0 || frameHeight == 0 || left + frameWidth > width || top + frameHeight > height)
+                throw new InvalidDataException();
+            var palette = (descriptor & 0x80) != 0 ? ReadPalette(data, ref p, 1 << ((descriptor & 7) + 1)) : global;
+            if (palette is null) throw new InvalidDataException();
+            var indices = DecodePixels(data, ref p, frameWidth * frameHeight);
+            var pixels = new byte[checked(width * height * 4)];
+            // GIF's interlaced rows are presented in four passes.
+            var row = 0;
+            foreach (var (start, step) in (descriptor & 0x40) != 0
+                         ? new[] { (0, 8), (4, 8), (2, 4), (1, 2) }
+                         : new[] { (0, 1) })
+                for (var y = start; y < frameHeight; y += step)
                 {
-                    var lctByteCount = 3 * lctSize;
-                    if (data.Length - pos < lctByteCount)
-                        throw new InvalidDataException("Truncated local colour table.");
-                    activePalette = data.Slice(pos, lctByteCount).ToArray();
-                    pos += lctByteCount;
+                    for (var x = 0; x < frameWidth; x++)
+                    {
+                        var destination = ((top + y) * width + left + x) * 4;
+                        var colourIndex = indices[row++];
+                        if (colourIndex == transparent || colourIndex >= palette.Length)
+                            continue;
+                        var colour = palette[colourIndex];
+                        pixels[destination] = colour.R;
+                        pixels[destination + 1] = colour.G;
+                        pixels[destination + 2] = colour.B;
+                        pixels[destination + 3] = 255;
+                    }
                 }
-
-                if (activePalette is null)
-                    throw new InvalidDataException("No active colour table for image.");
-
-                if (pos >= data.Length)
-                    throw new InvalidDataException("Missing LZW minimum code size.");
-                int minCodeSize = data[pos++];
-
-                // Read all sub-blocks of LZW compressed data
-                using var lzwStream = new MemoryStream();
-                while (pos < data.Length && data[pos] != 0)
-                {
-                    int subBlockLen = data[pos++];
-                    if (pos + subBlockLen > data.Length)
-                        throw new InvalidDataException("Truncated LZW sub-block.");
-                    lzwStream.Write(data.Slice(pos, subBlockLen));
-                    pos += subBlockLen;
-                }
-                if (pos < data.Length && data[pos] == 0)
-                    pos++;
-
-                var pixelCount = imgWidth * imgHeight;
-                var decompressedIndices = DecompressLzw(lzwStream.ToArray(), minCodeSize, pixelCount);
-
-                var framePixels = new byte[width * height * 4];
-                RenderIndicesToRgba(decompressedIndices, framePixels, width, height, imgLeft, imgTop, imgWidth, imgHeight, isInterlaced, activePalette, transparentIndex);
-
-                return new DecodedImage(width, height, framePixels);
-            }
+            return new DecodedImage(width, height, pixels);
         }
-
         return null;
     }
 
-    private static byte[] DecompressLzw(byte[] compressed, int minCodeSize, int expectedPixels)
+    private static Rgb[] ReadPalette(ReadOnlySpan<byte> data, ref int p, int count)
     {
-        var output = new byte[expectedPixels];
-        var outPos = 0;
+        if (count <= 0 || p > data.Length - count * 3) throw new InvalidDataException();
+        var palette = new Rgb[count];
+        for (var i = 0; i < count; i++) palette[i] = new(data[p++], data[p++], data[p++]);
+        return palette;
+    }
 
-        int clearCode = 1 << minCodeSize;
-        int endCode = clearCode + 1;
-        int codeSize = minCodeSize + 1;
-        int maxCode = 1 << codeSize;
-
-        var prefix = new int[4096];
-        var suffix = new byte[4096];
-        var stack = new byte[4096];
-        int stackPos = 0;
-
-        void ResetTable()
+    private static byte[] DecodePixels(ReadOnlySpan<byte> data, ref int p, int expected)
+    {
+        var minimum = Byte(data, ref p);
+        if (minimum is < 2 or > 8) throw new InvalidDataException();
+        var compressed = ReadSubBlocks(data, ref p);
+        var clear = 1 << minimum;
+        var end = clear + 1;
+        var table = new List<byte[]>(clear + 2);
+        for (var i = 0; i < clear; i++) table.Add([(byte)i]);
+        table.Add([]); table.Add([]);
+        var result = new byte[expected];
+        var written = 0;
+        var bits = 0;
+        var bitCount = 0;
+        var bytePosition = 0;
+        var codeSize = minimum + 1;
+        var previous = -1;
+        while (written < expected)
         {
-            codeSize = minCodeSize + 1;
-            maxCode = 1 << codeSize;
-            for (var i = 0; i < clearCode; i++)
+            while (bitCount < codeSize)
             {
-                prefix[i] = -1;
-                suffix[i] = (byte)i;
+                if (bytePosition >= compressed.Length) throw new InvalidDataException();
+                bits |= compressed[bytePosition++] << bitCount;
+                bitCount += 8;
             }
-        }
-
-        ResetTable();
-        int available = endCode + 1;
-        int oldCode = -1;
-
-        int bitPos = 0;
-        var totalBits = compressed.Length * 8;
-
-        int ReadBits(int count)
-        {
-            if (bitPos + count > totalBits) return endCode;
-            int value = 0;
-            for (var i = 0; i < count; i++)
+            var code = bits & ((1 << codeSize) - 1);
+            bits >>= codeSize;
+            bitCount -= codeSize;
+            if (code == clear)
             {
-                var byteIndex = (bitPos + i) / 8;
-                var bitIndex = (bitPos + i) % 8;
-                if ((compressed[byteIndex] & (1 << bitIndex)) != 0)
-                    value |= (1 << i);
-            }
-            bitPos += count;
-            return value;
-        }
-
-        while (outPos < expectedPixels)
-        {
-            var code = ReadBits(codeSize);
-            if (code == clearCode)
-            {
-                ResetTable();
-                available = endCode + 1;
-                oldCode = -1;
+                table.RemoveRange(clear + 2, Math.Max(0, table.Count - clear - 2));
+                codeSize = minimum + 1;
+                previous = -1;
                 continue;
             }
-            if (code == endCode)
-                break;
-
-            int inCode = code;
-            if (code >= available)
+            if (code == end) break;
+            byte[] entry;
+            if (code < table.Count) entry = table[code];
+            else if (code == table.Count && previous >= 0) entry = [.. table[previous], table[previous][0]];
+            else throw new InvalidDataException();
+            if (written > expected - entry.Length) throw new InvalidDataException();
+            entry.CopyTo(result, written);
+            written += entry.Length;
+            // GIF LZW code tables are capped at 12 bits (4096 entries). A malformed stream must not
+            // keep appending entries after the table is full; doing so can grow attacker-controlled
+            // byte arrays far beyond the bounded decoded image.
+            if (previous >= 0 && table.Count < 4096)
             {
-                stack[stackPos++] = (byte)oldCode;
-                code = oldCode;
+                var prior = table[previous];
+                table.Add([.. prior, entry[0]]);
+                if (table.Count == (1 << codeSize) && codeSize < 12) codeSize++;
             }
-
-            while (code >= clearCode)
-            {
-                if (code >= prefix.Length || stackPos >= stack.Length) break;
-                stack[stackPos++] = suffix[code];
-                code = prefix[code];
-            }
-
-            var firstChar = suffix[code];
-            stack[stackPos++] = firstChar;
-
-            if (inCode >= available && stackPos > 0)
-                stack[0] = firstChar;
-
-            while (stackPos > 0 && outPos < expectedPixels)
-            {
-                output[outPos++] = stack[--stackPos];
-            }
-
-            if (available < 4096 && oldCode != -1)
-            {
-                prefix[available] = oldCode;
-                suffix[available] = firstChar;
-                available++;
-                if (available >= maxCode && codeSize < 12)
-                {
-                    codeSize++;
-                    maxCode = 1 << codeSize;
-                }
-            }
-            oldCode = inCode;
+            previous = code;
         }
-
-        return output;
+        if (written != expected) throw new InvalidDataException();
+        return result;
     }
 
-    private static void RenderIndicesToRgba(
-        byte[] indices, byte[] outputRgba,
-        int canvasWidth, int canvasHeight,
-        int imgLeft, int imgTop, int imgWidth, int imgHeight,
-        bool isInterlaced, byte[] palette, int? transparentIndex)
+    private static byte[] ReadSubBlocks(ReadOnlySpan<byte> data, ref int p)
     {
-        var srcPos = 0;
-        int[] passStarts = [0, 4, 2, 1];
-        int[] passSteps = [8, 8, 4, 2];
-
-        int passCount = isInterlaced ? 4 : 1;
-
-        for (var pass = 0; pass < passCount; pass++)
+        var result = new List<byte>();
+        while (true)
         {
-            var yStart = isInterlaced ? passStarts[pass] : 0;
-            var yStep = isInterlaced ? passSteps[pass] : 1;
-
-            for (var y = yStart; y < imgHeight; y += yStep)
-            {
-                var dstY = imgTop + y;
-                if (dstY >= canvasHeight)
-                {
-                    srcPos += imgWidth;
-                    continue;
-                }
-
-                for (var x = 0; x < imgWidth; x++)
-                {
-                    if (srcPos >= indices.Length) break;
-                    var index = indices[srcPos++];
-                    var dstX = imgLeft + x;
-                    if (dstX >= canvasWidth) continue;
-
-                    var dstOffset = (dstY * canvasWidth + dstX) * 4;
-                    if (transparentIndex.HasValue && index == transparentIndex.Value)
-                    {
-                        // Transparent pixel: leave RGBA as 0,0,0,0
-                        continue;
-                    }
-
-                    var palOffset = index * 3;
-                    if (palOffset + 2 < palette.Length)
-                    {
-                        outputRgba[dstOffset] = palette[palOffset];     // R
-                        outputRgba[dstOffset + 1] = palette[palOffset + 1]; // G
-                        outputRgba[dstOffset + 2] = palette[palOffset + 2]; // B
-                        outputRgba[dstOffset + 3] = 255;                // A
-                    }
-                }
-            }
+            var size = Byte(data, ref p);
+            if (size == 0) return [.. result];
+            if (p > data.Length - size) throw new InvalidDataException();
+            result.AddRange(data.Slice(p, size).ToArray());
+            p += size;
         }
     }
+
+    private static void SkipSubBlocks(ReadOnlySpan<byte> data, ref int p)
+    {
+        while (true)
+        {
+            var size = Byte(data, ref p);
+            if (size == 0) return;
+            if (p > data.Length - size) throw new InvalidDataException();
+            p += size;
+        }
+    }
+
+    private static byte Byte(ReadOnlySpan<byte> data, ref int p)
+    {
+        if ((uint)p >= (uint)data.Length) throw new InvalidDataException();
+        return data[p++];
+    }
+
+    private static int U16(ReadOnlySpan<byte> data, ref int p)
+    {
+        if (p > data.Length - 2) throw new InvalidDataException();
+        var value = BinaryPrimitives.ReadUInt16LittleEndian(data[p..]);
+        p += 2;
+        return value;
+    }
+
+    private readonly record struct Rgb(byte R, byte G, byte B);
 }

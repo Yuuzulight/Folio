@@ -1,12 +1,108 @@
 using System.Text;
 using System.Text.Json;
 using Folio.Resources;
+using Folio.Hosting;
+using Folio.Imaging;
 using Folio.Scripting.Ipc;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class ContentResourceTransportTests
 {
+    [Fact]
+    public async Task MediaDecodeRequestUsesHostDecoderAndReturnsBoundedAudio()
+    {
+        using var payload = JsonSerializer.SerializeToDocument(new
+        {
+            data = Convert.ToBase64String(new byte[] { 1, 2, 3 }),
+            contentType = "audio/test",
+            video = false,
+            maxOutputBytes = 64
+        });
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaDecodeRequest, 41, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output, mediaDecoder: new Decoder());
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        output.Position = 0;
+        var response = (await ContentTransport.ReadAsync(output, TestContext.Current.CancellationToken))!;
+        Assert.Equal(ContentMessageKind.MediaDecodeResponse, response.Kind);
+        var result = response.Payload.GetProperty("result");
+        Assert.Equal(1.25, result.GetProperty("duration").GetDouble());
+        Assert.Equal(2, result.GetProperty("audio").GetProperty("samples").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task MediaDecodeResponseRefusesOutputBeyondRequestedLimit()
+    {
+        using var payload = JsonSerializer.SerializeToDocument(new { data = Convert.ToBase64String(new byte[] { 1 }), video = false, maxOutputBytes = 4 });
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaDecodeRequest, 41, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output, mediaDecoder: new OversizedDecoder());
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        output.Position = 0;
+        var response = (await ContentTransport.ReadAsync(output, TestContext.Current.CancellationToken))!;
+        Assert.Equal(JsonValueKind.Null, response.Payload.GetProperty("result").ValueKind);
+    }
+
+    [Fact]
+    public async Task MediaDecodeResponseChargesVideoAndAudioAgainstOneAggregateLimit()
+    {
+        using var payload = JsonSerializer.SerializeToDocument(new { data = Convert.ToBase64String(new byte[] { 1 }), video = true, maxOutputBytes = 12 });
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaDecodeRequest, 41, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        await using var session = new ContentHostSession(input, output, mediaDecoder: new CombinedOutputDecoder());
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        output.Position = 0;
+        var response = (await ContentTransport.ReadAsync(output, TestContext.Current.CancellationToken))!;
+        Assert.Equal(JsonValueKind.Null, response.Payload.GetProperty("result").ValueKind);
+    }
+
+    [Fact]
+    public async Task MediaAudioMessagesReachTheHostOutputAndLifecycle()
+    {
+        using var submit = JsonSerializer.SerializeToDocument(new { sampleRate = 8000, channels = 1, samples = new[] { .5f, -.5f } });
+        using var start = JsonSerializer.SerializeToDocument(new { action = "start" });
+        using var flush = JsonSerializer.SerializeToDocument(new { action = "flush" });
+        var bytes = ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaAudioSubmit, 1, submit.RootElement.Clone()))
+            .Concat(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaAudioLifecycle, 2, start.RootElement.Clone())))
+            .Concat(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaAudioLifecycle, 3, flush.RootElement.Clone())))
+            .ToArray();
+        var input = new MemoryStream(bytes);
+        var output = new MemoryStream();
+        var audio = new RecordingAudioOutput();
+        await using var session = new ContentHostSession(input, output, mediaAudioOutput: audio);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        var frame = Assert.Single(audio.Frames);
+        Assert.Equal(new[] { .5f, -.5f }, frame.Samples.ToArray());
+        Assert.Equal(new[] { "start", "flush" }, audio.Lifecycle);
+    }
+
+    [Theory]
+    [InlineData("{\"sampleRate\":8000,\"channels\":2,\"samples\":[0.1]}")]
+    [InlineData("{\"sampleRate\":8000,\"channels\":1,\"samples\":[null]}")]
+    [InlineData("{\"sampleRate\":0,\"channels\":1,\"samples\":[0.1]}")]
+    public async Task InvalidMediaAudioMessagesAreDroppedBeforeHostOutput(string json)
+    {
+        using var payload = JsonDocument.Parse(json);
+        var input = new MemoryStream(ContentProtocol.Encode(new ContentMessage(ContentMessageKind.MediaAudioSubmit, 1, payload.RootElement.Clone())));
+        var output = new MemoryStream();
+        var audio = new RecordingAudioOutput();
+        await using var session = new ContentHostSession(input, output, mediaAudioOutput: audio);
+        await session.RunAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(audio.Frames);
+    }
+
+    [Theory]
+    [InlineData("{\"duration\":-1}")]
+    [InlineData("{\"audio\":{\"sampleRate\":8000,\"channels\":2,\"samples\":[0.1]}}")]
+    [InlineData("{\"audio\":{\"sampleRate\":8000,\"channels\":1,\"samples\":[null]}}")]
+    [InlineData("{\"audio\":null}")]
+    [InlineData("{\"frame\":{\"width\":1}}")]
+    public void MediaDecodeWireRejectsMalformedDecodedPayloads(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        Assert.Throws<JsonException>(() => ContentHostSession.MediaDecodeWire.Read(document.RootElement));
+    }
     [Theory]
     [InlineData("null")]
     [InlineData("[]")]
@@ -209,5 +305,39 @@ public sealed class ContentResourceTransportTests
             Calls++;
             return Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded(Encoding.UTF8.GetBytes("loaded"), "text/plain"));
         }
+    }
+
+    private sealed class Decoder : IMediaDecoder
+    {
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
+            new(1.25, null, new MediaAudioFrame(8000, 1, new float[] { .25f, -.25f }));
+    }
+
+    private sealed class OversizedDecoder : IMediaDecoder
+    {
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
+            new(1, null, new MediaAudioFrame(8000, 1, new float[2]));
+    }
+
+    private sealed class CombinedOutputDecoder : IMediaDecoder
+    {
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
+            new(1, new TestImage(2, 1, new byte[8]), new MediaAudioFrame(8000, 1, new float[2]));
+
+        private sealed record TestImage(int Width, int Height, byte[] Data) : IImageHandle
+        {
+            public ReadOnlyMemory<byte> Pixels => Data;
+        }
+    }
+
+    private sealed class RecordingAudioOutput : IMediaAudioOutput, IMediaAudioOutputLifecycle
+    {
+        public List<MediaAudioFrame> Frames { get; } = [];
+        public List<string> Lifecycle { get; } = [];
+        public void Submit(MediaAudioFrame frame) => Frames.Add(frame);
+        public void Start() => Lifecycle.Add("start");
+        public void Pause() => Lifecycle.Add("pause");
+        public void Flush() => Lifecycle.Add("flush");
+        public void Stop() => Lifecycle.Add("stop");
     }
 }

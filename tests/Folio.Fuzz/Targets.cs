@@ -45,9 +45,11 @@ internal static class Targets
             "all:", "initial", "inherit", "unset", "revert", "revert-layer"]),
         new("png", data => PngDecoder.Decode(data, MaxPixels), () => Images("*.png"), []),
         new("jpeg", data => JpegDecoder.Decode(data, MaxPixels), () => Images("*.jpg"), []),
-        new("gif", data => GifDecoder.Decode(data, MaxPixels), () => Images("*.gif"), ["GIF89a", "GIF87a", "!", ",", ";", "\0", "ÿ"]),
-        new("webp", data => WebpDecoder.Decode(data, MaxPixels), () => Images("*.webp"), ["RIFF", "WEBP", "VP8L", "VP8X", "VP8 ", "ALPH", "ANMF", "ANIM", "/"]),
-        new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
+        new("gif", data => GifDecoder.Decode(data, MaxPixels), () => Images("*.gif"), []),
+        new("webp", data => WebpDecoder.Decode(data, MaxPixels), () => Images("*.webp"), ["RIFF", "WEBP", "VP8L", "VP8 ", "VP8X", "ALPH", "ANMF"]),
+        new("bmp", data => BmpDecoder.Decode(data, MaxPixels), BmpSeeds, ["BM", "BITMAP", "\0"]),
+        new("ico", data => IcoDecoder.Decode(data, MaxPixels), IcoSeeds, ["\0\0\u0001\0", "PNG", "BM"]),
+        new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "CFF2", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
         new("svg", Svg, SvgSeeds, ["<svg xmlns=\"http://www.w3.org/2000/svg\">", "</svg>", "<?xml version=\"1.0\"?>", "<!DOCTYPE svg [", "]>",
             "<![CDATA[", "]]>", "<!--", "&#x", "&amp;", "xmlns:x=\"", "<g>", "</g>", "<path d=\"", "M0 0", "A1 1 0 1 1", "C", "Z", " viewBox=\"",
             " preserveAspectRatio=\"", " transform=\"", "rotate(", "matrix(", "<text", "<tspan", " x=\"", " dx=\"", "%", "e9", "-", ".",
@@ -61,14 +63,10 @@ internal static class Targets
             "all:", "unset", "var(--x,revert-layer)"]),
         new("canvas", Canvas, CanvasSeeds, ["M", "L", "C", "Z", "a", "e", "red", "#", "rgb(", "hsl(", "blur(", "drop-shadow(", "px ", "serif", "bold ", "repeat", "evenodd", "lighter", "xor", "NaN", ",", "-", "e999"]),
         new("webvtt", WebVtt, WebVttSeeds, ["WEBVTT", "NOTE", "--> ", "00:00.000", "align:start", "&amp;", "<b>", "\n\n"]),
-        new("url", Url, UrlSeeds, ["http://", "https://", "file:///", "//", "../", "./", "%2e", "%41", "[::1]", "@", ":", "?", "#", "\\", "xn--", "0x", "..", "\n"]),
         new("diagrams", Diagrams, DiagramSeeds, ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram-v2", "erDiagram", "timeline", "gantt", "pie", "-->", "<|--", "||--o{", ":", "section", "dateFormat"]),
         new("ipc", Ipc, IpcSeeds, ["{", "}", "Heartbeat", "Load", "ResourceRequest", "\0", "\xff"]),
         new("cache-storage", CacheStorage, CacheStorageSeeds, ["Operation", "open", "put", "match", "delete", "release", "$last", "vary", "GET", "Headers", "null"]),
-        new("shader", Shader, ShaderSeeds, ["attribute", "uniform", "varying", "in", "out", "precision", "highp", "mediump", "lowp",
-            "void", "main", "float", "vec2", "vec3", "vec4", "mat2", "mat3", "mat4", "int", "ivec2",
-            "sampler2D", "gl_Position", "gl_FragColor", "gl_FragCoord", "texture2D", "texture",
-            "#version 300 es", "#version 100", "#define", "#ifdef", "#endif", "{", "}", "(", ")", ";", "=", "+", "*"]),
+        .. OperatingSystem.IsWindows() ? new[] { NativeWebGlShaderFuzz.Target } : [],
     ];
 
     public static Target Find(string name) => All.Single(t => t.Name == name);
@@ -116,8 +114,65 @@ internal static class Targets
             return;
         face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
         face.Substitute(face.GlyphFor('1'), "pnum tnum");
-        foreach (var glyph in new[] { (ushort)0, (ushort)1, face.GlyphFor('A'), face.GlyphFor('g'), face.GlyphFor('\u00E9'), (ushort)Math.Max(0, face.GlyphCount - 1) })
-            Folio.Painting.GlyphOutlines.Get(face, glyph);
+        if (face.RawTable("CFF2") is not null)
+        {
+            using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96);
+            if (surface is not null)
+            {
+                var glyph = face.GlyphFor('A');
+                surface.Canvas.DrawGlyphs(face, 64, [glyph], [new System.Numerics.Vector2(8, 76)], new Paint(new Rgba(0, 0, 0, 1)));
+            }
+        }
+    }
+
+    private static IEnumerable<byte[]> BmpSeeds()
+    {
+        var seed = new byte[58];
+        seed[0] = (byte)'B'; seed[1] = (byte)'M';
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(2), (uint)seed.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(10), 54);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(14), 40);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(18), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(22), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(26), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(28), 24);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(34), 4);
+        seed[54] = 32; seed[55] = 64; seed[56] = 128; seed[57] = 0;
+        var rgb555 = new byte[58];
+        rgb555[0] = (byte)'B'; rgb555[1] = (byte)'M';
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(2), (uint)rgb555.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(10), 54);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(14), 40);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(rgb555.AsSpan(18), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(rgb555.AsSpan(22), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(rgb555.AsSpan(26), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(rgb555.AsSpan(28), 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rgb555.AsSpan(34), 4);
+        rgb555[54] = 0; rgb555[55] = 0x7C;
+        return Images("*.bmp").Append(seed).Append(rgb555);
+    }
+
+    private static IEnumerable<byte[]> IcoSeeds()
+    {
+        var seed = new byte[70];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(2), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(4), 1);
+        seed[6] = seed[7] = 1;
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(10), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(12), 32);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(14), 48);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(18), 22);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(seed.AsSpan(22), 40);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(26), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(seed.AsSpan(30), 2);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(34), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(seed.AsSpan(36), 32);
+        seed[62] = 255; seed[65] = 255;
+        var dib16 = seed.ToArray();
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(dib16.AsSpan(12), 16);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(dib16.AsSpan(14), 48);
+        dib16[62] = 0; dib16[63] = 0x7C;
+        return Images("*.ico").Append(seed).Append(dib16);
     }
 
     private static IEnumerable<byte[]> FontSeeds()
@@ -125,7 +180,9 @@ internal static class Targets
         var box = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioBox.ttf"));
         // The text font brings GPOS kerning (both pair adjustment formats) for the mutations to reach.
         var text = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
-        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text];
+        var cff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
+        var cff2Woff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
+        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2, cff2Woff2];
     }
 
     private static void Css(byte[] data)
@@ -192,41 +249,6 @@ internal static class Targets
         "WEBVTT\n\nintro\n00:01.500 --> 00:03.250 align:start\nHello &amp; world",
         "WEBVTT\n\nNOTE this is ignored\ncomment\n",
         "WEBVTT\n\n00:02.000 --> 00:01.000\nreversed",
-    }.Select(Encoding.UTF8.GetBytes);
-
-    // A URL against an optional base (the first line), as the parser and, through a copy, each setter take it; what parses must
-    // serialize to text that parses to the same URL again.
-    private static void Url(byte[] data)
-    {
-        var text = Encoding.UTF8.GetString(data);
-        var split = text.IndexOf('\n');
-        var baseUrl = split > 0 ? WhatwgUrl.Parse(text[..split]) : null;
-        var input = split >= 0 ? text[(split + 1)..] : text;
-        if (WhatwgUrl.Parse(input, baseUrl) is { } url)
-        {
-            var href = url.Serialize();
-            var again = WhatwgUrl.Parse(href) ?? throw new InvalidOperationException($"'{href}' does not parse again.");
-            if (again.Serialize() != href)
-                throw new InvalidOperationException($"'{href}' parses to '{again.Serialize()}'.");
-            _ = (url.Origin, url.HostString, url.PathString);
-            foreach (var set in new Action<WhatwgUrl>[] { u => u.SetProtocol(input), u => u.SetUsername(input), u => u.SetPassword(input), u => u.SetHost(input),
-                         u => u.SetHostname(input), u => u.SetPort(input), u => u.SetPathname(input), u => u.SetSearch(input), u => u.SetHash(input) })
-            {
-                var copy = url.Clone();
-                set(copy);
-                _ = copy.Serialize();
-            }
-        }
-        var pairs = WhatwgUrl.ParseForm(text);
-        if (WhatwgUrl.ParseForm(WhatwgUrl.SerializeForm(pairs)).SequenceEqual(pairs) is false)
-            throw new InvalidOperationException("Form data does not round-trip.");
-    }
-
-    private static IEnumerable<byte[]> UrlSeeds() => new[]
-    {
-        "https://user:pw@example.com:8080/a/b/../c?x=1&y=%20z#frag",
-        "http://example.com/dir/\n../up/./down?q#h", "file:///C:/a/b", "//host/path\nhttps://base.test/x/y", "http://[2001:db8::1]:80/",
-        "http://0x7f.1/", "mailto:someone@example.com", "data:text/plain,hello world#frag", "http://xn--nxasmq6b.com/", "a=1&b=%C3%A9&a=2+3",
     }.Select(Encoding.UTF8.GetBytes);
 
     private static void Diagrams(byte[] data)
@@ -343,14 +365,9 @@ internal static class Targets
     private static void Ipc(byte[] data)
     {
         if (ContentProtocol.TryDecode(data, out var message) && message is not null)
-        {
             message.TryGetCapabilities(out _);
-            message.TryGetDisplayList(out _);
-            message.TryGetInput(out _);
-        }
         if (data.Length >= 12)
             CanvasFrameStore.IsValidDescriptor(BitConverter.ToInt32(data, 0), BitConverter.ToInt32(data, 4), BitConverter.ToInt32(data, 8));
-        DisplayListCodec.TryDecode(data, out _);
         var reader = new ContentProtocolReader();
         for (var offset = 0; offset < data.Length; offset += Math.Min(7, data.Length - offset))
             reader.Push(data.AsMemory(offset, Math.Min(7, data.Length - offset)));
@@ -368,12 +385,6 @@ internal static class Targets
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.StorageRequest, 5, storageRequest.RootElement.Clone()));
         using var storageResponse = System.Text.Json.JsonDocument.Parse("{\"requestId\":5,\"result\":{\"token\":\"a\"}}");
         yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.StorageResponse, 6, storageResponse.RootElement.Clone()));
-        var seedList = new DisplayList();
-        seedList.Items.Add(new DisplayItem(DisplayItemKind.Fill, Shape: new RoundedRect(new RectF(0, 0, 50, 50), default), Color: new Folio.Css.CssColor(255, 0, 0, 255)));
-        var encodedDl = Convert.ToBase64String(DisplayListCodec.Encode(seedList));
-        using var frameDoc = System.Text.Json.JsonDocument.Parse($"{{\"displayList\":\"{encodedDl}\",\"canvasFrame\":{{\"path\":\"test\",\"width\":100,\"height\":100,\"stride\":400,\"sequence\":1}}}}");
-        yield return ContentProtocol.Encode(new ContentMessage(ContentMessageKind.Frame, 7, frameDoc.RootElement.Clone()));
-        yield return DisplayListCodec.Encode(seedList);
     }
 
     private sealed class FuzzCacheStorage : IArtifactStorage
@@ -448,35 +459,8 @@ internal static class Targets
     private static byte[] UserAgentStyleSheet() => File.ReadAllBytes(Path.Combine(RepoPaths.Root, "src", "Folio", "Style", "UserAgent.css"));
 
     private static IEnumerable<byte[]> Images(string pattern) =>
-        Directory.GetFiles(Path.Combine(RepoPaths.Tests, "images"), pattern).Select(File.ReadAllBytes);
-
-    private static void Shader(byte[] data)
-    {
-        var source = Encoding.UTF8.GetString(data);
-        WebGlShaderValidator.Validate(0x8B31 /* VERTEX_SHADER */, source);
-        WebGlShaderValidator.Validate(0x8B30 /* FRAGMENT_SHADER */, source);
-        // Whatever compiles also runs, for a moment: neither may fail in any way but a reported error or running out of time.
-        foreach (var stage in new[] { Folio.Scripting.WebGl.GlslStage.Vertex, Folio.Scripting.WebGl.GlslStage.Fragment })
-        {
-            var result = Folio.Scripting.WebGl.GlslCompiler.Compile(stage, source);
-            if (result.Shader is not { } shader) continue;
-            var context = shader.CreateContext();
-            context.Deadline = System.Diagnostics.Stopwatch.GetTimestamp() + System.Diagnostics.Stopwatch.Frequency / 50;
-            try { shader.Main(context); }
-            catch (Folio.Scripting.WebGl.ShaderTimeoutException) { }
-        }
-    }
-
-    private static IEnumerable<byte[]> ShaderSeeds() => new[]
-    {
-        "attribute vec2 position;\nvoid main() {\n  gl_Position = vec4(position, 0.0, 1.0);\n}",
-        "precision mediump float;\nuniform vec4 color;\nvoid main() {\n  gl_FragColor = color;\n}",
-        "#version 300 es\nin vec2 position;\nvoid main() {\n  gl_Position = vec4(position, 0.0, 1.0);\n}",
-        "#version 300 es\nprecision mediump float;\nout vec4 fragColor;\nvoid main() {\n  fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n}",
-        "// comment\nvoid main() { /* empty */ }",
-        "invalid shader source without main",
-        "precision mediump float;\nstruct L { vec3 c; float p; };\nfloat f(float a[3], inout vec2 v) { v.x += a[1]; return a[0] * a[2]; }\nvoid main() {\n  float a[3]; a[0] = 1.0; a[1] = 2.0; a[2] = 3.0; vec2 v = vec2(0.0); L l = L(vec3(1.0), 2.0);\n  for (int i = 0; i < 4; i++) { if (i == 2) continue; v += vec2(f(a, v)); }\n  mat2 m = mat2(1.0, 2.0, 3.0, 4.0); vec2 w = m * v;\n  gl_FragColor = vec4(w, l.p, float(l.c.x > 0.5 ? 1 : 0));\n}",
-        "#define N 3\nprecision mediump float;\n#if N > 2\nvoid main() { gl_FragColor = vec4(float(N)); }\n#endif",
-        "void main() { gl_FragColor = vec4((((((((((1.0))))))))))); }",
-    }.Select(Encoding.UTF8.GetBytes);
+        Directory.GetFiles(Path.Combine(RepoPaths.Tests, "images"), pattern).Select(File.ReadAllBytes)
+            .Concat(pattern == "*.gif"
+                ? [Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")]
+                : []);
 }

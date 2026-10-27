@@ -9,6 +9,12 @@ public enum ContentMessageKind
     Load,
     ResourceRequest,
     ResourceResponse,
+    MediaDecodeRequest,
+    MediaDecodeResponse,
+    MediaAudioSubmit,
+    MediaAudioLifecycle,
+    MediaCaptureRequest,
+    MediaCaptureResponse,
     Frame,
     Input,
     Diagnostic,
@@ -18,12 +24,6 @@ public enum ContentMessageKind
     Capabilities,
     StorageRequest,
     StorageResponse,
-    Cursor,
-    Tooltip,
-    LinkActivated,
-    ClipboardCopy,
-    FormSubmitted,
-    SelectDropdown,
 }
 
 public sealed record ContentMessage(ContentMessageKind Kind, long Sequence, JsonElement Payload, int Version = 1)

@@ -22,6 +22,17 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     private bool _attemptedWebGl;
     private bool _nativeFrame;
     private FeatureFallback? _fallback;
+    private WebGlObjectRegistry? _webGlRegistry;
+    private bool _nativeWebGl2;
+    private bool _nativeWebGlLost;
+    private INativeWebGlFactory? _webGlFactory;
+    private Func<INativeWebGlFactory?>? _webGlFactoryProvider;
+    private IScriptEngine? _webGlEngine;
+    private ScriptValue _webGlCanvas;
+    private WebGlContextAttributes? _webGlRequestedAttributes;
+    private long _webGlMaxBytes;
+    private Action<string>? _webGlDiagnosticSink;
+    private INativeWebGlContext? _nativeCurrent;
 
     public CanvasElementState(ElementNode element, IRasterBackend? backend, Hosting.CanvasStyleEngine? styles)
     {
@@ -36,15 +47,117 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     public Canvas2DContext? Context2D { get; private set; }
 
     public WebGlContextState? WebGlContext { get; set; }
+    internal WebGlBindingAdapter? NativeWebGlContext { get; private set; }
+    internal bool NativeWebGl2 => _nativeWebGl2;
+
+    internal WebGlBindingAdapter? TryCreateNativeWebGl(INativeWebGlFactory factory, IScriptEngine engine, ScriptValue canvas, bool webGl2, WebGlContextAttributes? requestedAttributes = null, long maxBytes = 64L * 1024 * 1024, Action<string>? diagnosticSink = null, Func<INativeWebGlFactory?>? factoryProvider = null)
+    {
+        if (Width != 0 && Height != 0 && !SizeAllowed)
+        {
+            _attemptedWebGl = true;
+            _fallback = new(FallbackFeature.WebGl, FallbackReason.ResourceLimit);
+            return null;
+        }
+        if ((Width == 0 || Height == 0) && _fallback is { Reason: FallbackReason.ResourceLimit }) _fallback = null;
+        else if (SizeAllowed && _fallback is { Reason: FallbackReason.ResourceLimit }) _fallback = null;
+        if (NativeWebGlContext is { } existing)
+        {
+            if (_nativeWebGl2 != webGl2) return null;
+            if (!_nativeWebGlLost) return existing;
+        }
+        var requested = requestedAttributes ?? new WebGlContextAttributes(webGl2 ? WebGlContextVersion.WebGl2 : WebGlContextVersion.WebGl1, true, true, false, true, true, false);
+        var options = new WebGlContextOptions(webGl2 ? WebGlContextVersion.WebGl2 : WebGlContextVersion.WebGl1, Width, Height, requested, maxBytes);
+        if (!factory.TryCreate(options, out var native, out var failure) || native is null)
+        {
+            if (failure is not null) MarkGpuFailure(failure);
+            return null;
+        }
+        _webGlRegistry = new WebGlObjectRegistry(native);
+        _webGlFactory = factory;
+        _webGlFactoryProvider = factoryProvider ?? (() => _webGlFactory);
+        _webGlEngine = engine;
+        _webGlCanvas = canvas;
+        _webGlRequestedAttributes = requested;
+        _webGlMaxBytes = maxBytes;
+        _webGlDiagnosticSink = diagnosticSink;
+        _nativeWebGl2 = webGl2;
+        _nativeWebGlLost = false;
+        _nativeCurrent = native;
+        var retained = NativeWebGlContext;
+        NativeWebGlContext = retained ?? (webGl2
+            ? new WebGl2BindingAdapter(_webGlRegistry, engine, diagnosticSink, canvas, present: () => PresentNativeFrame(_nativeCurrent!), loseContext: LoseNativeWebGlContext, restoreContext: RestoreNativeWebGlContext)
+            : new WebGlBindingAdapter(_webGlRegistry, engine, diagnosticSink, canvas, present: () => PresentNativeFrame(_nativeCurrent!), loseContext: LoseNativeWebGlContext, restoreContext: RestoreNativeWebGlContext));
+        retained?.ReplaceRegistry(_webGlRegistry);
+        // A successful context creation supersedes a transient host-denied or
+        // probing fallback from an earlier attempt on the same canvas.
+        _attemptedWebGl = true;
+        if (_fallback is { Reason: FallbackReason.HostDenied or FallbackReason.ContextLost }) _fallback = null;
+        if (Width > 0 && Height > 0 && Surface() is null) MarkGraphicsUnavailable();
+        return NativeWebGlContext;
+    }
+
+    internal void LoseNativeWebGlContext()
+    {
+        if (_nativeWebGlLost) return;
+        _nativeWebGlLost = true;
+        _webGlRegistry?.BeginContextLoss();
+        _webGlRegistry?.Dispose();
+        _nativeCurrent = null;
+        ClearNativeFrame();
+        MarkContextLost();
+        DispatchNativeWebGlEvent(NativeWebGlContext?.Oncontextlost, "webglcontextlost");
+    }
+
+    internal bool RestoreNativeWebGlContext()
+    {
+        if (!_nativeWebGlLost || _webGlEngine is null) return false;
+        var factory = _webGlFactoryProvider?.Invoke();
+        if (factory is null) return false;
+        var options = new WebGlContextOptions(_nativeWebGl2 ? WebGlContextVersion.WebGl2 : WebGlContextVersion.WebGl1, Width, Height, _webGlRequestedAttributes!, _webGlMaxBytes);
+        if (!factory.TryCreate(options, out var native, out var failure) || native is null)
+        {
+            if (failure is not null) MarkGpuFailure(failure);
+            return false;
+        }
+        _webGlRegistry = new WebGlObjectRegistry(native);
+        _nativeCurrent = native;
+        ((WebGlBindingAdapter)NativeWebGlContext!).ReplaceRegistry(_webGlRegistry);
+        _nativeWebGlLost = false;
+        _fallback = null;
+        if (Width > 0 && Height > 0 && Surface() is null) MarkGraphicsUnavailable();
+        DispatchNativeWebGlEvent(NativeWebGlContext?.Oncontextrestored, "webglcontextrestored");
+        return true;
+    }
+
+    private void DispatchNativeWebGlEvent(ScriptValue? handler, string type)
+    {
+        if (_webGlEngine is null || handler is not { IsFunction: true }) return;
+        var evt = _webGlEngine.Evaluate($"({{ type: '{type}' }})");
+        _webGlEngine.Call(handler.Value, ScriptValue.Undefined, [evt]);
+    }
+
+    private void PresentNativeFrame(INativeWebGlContext? native)
+    {
+        if (native is null || native.IsLost || !Element.OwnerDocument.WebGlAllowed) return;
+        var raster = Surface();
+        if (raster is null) return;
+        var pixels = new byte[checked(Width * Height * 4)];
+        if (!native.TryReadPixelsPresentation(0, 0, Width, Height, pixels, out _)) return;
+        raster.WritePixels(0, 0, Width, Height, pixels);
+        MarkNativeFrame();
+        Touch();
+    }
 
     public FeatureFallback? Fallback => _attemptedWebGl && !Element.OwnerDocument.WebGlAllowed
-        ? new(FallbackFeature.WebGl, FallbackReason.HostDenied) : _fallback;
+        ? new(FallbackFeature.WebGl, FallbackReason.HostDenied)
+        : _nativeFrame ? null : _fallback;
 
     internal void AttemptWebGl() => _attemptedWebGl = true;
     internal void MarkWebGlDenied() { _attemptedWebGl = true; _fallback = new(FallbackFeature.WebGl, FallbackReason.HostDenied); }
     internal void MarkGraphicsUnavailable()
     {
-        if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.GraphicsUnavailable);
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.ResourceLimit })
+            _fallback = new(FallbackFeature.WebGl, FallbackReason.GraphicsUnavailable);
     }
     internal void MarkGpuFailure(GpuFailure failure)
     {
@@ -53,13 +166,12 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     }
     internal void MarkContextLost()
     {
-        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.HostDenied or FallbackReason.ResourceLimit })
-            _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
+        if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.ContextLost);
     }
     internal void MarkHostDenied() { if (_attemptedWebGl) _fallback = new(FallbackFeature.WebGl, FallbackReason.HostDenied); }
     internal void ClearFallback()
     {
-        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable } && (SizeAllowed || _fallback is not { Reason: FallbackReason.ResourceLimit }))
+        if (_attemptedWebGl && _fallback is not { Reason: FallbackReason.GraphicsUnavailable or FallbackReason.ResourceLimit })
             _fallback = null;
     }
     internal void ProbeGraphics() { _ = Surface(); }
@@ -82,15 +194,8 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     /// <summary>Whether a bitmap of the element's size fits the image limits (16,384 pixels a side, 64 megapixels).</summary>
     public bool SizeAllowed => ImageLimits.Allows(Width, Height, ImageLimits.MaxPixels);
 
-    /// <summary>The element's bitmap, made on first use; null when there is no backend or the size is not allowed or zero. A WebGL canvas first shows what its context has drawn.</summary>
+    /// <summary>The element's bitmap, made on first use; null when there is no backend or the size is not allowed or zero.</summary>
     public IRasterSurface? Surface()
-    {
-        WebGlContext?.Present();
-        return PixelSurface();
-    }
-
-    /// <summary>The bitmap itself, without waiting for a WebGL context to put its drawing buffer into it.</summary>
-    internal IRasterSurface? PixelSurface()
     {
         if (_surface is not null) return _surface;
         if (!SizeAllowed)
@@ -118,7 +223,7 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     {
         if (Context2D is not null)
             return Sync();
-        if (WebGlContext is not null || Surface() is not { } surface)
+        if (WebGlContext is not null || NativeWebGlContext is not null || Surface() is not { } surface)
             return null;
         _attemptedWebGl = false;
         _fallback = null;
@@ -138,9 +243,11 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
     /// <summary>Setting width or height, even to the same value, empties the bitmap and resets the context.</summary>
     public void Restart()
     {
+        NativeWebGlContext?.Resize(Width, Height);
         ClearNativeFrame();
         _surface?.Dispose();
         _surface = null;
+        if ((Width == 0 || Height == 0 || SizeAllowed) && _fallback is { Reason: FallbackReason.ResourceLimit }) _fallback = null;
         _snapshot = null;
         _snapshotVersion = -1;
         Context2D?.Reattach(Surface() ?? NullRasterSurface.Instance);
@@ -150,7 +257,6 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
 
     public IImageHandle? Snapshot()
     {
-        WebGlContext?.Present();
         if (Context2D is null && WebGlContext is null && !_nativeFrame)
             return null;
         if (Context2D is not null) Sync();

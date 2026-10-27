@@ -41,12 +41,14 @@ public sealed class ScriptStoppedEventArgs(string reason) : EventArgs
 /// animations at the display's refresh rate while the control is shown. The document reports
 /// <c>prefers-reduced-motion: reduce</c> when the host's options ask for it or Windows has animations turned off.
 /// </summary>
-// ponytail: each paint replays the whole display list; invalidation by rectangle and hover states come in M3.
 public class FolioView : Control
 {
     private readonly VScrollBar _scrollBar = new() { Dock = DockStyle.Right, Visible = false, SmallChange = 40 };
     private Document? _document;
     private DisplayList? _list;
+    private SKBitmap? _renderBitmap;
+    private bool _renderNeedsFull = true;
+    private RectF? _pendingDamage;
     private float _contentHeight;
     private float _laidOutWidth = -1;
     private float _zoom = 1f;
@@ -65,7 +67,7 @@ public class FolioView : Control
         Visible = false,
     };
     private FolioViewAccessibleObject? _accessibleObject;
-    protected internal ContentProcessClient? _contentProcess;
+    private ContentProcessClient? _contentProcess;
     private Func<ContentMessage, CancellationToken, ValueTask>? _contentMessageHandler;
     private CanvasFrameStore? _contentFrameStore;
     private Bitmap? _contentBitmap;
@@ -77,13 +79,12 @@ public class FolioView : Control
     private FeatureCapabilities _capabilities = FeatureCapabilities.Default;
     private readonly object _contentStateGate = new();
     private ContentCommandQueue _contentCommands = new();
-    private readonly DisplayListContext _displayListContext = new();
     private long _contentGeneration;
 
     public FolioView()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        _scrollBar.ValueChanged += (_, _) => Invalidate();
+        _scrollBar.ValueChanged += (_, _) => { _renderNeedsFull = true; _pendingDamage = null; Invalidate(); };
         Controls.Add(_scrollBar);
         Controls.Add(_mediaCaptureIndicator);
         _mediaCaptureIndicator.BringToFront();
@@ -103,34 +104,6 @@ public class FolioView : Control
     /// <summary>The options new documents are parsed with.</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public FolioOptions Options { get; set; } = new();
-
-    /// <summary>The active color scheme (light or dark mode) for the view and its loaded document.</summary>
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public ColorScheme ColorScheme
-    {
-        get => _document?.ColorScheme ?? Options.ColorScheme;
-        set
-        {
-            Options.ColorScheme = value;
-            if (_document is not null)
-                _document.ColorScheme = value;
-            Invalidate();
-        }
-    }
-
-    /// <summary>Whether reduced motion is requested for animations.</summary>
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public bool ReducedMotion
-    {
-        get => _document?.ReducedMotion ?? Options.ReducedMotion;
-        set
-        {
-            Options.ReducedMotion = value;
-            if (_document is not null)
-                _document.ReducedMotion = value;
-            Invalidate();
-        }
-    }
 
     /// <summary>The capabilities currently requested for this view's content artifact.</summary>
     [Browsable(false)]
@@ -162,10 +135,6 @@ public class FolioView : Control
     /// <summary>The HTML fragment of the active selection, or empty.</summary>
     [Browsable(false)]
     public string SelectedHtml => _document?.SelectedHtml ?? "";
-
-    /// <summary>The active display list painted for this view.</summary>
-    [Browsable(false)]
-    internal DisplayList? DisplayList => _list ?? _document?.DisplayList;
 
     /// <summary>Selects all selectable content in the document.</summary>
     public void SelectAll() => _document?.SelectAll();
@@ -213,18 +182,6 @@ public class FolioView : Control
 
     /// <summary>Raised when a document starts or stops using camera or microphone capture.</summary>
     public event Action<bool>? MediaCaptureActivityChanged;
-
-    /// <summary>Raised when a &lt;select&gt; drop-down popup is opened by the content process.</summary>
-    public event EventHandler<SelectDropdownEventArgs>? SelectDropdownOpened;
-
-    /// <summary>Picks an option for an open or targeted &lt;select&gt; in the content process.</summary>
-    public void PickSelectOption(string? selectId, int optionIndex)
-    {
-        if (_contentProcess is not null)
-        {
-            SendContentInput(new ContentInputEvent("selectoption", Button: optionIndex, Key: selectId));
-        }
-    }
 
     /// <summary>Connects the control to a content process and displays a visible stopped notice if it is terminated.</summary>
     public void AttachContentProcess(ContentProcessClient client)
@@ -342,104 +299,6 @@ public class FolioView : Control
             }
             PostPendingContent();
             return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.Cursor && message.Payload.TryGetProperty("cursor", out var cVal))
-        {
-            var cur = cVal.GetString() ?? "default";
-            try { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => Cursor = MapCursor(cur)); }
-            catch (InvalidOperationException) { }
-            return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.Tooltip && message.Payload.TryGetProperty("tooltip", out var tVal))
-        {
-            var tooltip = tVal.GetString();
-            try { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => _toolTip.SetToolTip(this, tooltip)); }
-            catch (InvalidOperationException) { }
-            return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.LinkActivated && message.Payload.TryGetProperty("uri", out var uVal)
-            && Uri.TryCreate(uVal.GetString(), UriKind.Absolute, out var uri))
-        {
-            var mods = message.Payload.TryGetProperty("modifiers", out var mVal) && mVal.TryGetInt32(out var mInt) ? (KeyModifiers)mInt : KeyModifiers.None;
-            try { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => OnDocumentLinkActivated(this, new Folio.LinkActivatedEventArgs(uri, mods))); }
-            catch (InvalidOperationException) { }
-            return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.ClipboardCopy)
-        {
-            var text = message.Payload.TryGetProperty("text", out var tx) ? tx.GetString() ?? "" : "";
-            var html = message.Payload.TryGetProperty("html", out var hx) ? hx.GetString() ?? "" : "";
-            try
-            {
-                if (!IsDisposed && IsHandleCreated)
-                {
-                    BeginInvoke(() =>
-                    {
-                        var data = new DataObject();
-                        if (!string.IsNullOrEmpty(text))
-                            data.SetData(DataFormats.UnicodeText, true, text);
-                        if (!string.IsNullOrEmpty(html))
-                            data.SetData(DataFormats.Html, true, BuildWindowsClipboardHtml(html));
-                        try { Clipboard.SetDataObject(data, true); }
-                        catch (ExternalException) { }
-                    });
-                }
-            }
-            catch (InvalidOperationException) { }
-            return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.FormSubmitted && message.Payload.TryGetProperty("action", out var actVal))
-        {
-            var action = actVal.GetString() ?? "";
-            var method = message.Payload.TryGetProperty("method", out var mth) ? mth.GetString() ?? "GET" : "GET";
-            var dataList = new List<KeyValuePair<string, string>>();
-            if (message.Payload.TryGetProperty("data", out var dArr) && dArr.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                foreach (var item in dArr.EnumerateArray())
-                {
-                    var k = item.TryGetProperty("name", out var kn) ? kn.GetString() ?? "" : "";
-                    var v = item.TryGetProperty("value", out var vn) ? vn.GetString() ?? "" : "";
-                    dataList.Add(new KeyValuePair<string, string>(k, v));
-                }
-            }
-            var formArgs = new FormSubmittedEventArgs(Document?.Node.Descendants.OfType<Folio.Dom.ElementNode>().FirstOrDefault(e => e.LocalName == "form") is { } formEl ? Document.Wrap(formEl) : null!, action, method, dataList);
-            try { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => FormSubmitted?.Invoke(this, formArgs)); }
-            catch (InvalidOperationException) { }
-            return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.SelectDropdown)
-        {
-            var selectId = message.Payload.TryGetProperty("selectId", out var sId) ? sId.GetString() : null;
-            var selectedIndex = message.Payload.TryGetProperty("selectedIndex", out var sIdx) && sIdx.TryGetInt32(out var idx) ? idx : 0;
-            var optionsList = new List<SelectOptionItem>();
-            if (message.Payload.TryGetProperty("options", out var opts) && opts.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                foreach (var opt in opts.EnumerateArray())
-                {
-                    var optIdx = opt.TryGetProperty("index", out var oi) && oi.TryGetInt32(out var oIdx) ? oIdx : optionsList.Count;
-                    var val = opt.TryGetProperty("value", out var ov) ? ov.GetString() ?? "" : "";
-                    var txt = opt.TryGetProperty("text", out var ot) ? ot.GetString() ?? "" : "";
-                    var sel = opt.TryGetProperty("selected", out var os) && os.GetBoolean();
-                    var dis = opt.TryGetProperty("disabled", out var od) && od.GetBoolean();
-                    optionsList.Add(new SelectOptionItem(optIdx, val, txt, sel, dis));
-                }
-            }
-            var dropdownArgs = new SelectDropdownEventArgs(selectId, selectedIndex, optionsList);
-            try { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => SelectDropdownOpened?.Invoke(this, dropdownArgs)); }
-            catch (InvalidOperationException) { }
-            return ValueTask.CompletedTask;
-        }
-        if (message.Kind == ContentMessageKind.Frame && message.Payload.TryGetProperty("displayList", out var dlVal) && dlVal.GetString() is { Length: > 0 } dlBase64)
-        {
-            try
-            {
-                var dlBytes = Convert.FromBase64String(dlBase64);
-                if (DisplayListCodec.TryDecode(dlBytes, out var decodedList, _displayListContext) && decodedList is not null)
-                {
-                    _list = decodedList;
-                }
-            }
-            catch { }
         }
         if (message.Kind != ContentMessageKind.Frame || !message.Payload.TryGetProperty("canvasFrame", out var frame))
             return ValueTask.CompletedTask;
@@ -565,7 +424,7 @@ public class FolioView : Control
         catch (IOException) { }
     }
 
-    protected internal void SendContentInput(ContentInputEvent input) => _ = SendContentInputAsync(input);
+    private void SendContentInput(ContentInputEvent input) => _ = SendContentInputAsync(input);
 
     private void OnScriptStopped(object? sender, ContentProcessStoppedEventArgs e)
     {
@@ -587,7 +446,6 @@ public class FolioView : Control
                 sender is ContentProcessClient client && !ReferenceEquals(client, _contentProcess)) return;
             _scriptStoppedReason = reason;
             ScriptStopped?.Invoke(this, new ScriptStoppedEventArgs(reason));
-            RenderFailed?.Invoke(this, new RenderFailedEventArgs(new InvalidOperationException($"Script stopped: {FormatPlainReason(reason)}")));
             Invalidate();
         }
         try
@@ -613,6 +471,7 @@ public class FolioView : Control
             ResourceLoader = Options.ResourceLoader, Scripting = Options.Scripting, ContentProcessPath = Options.ContentProcessPath,
             ArtifactId = Options.ArtifactId, ArtifactStorage = Options.ArtifactStorage,
             MediaCapturePermission = Options.MediaCapturePermission,
+            MediaCaptureProvider = Options.MediaCaptureProvider,
             MediaCaptureActivityChanged = active =>
             {
                 _mediaCaptureIndicator.Visible = active;
@@ -629,6 +488,10 @@ public class FolioView : Control
             Raster = Options.Raster ?? new Folio.Skia.SkiaRasterBackend(),
         };
         _document?.Dispose();
+        _renderBitmap?.Dispose();
+        _renderBitmap = null;
+        _renderNeedsFull = true;
+        _pendingDamage = null;
         _document = Document.Parse(html, options);
         _document.Input.LinkActivated += OnDocumentLinkActivated;
         _document.Input.CursorChanged += OnDocumentCursorChanged;
@@ -652,7 +515,7 @@ public class FolioView : Control
                 DisposeRetiredContentProcess(previous);
             try
             {
-                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits));
+                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits, mediaCaptureProvider: Options.MediaCaptureProvider));
                 var process = _contentProcess!;
                 _contentFramePath = process.FramePath;
                 QueueContentLoad(process, new
@@ -713,13 +576,15 @@ public class FolioView : Control
             return;
         for (var pass = 0; pass < 2; pass++)
         {
-            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HarfBuzzShaper(), Time);
+            (_list, _contentHeight) = _document.Paint(ViewportWidth, ViewportHeight, PixelScale, new HybridShaper(), Time);
             var needsBar = _contentHeight > ViewportHeight;
             if (needsBar == _scrollBar.Visible)
                 break;
             _scrollBar.Visible = needsBar; // the width changed: lay out once more
         }
         _laidOutWidth = ViewportWidth;
+        _renderNeedsFull = true;
+        _pendingDamage = null;
         _scrollBar.Maximum = (int)Math.Ceiling(_contentHeight * PixelScale);
         _scrollBar.LargeChange = Math.Max(1, ClientSize.Height);
         if (_document.AnimationsRunning(Time) && !_frames.Enabled)
@@ -748,7 +613,25 @@ public class FolioView : Control
         try
         {
             if (_document.PaintFrame(Time) is { } list)
+            {
                 _list = list;
+                if (_document.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0
+                    && damage.Width < _laidOutWidth && damage.Height < Math.Max(1, ClientSize.Height / PixelScale))
+                {
+                    _renderNeedsFull = false;
+                    _pendingDamage = _pendingDamage is { } existing ? Union(existing, damage) : damage;
+                }
+                else if (_document.LastDamage is { Width: <= 0, Height: <= 0 })
+                {
+                    _renderNeedsFull = false;
+                    _pendingDamage = null;
+                }
+                else
+                {
+                    _renderNeedsFull = true;
+                    _pendingDamage = null;
+                }
+            }
             else
                 _laidOutWidth = -1;
         }
@@ -820,16 +703,38 @@ public class FolioView : Control
             _accessibleObject?.SyncTree(_document.AccessibilityTree());
             var width = Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
             var height = Math.Max(1, ClientSize.Height);
-            using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
-            using (var canvas = new SKCanvas(bitmap))
+            if (_renderBitmap is null || _renderBitmap.Width != width || _renderBitmap.Height != height)
             {
-                canvas.Clear((_document?.ColorScheme ?? Options.ColorScheme) == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White);
+                _renderBitmap?.Dispose();
+                _renderBitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
+                _renderNeedsFull = true;
+                _pendingDamage = null;
+            }
+            using (var canvas = new SKCanvas(_renderBitmap))
+            {
+                var background = _document.Options.ColorScheme == ColorScheme.Dark ? new SKColor(18, 18, 18) : SKColors.White;
+                canvas.Save();
                 canvas.Scale(PixelScale);
                 canvas.Translate(0, -ScrollTop);
-                DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
-                    new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+                if (_renderNeedsFull)
+                {
+                    canvas.Clear(background);
+                    DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2),
+                        new RectF(0, ScrollTop, width / PixelScale, height / PixelScale));
+                }
+                else if (_pendingDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+                {
+                    canvas.Save();
+                    canvas.ClipRect(SKRect.Create(damage.X, damage.Y, damage.Width, damage.Height));
+                    canvas.Clear(background);
+                    DisplayListPlayer.Replay(_list!, new SkiaCanvas(canvas, subpixelText: SystemInformation.FontSmoothingType == 2), damage);
+                    canvas.Restore();
+                }
+                canvas.Restore();
             }
-            using var image = new Bitmap(width, height, bitmap.RowBytes, PixelFormat.Format32bppPArgb, bitmap.GetPixels());
+            _renderNeedsFull = false;
+            _pendingDamage = null;
+            using var image = new Bitmap(width, height, _renderBitmap.RowBytes, PixelFormat.Format32bppPArgb, _renderBitmap.GetPixels());
             e.Graphics.DrawImageUnscaled(image, 0, 0);
             PaintScriptStoppedNotice(e.Graphics);
             Rendered?.Invoke(this, EventArgs.Empty);
@@ -843,24 +748,12 @@ public class FolioView : Control
     private void PaintScriptStoppedNotice(Graphics graphics)
     {
         if (_scriptStoppedReason is not { } reason || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
-        var plain = FormatPlainReason(reason);
         var left = Math.Min(12, ClientSize.Width - 1);
         var top = Math.Min(12, ClientSize.Height - 1);
         using var brush = new SolidBrush(Color.FromArgb(235, Color.White));
         graphics.FillRectangle(brush, left, top, Math.Min(ClientSize.Width - left, 520), Math.Min(ClientSize.Height - top, 44));
         using var textBrush = new SolidBrush(Color.DarkRed);
-        graphics.DrawString($"Script stopped: {plain}", Font, textBrush, left + 8, top + 13);
-    }
-
-    private static string FormatPlainReason(string reason)
-    {
-        if (reason.Contains("heartbeat", StringComparison.OrdinalIgnoreCase) || reason.Contains("timed out", StringComparison.OrdinalIgnoreCase) || reason.Contains("too long", StringComparison.OrdinalIgnoreCase))
-            return "ran too long";
-        if (reason.Contains("memory", StringComparison.OrdinalIgnoreCase))
-            return "used too much memory";
-        if (reason.Contains("exit", StringComparison.OrdinalIgnoreCase) || reason.Contains("crash", StringComparison.OrdinalIgnoreCase) || reason.Contains("closed", StringComparison.OrdinalIgnoreCase) || reason.Contains("protocol", StringComparison.OrdinalIgnoreCase))
-            return "crashed";
-        return reason;
+        graphics.DrawString($"Script stopped: {reason}", Font, textBrush, left + 8, top + 13);
     }
 
     protected override void OnResize(EventArgs e)
@@ -891,6 +784,11 @@ public class FolioView : Control
         if (_document is { } doc)
         {
             doc.Input.HandlePointerMove(ToPointerEvent(e, PointerButton.None));
+            if (doc.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+            {
+                _pendingDamage = _pendingDamage is { } existing ? Union(existing, damage) : damage;
+                Invalidate(ToDeviceRectangle(_pendingDamage.Value));
+            }
             if (_contentProcess is not null)
             {
                 var pointer = ToPointerEvent(e, PointerButton.None);
@@ -899,12 +797,6 @@ public class FolioView : Control
             }
             if ((e.Button & MouseButtons.Left) != 0)
                 Invalidate();
-        }
-        else if (_contentProcess is not null)
-        {
-            var pointer = ToPointerEvent(e, PointerButton.None);
-            SendContentInput(new ContentInputEvent("pointermove", pointer.Position.X, pointer.Position.Y,
-                Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
         }
         else
             Cursor = Cursors.Default;
@@ -924,13 +816,6 @@ public class FolioView : Control
             }
             Invalidate();
         }
-        else if (_contentProcess is not null)
-        {
-            var pointer = ToPointerEvent(e, ToButton(e.Button));
-            SendContentInput(new ContentInputEvent("pointerdown", pointer.Position.X, pointer.Position.Y,
-                (int)pointer.Button, Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
-            Invalidate();
-        }
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
@@ -945,13 +830,6 @@ public class FolioView : Control
                 SendContentInput(new ContentInputEvent("pointerup", pointer.Position.X, pointer.Position.Y,
                     (int)pointer.Button, Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
             }
-            Invalidate();
-        }
-        else if (_contentProcess is not null)
-        {
-            var pointer = ToPointerEvent(e, ToButton(e.Button));
-            SendContentInput(new ContentInputEvent("pointerup", pointer.Position.X, pointer.Position.Y,
-                (int)pointer.Button, Buttons: (int)pointer.Buttons, Modifiers: (int)pointer.Modifiers));
             Invalidate();
         }
     }
@@ -1078,58 +956,53 @@ public class FolioView : Control
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
-        var modifiers = KeyModifiers.None;
-        if (e.Alt) modifiers |= KeyModifiers.Alt;
-        if (e.Control) modifiers |= KeyModifiers.Control;
-        if (e.Shift) modifiers |= KeyModifiers.Shift;
-
-        var key = e.KeyCode switch
-        {
-            Keys.A => "a",
-            Keys.C => "c",
-            Keys.X => "x",
-            Keys.V => "v",
-            Keys.Z => "z",
-            Keys.Y => "y",
-            Keys.Back => "Backspace",
-            Keys.Delete => "Delete",
-            Keys.Down => "ArrowDown",
-            Keys.Up => "ArrowUp",
-            Keys.Right => "ArrowRight",
-            Keys.Left => "ArrowLeft",
-            Keys.PageDown => "PageDown",
-            Keys.PageUp => "PageUp",
-            Keys.Home => "Home",
-            Keys.End => "End",
-            Keys.Space => " ",
-            Keys.Tab => "Tab",
-            Keys.Enter => "Enter",
-            _ => e.KeyCode.ToString(),
-        };
-
-        var code = e.KeyCode switch
-        {
-            Keys.A => "KeyA",
-            Keys.C => "KeyC",
-            Keys.X => "KeyX",
-            Keys.V => "KeyV",
-            Keys.Z => "KeyZ",
-            Keys.Y => "KeyY",
-            Keys.Back => "Backspace",
-            Keys.Delete => "Delete",
-            _ => e.KeyCode.ToString(),
-        };
-
         if (_document is { } doc)
         {
+            var modifiers = KeyModifiers.None;
+            if (e.Alt) modifiers |= KeyModifiers.Alt;
+            if (e.Control) modifiers |= KeyModifiers.Control;
+            if (e.Shift) modifiers |= KeyModifiers.Shift;
+
+            var key = e.KeyCode switch
+            {
+                Keys.A => "a",
+                Keys.C => "c",
+                Keys.X => "x",
+                Keys.V => "v",
+                Keys.Z => "z",
+                Keys.Y => "y",
+                Keys.Back => "Backspace",
+                Keys.Delete => "Delete",
+                Keys.Down => "ArrowDown",
+                Keys.Up => "ArrowUp",
+                Keys.Right => "ArrowRight",
+                Keys.Left => "ArrowLeft",
+                Keys.PageDown => "PageDown",
+                Keys.PageUp => "PageUp",
+                Keys.Home => "Home",
+                Keys.End => "End",
+                Keys.Space => " ",
+                Keys.Tab => "Tab",
+                Keys.Enter => "Enter",
+                _ => e.KeyCode.ToString(),
+            };
+
+            var code = e.KeyCode switch
+            {
+                Keys.A => "KeyA",
+                Keys.C => "KeyC",
+                Keys.X => "KeyX",
+                Keys.V => "KeyV",
+                Keys.Z => "KeyZ",
+                Keys.Y => "KeyY",
+                Keys.Back => "Backspace",
+                Keys.Delete => "Delete",
+                _ => e.KeyCode.ToString(),
+            };
+
             doc.Input.HandleKeyDown(new KeyEvent(key, code, modifiers));
             if (_contentProcess is not null)
                 SendContentInput(new ContentInputEvent("keydown", Key: key, Code: code, Modifiers: (int)modifiers));
-            Invalidate();
-        }
-        else if (_contentProcess is not null)
-        {
-            SendContentInput(new ContentInputEvent("keydown", Key: key, Code: code, Modifiers: (int)modifiers));
             Invalidate();
         }
     }
@@ -1137,22 +1010,13 @@ public class FolioView : Control
     protected override void OnKeyPress(KeyPressEventArgs e)
     {
         base.OnKeyPress(e);
-        if (!char.IsControl(e.KeyChar))
+        if (_document is { } doc && !char.IsControl(e.KeyChar))
         {
-            if (_document is { } doc)
-            {
-                doc.Input.HandleTextInput(new TextInputEvent(e.KeyChar.ToString()));
-                if (_contentProcess is not null)
-                    SendContentInput(new ContentInputEvent("textinput", Text: e.KeyChar.ToString()));
-                e.Handled = true;
-                Invalidate();
-            }
-            else if (_contentProcess is not null)
-            {
+            doc.Input.HandleTextInput(new TextInputEvent(e.KeyChar.ToString()));
+            if (_contentProcess is not null)
                 SendContentInput(new ContentInputEvent("textinput", Text: e.KeyChar.ToString()));
-                e.Handled = true;
-                Invalidate();
-            }
+            e.Handled = true;
+            Invalidate();
         }
     }
 
@@ -1171,6 +1035,22 @@ public class FolioView : Control
 
     private Uri? LinkAt(Point point) => _document?.LinkAt(point.X / PixelScale, point.Y / PixelScale + ScrollTop);
 
+    private Rectangle ToDeviceRectangle(RectF rect)
+    {
+        var left = (int)Math.Floor(rect.X * PixelScale);
+        var top = (int)Math.Floor((rect.Y - ScrollTop) * PixelScale);
+        var right = (int)Math.Ceiling(rect.Right * PixelScale);
+        var bottom = (int)Math.Ceiling((rect.Bottom - ScrollTop) * PixelScale);
+        return Rectangle.FromLTRB(Math.Max(0, left), Math.Max(0, top), Math.Min(ClientSize.Width, right), Math.Min(ClientSize.Height, bottom));
+    }
+
+    private static RectF Union(RectF a, RectF b)
+    {
+        var x = Math.Min(a.X, b.X);
+        var y = Math.Min(a.Y, b.Y);
+        return new RectF(x, y, Math.Max(a.Right, b.Right) - x, Math.Max(a.Bottom, b.Bottom) - y);
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -1188,6 +1068,7 @@ public class FolioView : Control
                 {
                     _frames.Dispose();
                     _toolTip.Dispose();
+                    _renderBitmap?.Dispose();
                     _document?.Dispose();
                 }
                 finally { base.Dispose(disposing); }
@@ -1196,13 +1077,4 @@ public class FolioView : Control
         }
         base.Dispose(disposing);
     }
-}
-
-public sealed record SelectOptionItem(int Index, string Value, string Text, bool Selected, bool Disabled);
-
-public sealed class SelectDropdownEventArgs(string? selectId, int selectedIndex, IReadOnlyList<SelectOptionItem> options) : EventArgs
-{
-    public string? SelectId { get; } = selectId;
-    public int SelectedIndex { get; } = selectedIndex;
-    public IReadOnlyList<SelectOptionItem> Options { get; } = options;
 }

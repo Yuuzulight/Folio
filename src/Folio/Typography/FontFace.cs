@@ -57,6 +57,7 @@ internal sealed class FontFace : IFontHandle
     private readonly ushort[] _advances;
     private readonly Dictionary<uint, short> _kerning;
     private readonly GposKerning? _gposKerning;
+    private readonly GposMarkPositioning? _gposMarks;
     private readonly GsubSubstitution? _gsub;
 
     private FontFace(FontData data, Dictionary<string, (int, int)> tables)
@@ -82,6 +83,7 @@ internal sealed class FontFace : IFontHandle
         _cmap = CharacterMap.Read(Table("cmap"));
         _kerning = TryTable("kern") is { } kern ? ReadKern(kern) : [];
         _gposKerning = TryTable("GPOS") is { } gpos ? GposKerning.Read(gpos) : null;
+        _gposMarks = TryTable("GPOS") is { } markGpos ? GposMarkPositioning.Read(markGpos) : null;
         _gsub = TryTable("GSUB") is { } gsub ? GsubSubstitution.Read(gsub) : null;
 
         Weight = (macStyle & 1) != 0 ? 700 : 400;
@@ -259,6 +261,11 @@ internal sealed class FontFace : IFontHandle
     /// <summary>A glyph after the single substitutions of the space-separated feature tags (such as "tnum").</summary>
     public ushort Substitute(ushort glyph, string features) => _gsub?.Substitute(glyph, features) ?? glyph;
 
+    /// <summary>Applies script-aware contextual substitutions to a glyph run.</summary>
+    public ushort[] Substitute(ushort[] glyphs, string features, string scriptTag) => _gsub?.Substitute(glyphs, features, scriptTag) ?? glyphs;
+
+    internal void SubstituteAt(ushort[] glyphs, int position, string features, string scriptTag) => _gsub?.SubstituteAt(glyphs, position, features, scriptTag);
+
     /// <summary>Whether a glyph starts one of the font's default ligatures (liga, clig, rlig).</summary>
     public bool StartsLigature(ushort glyph) => _gsub?.StartsLigature(glyph) == true;
 
@@ -268,13 +275,18 @@ internal sealed class FontFace : IFontHandle
     public int Kerning(ushort left, ushort right) =>
         _gposKerning?.Kerning(left, right) ?? _kerning.GetValueOrDefault(((uint)left << 16) | right);
 
+    /// <summary>Returns a mark offset relative to the preceding base glyph, in font units.</summary>
+    public (int X, int Y)? MarkOffset(ushort baseGlyph, ushort markGlyph) => _gposMarks?.Offset(baseGlyph, markGlyph);
+
+    /// <summary>Returns a mark offset relative to the preceding mark glyph, in font units.</summary>
+    public (int X, int Y)? MarkToMarkOffset(ushort previousMark, ushort markGlyph) => _gposMarks?.MarkOffset(previousMark, markGlyph);
+
     private FontData Table(string tag) => TryTable(tag) ?? throw new InvalidDataException($"Missing {tag} table.");
 
     private FontData? TryTable(string tag) => _tables.TryGetValue(tag, out var t) ? _data.Slice(t.Offset, t.Length) : null;
 
-    /// <summary>A table's bytes, for the readers of outlines and layout tables that live beside this class.</summary>
+    /// <summary>Raw bytes for Folio-owned outline and bitmap readers.</summary>
     internal FontData? RawTable(string tag) => TryTable(tag);
-
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx: the last advance repeats for the remaining glyphs.
     private static ushort[] ReadAdvances(FontData hmtx, int metricCount, int glyphCount)

@@ -15,7 +15,7 @@ namespace Folio;
 /// A parsed HTML document, or a standalone SVG document when the text is one (an <c>svg</c> root element declared
 /// as XML or in the SVG namespace), parsed as XML (docs/architecture.md, public API sketch).
 /// </summary>
-public sealed partial class Document : IDisposable
+public sealed class Document : IDisposable
 {
     private readonly List<Diagnostic> _diagnostics;
 
@@ -23,62 +23,34 @@ public sealed partial class Document : IDisposable
     {
         Node = node;
         Options = options;
-        _colorScheme = options.ColorScheme;
-        _reducedMotion = options.ReducedMotion;
         node.SetFeatureAvailability(options.Capabilities.WebGl, options.Capabilities.Media, options.Capabilities.Sound, options.Capabilities.Iframes);
-        node.PrefersDarkColorScheme = _colorScheme == ColorScheme.Dark;
+        node.PrefersDarkColorScheme = options.ColorScheme == ColorScheme.Dark;
         _diagnostics = diagnostics;
-        node.DiagnosticSink ??= diagnostics.Add;
     }
 
     internal DocumentNode Node { get; }
 
     internal FolioOptions Options { get; }
 
-    /// <summary>The color scheme preference currently active for this document.</summary>
-    public ColorScheme ColorScheme
-    {
-        get => _colorScheme;
-        set
-        {
-            if (_colorScheme == value) return;
-            _colorScheme = value;
-            Node.PrefersDarkColorScheme = value == ColorScheme.Dark;
-            Node.SheetsMutated = true;
-        }
-    }
-    private ColorScheme _colorScheme;
-
-    /// <summary>Whether the reduced-motion preference is active for this document.</summary>
-    public bool ReducedMotion
-    {
-        get => _reducedMotion;
-        set
-        {
-            if (_reducedMotion == value) return;
-            _reducedMotion = value;
-            Node.SheetsMutated = true;
-        }
-    }
-    private bool _reducedMotion;
-
     /// <summary>Stage-6 capabilities granted by the host for this document.</summary>
     public FeatureCapabilities Capabilities => Options.Capabilities;
     public int MaxGpuBytes => Options.Limits.MaxGpuBytes;
-    public TimeSpan MaxShaderExecutionTime => Options.Limits.MaxShaderExecutionTime;
     public int MaxMediaBytes => Options.Limits.MaxMediaBytes;
     public int MaxMediaDecoders => Options.Limits.MaxMediaDecoders;
     public int MaxWorkerMessageBytes => Options.Limits.MaxWorkerMessageBytes;
     public int MaxWorkers => Options.Limits.MaxWorkers;
     public long MaxWorkerMemoryBytes => Options.Limits.MaxWorkerMemoryBytes;
+    public long MaxAggregateWorkerMemoryBytes => Options.Limits.MaxAggregateWorkerMemoryBytes;
     public TimeSpan MaxWorkerExecutionTime => Options.Limits.MaxWorkerExecutionTime;
     public long MaxServiceWorkerCacheBytes => Options.Limits.MaxServiceWorkerCacheBytes;
     public int MaxIframes => Options.Limits.MaxIframes;
     public int MaxWebRtcConnections => Options.Limits.MaxWebRtcConnections;
     public int MaxWebAssemblyBytes => Options.Limits.MaxWebAssemblyBytes;
+    internal bool FormsAllowed => Options.FormsAllowed;
     internal string ArtifactId => Options.ArtifactId;
     internal IArtifactStorage? ArtifactStorage => Options.ArtifactStorage;
     internal Func<MediaCaptureRequest, bool>? MediaCapturePermission => Options.MediaCapturePermission;
+    internal IMediaCaptureProvider? MediaCaptureProvider => Options.MediaCaptureProvider;
     internal Action<Uri>? IframeNavigationRequested => Options.IframeNavigationRequested;
     internal IReadOnlySet<string> WebRtcAllowedOrigins => Options.WebRtcAllowedOrigins;
 
@@ -216,10 +188,6 @@ public sealed partial class Document : IDisposable
     private readonly Dictionary<ElementNode, Element> _elements = [];
     private readonly Dictionary<ElementNode, TextControlState> _textControlStates = new(ReferenceEqualityComparer.Instance);
     private InputRouter? _inputRouter;
-    private FormControls? _forms;
-
-    /// <summary>Forms and their controls: validation, submission, activation.</summary>
-    internal FormControls Forms => _forms ??= new FormControls(Node, this);
 
     internal TextControlState? GetExistingTextControlState(ElementNode element) =>
         _textControlStates.GetValueOrDefault(element);
@@ -265,12 +233,12 @@ public sealed partial class Document : IDisposable
             state.Value = value;
             element.Value = state.Value;
             element.DisplayValue = state.DisplayText;
-            UpdateIfPainted();
+            Update();
         }
         else
         {
             element.Value = value;
-            UpdateIfPainted();
+            Update();
         }
     }
 
@@ -331,16 +299,7 @@ public sealed partial class Document : IDisposable
         var next = !element.IsChecked;
         element.Checked = next;
         SetState(element, NodeFlags.Checked, next);
-        UpdateIfPainted();
-        Forms.Activate(element, afterToggle: true);
-    }
-
-    /// <summary>The checked state of a checkbox or radio, and of the radios of its group, drawn again after a script changed it.</summary>
-    internal void RepaintForChecked(ElementNode element, IReadOnlyList<ElementNode>? group)
-    {
-        foreach (var e in group ?? [element])
-            SetState(e, NodeFlags.Checked, e.IsChecked);
-        UpdateIfPainted();
+        Update();
     }
 
     internal void CheckRadio(ElementNode element)
@@ -361,8 +320,7 @@ public sealed partial class Document : IDisposable
 
         element.Checked = true;
         SetState(element, NodeFlags.Checked, true);
-        UpdateIfPainted();
-        Forms.Activate(element, afterToggle: true);
+        Update();
     }
 
     internal void SelectAdjacentRadio(ElementNode current, int offset)
@@ -479,7 +437,57 @@ public sealed partial class Document : IDisposable
 
         var action = form.GetAttribute("action") ?? "";
         var method = (form.GetAttribute("method") ?? "GET").ToUpperInvariant();
-        var data = Forms.EntryList(form, submitter);
+        var data = new List<KeyValuePair<string, string>>();
+
+        var controls = form.Descendants.OfType<ElementNode>().Where(e => e.Name.Namespace == Namespaces.Html).ToList();
+        foreach (var control in controls)
+        {
+            if (ElementNode.IsDisabledControl(control))
+                continue;
+            var name = control.GetAttribute("name");
+            if (string.IsNullOrEmpty(name))
+                continue;
+
+            var tag = control.LocalName;
+            if (tag == "input")
+            {
+                var type = (control.GetAttribute("type") ?? "text").ToLowerInvariant();
+                if (type is "submit" or "button" or "reset" or "image")
+                {
+                    if (control == submitter)
+                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
+                }
+                else if (type is "checkbox" or "radio")
+                {
+                    if (control.IsChecked)
+                        data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? "on"));
+                }
+                else if (type != "file")
+                {
+                    data.Add(new(name, GetControlValue(control)));
+                }
+            }
+            else if (tag == "textarea")
+            {
+                data.Add(new(name, GetControlValue(control)));
+            }
+            else if (tag == "select")
+            {
+                var options = control.Descendants.OfType<ElementNode>()
+                    .Where(e => e.Name.Namespace == Namespaces.Html && e.LocalName == "option" && !ElementNode.IsDisabledControl(e))
+                    .ToList();
+                var selected = options.Where(o => o.IsSelected).ToList();
+                if (selected.Count == 0 && options.Count > 0 && control.GetAttribute("multiple") is null)
+                    selected.Add(options[0]);
+                foreach (var opt in selected)
+                    data.Add(new(name, opt.Value ?? opt.GetAttribute("value") ?? opt.TextContent ?? ""));
+            }
+            else if (tag == "button")
+            {
+                if (control == submitter)
+                    data.Add(new(name, control.Value ?? control.GetAttribute("value") ?? ""));
+            }
+        }
 
         Input.OnFormSubmitted(new FormSubmittedEventArgs(Wrap(form), action, method, data, submitter is not null ? Wrap(submitter) : null));
     }
@@ -522,7 +530,7 @@ public sealed partial class Document : IDisposable
                     opt.Selected = opt.GetAttribute("selected") is not null;
             }
         }
-        UpdateIfPainted();
+        Update();
     }
 
     internal void ToggleDetails(ElementNode details)
@@ -760,7 +768,8 @@ public sealed partial class Document : IDisposable
 
         if (clampedX != current.X || clampedY != current.Y)
         {
-            SetScrollOffset(element, new Vector2(clampedX, clampedY));
+            _scrollOffsets[element] = new Vector2(clampedX, clampedY);
+            _hitTree = null;
             if (_frame is { } frame && _images is not null)
                 DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
         }
@@ -801,7 +810,8 @@ public sealed partial class Document : IDisposable
         }
         else
         {
-            SetScrollOffset(element.Node, clamped);
+            _scrollOffsets[element.Node] = clamped;
+            _hitTree = null;
             if (_frame is { } frame && _images is not null)
                 DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
         }
@@ -997,8 +1007,14 @@ public sealed partial class Document : IDisposable
     /// <summary>The client height of the root document.</summary>
     public float ClientHeight => _page?.Height ?? 0;
 
-    internal HitResult? HitAt(float x, float y) =>
-        _page is { } page ? HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1, _scrollOffsets) : null;
+    internal HitResult? HitAt(float x, float y, bool includeCaret = true) =>
+        _page is { } page ? HitAt(page, x, y, includeCaret) : null;
+
+    private HitResult? HitAt(Fragment page, float x, float y, bool includeCaret)
+    {
+        _hitTree ??= PaintOrderWalker.StackingTree(page, _frame?.Scale ?? 1, _scrollOffsets);
+        return HitTester.Hit(page, new(x, y), _frame?.Scale ?? 1, _scrollOffsets, _hitTree, includeCaret);
+    }
 
     /// <summary>
     /// The element under a point of the last painted layout (page coordinates in CSS pixels): the one painted on top
@@ -1055,10 +1071,15 @@ public sealed partial class Document : IDisposable
     public string CursorAt(float x, float y)
     {
         var hit = HitAt(x, y);
+        return CursorAt(hit);
+    }
+
+    internal string CursorAt(HitResult? hit)
+    {
         if (hit is null)
             return "default";
 
-        var style = hit.Style ?? hit.Node.ComputedStyle();
+        var style = hit.Node.ComputedStyle() ?? hit.Style;
         var cursor = style?.Ui.Cursor ?? "auto";
         if (cursor != "auto")
             return cursor;
@@ -1078,7 +1099,12 @@ public sealed partial class Document : IDisposable
     /// </summary>
     public string? TitleAt(float x, float y)
     {
-        for (Node? node = ElementAt(x, y); node is not null; node = node.Parent)
+        return TitleAt(HitAt(x, y));
+    }
+
+    internal string? TitleAt(HitResult? hit)
+    {
+        for (Node? node = hit?.Node; node is not null; node = node.Parent)
         {
             if (node is ElementNode el && el.GetAttribute("title") is { Length: > 0 } title)
                 return title;
@@ -1104,6 +1130,10 @@ public sealed partial class Document : IDisposable
 
     // The last full paint's box tree and layout, which a paint-only animation frame paints again.
     private (Box Root, Fragment Page, float Scale)? _frame;
+    private Context? _hitTree;
+    // The box tree is stable across paint-only state updates. Keep its flattened index so a hover repaint does not
+    // walk every inline and marker box again just to refresh styles.
+    private List<Box>? _allBoxes;
     private Dictionary<(ElementNode, PseudoElement), List<Box>>? _animatedBoxes;
     private (float Width, float Height, float Scale, ITextShaper? Shaper, double? AnimationTime)? _lastPaint;
 
@@ -1115,6 +1145,10 @@ public sealed partial class Document : IDisposable
 
     /// <summary>How many elements the last <see cref="Update"/> styled again (#417).</summary>
     internal int RestyleCount { get; private set; }
+
+    /// <summary>The region changed by the last paint-only update, in page coordinates.</summary>
+    internal RectF? LastDamage { get; private set; }
+
 
     /// <summary>
     /// Sets or clears a user-action state (<see cref="NodeFlags.Hover"/>, <see cref="NodeFlags.Active"/>,
@@ -1173,10 +1207,10 @@ public sealed partial class Document : IDisposable
     {
         (_frame, _animatedBoxes) = (null, null);
         _lastPaint = (viewportWidth, viewportHeight, deviceScale, shaper, animationTime);
-        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
+        var media = new MediaContext(viewportWidth, viewportHeight, deviceScale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
         _fonts ??= FontCollection.For(Options.Fonts);
         _labelText = new Hosting.CanvasStyleEngine(_fonts, shaper);
-        var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+        var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
         var fontFaces = StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), animationTime);
         if (!_webFontsLoaded)
         {
@@ -1196,10 +1230,10 @@ public sealed partial class Document : IDisposable
         _page = page;
         LayoutCount++;
         _frame = (root, page, deviceScale);
+        _hitTree = null;
+        _allBoxes = null;
         Node.StructureMutated = false;
         Node.StyleMutated = false;
-        Node.SheetsMutated = false;
-        Node.StyleRoots.Clear();
         // The content reaches down to the root's bottom margin edge, or further for positioned boxes.
         var height = page.Children.Select((c, i) => c.Y + c.Fragment.Height + (i == 0 ? c.Fragment.BottomMargins.Resolve() : 0)).DefaultIfEmpty(0).Max();
         if (animationTime.HasValue)
@@ -1226,17 +1260,17 @@ public sealed partial class Document : IDisposable
             var t = anim.Duration > 0 ? (time - anim.StartTime) / anim.Duration : 1.0;
             if (t >= 1.0)
             {
-                SetScrollOffset(node, anim.Target);
+                _scrollOffsets[node] = anim.Target;
                 completed.Add(node);
             }
             else if (t <= 0.0)
             {
-                SetScrollOffset(node, anim.Start);
+                _scrollOffsets[node] = anim.Start;
             }
             else
             {
                 var progress = (float)Easing.Ease.Apply(t);
-                SetScrollOffset(node, Vector2.Lerp(anim.Start, anim.Target, progress));
+                _scrollOffsets[node] = Vector2.Lerp(anim.Start, anim.Target, progress);
             }
         }
 
@@ -1290,7 +1324,14 @@ public sealed partial class Document : IDisposable
             }
         }
         AdvanceSmoothScrolls(time);
-        return DisplayList = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(time), ShapeFallbackLabel);
+        var previous = DisplayList;
+        var next = DisplayListBuilder.Build(frame.Page, _images, frame.Scale, _scrollOffsets, _inputRouter?.Selection, GetActiveCaretInfo(time), ShapeFallbackLabel);
+        // Paint-only animation can retain the previous bitmap and repaint only changed display-list bounds. An empty
+        // rectangle is a real no-op; a null/changed-length list requires the full viewport.
+        LastDamage = previous is null || previous.Items.Count != next.Items.Count
+            ? new RectF(0, 0, _lastPaint?.Width ?? 0, _lastPaint?.Height ?? 0)
+            : DisplayListPlayer.Damage(previous, next) ?? new RectF(0, 0, 0, 0);
+        return DisplayList = next;
 
         static Dictionary<(ElementNode, PseudoElement), List<Box>> BoxesOf(Box root, HashSet<(ElementNode, PseudoElement)> elements)
         {
@@ -1307,36 +1348,27 @@ public sealed partial class Document : IDisposable
         }
     }
 
-    /// <summary>Restyles after a change, once there is something painted to restyle; before the first paint the change is simply there for it.</summary>
-    internal void UpdateIfPainted()
-    {
-        if (_lastPaint is not null && _images is not null)
-            Update();
-    }
-
     /// <summary>
     /// Restyles the document after DOM or attribute mutations, applying the minimum required damage level
     /// (<see cref="Damage.Paint"/>, <see cref="Damage.Layout"/>, or <see cref="Damage.Boxes"/>) and updating the display list.
     /// </summary>
     internal Damage Update()
     {
-        UpdatesRun++;
+        LastDamage = null;
         if (_lastPaint is not { } last || _images is null)
             throw new InvalidOperationException("The document has not been painted yet.");
 
-        if (Node.StructureMutated || Node.SheetsMutated)
+        if (Node.StructureMutated)
         {
-            var sheetsMutated = Node.SheetsMutated;
             Node.StructureMutated = false;
-            Node.SheetsMutated = false;
-            Node.StyleMutated = false;
-            Node.StyleRoots.Clear();
             // A style or link element came, went or changed its text: the styles are resolved again before the boxes are built.
-            if (sheetsMutated)
+            if (Node.SheetsMutated)
             {
-                var media = new MediaContext(last.Width, last.Height, last.Scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
+                Node.SheetsMutated = false;
+                Node.StyleMutated = false;
+                var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
                 _fonts ??= FontCollection.For(Options.Fonts);
-                var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+                var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
                 StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
             }
             return RebuildBoxes(last);
@@ -1369,37 +1401,50 @@ public sealed partial class Document : IDisposable
             foreach (var root in roots)
                 Remember(root);
             if (StyleResolver.RestyleSubtrees(Node, roots) is { } restyled)
+            {
                 RestyleCount = restyled;
+                // The affected subtree may have gained or lost animated elements. Rebuild the small animated-box
+                // lookup before the next paint-frame sample.
+                _animatedBoxes = null;
+            }
             else
                 partial = false;
         }
         if (!partial)
         {
             Remember(Node);
-            var media = new MediaContext(last.Width, last.Height, last.Scale, ColorScheme == ColorScheme.Dark) { ReducedMotion = ReducedMotion };
+            var media = new MediaContext(last.Width, last.Height, last.Scale, Options.ColorScheme == ColorScheme.Dark) { ReducedMotion = Options.ReducedMotion };
             _fonts ??= FontCollection.For(Options.Fonts);
-            var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
+            var sources = new StyleSources(Options.ResourceLoader is { } host ? new ResourceLoader(host: host, interceptor: Options.ResourceInterceptor) : ResourceLoader.DataUrlsOnly, Options.BaseUri?.AbsoluteUri);
             StyleResolver.Resolve(Node, media, Options.UserStyleSheet, sources, InlineLayout.MeasureWith(_fonts), last.AnimationTime);
             RestyleCount = oldStyles.Count;
         }
 
         var maxDamage = Damage.Paint;
         var changed = new List<ElementNode>();
+        var changedElements = new HashSet<ElementNode>(ReferenceEqualityComparer.Instance);
+        var changedPseudos = new HashSet<(ElementNode Element, PseudoElement Pseudo)>();
         foreach (var (element, (oldStyle, oldBefore, oldAfter, oldMarker)) in oldStyles)
         {
             var newStyle = element.ComputedStyle();
-            if (!ReferenceEquals(oldStyle, newStyle) && !Equals(oldStyle, newStyle))
+            if (!SameStyleGroups(oldStyle, newStyle))
+            {
                 changed.Add(element);
+                changedElements.Add(element);
+            }
             CompareStyles(oldStyle, newStyle, ref maxDamage);
             if (maxDamage == Damage.Boxes) break;
 
-            ComparePseudo(oldBefore, element.PseudoStyle(PseudoElement.Before), ref maxDamage);
+            if (ComparePseudo(oldBefore, element.PseudoStyle(PseudoElement.Before), ref maxDamage))
+                changedPseudos.Add((element, PseudoElement.Before));
             if (maxDamage == Damage.Boxes) break;
 
-            ComparePseudo(oldAfter, element.PseudoStyle(PseudoElement.After), ref maxDamage);
+            if (ComparePseudo(oldAfter, element.PseudoStyle(PseudoElement.After), ref maxDamage))
+                changedPseudos.Add((element, PseudoElement.After));
             if (maxDamage == Damage.Boxes) break;
 
-            ComparePseudo(oldMarker, element.PseudoStyle(PseudoElement.Marker), ref maxDamage);
+            if (ComparePseudo(oldMarker, element.PseudoStyle(PseudoElement.Marker), ref maxDamage))
+                changedPseudos.Add((element, PseudoElement.Marker));
             if (maxDamage == Damage.Boxes) break;
         }
 
@@ -1415,10 +1460,12 @@ public sealed partial class Document : IDisposable
         if (maxDamage == Damage.Paint)
         {
             var frameVal = _frame!.Value;
-            var boxes = AllBoxes(frameVal.Root);
+            var boxes = _allBoxes ??= AllBoxes(frameVal.Root);
             var needsLayout = false;
             foreach (var box in boxes)
             {
+                if (!NeedsStyleRefresh(box, changedElements, changedPseudos))
+                    continue;
                 var newStyle = box.Node is ElementNode el
                     ? box.PseudoElement switch
                     {
@@ -1464,7 +1511,9 @@ public sealed partial class Document : IDisposable
             }
 
             if (!needsLayout)
+            {
                 UpdateFragmentTextStyles(frameVal.Page);
+            }
 
             if (needsLayout)
             {
@@ -1472,7 +1521,12 @@ public sealed partial class Document : IDisposable
             }
             else
             {
-                DisplayList = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
+                var previous = DisplayList;
+                var next = DisplayListBuilder.Build(frameVal.Page, _images, frameVal.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
+                LastDamage = previous is null || previous.Items.Count != next.Items.Count
+                    ? new RectF(0, 0, last.Width, last.Height)
+                    : DisplayListPlayer.Damage(previous, next);
+                DisplayList = next;
                 return Damage.Paint;
             }
         }
@@ -1486,7 +1540,8 @@ public sealed partial class Document : IDisposable
             return Damage.Layout;
         }
 
-        return RebuildBoxes(last);
+        var result = RebuildBoxes(last);
+        return result;
 
         Damage RebuildBoxes((float Width, float Height, float Scale, ITextShaper? Shaper, double? AnimationTime) l)
         {
@@ -1502,19 +1557,42 @@ public sealed partial class Document : IDisposable
             _page = page;
             LayoutCount++;
             _frame = (root, page, l.Scale);
+            _hitTree = null;
+            _allBoxes = null;
             DisplayList = DisplayListBuilder.Build(page, _images, l.Scale, _scrollOffsets, _inputRouter?.Selection, labels: ShapeFallbackLabel);
             return Damage.Boxes;
         }
 
-        static void ComparePseudo(ComputedStyle? oldPseudo, ComputedStyle? newPseudo, ref Damage max)
+        static bool ComparePseudo(ComputedStyle? oldPseudo, ComputedStyle? newPseudo, ref Damage max)
         {
             if ((oldPseudo is null) != (newPseudo is null))
             {
                 max = Damage.Boxes;
-                return;
+                return true;
             }
             if (oldPseudo is not null && newPseudo is not null)
+            {
+                var before = max;
                 CompareStyles(oldPseudo, newPseudo, ref max);
+                return before != max || !SameStyleGroups(oldPseudo, newPseudo);
+            }
+            return false;
+        }
+
+        static bool NeedsStyleRefresh(Box box, HashSet<ElementNode> changedElements,
+                                      HashSet<(ElementNode Element, PseudoElement Pseudo)> changedPseudos)
+        {
+            if (box.Node is ElementNode element)
+                return changedElements.Contains(element) || changedPseudos.Contains((element, box.PseudoElement));
+
+            // Anonymous boxes inherit their style from the nearest generating box. Walk only
+            // anonymous chains; ordinary element boxes take the O(1) set lookup above.
+            for (var parent = box.Parent; parent is not null; parent = parent.Parent)
+            {
+                if (parent.Node is ElementNode owner)
+                    return changedElements.Contains(owner) || changedPseudos.Contains((owner, parent.PseudoElement));
+            }
+            return false;
         }
 
         static void CompareStyles(ComputedStyle? oldStyle, ComputedStyle? newStyle, ref Damage max)
@@ -1524,7 +1602,7 @@ public sealed partial class Document : IDisposable
                 max = Damage.Boxes;
                 return;
             }
-            if (ReferenceEquals(oldStyle, newStyle) || oldStyle.Equals(newStyle))
+            if (SameStyleGroups(oldStyle, newStyle))
                 return;
 
             foreach (var id in Enum.GetValues<PropertyId>())
@@ -1542,6 +1620,41 @@ public sealed partial class Document : IDisposable
                 }
             }
         }
+
+        // ComputedStyle is intentionally a small mutable shell around immutable value groups and does not override
+        // object equality. Restyling a subtree therefore creates new shells even when every computed value is equal.
+        // Compare the groups directly before walking the property table; this is exact and avoids doing a full
+        // Describe() cascade for every unchanged descendant.
+        static bool SameStyleGroups(ComputedStyle? a, ComputedStyle? b) =>
+            ReferenceEquals(a, b) || (a is not null && b is not null
+                && Equals(a.Font, b.Font)
+                && Equals(a.Inherited, b.Inherited)
+                && Equals(a.Box, b.Box)
+                && Equals(a.Size, b.Size)
+                && Equals(a.Spacing, b.Spacing)
+                && Equals(a.Border, b.Border)
+                && Equals(a.Background, b.Background)
+                && Equals(a.Text, b.Text)
+                && Equals(a.Generated, b.Generated)
+                && Equals(a.Flex, b.Flex)
+                && Equals(a.Grid, b.Grid)
+                && Equals(a.Shadows, b.Shadows)
+                && Equals(a.TextSpacing, b.TextSpacing)
+                && Equals(a.Quotes, b.Quotes)
+                && Equals(a.Outline, b.Outline)
+                && Equals(a.Ui, b.Ui)
+                && Equals(a.Decoration, b.Decoration)
+                && Equals(a.Transform, b.Transform)
+                && Equals(a.Replaced, b.Replaced)
+                && Equals(a.Effects, b.Effects)
+                && Equals(a.Mask, b.Mask)
+                && Equals(a.BorderImage, b.BorderImage)
+                && Equals(a.Animation, b.Animation)
+                && Equals(a.Transition, b.Transition)
+                && Equals(a.Multicol, b.Multicol)
+                && Equals(a.Svg, b.Svg)
+                && Equals(a.SvgStop, b.SvgStop)
+                && Equals(a.Custom, b.Custom));
 
         static bool IsAncestorOrSelf(Node ancestor, Node node)
         {
@@ -1580,6 +1693,8 @@ public sealed partial class Document : IDisposable
             }
             return boxes;
         }
+
+
 
         static void UpdateFragmentTextStyles(Fragment fragment)
         {

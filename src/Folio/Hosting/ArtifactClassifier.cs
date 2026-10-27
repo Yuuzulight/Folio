@@ -36,7 +36,7 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>a milestone-6 feature whose backend is incomplete or whose host capability is not granted;</item>
 /// <item>a resource the options' loader would refuse: stylesheets, images, scripts, <c>@import</c> and CSS
 ///   <c>url()</c>s other than <c>data:</c> URLs (the only loads the default options allow);</item>
-/// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
+/// <item>images in formats Folio does not decode (PNG, JPEG, GIF, WebP, BMP, ICO and SVG are decoded);</item>
 /// <item>elements Folio draws only as empty boxes: MathML, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
 /// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, masks, filters
@@ -64,7 +64,7 @@ public static class ArtifactClassifier
 
     // Flip each entry only after its original feature acceptance is established.
     // Host permission alone cannot make a prototype backend complete.
-    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.WebGl;
+    private const ImplementedFeatures ProductionFeatures = ImplementedFeatures.None;
 
     public static ArtifactClassification Classify(string html, FolioOptions? options = null) =>
         Classify(html, options, ProductionFeatures);
@@ -89,8 +89,6 @@ public static class ArtifactClassifier
     {
         public readonly HashSet<string> Unsupported = [];
         public readonly HashSet<string> Scripts = [];
-        public const int ScriptSizeThreshold = 50 * 1024;
-        private int _totalScriptSize;
         private bool _diagramBlockSeen;
 
         // Media blocks count when they match some screen: a phone or a wide window.
@@ -138,6 +136,14 @@ public static class ArtifactClassifier
         // way (appearance: none is the known exception); a per-property initial value table would be exact.
         private static readonly HashSet<string> NoOpValues = ["none", "normal", "auto", "initial", "unset", "0"];
 
+        // Keep classifier routing aligned with ImageLoader's actual built-in decoders. A
+        // supported data URL must not be sent to the browser merely because it is not PNG/JPEG.
+        private static readonly HashSet<string> SupportedImageTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+            "image/x-ms-bmp", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"
+        };
+
         public void Run()
         {
             foreach (var diagnostic in document.Diagnostics)
@@ -153,9 +159,6 @@ public static class ArtifactClassifier
 
             foreach (var script in document.QuerySelectorAll("script"))
                 ScriptSource(script.TextContent);
-
-            if (_totalScriptSize > ScriptSizeThreshold)
-                Unsupported.Add($"script text size ({_totalScriptSize / 1024} KB) exceeds the scripted start-up threshold ({ScriptSizeThreshold / 1024} KB); heavy scripts must run in the browser");
         }
 
         private void Element(Element element)
@@ -181,7 +184,6 @@ public static class ArtifactClassifier
                          && value.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
                 {
                     Scripts.Add("runs scripts: a javascript: link");
-                    Unsupported.Add("uses javascript: URLs; javascript: URLs are ignored in Folio");
                     ScriptSource(value.Trim()["javascript:".Length..]);
                 }
             }
@@ -223,13 +225,6 @@ public static class ArtifactClassifier
                     break;
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
                     Scripts.Add("runs scripts: a script element");
-                    var scriptType = (element.GetAttribute("type") ?? "").Trim();
-                    if (string.Equals(scriptType, "module", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var textContent = element.TextContent;
-                        if (textContent.Contains("import ", StringComparison.Ordinal) || textContent.Contains("import(", StringComparison.Ordinal) || textContent.Contains("from ", StringComparison.Ordinal))
-                            Unsupported.Add("uses module script imports; ES modules with imports are not supported in M4");
-                    }
                     if (element.GetAttribute("src") is { } src)
                     {
                         if (IsKnownCanvasLibrary(src) && document.QuerySelectorAll("canvas").Count > 0)
@@ -300,23 +295,10 @@ public static class ArtifactClassifier
             if (Contains(compact, "getContext('webgl") || Contains(compact, "getContext(\"webgl") || Contains(compact, "getContext(`webgl")
                 || Contains(compact, "getContext('experimental-webgl") || Contains(compact, "getContext(\"experimental-webgl") || Contains(compact, "getContext(`experimental-webgl"))
                 Require(ImplementedFeatures.WebGl, options.Capabilities.WebGl, "uses WebGL", "WebGL");
-            _totalScriptSize += text.Length;
-            if (Constructs(compact, "MutationObserver"))
-                Unsupported.Add("uses MutationObserver; MutationObserver is planned for milestone 5");
-            if (Contains(compact, ".styleSheets") || Contains(compact, ".insertRule(") || Contains(compact, "CSS.supports("))
-                Unsupported.Add("uses stylesheet mutation or CSS.supports; dynamic CSSOM is planned for milestone 5");
-            if (Contains(compact, "getContext('2d") || Contains(compact, "getContext(\"2d") || Contains(compact, "getContext(`2d"))
-                Unsupported.Add("uses 2D canvas (getContext('2d')); 2D canvas is planned for milestone 5");
-            if (Contains(compact, "fetch(") || Constructs(compact, "XMLHttpRequest"))
-                Unsupported.Add("uses network requests (fetch / XMLHttpRequest); networking is not permitted in sandbox");
-            if (Constructs(compact, "WebSocket"))
-                Unsupported.Add("uses WebSocket; WebSocket is planned for milestone 6");
-            if (Contains(compact, "customElements.") || Contains(compact, ".attachShadow("))
-                Unsupported.Add("uses custom elements or shadow DOM; web components are planned for milestone 5");
             if (Contains(text, "Babel.transform(") || Contains(text, "Babel.transformScriptTags(") || Contains(text, "ts.transpileModule(") || Contains(text, "ts.transpile("))
                 Unsupported.Add("compiles code in the page; JSX and TypeScript must be compiled by the host");
             if (Constructs(compact, "SharedWorker"))
-                Unsupported.Add("uses shared workers; SharedWorker is not implemented in Folio");
+                Require(ImplementedFeatures.Workers, options.Capabilities.Workers, "uses shared workers", "workers");
             if (Constructs(compact, "Worker"))
                 Require(ImplementedFeatures.Workers, options.Capabilities.Workers, "uses workers", "workers");
             if (Contains(compact, "WebAssembly.") || Contains(compact, "WebAssembly["))
@@ -412,7 +394,7 @@ public static class ArtifactClassifier
                 return; // an empty URL loads nothing; #id points into the document (SVG references)
             if (!Loadable(url))
                 Load(url, "an image");
-            else if (!DataUrl.TryParse(url, out _, out var type) || type is not ("image/png" or "image/jpeg"))
+            else if (!DataUrl.TryParse(url, out _, out var type) || !SupportedImageTypes.Contains(type))
                 Unsupported.Add($"uses an image format Folio does not decode: {(type.Length > 0 ? type : "unknown")}");
         }
 

@@ -158,4 +158,41 @@ public class ImageDecoderTests
                 Assert.Null(decoded);
         }
     }
+
+    [Fact]
+    public void BmpBiRgb32TreatsTheFourthByteAsReserved()
+    {
+        // 1x1 bottom-up, 32-bit BI_RGB: blue, green, red, reserved.
+        var bmp = new byte[58];
+        bmp[0] = (byte)'B'; bmp[1] = (byte)'M';
+        BinaryPrimitives.WriteUInt32LittleEndian(bmp.AsSpan(2), 58);
+        BinaryPrimitives.WriteUInt32LittleEndian(bmp.AsSpan(10), 54);
+        BinaryPrimitives.WriteUInt32LittleEndian(bmp.AsSpan(14), 40);
+        BinaryPrimitives.WriteInt32LittleEndian(bmp.AsSpan(18), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(bmp.AsSpan(22), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bmp.AsSpan(26), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bmp.AsSpan(28), 32);
+        bmp[54] = 0x1E; bmp[55] = 0x14; bmp[56] = 0x0A; bmp[57] = 0;
+
+        var decoded = BmpDecoder.Decode(bmp);
+        Assert.NotNull(decoded);
+        Assert.Equal([10, 20, 30, 255], decoded.Pixels);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(53)]
+    public void TruncatedBmpNeverThrows(int length)
+    {
+        var bmp = new byte[58];
+        bmp[0] = (byte)'B'; bmp[1] = (byte)'M';
+        BinaryPrimitives.WriteUInt32LittleEndian(bmp.AsSpan(10), 54);
+        BinaryPrimitives.WriteUInt32LittleEndian(bmp.AsSpan(14), 40);
+        BinaryPrimitives.WriteInt32LittleEndian(bmp.AsSpan(18), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(bmp.AsSpan(22), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bmp.AsSpan(26), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bmp.AsSpan(28), 24);
+        _ = BmpDecoder.Decode(bmp.AsSpan(0, length));
+    }
 }

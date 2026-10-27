@@ -22,7 +22,9 @@ internal static class GlyphOutlines
             if (face.RawTable("glyf") is { } glyf && face.RawTable("loca") is { } loca)
                 return TrueType(face, glyf, loca, glyph);
             if (face.RawTable("CFF ") is { } cff)
-                return CffFont.For(face, cff).Outline(glyph);
+                return CffFont.For(face, cff, cff2: false).Outline(glyph);
+            if (face.RawTable("CFF2") is { } cff2)
+                return CffFont.For(face, cff2, cff2: true).Outline(glyph);
             return null;
         }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
@@ -331,7 +333,7 @@ internal static class GlyphOutlines
         path.Close();
     }
 
-    // ---- CFF ----
+    // ---- CFF / CFF2 ----
 
     /// <summary>A CFF font: its charstrings, subroutines and, for CID-keyed fonts, the font dictionaries per glyph.</summary>
     private sealed class CffFont
@@ -341,23 +343,31 @@ internal static class GlyphOutlines
         private readonly FontData _data;
         private readonly Index _charStrings;
         private readonly Index _globalSubrs;
+        private readonly bool _cff2;
         private readonly Index[] _localSubrs;
         private readonly int _fdSelectFormat;
         private readonly int _fdSelectOffset;
 
-        public static CffFont For(FontFace face, FontData cff) => Cache.GetValue(face, _ => new CffFont(cff));
+        public static CffFont For(FontFace face, FontData cff, bool cff2) => Cache.GetValue(face, _ => new CffFont(cff, cff2));
 
         private readonly record struct Index(FontData Data, int Count, int OffsetSize, int OffsetsStart, int DataStart, int End)
         {
-            public static Index Read(FontData data, int position)
+            public static Index Read(FontData data, int position, bool cff2 = false)
             {
-                var count = data.U16(position);
+                var count32 = cff2 ? data.U32(position) : data.U16(position);
+                if (count32 > int.MaxValue)
+                    throw new InvalidDataException("A CFF index is too large.");
+                var count = (int)count32;
                 if (count == 0)
-                    return new Index(data, 0, 0, position + 2, position + 2, position + 2);
-                var offsetSize = data.U8(position + 2);
+                {
+                    var empty = position + (cff2 ? 4 : 2);
+                    return new Index(data, 0, 0, empty, empty, empty);
+                }
+                var countBytes = cff2 ? 4 : 2;
+                var offsetSize = data.U8(position + countBytes);
                 if (offsetSize is < 1 or > 4)
                     throw new InvalidDataException("A CFF index with an offset size outside 1 to 4.");
-                var offsetsStart = position + 3;
+                var offsetsStart = position + countBytes + 1;
                 var dataStart = offsetsStart + (count + 1) * offsetSize - 1;
                 var end = dataStart + (int)Offset(data, offsetsStart, offsetSize, count);
                 return new Index(data, count, offsetSize, offsetsStart, dataStart, end);
@@ -446,28 +456,42 @@ internal static class GlyphOutlines
         private readonly double[] _defaultWidth;
         private readonly double[] _nominalWidth;
 
-        private CffFont(FontData data)
+        private CffFont(FontData data, bool cff2)
         {
             _data = data;
-            var headerSize = data.U8(2);
-            var nameIndex = Index.Read(data, headerSize);
-            var topIndex = Index.Read(data, nameIndex.End);
-            var stringIndex = Index.Read(data, topIndex.End);
-            _globalSubrs = Index.Read(data, stringIndex.End);
-            var top = Dict.Parse(topIndex.Item(0));
+            _cff2 = cff2;
+            Dict top;
+            int globalSubrsOffset;
+            if (cff2)
+            {
+                var headerSize = data.U8(2);
+                var topLength = data.U16(3);
+                top = Dict.Parse(data.Slice(headerSize, topLength));
+                globalSubrsOffset = headerSize + topLength;
+            }
+            else
+            {
+                var headerSize = data.U8(2);
+                var nameIndex = Index.Read(data, headerSize);
+                var topIndex = Index.Read(data, nameIndex.End);
+                var stringIndex = Index.Read(data, topIndex.End);
+                globalSubrsOffset = stringIndex.End;
+                top = Dict.Parse(topIndex.Item(0));
+            }
+            _globalSubrs = Index.Read(data, globalSubrsOffset, cff2);
             if (top.Number(17) is not { } charStringsOffset)
                 throw new InvalidDataException("A CFF font without charstrings.");
-            _charStrings = Index.Read(data, (int)charStringsOffset);
+            _charStrings = Index.Read(data, (int)charStringsOffset, cff2);
 
             if (top.Entries.ContainsKey(0x0C24) && top.Number(0x0C24) is { } fdArrayOffset)
             {
                 // CID-keyed: one font dictionary, with its own private dictionary, per range of glyphs.
-                var fdArray = Index.Read(data, (int)fdArrayOffset);
+                var fdArray = Index.Read(data, (int)fdArrayOffset, cff2);
                 _localSubrs = new Index[fdArray.Count];
                 _defaultWidth = new double[fdArray.Count];
                 _nominalWidth = new double[fdArray.Count];
                 for (var i = 0; i < fdArray.Count; i++)
-                    (_localSubrs[i], _defaultWidth[i], _nominalWidth[i]) = ReadPrivate(Dict.Parse(fdArray.Item(i)));
+                (_localSubrs[i], _defaultWidth[i], _nominalWidth[i]) = ReadPrivate(Dict.Parse(fdArray.Item(i)));
                 if (top.Number(0x0C25) is { } fdSelect)
                 {
                     _fdSelectOffset = (int)fdSelect;
@@ -489,8 +513,10 @@ internal static class GlyphOutlines
                 return (default, 0, 0);
             var size = (int)priv[0];
             var offset = (int)priv[1];
+            if (size == 0)
+                return (default, 0, 0);
             var dict = Dict.Parse(_data.Slice(offset, size));
-            var subrs = dict.Number(19) is { } subrsOffset ? Index.Read(_data, offset + (int)subrsOffset) : default;
+            var subrs = dict.Number(19) is { } subrsOffset ? Index.Read(_data, offset + (int)subrsOffset, _cff2) : default;
             return (subrs, dict.Number(20) ?? 0, dict.Number(21) ?? 0);
         }
 
@@ -518,7 +544,7 @@ internal static class GlyphOutlines
         public PathData Outline(int glyph)
         {
             var fd = Math.Min(FontDictionaryFor(glyph), _localSubrs.Length - 1);
-            var run = new Interpreter(this, _localSubrs[fd]);
+            var run = new Interpreter(this, _localSubrs[fd], _cff2);
             run.Run(_charStrings.Item(glyph), 0);
             return run.Finish();
         }
@@ -526,7 +552,7 @@ internal static class GlyphOutlines
         private static int Bias(int count) => count < 1240 ? 107 : count < 33900 ? 1131 : 32768;
 
         // The Type 2 charstring machine (Adobe Technical Note 5177).
-        private sealed class Interpreter(CffFont font, Index local)
+        private sealed class Interpreter(CffFont font, Index local, bool cff2)
         {
             private readonly double[] _stack = new double[96];
             private int _depth;
@@ -587,6 +613,11 @@ internal static class GlyphOutlines
             // The first stack-clearing operator may carry the glyph's width as an extra first operand.
             private void TakeWidth(bool extra)
             {
+                if (cff2)
+                {
+                    _widthSeen = true;
+                    return;
+                }
                 if (!_widthSeen && extra && _depth > 0)
                 {
                     for (var i = 1; i < _depth; i++)

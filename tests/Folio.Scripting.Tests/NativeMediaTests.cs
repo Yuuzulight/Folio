@@ -55,6 +55,12 @@ public sealed class NativeMediaTests
         Assert.Contains(audio.Audio.Value.Samples.ToArray(), sample => Math.Abs(sample) > 0.01f);
         var video = decoder.Decode(File.ReadAllBytes(Fixture("red.mp4")), "video/mp4", true, 1024 * 1024);
         Assert.NotNull(video?.VideoFrame);
+        Assert.NotNull(video.VideoFrames);
+        Assert.True(video.VideoFrames.Count > 1);
+        Assert.Equal(0, video.VideoFrames[0].Time, 3);
+        Assert.True(video.VideoFrames[^1].Time > video.VideoFrames[0].Time);
+        Assert.All(video.VideoFrames, frame => Assert.Equal(64, frame.Frame.Width));
+        Assert.All(video.VideoFrames, frame => Assert.Equal(48, frame.Frame.Height));
         Assert.Equal(64, video.VideoFrame.Width);
         Assert.Equal(48, video.VideoFrame.Height);
         Assert.Equal(1, video.Duration, 2);

@@ -45,18 +45,49 @@ public sealed class ContentCacheTests
     }
 
     [Fact]
-    public async Task LocalStorageOfAContentProcessSurvivesRestartsStaysWithinItsArtifactAndKeepsItsQuota()
+    public async Task PersistedServiceWorkerInterceptsTheFirstFetchAfterProcessReopen()
     {
         var storage = new Storage();
-        await using (var first = Client(storage, "artifact-a"))
-            Assert.Equal("1", await Load(first, "localStorage.setItem('theme', 'dark'); result = String(localStorage.length);"));
-        await using (var again = Client(storage, "artifact-a"))
-            Assert.Equal("dark", await Load(again, "result = localStorage.getItem('theme');"));
-        await using (var other = Client(storage, "artifact-b"))
-            Assert.Equal("null", await Load(other, "result = String(localStorage.getItem('theme'));"));
-        await using (var big = Client(storage, "artifact-a"))
-            Assert.Equal("QuotaExceededError", await Load(big, "try { localStorage.setItem('big', 'x'.repeat(5 * 1024 * 1024)); result = 'stored'; } catch (e) { result = e.name; }"));
-        Assert.DoesNotContain(storage.Values.Keys, key => key.Contains("big"));
+        await using (var first = Client(storage, loader: new WorkerLoader()))
+            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+        Assert.Contains(storage.Values.Keys, key => key.Contains("service-worker-registration", StringComparison.Ordinal));
+        Assert.Contains("artifact:service-worker-registration/__index__", storage.Values.Keys);
+        Assert.Equal("[\"/\"]", storage.Values["artifact:service-worker-registration/__index__"]);
+        Assert.Equal("/sw.js", JsonDocument.Parse(storage.Values["artifact:service-worker-registration/%2F"]).RootElement.GetProperty("scriptURL").GetString());
+
+        await using var reopened = Client(storage, loader: new WorkerLoader());
+        Assert.Equal("offline-body", await Load(reopened, "result = await (await fetch('/offline')).text();", true, true));
+    }
+
+    [Fact]
+    public async Task PersistedServiceWorkerRegistrationDoesNotCrossArtifacts()
+    {
+        var storage = new Storage();
+        await using (var owner = Client(storage, artifact: "owner", loader: new WorkerLoader()))
+            Assert.Equal("registered", await Load(owner, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+
+        await using var foreign = Client(storage, artifact: "foreign", loader: new WorkerLoader());
+        Assert.Equal("TypeError:Failed to fetch: unexpected resource", await Load(foreign, "result = await (await fetch('/offline')).text();", true, true));
+    }
+
+    [Fact]
+    public async Task PersistedServiceWorkerIsHiddenWhenCapabilityIsRevokedOnReopen()
+    {
+        var storage = new Storage();
+        await using (var first = Client(storage, loader: new WorkerLoader()))
+            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+
+        await using var reopened = Client(storage, loader: new WorkerLoader());
+        Assert.Equal("undefined", await Load(reopened, "result = typeof navigator.serviceWorker;", false, true));
+    }
+
+    [Fact]
+    public async Task BrokeredServiceWorkerCannotReadPageGlobals()
+    {
+        await using var client = Client(new Storage(), loader: new IsolationWorkerLoader());
+        Assert.Equal("undefined:undefined", await Load(client,
+            "globalThis.pageSecret = 'page-only'; await navigator.serviceWorker.register('/isolation.js'); result = await (await fetch('/offline')).text();",
+            true, true));
     }
 
     [Fact]
@@ -326,17 +357,17 @@ public sealed class ContentCacheTests
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
         var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
-        return ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15), CpuRatePercent: 100),
+        return ContentProcessClient.Start(host, limits: new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(15)),
             artifactStorage: storage, artifactId: artifact, documentLimits: ResourceLimits.Default with { MaxServiceWorkerCacheBytes = quota }, resourceLoader: loader);
     }
-    private static async Task<string> Load(ContentProcessClient client, string script, bool serviceWorkers = false)
+    private static async Task<string> Load(ContentProcessClient client, string script, bool serviceWorkers = false, bool storageEnabled = false)
     {
         var completed = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask Handler(ContentMessage message, CancellationToken _) { if (message.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic) completed.TrySetResult(message); return ValueTask.CompletedTask; }
         client.MessageReceived += Handler;
         try
         {
-            await client.SendAsync(ContentMessageKind.Load, new { html = "<script>var result = 'unfinished'; (async () => {" + script + "})().catch(e => result = e.name + ':' + e.message);</script>", script = "result", url = "https://cache.example/", artifactId = "forged", storageEnabled = false, limits = new { MaxServiceWorkerCacheBytes = long.MaxValue }, scriptLimits = new ScriptLimits { Timeout = TimeSpan.FromSeconds(15) }, capabilities = new FeatureCapabilities { ServiceWorkers = serviceWorkers } }, TestContext.Current.CancellationToken);
+            await client.SendAsync(ContentMessageKind.Load, new { html = "<script>var result = 'unfinished'; (async () => {" + script + "})().catch(e => result = e.name + ':' + e.message);</script>", script = "result", url = "https://cache.example/", artifactId = "forged", storageEnabled, limits = new { MaxServiceWorkerCacheBytes = long.MaxValue }, capabilities = new FeatureCapabilities { ServiceWorkers = serviceWorkers } }, TestContext.Current.CancellationToken);
             var message = await completed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Assert.True(message.Kind == ContentMessageKind.Frame, message.Payload.ToString());
             var value = message.Payload.GetProperty("value").GetString()!;
@@ -349,8 +380,17 @@ public sealed class ContentCacheTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) => Task.FromResult<ResourceResponse?>(
             request.Kind == ResourceKind.Script && request.Url == "https://cache.example/sw.js"
-                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('install', event => event.waitUntil(caches.open('sw').then(c => c.put('/from-worker', new Response('worker-body')))));"), "text/javascript")
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('install', event => event.waitUntil(caches.open('sw').then(c => c.put('/from-worker', new Response('worker-body'))))); self.addEventListener('fetch', event => { if (event.request.url.endsWith('/offline')) event.respondWith(new Response('offline-body')); });"), "text/javascript")
                 : ResourceResponse.Refused("unexpected resource"));
+    }
+    private sealed class IsolationWorkerLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) => Task.FromResult<ResourceResponse?>(
+            request.Kind == ResourceKind.Script && request.Url == "https://cache.example/isolation.js"
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('fetch', event => event.respondWith(new Response(typeof pageSecret + ':' + typeof document)));"), "text/javascript")
+                : request.Url == "https://cache.example/offline"
+                    ? ResourceResponse.Refused("the page loader must not receive the intercepted request")
+                    : ResourceResponse.Refused("unexpected resource"));
     }
     private sealed class Storage : IArtifactStorage
     {

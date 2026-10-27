@@ -73,9 +73,12 @@ internal static class FrameBenchmark
     public static (TimeSpan Median, TimeSpan P95, bool PaintOnly) Measure(string html, int frames)
     {
         using var document = Document.Parse(html, Options);
-        document.Paint(800, 600, 1, new HarfBuzzShaper(), 0);
+        document.Paint(800, 600, 1, new HybridShaper(), 0);
         using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.White);
+        DisplayListPlayer.Replay(document.DisplayList!, new SkiaCanvas(canvas, false));
+        canvas.Flush();
         var paintOnly = true;
         var times = new List<TimeSpan>();
         for (var i = -10; i < frames; i++) // ten warm-up frames
@@ -84,9 +87,24 @@ internal static class FrameBenchmark
             var time = (i + 10) / 60.0;
             var list = document.PaintFrame(time);
             paintOnly &= list is not null;
-            list ??= document.Paint(800, 600, 1, new HarfBuzzShaper(), time).List;
-            canvas.Clear(SKColors.White);
-            DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+            list ??= document.Paint(800, 600, 1, new HybridShaper(), time).List;
+            if (document.LastDamage is { } damage && damage.Width > 0 && damage.Height > 0)
+            {
+                canvas.Save();
+                canvas.ClipRect(SKRect.Create(damage.X, damage.Y, damage.Width, damage.Height));
+                canvas.Clear(SKColors.White);
+                DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false), damage);
+                canvas.Restore();
+            }
+            else if (document.LastDamage is { Width: <= 0, Height: <= 0 })
+            {
+                // The retained bitmap already contains this unchanged frame.
+            }
+            else
+            {
+                canvas.Clear(SKColors.White);
+                DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+            }
             canvas.Flush();
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
@@ -102,10 +120,11 @@ internal static class FrameBenchmark
     public static (TimeSpan Skia, TimeSpan Software) MeasureBackends(string html, int width, int height, int frames)
     {
         using var document = Document.Parse(html, Options);
-        var list = document.Paint(width, height, 1, new HarfBuzzShaper(), 0).List;
+        var (list, _) = document.Paint(width, height, 1, new HarfBuzzShaper(), 0);
+        if (list is null) throw new InvalidOperationException("Benchmark paint did not produce a display list.");
         TimeSpan Median(IRasterBackend backend)
         {
-            using var surface = backend.CreateSurface(width, height) ?? throw new InvalidOperationException("The backend made no surface.");
+            using var surface = backend.CreateSurface(width, height) ?? throw new InvalidOperationException("Benchmark backend could not create a raster surface.");
             var times = new List<TimeSpan>();
             for (var i = -3; i < frames; i++) // three warm-up replays
             {
@@ -129,7 +148,7 @@ internal static class FrameBenchmark
     public static (TimeSpan Median, TimeSpan P95) MeasureHover(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
-        document.Paint(800, 600, 1, new HarfBuzzShaper(), 0);
+        document.Paint(800, 600, 1, new HybridShaper(), 0);
         using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         var times = new List<TimeSpan>();
@@ -138,10 +157,27 @@ internal static class FrameBenchmark
             var start = Stopwatch.GetTimestamp();
             var pos = (i % 2 == 0) ? new System.Numerics.Vector2(100, 100) : new System.Numerics.Vector2(300, 100);
             document.Input.HandlePointerMove(new Folio.PointerEvent(pos));
-            document.Update();
-            canvas.Clear(SKColors.White);
+            // HandlePointerMove updates the document when the hovered target changes. Do not call Update again:
+            // measuring a second no-op repaint would double-count work that a real host never performs.
             if (document.DisplayList is { } list)
-                DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+            {
+                // Document.Update already computes LastDamage for the host paint path. Recomputing the
+                // item-by-item diff here would benchmark the same work twice and would not match FolioView.
+                var damage = document.LastDamage;
+                if (damage is { } rect && rect.Width > 0 && rect.Height > 0)
+                {
+                    canvas.Save();
+                    canvas.ClipRect(SKRect.Create(rect.X, rect.Y, rect.Width, rect.Height));
+                    canvas.Clear(SKColors.White);
+                    DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false), rect);
+                    canvas.Restore();
+                }
+                else
+                {
+                    canvas.Clear(SKColors.White);
+                    DisplayListPlayer.Replay(list, new SkiaCanvas(canvas, false));
+                }
+            }
             canvas.Flush();
             if (i >= 0)
                 times.Add(Stopwatch.GetElapsedTime(start));
@@ -157,7 +193,7 @@ internal static class FrameBenchmark
     public static (TimeSpan Median, TimeSpan P95) MeasureScroll(string html, int steps)
     {
         using var document = Document.Parse(html, Options);
-        var (list, contentHeight) = document.Paint(800, 600, 1, new HarfBuzzShaper(), 0);
+        var (list, contentHeight) = document.Paint(800, 600, 1, new HybridShaper(), 0);
         using var bitmap = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         var times = new List<TimeSpan>();
@@ -176,19 +212,5 @@ internal static class FrameBenchmark
         }
         times.Sort();
         return (times[times.Count / 2], times[Math.Min(times.Count - 1, (int)(times.Count * 0.95))]);
-    }
-
-    /// <summary>
-    /// Measures and records the serialized display list frame size in bytes across IPC (issue #476).
-    /// </summary>
-    public static (int InitialFrameBytes, int SubsequentFrameBytes, int DisplayItemCount) MeasureIpcFrameSize(string? html = null)
-    {
-        html ??= Typical;
-        using var document = Document.Parse(html, Options);
-        var list = document.Paint(800, 600, 1, new HarfBuzzShaper(), 0).List;
-        var context = new DisplayListContext();
-        var initialBytes = DisplayListCodec.Encode(list, context).Length;
-        var subsequentBytes = DisplayListCodec.Encode(list, context).Length;
-        return (initialBytes, subsequentBytes, list.Items.Count);
     }
 }

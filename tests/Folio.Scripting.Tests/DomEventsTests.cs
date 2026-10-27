@@ -67,9 +67,11 @@ public class DomEventsTests
 
         Assert.True(engine.Evaluate(@"
             const v = document.getElementById('v');
-            let updates = 0; let ended = 0;
+            let updates = 0; let ended = 0; let events = '';
             v.addEventListener('timeupdate', () => updates++);
-            v.addEventListener('ended', () => ended++);
+            v.addEventListener('timeupdate', () => events += 't');
+            v.addEventListener('pause', () => events += 'p');
+            v.addEventListener('ended', () => { ended++; events += 'e'; });
             v.play(); true").AsBoolean());
 
         clock.SetNow(0);
@@ -83,7 +85,7 @@ public class DomEventsTests
         clock.SetNow(1000);
         loop.UpdateTheRendering();
         Assert.Equal(1, engine.Evaluate("v.currentTime").AsNumber(), 5);
-        Assert.True(engine.Evaluate("v.paused && v.ended && ended === 1").AsBoolean());
+        Assert.True(engine.Evaluate("v.paused && v.ended && ended === 1 && events === 'ttpe'").AsBoolean());
     }
 
     [Fact]

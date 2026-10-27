@@ -38,7 +38,7 @@ internal static class AngleGpuBackend
     }
 }
 
-internal sealed class AngleGpuDevice : IGpuDevice
+internal sealed partial class AngleGpuDevice : IGpuDevice, INativeWebGlFactory
 {
     private const uint EglNone = 0x3038;
     private const uint EglPbufferBit = 0x0001;
@@ -84,6 +84,7 @@ internal sealed class AngleGpuDevice : IGpuDevice
     private long _peakReserved;
     private bool _disposed;
     private readonly HashSet<AngleGpuSurface> _surfaces = [];
+    private readonly HashSet<AngleNativeWebGlContext> _nativeWebGlContexts = [];
     private SharedEglState? _shared;
 
     public GpuRendererKind RendererKind { get; }
@@ -167,7 +168,7 @@ internal sealed class AngleGpuDevice : IGpuDevice
         }
     }
 
-    internal bool TryCreateNativeSurface(int width, int height, out uint texture, out uint framebuffer)
+    public bool TryCreateNativeSurface(int width, int height, out uint texture, out uint framebuffer)
     {
         texture = framebuffer = 0;
         MakeCurrent();
@@ -206,6 +207,8 @@ internal sealed class AngleGpuDevice : IGpuDevice
     }
 
     private void ForgetSurface(AngleGpuSurface surface) { lock (_gate) _surfaces.Remove(surface); }
+    internal void RegisterNativeWebGlContext(AngleNativeWebGlContext context) { lock (_gate) _nativeWebGlContexts.Add(context); }
+    internal void UnregisterNativeWebGlContext(AngleNativeWebGlContext context) { lock (_gate) _nativeWebGlContexts.Remove(context); }
 
     internal bool Clear(uint framebuffer, float red, float green, float blue, float alpha, out GpuFailure? failure)
     {
@@ -254,7 +257,7 @@ internal sealed class AngleGpuDevice : IGpuDevice
         }
     }
 
-    internal bool TryReserve(long bytes, out IDisposable reservation)
+    public bool TryReserve(long bytes, out IDisposable reservation)
     {
         lock (_gate) { reservation = NullReservation.Instance; return !_disposed && TryReserveLocked(bytes, out reservation); }
     }
@@ -267,7 +270,7 @@ internal sealed class AngleGpuDevice : IGpuDevice
     }
 
     private void Release(long bytes) { lock (_gate) _reserved = Math.Max(0, _reserved - bytes); }
-    internal bool TryCreateResource(NativeResourceKind kind, int width, int height, int bytes, out uint handle, out GpuFailure? failure)
+    public bool TryCreateResource(NativeResourceKind kind, int width, int height, int bytes, out uint handle, out GpuFailure? failure)
     {
         lock (_gate)
         {
@@ -315,6 +318,12 @@ internal sealed class AngleGpuDevice : IGpuDevice
         lock (_gate)
         {
             if (_disposed) return;
+            foreach (var context in _nativeWebGlContexts.ToArray())
+            {
+                try { context.Dispose(); }
+                catch { /* Continue tearing down the legacy surface and device. */ }
+            }
+            _nativeWebGlContexts.Clear();
             foreach (var surface in _surfaces.ToArray())
             {
                 try { surface.Dispose(); }
@@ -455,57 +464,214 @@ internal sealed class AngleGpuDevice : IGpuDevice
 
     internal enum NativeResourceKind { Texture, Buffer, Renderbuffer }
 
-    private sealed class EglApi
+    internal sealed class EglApi
     {
-        public required EglGetPlatformDisplay GetPlatformDisplay; public required EglInitialize Initialize;
+        public required EglGetPlatformDisplay GetPlatformDisplay; public required EglInitialize Initialize; public required EglQueryString QueryString;
         public required EglBindApi BindApi; public required EglChooseConfig ChooseConfig;
         public required EglCreateContext CreateContext; public required EglCreatePbufferSurface CreatePbufferSurface;
         public required EglMakeCurrent MakeCurrent; public required EglDestroyContext DestroyContext;
         public required EglDestroySurface DestroySurface; public required EglTerminate Terminate;
-        public static EglApi Load(IntPtr m) => new() { GetPlatformDisplay = D<EglGetPlatformDisplay>(m, "EGL_GetPlatformDisplayEXT"), Initialize = D<EglInitialize>(m, "EGL_Initialize"), BindApi = D<EglBindApi>(m, "EGL_BindAPI"), ChooseConfig = D<EglChooseConfig>(m, "EGL_ChooseConfig"), CreateContext = D<EglCreateContext>(m, "EGL_CreateContext"), CreatePbufferSurface = D<EglCreatePbufferSurface>(m, "EGL_CreatePbufferSurface"), MakeCurrent = D<EglMakeCurrent>(m, "EGL_MakeCurrent"), DestroyContext = D<EglDestroyContext>(m, "EGL_DestroyContext"), DestroySurface = D<EglDestroySurface>(m, "EGL_DestroySurface"), Terminate = D<EglTerminate>(m, "EGL_Terminate") };
+        public static EglApi Load(IntPtr m) => new() { GetPlatformDisplay = D<EglGetPlatformDisplay>(m, "EGL_GetPlatformDisplayEXT"), Initialize = D<EglInitialize>(m, "EGL_Initialize"), QueryString = D<EglQueryString>(m, "EGL_QueryString"), BindApi = D<EglBindApi>(m, "EGL_BindAPI"), ChooseConfig = D<EglChooseConfig>(m, "EGL_ChooseConfig"), CreateContext = D<EglCreateContext>(m, "EGL_CreateContext"), CreatePbufferSurface = D<EglCreatePbufferSurface>(m, "EGL_CreatePbufferSurface"), MakeCurrent = D<EglMakeCurrent>(m, "EGL_MakeCurrent"), DestroyContext = D<EglDestroyContext>(m, "EGL_DestroyContext"), DestroySurface = D<EglDestroySurface>(m, "EGL_DestroySurface"), Terminate = D<EglTerminate>(m, "EGL_Terminate") };
     }
 
-    private sealed class GlApi
+    #pragma warning disable CS8618 // Native function pointers are populated atomically by Load.
+    internal sealed class GlApi
     {
-        public required GlGenTextures GenTextures; public required GlBindTexture BindTexture; public required GlTexParameteri TexParameteri; public required GlTexImage2D TexImage2D; public required GlGenFramebuffers GenFramebuffers; public required GlBindFramebuffer BindFramebuffer; public required GlFramebufferTexture2D FramebufferTexture2D; public required GlCheckFramebufferStatus CheckFramebufferStatus; public required GlDeleteFramebuffers DeleteFramebuffers; public required GlDeleteTextures DeleteTextures; public required GlClearColor ClearColor; public required GlClear Clear; public required GlGetError GetError; public required GlGetString GetString; public required GlReadPixels ReadPixels; public required GlGenBuffers GenBuffers; public required GlBindBuffer BindBuffer; public required GlBufferData BufferData; public required GlDeleteBuffers DeleteBuffers; public required GlGenRenderbuffers GenRenderbuffers; public required GlBindRenderbuffer BindRenderbuffer; public required GlRenderbufferStorage RenderbufferStorage; public required GlDeleteRenderbuffers DeleteRenderbuffers; public required GlEnable Enable; public required GlDisable Disable; public required GlScissor Scissor;
-        public static GlApi Load(IntPtr m) => new() { GenTextures = D<GlGenTextures>(m, "glGenTextures"), BindTexture = D<GlBindTexture>(m, "glBindTexture"), TexParameteri = D<GlTexParameteri>(m, "glTexParameteri"), TexImage2D = D<GlTexImage2D>(m, "glTexImage2D"), GenFramebuffers = D<GlGenFramebuffers>(m, "glGenFramebuffers"), BindFramebuffer = D<GlBindFramebuffer>(m, "glBindFramebuffer"), FramebufferTexture2D = D<GlFramebufferTexture2D>(m, "glFramebufferTexture2D"), CheckFramebufferStatus = D<GlCheckFramebufferStatus>(m, "glCheckFramebufferStatus"), DeleteFramebuffers = D<GlDeleteFramebuffers>(m, "glDeleteFramebuffers"), DeleteTextures = D<GlDeleteTextures>(m, "glDeleteTextures"), ClearColor = D<GlClearColor>(m, "glClearColor"), Clear = D<GlClear>(m, "glClear"), GetError = D<GlGetError>(m, "glGetError"), GetString = D<GlGetString>(m, "glGetString"), ReadPixels = D<GlReadPixels>(m, "glReadPixels"), GenBuffers = D<GlGenBuffers>(m, "glGenBuffers"), BindBuffer = D<GlBindBuffer>(m, "glBindBuffer"), BufferData = D<GlBufferData>(m, "glBufferData"), DeleteBuffers = D<GlDeleteBuffers>(m, "glDeleteBuffers"), GenRenderbuffers = D<GlGenRenderbuffers>(m, "glGenRenderbuffers"), BindRenderbuffer = D<GlBindRenderbuffer>(m, "glBindRenderbuffer"), RenderbufferStorage = D<GlRenderbufferStorage>(m, "glRenderbufferStorage"), DeleteRenderbuffers = D<GlDeleteRenderbuffers>(m, "glDeleteRenderbuffers"), Enable = D<GlEnable>(m, "glEnable"), Disable = D<GlDisable>(m, "glDisable"), Scissor = D<GlScissor>(m, "glScissor") };
+        [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+        private GlApi() { }
+
+        public required GlGenTextures GenTextures; public required GlBindTexture BindTexture; public required GlTexParameteri TexParameteri; public required GlTexImage2D TexImage2D; public required GlTexStorage2D TexStorage2D; public required GlTexSubImage2D TexSubImage2D; public required GlCopyTexImage2D CopyTexImage2D; public required GlCopyTexSubImage2D CopyTexSubImage2D; public required GlTexImage3D TexImage3D; public required GlTexStorage3D TexStorage3D; public required GlTexSubImage3D TexSubImage3D; public required GlGenerateMipmap GenerateMipmap; public required GlGenFramebuffers GenFramebuffers; public required GlBindFramebuffer BindFramebuffer; public required GlFramebufferTexture2D FramebufferTexture2D; public required GlFramebufferTextureLayer FramebufferTextureLayer; public required GlFramebufferRenderbuffer FramebufferRenderbuffer; public required GlCheckFramebufferStatus CheckFramebufferStatus; public required GlDeleteFramebuffers DeleteFramebuffers; public required GlDeleteTextures DeleteTextures; public required GlClearColor ClearColor; public required GlClear Clear; public required GlClearBufferfv ClearBufferfv; public required GlClearBufferiv ClearBufferiv; public required GlClearBufferuiv ClearBufferuiv; public required GlClearBufferfi ClearBufferfi; public required GlPixelStorei PixelStorei; public required GlGetError GetError; public required GlGetString GetString; public required GlReadPixels ReadPixels; public required GlGenBuffers GenBuffers; public required GlBindBuffer BindBuffer; public required GlBindBufferBase BindBufferBase; public required GlBindBufferRange BindBufferRange; public required GlGetBufferParameteriv GetBufferParameteriv; public required GlMapBufferRange MapBufferRange; public required GlUnmapBuffer UnmapBuffer; public required GlBufferData BufferData; public required GlDeleteBuffers DeleteBuffers; public required GlGenRenderbuffers GenRenderbuffers; public required GlBindRenderbuffer BindRenderbuffer; public required GlRenderbufferStorage RenderbufferStorage; public required GlRenderbufferStorageMultisample RenderbufferStorageMultisample; public required GlBlitFramebuffer BlitFramebuffer; public required GlDeleteRenderbuffers DeleteRenderbuffers; public required GlGenTransformFeedbacks GenTransformFeedbacks; public required GlBindTransformFeedback BindTransformFeedback; public required GlDeleteTransformFeedbacks DeleteTransformFeedbacks; public required GlBeginTransformFeedback BeginTransformFeedback; public required GlEndTransformFeedback EndTransformFeedback; public required GlPauseTransformFeedback PauseTransformFeedback; public required GlResumeTransformFeedback ResumeTransformFeedback; public required GlTransformFeedbackVaryings TransformFeedbackVaryings; public required GlGetTransformFeedbackVarying GetTransformFeedbackVarying; public required GlEnable Enable; public required GlDisable Disable; public required GlScissor Scissor; public required GlDrawBuffers DrawBuffers; public required GlReadBuffer ReadBuffer; public required GlBlendFuncSeparate BlendFuncSeparate; public required GlBlendEquationSeparate BlendEquationSeparate; public required GlBlendColor BlendColor; public required GlColorMask ColorMask; public required GlDepthFunc DepthFunc; public required GlDepthMask DepthMask; public required GlStencilFuncSeparate StencilFuncSeparate; public required GlStencilOpSeparate StencilOpSeparate; public required GlStencilMaskSeparate StencilMaskSeparate; public required GlCullFace CullFace; public required GlFrontFace FrontFace; public required GlDepthRangef DepthRangef; public required GlLineWidth LineWidth; public required GlPolygonOffset PolygonOffset; public required GlSampleCoverage SampleCoverage; public required GlHint Hint; public required GlActiveTexture ActiveTexture; public required GlFlush Flush; public required GlFinish Finish; public required GlGetIntegerv GetIntegerv; public required GlGetIntegervArray GetIntegervArray; public required GlGetFloatv GetFloatv; public required GlGetFloatvArray GetFloatvArray; public required GlGetBooleanv GetBooleanv; public required GlGetStringi GetStringi; public required GlGetAttachedShaders GetAttachedShaders;
+        public required GlCreateShader CreateShader; public required GlShaderSource ShaderSource; public required GlCompileShader CompileShader; public required GlGetShaderiv GetShaderiv; public required GlGetShaderInfoLog GetShaderInfoLog; public required GlGetShaderSource GetShaderSource; public required GlDeleteShader DeleteShader;
+        public required GlCreateProgram CreateProgram; public required GlAttachShader AttachShader; public required GlDetachShader DetachShader; public required GlLinkProgram LinkProgram; public required GlValidateProgram ValidateProgram; public required GlGetProgramiv GetProgramiv; public required GlGetProgramInfoLog GetProgramInfoLog; public required GlDeleteProgram DeleteProgram; public required GlUseProgram UseProgram; public required GlGetAttribLocation GetAttribLocation; public required GlGetUniformLocation GetUniformLocation; public required GlBindAttribLocation BindAttribLocation; public required GlGetActiveAttrib GetActiveAttrib; public required GlGetActiveUniform GetActiveUniform; public required GlGetUniformIndices GetUniformIndices; public required GlGetActiveUniformsiv GetActiveUniformsiv; public required GlGetUniformBlockIndex GetUniformBlockIndex; public required GlUniformBlockBinding UniformBlockBinding; public required GlGetShaderPrecisionFormat GetShaderPrecisionFormat; public required GlUniform1fv Uniform1fv; public required GlUniform2fv Uniform2fv; public required GlUniform3fv Uniform3fv; public required GlUniform4fv Uniform4fv; public required GlUniform1iv Uniform1iv; public required GlUniform2iv Uniform2iv; public required GlUniform3iv Uniform3iv; public required GlUniform4iv Uniform4iv; public required GlUniform1uiv Uniform1uiv; public required GlUniform2uiv Uniform2uiv; public required GlUniform3uiv Uniform3uiv; public required GlUniform4uiv Uniform4uiv; public required GlUniformMatrix2fv UniformMatrix2fv; public required GlUniformMatrix3fv UniformMatrix3fv; public required GlUniformMatrix4fv UniformMatrix4fv; public required GlUniformMatrix2x3fv UniformMatrix2x3fv; public required GlUniformMatrix3x2fv UniformMatrix3x2fv; public required GlUniformMatrix2x4fv UniformMatrix2x4fv; public required GlUniformMatrix4x2fv UniformMatrix4x2fv; public required GlUniformMatrix3x4fv UniformMatrix3x4fv; public required GlUniformMatrix4x3fv UniformMatrix4x3fv; public required GlGetUniformfv GetUniformfv; public required GlGetUniformiv GetUniformiv; public required GlGetUniformuiv GetUniformuiv; public required GlBufferSubData BufferSubData; public required GlCopyBufferSubData CopyBufferSubData; public required GlGenVertexArrays GenVertexArrays; public required GlBindVertexArray BindVertexArray; public required GlDeleteVertexArrays DeleteVertexArrays; public required GlEnableVertexAttribArray EnableVertexAttribArray; public required GlDisableVertexAttribArray DisableVertexAttribArray; public required GlVertexAttribPointer VertexAttribPointer; public required GlVertexAttrib4fv VertexAttrib4fv; public required GlVertexAttribI4iv VertexAttribI4iv; public required GlVertexAttribI4uiv VertexAttribI4uiv; public required GlGetVertexAttribiv GetVertexAttribiv; public required GlGetVertexAttribfv GetVertexAttribfv; public required GlGetVertexAttribPointerv GetVertexAttribPointerv; public required GlVertexAttribIPointer VertexAttribIPointer; public required GlVertexAttribDivisor VertexAttribDivisor; public required GlDrawArrays DrawArrays; public required GlDrawElements DrawElements; public required GlDrawArraysInstanced DrawArraysInstanced; public required GlDrawElementsInstanced DrawElementsInstanced; public required GlViewport Viewport; public required GlClearDepthf ClearDepthf; public required GlClearStencil ClearStencil;
+
+        public static GlApi Load(IntPtr module)
+        {
+            var api = new GlApi();
+            foreach (var field in typeof(GlApi).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+            {
+                var export = field.Name switch
+                {
+                    "GetIntegervArray" => "glGetIntegerv",
+                    "GetFloatvArray" => "glGetFloatv",
+                    _ => "gl" + field.Name,
+                };
+                var pointer = NativeLibrary.GetExport(module, export);
+                field.SetValue(api, Marshal.GetDelegateForFunctionPointer(pointer, field.FieldType));
+            }
+            return api;
+        }
     }
+    #pragma warning restore CS8618
 
     private static T D<T>(IntPtr m, string name) where T : Delegate => Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(m, name));
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr EglGetPlatformDisplay(IntPtr platform, IntPtr nativeDisplay, int[] attrs);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglInitialize(IntPtr display, out int major, out int minor);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglBindApi(uint api);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglChooseConfig(IntPtr display, int[] attrs, out IntPtr config, int size, out int count);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr EglCreateContext(IntPtr display, IntPtr config, IntPtr share, int[] attrs);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr EglCreatePbufferSurface(IntPtr display, IntPtr config, int[] attrs);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglMakeCurrent(IntPtr display, IntPtr draw, IntPtr read, IntPtr context);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglDestroyContext(IntPtr display, IntPtr context);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglDestroySurface(IntPtr display, IntPtr surface);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint EglTerminate(IntPtr display);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlGenTextures(int count, out uint textures);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlBindTexture(uint target, uint texture);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlTexParameteri(uint target, uint pname, int value);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlTexImage2D(uint target, int level, int internalFormat, int width, int height, int border, uint format, uint type, IntPtr pixels);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlGenFramebuffers(int count, out uint framebuffers);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlBindFramebuffer(uint target, uint framebuffer);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlFramebufferTexture2D(uint target, uint attachment, uint textarget, uint texture, int level);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint GlCheckFramebufferStatus(uint target);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlDeleteFramebuffers(int count, ref uint framebuffers);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlDeleteTextures(int count, ref uint textures);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlClearColor(float red, float green, float blue, float alpha);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlClear(uint mask);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate uint GlGetError();
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr GlGetString(uint name);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlReadPixels(int x, int y, int width, int height, uint format, uint type, IntPtr pixels);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlGenBuffers(int count, out uint buffers);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlBindBuffer(uint target, uint buffer);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlBufferData(uint target, IntPtr size, IntPtr data, uint usage);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlDeleteBuffers(int count, ref uint buffers);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlGenRenderbuffers(int count, out uint renderbuffers);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlBindRenderbuffer(uint target, uint renderbuffer);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlRenderbufferStorage(uint target, uint internalFormat, int width, int height);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlDeleteRenderbuffers(int count, ref uint renderbuffers);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlEnable(uint capability);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlDisable(uint capability);
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void GlScissor(int x, int y, int width, int height);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr EglGetPlatformDisplay(IntPtr platform, IntPtr nativeDisplay, int[] attrs);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglInitialize(IntPtr display, out int major, out int minor);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr EglQueryString(IntPtr display, int name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglBindApi(uint api);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglChooseConfig(IntPtr display, int[] attrs, out IntPtr config, int size, out int count);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr EglCreateContext(IntPtr display, IntPtr config, IntPtr share, int[] attrs);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr EglCreatePbufferSurface(IntPtr display, IntPtr config, int[] attrs);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglMakeCurrent(IntPtr display, IntPtr draw, IntPtr read, IntPtr context);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglDestroyContext(IntPtr display, IntPtr context);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglDestroySurface(IntPtr display, IntPtr surface);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint EglTerminate(IntPtr display);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenTextures(int count, out uint textures);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindTexture(uint target, uint texture);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexParameteri(uint target, uint pname, int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexImage2D(uint target, int level, int internalFormat, int width, int height, int border, uint format, uint type, IntPtr pixels);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexStorage2D(uint target, int levels, uint internalFormat, int width, int height);
+[UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexSubImage2D(uint target, int level, int xOffset, int yOffset, int width, int height, uint format, uint type, IntPtr pixels);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlCopyTexImage2D(uint target, int level, int internalFormat, int x, int y, int width, int height, int border);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlCopyTexSubImage2D(uint target, int level, int xOffset, int yOffset, int x, int y, int width, int height);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexImage3D(uint target, int level, int internalFormat, int width, int height, int depth, int border, uint format, uint type, IntPtr pixels);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexStorage3D(uint target, int levels, uint internalFormat, int width, int height, int depth);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTexSubImage3D(uint target, int level, int xOffset, int yOffset, int zOffset, int width, int height, int depth, uint format, uint type, IntPtr pixels);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenerateMipmap(uint target);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenFramebuffers(int count, out uint framebuffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindFramebuffer(uint target, uint framebuffer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlFramebufferTexture2D(uint target, uint attachment, uint textarget, uint texture, int level);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlFramebufferTextureLayer(uint target, uint attachment, uint texture, int level, int layer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlFramebufferRenderbuffer(uint target, uint attachment, uint renderbufferTarget, uint renderbuffer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint GlCheckFramebufferStatus(uint target);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteFramebuffers(int count, ref uint framebuffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteTextures(int count, ref uint textures);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearColor(float red, float green, float blue, float alpha);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlPixelStorei(uint parameter, int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClear(uint mask);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearBufferfv(uint buffer, int drawbuffer, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearBufferiv(uint buffer, int drawbuffer, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearBufferuiv(uint buffer, int drawbuffer, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearBufferfi(uint buffer, int drawbuffer, float depth, int stencil);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint GlGetError();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr GlGetString(uint name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlReadPixels(int x, int y, int width, int height, uint format, uint type, IntPtr pixels);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenBuffers(int count, out uint buffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindBuffer(uint target, uint buffer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindBufferBase(uint target, uint index, uint buffer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindBufferRange(uint target, uint index, uint buffer, IntPtr offset, IntPtr size);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetBufferParameteriv(uint target, uint pname, out int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr GlMapBufferRange(uint target, IntPtr offset, IntPtr length, uint access);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate byte GlUnmapBuffer(uint target);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBufferData(uint target, IntPtr size, IntPtr data, uint usage);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteBuffers(int count, ref uint buffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenRenderbuffers(int count, out uint renderbuffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindRenderbuffer(uint target, uint renderbuffer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlRenderbufferStorage(uint target, uint internalFormat, int width, int height);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlRenderbufferStorageMultisample(uint target, int samples, uint internalFormat, int width, int height);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBlitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, uint mask, uint filter);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteRenderbuffers(int count, ref uint renderbuffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenTransformFeedbacks(int count, out uint feedbacks);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindTransformFeedback(uint target, uint feedback);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteTransformFeedbacks(int count, ref uint feedbacks);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBeginTransformFeedback(uint primitiveMode);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlEndTransformFeedback();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlPauseTransformFeedback();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlResumeTransformFeedback();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlTransformFeedbackVaryings(uint program, int count, IntPtr varyings, uint bufferMode);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetTransformFeedbackVarying(uint program, uint index, int bufferSize, out int length, out int size, out uint type, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlEnable(uint capability);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDisable(uint capability);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBlendFuncSeparate(uint sourceRgb, uint destinationRgb, uint sourceAlpha, uint destinationAlpha);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBlendColor(float red, float green, float blue, float alpha);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBlendEquationSeparate(uint rgb, uint alpha);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlColorMask(byte red, byte green, byte blue, byte alpha);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDepthFunc(uint function);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDepthMask(byte enabled);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlStencilFuncSeparate(uint face, uint function, int reference, uint mask);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlStencilOpSeparate(uint face, uint fail, uint depthFail, uint depthPass);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlStencilMaskSeparate(uint face, uint mask);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlCullFace(uint face);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlFrontFace(uint mode);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDepthRangef(float nearValue, float farValue);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlLineWidth(float width);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlPolygonOffset(float factor, float units);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlSampleCoverage(float value, byte invert);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlActiveTexture(uint texture);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlHint(uint target, uint mode);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlFlush();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlFinish();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetIntegervArray(uint parameter, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetIntegerv(uint parameter, out int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetFloatvArray(uint parameter, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetFloatv(uint parameter, out float value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetBooleanv(uint parameter, out byte value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate IntPtr GlGetStringi(uint name, uint index);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetAttachedShaders(uint program, int maxCount, out int count, IntPtr shaders);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDrawBuffers(int count, IntPtr buffers);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlReadBuffer(uint buffer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlScissor(int x, int y, int width, int height);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint GlCreateShader(uint type);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlShaderSource(uint shader, int count, IntPtr strings, IntPtr lengths);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlCompileShader(uint shader);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetShaderiv(uint shader, uint pname, out int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetShaderInfoLog(uint shader, int maxLength, out int length, IntPtr infoLog);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetShaderSource(uint shader, int maxLength, out int length, IntPtr source);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteShader(uint shader);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint GlCreateProgram();
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlAttachShader(uint program, uint shader);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDetachShader(uint program, uint shader);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlLinkProgram(uint program);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlValidateProgram(uint program);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetProgramiv(uint program, uint pname, out int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetProgramInfoLog(uint program, int maxLength, out int length, IntPtr infoLog);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteProgram(uint program);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUseProgram(uint program);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate int GlGetAttribLocation(uint program, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate int GlGetUniformLocation(uint program, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindAttribLocation(uint program, uint index, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetActiveAttrib(uint program, uint index, int maxLength, out int length, out int size, out uint type, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetUniformIndices(uint program, int count, IntPtr names, IntPtr indices);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetActiveUniformsiv(uint program, int count, IntPtr indices, uint parameter, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate uint GlGetUniformBlockIndex(uint program, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformBlockBinding(uint program, uint blockIndex, uint binding);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetActiveUniform(uint program, uint index, int maxLength, out int length, out int size, out uint type, IntPtr name);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetShaderPrecisionFormat(uint shaderType, uint precisionType, IntPtr range, IntPtr precision);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform1fv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform2fv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform3fv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform4fv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform1iv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform2iv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform3iv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform4iv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform1uiv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform2uiv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform3uiv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniform4uiv(int location, int count, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix2fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix3fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix4fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix2x3fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix3x2fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix2x4fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix4x2fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix3x4fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlUniformMatrix4x3fv(int location, int count, byte transpose, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetUniformfv(uint program, int location, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetUniformiv(uint program, int location, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetUniformuiv(uint program, int location, IntPtr value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBufferSubData(uint target, IntPtr offset, IntPtr size, IntPtr data);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlCopyBufferSubData(uint readTarget, uint writeTarget, IntPtr readOffset, IntPtr writeOffset, IntPtr size);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGenVertexArrays(int count, out uint arrays);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlBindVertexArray(uint array);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDeleteVertexArrays(int count, ref uint arrays);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlEnableVertexAttribArray(uint index);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDisableVertexAttribArray(uint index);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlVertexAttrib4fv(uint index, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlVertexAttribI4iv(uint index, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlVertexAttribI4uiv(uint index, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetVertexAttribiv(uint index, uint pname, out int value);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetVertexAttribfv(uint index, uint pname, IntPtr values);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlGetVertexAttribPointerv(uint index, uint pname, out IntPtr pointer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlVertexAttribPointer(uint index, int size, uint type, byte normalized, int stride, IntPtr pointer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlVertexAttribIPointer(uint index, int size, uint type, int stride, IntPtr pointer);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlVertexAttribDivisor(uint index, uint divisor);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDrawArrays(uint mode, int first, int count);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDrawElements(uint mode, int count, uint type, IntPtr indices);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDrawArraysInstanced(uint mode, int first, int count, int instanceCount);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlDrawElementsInstanced(uint mode, int count, uint type, IntPtr indices, int instanceCount);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlViewport(int x, int y, int width, int height);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearDepthf(float depth);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)] internal delegate void GlClearStencil(int value);
 }

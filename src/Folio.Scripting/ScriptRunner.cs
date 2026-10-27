@@ -20,6 +20,7 @@ public sealed class ScriptRunner : IDisposable
     private readonly Uri _baseUri;
     private readonly HashSet<ElementNode> _pendingScripts = new(ReferenceEqualityComparer.Instance);
     private bool _diagramStandInInstalled;
+    private bool _chartStandInInstalled;
     private bool _disposed;
 
     public ScriptRunner(Document document, IScriptEngine engine, HtmlEventLoop eventLoop, FolioOptions? options = null, List<Diagnostic>? diagnostics = null)
@@ -42,9 +43,16 @@ public sealed class ScriptRunner : IDisposable
         // Hook dynamic script insertions into connected document
         _document.NodeInserted += OnNodeInserted;
         _document.DiagnosticSink = _diagnostics.Add;
+        // Errors thrown by timer, animation-frame or promise jobs happen after the
+        // parser has returned. Keep them observable through the same diagnostic
+        // channel as synchronous script errors instead of silently losing them.
+        _eventLoop.UncaughtException += OnUncaughtException;
     }
 
     public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
+
+    private void OnUncaughtException(Exception error) =>
+        _diagnostics.Add(new Diagnostic(DiagnosticCode.ScriptError, Severity.Error, error.Message, null, "event-loop"));
 
     /// <summary>
     /// Executes the script element document lifecycle for a parsed document.
@@ -311,6 +319,19 @@ public sealed class ScriptRunner : IDisposable
 
             scriptUrl = resolved;
 
+            if (_engine is Folio.Scripting.Native.NativeJavaScriptEngine && IsChartLibrary(scriptUrl))
+            {
+                if (!_chartStandInInstalled)
+                {
+                    ChartBindings.Install(_engine);
+                    _chartStandInInstalled = true;
+                }
+                _diagnostics.Add(new Diagnostic(DiagnosticCode.FeatureRouted, Severity.Info,
+                    "Replaced the configured chart library with Folio's native canvas chart bridge.", null, "canvas"));
+                FireScriptEvent(script, "load");
+                return;
+            }
+
             if (IsConfiguredDiagramLibrary(scriptUrl) && CanUseDiagramStandIn())
             {
                 if (!_diagramStandInInstalled)
@@ -382,6 +403,10 @@ public sealed class ScriptRunner : IDisposable
 
     private bool IsConfiguredDiagramLibrary(string url) =>
         _options.DiagramLibraryUrls.Contains(url);
+
+    private static bool IsChartLibrary(string url) =>
+        url.Contains("chart.umd", StringComparison.OrdinalIgnoreCase)
+        || url.Contains("chart.js", StringComparison.OrdinalIgnoreCase);
 
     private bool CanUseDiagramStandIn()
     {
@@ -541,6 +566,7 @@ public sealed class ScriptRunner : IDisposable
 
         _disposed = true;
         _document.NodeInserted -= OnNodeInserted;
+        _eventLoop.UncaughtException -= OnUncaughtException;
         DomBindings.Dispose(_engine);
     }
 }

@@ -1,1 +1,1 @@
-{"viewport":800,"prompt":"Side-by-side srcdoc preview with a nested document.","interaction":["frame #preview click p"],"features":["script","iframe","srcdoc"]}
+{"viewport":800,"prompt":"Side-by-side srcdoc preview with a nested document.","interaction":["frame #preview click #child","frame #preview text #message clicked"],"features":["script","iframe","srcdoc"]}

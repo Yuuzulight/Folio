@@ -26,11 +26,8 @@ internal sealed class CssomRegistry(DomContext context)
     public List<int> SheetIds()
     {
         var ids = new List<int>();
-        for (Node? node = context.Document; node is not null; node = node.NextInTree(context.Document))
-        {
-            if (node is ElementNode element && IsSheetOwner(element))
-                ids.Add(SheetFor(element).Id);
-        }
+        foreach (var element in context.Document.Descendants.OfType<ElementNode>())
+            if (IsSheetOwner(element)) ids.Add(SheetFor(element).Id);
         return ids;
     }
 

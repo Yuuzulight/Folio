@@ -114,11 +114,10 @@ internal static class StyleResolver
     /// <summary>
     /// Restyles each of <paramref name="roots"/> and its subtree with the rules and settings of the document's last
     /// style resolution, after a state change (#417). Returns how many elements were restyled, or null when the
-    /// document needs a full <see cref="Resolve"/> instead: it hasn't been styled, or it has animations.
+    /// document has not been styled yet. Animated entries in affected subtrees are replaced as part of the walk.
     /// </summary>
-    // ponytail: animated documents restyle in full, since a subtree walk would add its animations a second time.
     public static int? RestyleSubtrees(DocumentNode document, IEnumerable<ElementNode> roots) =>
-        document.StyleState is Restyler { Animations.Count: 0 } restyler ? restyler.RestyleSubtrees(roots) : null;
+        document.StyleState is Restyler restyler ? restyler.RestyleSubtrees(roots) : null;
 
     /// <summary>Where the document's state pseudo-classes appear, from its last style resolution.</summary>
     public static StateInvalidation Invalidation(DocumentNode document) =>
@@ -159,6 +158,10 @@ internal static class StyleResolver
         private readonly Dictionary<string, List<Keyframe>> _keyframes;
         private readonly double? _animationTime;
         private readonly Dictionary<object, object> _groups = [];
+        // Inline declarations are immutable for the lifetime of a restyle pass. State-only invalidation
+        // revisits the same inline style text repeatedly; keep the parsed block instead of reparsing it
+        // for every hover/focus transition.
+        private readonly Dictionary<string, List<CascadeDeclaration>> _inlineCache = new(StringComparer.Ordinal);
         private readonly AncestorFilter _filter = new();
         private readonly MatchContext _walkContext;
         private readonly MatchContext _context = new();
@@ -187,6 +190,11 @@ internal static class StyleResolver
             var count = 0;
             // A root inside another root's subtree is restyled with it.
             var set = roots.ToHashSet();
+            // State changes can affect elements that also have CSS animations. Retire only animated entries in the
+            // affected subtrees before walking them; unaffected animations keep their timeline state, while the walk
+            // registers fresh entries for the new computed styles.
+            if (Animations.Count > 0)
+                Animations.RemoveAll(animation => set.Any(root => IsWithin(animation.Element, root)));
             foreach (var root in set)
             {
                 var covered = false;
@@ -201,21 +209,32 @@ internal static class StyleResolver
                 foreach (var ancestor in ancestors)
                     _filter.Push(ancestor);
                 var parent = root.Parent is ElementNode p ? p.ComputedStyle() ?? Folio.Style.ComputedStyle.Initial : Folio.Style.ComputedStyle.Initial;
-                count += Walk(root, parent);
+                // :focus-within is synthesized by walking the focused element's ancestor chain. Its subject is the
+                // root while the state change originates below it, so keep the established full-subtree walk for
+                // stylesheets that use it; other state selectors have their descendant subjects collected explicitly.
+                count += Walk(root, parent, skipDescendantsWhenInheritedUnchanged: !Invalidation.Uses(PseudoClass.FocusWithin));
                 for (var i = ancestors.Count - 1; i >= 0; i--)
                     _filter.Pop(ancestors[i]);
             }
             return count;
+
+            static bool IsWithin(ElementNode element, ElementNode root)
+            {
+                for (Node? node = element; node is not null; node = node.Parent)
+                    if (ReferenceEquals(node, root))
+                        return true;
+                return false;
+            }
         }
 
         /// <summary>Computes the styles of <paramref name="start"/> and its descendants; returns how many elements.</summary>
-        public int Walk(ElementNode start, ComputedStyle startParent)
+        public int Walk(ElementNode start, ComputedStyle startParent, bool skipDescendantsWhenInheritedUnchanged = false)
         {
             var count = 0;
             var shared = new SharingCache();
             // Iterative pre-order walk: (element, parent style); a null element marks leaving an element.
-            var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent)>();
-            stack.Push((start, null, startParent));
+            var stack = new Stack<(ElementNode? ElementNode, ElementNode? Leaving, ComputedStyle Parent, bool CanSkipDescendants)>();
+            stack.Push((start, null, startParent, skipDescendantsWhenInheritedUnchanged));
             while (stack.TryPop(out var item))
             {
                 if (item.ElementNode is null)
@@ -225,12 +244,19 @@ internal static class StyleResolver
                 }
                 var element = item.ElementNode;
                 count++;
+                var previous = item.CanSkipDescendants ? element.ComputedStyle() : null;
 
                 List<CascadeDeclaration>? inline = null;
                 if (element.GetAttribute("style") is { } styleAttribute)
                 {
-                    var (source, block) = CssParser.ParseBlockContents(styleAttribute);
-                    inline = CascadeData.Parse(source, block.Declarations, _baseUrl);
+                    if (!_inlineCache.TryGetValue(styleAttribute, out inline))
+                    {
+                        var (source, block) = CssParser.ParseBlockContents(styleAttribute);
+                        inline = CascadeData.Parse(source, block.Declarations, _baseUrl);
+                        if (_inlineCache.Count >= 4096)
+                            _inlineCache.Clear();
+                        _inlineCache.Add(styleAttribute, inline);
+                    }
                 }
                 _matched.Clear();
                 Cascade.Match(element, _origins, _walkContext, PseudoElement.None, _matched);
@@ -273,15 +299,33 @@ internal static class StyleResolver
                 if (element.Parent is DocumentNode)
                     _rootFontSize = style.Font.Size;
 
+                // A state selector may only change non-inherited properties on its subject. In that common case
+                // descendants do not need to be matched or recomputed; selectors that can affect descendants are
+                // separately collected as roots by StateInvalidation. Keep this optimization limited to the initial
+                // invalidation roots so every explicitly affected descendant still gets a full walk.
+                var skipChildren = item.CanSkipDescendants && previous is not null && SameInherited(previous, style);
+
                 _filter.Push(element);
-                stack.Push((null, element, style));
+                stack.Push((null, element, style, false));
+                if (skipChildren)
+                    continue;
                 for (var child = element.LastChild; child is not null; child = child.PreviousSibling)
                 {
                     if (child is ElementNode e)
-                        stack.Push((e, null, style));
+                        stack.Push((e, null, style, false));
                 }
             }
             return count;
+
+            static bool SameInherited(ComputedStyle a, ComputedStyle b) =>
+                ReferenceEquals(a, b) || (Equals(a.Font, b.Font)
+                    && Equals(a.Inherited, b.Inherited)
+                    && Equals(a.Text, b.Text)
+                    && Equals(a.TextSpacing, b.TextSpacing)
+                    && Equals(a.Quotes, b.Quotes)
+                    && Equals(a.Ui, b.Ui)
+                    && Equals(a.Svg, b.Svg)
+                    && Equals(a.Custom, b.Custom));
         }
 
         private ComputedStyle? Pseudo(ElementNode element, ComputedStyle style, PseudoElement pe, bool always = false)

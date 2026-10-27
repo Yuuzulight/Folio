@@ -210,7 +210,10 @@ internal sealed class FontCollection(IFontSource? source = null)
         [Script.Devanagari] = ["Nirmala UI"],
         [Script.Bengali] = ["Nirmala UI"],
         [Script.Tamil] = ["Nirmala UI"],
-        [Script.Common] = ["Segoe UI Symbol"],
+        // Common-script glyphs (including the punctuation and digits used by canvas libraries) should still get a
+        // normal text face when the requested web/system family is unavailable. Hosts may provide a different source,
+        // but the bundled Source Sans face is Folio's deterministic baseline before the source's final fallback step.
+        [Script.Common] = ["Source Sans 3", "Segoe UI Symbol"],
     };
 
     /// <summary>
@@ -368,28 +371,45 @@ internal sealed class ShapedRun(FontFace? face, float size, ushort[] glyphs, int
 }
 
 /// <summary>
-/// Folio's shaper for simple scripts (docs/study/11-text.md, shaping option B): one glyph per character from the
-/// cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. Text with a GSUB ligature goes to the
-/// complex shaper (CanShape).
+/// Folio's shaper for scripts with no joining/reordering (docs/study/11-text.md, shaping option B): one glyph per
+/// character from the cmap, advances from hmtx, kerning from GPOS pair adjustment or the kern table. Text with a
+/// GSUB ligature or unsupported mark attachment goes to the complex shaper (CanShape).
 /// </summary>
 internal static class SimpleShaper
 {
     /// <summary>
-    /// Whether the text can be shaped here: every character mapped by the face, only simple scripts, and no
-    /// combining marks. Everything else goes to the complex shaper.
+    /// Whether the text can be shaped here: every character mapped by the face, only simple scripts, and GPOS
+    /// mark-to-base/mark-to-mark positioning for combining marks. Everything else goes to the complex shaper.
     /// </summary>
     /// <param name="ligatures">Whether the face's default ligatures apply: then text with one goes to the complex shaper.</param>
     // ponytail: scripts are recognised by code point ranges until the Unicode Script tables are generated (study 11).
     public static bool CanShape(ReadOnlySpan<char> text, FontFace face, bool ligatures = false)
     {
         var count = 0;
+        var previousGlyph = (ushort)0;
+        var haveBase = false;
+        var previousWasMark = false;
         foreach (var rune in text.EnumerateRunes())
         {
-            if (!IsSimpleScript(rune.Value) || Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark
-                    or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark)
+            var isMark = Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark
+                    or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
+            if ((!IsSimpleScript(rune.Value) && !IsSimpleMark(rune.Value)) || (isMark && !IsSimpleMark(rune.Value)))
                 return false;
             if (!face.Covers(rune.Value))
                 return false;
+            var glyph = face.GlyphFor(rune.Value);
+            if (isMark)
+            {
+                if ((!previousWasMark && (!haveBase || face.MarkOffset(previousGlyph, glyph) is null))
+                    || (previousWasMark && face.MarkToMarkOffset(previousGlyph, glyph) is null))
+                    return false;
+            }
+            else
+            {
+                previousGlyph = glyph;
+                haveBase = true;
+            }
+            previousWasMark = isMark;
             count++;
         }
         if (ligatures && count > 1)
@@ -408,25 +428,46 @@ internal static class SimpleShaper
     {
         var glyphs = new List<ushort>(length);
         var clusters = new List<int>(length);
+        var markFlags = new List<bool>(length);
         for (var i = start; i < start + length;)
         {
             var rune = Rune.GetRuneAt(text, i);
             var glyph = face.GlyphFor(rune.Value);
+            var isMark = IsSimpleMark(rune.Value);
             glyphs.Add(features.Length == 0 ? glyph : face.Substitute(glyph, features));
-            clusters.Add(i);
+            clusters.Add(isMark && clusters.Count > 0 ? clusters[^1] : i);
+            markFlags.Add(isMark);
             i += rune.Utf16SequenceLength;
         }
 
         var scale = size / face.UnitsPerEm;
         var advances = new float[glyphs.Count];
+        var offsets = new System.Numerics.Vector2[glyphs.Count];
+        var hasOffsets = false;
         for (var g = 0; g < glyphs.Count; g++)
         {
             var units = face.Advance(glyphs[g]);
             if (g + 1 < glyphs.Count)
                 units += face.Kerning(glyphs[g], glyphs[g + 1]);
+            if (markFlags[g])
+                units = 0;
             advances[g] = units * scale;
+            if (g > 0
+                && markFlags[g]
+                && (markFlags[g - 1]
+                    ? face.MarkToMarkOffset(glyphs[g - 1], glyphs[g])
+                    : face.MarkOffset(glyphs[g - 1], glyphs[g])) is { } mark)
+            {
+                offsets[g] = new(mark.X * scale, -mark.Y * scale);
+                if (markFlags[g - 1])
+                    offsets[g] += offsets[g - 1];
+                hasOffsets = true;
+            }
         }
-        return new ShapedRun(face, size, [.. glyphs], [.. clusters], advances);
+        return new ShapedRun(face, size, [.. glyphs], [.. clusters], advances)
+        {
+            Offsets = hasOffsets ? offsets : null,
+        };
     }
 
     private static bool IsSimpleScript(int c) => c switch
@@ -436,8 +477,16 @@ internal static class SimpleShaper
         >= 0x1E00 and <= 0x1FFF => true,         // Latin Extended Additional, Greek Extended
         >= 0x2000 and <= 0x218F => true,         // punctuation, super/subscripts, currency, letterlike, number forms
         >= 0x2C60 and <= 0x2C7F => true,         // Latin Extended-C
+        >= 0x0590 and <= 0x05FF => true,         // Hebrew letters and punctuation (marks are checked below)
         >= 0xA720 and <= 0xA7FF => true,         // Latin Extended-D
         0xFFFD => true,
+        _ => false,
+    };
+
+    private static bool IsSimpleMark(int c) => c switch
+    {
+        >= 0x0591 and <= 0x05BD => true, // Hebrew cantillation and niqqud
+        0x05BF or >= 0x05C1 and <= 0x05C2 or >= 0x05C4 and <= 0x05C5 or 0x05C7 => true,
         _ => false,
     };
 }

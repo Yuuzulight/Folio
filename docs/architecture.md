@@ -74,7 +74,7 @@ src/
     Typography/              Unicode algorithms, OpenType reader, WOFF/WOFF2, font matching,
                              fallback, SimpleShaper, ShaperRouter, shaping cache
                              Interfaces: ITextShaper, IFontSource
-    Imaging/                 PngDecoder, JpegDecoder, ImageDecoderRegistry
+    Imaging/                 ImageLoader, PngDecoder, JpegDecoder, GifDecoder
                              Interface: IImageDecoder
     Layout/                  Box tree, block/inline/flex/grid/table/positioned layout, fragments
     Svg/                     SVG render tree, path data, paint servers
@@ -86,17 +86,16 @@ src/
                              Interface: IResourceLoader
     Hosting/                 Document, FolioOptions, Update(), diagnostics, limits,
                              ArtifactClassifier
-  Folio.Skia/                net10.0          SkiaRasterBackend (ICanvas), HarfBuzzShaper (ITextShaper),
-                                              SkiaCodecDecoder (IImageDecoder), SystemFontSource (IFontSource),
+  Folio.Skia/                net10.0          SkiaRasterBackend (ICanvas), HybridShaper (ITextShaper),
+                                              HarfBuzzShaper (differential oracle), SystemFontSource (IFontSource),
                                               HeadlessRenderer
   Folio.WinForms/            net10.0-windows  FolioView control: input, IME, clipboard, accessibility,
                                               cursors, tooltips, popups
-  Folio.Scripting/           net10.0          (M4) Event loop (HtmlEventLoop), generated DOM/CSSOM bindings (DomBindings),
-                                              script runner, timers, animation frames, virtual event loop clock,
-                                              IPC protocol and binary display list codec (DisplayListCodec). Interface: IScriptEngine
-  Folio.Scripting.Jint/      net10.0          (M4–M5) dependency-backed IScriptEngine via Jint 4.17.0
+  Folio.Scripting/           net10.0          (M4) Event loop, generated DOM/CSSOM bindings, canvas 2D API,
+                                              IPC protocol. Interface: IScriptEngine
+  Folio.Scripting.Jint/      net10.0          (M4–M5) dependency-backed IScriptEngine
   Folio.Diagrams/            net10.0          (M5) Diagram-description languages → SVG in the DOM
-  Folio.ContentHost/         net10.0-windows  (M4) Sandboxed content process executable under AppContainer and Windows Job Object
+  Folio.ContentHost/         net10.0-windows  (M4) Sandboxed content process executable
 tools/
   Folio.RefCapture/          Captures reference images from the installed reference browsers
   Folio.Gen/                 Generates entity table, property table, Unicode tables, bindings,
@@ -138,11 +137,9 @@ public sealed class FolioOptions
     public string? UserStyleSheet { get; init; }
     public FontSettings Fonts { get; init; } = FontSettings.Default;   // generic families, fallback lists
     public ResourceLimits Limits { get; init; } = ResourceLimits.Default;
-    public ScriptingPolicy Scripting { get; init; } = ScriptingPolicy.Disabled; // ContentProcess
-    public string ArtifactId { get; init; } = "default";              // key for per-artifact storage and cache isolation
-    public IArtifactStorage? ArtifactStorage { get; init; }            // localStorage and cache backing; null = memory only
-    public string? ContentProcessPath { get; init; }                   // path to Folio.ContentHost.exe / dll
-    public FeatureCapabilities Capabilities { get; init; } = new();   // capability gates
+    public ScriptingPolicy Scripting { get; init; } = ScriptingPolicy.Disabled; // M4: ContentProcess
+    public string? ArtifactId { get; init; }                           // M4: key for per-artifact storage
+    public IArtifactStorage? Storage { get; init; }                    // M4: localStorage backing; null = memory only
     public bool CollectDiagnostics { get; init; } = true;
 }
 
@@ -224,14 +221,7 @@ public class FolioView : Control
 - **Raster**: on the UI thread in M1. The display list is immutable once built, so rasterisation can move to a worker thread later without changing the engine.
 - **Resource decoding** (images, fonts, stylesheets) runs on the thread pool; results are posted back to the owning thread through a dispatcher (the control's `SynchronizationContext`; headless rendering pumps its own queue while waiting).
 - **Process-wide caches** (atom table, UA stylesheet, font faces, shaping cache, decoded-font data) are thread-safe, so several headless documents can render in parallel on different threads.
-- **Content process (M4)**: one dedicated engine thread running the HTML event loop and script execution, plus one asynchronous IPC thread for bidirectional length-prefixed communication. The host UI thread remains unblocked, handling display list decoding, rasterisation, and forwarding user inputs.
-
-## Process sandbox and token choice (M4)
-
-The content process (`Folio.ContentHost`) executes untrusted artifact scripts under defence-in-depth isolation:
-- **Windows Job Object**: hard memory cap (default 256 MB), CPU rate limit, `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and strict UI restrictions (no clipboard access, no global atoms, no desktop switching, no window hooks).
-- **Token choice (issue #473)**: launched in an **AppContainer** profile (`CreateAppContainerProfile`, `DeriveAppContainerSidFromAppContainerName`) configured with zero capabilities (no `InternetClient`, no `PrivateNetworkClientServer`, no removable storage). All outbound network sockets and filesystem access outside its isolated package folder are blocked directly by the Windows kernel. If AppContainer creation is unavailable, it falls back to a restricted low-integrity token with all write privileges stripped and `SeChangeNotifyPrivilege` removed.
-- **Heartbeat watchdog**: a 500 ms heartbeat ping monitored by the host; if the content process fails to respond within 2.0 seconds (e.g. infinite loops or memory bombs), the host terminates the process and displays a visible "Script stopped" notice on top of the last rendered frame.
+- **Content process (M4)**: one engine thread running the HTML event loop, plus one IPC thread. The host side stays single-threaded per document.
 
 ## Core data structures
 

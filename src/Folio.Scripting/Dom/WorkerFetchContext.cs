@@ -12,14 +12,14 @@ internal sealed class WorkerFetchContext(Uri? baseUri, IResourceLoader? loader,
     private long _fetchedBytes;
     private bool _disposed;
 
-    public (ResourceResponse? Response, string? Error) Fetch(string url)
+    public (ResourceResponse? Response, string? Error) Fetch(string url, string? integrity = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
         ResourceResponse? response = null;
         string? error = null;
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            response = ResourceLoader.DataUrlsOnly.Load(new ResourceRequest(url, ResourceKind.Fetch));
+            response = ResourceLoader.DataUrlsOnly.Load(new ResourceRequest(url, ResourceKind.Fetch, integrity));
         else if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             error = "Only data:, http: and https: URLs can be fetched.";
         else if (loader is null)
@@ -32,7 +32,7 @@ internal sealed class WorkerFetchContext(Uri? baseUri, IResourceLoader? loader,
             {
                 // A host may perform synchronous work before returning its Task.
                 // Keep both that work and an uncooperative async Task off the VM owner.
-                response = Task.Run(() => loader.LoadAsync(new ResourceRequest(url, ResourceKind.Fetch), timeout.Token), timeout.Token)
+                response = Task.Run(() => loader.LoadAsync(new ResourceRequest(url, ResourceKind.Fetch, integrity), timeout.Token), timeout.Token)
                     .WaitAsync(timeout.Token).GetAwaiter().GetResult();
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { error = "The host resource load timed out."; }

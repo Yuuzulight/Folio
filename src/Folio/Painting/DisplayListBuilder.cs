@@ -676,8 +676,13 @@ internal static class DisplayListBuilder
                 return;
             }
 
+            // An audio element without controls is intentionally non-rendering; its script-facing playback state
+            // remains active, but it must not consume a replaced-element box or draw the unavailable-media panel.
+            if (element.LocalName == "audio" && !media.Controls)
+                return;
+
             if (element.LocalName == "video" && media is IMediaFrameSource { CurrentFrame: { } currentFrame })
-                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: new MediaPosterHandle(currentFrame), Sampling: ImageSampling.Smooth));
+                PaintImageWithFit(box, new MediaPosterHandle(currentFrame), (currentFrame.Width, currentFrame.Height));
             else
                 PaintPoster(box, replaced, element);
 
@@ -706,9 +711,9 @@ internal static class DisplayListBuilder
             if (box.Fragment.Svg is { } svg)
                 PaintSvg(box, svg);
             else if (replaced.Poster is Imaging.DecodedImage image)
-                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: image, Sampling: ImageSampling.Smooth));
+                PaintImageWithFit(box, image, (image.Width, image.Height));
             else if (element.MediaPresentation?.Poster is { } poster)
-                list.Items.Add(new DisplayItem(DisplayItemKind.Image, BorderBox(box), Image: new MediaPosterHandle(poster), Sampling: ImageSampling.Smooth));
+                PaintImageWithFit(box, new MediaPosterHandle(poster), (poster.Width, poster.Height));
         }
 
         private void PaintFailure(PaintBox box, FeatureFallback failure, Action? poster = null)
@@ -1493,7 +1498,21 @@ internal static class DisplayListBuilder
             if (content.Width <= 0 || content.Height <= 0)
                 return;
 
-            var (width, height) = natural;
+            PaintImageWithFit(box, image, natural);
+        }
+
+        private void PaintImageWithFit(PaintBox box, Imaging.IImageHandle image, (float Width, float Height) natural)
+        {
+            var replaced = (ReplacedBox)box.Box;
+            var style = replaced.Style;
+            if (style.Inherited.Visibility != Visibility.Visible) return;
+            var (border, spacing, w) = (style.Border, style.Spacing, box.Fragment.Width);
+            var content = box.Rect.Inset(border.TopWidth + spacing.PaddingTop.Resolve(w), border.RightWidth + spacing.PaddingRight.Resolve(w),
+                border.BottomWidth + spacing.PaddingBottom.Resolve(w), border.LeftWidth + spacing.PaddingLeft.Resolve(w));
+            if (content.Width <= 0 || content.Height <= 0 || natural.Width <= 0 || natural.Height <= 0)
+                return;
+
+            var (width, height) = ((float)natural.Width, (float)natural.Height);
             var contain = Math.Min(content.Width / width, content.Height / height);
             var scale = style.Replaced.Fit switch
             {
