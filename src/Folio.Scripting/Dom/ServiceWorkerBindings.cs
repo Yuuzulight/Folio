@@ -288,7 +288,10 @@ internal static class ServiceWorkerBindings
                         try {
                             var saved = registrationStorage.read('service-worker-registration/' + encodeURIComponent(String(scope)));
                             var metadata = saved ? JSON.parse(saved) : null;
-                            if (metadata && metadata.scriptURL) container.register(metadata.scriptURL, { scope: metadata.scope || scope });
+                            if (metadata && metadata.scriptURL) {
+                                var restored = container.register(metadata.scriptURL, { scope: metadata.scope || scope });
+                                if (restored && typeof restored.catch === 'function') restored.catch(function() { });
+                            }
                         } catch (_) { }
                     });
                 },
@@ -418,7 +421,6 @@ internal static class ServiceWorkerBindings
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             }; })(registrationStorage, isolatedRuntime);
             var container=globalThis.navigator.serviceWorker;
-            if (registrationStorage) { container._restorePersisted(); try { delete container._restorePersisted; } catch (_) { } }
             Object.defineProperty(globalThis.navigator,'serviceWorker',{configurable:true,get:function(){return authority.exposed()?container:undefined;}});
             authority.onchange(function(){var previous=__folio_service_worker_registrations;__folio_service_worker_registrations=[];for(var i=0;i<previous.length;i++){try{if(previous[i].active){if(typeof previous[i].active._retire==='function')previous[i].active._retire();else previous[i].active.state='redundant';}}catch(_){}}try{container.controller=null;container.ready=Promise.resolve(undefined);}catch(_){}});
             })(__folio_service_worker_authority, globalThis.__folio_artifact_storage, __folio_service_worker_loader, __folio_service_worker_validator, __folio_service_worker_base, typeof __folio_service_worker_isolated === 'undefined' ? null : __folio_service_worker_isolated, %BROKERED%);

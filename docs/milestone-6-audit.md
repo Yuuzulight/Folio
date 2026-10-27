@@ -18,7 +18,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-28
 
-- The latest complete Release solution passes 4,167 tests with 0 failures and 7 documented environment/software skips (4,174 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
+- The latest complete Release solution passes 4,168 tests with 0 failures and 7 documented environment/software skips (4,175 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
 - A fresh native sweep also passes D1 2/2 and repeats D8–D14 at 34/34; these category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
@@ -568,7 +568,7 @@ Original acceptance:
 
 **Acceptance verified; lifecycle/sandbox follow-up remains separate.** Evidence: `DomBindings.cs` service-worker fetch hooks, `Folio/Resources/Loading.cs`, `DomContext.cs` service-worker resource interceptor, `ServiceWorkerCapabilityTests` (Jint/native fall-through and refused-origin regressions), `ContentCacheTests`, and native/Jint D14 3/3.
 
-Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. Jint/native regressions prove same-origin fall-through, synthetic interception and cross-origin refusal diagnostics, while content-process cache tests cover brokered persistence and worker-originated writes. Independent service-worker interruption and the sandbox matrix remain tracked by #556/#559.
+Fetch wrapper interception restores persisted registrations before a reopened document's first fetch on the compatibility path. Restoration is deliberately deferred until Cache/Fetch bindings are installed, so an install handler using `caches.open()` is valid during process reopen; `ContentCacheTests.PersistedServiceWorkerInterceptsTheFirstFetchAfterProcessReopen` proves the first offline fetch is intercepted in a fresh content process. Image, stylesheet, font, document and media requests share the controller hook, and focused tests cover content types, binary bodies and refused origins. The native isolated runtime dispatches worker code and native D14 now passes 3/3 after the response bridge fix. Jint/native regressions prove same-origin fall-through, synthetic interception and cross-origin refusal diagnostics, while content-process cache tests cover brokered persistence and worker-originated writes. Independent service-worker interruption and the sandbox matrix remain tracked by #556/#559.
 
 Original acceptance:
 

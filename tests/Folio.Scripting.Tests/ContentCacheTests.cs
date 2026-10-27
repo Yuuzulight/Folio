@@ -45,6 +45,21 @@ public sealed class ContentCacheTests
     }
 
     [Fact]
+    public async Task PersistedServiceWorkerInterceptsTheFirstFetchAfterProcessReopen()
+    {
+        var storage = new Storage();
+        await using (var first = Client(storage, loader: new WorkerLoader()))
+            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+        Assert.Contains(storage.Values.Keys, key => key.Contains("service-worker-registration", StringComparison.Ordinal));
+        Assert.Contains("artifact:service-worker-registration/__index__", storage.Values.Keys);
+        Assert.Equal("[\"/\"]", storage.Values["artifact:service-worker-registration/__index__"]);
+        Assert.Equal("/sw.js", JsonDocument.Parse(storage.Values["artifact:service-worker-registration/%2F"]).RootElement.GetProperty("scriptURL").GetString());
+
+        await using var reopened = Client(storage, loader: new WorkerLoader());
+        Assert.Equal("offline-body", await Load(reopened, "result = await (await fetch('/offline')).text();", true, true));
+    }
+
+    [Fact]
     public async Task BrokeredServiceWorkerCannotReadPageGlobals()
     {
         await using var client = Client(new Storage(), loader: new IsolationWorkerLoader());
@@ -343,7 +358,7 @@ public sealed class ContentCacheTests
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) => Task.FromResult<ResourceResponse?>(
             request.Kind == ResourceKind.Script && request.Url == "https://cache.example/sw.js"
-                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('install', event => event.waitUntil(caches.open('sw').then(c => c.put('/from-worker', new Response('worker-body')))));"), "text/javascript")
+                ? ResourceResponse.Loaded(System.Text.Encoding.UTF8.GetBytes("self.addEventListener('install', event => event.waitUntil(caches.open('sw').then(c => c.put('/from-worker', new Response('worker-body'))))); self.addEventListener('fetch', event => { if (event.request.url.endsWith('/offline')) event.respondWith(new Response('offline-body')); });"), "text/javascript")
                 : ResourceResponse.Refused("unexpected resource"));
     }
     private sealed class IsolationWorkerLoader : IResourceLoader

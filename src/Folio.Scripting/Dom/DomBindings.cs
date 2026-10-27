@@ -382,6 +382,11 @@ public static class DomBindings
         CssBindings.Install(engine);
         CssomBindings.Install(engine, context);
         CacheBindings.Install(engine, context, cacheFetchApi);
+        // Restore persisted service workers only after Cache/Fetch are installed. A
+        // worker's install handler is allowed to use caches.open(), and restoring
+        // during ServiceWorkerBindings.Install would run it before that API exists.
+        if (context.Capabilities.ServiceWorkers && context.ArtifactStorage is not null)
+            engine.Evaluate("if (globalThis.navigator && navigator.serviceWorker && typeof navigator.serviceWorker._restorePersisted === 'function') { navigator.serviceWorker._restorePersisted(); try { delete navigator.serviceWorker._restorePersisted; } catch (_) {} }");
 
         // 4. Event handler content attributes (#457): the parsed ones now, later ones as they change or are inserted.
         handlers.Scan(document, context);
