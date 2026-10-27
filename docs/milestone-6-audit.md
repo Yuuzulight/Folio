@@ -15,6 +15,9 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
   Wasmtime-backed native bridge, limits, imports/exports and lifecycle checks. This
   is transition-path evidence only; it does not satisfy the required Folio-owned
   Wasm replacement or dependency-removal gate.
+- The documentation acceptance suites for Milestones 1 through 6 also pass in the
+  direct Release runner; these suites validate the documented wiring and evidence
+  indexes, not the unresolved backend or replacement gates.
 - These results verify the current compatibility paths and regressions only. They do not close the original M6 gates: complete WebGL 2/integer/volume conformance, continuous device-level media pacing and output, native-engine worker/Wasm execution, real permitted WebRTC capture/transport, isolated service-worker offline reopening, or equivalent non-Windows containment.
 
 ## Repairs verified during this audit
