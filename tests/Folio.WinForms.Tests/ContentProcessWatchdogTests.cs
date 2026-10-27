@@ -69,8 +69,12 @@ public sealed class ContentProcessWatchdogTests
                 var observed = probeMessage.Payload.GetProperty("value").GetString()!;
                 Assert.StartsWith(expected, observed, StringComparison.Ordinal);
                 Assert.Contains(":soundResult=NotSupportedError:", observed, StringComparison.Ordinal);
-                Assert.Contains($":cameraDenied={Bool(!capabilities.Camera)}", observed, StringComparison.Ordinal);
-                Assert.Contains($":microphoneDenied={Bool(!capabilities.Microphone)}", observed, StringComparison.Ordinal);
+                // Capability grants are necessary but not sufficient for capture. This watchdog matrix does not
+                // inject an IMediaCaptureProvider, so the content process must still deny both device requests even
+                // on the camera/microphone/all capability rows. Provider-backed approval is covered separately by
+                // ContentCaptureBridgeTests.
+                Assert.Contains(":cameraDenied=true", observed, StringComparison.Ordinal);
+                Assert.Contains(":microphoneDenied=true", observed, StringComparison.Ordinal);
                 Assert.Contains($":serviceWorkers={Bool(capabilities.ServiceWorkers)}", observed, StringComparison.Ordinal);
             }
             finally
