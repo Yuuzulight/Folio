@@ -2,14 +2,15 @@
 
 ## Canvas animation performance (#519)
 
-The frame harness supports both the compatibility engine and the Folio-native
-engine through `FOLIO_CONFORMANCE_ENGINE=native`, and reports per-artifact
-script/update, display-list, host-paint and total p95 timings. A fresh
-three-frame smoke run still exposes a real target miss in
-`D5/canvas-animated-bars` (about 56 ms total, almost all in script/update);
-the remaining D5/D7 artifacts are below 16.7 ms. The issue remains open pending
-optimization of that workload rather than being hidden by routing or a
-compatibility-only measurement.
+The frame harness supports both the compatibility engine and an explicit
+Folio-native diagnostic mode through `FOLIO_CONFORMANCE_ENGINE=native`, and
+reports per-artifact script/update, display-list, host-paint and total p95
+timings. The current compatibility-engine 30-frame run exposes a real target
+miss in `D5/canvas-animated-bars` (42.93 ms total, dominated by script/update);
+the remaining D5/D7 artifacts are below 16.7 ms. Native-mode numbers remain
+diagnostic until the native engine executes the complete canvas animation
+semantics. The issue remains open pending optimization rather than being hidden
+by routing.
 
 Milestone 6 is **not complete against its original issue scope**. Earlier closure and completion claims were premature. This audit retains the original requirements rather than defining completion as the existing bounded API surface.
 

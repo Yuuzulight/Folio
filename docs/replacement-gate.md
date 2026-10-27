@@ -61,10 +61,13 @@ dependency removal are still required for those tracks.
 The latest Release build succeeds from `Folio.slnx`. The native D2–D7 probe remains
 59/60: all library-card and canvas artifacts pass, while `D2/pantry-react-jsx`
 still fails at its first interaction with the surfaced detached-child
-`NotFoundError` diagnostic tracked by #645. The canvas frame benchmark now runs
-in both compatibility and native-engine modes; every library-card artifact and
-the snake game are below 16.7 ms p95, but `D5/canvas-animated-bars` remains
-about 56 ms total p95, dominated by script/update time, under #519.
+`NotFoundError` diagnostic tracked by #645. The canvas frame benchmark now has
+an explicit native-engine diagnostic mode. In the current compatibility-engine
+30-frame run, every library-card artifact and the snake game are below 16.7 ms
+p95, but `D5/canvas-animated-bars` is 42.93 ms total p95, dominated by
+script/update time, under #519. Native-mode results remain diagnostic until the
+native engine executes the complete canvas animation semantics; native D2–D7
+parity is tracked separately.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
