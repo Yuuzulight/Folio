@@ -333,7 +333,7 @@ internal static class GlyphOutlines
         path.Close();
     }
 
-    // ---- CFF ----
+    // ---- CFF / CFF2 ----
 
     /// <summary>A CFF font: its charstrings, subroutines and, for CID-keyed fonts, the font dictionaries per glyph.</summary>
     private sealed class CffFont
