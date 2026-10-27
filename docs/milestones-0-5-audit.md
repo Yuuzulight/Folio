@@ -1,5 +1,11 @@
 # Milestones 0–5 acceptance audit
 
+Tracker refresh (2026-10-28): the GitHub milestones for M0 (Study and
+architecture) and M4 (Scripting foundations) are closed because all of their
+issues are closed. M5 remains open: its dependency-backed parity is verified,
+but the canvas frame-time gate and mandatory Folio-owned native replacement
+gate remain unresolved.
+
 Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
 `Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,390 executable tests,
