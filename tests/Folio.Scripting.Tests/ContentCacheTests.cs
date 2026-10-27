@@ -60,6 +60,17 @@ public sealed class ContentCacheTests
     }
 
     [Fact]
+    public async Task PersistedServiceWorkerRegistrationDoesNotCrossArtifacts()
+    {
+        var storage = new Storage();
+        await using (var owner = Client(storage, artifact: "owner", loader: new WorkerLoader()))
+            Assert.Equal("registered", await Load(owner, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+
+        await using var foreign = Client(storage, artifact: "foreign", loader: new WorkerLoader());
+        Assert.Equal("TypeError:Failed to fetch: unexpected resource", await Load(foreign, "result = await (await fetch('/offline')).text();", true, true));
+    }
+
+    [Fact]
     public async Task BrokeredServiceWorkerCannotReadPageGlobals()
     {
         await using var client = Client(new Storage(), loader: new IsolationWorkerLoader());
