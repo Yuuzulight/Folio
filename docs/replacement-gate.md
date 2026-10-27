@@ -55,19 +55,19 @@ dependency removal are still required for those tracks.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
-the native D2–D7 matrix remains 50/60 (D2 9/10, D3 10/10, D4 10/10, D5 1/10,
+the native D2–D7 matrix now passes 59/60 (D2 9/10, D3 10/10, D4 10/10, D5 10/10,
 D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 50/60: D2
-9/10, D3 10/10, D4 10/10, D5 1/10, D6 10/10 and D7 10/10. The native D5 chart
-bridge now renders all nine previously blank charts, but they remain about 2.1%
-outside the reference tolerance; the React hooks interaction failure remains
-tracked in #645. These residual results are not accepted as parity.
-This is measurable progress, but it is still below the M5 90% category bar and
-cannot select the native engine as Folio's production engine yet.
+gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 59/60: D2
+9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10 and D7 10/10. The native D5 chart
+bridge now renders all ten Chart.js artifacts within the reference tolerance;
+the remaining native parity failure is the React hooks interaction artifact,
+tracked in #645. These residual results are not accepted as full parity.
+The native matrix now clears the aggregate M5 category bar, but it cannot select
+the native engine as Folio's production engine until the React artifact passes.
 
 The earlier reproducible library bootstrap failure is resolved: the staged parser
 now executes the cached minified React/ReactDOM sources, and the checked-in native
