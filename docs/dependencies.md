@@ -113,7 +113,7 @@ public interface ITextShaper
 }
 ```
 
-`HybridShaper` (the production `Folio.Skia` shaper) asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` for complex runs. The differential tests compare both paths on bundled Latin and Hebrew fonts, including Hebrew base runs and isolated niqqud mark-to-base positioning. Multiple-mark attachment and complex scripts remain on HarfBuzz until each replacement track meets the criteria below.
+`HybridShaper` (the production `Folio.Skia` shaper) asks Folio's `SimpleShaper` first and falls back to `HarfBuzzShaper` for complex runs. The differential harness now has an explicit per-script promotion switch with conservative mixed-script handling: a script can be moved to Folio's path only while its corpus is being proven, without changing the default safe routing. The differential tests compare both paths on bundled Latin and Hebrew fonts, including Hebrew base runs and isolated niqqud mark-to-base positioning. Multiple-mark attachment and complex scripts remain on HarfBuzz until each replacement track meets the criteria below.
 
 ### ANGLE — native GPU surfaces and shader translation
 
