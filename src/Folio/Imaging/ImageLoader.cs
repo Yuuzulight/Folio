@@ -48,14 +48,7 @@ internal sealed class ImageLoader(ResourceLoader loader, string? baseUrl, Action
         return image;
     }
 
-    public static DecodedImage? Decode(ReadOnlySpan<byte> data) =>
-        PngDecoder.CanDecode(data) ? PngDecoder.Decode(data)
-        : JpegDecoder.CanDecode(data) ? JpegDecoder.Decode(data)
-        : GifDecoder.CanDecode(data) ? GifDecoder.Decode(data)
-        : WebpDecoder.CanDecode(data) ? WebpDecoder.Decode(data)
-        : BmpDecoder.CanDecode(data) ? BmpDecoder.Decode(data)
-        : IcoDecoder.CanDecode(data) ? IcoDecoder.Decode(data)
-        : null;
+    public static DecodedImage? Decode(ReadOnlySpan<byte> data) => ImageDecoder.Decode(data);
 
     /// <summary>
     /// The root svg element of an SVG image, parsed and styled as a document of its own. Like any SVG used as an image,

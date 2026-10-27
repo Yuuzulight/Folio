@@ -17,7 +17,9 @@ public class DecoderReferenceTests
     {
         var bytes = File.ReadAllBytes(Path.Combine(Folder, name));
         var png = name.EndsWith(".png");
-        var actual = png ? PngDecoder.Decode(bytes) : name.EndsWith(".gif") ? GifDecoder.Decode(bytes) : name.EndsWith(".webp") ? WebpDecoder.Decode(bytes) : JpegDecoder.Decode(bytes);
+        // Exercise the same public Folio-owned format selection used by
+        // consumers, rather than testing each private decoder in isolation.
+        var actual = ImageDecoder.Decode(bytes);
         Assert.NotNull(actual);
 
         var size = SKBitmap.DecodeBounds(bytes);

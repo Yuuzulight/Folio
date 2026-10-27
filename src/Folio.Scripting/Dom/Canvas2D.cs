@@ -740,8 +740,11 @@ internal sealed class MediaElementState : IImageHandle, IMediaPresentation, IMed
             _audioFrame = audio;
         }
         else if (video)
-            _frameImage = PngDecoder.CanDecode(bytes) ? PngDecoder.Decode(bytes, outputLimit / 4)
-                : JpegDecoder.CanDecode(bytes) ? JpegDecoder.Decode(bytes, outputLimit / 4) : null;
+            // Still-image media uses the same Folio-owned decoder matrix as
+            // <img>: animated formats select their first frame, while BMP/ICO
+            // and WebP no longer fail merely because the resource is assigned
+            // to a video element or drawn through canvas.
+            _frameImage = ImageDecoder.Decode(bytes, outputLimit / 4);
         else
         {
             _audioFrame = DecodeWav(bytes, outputLimit, out var exceedsBudget);
