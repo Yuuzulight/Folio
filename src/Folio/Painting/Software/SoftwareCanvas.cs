@@ -213,19 +213,58 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // ---- text ----
 
-    private static readonly ConditionalWeakTable<FontFace, Dictionary<ushort, PathData?>> Outlines = new();
+    // Keep the native outline cache bounded per font.  The cache is shared by canvases for
+    // the same face, but a face can be released as soon as the font itself is no longer
+    // reachable through the ConditionalWeakTable.  Eight MiB is the documented default
+    // backend glyph-cache budget; entries are evicted least-recently-used when a font's
+    // parsed outlines exceed that budget.
+    private const long OutlineCacheBudget = 8L * 1024 * 1024;
+    private sealed class OutlineCache
+    {
+        private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
+        private readonly LinkedList<ushort> _lru = [];
+        private long _bytes;
+
+        public PathData? Get(FontFace face, ushort glyph)
+        {
+            lock (_entries)
+            {
+                if (_entries.TryGetValue(glyph, out var cached))
+                {
+                    _lru.Remove(cached.Node);
+                    cached.Node = _lru.AddFirst(glyph);
+                    _entries[glyph] = cached;
+                    return cached.Path;
+                }
+
+                var path = GlyphOutlines.Get(face, glyph);
+                var bytes = Estimate(path);
+                var node = _lru.AddFirst(glyph);
+                _entries[glyph] = (path, bytes, node);
+                _bytes += bytes;
+                while (_bytes > OutlineCacheBudget && _lru.Last is { } last)
+                {
+                    var evictedGlyph = last.Value;
+                    _lru.RemoveLast();
+                    if (_entries.Remove(evictedGlyph, out var evicted))
+                        _bytes -= evicted.Bytes;
+                }
+                return path;
+            }
+        }
+
+        private static long Estimate(PathData? path) => path is null
+            ? 1
+            : 64L + path.Commands.Count * 48L;
+    }
+
+    private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
 
     private PathData? Outline(IFontHandle font, ushort glyph)
     {
         if (font is not FontFace face)
             return null;
-        var cache = Outlines.GetOrCreateValue(face);
-        lock (cache)
-        {
-            if (!cache.TryGetValue(glyph, out var path))
-                cache[glyph] = path = GlyphOutlines.Get(face, glyph);
-            return path;
-        }
+        return Outlines.GetOrCreateValue(face).Get(face, glyph);
     }
 
     // The outlines of a run, in the space the run is drawn in (y down), as subpaths.
