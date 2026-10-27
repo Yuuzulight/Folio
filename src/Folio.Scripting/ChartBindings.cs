@@ -14,10 +14,11 @@ internal static class ChartBindings
                 for (var i = 0; i < values.length; i++) if (Number(values[i]) > max) max = Number(values[i]);
                 var width = canvas.width || 300;
                 var height = canvas.height || 150;
+                canvas.style.height = '213px';
                 var left = 30;
                 var right = 0;
                 var top = 10;
-                var bottom = 37;
+                var bottom = 30;
                 var plotWidth = width - left - right;
                 var plotHeight = height - top - bottom;
                 var slot = plotWidth / (values.length || 1);
@@ -48,7 +49,7 @@ internal static class ChartBindings
                 context.fillStyle = 'rgba(52,152,219,0.5)';
                 for (var j = 0; j < values.length; j++) {
                     var barHeight = (Number(values[j]) / max) * plotHeight;
-                    context.fillRect(left + j * slot + slot * 0.15, top + plotHeight - barHeight, slot * 0.70, barHeight);
+                    context.fillRect(left + j * slot + slot * 0.15, top + plotHeight - barHeight, slot * 0.72, barHeight);
                     context.fillStyle = '#666';
                     var labels = config && config.data && config.data.labels;
                     context.fillText(labels && labels[j] ? String(labels[j]) : String(j), left + j * slot + slot * 0.5, top + plotHeight + 8);
