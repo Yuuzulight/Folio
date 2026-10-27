@@ -63,7 +63,7 @@ The latest Release build succeeds from `Folio.slnx`. The native D2–D7 probe re
 still fails at its first interaction with the surfaced detached-child
 `NotFoundError` diagnostic tracked by #645. The latest 30-frame canvas benchmark
 keeps every library-card artifact and the snake game below 16.7 ms p95, but
-`D5/canvas-animated-bars` remains at 43.93 ms p95 under #519.
+`D5/canvas-animated-bars` remains at 31.63 ms p95 under #519.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
