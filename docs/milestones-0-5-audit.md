@@ -7,7 +7,7 @@ Verification refresh (2026-10-27): the focused pre-M6 Release runs passed
 4,147 tests with 0 failures and 7 documented skips (4,154 discovered). Earlier
 totals are historical snapshots.
 
-Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, and service-worker audit repairs: 4,154 tests discovered, 4,147 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
+Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, and service-worker audit repairs: 4,161 tests discovered, 4,154 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
 
 This is the requirement-to-evidence index for the completed pre-M6 milestones. It
 does not waive the M6 acceptance audit or the mandatory Folio-owned replacement
