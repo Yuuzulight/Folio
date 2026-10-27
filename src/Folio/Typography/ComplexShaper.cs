@@ -117,6 +117,11 @@ public sealed class ComplexShaper : ITextShaper
     {
         var forms = new ArabicForm[runes.Count];
 
+        ushort? previousBaseGlyph = null;
+        int? previousBaseCluster = null;
+        ushort? previousMarkGlyph = null;
+        var previousMarkOffset = Vector2.Zero;
+
         for (var i = 0; i < runes.Count; i++)
         {
             var joining = GetArabicJoining(runes[i].Rune.Value);
@@ -173,12 +178,30 @@ public sealed class ComplexShaper : ITextShaper
 
             if (joining == ArabicJoining.Transparent)
             {
-                // Mark glyph: advance = 0, offset = zero
+                // Arabic tashkeel: advance = 0, positioned through Folio-owned GPOS anchors.
                 var glyph = face.GlyphFor(code);
                 glyphs.Add(glyph);
-                clusters.Add(cluster);
+                clusters.Add(previousBaseCluster ?? cluster);
                 advances.Add(0f);
-                offsets.Add(Vector2.Zero);
+                var markOffset = previousMarkGlyph is { } previousMark
+                    ? face.MarkToMarkOffset(previousMark, glyph)
+                    : previousBaseGlyph is { } previousBase
+                        ? face.MarkOffset(previousBase, glyph)
+                        : null;
+                if (markOffset is { } position)
+                {
+                    var offset = new Vector2(position.X * scale, -position.Y * scale);
+                    if (previousMarkGlyph is not null)
+                        offset += previousMarkOffset;
+                    offsets.Add(offset);
+                    previousMarkOffset = offset;
+                }
+                else
+                {
+                    offsets.Add(Vector2.Zero);
+                    previousMarkOffset = Vector2.Zero;
+                }
+                previousMarkGlyph = glyph;
                 continue;
             }
 
@@ -190,6 +213,10 @@ public sealed class ComplexShaper : ITextShaper
             clusters.Add(cluster);
             advances.Add(face.Advance(mappedGlyph) * scale);
             offsets.Add(Vector2.Zero);
+            previousBaseGlyph = mappedGlyph;
+            previousBaseCluster = cluster;
+            previousMarkGlyph = null;
+            previousMarkOffset = Vector2.Zero;
         }
     }
 
