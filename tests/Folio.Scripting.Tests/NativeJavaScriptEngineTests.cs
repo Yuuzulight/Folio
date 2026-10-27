@@ -101,6 +101,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void SupportsCallAndApplyOnNativeFunctions()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("ab", engine.Evaluate("return String.fromCharCode.call(null,97,98);").AsString());
+    }
+
+    [Fact]
     public void ParsesReactDomErrorDecoderFunction()
     {
         using var engine = new NativeJavaScriptEngine();

@@ -729,6 +729,13 @@ internal sealed class JavaScriptEvaluator
                 }
                 return prototype;
             }
+            if (name == "bind") return (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var boundArguments = args.Count > 1 ? args.Skip(1).ToArray() : Array.Empty<object?>();
+                return (Func<IReadOnlyList<object?>, object?>)(callArgs => nativeFunction.Invoke([.. boundArguments, .. callArgs]));
+            });
+            if (name == "call") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 ? args.Skip(1).ToArray() : []));
+            if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
         if (target is IList<object?> values)
