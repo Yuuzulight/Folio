@@ -54,6 +54,7 @@ internal sealed class JavaScriptEvaluator
             JavaScriptTemplateExpression template => Template(template.Text),
             JavaScriptRegexExpression regex => RegexValue.Create(regex.Text),
             JavaScriptIdentifierExpression identifier => Lookup(identifier.Name),
+            JavaScriptYieldExpression yielded => EvaluateYield(yielded),
             JavaScriptUnaryExpression unary => Unary(unary),
             JavaScriptUpdateExpression update => Update(update),
             JavaScriptBinaryExpression binary => Binary(binary),
@@ -281,6 +282,14 @@ internal sealed class JavaScriptEvaluator
             }
         }
         return lastResult is UndefinedValue ? UndefinedOrNull() : lastResult;
+    }
+
+    private object? EvaluateYield(JavaScriptYieldExpression yielded)
+    {
+        var value = yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression);
+        if (_yieldValues is null) throw new InvalidDataException("yield is only valid inside a generator.");
+        _yieldValues.Add(value);
+        return value;
     }
 
     private object? Literal(JavaScriptLiteralExpression literal)

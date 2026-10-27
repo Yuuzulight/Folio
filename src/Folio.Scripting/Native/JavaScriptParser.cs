@@ -392,6 +392,8 @@ internal sealed class JavaScriptParser
                 return Node(new JavaScriptFunctionExpression([parameter], body));
             }
             var name = _current.Text; Take();
+            if (name == "yield")
+                return Node(new JavaScriptYieldExpression(_current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or ")" or "}" ? null : ParseBinary(0)));
             if (name == "new" && Match("."))
             {
                 if (_current.Kind != JavaScriptTokenKind.Identifier || _current.Text != "target") throw Error("Expected new.target");

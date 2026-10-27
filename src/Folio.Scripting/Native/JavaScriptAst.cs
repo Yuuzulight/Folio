@@ -5,6 +5,7 @@ internal sealed record JavaScriptLiteralExpression(string Text, JavaScriptTokenK
 internal sealed record JavaScriptTemplateExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptRegexExpression(string Text) : JavaScriptExpression;
 internal sealed record JavaScriptIdentifierExpression(string Name) : JavaScriptExpression;
+internal sealed record JavaScriptYieldExpression(JavaScriptExpression? Expression) : JavaScriptExpression;
 internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptUpdateExpression(string Operator, JavaScriptExpression Operand, bool Prefix) : JavaScriptExpression;
 internal sealed record JavaScriptBinaryExpression(string Operator, JavaScriptExpression Left, JavaScriptExpression Right) : JavaScriptExpression;
