@@ -361,6 +361,21 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void DecodesAndDrawsCff2FromWoff2()
+    {
+        var compressed = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
+        var face = FontFace.Parse(WebFontDecoder.Decode(compressed));
+        Assert.NotNull(face);
+        var glyph = face!.GlyphFor('A');
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
+            "The WOFF2 CFF2 glyph did not produce a raster outline.");
+    }
+
+    [Fact]
     public void DrawsBitmapColourGlyphs()
     {
         var face = Load("NotoColorEmoji.ttf");

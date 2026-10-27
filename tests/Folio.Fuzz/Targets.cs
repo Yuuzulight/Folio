@@ -181,7 +181,8 @@ internal static class Targets
         // The text font brings GPOS kerning (both pair adjustment formats) for the mutations to reach.
         var text = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
         var cff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
-        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2];
+        var cff2Woff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
+        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2, cff2Woff2];
     }
 
     private static void Css(byte[] data)
