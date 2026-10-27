@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using Folio.Imaging;
 using Folio.Painting;
@@ -381,6 +382,35 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
             "The WOFF2 CFF2 glyph did not produce a raster outline.");
+    }
+
+    [Fact]
+    public void RejectsMalformedCff2OutlineWithinRasterLimits()
+    {
+        var bytes = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
+        var tableCount = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(4));
+        var cff2Offset = -1;
+        for (var i = 0; i < tableCount; i++)
+        {
+            var record = 12 + i * 16;
+            if (bytes.AsSpan(record, 4).SequenceEqual("CFF2"u8))
+            {
+                cff2Offset = checked((int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(record + 8)));
+                break;
+            }
+        }
+        Assert.True(cff2Offset >= 0);
+        BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(cff2Offset + 2), ushort.MaxValue);
+
+        var face = FontFace.Parse(bytes);
+        Assert.NotNull(face);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        var glyph = face!.GlyphFor('A');
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.All(pixels.Chunk(4), pixel => Assert.True(pixel[0] == 255 && pixel[1] == 255 && pixel[2] == 255,
+            "Malformed CFF2 data escaped the outline limit and painted pixels."));
     }
 
     [Fact]
