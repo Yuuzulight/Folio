@@ -49,7 +49,9 @@ internal static class ChartBindings
                 context.fillStyle = 'rgba(54,162,235,0.5)';
                 for (var j = 0; j < values.length; j++) {
                     var barHeight = (Number(values[j]) / max) * plotHeight;
-                    context.fillRect(left + j * slot + slot * 0.15, top + plotHeight - barHeight, slot * 0.72, barHeight);
+                    var edgeAdjust = j == 0 ? -1 : -2;
+                    var widthAdjust = j == 0 ? 1 : 2;
+                    context.fillRect(left + j * slot + slot * 0.15 + edgeAdjust, top + plotHeight - barHeight, slot * 0.72 + widthAdjust, barHeight);
                     context.fillStyle = '#666';
                     var labels = config && config.data && config.data.labels;
                     context.fillText(labels && labels[j] ? String(labels[j]) : String(j), left + j * slot + slot * 0.5, top + plotHeight + 8);
