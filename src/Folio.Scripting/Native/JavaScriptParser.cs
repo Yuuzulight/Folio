@@ -60,6 +60,12 @@ internal sealed class JavaScriptParser
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "function")
         {
             Take();
+            if (_current.Text == "*" && Peek(0).Kind == JavaScriptTokenKind.Identifier)
+            {
+                Take();
+                var generatorName = _current.Text; Take();
+                return new JavaScriptFunctionDeclarationStatement(generatorName, ParseFunctionTail(generatorAlreadyConsumed: true));
+            }
             if (_current.Kind != JavaScriptTokenKind.Identifier)
                 return new JavaScriptExpressionStatement(ParseFunctionTail());
             var name = _current.Text; Take();
@@ -92,6 +98,13 @@ internal sealed class JavaScriptParser
             JavaScriptExpression? expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or "}" ? null : ParseSequenceExpression();
             Match(";");
             return new JavaScriptReturnStatement(expression);
+        }
+        if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "yield")
+        {
+            Take();
+            var expression = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text is ";" or "}" ? null : ParseSequenceExpression();
+            Match(";");
+            return new JavaScriptYieldStatement(expression);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "if")
         {
@@ -510,8 +523,9 @@ internal sealed class JavaScriptParser
         return new JavaScriptBlockStatement(statements);
     }
 
-    private JavaScriptFunctionExpression ParseFunctionTail()
+    private JavaScriptFunctionExpression ParseFunctionTail(bool generatorAlreadyConsumed = false)
     {
+        var generator = generatorAlreadyConsumed || Match("*");
         // Function expressions may carry an internal name (for recursion and
         // stack traces), e.g. `value: function createEvent(...) { ... }`.
         // The bounded evaluator does not need a separate named scope, but it
@@ -535,7 +549,7 @@ internal sealed class JavaScriptParser
             Expect(")");
         }
         var body = ParseBlockStatement();
-        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults);
+        return new JavaScriptFunctionExpression(parameters, body.Statements, defaults, generator);
     }
 
     private JavaScriptClassExpression ParseClassTail()

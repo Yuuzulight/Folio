@@ -28,9 +28,10 @@ internal sealed class JavaScriptEvaluator
     private readonly int _maxSteps;
     private readonly bool _preserveUndefined;
     private readonly Func<bool>? _deadlineExceeded;
+    private readonly List<object?>? _yieldValues;
     private int _steps;
 
-    internal JavaScriptEvaluator(IDictionary<string, object?>? bindings = null, int maxSteps = 100_000, IDictionary<string, object?>? parentBindings = null, JavaScriptEvaluator? parentEvaluator = null, bool preserveUndefined = false, IReadOnlyList<IDictionary<string, object?>>? withScopes = null, Func<bool>? deadlineExceeded = null)
+    internal JavaScriptEvaluator(IDictionary<string, object?>? bindings = null, int maxSteps = 100_000, IDictionary<string, object?>? parentBindings = null, JavaScriptEvaluator? parentEvaluator = null, bool preserveUndefined = false, IReadOnlyList<IDictionary<string, object?>>? withScopes = null, Func<bool>? deadlineExceeded = null, List<object?>? yieldValues = null)
     {
         _bindings = bindings ?? new Dictionary<string, object?>(StringComparer.Ordinal);
         _parentBindings = parentBindings;
@@ -38,6 +39,7 @@ internal sealed class JavaScriptEvaluator
         _preserveUndefined = preserveUndefined;
         _withScopes = withScopes ?? Array.Empty<IDictionary<string, object?>>();
         _deadlineExceeded = deadlineExceeded ?? parentEvaluator?._deadlineExceeded;
+        _yieldValues = yieldValues;
         if (maxSteps <= 0) throw new ArgumentOutOfRangeException(nameof(maxSteps));
         _maxSteps = maxSteps;
     }
@@ -271,6 +273,10 @@ internal sealed class JavaScriptEvaluator
                     catch (BreakSignal) { }
                     break;
                 case JavaScriptReturnStatement returned: throw new ReturnSignal(returned.Expression is null ? UndefinedOrNull() : Evaluate(returned.Expression));
+                case JavaScriptYieldStatement yielded:
+                    if (_yieldValues is null) throw new InvalidDataException("yield is only valid inside a generator.");
+                    _yieldValues.Add(yielded.Expression is null ? UndefinedOrNull() : Evaluate(yielded.Expression));
+                    break;
                 default: throw new InvalidDataException("Unknown JavaScript statement node.");
             }
         }
@@ -815,6 +821,12 @@ internal sealed class JavaScriptEvaluator
             if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
             BindParameter(local, parameter, value);
         }
+        if (function.IsGenerator)
+        {
+            var values = new List<object?>();
+            new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded, values).ExecuteFunctionBody(function.Body);
+            return values;
+        }
         return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
 
@@ -1084,7 +1096,15 @@ internal sealed class JavaScriptEvaluator
             // supply their actual receiver through ReceiverBindings.
             local["this"] = receiver ?? captured;
             local["arguments"] = arguments.ToList();
+            if (function.IsGenerator) return RunGenerator(local, function.Body);
             return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
+        }
+
+        List<object?> RunGenerator(IDictionary<string, object?> local, IReadOnlyList<JavaScriptStatement> body)
+        {
+            var values = new List<object?>();
+            new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded, values).ExecuteFunctionBody(body);
+            return values;
         }
     }
 

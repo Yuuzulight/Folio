@@ -71,6 +71,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void EvaluatesGeneratorYieldsAsAnIterableSnapshot()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("1|2", engine.Evaluate("function* values(){yield 1; yield 2;} return Array.from(values()).join('|');").AsString());
+    }
+
+    [Fact]
     public void ParsesReactDomErrorDecoderFunction()
     {
         using var engine = new NativeJavaScriptEngine();
