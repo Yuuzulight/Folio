@@ -37,6 +37,11 @@ library-card artifact stayed below the 16.70 ms p95 target; the deliberately hea
 30-frame Release run. Issue #519 remains
 open until that workload is genuinely within budget.
 
+The current Release rerun remains a real miss: `canvas-animated-bars` measures
+30.54 ms total p95 (27.94 ms script/update, 1.61 ms display-list, 1.79 ms host
+paint). The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
+threshold relaxation or routing workaround was applied.
+
 ## Milestone status
 
 The dependency-backed scripting surface is complete for the current product phase, but Folio is not complete on that basis alone. The native-engine implementation and dual-engine matrix are work required by the mandatory Folio-owned replacement phase described in [`native-engine-plan.md`](native-engine-plan.md). This document therefore records the dependency-backed acceptance baseline, not a waiver of the replacement gate.
