@@ -235,6 +235,7 @@ public sealed class ComplexShaper : ITextShaper
         List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
     {
         ushort? previousBaseGlyph = null;
+        int? previousBaseCluster = null;
         ushort? previousMarkGlyph = null;
         var previousMarkOffset = Vector2.Zero;
 
@@ -244,11 +245,11 @@ public sealed class ComplexShaper : ITextShaper
             var code = rune.Value;
             var glyph = face.GlyphFor(code);
             glyphs.Add(glyph);
-            clusters.Add(cluster);
 
             var category = Rune.GetUnicodeCategory(rune);
             if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark)
             {
+                clusters.Add(previousBaseCluster ?? cluster);
                 // Hebrew mark (Niqqud): advance = 0, placed using the face's GPOS
                 // mark-to-base or mark-to-mark anchor. Mark-to-mark offsets are
                 // relative to the preceding mark, so retain the accumulated offset.
@@ -277,7 +278,9 @@ public sealed class ComplexShaper : ITextShaper
             {
                 advances.Add(face.Advance(glyph) * scale);
                 offsets.Add(Vector2.Zero);
+                clusters.Add(cluster);
                 previousBaseGlyph = glyph;
+                previousBaseCluster = cluster;
                 previousMarkGlyph = null;
                 previousMarkOffset = Vector2.Zero;
             }
