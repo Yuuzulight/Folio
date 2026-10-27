@@ -26,7 +26,7 @@ internal static class ChartBindings
                 context.font = '12px Arial';
                 context.textAlign = 'right';
                 context.textBaseline = 'middle';
-                context.strokeStyle = 'rgba(120,120,120,0.25)';
+                context.strokeStyle = 'rgba(120,120,120,0.15)';
                 context.lineWidth = 1;
                 for (var tick = 0; tick <= max; tick += 0.5) {
                     var gy = top + plotHeight - (tick / max) * plotHeight;
