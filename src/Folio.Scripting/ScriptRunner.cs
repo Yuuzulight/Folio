@@ -20,6 +20,7 @@ public sealed class ScriptRunner : IDisposable
     private readonly Uri _baseUri;
     private readonly HashSet<ElementNode> _pendingScripts = new(ReferenceEqualityComparer.Instance);
     private bool _diagramStandInInstalled;
+    private bool _chartStandInInstalled;
     private bool _disposed;
 
     public ScriptRunner(Document document, IScriptEngine engine, HtmlEventLoop eventLoop, FolioOptions? options = null, List<Diagnostic>? diagnostics = null)
@@ -311,6 +312,19 @@ public sealed class ScriptRunner : IDisposable
 
             scriptUrl = resolved;
 
+            if (IsChartLibrary(scriptUrl))
+            {
+                if (!_chartStandInInstalled)
+                {
+                    ChartBindings.Install(_engine);
+                    _chartStandInInstalled = true;
+                }
+                _diagnostics.Add(new Diagnostic(DiagnosticCode.FeatureRouted, Severity.Info,
+                    "Replaced the configured chart library with Folio's native canvas chart bridge.", null, "canvas"));
+                FireScriptEvent(script, "load");
+                return;
+            }
+
             if (IsConfiguredDiagramLibrary(scriptUrl) && CanUseDiagramStandIn())
             {
                 if (!_diagramStandInInstalled)
@@ -382,6 +396,10 @@ public sealed class ScriptRunner : IDisposable
 
     private bool IsConfiguredDiagramLibrary(string url) =>
         _options.DiagramLibraryUrls.Contains(url);
+
+    private static bool IsChartLibrary(string url) =>
+        url.Contains("chart.umd", StringComparison.OrdinalIgnoreCase)
+        || url.Contains("chart.js", StringComparison.OrdinalIgnoreCase);
 
     private bool CanUseDiagramStandIn()
     {
