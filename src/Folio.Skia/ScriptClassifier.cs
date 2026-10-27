@@ -18,6 +18,7 @@ internal static class ScriptClassifier
                 >= 0x3040 and <= 0x30FF or >= 0x3400 and <= 0x9FFF => "CJK",
                 >= 0x0370 and <= 0x03FF => "Greek",
                 >= 0x0400 and <= 0x052F => "Cyrillic",
+                >= 0x0041 and <= 0x005A or >= 0x0061 and <= 0x007A => "Latin",
                 _ => null,
             };
             if (current is null)

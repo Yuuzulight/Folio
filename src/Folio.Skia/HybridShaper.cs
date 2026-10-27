@@ -33,12 +33,18 @@ public sealed class HybridShaper : ITextShaper
         ArgumentOutOfRangeException.ThrowIfNegative(length);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(start + length, text.Length);
 
-        if (font is FontFace face && (SimpleShaper.CanShape(text.AsSpan(start, length), face)
-            || _folioOwnedScripts.Contains(ScriptClassifier.Classify(text.AsSpan(start, length)))))
+        if (font is FontFace face)
         {
-            var simple = SimpleShaper.Shape(text, start, length, face, size);
-            return new ShapedText(simple.Glyphs, simple.Clusters, simple.Advances,
-                simple.Offsets ?? new System.Numerics.Vector2[simple.Glyphs.Length]);
+            var script = ScriptClassifier.Classify(text.AsSpan(start, length));
+            if (SimpleShaper.CanShape(text.AsSpan(start, length), face))
+            {
+                var simple = SimpleShaper.Shape(text, start, length, face, size);
+                return new ShapedText(simple.Glyphs, simple.Clusters, simple.Advances,
+                    simple.Offsets ?? new System.Numerics.Vector2[simple.Glyphs.Length]);
+            }
+
+            if (_folioOwnedScripts.Contains(script))
+                return ComplexShaper.Instance.Shape(text, start, length, face, size, rightToLeft, language);
         }
 
         return _complex.Shape(text, start, length, font, size, rightToLeft, language);
