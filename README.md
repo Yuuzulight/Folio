@@ -54,8 +54,18 @@ Needs the .NET 10 SDK. The engine and its tests run on Windows and Linux; the Wi
 
 ```
 dotnet build Folio.slnx
-dotnet test --solution Folio.slnx
+# The test projects use direct xUnit v3 in-process runners.
+dotnet tests/Folio.Tests/bin/Debug/net10.0/Folio.Tests.dll
+dotnet tests/Folio.RenderTests/bin/Debug/net10.0/Folio.RenderTests.dll
+dotnet tests/Folio.Scripting.Tests/bin/Debug/net10.0/Folio.Scripting.Tests.dll
+dotnet tests/Folio.Fuzz/bin/Debug/net10.0/Folio.Fuzz.dll
+dotnet tests/Folio.Benchmarks/bin/Debug/net10.0/Folio.Benchmarks.dll
+dotnet tests/Folio.WinForms.Tests/bin/Debug/net10.0-windows/Folio.WinForms.Tests.dll
 ```
+
+The solution-level `dotnet test` wrapper does not discover these in-process
+runners; use the direct commands above (or the equivalent `Release` paths after
+a Release build) so the tests actually execute.
 
 The render tests include an equivalence check: after random style changes to a page, an incremental update must draw exactly what a fresh render draws.
 
