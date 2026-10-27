@@ -938,6 +938,11 @@ internal sealed class JavaScriptEvaluator
             "splice" => (Func<IReadOnlyList<object?>, object?>)(args => Splice(values, args)),
             "map" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: false)),
             "flatMap" => (Func<IReadOnlyList<object?>, object?>)(args => FlatMap(values, args)),
+            "flat" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var depth = args.Count == 0 ? 1 : Number(args[0]);
+                return Flatten(values, double.IsPositiveInfinity(depth) ? int.MaxValue : Math.Max(0, (int)depth));
+            }),
             "filter" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: true)),
             "forEach" => (Func<IReadOnlyList<object?>, object?>)(args => { _ = Map(values, args, filter: false, discard: true); return null; }),
             "reduce" => (Func<IReadOnlyList<object?>, object?>)(args => Reduce(values, args)),
@@ -1048,6 +1053,19 @@ internal sealed class JavaScriptEvaluator
             TryInvoke(args[0], [values[i], (double)i, values], out var mapped);
             if (mapped is IEnumerable<object?> nested) result.AddRange(nested);
             else result.Add(mapped);
+        }
+        return result.ToArray();
+    }
+
+    private static object?[] Flatten(IEnumerable<object?> values, int depth)
+    {
+        var result = new List<object?>();
+        foreach (var value in values)
+        {
+            if (depth > 0 && value is IEnumerable<object?> nested)
+                result.AddRange(Flatten(nested, depth == int.MaxValue ? int.MaxValue : depth - 1));
+            else
+                result.Add(value);
         }
         return result.ToArray();
     }

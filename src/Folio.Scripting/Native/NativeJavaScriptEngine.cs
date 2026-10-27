@@ -31,6 +31,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (inheritedMaxSteps is > 0) _maxSteps = inheritedMaxSteps.Value;
         if (inheritedTimeout is not null) _timeout = inheritedTimeout;
+        _bindings["Infinity"] = double.PositiveInfinity;
+        _bindings["NaN"] = double.NaN;
         var arrayConstructor = new NativeFunction(args => args.Count == 1 && args[0] is double length
             ? Enumerable.Repeat<object?>(JavaScriptEvaluator.UndefinedValue.Instance, Math.Max(0, (int)length)).ToList()
             : args.ToList());
