@@ -87,6 +87,13 @@ jobs:
         if: always()
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance
 
+      # D8 is Folio's native WebGL acceptance category; the compatibility engine intentionally routes it away.
+      - name: Native WebGL conformance
+        if: always()
+        env:
+          FOLIO_CONFORMANCE_ENGINE: native
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance D8
+
       # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
       - name: Benchmarks
         if: matrix.os == 'ubuntu-latest'
