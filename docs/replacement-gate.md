@@ -93,6 +93,11 @@ tree, while a minimal synchronous render reaches a real DOM `NotFoundError`.
 The focused MessageChannel regression passes, so the remaining blocker is
 reconciliation/shared-internals behavior rather than basic scheduler transport.
 
+The script runner now forwards uncaught timer, animation-frame and promise-job
+exceptions into document diagnostics. This makes the React host-commit failure
+actionable (`NotFoundError` is reported as an event-loop script error) without
+weakening DOM mutation validity.
+
 The UMD repair landed in `a0d2877`: native non-strict calls without an explicit
 receiver bind `this` to the global object. Subsequent native engine work also
 corrected array enumeration, relative slicing, null/undefined join fields and
