@@ -306,7 +306,14 @@ public sealed partial class ContentHostSession : IAsyncDisposable
             List<MediaVideoFrame>? frames = null;
             if (value.TryGetProperty("frames", out var frameList))
             {
-                if (frameList.ValueKind != JsonValueKind.Array) throw new JsonException("Invalid media frame sequence.");
+                // The host wire shape always includes the optional `frames`
+                // member, but serializes it as null when the decoder returns a
+                // single frame (or audio only).  Null is therefore a valid
+                // absence, while any non-null value must be an array.
+                if (frameList.ValueKind == JsonValueKind.Null) { frames = null; }
+                else if (frameList.ValueKind != JsonValueKind.Array) throw new JsonException("Invalid media frame sequence.");
+                else
+                {
                 frames = [];
                 var previous = -1d;
                 foreach (var item in frameList.EnumerateArray())
@@ -316,6 +323,7 @@ public sealed partial class ContentHostSession : IAsyncDisposable
                         throw new JsonException("Invalid media video frame.");
                     frames.Add(new MediaVideoFrame(timestamp, image));
                     previous = timestamp;
+                }
                 }
             }
             MediaAudioFrame? audio = null;
