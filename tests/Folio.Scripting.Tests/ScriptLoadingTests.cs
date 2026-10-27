@@ -48,6 +48,25 @@ public class ScriptLoadingTests
     }
 
     [Fact]
+    public void UncaughtEventLoopErrorsReachRunnerDiagnostics()
+    {
+        var document = TreeBuilder.Parse("<script>setTimeout(() => { throw new Error('late failure'); }, 0);</script>", new ParserLimits(ScriptingEnabled: true));
+        using var engine = new JintScriptEngine();
+        using var loop = new HtmlEventLoop(engine);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        var diagnostics = new List<Diagnostic>();
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Scripting = ScriptingPolicy.ContentProcess }, diagnostics);
+
+        runner.Run();
+        loop.SpinUntilIdle();
+
+        var diagnostic = Assert.Single(diagnostics, d => d.Code == DiagnosticCode.ScriptError);
+        Assert.Equal("event-loop", diagnostic.Feature);
+        Assert.Contains("late failure", diagnostic.Message);
+    }
+
+    [Fact]
     public void ConfiguredDiagramLibraryIsReplacedAndItsSourceIsNotEvaluated()
     {
         var loader = new FakeLoader();
