@@ -146,9 +146,9 @@ internal sealed class JavaScriptEvaluator
                     var value = variable.Initializer is null ? UndefinedOrNull() : Evaluate(variable.Initializer);
                     if (variable.Name.StartsWith("[", StringComparison.Ordinal) && variable.Name.EndsWith("]", StringComparison.Ordinal))
                     {
-                        var names = variable.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        var names = variable.Name[1..^1].Split(',', StringSplitOptions.None);
                         for (var index = 0; index < names.Length; index++)
-                            _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> readOnly && index < readOnly.Count ? readOnly[index] : UndefinedValue.Instance;
+                            if (!string.IsNullOrEmpty(names[index])) _bindings[names[index]] = value is IList<object?> list && index < list.Count ? list[index] : value is IReadOnlyList<object?> readOnly && index < readOnly.Count ? readOnly[index] : UndefinedValue.Instance;
                     }
                     else if (variable.Name.StartsWith("{", StringComparison.Ordinal) && variable.Name.EndsWith("}", StringComparison.Ordinal))
                     {
@@ -236,9 +236,9 @@ internal sealed class JavaScriptEvaluator
                             if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
                             if (each.Name.StartsWith("[", StringComparison.Ordinal) && each.Name.EndsWith("]", StringComparison.Ordinal))
                             {
-                                var names = each.Name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
+                                var names = each.Name[1..^1].Split(',', StringSplitOptions.None);
                                 var values = item as IReadOnlyList<object?>;
-                                for (var index = 0; index < names.Length; index++) _bindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
+                                for (var index = 0; index < names.Length; index++) if (!string.IsNullOrEmpty(names[index])) _bindings[names[index]] = values is not null && index < values.Count ? values[index] : null;
                             }
                             else _bindings[each.Name] = item;
                             try { ExecuteCore([each.Body]); }
@@ -1144,8 +1144,8 @@ internal sealed class JavaScriptEvaluator
         if (parameter.StartsWith("[", StringComparison.Ordinal) && parameter.EndsWith("]", StringComparison.Ordinal))
         {
             var values = value as IReadOnlyList<object?>;
-            var names = parameter[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries);
-            for (var i = 0; i < names.Length; i++) local[names[i]] = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
+            var names = parameter[1..^1].Split(',', StringSplitOptions.None);
+            for (var i = 0; i < names.Length; i++) if (!string.IsNullOrEmpty(names[i])) local[names[i]] = values is not null && i < values.Count ? values[i] : UndefinedOrNull();
             return;
         }
         local[parameter] = value;

@@ -68,6 +68,7 @@ public sealed class NativeJavaScriptEngineTests
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal(5d, engine.Evaluate("const sum=([a,b])=>a+b; return sum([2,3]);").AsNumber());
+        Assert.Equal(7d, engine.Evaluate("const third=([,,value])=>value; return third([1,2,7]);").AsNumber());
     }
 
     [Fact]
