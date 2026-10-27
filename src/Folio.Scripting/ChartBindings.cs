@@ -28,14 +28,14 @@ internal static class ChartBindings
                 context.textBaseline = 'middle';
                 context.strokeStyle = 'rgba(120,120,120,0.25)';
                 context.lineWidth = 1;
-                for (var tick = 0; tick <= max; tick += 1) {
+                for (var tick = 0; tick <= max; tick += 0.5) {
                     var gy = top + plotHeight - (tick / max) * plotHeight;
                     context.beginPath();
                     context.moveTo(left, gy);
                     context.lineTo(width, gy);
                     context.stroke();
                     context.fillStyle = '#666';
-                    context.fillText(String(tick), left - 4, gy);
+                    context.fillText(tick.toFixed(1), left - 4, gy);
                 }
                 for (var grid = 0; grid <= values.length; grid++) {
                     var gx = left + grid * slot;
