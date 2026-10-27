@@ -49,8 +49,8 @@ or a partial Folio implementation is progress, never completion.
 
 The replacement gate remains open. The current focused native-engine/library
 probe set passes 75/75, the direct M1–M6 acceptance suites pass, and the latest
-complete Release verification passes 4,168 tests with 0 failures and 7 documented
-skips (4,175 discovered). The Folio-owned GIF/WebP/BMP fuzz targets completed
+complete Release verification passes 4,169 tests with 0 failures and 7 documented
+skips (4,176 discovered). The Folio-owned GIF/WebP/BMP fuzz targets completed
 1,167,395, 60,239 and 4,066,722 mutations respectively with zero failures. These
 are progress and safety evidence, not completion: HybridShaper still routes
 complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
