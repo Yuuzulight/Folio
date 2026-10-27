@@ -95,4 +95,19 @@ public sealed class ShapingDifferentialTests
         Assert.Equal(oracle.Glyphs, actual.Glyphs);
         Assert.Equal(oracle.Clusters, actual.Clusters);
     }
+
+    [Fact]
+    public void PerScriptSwitchCanPromoteHebrewToTheFolioComplexShaper()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        const string text = "שָׁ";
+        var switched = new HybridShaper(new HashSet<string>(StringComparer.Ordinal) { "Hebrew" });
+        var actual = switched.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var expected = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+        Assert.Equal(expected.Advances, actual.Advances);
+        Assert.Equal(expected.Offsets, actual.Offsets);
+    }
 }
