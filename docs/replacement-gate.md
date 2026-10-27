@@ -132,9 +132,10 @@ versus Skia's 7.9 ms at 800x600 (40.4x slower), and 709.0 ms versus 15.3 ms at
 1920x1080 (46.3x slower). The production performance gate and backend cutover
 therefore remain open under issue #575.
 
-Arabic GSUB progress (2026-10-28, commit `c3d9f83f`): the Folio-owned shaper now
+Arabic GSUB progress (2026-10-28, commits `c3d9f83f` and `7c152852`): the Folio-owned shaper now
 selects the Arabic script's required `rlig` feature and applies format-3
-contextual substitutions, including SingleSubst format-2 replacement records.
+contextual substitutions, reverse-chain single substitutions and SingleSubst
+format-2 replacement records.
 Representative `سلام`, `لا` and `لم` forms match the HarfBuzz oracle; the focused
 shaping suite passes 19/19 and the full Release suite passes 4,172 tests with no
 failures. This narrows #563 but does not close it: marks, cursive attachment,
