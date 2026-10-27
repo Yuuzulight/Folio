@@ -352,6 +352,10 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var face = Load("FolioCff2.otf");
         var glyph = face.GlyphFor('A');
         Assert.NotEqual((ushort)0, glyph);
+        var comparison = Compare(c => c.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f)),
+            width: 96, height: 96, background: White);
+        Assert.True(comparison.Mean < 8 && comparison.OverForty < 0.12,
+            $"CFF2 raster diverged from the Skia oracle: mean={comparison.Mean:F2}, over40={comparison.OverForty:P2}, max={comparison.Max}.");
         using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
         White(surface.Canvas);
         surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
@@ -367,6 +371,10 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var face = FontFace.Parse(WebFontDecoder.Decode(compressed));
         Assert.NotNull(face);
         var glyph = face!.GlyphFor('A');
+        var comparison = Compare(c => c.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f)),
+            width: 96, height: 96, background: White);
+        Assert.True(comparison.Mean < 8 && comparison.OverForty < 0.12,
+            $"WOFF2 CFF2 raster diverged from the Skia oracle: mean={comparison.Mean:F2}, over40={comparison.OverForty:P2}, max={comparison.Max}.");
         using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
         White(surface.Canvas);
         surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
