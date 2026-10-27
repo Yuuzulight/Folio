@@ -1,6 +1,6 @@
 # Milestones 0–5 acceptance audit
 
-Verification refresh (2026-10-27): the focused pre-M6 Release runs passed
+Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
 `Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,369 discovered,
 1,363 succeeded, 0 failed, with six documented software-backend skips. A complete Release solution run also passed
