@@ -71,6 +71,17 @@ public sealed class ContentCacheTests
     }
 
     [Fact]
+    public async Task PersistedServiceWorkerIsHiddenWhenCapabilityIsRevokedOnReopen()
+    {
+        var storage = new Storage();
+        await using (var first = Client(storage, loader: new WorkerLoader()))
+            Assert.Equal("registered", await Load(first, "await navigator.serviceWorker.register('/sw.js'); result = 'registered';", true, true));
+
+        await using var reopened = Client(storage, loader: new WorkerLoader());
+        Assert.Equal("undefined", await Load(reopened, "result = typeof navigator.serviceWorker;", false, true));
+    }
+
+    [Fact]
     public async Task BrokeredServiceWorkerCannotReadPageGlobals()
     {
         await using var client = Client(new Storage(), loader: new IsolationWorkerLoader());
