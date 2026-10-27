@@ -6,6 +6,10 @@ D13 4/4 and D14 3/3. These results verify the current corpus and lifecycle
 coverage only; the original native backend, device/transport, containment and
 mandatory replacement requirements remain open below.
 
+The D8 context-loss artifact now performs a real `WEBGL_lose_context` loss and
+restore cycle and asserts the native `oncontextrestored` callback; the focused
+artifact passes 1/1 as part of the 6/6 D8 result.
+
 Native canvas transform refresh (2026-10-27): the Folio-owned native engine now
 implements `DOMMatrix` and `DOMMatrixReadOnly` multiplication, mutating
 translate/scale/rotate, inversion, 2D/4x4 aliases and serialization. The focused
