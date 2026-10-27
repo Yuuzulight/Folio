@@ -183,15 +183,19 @@ public sealed class ComplexShaper : ITextShaper
                 glyphs.Add(glyph);
                 clusters.Add(previousBaseCluster ?? cluster);
                 advances.Add(0f);
-                var markOffset = previousMarkGlyph is { } previousMark
-                    ? face.MarkToMarkOffset(previousMark, glyph)
-                    : previousBaseGlyph is { } previousBase
-                        ? face.MarkOffset(previousBase, glyph)
-                        : null;
+                var relativeToPreviousMark = false;
+                (int X, int Y)? markOffset = null;
+                if (previousMarkGlyph is { } previousMark)
+                {
+                    markOffset = face.MarkToMarkOffset(previousMark, glyph);
+                    relativeToPreviousMark = markOffset is not null;
+                }
+                if (markOffset is null && previousBaseGlyph is { } previousBase)
+                    markOffset = face.MarkOffset(previousBase, glyph);
                 if (markOffset is { } position)
                 {
                     var offset = new Vector2(position.X * scale, -position.Y * scale);
-                    if (previousMarkGlyph is not null)
+                    if (relativeToPreviousMark)
                         offset += previousMarkOffset;
                     offsets.Add(offset);
                     previousMarkOffset = offset;
@@ -261,14 +265,29 @@ public sealed class ComplexShaper : ITextShaper
         List<(Rune Rune, int Index)> runes, FontFace face, float scale,
         List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
     {
+        // HarfBuzz emits Hebrew combining marks in the visual attachment order
+        // (the mark sequence is reversed for the RTL run). Keep the source
+        // cluster on every mark while matching that ordering for the Folio path.
+        var orderedRunes = new List<(Rune Rune, int Index)>(runes.Count);
+        for (var i = 0; i < runes.Count;)
+        {
+            orderedRunes.Add(runes[i]);
+            var end = i + 1;
+            while (end < runes.Count && IsHebrewMark(runes[end].Rune))
+                end++;
+            for (var mark = end - 1; mark > i; mark--)
+                orderedRunes.Add(runes[mark] with { Index = runes[i].Index });
+            i = end;
+        }
+
         ushort? previousBaseGlyph = null;
         int? previousBaseCluster = null;
         ushort? previousMarkGlyph = null;
         var previousMarkOffset = Vector2.Zero;
 
-        for (var i = 0; i < runes.Count; i++)
+        for (var i = 0; i < orderedRunes.Count; i++)
         {
-            var (rune, cluster) = runes[i];
+            var (rune, cluster) = orderedRunes[i];
             var code = rune.Value;
             var glyph = face.GlyphFor(code);
             glyphs.Add(glyph);
@@ -281,15 +300,19 @@ public sealed class ComplexShaper : ITextShaper
                 // mark-to-base or mark-to-mark anchor. Mark-to-mark offsets are
                 // relative to the preceding mark, so retain the accumulated offset.
                 advances.Add(0f);
-                var markOffset = previousMarkGlyph is { } previousMark
-                    ? face.MarkToMarkOffset(previousMark, glyph)
-                    : previousBaseGlyph is { } previousBase
-                        ? face.MarkOffset(previousBase, glyph)
-                        : null;
+                var relativeToPreviousMark = false;
+                (int X, int Y)? markOffset = null;
+                if (previousMarkGlyph is { } previousMark)
+                {
+                    markOffset = face.MarkToMarkOffset(previousMark, glyph);
+                    relativeToPreviousMark = markOffset is not null;
+                }
+                if (markOffset is null && previousBaseGlyph is { } previousBase)
+                    markOffset = face.MarkOffset(previousBase, glyph);
                 if (markOffset is { } position)
                 {
                     var offset = new Vector2(position.X * scale, -position.Y * scale);
-                    if (previousMarkGlyph is not null)
+                    if (relativeToPreviousMark)
                         offset += previousMarkOffset;
                     offsets.Add(offset);
                     previousMarkOffset = offset;
@@ -313,5 +336,8 @@ public sealed class ComplexShaper : ITextShaper
             }
         }
     }
+
+    private static bool IsHebrewMark(Rune rune) => Rune.GetUnicodeCategory(rune) is
+        UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
 
 }
