@@ -1,5 +1,6 @@
 using Folio.Scripting.Native;
 using Folio.Scripting.Dom;
+using Folio.Skia;
 
 namespace Folio.Scripting.Tests;
 
@@ -12,6 +13,24 @@ public sealed class NativeLibraryProbeTests
         using var engine = new NativeJavaScriptEngine();
         engine.Evaluate(File.ReadAllText(Path.Combine(root, "d3.min.js")), "d3.min.js");
         Assert.Equal("object", engine.Evaluate("typeof d3").AsString());
+    }
+
+    [Fact]
+    public void NativeChartBridgeDrawsIntoAFolioCanvas()
+    {
+        using var document = Folio.Document.Parse("<canvas id='plot' width='640' height='220'></canvas>",
+            new FolioOptions { Raster = new SkiaRasterBackend() });
+        using var engine = new NativeJavaScriptEngine();
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ChartBindings.Install(engine);
+
+        engine.Evaluate("new Chart(document.getElementById('plot'), { data: { labels: ['A','B','C'], datasets: [{ data: [2,4,3] }] } });");
+
+        var canvasElement = document.Node.Descendants.OfType<Folio.Dom.ElementNode>().Single(element => element.GetAttribute("id") == "plot");
+        var canvas = Assert.IsType<CanvasElementState>(canvasElement.CanvasSurface);
+        Assert.NotNull(canvas.Context2D);
+        Assert.NotNull(canvas.Snapshot());
     }
     [Fact]
     public void NativeCallHonorsThisReceiver()
