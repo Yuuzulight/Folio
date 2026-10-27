@@ -93,7 +93,7 @@ Current audit note: the interaction behavior, accessibility tree, incremental-eq
 - D6 diagram artifacts render through `Folio.Diagrams` without executing the diagram library.
 - Categories that miss their bar are documented and routed to the system browser by `ArtifactClassifier`.
 
-**Audit result (2026-10-27):** The dependency-backed D2–D7 corpus still passes 60/60, and the focused scripting, canvas, fetch, CSSOM, observer, library and JSX checks pass. However, a fresh 30-frame D5/D7 canvas benchmark misses the 16.7 ms p95 target for several artifacts (worst observed total p95 34.29 ms); issue #519 is reopened. Diagram tests pass through `Folio.Diagrams`, and the pinned library cache/integrity tests pass. The scripted-parity milestone remains open pending the frame-time gate, in addition to the mandatory Folio-owned script-engine replacement.
+**Audit result (2026-10-27):** The dependency-backed D2–D7 corpus still passes 60/60, and the focused scripting, canvas, fetch, CSSOM, observer, library and JSX checks pass. However, a fresh Release 30-frame D5/D7 canvas benchmark misses the 16.7 ms p95 target for several artifacts (worst observed total p95 43.13 ms); issue #519 is reopened. Diagram tests pass through `Folio.Diagrams`, and the pinned library cache/integrity tests pass. The scripted-parity milestone remains open pending the frame-time gate, in addition to the mandatory Folio-owned script-engine replacement.
 
 ## 6. Beyond artifacts
 
