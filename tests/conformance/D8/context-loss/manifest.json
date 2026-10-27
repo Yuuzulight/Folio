@@ -1,1 +1,1 @@
-{"prompt":"Render a WebGL scene that reports context loss and restoration to the user.","interaction":["wait 50","text #result context-ready"],"features":["script","webgl","context-lost","context-restored"],"viewport":800}
+{"prompt":"Render a WebGL scene that reports context loss and restoration to the user.","interaction":["wait 50","text #result context-ready","text #status restored"],"features":["script","webgl","context-lost","context-restored"],"viewport":800}
