@@ -316,7 +316,10 @@ public sealed class ComplexShaper : ITextShaper
         {
             var (rune, cluster) = orderedRunes[i];
             var code = rune.Value;
-            var glyph = face.GlyphFor(code);
+            // Hebrew localisation can select a script-specific glyph before
+            // mark anchors are read; keep this single-substitution step
+            // Folio-owned and leave contextual/ligature work to the gate.
+            var glyph = face.Substitute([face.GlyphFor(code)], "locl", "hebr")[0];
             glyphs.Add(glyph);
 
             var category = Rune.GetUnicodeCategory(rune);
