@@ -49,7 +49,7 @@ internal static class Targets
         new("webp", data => WebpDecoder.Decode(data, MaxPixels), () => Images("*.webp"), ["RIFF", "WEBP", "VP8L", "VP8 ", "VP8X", "ALPH", "ANMF"]),
         new("bmp", data => BmpDecoder.Decode(data, MaxPixels), BmpSeeds, ["BM", "BITMAP", "\0"]),
         new("ico", data => IcoDecoder.Decode(data, MaxPixels), IcoSeeds, ["\0\0\u0001\0", "PNG", "BM"]),
-        new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
+        new("font", Font, FontSeeds, ["wOFF", "wOF2", "OTTO", "CFF2", "true", "ttcf", "glyf", "loca", "hmtx", "cmap", "head", "hhea", "maxp"]),
         new("svg", Svg, SvgSeeds, ["<svg xmlns=\"http://www.w3.org/2000/svg\">", "</svg>", "<?xml version=\"1.0\"?>", "<!DOCTYPE svg [", "]>",
             "<![CDATA[", "]]>", "<!--", "&#x", "&amp;", "xmlns:x=\"", "<g>", "</g>", "<path d=\"", "M0 0", "A1 1 0 1 1", "C", "Z", " viewBox=\"",
             " preserveAspectRatio=\"", " transform=\"", "rotate(", "matrix(", "<text", "<tspan", " x=\"", " dx=\"", "%", "e9", "-", ".",
@@ -114,6 +114,15 @@ internal static class Targets
             return;
         face.Kerning(face.GlyphFor('A'), face.GlyphFor('V'));
         face.Substitute(face.GlyphFor('1'), "pnum tnum");
+        if (face.RawTable("CFF2") is not null)
+        {
+            using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96);
+            if (surface is not null)
+            {
+                var glyph = face.GlyphFor('A');
+                surface.Canvas.DrawGlyphs(face, 64, [glyph], [new System.Numerics.Vector2(8, 76)], new Paint(new Rgba(0, 0, 0, 1)));
+            }
+        }
     }
 
     private static IEnumerable<byte[]> BmpSeeds()
@@ -171,7 +180,8 @@ internal static class Targets
         var box = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioBox.ttf"));
         // The text font brings GPOS kerning (both pair adjustment formats) for the mutations to reach.
         var text = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
-        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text];
+        var cff2 = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.otf"));
+        return [box, WebFontWriter.Woff(box), WebFontWriter.Woff2(box), text, cff2];
     }
 
     private static void Css(byte[] data)
