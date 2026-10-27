@@ -11,6 +11,10 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 - Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
+- The focused native WebAssembly capability set passes 46/46, including the current
+  Wasmtime-backed native bridge, limits, imports/exports and lifecycle checks. This
+  is transition-path evidence only; it does not satisfy the required Folio-owned
+  Wasm replacement or dependency-removal gate.
 - These results verify the current compatibility paths and regressions only. They do not close the original M6 gates: complete WebGL 2/integer/volume conformance, continuous device-level media pacing and output, native-engine worker/Wasm execution, real permitted WebRTC capture/transport, isolated service-worker offline reopening, or equivalent non-Windows containment.
 
 ## Repairs verified during this audit
