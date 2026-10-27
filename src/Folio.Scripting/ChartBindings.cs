@@ -46,14 +46,14 @@ internal static class ChartBindings
                 }
                 context.textAlign = 'center';
                 context.textBaseline = 'top';
-                context.fillStyle = 'rgba(52,152,219,0.5)';
+                context.fillStyle = 'rgba(54,162,235,0.5)';
                 for (var j = 0; j < values.length; j++) {
                     var barHeight = (Number(values[j]) / max) * plotHeight;
                     context.fillRect(left + j * slot + slot * 0.15, top + plotHeight - barHeight, slot * 0.72, barHeight);
                     context.fillStyle = '#666';
                     var labels = config && config.data && config.data.labels;
                     context.fillText(labels && labels[j] ? String(labels[j]) : String(j), left + j * slot + slot * 0.5, top + plotHeight + 8);
-                    context.fillStyle = 'rgba(52,152,219,0.5)';
+                    context.fillStyle = 'rgba(54,162,235,0.5)';
                 }
                 return { destroy: function() {} };
             };
