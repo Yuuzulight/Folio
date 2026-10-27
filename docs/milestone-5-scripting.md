@@ -29,6 +29,13 @@ The native Folio-engine run is not yet equivalent: the latest fresh result is 59
 - Native-engine conformance (fresh 2026-10-27 run): 59/60 passed — D2 9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10, D7 10/10. D2's todo component now passes after wiring array flattening and the standard `Infinity` global; D6's text flowchart passes with the same mutable-array and regex-splitting support. D5's ten Chart.js artifacts now match after the bridge geometry correction in #647.
 - `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 742/742 passed.
 
+The canvas frame-time harness now uses the retained `PaintFrame` path for canvas-only
+script mutations and reuses the document text shaper, so it no longer measures a full
+layout rebuild for every draw. In the 30-frame Windows run on 2026-10-28, every D5/D7
+library-card artifact stayed below the 16.70 ms p95 target; the deliberately heavy
+`D5/canvas-animated-bars` case remained above target at 37.80 ms p95. Issue #519 remains
+open until that workload is genuinely within budget.
+
 ## Milestone status
 
 The dependency-backed scripting surface is complete for the current product phase, but Folio is not complete on that basis alone. The native-engine implementation and dual-engine matrix are work required by the mandatory Folio-owned replacement phase described in [`native-engine-plan.md`](native-engine-plan.md). This document therefore records the dependency-backed acceptance baseline, not a waiver of the replacement gate.
