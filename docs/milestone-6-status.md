@@ -22,6 +22,13 @@ native DOM append/remove and MessageChannel regressions remain green. This
 narrows #645 to native evaluator/Fiber host-commit semantics and does not relax
 the mandatory native replacement gate.
 
+Arabic shaping refresh (2026-10-28, commit `c3d9f83f`): Folio now applies the
+Arabic script's required GSUB `rlig` contextual records after its joining-form
+pass. Representative `سلام`, `لا` and `لم` cases match HarfBuzz, with 19/19
+focused shaping tests and 4,172/4,172 full Release tests passing. This is a
+targeted improvement only; the broader complex-shaping and replacement gates
+remain open.
+
 Native DOM prototype wiring refresh (2026-10-27, commit `c2e872e1`): the Folio-owned
 native engine now exposes the receiver-preserving `Node.prototype` traversal and
 mutation methods (`appendChild`, `insertBefore`, `removeChild`, `replaceChild`,
