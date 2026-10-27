@@ -57,6 +57,20 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void EvaluatesDefaultFunctionAndArrowParameters()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(15d, engine.Evaluate("function add(a=4,b=a+1){return a+b;} const scale=(value=3)=>value*2; return add() + scale();").AsNumber());
+    }
+
+    [Fact]
+    public void EvaluatesDestructuredArrowParameters()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(5d, engine.Evaluate("const sum=([a,b])=>a+b; return sum([2,3]);").AsNumber());
+    }
+
+    [Fact]
     public void ParsesReactDomErrorDecoderFunction()
     {
         using var engine = new NativeJavaScriptEngine();

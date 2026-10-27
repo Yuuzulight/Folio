@@ -801,7 +801,20 @@ internal sealed class JavaScriptEvaluator
             ["this"] = receiver,
             ["arguments"] = arguments.ToList(),
         };
-        for (var i = 0; i < function.Parameters.Count; i++) BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : UndefinedOrNull());
+        var parameterEvaluator = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded);
+        for (var i = 0; i < function.Parameters.Count; i++)
+        {
+            var parameter = function.Parameters[i];
+            if (parameter.StartsWith("...", StringComparison.Ordinal))
+            {
+                BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
+                break;
+            }
+            var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
+            var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
+            if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
+            BindParameter(local, parameter, value);
+        }
         return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
 
@@ -1051,8 +1064,20 @@ internal sealed class JavaScriptEvaluator
         object? InvokeBody(object? receiver, IReadOnlyList<object?> arguments)
         {
             var local = new Dictionary<string, object?>(StringComparer.Ordinal);
+            var parameterEvaluator = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), captured, this, _preserveUndefined, capturedWithScopes, _deadlineExceeded);
             for (var i = 0; i < function.Parameters.Count; i++)
-                BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : null);
+            {
+                var parameter = function.Parameters[i];
+                if (parameter.StartsWith("...", StringComparison.Ordinal))
+                {
+                    BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
+                    break;
+                }
+                var value = i < arguments.Count ? arguments[i] : null;
+                var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
+                if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
+                BindParameter(local, parameter, value);
+            }
             // Non-strict top-level/function calls receive the global object when
             // invoked without an explicit receiver. UMD libraries rely on this
             // for their `(function(){ ... })(this)` wrapper; method calls still
@@ -1151,7 +1176,20 @@ internal sealed class JavaScriptEvaluator
             }),
             ["arguments"] = arguments.ToList(),
         };
-            for (var i = 0; i < function.Parameters.Count; i++) BindParameter(local, function.Parameters[i], i < arguments.Count ? arguments[i] : UndefinedOrNull());
+        var parameterEvaluator = new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded);
+            for (var i = 0; i < function.Parameters.Count; i++)
+            {
+                var parameter = function.Parameters[i];
+                if (parameter.StartsWith("...", StringComparison.Ordinal))
+                {
+                    BindParameter(local, parameter[3..], arguments.Skip(i).ToArray());
+                    break;
+                }
+                var value = i < arguments.Count ? arguments[i] : UndefinedOrNull();
+                var defaultValue = function.DefaultValues is { } values && i < values.Count ? values[i] : null;
+                if ((i >= arguments.Count || value is UndefinedValue) && defaultValue is not null) value = parameterEvaluator.Evaluate(defaultValue);
+                BindParameter(local, parameter, value);
+            }
         return new JavaScriptEvaluator(local, Math.Max(1, _maxSteps - _steps), _bindings, this, _preserveUndefined, _withScopes, _deadlineExceeded).ExecuteFunctionBody(function.Body);
     }
 

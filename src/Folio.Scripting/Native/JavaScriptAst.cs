@@ -15,7 +15,8 @@ internal sealed record JavaScriptArrayExpression(IReadOnlyList<JavaScriptExpress
 internal sealed record JavaScriptSpreadExpression(JavaScriptExpression Operand) : JavaScriptExpression;
 internal sealed record JavaScriptIndexExpression(JavaScriptExpression Target, JavaScriptExpression Index) : JavaScriptExpression;
 internal sealed record JavaScriptObjectExpression(IReadOnlyList<(string Name, JavaScriptExpression Value)> Properties) : JavaScriptExpression;
-internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body) : JavaScriptExpression;
+internal sealed record JavaScriptFunctionExpression(IReadOnlyList<string> Parameters, IReadOnlyList<JavaScriptStatement> Body,
+    IReadOnlyList<JavaScriptExpression?>? DefaultValues = null) : JavaScriptExpression;
 internal sealed record JavaScriptClassMethod(string Name, bool Getter, bool Setter, bool Static, JavaScriptFunctionExpression Function);
 internal sealed record JavaScriptClassExpression(string? Name, string? Parent, IReadOnlyList<JavaScriptClassMethod> Methods) : JavaScriptExpression;
 
