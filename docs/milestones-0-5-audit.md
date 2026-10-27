@@ -28,7 +28,10 @@ dependency-backed product, while replacement of the dependency-backed scripting
 engine is a separate mandatory M7 requirement. M6 and M7 must not be inferred
 complete from this table.
 
-Historical repository-wide recheck on 2026-10-26 found no regressions in the
-verified pre-M6 milestone surfaces: the solution built successfully with one existing
-nullable warning in the benchmark project, and the complete Release solution test
-run passes 4,148 tests with zero failures and seven documented skips.
+The latest repository-wide recheck (2026-10-28) found no regressions in the
+verified pre-M6 milestone surfaces: the Release solution run discovers 4,178
+tests, with 4,171 succeeded, 0 failed, and 7 documented skips. The native
+conformance sweep is separately 59/60 for D2–D7; the only failure is the
+React/ReactDOM pantry artifact tracked by [#645](https://github.com/Yuuzulight/Folio/issues/645).
+These totals are evidence for the audited slices only and do not close the
+mandatory native replacement gate or the remaining M6 requirements.
