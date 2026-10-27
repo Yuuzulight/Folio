@@ -274,12 +274,12 @@ internal sealed class GsubSubstitution
         return _gsub.U16(subtable) switch
         {
             1 => (ushort)((glyph + _gsub.S16(subtable + 4)) & 0xFFFF),
-            2 when index < _gsub.U16(subtable + 4) => FirstMultiple(subtable, index),
+            2 when index < _gsub.U16(subtable + 4) => SingleReplacement(subtable, index),
             _ => null,
         };
     }
 
-    private ushort? FirstMultiple(int subtable, int index)
+    private ushort? SingleReplacement(int subtable, int index)
     {
         // SingleSubst format 2 stores the replacement glyph IDs inline, after
         // GlyphCount; unlike a multiple substitution table it has no offsets.
