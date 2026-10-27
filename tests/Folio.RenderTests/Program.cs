@@ -67,7 +67,9 @@ public static class Program
             var html = File.ReadAllText(Path.Combine(artifact.Folder, "index.html"));
             using var document = Document.Parse(html, Conformance.Options);
             document.Paint(Conformance.ManifestOf(artifact).Viewport, 600);
-            using var engine = new JintScriptEngine();
+            using var engine = string.Equals(Environment.GetEnvironmentVariable("FOLIO_CONFORMANCE_ENGINE"), "native", StringComparison.OrdinalIgnoreCase)
+                ? (IScriptEngine)new NativeJavaScriptEngine()
+                : new JintScriptEngine();
             var clock = new VirtualEventLoopClock();
             using var loop = new HtmlEventLoop(engine, clock);
             DomBindings.Install(engine, document, eventLoop: loop);

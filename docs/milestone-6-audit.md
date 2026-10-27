@@ -1,5 +1,16 @@
 # Milestone 6 acceptance audit — 2026-10-28
 
+## Canvas animation performance (#519)
+
+The frame harness supports both the compatibility engine and the Folio-native
+engine through `FOLIO_CONFORMANCE_ENGINE=native`, and reports per-artifact
+script/update, display-list, host-paint and total p95 timings. A fresh
+three-frame smoke run still exposes a real target miss in
+`D5/canvas-animated-bars` (about 56 ms total, almost all in script/update);
+the remaining D5/D7 artifacts are below 16.7 ms. The issue remains open pending
+optimization of that workload rather than being hidden by routing or a
+compatibility-only measurement.
+
 Milestone 6 is **not complete against its original issue scope**. Earlier closure and completion claims were premature. This audit retains the original requirements rather than defining completion as the existing bounded API surface.
 
 `Partial` means implemented behavior exists but does not prove the full acceptance; `Unverified` means the evidence is not strong enough to claim resolution. Only a later requirement-specific runtime check can change a row to verified. The table is a source/acceptance audit, not a claim that three complete review passes have already been performed for every issue.
