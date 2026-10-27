@@ -9,9 +9,10 @@ totals are historical snapshots.
 
 Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, and service-worker audit repairs: 4,167 tests discovered, 4,160 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
 
-This is the requirement-to-evidence index for the completed pre-M6 milestones. It
-does not waive the M6 acceptance audit or the mandatory Folio-owned replacement
-gate in [replacement-gate.md](replacement-gate.md).
+This is the requirement-to-evidence index for the pre-M6 milestone surfaces. It
+records the verified slices, but does not mark Milestone 5 complete while its
+frame-time gate remains open. It does not waive the M6 acceptance audit or the
+mandatory Folio-owned replacement gate in [replacement-gate.md](replacement-gate.md).
 
 | Milestone | Requirement group | Current evidence | Result |
 |---|---|---|---|
