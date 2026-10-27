@@ -266,14 +266,51 @@ internal sealed class SoftwareCanvas : ICanvas
 
     public void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
     {
-        if (font is FontFace colorFace && BitmapGlyphs.Has(colorFace))
+        if (font is FontFace colorFace && ColorGlyphs.Has(colorFace))
         {
-            DrawBitmapGlyphs(colorFace, size, glyphs, origins, paint);
+            DrawColorGlyphs(colorFace, size, glyphs, origins, paint);
+            return;
+        }
+        if (font is FontFace colorFace2 && BitmapGlyphs.Has(colorFace2))
+        {
+            DrawBitmapGlyphs(colorFace2, size, glyphs, origins, paint);
             return;
         }
         var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs, origins), _state.Transform);
         if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
             Draw(coverage, paint);
+    }
+
+    private void DrawColorGlyphs(FontFace face, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
+    {
+        var scale = size / face.UnitsPerEm;
+        var tolerance = FlattenTolerance / Math.Max(scale * Math.Max(Scale(), 1e-3f), 1e-6f);
+        for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
+        {
+            if (ColorGlyphs.Get(face, glyphs[i]) is not { } layers)
+                continue;
+            var origin = SnapToTextGrid(origins[i]);
+            foreach (var layer in layers)
+            {
+                if (Outline(face, layer.Glyph) is not { } path)
+                    continue;
+                var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(origin);
+                var subpaths = PathGeometry.Flatten(path, tolerance);
+                var points = new List<Subpath>(subpaths.Count);
+                foreach (var subpath in subpaths)
+                {
+                    var transformed = new Vector2[subpath.Points.Length];
+                    for (var k = 0; k < transformed.Length; k++)
+                        transformed[k] = Vector2.Transform(subpath.Points[k], matrix);
+                    points.Add(new Subpath(transformed, subpath.Closed));
+                }
+                if (Rasterizer.Fill(PathGeometry.Polygons(points, _state.Transform), FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
+                {
+                    var colour = layer.Color with { A = layer.Color.A * paint.Color.A };
+                    Draw(coverage, new Paint(colour, Blend: paint.Blend));
+                }
+            }
+        }
     }
 
     // Colour glyphs that are pictures: each bitmap scaled from its strike's size to the text's, placed by its bearings.

@@ -346,5 +346,15 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         Check("text 40px", c => c.DrawGlyphs(face, 40, glyphs, Origins(40).Select(o => o + new Vector2(0, 90)).ToArray(), Solid(0.1f, 0.1f, 0.6f)), mean: 3.0, over8: 0.10, over40: 0.02, background: White, width: 300, height: 128);
     }
 
+    [Fact]
+    public void DrawsBitmapColourGlyphs()
+    {
+        var face = Load("NotoColorEmoji.ttf");
+        var glyph = face.GlyphFor(0x1F600); // 😀, a CBDT/CBLC PNG glyph.
+        Assert.NotEqual((ushort)0, glyph);
+        Check("bitmap colour glyph", c => c.DrawGlyphs(face, 48, [glyph], [new Vector2(12, 58)], Solid(1, 1, 1)),
+            mean: 4.0, over8: 0.12, over40: 0.04, background: White, width: 96, height: 80);
+    }
+
     private static void White(ICanvas c) => c.FillRoundedRect(new RoundedRect(new RectF(0, 0, 1000, 1000), default), Solid(1, 1, 1));
 }
