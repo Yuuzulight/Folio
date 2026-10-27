@@ -22,6 +22,14 @@ native DOM append/remove and MessageChannel regressions remain green. This
 narrows #645 to native evaluator/Fiber host-commit semantics and does not relax
 the mandatory native replacement gate.
 
+Follow-up probe (2026-10-28): the committed Fiber has the expected `span`
+`stateNode`, the root container identity is preserved, and direct Promise,
+timer, and React Scheduler callbacks all execute. Wrapping native
+`Node.prototype.appendChild` and `insertBefore` still sees no host mutation
+during that React commit. This rules out event-loop starvation and ordinary
+DOM validity as the cause; #645 remains a native ReactDOM host-config dispatch
+failure until the real insertion path is observed and rendered pixels match.
+
 Arabic shaping refresh (2026-10-28, commit `c3d9f83f`): Folio now applies the
 Arabic script's required GSUB `rlig` contextual records after its joining-form
 pass. Representative `سلام`, `لا` and `لم` cases match HarfBuzz, with 19/19
