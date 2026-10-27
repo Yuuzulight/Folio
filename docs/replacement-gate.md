@@ -89,6 +89,12 @@ This is tracked in [#645](https://github.com/Yuuzulight/Folio/issues/645) and re
 required before the native engine can pass the React/JSX interaction artifact or
 the mandatory replacement gate.
 
+The Folio-owned software rasterizer also remains differential-only: the focused
+blur/filter suite passes 12/12, but the repository benchmark measured 318.7 ms
+versus Skia's 7.9 ms at 800x600 (40.4x slower), and 709.0 ms versus 15.3 ms at
+1920x1080 (46.3x slower). The production performance gate and backend cutover
+therefore remain open under issue #575.
+
 The post-change Release verification remains green across the repository suites:
 Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
 Scripting.Tests 1,369 discovered, 1,363 succeeded, with six documented software skips. These results verify
