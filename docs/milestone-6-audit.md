@@ -20,6 +20,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 - The latest complete Release solution passes 4,165 tests with 0 failures and 7 documented environment/software skips (4,172 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
+- A fresh native sweep also passes D1 2/2 and repeats D8–D14 at 34/34; these category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
 - The focused native WebAssembly capability set passes 46/46, including the current
