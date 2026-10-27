@@ -161,6 +161,20 @@ public class HarfBuzzShaperTests
     }
 
     [Fact]
+    public void ComplexShaperMatchesArabicRequiredContextualForms()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var direct = face.Substitute(new ushort[] { 37, 70, 9, 74 }, "rlig", "arab");
+        Assert.Equal(new ushort[] { 37, 71, 11, 74 }, direct);
+        foreach (var text in new[] { "سلام", "لا", "لم" })
+        {
+            var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+            Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        }
+    }
+
+    [Fact]
     public void MultipleHebrewMarksRemainOnTheComplexFallback()
     {
         var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;

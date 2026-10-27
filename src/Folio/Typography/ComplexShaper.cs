@@ -222,6 +222,21 @@ public sealed class ComplexShaper : ITextShaper
             previousMarkGlyph = null;
             previousMarkOffset = Vector2.Zero;
         }
+
+        // Arabic fonts commonly use required contextual substitutions after the
+        // joining-form pass (for example lam/alef rlig alternates). Apply only
+        // the script's required feature here; mark handling and advances remain
+        // Folio-owned and the HarfBuzz route remains the differential oracle.
+        if (glyphs.Count > 0)
+        {
+            var contextual = face.Substitute([.. glyphs], "rlig", "arab");
+            for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
+            {
+                if (contextual[i] == glyphs[i]) continue;
+                glyphs[i] = contextual[i];
+                advances[i] = face.Advance(contextual[i]) * scale;
+            }
+        }
     }
 
     private static int MapArabicPresentationForm(int code, ArabicForm form)
