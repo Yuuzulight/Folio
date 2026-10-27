@@ -312,7 +312,7 @@ public sealed class ScriptRunner : IDisposable
 
             scriptUrl = resolved;
 
-            if (IsChartLibrary(scriptUrl))
+            if (_engine is Folio.Scripting.Native.NativeJavaScriptEngine && IsChartLibrary(scriptUrl))
             {
                 if (!_chartStandInInstalled)
                 {
