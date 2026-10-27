@@ -34,7 +34,7 @@ Document/Element prototype refresh (2026-10-27, commit `a5e7e442`): the native
 engine now exposes the corresponding Folio-owned creation, query, attribute,
 event, focus and geometry methods on `Document.prototype` and `Element.prototype`.
 The native probe suite passes 10/10. The latest Release scripting suite passes
-1,363 of 1,369 discovered tests with 0 failures and 6 documented skips; this is additional interface
+1,390 executable tests with 0 failures and 6 documented skips; this is additional interface
 wiring, not a claim that React or the full native replacement gate is complete.
 
 Native service-worker budget correction (2026-10-27, commit `38bcefc`): trusted
