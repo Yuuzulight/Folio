@@ -254,8 +254,8 @@ internal sealed class SoftwareCanvas : ICanvas
         }
 
         private static long Estimate(PathData? path) => path is null
-            ? 1
-            : 64L + path.Commands.Count * 48L;
+            ? 128
+            : 256L + path.Commands.Count * 64L;
     }
 
     private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
