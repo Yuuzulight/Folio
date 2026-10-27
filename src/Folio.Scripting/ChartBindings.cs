@@ -15,7 +15,10 @@ internal static class ChartBindings
                 var width = canvas.width || 300;
                 var height = canvas.height || 150;
                 canvas.style.height = '213px';
-                var left = 30;
+                // Match Chart.js' default chart-area inset. The canvas border and
+                // y-axis reserve two additional device-independent pixels before
+                // category slots begin.
+                var left = 32;
                 var right = 0;
                 var top = 10;
                 var bottom = 30;
@@ -53,8 +56,8 @@ internal static class ChartBindings
                 context.fillStyle = 'rgba(54,162,235,0.5)';
                 for (var j = 0; j < values.length; j++) {
                     var barHeight = (Number(values[j]) / max) * plotHeight;
-                    var edgeAdjust = j == 0 ? -1 : -2;
-                    var widthAdjust = j == 0 ? 1 : 2;
+                    var edgeAdjust = -2;
+                    var widthAdjust = 0;
                     context.fillRect(left + j * slot + slot * 0.15 + edgeAdjust, top + plotHeight - barHeight, slot * 0.72 + widthAdjust, barHeight);
                     context.fillStyle = '#666';
                     var labels = config && config.data && config.data.labels;
