@@ -226,7 +226,10 @@ ship intermediate dependency-backed implementations while the replacements are
 being built, but Folio itself is complete only after all five replacement tracks below
 are selected by production and their superseded dependencies are removable.
 
-**Current status (2026-10-26):** the production Skia path now selects
+**Current status (2026-10-28):** the latest Release build and direct M1–M6
+acceptance suites pass. Native D2–D7 remains 59/60 because React host
+reconciliation is still open in #645, and the mandatory replacement gate remains
+open. The production Skia path now selects
 `HybridShaper`, which routes provably simple runs through Folio's own shaper and
 keeps HarfBuzz as the complex-script oracle. Folio's GPOS mark-to-base/mark-to-mark
 parser has direct differential coverage; proven Hebrew base runs and isolated marks use
