@@ -7,6 +7,8 @@ namespace Folio.Scripting.Tests;
 
 public sealed class FeatureFallbackBindingsTests
 {
+    public static bool IsWindows => OperatingSystem.IsWindows();
+
     [Fact]
     public void WebGlDenialIsTypedAndRegrantClearsIt()
     {
@@ -21,7 +23,7 @@ public sealed class FeatureFallbackBindingsTests
         Assert.Equal(new FeatureFallback(FallbackFeature.WebGl, FallbackReason.GraphicsUnavailable), canvas.Fallback);
     }
 
-    [Fact]
+    [Fact(Skip = "The WebGL context-loss backend is Windows-native.", SkipUnless = nameof(IsWindows))]
     public void WebGlContextLossAndRestoreAreReportedAtTheTransition()
     {
         using var engine = new JintScriptEngine();
