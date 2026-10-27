@@ -147,6 +147,20 @@ public class HarfBuzzShaperTests
     }
 
     [Fact]
+    public void ComplexShaperUsesArabicMarkAnchorsForIsolatedTashkeel()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var text = "سَ";
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
+
+    [Fact]
     public void MultipleHebrewMarksRemainOnTheComplexFallback()
     {
         var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
