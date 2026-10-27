@@ -64,7 +64,7 @@ public class ArtifactClassifierTests
     [InlineData("<img srcset=\"data:image/png;base64,AA== 1x, big.png 2x\">", "loads an image these options do not allow")]
     [InlineData("<style>@import url(\"https://fonts.example.com/css\");</style>", "loads a stylesheet these options do not allow")]
     [InlineData("<div style=\"background: url(bg.jpg)\"></div>", "loads an image these options do not allow")]
-    [InlineData("<img src=\"data:image/gif;base64,R0lGOD==\">", "uses an image format Folio does not decode: image/gif")]
+    [InlineData("<img src=\"data:image/avif;base64,AA==\">", "uses an image format Folio does not decode: image/avif")]
     [InlineData("<svg><defs><pattern id=p /></defs><rect fill=\"url(#p)\" /></svg>", "uses SVG <pattern>")]
     [InlineData("<svg><filter id=f><feImage href=\"#r\" /></filter><rect id=r filter=\"url(#f)\" /></svg>", "uses an SVG <feImage> of an element")]
     [InlineData("<svg><foreignObject><p>x</p></foreignObject></svg>", "uses SVG <foreignObject>")]
@@ -240,6 +240,21 @@ public class ArtifactClassifierTests
 
         Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
         Assert.Contains(result.Reasons, reason => reason.Contains("Chart.js", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("image/gif")]
+    [InlineData("image/webp")]
+    [InlineData("image/bmp")]
+    [InlineData("image/x-icon")]
+    [InlineData("image/svg+xml")]
+    public void BuiltInImageFormatsStayInFolio(string mime)
+    {
+        var html = $"<img src=\"data:{mime};base64,AA==\">";
+        var result = ArtifactClassifier.Classify(html);
+
+        Assert.Equal(ArtifactKind.Static, result.Kind);
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("image format", StringComparison.Ordinal));
     }
 
     [Fact]

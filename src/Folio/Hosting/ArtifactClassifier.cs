@@ -36,7 +36,7 @@ public sealed record ArtifactClassification(ArtifactKind Kind, IReadOnlyList<str
 /// <item>a milestone-6 feature whose backend is incomplete or whose host capability is not granted;</item>
 /// <item>a resource the options' loader would refuse: stylesheets, images, scripts, <c>@import</c> and CSS
 ///   <c>url()</c>s other than <c>data:</c> URLs (the only loads the default options allow);</item>
-/// <item>images in formats Folio does not decode (anything but PNG and JPEG);</item>
+/// <item>images in formats Folio does not decode (PNG, JPEG, GIF, WebP, BMP, ICO and SVG are decoded);</item>
 /// <item>elements Folio draws only as empty boxes: MathML, <c>video</c>, <c>audio</c>, <c>iframe</c>,
 ///   <c>object</c>, <c>embed</c>; and <c>popover</c> content, which browsers hide;</item>
 /// <item>SVG (inline or a standalone SVG document) beyond shapes, paths, text, gradients, clip paths, masks, filters
@@ -135,6 +135,14 @@ public static class ArtifactClassifier
         // ponytail: assumes these are the property's initial value, true for nearly every property authors reset this
         // way (appearance: none is the known exception); a per-property initial value table would be exact.
         private static readonly HashSet<string> NoOpValues = ["none", "normal", "auto", "initial", "unset", "0"];
+
+        // Keep classifier routing aligned with ImageLoader's actual built-in decoders. A
+        // supported data URL must not be sent to the browser merely because it is not PNG/JPEG.
+        private static readonly HashSet<string> SupportedImageTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+            "image/x-ms-bmp", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"
+        };
 
         public void Run()
         {
@@ -386,7 +394,7 @@ public static class ArtifactClassifier
                 return; // an empty URL loads nothing; #id points into the document (SVG references)
             if (!Loadable(url))
                 Load(url, "an image");
-            else if (!DataUrl.TryParse(url, out _, out var type) || type is not ("image/png" or "image/jpeg"))
+            else if (!DataUrl.TryParse(url, out _, out var type) || !SupportedImageTypes.Contains(type))
                 Unsupported.Add($"uses an image format Folio does not decode: {(type.Length > 0 ? type : "unknown")}");
         }
 
