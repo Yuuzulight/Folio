@@ -53,4 +53,19 @@ public sealed class ShapingDifferentialTests
         broken[0] += 1;
         Assert.NotEqual(oracle.Advances, broken);
     }
+
+    [Theory]
+    [InlineData("Noto Sans Arabic", "السَّلَامُ عَلَيْكُمْ", "Arabic")]
+    [InlineData("Noto Sans JP", "こんにちは世界", "CJK")]
+    public void ComplexScriptsRemainOnTheOracleUntilTheirGateIsProven(string family, string text, string script)
+    {
+        var face = Fonts.Value.Match(family, FaceStyle.Normal, 400, 100)!;
+        Assert.False(SimpleShaper.CanShape(text, face), $"{script} unexpectedly bypassed the replacement gate.");
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: script == "Arabic", language: script == "Arabic" ? "ar" : null);
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: script == "Arabic", language: script == "Arabic" ? "ar" : null);
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
+    }
 }

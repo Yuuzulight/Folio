@@ -65,9 +65,11 @@ gates.
 
 The shaping replacement now also has a checked-in differential probe covering
 Latin, digits, Greek, Cyrillic, Latin-extended and Hebrew-base runs, plus a
-deliberately perturbed kerning value that the report detects (7 focused tests).
-This is still only the proven simple-run corpus for #561; the complete per-script
-corpus and complex-script routing work remain open.
+deliberately perturbed kerning value that the report detects. Two explicit
+Arabic/CJK cases also prove complex runs remain on the HarfBuzz oracle until
+their gates are met (9 focused tests total). This is still only the proven
+simple-run corpus for #561; the complete per-script corpus and complex-script
+routing work remain open.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
 data URLs for GIF, WebP, BMP, ICO and SVG remain in Folio alongside PNG/JPEG,
