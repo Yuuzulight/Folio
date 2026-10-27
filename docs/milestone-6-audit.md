@@ -26,6 +26,10 @@ rows. These checks confirm that the audited fixes did not regress the covered
 surfaces; they do not promote any of the explicitly partial rows below to
 complete.
 
+The full serialized Release solution runner then passed 4,174 tests with zero
+failures and seven documented skips (4,181 discovered), including benchmarks,
+core tests, render tests, scripting tests, WinForms tests and fuzz tests.
+
 - The latest complete Release solution passes 4,171 tests with 0 failures and 7 documented environment/software skips (4,178 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
