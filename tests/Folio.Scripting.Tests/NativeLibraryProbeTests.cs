@@ -6,6 +6,14 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeLibraryProbeTests
 {
     [Fact]
+    public void ProbeD3Library()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate(File.ReadAllText(Path.Combine(root, "d3.min.js")), "d3.min.js");
+        Assert.Equal("object", engine.Evaluate("typeof d3").AsString());
+    }
+    [Fact]
     public void NativeCallHonorsThisReceiver()
     {
         using var engine = new NativeJavaScriptEngine();
