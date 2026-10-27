@@ -11,7 +11,7 @@ public sealed class Milestone5AcceptanceTests
         Assert.Contains("dependency-backed compatibility baseline passes", document, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("native Folio-engine run is not yet equivalent", document, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("mandatory Folio-owned", document, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("46/60", document, StringComparison.Ordinal);
+        Assert.Contains("47/60", document, StringComparison.Ordinal);
     }
 
     [Theory]

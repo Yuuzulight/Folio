@@ -748,6 +748,18 @@ internal sealed class JavaScriptEvaluator
         {
             if (name == "toString")
                 return (Func<IReadOnlyList<object?>, object?>)(args => StringValue(target));
+            if (name == "toFixed")
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var digits = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, 100) : 0;
+                    return Number(target).ToString($"F{digits}", CultureInfo.InvariantCulture);
+                });
+            if (name == "toLocaleString")
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    return number.ToString(number == Math.Truncate(number) ? "N0" : "N", CultureInfo.InvariantCulture);
+                });
         }
         if (target is string stringValue && TryStringMethod(stringValue, name, out var stringMethod)) return stringMethod;
         if (target is RegexValue regex && regex.TryGetProperty(name, out var regexMethod)) return regexMethod;
@@ -914,6 +926,7 @@ internal sealed class JavaScriptEvaluator
             "unshift" => (Func<IReadOnlyList<object?>, object?>)(args => { for (var i = args.Count - 1; i >= 0; i--) values.Insert(0, args[i]); return (double)values.Count; }),
             "splice" => (Func<IReadOnlyList<object?>, object?>)(args => Splice(values, args)),
             "map" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: false)),
+            "flatMap" => (Func<IReadOnlyList<object?>, object?>)(args => FlatMap(values, args)),
             "filter" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: true)),
             "forEach" => (Func<IReadOnlyList<object?>, object?>)(args => { _ = Map(values, args, filter: false, discard: true); return null; }),
             "reduce" => (Func<IReadOnlyList<object?>, object?>)(args => Reduce(values, args)),
@@ -1013,6 +1026,19 @@ internal sealed class JavaScriptEvaluator
             if (!filter || Truth(mapped)) result.Add(filter ? values[i] : mapped);
         }
         return discard ? [] : result.ToArray();
+    }
+
+    private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
+    {
+        if (args.Count == 0 || !IsCallable(args[0])) return [];
+        var result = new List<object?>();
+        for (var i = 0; i < values.Count; i++)
+        {
+            TryInvoke(args[0], [values[i], (double)i, values], out var mapped);
+            if (mapped is IEnumerable<object?> nested) result.AddRange(nested);
+            else result.Add(mapped);
+        }
+        return result.ToArray();
     }
 
     private static object? Reduce(IList<object?> values, IReadOnlyList<object?> args)

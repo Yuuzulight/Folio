@@ -73,6 +73,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
                 return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToArray();
             }),
+            ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
+                return values.SelectMany((value, index) =>
+                {
+                    var mapped = InvokeCallable(args[0], [value, (double)index, values]);
+                    return mapped is IEnumerable<object?> nested ? nested : [mapped];
+                }).ToArray();
+            }),
         };
         arrayConstructor.SetProperty("prototype", arrayPrototype);
         _bindings["Array"] = arrayConstructor;

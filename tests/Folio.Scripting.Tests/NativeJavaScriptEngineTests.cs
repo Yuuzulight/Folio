@@ -106,6 +106,8 @@ public sealed class NativeJavaScriptEngineTests
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal("ab", engine.Evaluate("return String.fromCharCode.call(null,97,98);").AsString());
         Assert.Equal("2|4", engine.Evaluate("return Array.prototype.map.call([1,2], x => x * 2).join('|');").AsString());
+        Assert.Equal("1|2|2|3", engine.Evaluate("return [1,2].flatMap(x => [x,x+1]).join('|');").AsString());
+        Assert.Equal(20d, engine.Evaluate("return Math.max(...[{values:[1,2],scale:10},{values:[3],scale:1}].flatMap(s => s.values.map(v => v * (s.scale || 1))));").AsNumber());
         Assert.Equal("Symbol:x|Symbol.iterator", engine.Evaluate("return Symbol('x')+'|'+Symbol.iterator;").AsString());
     }
 
