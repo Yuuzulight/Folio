@@ -154,7 +154,7 @@ Original acceptance:
 
 **Partial.** Evidence: `tests/conformance/D8: 6 manifests`.
 
-Artifact count and interaction evidence are now met: all six D8 manifests assert context/framebuffer/scene setup, and the particle/shader controls are exercised; D8 passes 6/6. Full scene/GLSL goldens, context-loss interaction and animation-performance evidence remain separate acceptance work in #529–#531.
+Artifact count and interaction evidence are now met: all six D8 manifests assert context/framebuffer/scene setup, and the particle/shader controls are exercised; D8 passes 6/6. The context-loss artifact now performs a real `WEBGL_lose_context` loss/restore cycle and asserts the restored callback in the native run. Full scene/GLSL goldens and animation-performance evidence remain separate acceptance work in #529–#531.
 
 Original acceptance:
 
