@@ -234,6 +234,10 @@ public sealed class ComplexShaper : ITextShaper
         List<(Rune Rune, int Index)> runes, FontFace face, float scale,
         List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
     {
+        ushort? previousBaseGlyph = null;
+        ushort? previousMarkGlyph = null;
+        var previousMarkOffset = Vector2.Zero;
+
         for (var i = 0; i < runes.Count; i++)
         {
             var (rune, cluster) = runes[i];
@@ -245,15 +249,39 @@ public sealed class ComplexShaper : ITextShaper
             var category = Rune.GetUnicodeCategory(rune);
             if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark)
             {
-                // Hebrew mark (Niqqud): advance = 0, placed over/under preceding consonant
+                // Hebrew mark (Niqqud): advance = 0, placed using the face's GPOS
+                // mark-to-base or mark-to-mark anchor. Mark-to-mark offsets are
+                // relative to the preceding mark, so retain the accumulated offset.
                 advances.Add(0f);
-                offsets.Add(Vector2.Zero);
+                var markOffset = previousMarkGlyph is { } previousMark
+                    ? face.MarkToMarkOffset(previousMark, glyph)
+                    : previousBaseGlyph is { } previousBase
+                        ? face.MarkOffset(previousBase, glyph)
+                        : null;
+                if (markOffset is { } position)
+                {
+                    var offset = new Vector2(position.X * scale, -position.Y * scale);
+                    if (previousMarkGlyph is not null)
+                        offset += previousMarkOffset;
+                    offsets.Add(offset);
+                    previousMarkOffset = offset;
+                }
+                else
+                {
+                    offsets.Add(Vector2.Zero);
+                    previousMarkOffset = Vector2.Zero;
+                }
+                previousMarkGlyph = glyph;
             }
             else
             {
                 advances.Add(face.Advance(glyph) * scale);
                 offsets.Add(Vector2.Zero);
+                previousBaseGlyph = glyph;
+                previousMarkGlyph = null;
+                previousMarkOffset = Vector2.Zero;
             }
         }
     }
+
 }
