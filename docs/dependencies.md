@@ -232,9 +232,10 @@ reconciliation is still open in #645, and the mandatory replacement gate remains
 open. The production Skia path now selects
 `HybridShaper`, which routes provably simple runs through Folio's own shaper and
 keeps HarfBuzz as the complex-script oracle. Folio's GPOS mark-to-base/mark-to-mark
-parser has direct differential coverage; proven Hebrew base runs and isolated marks use
-the Folio path, while multiple-mark and complex Hebrew runs remain on HarfBuzz
-until script-specific ordering and kerning parity is proven. Arabic shaping, Indic and
+parser has direct differential coverage; the Folio complex shaper now matches the
+bundled Hebrew base, isolated-mark and selected RTL multi-mark cases, while production
+multiple-mark and complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
+GSUB and kerning parity is proven. Arabic shaping, Indic and
 South-East Asian scripts, and the differential corpus remain outstanding. The
 rasteriser and JavaScript engine are still dependency-backed. The
 Folio-owned JavaScript replacement has now started with a bounded lexer and
