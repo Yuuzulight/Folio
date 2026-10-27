@@ -17,6 +17,9 @@ public sealed class ShapingDifferentialTests
     {
         { "Source Sans 3", "The quick brown fox, AVATAR", "Latin" },
         { "Folio Box", "1234", "Latin digits" },
+        { "Source Sans 3", "Γειά σου Κόσμε", "Greek" },
+        { "Source Sans 3", "Привет, мир", "Cyrillic" },
+        { "Source Sans 3", "Ångström — naïve", "Latin extended" },
         { "Noto Sans Hebrew", "שלום", "Hebrew base" },
     };
 

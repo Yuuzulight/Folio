@@ -63,10 +63,11 @@ D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
 
-The shaping replacement now also has a checked-in four-case differential probe
-covering proven Latin, digit and Hebrew-base runs, plus a deliberately perturbed
-kerning value that the report detects. This is the first corpus slice for #561;
-the complete per-script corpus and complex-script routing work remain open.
+The shaping replacement now also has a checked-in differential probe covering
+Latin, digits, Greek, Cyrillic, Latin-extended and Hebrew-base runs, plus a
+deliberately perturbed kerning value that the report detects (7 focused tests).
+This is still only the proven simple-run corpus for #561; the complete per-script
+corpus and complex-script routing work remain open.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
 data URLs for GIF, WebP, BMP, ICO and SVG remain in Folio alongside PNG/JPEG,
