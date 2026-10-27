@@ -82,4 +82,17 @@ public sealed class ShapingDifferentialTests
         Assert.Equal(expected.Clusters, actual.Clusters);
         Assert.Equal(expected.Advances, actual.Advances);
     }
+
+    [Fact]
+    public void PerScriptSwitchDoesNotForceMixedRunsThroughOneScriptPath()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        const string text = "hello سلام";
+        var switched = new HybridShaper(new HashSet<string>(StringComparer.Ordinal) { "Arabic" });
+        var actual = switched.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+    }
 }
