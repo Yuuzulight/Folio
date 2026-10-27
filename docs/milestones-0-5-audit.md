@@ -7,7 +7,7 @@ Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 4,147 tests with 0 failures and 7 documented skips (4,154 discovered). Earlier
 totals are historical snapshots.
 
-Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, service-worker, and native glyph-cache audit work: 4,171 tests discovered, 4,164 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
+Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, service-worker, native glyph-cache, and Arabic GSUB audit work: 4,172 tests discovered, 4,165 succeeded, 0 failed, and 7 documented skips. Earlier counts below are historical snapshots.
 
 This is the requirement-to-evidence index for the pre-M6 milestone surfaces. It
 records the verified slices, but does not mark Milestone 5 complete while its
