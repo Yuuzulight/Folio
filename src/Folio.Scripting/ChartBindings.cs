@@ -35,7 +35,11 @@ internal static class ChartBindings
                     context.lineTo(width, gy);
                     context.stroke();
                     context.fillStyle = '#666';
-                    context.fillText(tick.toFixed(1), left - 4, gy);
+                    // Chart.js formats the zero baseline as an integer while retaining
+                    // one decimal place for fractional ticks (for example `0`, `0.5`,
+                    // `1.0`). Keeping this distinction matters to the reference-backed
+                    // native D5 chart artifacts as well as to human-readable axes.
+                    context.fillText(tick == 0 ? '0' : tick.toFixed(1), left - 4, gy);
                 }
                 for (var grid = 0; grid <= values.length; grid++) {
                     var gx = left + grid * slot;
