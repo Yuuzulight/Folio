@@ -77,9 +77,14 @@ public static class Program
             loop.UpdateTheRendering();
             using var bitmap = new SKBitmap(new SKImageInfo(artifact.Category == "D5" ? 800 : 800, 600, SKColorType.Bgra8888, SKAlphaType.Premul));
             using var canvas = new SKCanvas(bitmap);
+            var shaper = new HarfBuzzShaper();
             DisplayList BuildFrame()
             {
-                return document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, new HarfBuzzShaper()).List;
+                // Canvas scripts mutate the backing surface without changing layout. Reuse the
+                // retained layout/display-list path so this gate measures a frame update rather
+                // than rebuilding the entire document tree on every canvas draw.
+                return document.PaintFrame(clock.NowMs / 1000d)
+                    ?? document.Paint(Conformance.ManifestOf(artifact).Viewport, 600, 1, shaper).List;
             }
             void Replay(DisplayList displayList)
             {
