@@ -306,7 +306,7 @@ internal sealed class SoftwareCanvas : ICanvas
                 }
                 if (Rasterizer.Fill(PathGeometry.Polygons(points, _state.Transform), FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
                 {
-                    var colour = layer.Color with { A = layer.Color.A * paint.Color.A };
+                    var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A };
                     Draw(coverage, new Paint(colour, Blend: paint.Blend));
                 }
             }

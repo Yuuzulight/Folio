@@ -6,7 +6,7 @@ namespace Folio.Painting.Software;
 /// <summary>Layered colour glyphs from the OpenType COLR v0 and CPAL tables.</summary>
 internal static class ColorGlyphs
 {
-    internal readonly record struct Layer(ushort Glyph, Rgba Color);
+    internal readonly record struct Layer(ushort Glyph, Rgba? Color);
 
     private sealed class Palette
     {
@@ -70,9 +70,9 @@ internal static class ColorGlyphs
                 var l = layerOffset + 4 * (first + j);
                 var layerGlyph = colr.U16(l);
                 var paletteIndex = colr.U16(l + 2);
-                if (paletteIndex >= records)
+                if (paletteIndex != 0xFFFF && paletteIndex >= records)
                     throw new InvalidDataException("CPAL palette index out of bounds.");
-                layers[j] = new Layer(layerGlyph, palette[paletteIndex]);
+                layers[j] = new Layer(layerGlyph, paletteIndex == 0xFFFF ? null : palette[paletteIndex]);
             }
             result.Glyphs[glyph] = layers;
         }
