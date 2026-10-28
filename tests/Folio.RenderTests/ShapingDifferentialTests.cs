@@ -55,7 +55,6 @@ public sealed class ShapingDifferentialTests
     }
 
     [Theory]
-    [InlineData("Noto Sans Arabic", "السَّلَامُ عَلَيْكُمْ", "Arabic")]
     [InlineData("Noto Sans JP", "こんにちは世界", "CJK")]
     public void ComplexScriptsRemainOnTheOracleUntilTheirGateIsProven(string family, string text, string script)
     {
@@ -118,6 +117,20 @@ public sealed class ShapingDifferentialTests
         const string text = "שָׁלוֹם לכולם";
         var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
         var expected = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+        Assert.Equal(expected.Advances, actual.Advances);
+        Assert.Equal(expected.Offsets, actual.Offsets);
+    }
+
+    [Fact]
+    public void DefaultHybridShaperUsesTheProvenArabicFolioPath()
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        const string text = "السَّلَامُ عَلَيْكُمْ";
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var expected = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
 
         Assert.Equal(expected.Glyphs, actual.Glyphs);
         Assert.Equal(expected.Clusters, actual.Clusters);

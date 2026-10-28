@@ -5,8 +5,8 @@ namespace Folio.Skia;
 /// <summary>
 /// Selects Folio's own simple shaper when the font and text satisfy its proof conditions, and
 /// delegates complex scripts to HarfBuzz until their Folio-owned replacements reach differential
-/// parity. Hebrew is now a proven Folio-owned complex path; the decision is per run, so a paragraph
-/// can mix both paths safely.
+/// parity. Hebrew and Arabic are now proven Folio-owned complex paths; the decision is per run, so a
+/// paragraph can mix both paths safely.
 /// </summary>
 public sealed class HybridShaper : ITextShaper
 {
@@ -14,7 +14,7 @@ public sealed class HybridShaper : ITextShaper
     private readonly IReadOnlySet<string> _folioOwnedScripts;
 
     /// <summary>
-    /// Creates the hybrid shaper. By default the proven Hebrew complex path and scripts accepted by
+    /// Creates the hybrid shaper. By default the proven Hebrew and Arabic complex paths and scripts accepted by
     /// <see cref="SimpleShaper.CanShape"/> use Folio's implementation. A script name in
     /// <paramref name="folioOwnedScripts"/> forces that script through Folio's implementation for
     /// staged promotion of another script.
@@ -22,7 +22,7 @@ public sealed class HybridShaper : ITextShaper
     public HybridShaper(IReadOnlySet<string>? folioOwnedScripts = null)
     {
         _folioOwnedScripts = folioOwnedScripts is null
-            ? new HashSet<string>(["Hebrew"], StringComparer.Ordinal)
+            ? new HashSet<string>(["Arabic", "Hebrew"], StringComparer.Ordinal)
             : new HashSet<string>(folioOwnedScripts, StringComparer.Ordinal);
     }
 
