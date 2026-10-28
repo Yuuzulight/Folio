@@ -47,6 +47,12 @@ or a partial Folio implementation is progress, never completion.
 
 ## Verification refresh — 2026-10-30
 
+The latest audit head (`9f417579`) bulk-fills integral opaque RGBA rectangles
+in the Folio-owned software canvas. `SoftwareRasterTests` remains green at
+37/37. A short Release benchmark measured typical software replay at 66.0 ms
+at 800×600 and 49.2 ms at 1920×1080; these noisy measurements are evidence of
+progress only and do not satisfy the default-backend performance gate.
+
 The current audit head (`fc431f5b`) adds an exact opaque normal-source-over
 fast path to the Folio-owned compositor. `SoftwareRasterTests` remains green
 at 37/37. A fresh Release benchmark measured software replay at approximately
