@@ -150,13 +150,13 @@ internal static class ColorGlyphs
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var glyph = colr.U16(offset + 4);
         var index = colr.U16(childOffset + 1);
-        if (colr.U8(childOffset) == 2)
+        if (colr.U8(childOffset) is 2 or 3)
         {
             if (index == 0xFFFF) return [new Layer(glyph, null)];
             if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
             return [new Layer(glyph, color)];
         }
-        if (colr.U8(childOffset) is 4 or 6 or 8 && PaintGradient(colr, childOffset, palette, records) is { } gradient)
+        if (colr.U8(childOffset) is 4 or 5 or 6 or 7 or 8 or 9 && PaintGradient(colr, childOffset, palette, records) is { } gradient)
             return [new Layer(glyph, gradient.Stops[0].Color, Gradient: gradient)];
         return null;
     }
@@ -165,7 +165,7 @@ internal static class ColorGlyphs
     {
         // PaintLinearGradient/PaintRadialGradient: format, ColorLine offset and FWORD geometry.
         var colorLine = checked(offset + ReadU24(colr, offset + 1));
-        if (colr.U8(offset) is not (4 or 6 or 8) || colorLine < 0 || colorLine + 3 > colr.Length)
+        if (colr.U8(offset) is not (4 or 5 or 6 or 7 or 8 or 9) || colorLine < 0 || colorLine + 3 > colr.Length)
             return null;
         var stops = ReadColorStops(colr, colorLine, palette, records, out var spread);
         if (stops is null) return null;
@@ -173,7 +173,7 @@ internal static class ColorGlyphs
         var y0 = colr.S16(offset + 6);
         var x1 = colr.S16(offset + 8);
         var y1 = colr.S16(offset + 10);
-        if (colr.U8(offset) == 8)
+        if (colr.U8(offset) is 8 or 9)
         {
             // COLR angles are counter-clockwise from +X in the font design grid;
             // GradientShader uses clockwise canvas angles from the top. Preserve
@@ -184,7 +184,7 @@ internal static class ColorGlyphs
             return new Gradient(GradientKind.Conic, stops, spread,
                 Center: new Vector2(x0, y0), StartAngle: shaderStart, EndAngle: shaderStart + end - start);
         }
-        if (colr.U8(offset) == 6)
+        if (colr.U8(offset) is 6 or 7)
         {
             var r0 = Math.Max(0, (int)colr.S16(offset + 12));
             var r1 = Math.Max(0, (int)colr.S16(offset + 14));
@@ -348,7 +348,7 @@ internal static class ColorGlyphs
 
     private static Rgba? PaintSolid(FontData colr, int offset, Rgba[] palette, int records)
     {
-        if (colr.U8(offset) != 2) return null;
+        if (colr.U8(offset) is not (2 or 3)) return null;
         var index = colr.U16(offset + 1);
         var alpha = Math.Clamp(colr.S16(offset + 3) / 16384f, 0, 1);
         if (index == 0xFFFF) return null;

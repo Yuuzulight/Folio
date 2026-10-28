@@ -379,6 +379,15 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1VarSolid(ushort glyph)
+    {
+        var colr = SyntheticColrV1(glyph);
+        Array.Resize(ref colr, 60);
+        colr[50] = 3; // PaintVarSolid; default-instance alpha follows the base value.
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(55), 0); // variation index
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1Translated(ushort glyph)
     {
         var colr = new byte[68];
@@ -585,6 +594,22 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
             "The synthetic COLR v1 PaintGlyph did not render its CPAL color.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableSolidAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1VarSolid(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The synthetic COLR v1 PaintVarSolid did not render its default-instance CPAL color.");
     }
 
     [Fact]
