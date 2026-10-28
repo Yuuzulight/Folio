@@ -52,8 +52,8 @@ passes 4,185 tests with 0 failures and 7 documented skips (4,192 discovered).
 The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
 4,066,722 mutations respectively with zero failures. These are progress and
 safety evidence, not completion: HybridShaper still routes complex scripts to
-HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the production
-JavaScript engine, and Wasmtime remains part of the native WebAssembly path.
+HarfBuzz, rasterisation still uses SkiaSharp, and Jint remains the production JavaScript engine;
+Wasmtime remains part of the native WebAssembly path.
 The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
