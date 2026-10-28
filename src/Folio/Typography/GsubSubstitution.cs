@@ -415,7 +415,10 @@ internal sealed class GsubSubstitution
 
     private bool ApplyContext(ushort[] glyphs, int position, int type, int subtable, int depth)
     {
-        if (_gsub.U16(subtable) != 3) return false;
+        var format = _gsub.U16(subtable);
+        if (format == 1 && type == 5)
+            return ApplyContextFormat1(glyphs, position, type, subtable, depth);
+        if (format != 3) return false;
         var cursor = subtable + 2;
         var backtrack = Array.Empty<int>();
         if (type == 6)
@@ -459,6 +462,44 @@ internal sealed class GsubSubstitution
                 changed |= ApplyLookup(glyphs, position + sequenceIndex, referencedLookup, depth);
         }
         return changed;
+    }
+
+    private bool ApplyContextFormat1(ushort[] glyphs, int position, int type, int subtable, int depth)
+    {
+        var coverage = subtable + _gsub.U16(subtable + 2);
+        var setIndex = CoverageIndex(coverage, glyphs[position]);
+        if (setIndex < 0) return false;
+        var setCount = _gsub.U16(subtable + 4);
+        if ((uint)setIndex >= setCount) return false;
+        var setOffset = _gsub.U16(subtable + 6 + 2 * setIndex);
+        if (setOffset == 0) return false;
+        var set = subtable + setOffset;
+        var ruleCount = _gsub.U16(set);
+        for (var r = 0; r < ruleCount; r++)
+        {
+            var ruleOffset = _gsub.U16(set + 2 + 2 * r);
+            if (ruleOffset == 0) continue;
+            var rule = set + ruleOffset;
+            var cursor = rule + 2;
+            var inputCount = _gsub.U16(rule);
+            var substCount = _gsub.U16(cursor); cursor += 2;
+            if (inputCount == 0 || position + inputCount > glyphs.Length) continue;
+            var matches = true;
+            for (var i = 1; i < inputCount; i++)
+                if (glyphs[position + i] != _gsub.U16(cursor + 2 * (i - 1))) { matches = false; break; }
+            if (!matches) continue;
+            cursor += 2 * Math.Max(0, inputCount - 1);
+            var changed = false;
+            for (var i = 0; i < substCount; i++, cursor += 4)
+            {
+                var sequenceIndex = _gsub.U16(cursor);
+                var referencedLookup = _gsub.U16(cursor + 2);
+                if (sequenceIndex < inputCount)
+                    changed |= ApplyLookup(glyphs, position + sequenceIndex, referencedLookup, depth + 1);
+            }
+            return changed;
+        }
+        return false;
     }
 
     // The feature indices of the Latin script's default language system, else the default script's.
