@@ -37,7 +37,7 @@ scope now wired for native inline handlers.
 
 - The latest complete Release solution passes 4,177 tests with 0 failures and 7 documented environment/software skips (4,184 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
-- Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 34/34. These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
+- Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 30/30 (32/32 combined). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - Compatibility D2–D7 remains 60/60. Native D2–D7 is 59/60: D3–D7 are 10/10 and the only failure is `D2/pantry-react-jsx`. PR #651 resolved its detached-root/labeled-control-flow and event-bubbling failures; the remaining mismatch is the React state-update hook dispatcher (`g.current.useState`), tracked in #645.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
