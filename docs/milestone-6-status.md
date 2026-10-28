@@ -21,8 +21,11 @@ Native canvas transform refresh (2026-10-27): the Folio-owned native engine now
 implements `DOMMatrix` and `DOMMatrixReadOnly` multiplication, mutating
 translate/scale/rotate, inversion, 2D/4x4 aliases and serialization. The focused
 native regression covers transform composition and inverse readback; this closes
-the DOMMatrix API slice without changing the still-open native React and broader
-M6 backend gates.
+the DOMMatrix API slice without changing the broader M6 backend gates.
+
+The React host-commit traces below are historical diagnostics from before the
+labeled-break and scheduler fixes. Current native D2–D7 conformance passes
+60/60, including the React hook/state rerender and nested-deletion interaction.
 
 Native React host-commit audit refresh (2026-10-27): a minimal Folio-owned
 `ReactDOM.createRoot(...).render(React.createElement('span', ...))` reproduction
@@ -61,7 +64,7 @@ engine now exposes the corresponding Folio-owned creation, query, attribute,
 event, focus and geometry methods on `Document.prototype` and `Element.prototype`.
 The native probe suite passes 10/10. The latest Release scripting suite passes
 1,390 executable tests with 0 failures and 6 documented skips; this is additional interface
-wiring, not a claim that React or the full native replacement gate is complete.
+wiring, not a claim that the full native replacement gate is complete.
 
 Native service-worker budget correction (2026-10-27, commit `38bcefc`): trusted
 cache/fetch bindings and bootstrap scripts are installed before the worker
@@ -77,10 +80,9 @@ Native evaluator audit refresh (2026-10-27): commits `efb5e38`, `5149847`,
 receiver-aware `Object.prototype.toString` and `hasOwnProperty`, detached
 function binding, descriptors for host/callable/array/buffer values, and a
 callable/constructible `Object` global. The focused native scripting suite is
-green at 68/68. This does not close the React acceptance artifact:
-`D2/pantry-react-jsx` still fails its initial interaction because the React
-root remains empty, so the reconciliation/shared-internals requirement stays
-open under issue #645.
+green at 68/68. This was an intermediate probe; the React acceptance artifact
+is now green in the current native D2–D7 run and issue #645 is closed. The
+broader native engine replacement gate remains open under #579.
 
 Current native service-worker conformance correction (2026-10-27): D14 now passes 3/3 on the native engine after fixing the reopened-page response bridge; the Jint compatibility engine also passes D14 3/3. The service-worker corpus gate is green on both engines, but the broader native service-worker backend, interruption, and sandbox requirements below remain open; the historical claims below must not be read as completion evidence for those requirements.
 
@@ -88,7 +90,7 @@ Latest full Release verification (2026-10-28): 4,193 passed, 0 failed, 7 documen
 
 Historical snapshot (2026-10-27): after the native evaluator and WebAssembly bridge repairs, a complete Release solution passed 4,147 tests (0 failed, 7 documented skips; 4,154 discovered). That run also included worker, WebAssembly, WebRTC, iframe and service-worker content-process sandbox coverage. These results proved the covered subsets only; the remaining native backend, interruption and routing requirements remain open. The 2026-10-28 refresh at the top supersedes this count.
 
-Latest solution verification after native service-worker controller interception, typed-array bridge coverage, worker-scope isolation, native worker message delivery, imported native funcref/externref bridging, brokered worker isolation, typed page-function table bridging, iframe allowlist parsing, native-engine timeout enforcement, host capture-provider wiring, GPU-reset coverage, iframe message-source/target/port coverage, media autoplay/clock coverage, reviewed media goldens, starvation-safe host loading, transactional WebGL texture/renderbuffer reservations, retained media-frame budget accounting, transform-feedback capture/readback plus next-draw round trip, signed and unsigned integer vertex-attribute input, signed integer 2D/3D/2D-array texture sampling, `UNPACK_FLIP_Y_WEBGL` upload handling, pack row/skip readback controls and `clients.claim()` controller wiring in both engines: 4,191 passed, 0 failed, 7 documented skips, 4,198 discovered. The current scripting suite passes 1,401/1,407, with six documented software-backend skips.
+Latest solution verification after native service-worker controller interception, typed-array bridge coverage, worker-scope isolation, native worker message delivery, imported native funcref/externref bridging, brokered worker isolation, typed page-function table bridging, iframe allowlist parsing, native-engine timeout enforcement, host capture-provider wiring, GPU-reset coverage, iframe message-source/target/port coverage, media autoplay/clock coverage, reviewed media goldens, starvation-safe host loading, transactional WebGL texture/renderbuffer reservations, retained media-frame budget accounting, transform-feedback capture/readback plus next-draw round trip, signed and unsigned integer vertex-attribute input, signed integer 2D/3D/2D-array texture sampling, `UNPACK_FLIP_Y_WEBGL` upload handling, pack row/skip readback controls and `clients.claim()` controller wiring in both engines: 4,193 passed, 0 failed, 7 documented skips, 4,200 discovered. The current scripting suite passes 1,401/1,407, with six documented software-backend skips.
 
 The native service-worker path now proves actual controller interception of a document resource, including response construction, one-shot body consumption, typed-array byte extraction, and content-type propagation. Native service-worker scripts execute in a separate `NativeJavaScriptEngine` with a separate promise queue; response and message bridges return typed data to the page. Revocation retires that engine and regrant creates a fresh one. The native evaluator no longer evaluates member-call targets twice, its typed-array constructors and `slice()` implementation provide the byte-source behavior required by fetch and service-worker responses, and the worker wrapper no longer falls back to page bindings. Regressions prove page-only globals are unavailable inside a worker fetch handler and that an isolated worker can receive and reply to a page message. Broker-backed content processes now use the same isolated worker runtime for lifecycle, fetch and message dispatch while cache writes cross the storage boundary safely. The capture path now has a host-owned provider/session seam with real RGBA frame delivery, asynchronous in-process and hosted-process sample/revocation events, polling, teardown, and immediate host-revocation tests. The native WebAssembly bridge now preserves externref identity for imports and null externref globals. Host GPU/device-reset hooks now invalidate and restore granted WebGL contexts while retiring old objects. Iframe message-source and target identity are now covered in both directions. The current scripting suite passes 1,401/1,407 with six documented software-backend skips; the latest complete Release verification is 4,198 discovered, 4,191 succeeded, 0 failed and 7 documented skips. This is a completed M6 implementation slice; the milestone remains open for the native backends listed in the issue audit.
 

@@ -108,8 +108,10 @@ The native D5 chart
 bridge now renders all ten Chart.js artifacts within the reference tolerance;
 the React hooks interaction artifact now passes. These residual results are not
 accepted as full replacement parity.
-The native matrix now clears the aggregate M5 category bar, but it cannot select
-the native engine as Folio's production engine until the React artifact passes.
+The native matrix now clears the aggregate M5 category bar, including the React
+hooks interaction artifact. This removes the React-specific blocker; the native
+engine still cannot replace Jint until the complete engine, sandbox and
+dependency-removal gates pass.
 
 The earlier reproducible library bootstrap and host-commit failures are resolved:
 the staged parser executes the cached minified React/ReactDOM sources, labeled
@@ -120,9 +122,9 @@ blocker is broader Folio-owned replacement, not React host-parent selection. The
 focused MessageChannel, placement and bubbling regressions pass.
 
 The script runner now forwards uncaught timer, animation-frame and promise-job
-exceptions into document diagnostics. This makes the React host-commit failure
-actionable (`NotFoundError` is reported as an event-loop script error) without
-weakening DOM mutation validity.
+exceptions into document diagnostics. This historical diagnostic helped expose
+the React host-commit failure; current native D2–D7 conformance passes 60/60 and
+the DOM mutation validity checks remain strict.
 
 The UMD repair landed in `a0d2877`: native non-strict calls without an explicit
 receiver bind `this` to the global object. Subsequent native engine work also
