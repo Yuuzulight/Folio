@@ -148,8 +148,8 @@ the mandatory replacement gate.
 
 The Folio-owned software rasterizer also remains differential-only: the focused
 blur/filter and glyph suite passes 19/19. After the SIMD blur pass, the latest
-repository benchmark measured 77.1 ms versus Skia's 6.2 ms at 800x600 (12.5x
-slower), and 173.7 ms versus 14.8 ms at 1920x1080 (11.7x slower). The
+repository benchmark measured 77.5 ms versus Skia's 7.0 ms at 800x600 (11.1x
+slower), and 195.1 ms versus 13.5 ms at 1920x1080 (14.4x slower). The
 production performance gate and backend cutover therefore remain open under
 issue #575.
 
