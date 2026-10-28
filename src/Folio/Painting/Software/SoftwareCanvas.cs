@@ -730,9 +730,18 @@ internal sealed class SoftwareCanvas : ICanvas
                 var a = content.Data[i + 3];
                 if (a == 0 && blend is BlendMode.Normal or BlendMode.PlusLighter or BlendMode.DestinationOver)
                     continue;
+                var parentOffset = ((y - layer.ParentBounds.Top) * layer.Parent.Width + (x - layer.ParentBounds.Left)) * 4;
+                // Normal source-over with a fully opaque source and no clip mask is
+                // an exact replacement. Avoid constructing a Vector4 and entering
+                // the general compositor for the common opaque layer case.
+                if (a == 255 && opacity >= 1f && blend == BlendMode.Normal && layer.Saved.ClipMask is null)
+                {
+                    content.Data.AsSpan(i, 4).CopyTo(layer.Parent.Data.AsSpan(parentOffset, 4));
+                    continue;
+                }
                 var source = new Vector4(content.Data[i], content.Data[i + 1], content.Data[i + 2], a) / 255f * opacity;
                 var mask = layer.Saved.ClipMask is { } m ? m[(y - layer.Saved.Clip.Top) * layer.Saved.Clip.Width + (x - layer.Saved.Clip.Left)] / 255f : 1f;
-                Compositor.Blend(layer.Parent.Data, ((y - layer.ParentBounds.Top) * layer.Parent.Width + (x - layer.ParentBounds.Left)) * 4, source, mask, blend);
+                Compositor.Blend(layer.Parent.Data, parentOffset, source, mask, blend);
             }
         }
         Restore();
