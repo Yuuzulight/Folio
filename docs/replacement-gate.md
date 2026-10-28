@@ -103,6 +103,12 @@ evidence, not a gate pass.
 
 ## Verification refresh — 2026-10-30
 
+Fresh Release benchmark evidence (`Folio.Benchmarks bench 3 20`) still fails
+the production raster gate: the Folio-owned software backend replays the
+typical dashboard at 63.7 ms median versus Skia's 7.2 ms at 800x600, and 46.0
+ms versus 15.3 ms at 1920x1080. Busy-dashboard paint-only p95 is 24.2 ms
+against the 8.0 ms typical target. #575 therefore remains open.
+
 The replacement gate remains open. The latest complete serialized Release
 verification passes 4,255 of 4,258 discovered tests with 0 failures and three
 documented skips. The CSSOM fuzz harness now retains and replays a mutation
