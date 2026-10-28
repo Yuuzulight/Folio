@@ -191,13 +191,25 @@ internal static class Rasterizer
         if (bounds.IsEmpty)
             return null;
         var data = new byte[bounds.Width * bounds.Height];
+        var interiorLeft = Math.Max(bounds.Left, (int)MathF.Ceiling(minX));
+        var interiorRight = Math.Min(bounds.Right, (int)MathF.Floor(maxX));
         for (var y = bounds.Top; y < bounds.Bottom; y++)
         {
             var vertical = MathF.Min(y + 1, maxY) - MathF.Max(y, minY);
             if (vertical <= 0)
                 continue;
             var row = (y - bounds.Top) * bounds.Width;
-            for (var x = bounds.Left; x < bounds.Right; x++)
+            var full = (byte)Math.Clamp((int)MathF.Round(MathF.Min(1, vertical) * 255), 0, 255);
+            if (interiorRight > interiorLeft)
+                Array.Fill(data, full, row + interiorLeft - bounds.Left, interiorRight - interiorLeft);
+
+            for (var x = bounds.Left; x < Math.Min(interiorLeft, bounds.Right); x++)
+            {
+                var horizontal = MathF.Min(x + 1, maxX) - MathF.Max(x, minX);
+                if (horizontal > 0)
+                    data[row + x - bounds.Left] = (byte)Math.Clamp((int)MathF.Round(MathF.Min(1, horizontal * vertical) * 255), 0, 255);
+            }
+            for (var x = Math.Max(interiorRight, bounds.Left); x < bounds.Right; x++)
             {
                 var horizontal = MathF.Min(x + 1, maxX) - MathF.Max(x, minX);
                 if (horizontal > 0)
