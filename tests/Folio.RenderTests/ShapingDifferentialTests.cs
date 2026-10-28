@@ -111,6 +111,20 @@ public sealed class ShapingDifferentialTests
         Assert.Equal(expected.Offsets, actual.Offsets);
     }
 
+    [Fact]
+    public void DefaultHybridShaperUsesTheProvenHebrewFolioPath()
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        const string text = "שָׁלוֹם לכולם";
+        var actual = new HybridShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var expected = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+        Assert.Equal(expected.Advances, actual.Advances);
+        Assert.Equal(expected.Offsets, actual.Offsets);
+    }
+
     [Theory]
     [InlineData("سلام")]
     [InlineData("لا")]
