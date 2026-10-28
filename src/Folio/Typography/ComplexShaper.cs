@@ -211,6 +211,46 @@ public sealed class ComplexShaper : ITextShaper
                 expanded.Add((rune, cluster, decomposition[j], false, true));
         }
 
+        // Re-run contextual GSUB on the base-only view as well. Arabic lookup
+        // flags frequently use ignoreMarks; presenting the base sequence
+        // directly lets Folio honor those contexts without treating a
+        // transparent tashkeel glyph as a required adjacent input.
+        var basePositions = expanded
+            .Select((item, index) => (item, index))
+            .Where(pair => !pair.item.Transparent && !pair.item.Auxiliary)
+            .Select(pair => pair.index)
+            .ToArray();
+        if (basePositions.Length > 0)
+        {
+            var baseGlyphs = basePositions.Select(index => expanded[index].Glyph).ToArray();
+            var substitutedBases = face.Substitute(baseGlyphs, "ccmp locl rlig liga", "arab");
+            for (var i = 0; i < basePositions.Length; i++)
+                expanded[basePositions[i]] = expanded[basePositions[i]] with { Glyph = substitutedBases[i] };
+        }
+
+        // A few Arabic fonts use ccmp/rlig ligatures for marked sequences
+        // (for example superscript-alef plus kasra). Collapse those spans
+        // before positioning so the Folio path retains HarfBuzz's glyph
+        // stream while preserving the source cluster and mark class.
+        var ligatureGlyphs = face.SubstituteLigatures(expanded.Select(item => item.Glyph).ToArray(), "ccmp rlig liga", "arab");
+        var ligatureChanged = ligatureGlyphs.Length != expanded.Count;
+        for (var index = 0; !ligatureChanged && index < ligatureGlyphs.Length; index++)
+            ligatureChanged = ligatureGlyphs[index].Glyph != expanded[index].Glyph;
+        if (ligatureChanged)
+        {
+            var collapsed = new List<(Rune Rune, int Index, ushort Glyph, bool Transparent, bool Auxiliary)>(ligatureGlyphs.Length);
+            foreach (var ligature in ligatureGlyphs)
+            {
+                var sourceStart = Math.Clamp(ligature.SourceStart, 0, expanded.Count - 1);
+                var sourceLength = Math.Clamp(ligature.SourceLength, 1, expanded.Count - sourceStart);
+                var source = expanded[sourceStart];
+                var transparent = true;
+                for (var j = 0; j < sourceLength; j++) transparent &= expanded[sourceStart + j].Transparent;
+                collapsed.Add((source.Rune, source.Index, ligature.Glyph, transparent, source.Auxiliary));
+            }
+            expanded = collapsed;
+        }
+
         for (var i = 0; i < expanded.Count; i++)
         {
             var (rune, cluster, mappedGlyph, transparent, auxiliary) = expanded[i];
@@ -293,7 +333,7 @@ public sealed class ComplexShaper : ITextShaper
         if (glyphs.Count > 0)
         {
             var contextual = glyphs.ToArray();
-            contextual = face.Substitute(contextual, "locl rlig calt liga", "arab");
+            contextual = face.Substitute(contextual, "ccmp locl rlig calt liga", "arab");
             for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
             {
                 if (contextual[i] == glyphs[i]) continue;

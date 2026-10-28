@@ -92,7 +92,7 @@ gate are met.
 
 The same bundled-font evidence is reproducible without the test runner:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
--- shaping-differential` reports eighteen proven text runs plus a deliberate
+-- shaping-differential` reports twenty-four proven text runs plus a deliberate
 kerning perturbation check. This is the checked-in harness evidence for #561;
 system-font coverage and the remaining complex-script corpus are still required
 before any additional script switch can be turned off.
