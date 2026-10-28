@@ -227,7 +227,7 @@ being built, but Folio itself is complete only after all five replacement tracks
 are selected by production and their superseded dependencies are removable.
 
 **Current status (2026-10-28):** the latest Release build and direct M1–M6
-acceptance suites pass. Native D2–D7 remains 59/60 because React host
+acceptance suites pass. Native D2–D7 now passes 60/60, including the React host
 reconciliation is still open in #645, and the mandatory replacement gate remains
 open. The production Skia path now selects
 `HybridShaper`, which routes provably simple runs through Folio's own shaper and

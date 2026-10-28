@@ -59,13 +59,14 @@ path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
 The latest Release build succeeds from `Folio.slnx` (4,177 passed, 0 failed,
-7 documented skips). The native D2–D7 probe remains 59/60: all library-card
-and canvas artifacts pass, while `D2/pantry-react-jsx` now mounts its React tree
+7 documented skips). The native D2–D7 probe now passes 60/60: all library-card
+and canvas artifacts pass, including `D2/pantry-react-jsx`, which now mounts and
 and reaches the click handler. Native `var` declarations are now hoisted across
 conditional scheduler branches (commit `c08da8bb`), fixing the previous
 dispatcher-binding corruption. The remaining failure is a spec-correct
 `NotFoundError` during React reconciliation: React asks `#root.removeChild(li)`
-while the `li` is actually attached under its `ul`; this is tracked by #645.
+while the `li` is actually attached under its `ul`; this historical diagnosis
+was resolved by labeled-break propagation in commit `b37a1f44`.
 The canvas frame benchmark now has an
 explicit native-engine mode. In the current compatibility-engine 30-frame run,
 every library-card artifact and the snake game are below 16.7 ms p95, but
@@ -76,7 +77,7 @@ acceptance evidence; native D2–D7 parity remains tracked separately.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
-the native D2–D7 matrix now passes 59/60 (D2 9/10, D3 10/10, D4 10/10, D5 10/10,
+the native D2–D7 matrix now passes 60/60 (D2–D7 each 10/10; D5 remains 10/10,
 D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
@@ -95,11 +96,11 @@ while unsupported formats such as AVIF still route to the browser. The supported
 format matrix is covered by `ArtifactClassifierTests.BuiltInImageFormatsStayInFolio`.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 59/60: D2
+gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 60/60: D2
 9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10 and D7 10/10. The native D5 chart
 bridge now renders all ten Chart.js artifacts within the reference tolerance;
-the remaining native parity failure is the React hooks interaction artifact,
-tracked in #645. These residual results are not accepted as full parity.
+the React hooks interaction artifact now passes. These residual results are not
+accepted as full replacement parity.
 The native matrix now clears the aggregate M5 category bar, but it cannot select
 the native engine as Folio's production engine until the React artifact passes.
 
@@ -108,8 +109,8 @@ the staged parser executes the cached minified React/ReactDOM sources, labeled
 control flow is implemented, DOM event bubbling works across host wrappers, and
 `createRoot(...).render(...)` produces the expected DOM tree. Function-scoped
 `var` hoisting fixes the shared-internals scheduler binding; the remaining
-blocker is reconciliation host-parent selection during a nested component
-deletion. The focused MessageChannel, placement and bubbling regressions pass.
+blocker is broader Folio-owned replacement, not React host-parent selection. The
+focused MessageChannel, placement and bubbling regressions pass.
 
 The script runner now forwards uncaught timer, animation-frame and promise-job
 exceptions into document diagnostics. This makes the React host-commit failure
