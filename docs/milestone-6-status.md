@@ -21,14 +21,14 @@ all 14 jobs. This closes a fuzz-harness false positive, not any of the open
 native backend or replacement gates below.
 
 Full serialized Release verification (2026-10-30) passes
-4,257 of 4,258 discovered tests with zero failures and one environment-dependent
+4,259 of 4,260 discovered tests with zero failures and one environment-dependent
 skip (local symbolic-link privilege). The software canvas now exports and
 round-trips JPEG through Folio's own baseline encoder, removing the former
 JPEG-specific skip. This is repository-wide regression evidence; it does not close the
 original M6 backend, device, process-isolation or M7 replacement requirements.
 
 Verification refresh (2026-10-30): the serialized `Folio.Scripting.Tests` runner
-passes 1,408 total tests with zero failures and no skips. This is a current
+passes 1,410 total tests with zero failures and no skips. This is a current
 scripting regression result;
 the native backend, device/transport, containment and mandatory replacement
 requirements below remain open.

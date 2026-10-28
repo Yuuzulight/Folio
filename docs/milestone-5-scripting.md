@@ -1,6 +1,6 @@
 # Milestone 5 scripting results
 
-Verification refresh (2026-10-30): the focused M5 acceptance suites remain green, including the dependency-backed D2–D7 conformance baseline, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The latest complete serialized Release solution run passes 4,257 of 4,258 discovered tests with 0 failures and 1 environment-dependent skip (symbolic-link privilege). Folio's software canvas now exports and round-trips JPEG through its own baseline encoder; the former JPEG-specific skip is gone. Native-engine parity is reported separately below and remains incomplete.
+Verification refresh (2026-10-30): the focused M5 acceptance suites remain green, including the dependency-backed D2–D7 conformance baseline, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The latest complete serialized Release solution run passes 4,259 of 4,260 discovered tests with 0 failures and 1 environment-dependent skip (symbolic-link privilege). Folio's software canvas now exports and round-trips JPEG through its own baseline encoder; the former JPEG-specific skip is gone. Native-engine parity is reported separately below and remains incomplete.
 
 This document records the current M5 implementation and verification baseline.
 

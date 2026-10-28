@@ -6,8 +6,8 @@ issues are closed. M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
-The latest full serialized Release verification (2026-10-30) passes 4,258
-discovered, 4,257 succeeded, zero failed and one environment-dependent skip
+The latest full serialized Release verification (2026-10-30) passes 4,260
+discovered, 4,259 succeeded, zero failed and one environment-dependent skip
 (the local symbolic-link privilege limitation). The software-canvas JPEG
 follow-up is complete: Folio's own baseline encoder now round-trips through
 the Folio decoder and the scripting suite has no skips.
