@@ -503,6 +503,13 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1VarLinearGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1LinearGradient(glyph);
+        colr[56] = 5; // PaintVarLinearGradient; zero variation indices use base geometry.
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1SweepGradient(ushort glyph)
     {
         var colr = SyntheticColrV1LinearGradient(glyph);
@@ -719,6 +726,19 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
         Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableLinearGradientAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1VarLinearGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.Equal(GradientKind.Linear, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
     }
 
     [Fact]
