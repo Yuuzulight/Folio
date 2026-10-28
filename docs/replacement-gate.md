@@ -133,10 +133,11 @@ required before the native engine can pass the React/JSX interaction artifact or
 the mandatory replacement gate.
 
 The Folio-owned software rasterizer also remains differential-only: the focused
-blur/filter suite passes 12/12, but the latest repository benchmark measured
-85.5 ms versus Skia's 8.6 ms at 800x600 (10.0x slower), and 190.6 ms versus
-15.9 ms at 1920x1080 (12.0x slower). The production performance gate and
-backend cutover therefore remain open under issue #575.
+blur/filter and glyph suite passes 19/19. After the SIMD blur pass, the latest
+repository benchmark measured 77.1 ms versus Skia's 6.2 ms at 800x600 (12.5x
+slower), and 173.7 ms versus 14.8 ms at 1920x1080 (11.7x slower). The
+production performance gate and backend cutover therefore remain open under
+issue #575.
 
 Arabic GSUB progress (2026-10-28, commits `c3d9f83f` and `7c152852`): the Folio-owned shaper now
 selects the Arabic script's required `rlig` feature and applies format-3
