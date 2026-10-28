@@ -417,6 +417,23 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1Scale(ushort glyph)
+    {
+        var colr = new byte[76];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 16; colr[45] = 0; colr[46] = 0; colr[47] = 12; // PaintScale -> PaintGlyph
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(48), 0x6000);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(50), 0x6000);
+        colr[56] = 10; colr[57] = 0; colr[58] = 0; colr[59] = 6;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(60), glyph);
+        colr[62] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(63), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(65), 0x4000);
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1LinearGradient(ushort glyph)
     {
         // PaintGlyph -> PaintLinearGradient with two CPAL stops and a horizontal
@@ -585,6 +602,23 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var redXs = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
         Assert.NotEmpty(redXs);
         Assert.True(redXs.Min() > 28, $"The COLR v1 PaintTransform wrapper did not move the glyph (min x={redXs.Min()}).");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1ScalePaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Scale(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        var red = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
+        Assert.NotEmpty(red);
+        Assert.True(red.Max() - red.Min() > 20, "The COLR v1 PaintScale wrapper did not preserve a scaled glyph width.");
     }
 
     [Fact]
