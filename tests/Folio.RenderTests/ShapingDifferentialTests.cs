@@ -139,6 +139,13 @@ public sealed class ShapingDifferentialTests
         var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
         Assert.Equal(oracle.Glyphs, actual.Glyphs);
         Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets.Length, actual.Offsets.Length);
+        for (var i = 0; i < oracle.Offsets.Length; i++)
+        {
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].X - actual.Offsets[i].X), 0, 0.001f);
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].Y - actual.Offsets[i].Y), 0, 0.001f);
+        }
     }
 
     [Theory]

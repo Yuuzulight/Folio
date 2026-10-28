@@ -15,9 +15,8 @@ This is the checked-in evidence for the mandatory shaping replacement track
 - Hebrew base text
 - Hebrew niqqud words (`שלום`, `בראשית`, `מלכה`)
 - Arabic promotion-switch routing through `ComplexShaper`
-- Arabic extended corpus glyph/cluster parity (`العربية لغة جميلة`,
-  `مَرْحَبًا بِكُمْ`, `اللغة العربية`, `فلسطين`); advance and offset parity
-  for these extended runs remains open
+- Arabic extended corpus parity (`العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`,
+  `اللغة العربية`, `فلسطين`), with advances exact and offsets within 0.001
 - Hebrew promotion-switch routing through `ComplexShaper`
 - mixed-script safety (a promoted script cannot capture an entire mixed run)
 - deliberate kerning perturbation detection
@@ -33,10 +32,9 @@ The promotion switch does not claim parity. It is a controlled harness switch
 for a script under review; production routing remains unchanged until the
 script's corpus is identical in glyphs, clusters, advances, and offsets.
 
-The current broader Arabic probe still differs for ordinary corpus samples
-including `العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`, `اللغة العربية`, and `فلسطين`,
-and requires additional cursive-attachment and mark corpus coverage.
-Those differences are recorded on [#563](https://github.com/Yuuzulight/Folio/issues/563),
+The broader Arabic probe still requires additional ordinary-word, cursive-
+attachment and mark corpus coverage beyond these promoted samples. Those
+remaining differences are recorded on [#563](https://github.com/Yuuzulight/Folio/issues/563),
 so Arabic remains on the HarfBuzz oracle in production.
 
 ## Gate interpretation

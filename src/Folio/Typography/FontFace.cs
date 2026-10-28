@@ -279,6 +279,9 @@ internal sealed class FontFace : IFontHandle
     public int Kerning(ushort left, ushort right) =>
         _gposKerning?.Kerning(left, right) ?? _kerning.GetValueOrDefault(((uint)left << 16) | right);
 
+    /// <summary>Pair-position x-placement adjustment for the right glyph, in font units.</summary>
+    public int PairPlacement(ushort left, ushort right) => _gposKerning?.Placement(left, right) ?? 0;
+
     /// <summary>Returns a mark offset relative to the preceding base glyph, in font units.</summary>
     public (int X, int Y)? MarkOffset(ushort baseGlyph, ushort markGlyph) => _gposMarks?.Offset(baseGlyph, markGlyph);
 

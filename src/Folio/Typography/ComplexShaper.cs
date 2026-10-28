@@ -263,9 +263,23 @@ public sealed class ComplexShaper : ITextShaper
             glyphs.Add(mappedGlyph);
             clusters.Add(cluster);
             advances.Add(face.Advance(mappedGlyph) * scale);
-            offsets.Add(Vector2.Zero);
             if (auxiliary)
+            {
+                var auxiliaryOffset = previousBaseGlyph is { } baseGlyph
+                    ? face.MarkOffset(baseGlyph, mappedGlyph)
+                    : null;
+                var offset = auxiliaryOffset is { } position
+                    ? new Vector2(position.X * scale, -position.Y * scale)
+                    : Vector2.Zero;
+                offsets.Add(offset);
+                if (auxiliaryOffset is not null)
+                {
+                    previousMarkGlyph = mappedGlyph;
+                    previousMarkOffset = offset;
+                }
                 continue;
+            }
+            offsets.Add(Vector2.Zero);
             previousBaseGlyph = mappedGlyph;
             previousBaseCluster = cluster;
             previousMarkGlyph = null;
@@ -287,12 +301,31 @@ public sealed class ComplexShaper : ITextShaper
                 advances[i] = face.Advance(contextual[i]) * scale;
             }
 
+            // Arabic GPOS pair positioning also ignores transparent marks and
+            // decomposed dot components. Apply the pair adjustment to the
+            // preceding base advance after the final glyph sequence is known.
+            for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
+            {
+                if (expanded[i].Transparent || expanded[i].Auxiliary)
+                    continue;
+                var units = face.Advance(contextual[i]);
+                for (var next = i + 1; next < contextual.Length && next < expanded.Count; next++)
+                {
+                    if (expanded[next].Transparent || expanded[next].Auxiliary)
+                        continue;
+                    units += face.Kerning(contextual[i], contextual[next]);
+                    break;
+                }
+                advances[i] = units * scale;
+            }
+
             // Contextual substitutions can change the base glyph used by a
             // mark anchor. Recompute Arabic mark offsets against the final
             // glyph sequence rather than retaining pre-substitution anchors.
             ushort? finalBaseGlyph = null;
             ushort? finalMarkGlyph = null;
             var finalMarkOffset = Vector2.Zero;
+            var finalBaseOffset = Vector2.Zero;
             for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
             {
                 if (expanded[i].Transparent)
@@ -310,20 +343,37 @@ public sealed class ComplexShaper : ITextShaper
                         ? new Vector2(position.X * scale, -position.Y * scale)
                         : Vector2.Zero;
                     if (relative) offset = finalMarkOffset - offset;
+                    else offset += finalBaseOffset;
                     offsets[i] = offset;
                     finalMarkOffset = offset;
                     finalMarkGlyph = contextual[i];
                 }
                 else if (expanded[i].Auxiliary)
                 {
-                    offsets[i] = Vector2.Zero;
+                    var auxiliaryOffset = finalBaseGlyph is { } baseGlyph
+                        ? face.MarkOffset(baseGlyph, contextual[i])
+                        : null;
+                    offsets[i] = auxiliaryOffset is { } position
+                        ? finalBaseOffset + new Vector2(position.X * scale, -position.Y * scale)
+                        : Vector2.Zero;
+                    finalMarkGlyph = contextual[i];
+                    finalMarkOffset = offsets[i];
                 }
                 else
                 {
                     finalBaseGlyph = contextual[i];
                     finalMarkGlyph = null;
                     finalMarkOffset = Vector2.Zero;
-                    offsets[i] = Vector2.Zero;
+                    var placement = 0;
+                    for (var next = i + 1; next < contextual.Length && next < expanded.Count; next++)
+                    {
+                        if (expanded[next].Transparent || expanded[next].Auxiliary)
+                            continue;
+                        placement = face.PairPlacement(contextual[i], contextual[next]);
+                        break;
+                    }
+                    finalBaseOffset = new Vector2(placement * scale, 0);
+                    offsets[i] = finalBaseOffset;
                 }
             }
         }
