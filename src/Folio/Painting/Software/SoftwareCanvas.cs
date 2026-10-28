@@ -240,20 +240,31 @@ internal sealed class SoftwareCanvas : ICanvas
         if (_state.ClipMask is null)
         {
             var opaque = blend == BlendMode.Normal && color.W >= 1f;
+            var words = opaque ? MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan()) : default;
+            var packed = opaque
+                ? (uint)To8(color.X) | ((uint)To8(color.Y) << 8) | ((uint)To8(color.Z) << 16) | 0xFF000000u
+                : 0u;
             for (var y = area.Top; y < area.Bottom; y++)
             {
                 var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
-                for (var x = area.Left; x < area.Right; x++)
+                var x = area.Left;
+                while (x < area.Right)
                 {
                     var c = coverage.Data[row + x];
+                    if (c == 255 && opaque)
+                    {
+                        var runStart = x;
+                        do x++; while (x < area.Right && coverage.Data[row + x] == 255);
+                        var first = (y - _targetBounds.Top) * _target.Width + (runStart - _targetBounds.Left);
+                        words.Slice(first, x - runStart).Fill(packed);
+                        continue;
+                    }
                     if (c != 0)
                     {
                         var offset = ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4;
-                        if (opaque && c == 255)
-                            Compositor.BlendOpaque(_target.Data, offset, color);
-                        else
-                            Compositor.Blend(_target.Data, offset, color, c / 255f, blend);
+                        Compositor.Blend(_target.Data, offset, color, c / 255f, blend);
                     }
+                    x++;
                 }
             }
             return;
@@ -271,6 +282,8 @@ internal sealed class SoftwareCanvas : ICanvas
                     Compositor.Blend(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color, amount, blend);
             }
         }
+
+        static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5f);
     }
 
     // A mask blur's deviation is scaled by the square root of the area the transform stretches by, the same in both directions
