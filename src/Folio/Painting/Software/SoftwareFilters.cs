@@ -220,6 +220,18 @@ internal static class SoftwareFilters
         for (var i = 0; i < o.Data.Length; i += 4)
         {
             var shadowAlpha = shadow.Data[i + 3] / 255f;
+            // Most pixels in a drop-shadow surface are transparent.  Preserve the
+            // original source directly in that case instead of entering the
+            // vector blend path; this is both exact for source-over and avoids
+            // four float conversions per empty pixel.
+            if (shadowAlpha <= 0)
+            {
+                o.Data[i] = s.Data[i];
+                o.Data[i + 1] = s.Data[i + 1];
+                o.Data[i + 2] = s.Data[i + 2];
+                o.Data[i + 3] = s.Data[i + 3];
+                continue;
+            }
             var below = tint * shadowAlpha;
             o.Data[i] = To8(below.X);
             o.Data[i + 1] = To8(below.Y);
