@@ -31,14 +31,13 @@ The full serialized Release solution runner then passed 4,177 tests with zero
 failures and seven documented skips (4,184 discovered), including benchmarks,
 core tests, render tests, scripting tests, WinForms tests and fuzz tests.
 
-The native conformance runner independently passes D8 6/6, D10 4/4,
-D11 4/4, D12 4/4, D13 4/4 and D14 3/3. D9 remains compatibility-only: the
-native engine currently fails four of its five media artifacts because native
-media element methods and the canvas media path are not yet wired.
+The native conformance runner independently passes D8 6/6, D9 5/5, D10 4/4,
+D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with the document-named-property
+scope now wired for native inline handlers.
 
 - The latest complete Release solution passes 4,177 tests with 0 failures and 7 documented environment/software skips (4,184 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
-- Compatibility D9 passes its current 5/5 corpus. A fresh native sweep passes D1 2/2, D8 6/6, D10–D14 19/19; native D9 is 1/5 with four script failures (`video.play`, `audio.play`, `currentTime`, and `canvas.getContext`). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
+- Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 30/30 (32/32 combined). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - Compatibility D2–D7 remains 60/60. Native D2–D7 is 59/60: D3–D7 are 10/10 and the only failure is `D2/pantry-react-jsx`. PR #651 resolved its detached-root/labeled-control-flow and event-bubbling failures; the remaining mismatch is the React state-update hook dispatcher (`g.current.useState`), tracked in #645.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
@@ -243,11 +242,12 @@ Original acceptance:
 
 ### #532 — Conformance: an audio and video category
 
-**Compatibility acceptance verified; native replacement remains incomplete.** Evidence:
-`tests/conformance/D9: 5 manifests and HTML files`; the compatibility report passes
-5/5. The native sweep currently passes only 1/5 because four artifacts still call
-media/canvas methods that are not exposed by the Folio-owned staged engine; those
-failures remain part of #533/#535 and the mandatory replacement gate.
+**Compatibility and native category acceptance verified.** Evidence:
+`tests/conformance/D9: 5 manifests and HTML files`; both compatibility and native
+reports pass 5/5. The native event-handler scope now enumerates document-named
+elements, so inline handlers such as `video.play()` and `frame.getContext()` use
+the same host wrappers as direct DOM lookups. Broader media device/pacing and
+replacement work remains tracked in #533/#535 and #579.
 
 Count, references, interaction scripts and visual parity are met. The five bounded data-URI fixtures (WAV, PNG video and VTT captions) pass without crashes, script failures or expected-failure markers. Poster presentation, non-rendering audio, captioned playback, seek interactions and canvas capture are covered by the passing run.
 

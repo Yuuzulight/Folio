@@ -2043,6 +2043,29 @@ internal sealed class DomNodeTemplates
     {
         var t = new HostObjectTemplate("Document", nodeProto);
 
+        // HTML event-handler scope resolves legacy document-named properties
+        // (for example `onclick="video.play()"`) through the document object.
+        // Keep this lookup live so dynamically inserted controls participate,
+        // while returning undefined for ordinary unresolved identifiers.
+        t.DefineNamedProperty(
+            (target, _, name) =>
+            {
+                var doc = (DocumentNode)target;
+                var element = doc.Descendants.OfType<ElementNode>().FirstOrDefault(candidate =>
+                    string.Equals(candidate.GetAttribute("id"), name, StringComparison.Ordinal)
+                    || string.Equals(candidate.GetAttribute("name"), name, StringComparison.Ordinal));
+                return element is null ? ScriptValue.Undefined : _context.Wrap(element);
+            },
+            enumerator: (target, _) =>
+            {
+                var doc = (DocumentNode)target;
+                return doc.Descendants.OfType<ElementNode>()
+                    .SelectMany(element => new[] { element.GetAttribute("id"), element.GetAttribute("name") })
+                    .Where(value => !string.IsNullOrEmpty(value))
+                    .Select(value => value!)
+                    .Distinct(StringComparer.Ordinal);
+            });
+
         t.DefineProperty("documentElement", (target, _) =>
             _context.Wrap(((DocumentNode)target).DocumentElement));
 

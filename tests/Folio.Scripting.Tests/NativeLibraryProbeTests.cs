@@ -140,6 +140,20 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeDomMediaAndCanvasMethodsAreReachable()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Folio.Document.Parse("<video id='v'></video><canvas id='c'></canvas>", new FolioOptions { Capabilities = new FeatureCapabilities { Media = true } });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("function", engine.Evaluate("typeof document.getElementById('v').play").AsString());
+        Assert.Equal("function", engine.Evaluate("typeof document.getElementById('v').pause").AsString());
+        Assert.Equal("number", engine.Evaluate("typeof document.getElementById('v').currentTime").AsString());
+        Assert.Equal("function", engine.Evaluate("typeof document.getElementById('c').getContext").AsString());
+        Assert.Equal("function", engine.Evaluate("(function(){ with (document) { return typeof v.play; } })()").AsString());
+    }
+
+    [Fact]
     public void NativeJavaScriptHonorsLabeledContinue()
     {
         using var engine = new NativeJavaScriptEngine();
