@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Numerics;
 using Folio.Typography;
 
 namespace Folio.Painting.Software;
@@ -6,7 +7,10 @@ namespace Folio.Painting.Software;
 /// <summary>Layered colour glyphs from the OpenType COLR v0/v1 and CPAL tables.</summary>
 internal static class ColorGlyphs
 {
-    internal readonly record struct Layer(ushort Glyph, Rgba? Color);
+    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default)
+    {
+        public Matrix3x2 TransformOrIdentity => Transform == default ? Matrix3x2.Identity : Transform;
+    }
 
     private sealed class Palette
     {
@@ -110,6 +114,7 @@ internal static class ColorGlyphs
                 1 when layerList != 0 => PaintLayers(colr, offset, baseList, layerList, palette, records, roots, path),
                 10 => PaintGlyph(colr, offset, baseList, layerList, palette, records, roots, path),
                 11 => roots.TryGetValue(colr.U16(offset + 1), out var root) ? Paint(colr, root, baseList, layerList, palette, records, roots, path) : null,
+                14 => PaintTranslate(colr, offset, baseList, layerList, palette, records, roots, path),
                 _ => null,
             };
         }
@@ -143,6 +148,19 @@ internal static class ColorGlyphs
         if (index == 0xFFFF) return [new Layer(glyph, null)];
         if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
         return [new Layer(glyph, color)];
+    }
+
+    private static List<Layer>? PaintTranslate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        var childOffset = checked(offset + ReadU24(colr, offset + 1));
+        var dx = colr.S32(offset + 4) / 65536f;
+        var dy = colr.S32(offset + 8) / 65536f;
+        if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
+            return null;
+        var translation = Matrix3x2.CreateTranslation(dx, dy);
+        for (var i = 0; i < layers.Count; i++)
+            layers[i] = layers[i] with { Transform = translation * layers[i].TransformOrIdentity };
+        return layers;
     }
 
     private static Rgba? PaintSolid(FontData colr, int offset, Rgba[] palette, int records)

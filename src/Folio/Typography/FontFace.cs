@@ -32,6 +32,7 @@ internal readonly struct FontData(ReadOnlyMemory<byte> bytes)
     public ushort U16(int offset) => BinaryPrimitives.ReadUInt16BigEndian(At(offset, 2));
     public short S16(int offset) => BinaryPrimitives.ReadInt16BigEndian(At(offset, 2));
     public uint U32(int offset) => BinaryPrimitives.ReadUInt32BigEndian(At(offset, 4));
+    public int S32(int offset) => BinaryPrimitives.ReadInt32BigEndian(At(offset, 4));
     public string Tag(int offset) => Encoding.ASCII.GetString(At(offset, 4));
     public ReadOnlySpan<byte> Bytes(int offset, int length) => At(offset, length);
 }

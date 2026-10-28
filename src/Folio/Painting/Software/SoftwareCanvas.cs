@@ -341,7 +341,7 @@ internal sealed class SoftwareCanvas : ICanvas
             {
                 if (Outline(face, layer.Glyph) is not { } path)
                     continue;
-                var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(origin);
+                var matrix = Matrix3x2.CreateScale(scale, -scale) * layer.TransformOrIdentity * Matrix3x2.CreateTranslation(origin);
                 var subpaths = PathGeometry.Flatten(path, tolerance);
                 var points = new List<Subpath>(subpaths.Count);
                 foreach (var subpath in subpaths)
