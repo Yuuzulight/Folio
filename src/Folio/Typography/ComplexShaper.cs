@@ -275,7 +275,7 @@ public sealed class ComplexShaper : ITextShaper
                         relativeToPreviousMark = true;
                 }
                 if (markOffset is null && previousBaseGlyph is { } previousBase)
-                    markOffset = face.MarkOffset(previousBase, glyph);
+                    markOffset = face.MarkOffset(previousBase, glyph) ?? face.MarkToLigatureOffset(previousBase, glyph);
                 if (markOffset is { } position)
                 {
                     if (relativeToPreviousMark)
@@ -378,7 +378,7 @@ public sealed class ComplexShaper : ITextShaper
                         relative = markOffset is not null;
                     }
                     if (markOffset is null && finalBaseGlyph is { } baseGlyph)
-                        markOffset = face.MarkOffset(baseGlyph, contextual[i]);
+                        markOffset = face.MarkOffset(baseGlyph, contextual[i]) ?? face.MarkToLigatureOffset(baseGlyph, contextual[i]);
                     var offset = markOffset is { } position
                         ? new Vector2(position.X * scale, -position.Y * scale)
                         : Vector2.Zero;
@@ -391,7 +391,7 @@ public sealed class ComplexShaper : ITextShaper
                 else if (expanded[i].Auxiliary)
                 {
                     var auxiliaryOffset = finalBaseGlyph is { } baseGlyph
-                        ? face.MarkOffset(baseGlyph, contextual[i])
+                        ? face.MarkOffset(baseGlyph, contextual[i]) ?? face.MarkToLigatureOffset(baseGlyph, contextual[i])
                         : null;
                     offsets[i] = auxiliaryOffset is { } position
                         ? finalBaseOffset + new Vector2(position.X * scale, -position.Y * scale)

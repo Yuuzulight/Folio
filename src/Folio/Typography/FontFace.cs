@@ -294,6 +294,9 @@ internal sealed class FontFace : IFontHandle
     /// <summary>Returns a mark offset relative to the preceding mark glyph, in font units.</summary>
     public (int X, int Y)? MarkToMarkOffset(ushort previousMark, ushort markGlyph) => _gposMarks?.MarkOffset(previousMark, markGlyph);
 
+    /// <summary>Mark-to-ligature offset for the first ligature component, in font units.</summary>
+    public (int X, int Y)? MarkToLigatureOffset(ushort ligatureGlyph, ushort markGlyph) => _gposMarks?.MarkToLigatureOffset(ligatureGlyph, markGlyph);
+
     /// <summary>Entry/exit anchor delta for adjacent cursive glyphs, in font units.</summary>
     public (int X, int Y)? CursivePlacement(ushort previousGlyph, ushort glyph) => _gposCursive?.Placement(previousGlyph, glyph);
 
