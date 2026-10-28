@@ -110,7 +110,29 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // ---- filling ----
 
-    public void FillRoundedRect(in RoundedRect rect, in Paint paint) => FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
+    public void FillRoundedRect(in RoundedRect rect, in Paint paint)
+    {
+        // Plain rectangles are by far the most common primitive in dashboard frames. Avoid constructing and
+        // flattening a PathData when there are no corner curves; the rasterizer already has an exact rectangle path.
+        if (rect.Radii.IsZero)
+        {
+            var r = rect.Rect;
+            var polygons = new[]
+            {
+                new[]
+                {
+                    _state.Transform.Apply(new Vector2(r.X, r.Y)),
+                    _state.Transform.Apply(new Vector2(r.Right, r.Y)),
+                    _state.Transform.Apply(new Vector2(r.Right, r.Bottom)),
+                    _state.Transform.Apply(new Vector2(r.X, r.Bottom)),
+                },
+            };
+            if (Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint), snapEdges: true) is { } coverage)
+                Draw(coverage, paint);
+            return;
+        }
+        FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
+    }
 
     public void ClearRect(in RectF rect)
     {
