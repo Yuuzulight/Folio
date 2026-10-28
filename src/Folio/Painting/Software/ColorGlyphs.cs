@@ -114,6 +114,7 @@ internal static class ColorGlyphs
                 1 when layerList != 0 => PaintLayers(colr, offset, baseList, layerList, palette, records, roots, path),
                 10 => PaintGlyph(colr, offset, baseList, layerList, palette, records, roots, path),
                 11 => roots.TryGetValue(colr.U16(offset + 1), out var root) ? Paint(colr, root, baseList, layerList, palette, records, roots, path) : null,
+                12 => PaintTransform(colr, offset, baseList, layerList, palette, records, roots, path),
                 14 => PaintTranslate(colr, offset, baseList, layerList, palette, records, roots, path),
                 _ => null,
             };
@@ -160,6 +161,23 @@ internal static class ColorGlyphs
         var translation = Matrix3x2.CreateTranslation(dx, dy);
         for (var i = 0; i < layers.Count; i++)
             layers[i] = layers[i] with { Transform = translation * layers[i].TransformOrIdentity };
+        return layers;
+    }
+
+    private static List<Layer>? PaintTransform(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        var childOffset = checked(offset + ReadU24(colr, offset + 1));
+        var xx = colr.S32(offset + 4) / 65536f;
+        var xy = colr.S32(offset + 8) / 65536f;
+        var yx = colr.S32(offset + 12) / 65536f;
+        var yy = colr.S32(offset + 16) / 65536f;
+        var dx = colr.S32(offset + 20) / 65536f;
+        var dy = colr.S32(offset + 24) / 65536f;
+        if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
+            return null;
+        var transform = new Matrix3x2(xx, xy, yx, yy, dx, dy);
+        for (var i = 0; i < layers.Count; i++)
+            layers[i] = layers[i] with { Transform = transform * layers[i].TransformOrIdentity };
         return layers;
     }
 
