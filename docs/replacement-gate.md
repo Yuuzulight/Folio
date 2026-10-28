@@ -82,24 +82,25 @@ D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
 
-The shaping replacement now also has a checked-in differential probe covering
-Latin, digits, Greek, Cyrillic, Latin-extended and Hebrew-base runs, plus a
-deliberately perturbed kerning value that the report detects. Two explicit
-Arabic/CJK cases also prove complex runs remain on the HarfBuzz oracle until
-their gates are met (9 focused tests total). This is still only the proven
-simple-run corpus for #561; the complete per-script corpus and complex-script
-routing work remain open.
+The shaping replacement now has a checked-in differential probe covering six
+simple-script runs, seven Hebrew/Arabic complex-script report runs, and a
+deliberately perturbed kerning value that the report detects. The focused test
+suite passes 32/32, including length-changing Hebrew GSUB ligatures, Arabic
+joining and marked vocabulary, and RTL conformance paragraphs. Complex scripts
+remain on the HarfBuzz oracle until the complete per-script corpus and routing
+gate are met.
 
 The same bundled-font evidence is reproducible without the test runner:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
--- shaping-differential` reports six proven runs plus a deliberate kerning
-perturbation check. This is the checked-in harness evidence for #561; system
-font coverage and the remaining complex-script corpus are still required
+-- shaping-differential` reports eighteen proven text runs plus a deliberate
+kerning perturbation check. This is the checked-in harness evidence for #561;
+system-font coverage and the remaining complex-script corpus are still required
 before any additional script switch can be turned off.
 On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
 -c Release -- shaping-differential-system` compares Arial, Times New Roman and
-Segoe UI against HarfBuzzSharp; the current host reports all three PASS. The
-system corpus remains a local evidence run because installed fonts vary by host.
+Segoe UI simple runs plus Hebrew and Arabic complex runs against HarfBuzzSharp;
+the current host reports all seven PASS. The system corpus remains a local
+evidence run because installed fonts vary by host.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
 data URLs for GIF, WebP, BMP, ICO and SVG remain in Folio alongside PNG/JPEG,
