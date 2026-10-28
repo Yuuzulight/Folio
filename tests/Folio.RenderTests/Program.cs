@@ -176,6 +176,37 @@ public static class Program
             if (!pass) failures++;
         }
 
+        var complexCorpus = new (string Family, string Text, string Name, bool RightToLeft, string Language)[]
+        {
+            ("Noto Sans Hebrew", "שָׁלוֹם", "Hebrew niqqud", true, "he"),
+            ("Noto Sans Hebrew", "שלום לכולם. המרכז הקהילתי פותח את שעריו בכל יום ראשון בשעה 09:30, ומציע סדנאות כתיבה, צילום ומוזיקה לכל המשפחה.", "Hebrew RTL paragraph", true, "he"),
+            ("Noto Sans Hebrew", "ברוכים הבאים ללוח המודעות: מפגש חדש יתקיים ביום שלישי הקרוב, וההרשמה פתוחה עד סוף החודש.", "Hebrew mixed paragraph", true, "he"),
+            ("Noto Sans Arabic", "سلام", "Arabic joining", true, "ar"),
+            ("Noto Sans Arabic", "مُحَمَّد", "Arabic marks", true, "ar"),
+            ("Noto Sans Arabic", "العربية لغة جميلة", "Arabic extended", true, "ar"),
+            ("Noto Sans Arabic", "مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.", "Arabic RTL paragraph", true, "ar"),
+        };
+        foreach (var (family, text, name, rightToLeft, language) in complexCorpus)
+        {
+            var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
+            if (face is null)
+            {
+                Console.WriteLine($"| {name} | {name} | - | - | - | FAIL (font unavailable) |");
+                failures++;
+                continue;
+            }
+            var folio = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft, language);
+            var glyphs = folio.Glyphs.SequenceEqual(oracle.Glyphs);
+            var clusters = folio.Clusters.SequenceEqual(oracle.Clusters);
+            var advances = folio.Advances.SequenceEqual(oracle.Advances);
+            var offsets = folio.Offsets.Length == oracle.Offsets.Length && folio.Offsets.Zip(oracle.Offsets).All(pair =>
+                MathF.Abs(pair.First.X - pair.Second.X) <= 0.001f && MathF.Abs(pair.First.Y - pair.Second.Y) <= 0.001f);
+            var pass = glyphs && clusters && advances && offsets;
+            Console.WriteLine($"| {name} | {name} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            if (!pass) failures++;
+        }
+
         var kerningFace = fonts.Match("Folio Box", FaceStyle.Normal, 400, 100)!;
         var kerningText = "AVATAR";
         var expected = new HarfBuzzShaper().Shape(kerningText, 0, kerningText.Length, kerningFace, 16, false, null);
