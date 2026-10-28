@@ -141,15 +141,17 @@ gates.
 The shaping replacement now has a checked-in differential probe covering simple
 scripts plus promoted Hebrew and Arabic complex runs, explicit Arabic joining
 forms, and a deliberately perturbed kerning value that the report detects. The
-focused suite passes 55/55, and native S6 remains 12/12. Hebrew and Arabic now
-route through Folio's ComplexShaper by default; Indic, South-East Asian and
-other unproven scripts remain on the HarfBuzz oracle until their per-script
-corpus and routing gates are met.
+focused suite passes 55/55, and native S6 remains 12/12. The standalone bundled
+report currently passes every listed case, and the Windows system-font report
+passes all ten available cases. Hebrew and Arabic now route through Folio's
+ComplexShaper by default; Indic, South-East Asian and other unproven scripts
+remain on the HarfBuzz oracle until their per-script corpus and routing gates
+are met.
 
 The same bundled-font evidence is reproducible without the test runner:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
--- shaping-differential` reports thirty proven text runs plus a deliberate
-kerning perturbation check. This is the checked-in harness evidence for #561;
+-- shaping-differential` reports the complete checked-in bundled case list plus a
+deliberate kerning perturbation check. This is the checked-in harness evidence for #561;
 system-font coverage and the remaining complex-script corpus are still required
 before the shaping replacement as a whole can be considered complete.
 On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
