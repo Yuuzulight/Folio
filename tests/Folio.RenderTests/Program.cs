@@ -184,6 +184,11 @@ public static class Program
             ("Noto Sans Arabic", "سلام", "Arabic joining", true, "ar"),
             ("Noto Sans Arabic", "مُحَمَّد", "Arabic marks", true, "ar"),
             ("Noto Sans Arabic", "العربية لغة جميلة", "Arabic extended", true, "ar"),
+            ("Noto Sans Arabic", "الكتاب والمدرسة والحديقة", "Arabic vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "يكتبون ويقرؤون في المكتبة", "Arabic joining vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "مُسْتَقْبَلٌ مُشْرِقٌ", "Arabic vowel marks", true, "ar"),
+            ("Noto Sans Arabic", "ضِياءٌ وقُرْآنٌ كريمٌ", "Arabic Quranic marks", true, "ar"),
+            ("Noto Sans Arabic", "الطريق إلى النجاح يبدأ بالتعلّم", "Arabic sentence", true, "ar"),
             ("Noto Sans Arabic", "مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.", "Arabic RTL paragraph", true, "ar"),
         };
         foreach (var (family, text, name, rightToLeft, language) in complexCorpus)

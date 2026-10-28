@@ -10,7 +10,7 @@ Hebrew shaping refresh (2026-10-29, commit `1881c1f7`): ComplexShaper now
 applies GPOS pair adjustments across intervening niqqud marks and carries the
 pair offset into attached marks. The extended bundled corpus (`שָׁלוֹם`,
 `בְּרֵאשִׁית`, `מַלְכָּה`) passes glyph, cluster, advance and offset parity;
-the focused differential suite is now 26/26, including Arabic extended
+the focused differential suite is now 31/31, including Arabic extended
 glyph/cluster/advance coverage, offset parity within 0.001 and the S6 Arabic
 notice-board paragraph. Broader script coverage and the
 mandatory HarfBuzz replacement gate remain open.

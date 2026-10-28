@@ -6,7 +6,7 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 ## Current green corpus
 
-`ShapingDifferentialTests` passes 26/26 on the bundled fonts:
+`ShapingDifferentialTests` passes 31/31 on the bundled fonts:
 
 - Latin and punctuation (`Source Sans 3`)
 - digits and kerning (`Folio Box`)
@@ -18,6 +18,8 @@ This is the checked-in evidence for the mandatory shaping replacement track
 - Arabic promotion-switch routing through `ComplexShaper`
 - Arabic extended corpus parity (`العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`,
   `اللغة العربية`, `فلسطين`), with advances exact and offsets within 0.001
+- Arabic vocabulary, joining-vocabulary, vowel-mark, Quranic-mark and sentence
+  cases, all with glyph, cluster, advance and offset parity
 - Arabic RTL notice-board paragraph from the S6 conformance corpus, with
   glyph, cluster, advance and offset parity
 - Hebrew promotion-switch routing through `ComplexShaper`

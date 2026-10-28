@@ -132,6 +132,11 @@ public sealed class ShapingDifferentialTests
     [InlineData("مَرْحَبًا بِكُمْ")]
     [InlineData("اللغة العربية")]
     [InlineData("فلسطين")]
+    [InlineData("الكتاب والمدرسة والحديقة")]
+    [InlineData("يكتبون ويقرؤون في المكتبة")]
+    [InlineData("مُسْتَقْبَلٌ مُشْرِقٌ")]
+    [InlineData("ضِياءٌ وقُرْآنٌ كريمٌ")]
+    [InlineData("الطريق إلى النجاح يبدأ بالتعلّم")]
     [InlineData("مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.")]
     public void ArabicComplexShaperMatchesGlyphsForExtendedCorpus(string text)
     {
