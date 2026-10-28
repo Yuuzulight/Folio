@@ -126,9 +126,12 @@ public sealed class ContentDocumentRuntime : IDisposable
             _runner.Run();
         }
         _engine ??= _engineFactory();
-        _eventLoop?.SpinUntilIdle();
+        // Host resource/fetch promises schedule zero-delay tasks. Give real-time
+        // timers a short bounded window to become due so a slow Windows clock
+        // cannot turn a ready frame into a spurious script diagnostic.
+        _eventLoop?.SpinUntilIdle(waitForTimers: TimeSpan.FromMilliseconds(25));
         var result = _engine.Evaluate(script, url);
-        _eventLoop?.SpinUntilIdle();
+        _eventLoop?.SpinUntilIdle(waitForTimers: TimeSpan.FromMilliseconds(25));
         var frame = _document?.Paint(1280, 720).List;
         var canvasCommands = _document?.Node.Descendants.OfType<ElementNode>().Count(element => element.CanvasSurface is not null) ?? 0;
         if (_document is not null && canvasCommands > 0)

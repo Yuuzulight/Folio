@@ -398,13 +398,25 @@ public sealed class HtmlEventLoop : IDisposable
     /// Runs all pending tasks and microtasks until no tasks remain runnable at current clock time,
     /// or until maxTurns is reached.
     /// </summary>
-    public int SpinUntilIdle(int maxTurns = 1000)
+    public int SpinUntilIdle(int maxTurns = 1000, TimeSpan? waitForTimers = null)
     {
         var turns = 0;
+        var deadline = waitForTimers is { } wait
+            ? System.Diagnostics.Stopwatch.GetTimestamp() + (long)(wait.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
+            : long.MinValue;
         while (turns < maxTurns)
         {
             if (!RunOneTurn())
-                break;
+            {
+                if (waitForTimers is null || IsIdle() || System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
+                    break;
+                // A real-time timer can become due between the final clock check
+                // and the next turn.  A bounded wait is opt-in for host boundaries
+                // that must drain zero-delay work without changing ordinary loop
+                // semantics or waiting on animation callbacks.
+                Thread.Sleep(1);
+                continue;
+            }
             turns++;
         }
         return turns;
