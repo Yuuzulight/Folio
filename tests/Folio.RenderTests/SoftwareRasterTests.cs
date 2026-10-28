@@ -360,6 +360,28 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return output;
     }
 
+    private static byte[] SyntheticSbix(int glyphCount, ushort glyph, byte[] png)
+    {
+        // sbix header + one strike. Strike offsets and glyph data offsets are
+        // relative to the strike, as required by the OpenType sbix table.
+        var strikeHeader = 8 + 4 * (glyphCount + 1);
+        var start = strikeHeader;
+        var end = checked(start + 8 + png.Length); // origin (4) + tag (4) + PNG
+        var sbix = new byte[8 + 4 + strikeHeader + 8 + png.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(sbix.AsSpan(4), 1); // one strike
+        BinaryPrimitives.WriteUInt32BigEndian(sbix.AsSpan(8), 12); // strike starts after header and offset
+        BinaryPrimitives.WriteUInt16BigEndian(sbix.AsSpan(12), 64); // ppem
+        BinaryPrimitives.WriteUInt16BigEndian(sbix.AsSpan(14), 72); // resolution
+        for (var i = 0; i <= glyphCount; i++)
+            BinaryPrimitives.WriteUInt32BigEndian(sbix.AsSpan(16 + 4 * i), i <= glyph ? (i == glyph ? (uint)start : 0u) : (uint)end);
+        var data = 20 + 4 * (glyphCount + 1);
+        BinaryPrimitives.WriteInt16BigEndian(sbix.AsSpan(data), 0);
+        BinaryPrimitives.WriteInt16BigEndian(sbix.AsSpan(data + 2), 1);
+        "png "u8.CopyTo(sbix.AsSpan(data + 4));
+        png.CopyTo(sbix.AsSpan(data + 8));
+        return sbix;
+    }
+
     private static byte[] SyntheticColrV1(ushort glyph)
     {
         // COLR v1 header (base glyph list at offset 34), followed by one
@@ -969,6 +991,21 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         Assert.NotEqual((ushort)0, glyph);
         Check("bitmap colour glyph", c => c.DrawGlyphs(face, 48, [glyph], [new Vector2(12, 58)], Solid(1, 1, 1)),
             mean: 4.0, over8: 0.12, over40: 0.04, background: White, width: 96, height: 80);
+    }
+
+    [Fact]
+    public void DrawsSbixPngColourGlyph()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var png = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "images", "gray-1.png"));
+        var face = FontFace.Parse(AddTables(source, ("sbix", SyntheticSbix(original.GlyphCount, glyph, png))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(32, 32)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 16, [glyph], [new Vector2(8, 20)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 32, 32);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] < 255 || pixel[1] < 255 || pixel[2] < 255);
     }
 
     private static void White(ICanvas c) => c.FillRoundedRect(new RoundedRect(new RectF(0, 0, 1000, 1000), default), Solid(1, 1, 1));
