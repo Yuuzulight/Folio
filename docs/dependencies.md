@@ -18,7 +18,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Unicode text algorithms | **Folio builds it**, BCL where it covers the need | See [Unicode](#unicode-what-the-bcl-covers-and-what-folio-implements) below |
 | Font file parsing (OpenType tables, WOFF, WOFF2) | **Folio builds it** | `cmap`, `head`, `hhea`, `hmtx`, `maxp`, `name`, `OS/2`, `post`, `kern`, `GSUB`/`GPOS`/`GDEF` basics, `fvar`; WOFF on `ZLibStream`, WOFF2 on `BrotliDecoder` plus Folio's `glyf` reconstruction |
 | Font matching and fallback logic | **Folio builds it** | CSS Fonts 4 matching, per-cluster fallback chain ([study](study/11-text.md)) |
-| Simple-script shaper (Latin, Greek, Cyrillic, basic Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base runs and single niqqud marks are differential-proven, while multiple-mark and complex-script runs remain on the oracle |
+| Simple-script shaper (Latin, Greek, Cyrillic, Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base and extended niqqud words are differential-proven, while broader complex-script runs remain on the oracle |
 | Complex-script shaping | **Dependency for now**: HarfBuzzSharp | Behind `ITextShaper` |
 | PNG decoder | **Folio builds it** | On `System.IO.Compression.ZLibStream`; all colour types, bit depths, interlacing, `tRNS`, gamma ignored except sRGB; APNG shows the first frame |
 | JPEG decoder | **Folio builds it** | Baseline and progressive, Huffman, 4:4:4/4:2:2/4:2:0, restart markers, EXIF orientation, DCT-domain downscaling; CMYK/arithmetic coding refused with a diagnostic |
@@ -228,7 +228,7 @@ ship intermediate dependency-backed implementations while the replacements are
 being built, but Folio itself is complete only after all five replacement tracks below
 are selected by production and their superseded dependencies are removable.
 
-**Current status (2026-10-28):** the latest Release build and direct M1–M6
+**Current status (2026-10-29):** the latest Release build and direct M1–M6
 acceptance suites pass. Native D2–D7 now passes 60/60, including the React host
 reconciliation interaction fixed in #645; the mandatory replacement gate remains
 open. The production Skia path now selects
@@ -236,7 +236,7 @@ open. The production Skia path now selects
 keeps HarfBuzz as the complex-script oracle. Folio's GPOS mark-to-base/mark-to-mark
 parser has direct differential coverage; the Folio complex shaper now matches the
 bundled Hebrew base, isolated-mark and selected RTL multi-mark cases, while production
-multiple-mark and complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
+broader complex Hebrew runs remain on HarfBuzz until corpus-wide ordering,
 GSUB and kerning parity is proven. Arabic now has Folio-owned joining plus
 script-selected `locl`/`rlig`/`calt`/`liga` contextual substitutions for the
 representative corpus, but broad Arabic mark/corpus parity, Indic and South-East
