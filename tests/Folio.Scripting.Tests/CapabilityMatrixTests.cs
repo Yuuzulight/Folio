@@ -191,6 +191,27 @@ public sealed class CapabilityMatrixTests
         finally { DomBindings.Dispose(engine); }
     }
 
+    [Fact]
+    public void WebAssemblyCapabilityRowExercisesMemoryLimitAndCapabilityRevocation()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("webassembly" or "all")) return;
+
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = true },
+        });
+        DomBindings.Install(engine, document.Node, capabilities: new FeatureCapabilities { WebAssembly = true }, maxWebAssemblyBytes: 64 * 1024);
+        try
+        {
+            Assert.True(engine.Evaluate("var allowed=new WebAssembly.Memory({initial:1});var limited=false;try{new WebAssembly.Memory({initial:2});}catch(e){limited=e.name==='RangeError';}limited && allowed.buffer.byteLength===65536").AsBoolean());
+            Assert.True(DomBindings.UpdateCapabilities(engine, FeatureCapabilities.Default));
+            Assert.ThrowsAny<Exception>(() => engine.Evaluate("new WebAssembly.Memory({initial:1})"));
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     private sealed class MatrixMediaLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
