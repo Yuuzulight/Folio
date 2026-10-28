@@ -71,6 +71,12 @@ internal static class Rasterizer
             return null;
         polygons = usable;
 
+        // Most dashboard painting consists of axis-aligned rectangles. Their
+        // coverage is exactly the product of the horizontal and vertical pixel
+        // overlaps, so avoid building edges and sampling sixteen scanlines.
+        if (rule == FillRule.NonZero && polygons.Count == 1 && IsUprightRectangle(polygons[0]))
+            return FillUprightRectangle(polygons[0], clip);
+
         var bounds = IntRect.Intersect(clip, new IntRect((int)MathF.Floor(minX), (int)MathF.Floor(minY), (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY)));
         if (bounds.IsEmpty)
             return null;
@@ -170,6 +176,33 @@ internal static class Rasterizer
             runs[width + 1] = 0;
             row[width] = 0;
             row[width + 1] = 0;
+        }
+        return new Coverage(bounds, data);
+    }
+
+    private static Coverage? FillUprightRectangle(Vector2[] polygon, IntRect clip)
+    {
+        var minX = polygon.Min(p => p.X);
+        var maxX = polygon.Max(p => p.X);
+        var minY = polygon.Min(p => p.Y);
+        var maxY = polygon.Max(p => p.Y);
+        var bounds = IntRect.Intersect(clip, new IntRect((int)MathF.Floor(minX), (int)MathF.Floor(minY),
+            (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY)));
+        if (bounds.IsEmpty)
+            return null;
+        var data = new byte[bounds.Width * bounds.Height];
+        for (var y = bounds.Top; y < bounds.Bottom; y++)
+        {
+            var vertical = MathF.Min(y + 1, maxY) - MathF.Max(y, minY);
+            if (vertical <= 0)
+                continue;
+            var row = (y - bounds.Top) * bounds.Width;
+            for (var x = bounds.Left; x < bounds.Right; x++)
+            {
+                var horizontal = MathF.Min(x + 1, maxX) - MathF.Max(x, minX);
+                if (horizontal > 0)
+                    data[row + x - bounds.Left] = (byte)Math.Clamp((int)MathF.Round(MathF.Min(1, horizontal * vertical) * 255), 0, 255);
+            }
         }
         return new Coverage(bounds, data);
     }
