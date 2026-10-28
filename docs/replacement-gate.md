@@ -92,7 +92,7 @@ gate are met.
 
 The same bundled-font evidence is reproducible without the test runner:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
--- shaping-differential` reports twenty-eight proven text runs plus a deliberate
+-- shaping-differential` reports thirty proven text runs plus a deliberate
 kerning perturbation check. This is the checked-in harness evidence for #561;
 system-font coverage and the remaining complex-script corpus are still required
 before any additional script switch can be turned off.
@@ -169,7 +169,7 @@ Indic/SE Asian shaping and broad corpus coverage remain required for the mandato
 all-Folio replacement track.
 
 The current parser also supports contextual and chained GSUB format-1 and
-class-based format-2 rules, while the Arabic corpus is 47/47 and the current
+class-based format-2 rules, while the Arabic corpus is 49/49 and the current
 system-font probe is 10/10. These are implementation and differential-evidence
 increments; Arabic remains on the HarfBuzz oracle until the complete corpus and
 production cutover gates are met.

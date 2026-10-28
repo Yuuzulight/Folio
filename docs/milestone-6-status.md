@@ -10,7 +10,7 @@ Hebrew shaping refresh (2026-10-30, commits `43dee1ea` and `a8a941e7`): ComplexS
 applies GPOS pair adjustments across intervening niqqud marks and carries the
 pair offset into attached marks. The extended bundled corpus (`שָׁלוֹם`,
 `בְּרֵאשִׁית`, `מַלְכָּה`) passes glyph, cluster, advance and offset parity;
-the focused differential suite is now 47/47, including Arabic extended
+the focused differential suite is now 49/49, including Arabic extended
 glyph/cluster/advance coverage, offset parity within 0.001 and the S6 Arabic
 notice-board paragraph. The current Windows system-font probe is 10/10 across
 expanded marked Hebrew and Arabic samples. Broader script coverage and the
