@@ -234,7 +234,10 @@ public static class Program
             ("Arial", "שלום לכולם"),
             ("Arial", "مرحبا بكم"),
             ("Arial", "שָׁלוֹם וברוכים הבאים"),
+            ("Arial", "יְרוּשָׁלַיִם היא עיר עתיקה ויפה"),
+            ("Arial", "מִשְׁפָּחָה, חֲבֵרִים וְשָׁלוֹם"),
             ("Arial", "مرحباً بكم في مركز الواحة الثقافي"),
+            ("Arial", "مُسْتَقْبَلٌ مُشْرِقٌ"),
         };
         var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
         var compared = 0;

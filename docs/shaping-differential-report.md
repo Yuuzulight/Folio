@@ -33,10 +33,9 @@ and Arabic `سلام`, `لا`, and `لم` cases. The direct Arabic corpus now al
 covers `مُحَمَّد`; glyph, cluster, advance and multi-mark offset parity pass
 for all four cases. The broader Arabic corpus remains open below.
 
-The local Windows system-font command also passes seven runs: Arial, Times New
-Roman and Segoe UI simple-script samples, plus Hebrew (`שלום לכולם`) and Arabic
-(`مرحبا بكم`), marked Hebrew and an Arabic paragraph shaped through
-`ComplexShaper`. These are host-local results;
+The local Windows system-font command also passes ten runs: Arial, Times New
+Roman and Segoe UI simple-script samples, plus expanded marked Hebrew and Arabic
+sentences/paragraphs shaped through `ComplexShaper`. These are host-local results;
 other system font inventories still require their own run.
 
 ## Explicitly open parity
