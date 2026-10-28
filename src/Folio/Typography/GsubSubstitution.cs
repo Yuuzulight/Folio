@@ -420,6 +420,10 @@ internal sealed class GsubSubstitution
             return ApplyContextFormat1(glyphs, position, type, subtable, depth);
         if (format == 1 && type == 6)
             return ApplyChainContextFormat1(glyphs, position, subtable, depth);
+        if (format == 2 && type == 5)
+            return ApplyContextFormat2(glyphs, position, subtable, depth);
+        if (format == 2 && type == 6)
+            return ApplyChainContextFormat2(glyphs, position, subtable, depth);
         if (format != 3) return false;
         var cursor = subtable + 2;
         var backtrack = Array.Empty<int>();
@@ -548,6 +552,114 @@ internal sealed class GsubSubstitution
             return changed;
         }
         return false;
+    }
+
+    private bool ApplyContextFormat2(ushort[] glyphs, int position, int subtable, int depth)
+    {
+        var coverage = subtable + _gsub.U16(subtable + 2);
+        if (CoverageIndex(coverage, glyphs[position]) < 0) return false;
+        var classDef = subtable + _gsub.U16(subtable + 4);
+        var classIndex = ClassIndex(classDef, glyphs[position]);
+        var setCount = _gsub.U16(subtable + 6);
+        if ((uint)classIndex >= setCount) return false;
+        var setOffset = _gsub.U16(subtable + 8 + 2 * classIndex);
+        if (setOffset == 0) return false;
+        var set = subtable + setOffset;
+        for (var r = 0; r < _gsub.U16(set); r++)
+        {
+            var ruleOffset = _gsub.U16(set + 2 + 2 * r);
+            if (ruleOffset == 0) continue;
+            var rule = set + ruleOffset;
+            var inputCount = _gsub.U16(rule);
+            var substitutionCount = _gsub.U16(rule + 2);
+            if (inputCount == 0 || position + inputCount > glyphs.Length) continue;
+            var cursor = rule + 4;
+            var matches = true;
+            for (var i = 1; i < inputCount; i++, cursor += 2)
+                if (ClassIndex(classDef, glyphs[position + i]) != _gsub.U16(cursor)) { matches = false; break; }
+            if (!matches) continue;
+            var changed = false;
+            for (var i = 0; i < substitutionCount; i++, cursor += 4)
+            {
+                var sequenceIndex = _gsub.U16(cursor);
+                var referencedLookup = _gsub.U16(cursor + 2);
+                if (sequenceIndex < inputCount)
+                    changed |= ApplyLookup(glyphs, position + sequenceIndex, referencedLookup, depth + 1);
+            }
+            return changed;
+        }
+        return false;
+    }
+
+    private bool ApplyChainContextFormat2(ushort[] glyphs, int position, int subtable, int depth)
+    {
+        var coverage = subtable + _gsub.U16(subtable + 2);
+        if (CoverageIndex(coverage, glyphs[position]) < 0) return false;
+        var backtrackDef = subtable + _gsub.U16(subtable + 4);
+        var inputDef = subtable + _gsub.U16(subtable + 6);
+        var lookaheadDef = subtable + _gsub.U16(subtable + 8);
+        var classIndex = ClassIndex(inputDef, glyphs[position]);
+        var setCount = _gsub.U16(subtable + 10);
+        if ((uint)classIndex >= setCount) return false;
+        var setOffset = _gsub.U16(subtable + 12 + 2 * classIndex);
+        if (setOffset == 0) return false;
+        var set = subtable + setOffset;
+        for (var r = 0; r < _gsub.U16(set); r++)
+        {
+            var ruleOffset = _gsub.U16(set + 2 + 2 * r);
+            if (ruleOffset == 0) continue;
+            var rule = set + ruleOffset;
+            var cursor = rule;
+            var backtrackCount = _gsub.U16(cursor); cursor += 2;
+            if (position < backtrackCount) continue;
+            var matches = true;
+            for (var i = 0; i < backtrackCount; i++, cursor += 2)
+                if (ClassIndex(backtrackDef, glyphs[position - 1 - i]) != _gsub.U16(cursor)) { matches = false; break; }
+            if (!matches) continue;
+            var inputCount = _gsub.U16(cursor); cursor += 2;
+            if (inputCount == 0 || position + inputCount > glyphs.Length) continue;
+            for (var i = 1; i < inputCount; i++, cursor += 2)
+                if (ClassIndex(inputDef, glyphs[position + i]) != _gsub.U16(cursor)) { matches = false; break; }
+            if (!matches) continue;
+            var lookaheadCount = _gsub.U16(cursor); cursor += 2;
+            if (position + inputCount + lookaheadCount > glyphs.Length) continue;
+            for (var i = 0; i < lookaheadCount; i++, cursor += 2)
+                if (ClassIndex(lookaheadDef, glyphs[position + inputCount + i]) != _gsub.U16(cursor)) { matches = false; break; }
+            if (!matches) continue;
+            var substitutionCount = _gsub.U16(cursor); cursor += 2;
+            var changed = false;
+            for (var i = 0; i < substitutionCount; i++, cursor += 4)
+            {
+                var sequenceIndex = _gsub.U16(cursor);
+                var referencedLookup = _gsub.U16(cursor + 2);
+                if (sequenceIndex < inputCount)
+                    changed |= ApplyLookup(glyphs, position + sequenceIndex, referencedLookup, depth + 1);
+            }
+            return changed;
+        }
+        return false;
+    }
+
+    private int ClassIndex(int classDef, ushort glyph)
+    {
+        var format = _gsub.U16(classDef);
+        if (format == 1)
+        {
+            var start = _gsub.U16(classDef + 2);
+            var count = _gsub.U16(classDef + 4);
+            return glyph >= start && glyph - start < count ? _gsub.U16(classDef + 6 + 2 * (glyph - start)) : 0;
+        }
+        if (format == 2)
+        {
+            var count = _gsub.U16(classDef + 2);
+            for (var i = 0; i < count; i++)
+            {
+                var range = classDef + 4 + 6 * i;
+                var start = _gsub.U16(range); var end = _gsub.U16(range + 2);
+                if (glyph >= start && glyph <= end) return _gsub.U16(range + 4);
+            }
+        }
+        return 0;
     }
 
     // The feature indices of the Latin script's default language system, else the default script's.
