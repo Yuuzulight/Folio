@@ -63,13 +63,13 @@ The latest Release build succeeds from `Folio.slnx` (4,177 passed, 0 failed,
 and canvas artifacts pass, while `D2/pantry-react-jsx` now mounts its React
 tree and reaches the click handler. Its remaining failure is the state-update
 rerender, where React's hook dispatcher exposes `g.current.useState` as
-undefined; this is tracked by #645. The canvas frame benchmark now has
-an explicit native-engine diagnostic mode. In the current compatibility-engine
-30-frame run, every library-card artifact and the snake game are below 16.7 ms
-p95, but `D5/canvas-animated-bars` is 38.13–43.48 ms total p95 across three runs, dominated by
-script/update time, under #519. Native-mode results remain diagnostic until the
-native engine executes the complete canvas animation semantics; native D2–D7
-parity is tracked separately.
+undefined; this is tracked by #645. The canvas frame benchmark now has an
+explicit native-engine mode. In the current compatibility-engine 30-frame run,
+every library-card artifact and the snake game are below 16.7 ms p95, but
+`D5/canvas-animated-bars` is 31.65 ms, dominated by script/update time, under
+#519. The native 30-frame run puts every D5/D7 artifact below the target (worst
+case `D7/canvas-snake-game`: 11.06 ms), so native-mode numbers are now
+acceptance evidence; native D2–D7 parity remains tracked separately.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
 the Folio-owned raster differential/conformance/unit suite passes 12/12, and
