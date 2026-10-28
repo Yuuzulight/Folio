@@ -169,6 +169,28 @@ public sealed class CapabilityMatrixTests
         finally { DomBindings.Dispose(engine); }
     }
 
+    [Fact]
+    public void WebRtcCapabilityRowExercisesConnectionLimitAndRevocation()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("webrtc" or "all")) return;
+
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = true },
+        });
+        DomBindings.Install(engine, document.Node, capabilities: new FeatureCapabilities { WebRtc = true }, maxWebRtcConnections: 1);
+        try
+        {
+            Assert.True(engine.Evaluate("var first=new RTCPeerConnection();var limited=false;try{new RTCPeerConnection();}catch(e){limited=e.name==='QuotaExceededError';}limited").AsBoolean());
+            Assert.True(engine.Evaluate("first.close();var second=new RTCPeerConnection();second.connectionState==='new'").AsBoolean());
+            Assert.True(DomBindings.UpdateCapabilities(engine, FeatureCapabilities.Default));
+            Assert.True(engine.Evaluate("second.connectionState==='closed'").AsBoolean());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
     private sealed class MatrixMediaLoader : IResourceLoader
     {
         public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
