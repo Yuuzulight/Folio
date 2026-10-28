@@ -405,6 +405,13 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1VarTranslated(ushort glyph)
+    {
+        var colr = SyntheticColrV1Translated(glyph);
+        colr[44] = 15; // PaintVarTranslate; default-instance translation uses base dx/dy.
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1Transform(ushort glyph)
     {
         var colr = new byte[84];
@@ -648,6 +655,19 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var redXs = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
         Assert.NotEmpty(redXs);
         Assert.True(redXs.Min() > 28, $"The COLR v1 PaintTranslate wrapper did not move the glyph (min x={redXs.Min()}).");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableTranslateAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1VarTranslated(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.True(Assert.Single(parsed!).TransformOrIdentity.Translation.X > 19);
     }
 
     [Fact]

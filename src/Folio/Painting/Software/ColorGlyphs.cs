@@ -115,11 +115,11 @@ internal static class ColorGlyphs
                 1 when layerList != 0 => PaintLayers(colr, offset, baseList, layerList, palette, records, roots, path),
                 10 => PaintGlyph(colr, offset, baseList, layerList, palette, records, roots, path),
                 11 => roots.TryGetValue(colr.U16(offset + 1), out var root) ? Paint(colr, root, baseList, layerList, palette, records, roots, path) : null,
-                12 => PaintTransform(colr, offset, baseList, layerList, palette, records, roots, path),
-                14 => PaintTranslate(colr, offset, baseList, layerList, palette, records, roots, path),
-                16 or 18 or 20 or 22 => PaintScale(colr, offset, baseList, layerList, palette, records, roots, path),
-                24 or 26 => PaintRotate(colr, offset, baseList, layerList, palette, records, roots, path),
-                28 or 30 => PaintSkew(colr, offset, baseList, layerList, palette, records, roots, path),
+                12 or 13 => PaintTransform(colr, offset, baseList, layerList, palette, records, roots, path),
+                14 or 15 => PaintTranslate(colr, offset, baseList, layerList, palette, records, roots, path),
+                16 or 17 or 18 or 19 or 20 or 21 or 22 or 23 => PaintScale(colr, offset, baseList, layerList, palette, records, roots, path),
+                24 or 25 or 26 or 27 => PaintRotate(colr, offset, baseList, layerList, palette, records, roots, path),
+                28 or 29 or 30 or 31 => PaintSkew(colr, offset, baseList, layerList, palette, records, roots, path),
                 32 => PaintComposite(colr, offset, baseList, layerList, palette, records, roots, path),
                 _ => null,
             };
@@ -294,9 +294,9 @@ internal static class ColorGlyphs
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var format = colr.U8(offset);
         var sx = colr.S16(offset + 4) / 16384f;
-        var sy = format is 20 or 22 ? sx : colr.S16(offset + 6) / 16384f;
+        var sy = format is 20 or 21 or 22 or 23 ? sx : colr.S16(offset + 6) / 16384f;
         var transform = Matrix3x2.CreateScale(sx, sy);
-        if (format is 18 or 22)
+        if (format is 18 or 19 or 22 or 23)
         {
             var cx = colr.S16(offset + (format == 18 ? 8 : 6));
             var cy = colr.S16(offset + (format == 18 ? 10 : 8));
@@ -314,7 +314,7 @@ internal static class ColorGlyphs
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var radians = colr.S16(offset + 4) / 16384f * MathF.PI;
         var transform = Matrix3x2.CreateRotation(radians);
-        if (colr.U8(offset) == 26)
+        if (colr.U8(offset) is 26 or 27)
         {
             var cx = colr.S16(offset + 6);
             var cy = colr.S16(offset + 8);
@@ -333,7 +333,7 @@ internal static class ColorGlyphs
         var xAngle = colr.S16(offset + 4) / 16384f * MathF.PI;
         var yAngle = colr.S16(offset + 6) / 16384f * MathF.PI;
         var transform = new Matrix3x2(1, MathF.Tan(yAngle), -MathF.Tan(xAngle), 1, 0, 0);
-        if (colr.U8(offset) == 30)
+        if (colr.U8(offset) is 30 or 31)
         {
             var cx = colr.S16(offset + 8);
             var cy = colr.S16(offset + 10);
