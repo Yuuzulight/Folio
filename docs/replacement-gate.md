@@ -85,7 +85,7 @@ gates.
 The shaping replacement now has a checked-in differential probe covering six
 simple-script runs, seven Hebrew/Arabic complex-script report runs, and a
 deliberately perturbed kerning value that the report detects. The focused test
-suite passes 32/32, including length-changing Hebrew GSUB ligatures, Arabic
+suite passes 37/37, including length-changing Hebrew GSUB ligatures, Arabic
 joining and marked vocabulary, and RTL conformance paragraphs. Complex scripts
 remain on the HarfBuzz oracle until the complete per-script corpus and routing
 gate are met.
