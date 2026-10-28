@@ -6,13 +6,14 @@ D10-D13 4/4 each and D14 3/3). These results verify the current corpus and lifec
 coverage only; the original native backend, device/transport, containment and
 mandatory replacement requirements remain open below.
 
-Hebrew shaping refresh (2026-10-29, commit `1881c1f7`): ComplexShaper now
+Hebrew shaping refresh (2026-10-30, commits `43dee1ea` and `a8a941e7`): ComplexShaper now
 applies GPOS pair adjustments across intervening niqqud marks and carries the
 pair offset into attached marks. The extended bundled corpus (`שָׁלוֹם`,
 `בְּרֵאשִׁית`, `מַלְכָּה`) passes glyph, cluster, advance and offset parity;
-the focused differential suite is now 32/32, including Arabic extended
+the focused differential suite is now 37/37, including Arabic extended
 glyph/cluster/advance coverage, offset parity within 0.001 and the S6 Arabic
-notice-board paragraph. Broader script coverage and the
+notice-board paragraph. The current Windows system-font probe is 10/10 across
+expanded marked Hebrew and Arabic samples. Broader script coverage and the
 mandatory HarfBuzz replacement gate remain open.
 
 Native React placement refresh (2026-10-28, PR #651 and commit `b37a1f44`):
