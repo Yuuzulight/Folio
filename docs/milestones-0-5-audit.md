@@ -42,6 +42,9 @@ verified pre-M6 milestone surfaces: the Release solution run discovers 4,184
 tests, with 4,177 succeeded, 0 failed, and 7 documented skips. The native
 conformance sweep is separately 59/60 for D2–D7; the only failure is the
 React/ReactDOM pantry artifact tracked by [#645](https://github.com/Yuuzulight/Folio/issues/645).
+The native VM's deferred-scheduler `var` binding bug is fixed in `c08da8bb`;
+the remaining failure is a nested reconciliation deletion that asks the root
+to remove a list item whose actual parent is the list.
 These totals are evidence for the audited slices only and do not close the
 mandatory native replacement gate or the remaining M6 requirements.
 
