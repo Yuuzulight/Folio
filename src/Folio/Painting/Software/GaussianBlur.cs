@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Numerics;
 
 namespace Folio.Painting.Software;
 
@@ -106,7 +107,33 @@ internal static class GaussianBlur
 
     private static void Kernel(float[] input, float[] output, int length, float[] kernel, int radius)
     {
-        for (var x = 0; x < length; x++)
+        // The interior of the separable pass has no transparent edge checks.  Process it a
+        // vector at a time; this is the hot path for the small-radius blur used by shadows
+        // and CSS filter: blur().  Keep the scalar loop at both ends where the transparent
+        // outside-of-image rule matters.
+        var width = Vector<float>.Count;
+        var interiorEnd = length - radius;
+        var vectorEnd = interiorEnd - (interiorEnd - radius) % width;
+        for (var x = radius; x < vectorEnd; x += width)
+        {
+            var total = Vector<float>.Zero;
+            for (var k = -radius; k <= radius; k++)
+                total += new Vector<float>(input, x + k) * kernel[k + radius];
+            total.CopyTo(output, x);
+        }
+
+        for (var x = 0; x < radius; x++)
+        {
+            var total = 0f;
+            for (var k = -radius; k <= radius; k++)
+            {
+                var j = x + k;
+                if (j >= 0 && j < length)
+                    total += input[j] * kernel[k + radius];
+            }
+            output[x] = total;
+        }
+        for (var x = vectorEnd; x < length; x++)
         {
             var total = 0f;
             for (var k = -radius; k <= radius; k++)
