@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Text;
 using Folio.Imaging;
 using Folio.Painting;
 using Folio.Skia;
@@ -326,6 +327,59 @@ public class SoftwareRasterTests(ITestOutputHelper output)
 
     private static FontFace Load(string name) => FontFace.Parse(File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", name)))!;
 
+    private static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)
+    {
+        var oldCount = BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(4));
+        var directoryShift = 16 * additions.Length;
+        var oldHeader = 12 + 16 * oldCount;
+        var shiftedLength = checked(source.Length + directoryShift);
+        var output = new byte[shiftedLength + additions.Sum(item => (item.Data.Length + 3) & ~3)];
+        source.AsSpan(0, oldHeader).CopyTo(output);
+        source.AsSpan(oldHeader).CopyTo(output.AsSpan(oldHeader + directoryShift));
+        BinaryPrimitives.WriteUInt16BigEndian(output.AsSpan(4), checked((ushort)(oldCount + additions.Length)));
+        for (var i = 0; i < oldCount; i++)
+        {
+            var record = 12 + 16 * i;
+            var oldOffset = BinaryPrimitives.ReadUInt32BigEndian(output.AsSpan(record + 8));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(record + 8), checked(oldOffset + (uint)directoryShift));
+        }
+
+        var write = shiftedLength;
+        for (var i = 0; i < additions.Length; i++)
+        {
+            var (tag, data) = additions[i];
+            write = (write + 3) & ~3;
+            var record = 12 + 16 * (oldCount + i);
+            Encoding.ASCII.GetBytes(tag).CopyTo(output.AsSpan(record, 4));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(record + 8), checked((uint)write));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(record + 12), checked((uint)data.Length));
+            data.CopyTo(output.AsSpan(write));
+            write += (data.Length + 3) & ~3;
+        }
+        return output;
+    }
+
+    private static byte[] SyntheticColrV1(ushort glyph)
+    {
+        // COLR v1 header (base glyph list at offset 34), followed by one
+        // PaintGlyph->PaintSolid graph using palette entry 0.
+        var colr = new byte[56];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 10; // PaintGlyph
+        colr[45] = 0; colr[46] = 0; colr[47] = 6; // child PaintSolid
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(48), glyph);
+        colr[50] = 2; // PaintSolid
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(51), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(53), 0x4000);
+        return colr;
+    }
+
+    private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
+
     [Fact]
     public void DrawsTextFromGlyphOutlines()
     {
@@ -345,6 +399,22 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         // Text edges are thinner features than shapes', and the two rasterisers weigh them differently; the limits are looser.
         Check("text 18px", c => c.DrawGlyphs(face, 18, glyphs, Origins(18).Select(o => o + new Vector2(0, 40)).ToArray(), Solid(0, 0, 0)), mean: 2.0, over8: 0.12, over40: 0.04, background: White);
         Check("text 40px", c => c.DrawGlyphs(face, 40, glyphs, Origins(40).Select(o => o + new Vector2(0, 90)).ToArray(), Solid(0.1f, 0.1f, 0.6f)), mean: 3.0, over8: 0.10, over40: 0.02, background: White, width: 300, height: 128);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1PaintGlyph()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The synthetic COLR v1 PaintGlyph did not render its CPAL color.");
     }
 
     [Fact]
