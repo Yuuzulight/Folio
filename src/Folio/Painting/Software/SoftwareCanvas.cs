@@ -166,11 +166,30 @@ internal sealed class SoftwareCanvas : ICanvas
         var blend = paint.Blend;
         if (shader is SolidShader solid)
         {
-            var color = solid.Color;
-            ForEachPixel(coverage, (x, y, c, offset) => Compositor.Blend(_target.Data, offset, color, c, blend));
+            BlendSolid(coverage, solid.Color, blend);
             return;
         }
         ForEachPixel(coverage, (x, y, c, offset) => Compositor.Blend(_target.Data, offset, shader.ColorAt(x, y) * alpha, c, blend));
+    }
+
+    // Keep the common solid-paint path allocation-free: dashboard backgrounds, borders and text shadows
+    // account for most software-raster pixels, so avoiding a delegate per primitive materially reduces replay cost.
+    private void BlendSolid(Coverage coverage, Vector4 color, BlendMode blend)
+    {
+        var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
+            for (var x = area.Left; x < area.Right; x++)
+            {
+                var c = coverage.Data[row + x];
+                if (c == 0)
+                    continue;
+                var amount = c / 255f * ClipAt(x, y);
+                if (amount > 0)
+                    Compositor.Blend(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color, amount, blend);
+            }
+        }
     }
 
     // A mask blur's deviation is scaled by the square root of the area the transform stretches by, the same in both directions
