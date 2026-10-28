@@ -66,9 +66,9 @@ labeled-break propagation in commit `b37a1f44`.
 The canvas frame benchmark now has an
 explicit native-engine mode. In the current compatibility-engine 30-frame run,
 every library-card artifact and the snake game are below 16.7 ms p95, but
-`D5/canvas-animated-bars` is 31.65 ms, dominated by script/update time, under
+`D5/canvas-animated-bars` is 40.53 ms, dominated by script/update time, under
 #519. The native 30-frame run puts every D5/D7 artifact below the target (worst
-case `D7/canvas-snake-game`: 11.06 ms), so native-mode numbers are now
+case `D7/canvas-snake-game`: 10.69 ms), so native-mode numbers are now
 acceptance evidence; native D2–D7 parity remains tracked separately.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,
@@ -103,7 +103,8 @@ while unsupported formats such as AVIF still route to the browser. The supported
 format matrix is covered by `ArtifactClassifierTests.BuiltInImageFormatsStayInFolio`.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2 and the latest native D2–D7 run passes 60/60.
+gate concrete: D1 passes 2/2, D2–D7 passes 60/60, and the full D1–D14 sweep
+passes 94/94.
 The native D5 chart
 bridge now renders all ten Chart.js artifacts within the reference tolerance;
 the React hooks interaction artifact now passes. These residual results are not
