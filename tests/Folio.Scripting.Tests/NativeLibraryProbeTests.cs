@@ -50,6 +50,20 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeVarDeclarationsAreHoistedAcrossBranches()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(2, engine.Evaluate("function choose(){if(false)var g=1;else g=2;return g;} choose();").AsNumber());
+    }
+
+    [Fact]
+    public void NativeObjectReturnLinksRemainTraversable()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(5, engine.Evaluate("var root={tag:3},ul={tag:5,return:root},li={tag:5,return:ul}; function host(a){for(var b=a.return;b!==null;){if(b.tag===5||b.tag===3)return b.tag;b=b.return;}return 0;} host(li);").AsNumber());
+    }
+
+    [Fact]
     public void NativeHostMethodsHonorCallReceiver()
     {
         using var engine = new NativeJavaScriptEngine();

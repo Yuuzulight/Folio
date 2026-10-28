@@ -122,7 +122,7 @@ internal sealed class JavaScriptEvaluator
 
     internal object? Execute(IReadOnlyList<JavaScriptStatement> statements)
     {
-        try { return ExecuteCore(statements); }
+        try { HoistVariables(statements); return ExecuteCore(statements); }
         catch (ReturnSignal returned) { return returned.Value; }
     }
 
@@ -130,10 +130,82 @@ internal sealed class JavaScriptEvaluator
     {
         try
         {
+            HoistVariables(statements);
             ExecuteCore(statements);
             return UndefinedOrNull();
         }
         catch (ReturnSignal returned) { return returned.Value; }
+    }
+
+    private void HoistVariables(IReadOnlyList<JavaScriptStatement> statements)
+    {
+        foreach (var statement in statements)
+        {
+            switch (statement)
+            {
+                case JavaScriptVariableStatement variable:
+                    HoistBinding(variable.Name);
+                    break;
+                case JavaScriptBlockStatement block:
+                    HoistVariables(block.Statements);
+                    break;
+                case JavaScriptIfStatement conditional:
+                    HoistStatement(conditional.Then);
+                    if (conditional.Else is { } alternative) HoistStatement(alternative);
+                    break;
+                case JavaScriptWhileStatement loop:
+                    HoistStatement(loop.Body);
+                    break;
+                case JavaScriptDoWhileStatement loop:
+                    HoistStatement(loop.Body);
+                    break;
+                case JavaScriptForStatement loop:
+                    if (loop.Initializer is { } initializer) HoistStatement(initializer);
+                    HoistStatement(loop.Body);
+                    break;
+                case JavaScriptForEachStatement each:
+                    HoistBinding(each.Name);
+                    HoistStatement(each.Body);
+                    break;
+                case JavaScriptLabeledStatement labeled:
+                    HoistStatement(labeled.Body);
+                    break;
+                case JavaScriptWithStatement with:
+                    HoistStatement(with.Body);
+                    break;
+                case JavaScriptTryStatement guarded:
+                    HoistVariables(guarded.Body.Statements);
+                    if (guarded.CatchName is { } catchName) HoistBinding(catchName);
+                    if (guarded.CatchBody is { } catchBody) HoistVariables(catchBody.Statements);
+                    if (guarded.FinallyBody is { } finallyBody) HoistVariables(finallyBody.Statements);
+                    break;
+                case JavaScriptSwitchStatement selection:
+                    foreach (var @case in selection.Cases) HoistVariables(@case.Statements);
+                    break;
+            }
+        }
+    }
+
+    private void HoistStatement(JavaScriptStatement statement) => HoistVariables([statement]);
+
+    private void HoistBinding(string name)
+    {
+        if (name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal))
+        {
+            foreach (var item in name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                if (!item.StartsWith("...", StringComparison.Ordinal)) HoistBinding(item.Trim());
+            return;
+        }
+        if (name.StartsWith("{", StringComparison.Ordinal) && name.EndsWith("}", StringComparison.Ordinal))
+        {
+            foreach (var item in name[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = item.Split(':', 2);
+                HoistBinding((parts.Length == 2 ? parts[1] : parts[0]).Trim());
+            }
+            return;
+        }
+        if (name.Length != 0) _bindings.TryAdd(name, UndefinedValue.Instance);
     }
 
     private object? ExecuteCore(IReadOnlyList<JavaScriptStatement> statements)
