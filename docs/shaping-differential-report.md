@@ -21,8 +21,8 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 `HarfBuzzShaperTests` passes 19/19, including representative Hebrew niqqud
 and Arabic `سلام`, `لا`, and `لم` cases. The direct Arabic corpus now also
-covers `مُحَمَّد`; glyph, cluster and advance parity pass, while multi-mark
-offset parity remains explicitly open.
+covers `مُحَمَّد`; glyph, cluster, advance and multi-mark offset parity pass
+for all four cases. The broader Arabic corpus remains open below.
 
 ## Explicitly open parity
 
@@ -31,7 +31,8 @@ for a script under review; production routing remains unchanged until the
 script's corpus is identical in glyphs, clusters, advances, and offsets.
 
 The current broader Arabic probe still differs for ordinary corpus samples
-including `العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`, `اللغة العربية`, and `فلسطين`.
+including `العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`, `اللغة العربية`, and `فلسطين`,
+and requires additional cursive-attachment and mark corpus coverage.
 Those differences are recorded on [#563](https://github.com/Yuuzulight/Folio/issues/563),
 so Arabic remains on the HarfBuzz oracle in production.
 

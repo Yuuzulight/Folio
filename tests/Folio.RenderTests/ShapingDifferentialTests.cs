@@ -124,6 +124,7 @@ public sealed class ShapingDifferentialTests
         Assert.Equal(oracle.Glyphs, actual.Glyphs);
         Assert.Equal(oracle.Clusters, actual.Clusters);
         Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets, actual.Offsets);
     }
 
     [Theory]

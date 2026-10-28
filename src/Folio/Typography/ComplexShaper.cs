@@ -200,18 +200,30 @@ public sealed class ComplexShaper : ITextShaper
                 advances.Add(0f);
                 var relativeToPreviousMark = false;
                 (int X, int Y)? markOffset = null;
-                if (previousBaseGlyph is { } previousBase)
-                    markOffset = face.MarkOffset(previousBase, glyph);
-                if (markOffset is null && previousMarkGlyph is { } previousMark)
+                if (previousMarkGlyph is { } previousMark)
                 {
-                    markOffset = face.MarkToMarkOffset(previousMark, glyph);
-                    relativeToPreviousMark = markOffset is not null;
+                    // Arabic marks are emitted in reverse visual order. The
+                    // font's mkmk lookup is defined in source order, so map
+                    // the source-order relation back onto the reversed run by
+                    // subtracting the offset from the following visual mark.
+                    markOffset = face.MarkToMarkOffset(glyph, previousMark);
+                    if (markOffset is not null)
+                        relativeToPreviousMark = true;
                 }
+                if (markOffset is null && previousBaseGlyph is { } previousBase)
+                    markOffset = face.MarkOffset(previousBase, glyph);
                 if (markOffset is { } position)
                 {
-                    var offset = new Vector2(position.X * scale, -position.Y * scale);
                     if (relativeToPreviousMark)
-                        offset += previousMarkOffset;
+                    {
+                        var relation = new Vector2(position.X * scale, -position.Y * scale);
+                        var relativeOffset = previousMarkOffset - relation;
+                        offsets.Add(relativeOffset);
+                        previousMarkOffset = relativeOffset;
+                        previousMarkGlyph = glyph;
+                        continue;
+                    }
+                    var offset = new Vector2(position.X * scale, -position.Y * scale);
                     offsets.Add(offset);
                     previousMarkOffset = offset;
                 }
@@ -276,17 +288,17 @@ public sealed class ComplexShaper : ITextShaper
                 {
                     (int X, int Y)? markOffset = null;
                     var relative = false;
-                    if (finalBaseGlyph is { } baseGlyph)
-                        markOffset = face.MarkOffset(baseGlyph, contextual[i]);
-                    if (markOffset is null && finalMarkGlyph is { } previousMark)
+                    if (finalMarkGlyph is { } previousMark)
                     {
-                        markOffset = face.MarkToMarkOffset(previousMark, contextual[i]);
+                        markOffset = face.MarkToMarkOffset(contextual[i], previousMark);
                         relative = markOffset is not null;
                     }
+                    if (markOffset is null && finalBaseGlyph is { } baseGlyph)
+                        markOffset = face.MarkOffset(baseGlyph, contextual[i]);
                     var offset = markOffset is { } position
                         ? new Vector2(position.X * scale, -position.Y * scale)
                         : Vector2.Zero;
-                    if (relative) offset += finalMarkOffset;
+                    if (relative) offset = finalMarkOffset - offset;
                     offsets[i] = offset;
                     finalMarkOffset = offset;
                     finalMarkGlyph = contextual[i];
