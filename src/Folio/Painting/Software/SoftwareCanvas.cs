@@ -308,8 +308,6 @@ internal sealed class SoftwareCanvas : ICanvas
         var tolerance = FlattenTolerance / Math.Max(scale * Math.Max(Scale(), 1e-3f), 1e-6f);
         for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
         {
-            if (Outline(font, glyphs[i]) is null)
-                continue;
             var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(SnapToTextGrid(origins[i]));
             foreach (var subpath in Flattened(face, glyphs[i], tolerance))
             {
