@@ -994,6 +994,28 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void RendersRepresentativeNotoBitmapColourGlyphCorpus()
+    {
+        var face = Load("NotoColorEmoji.ttf");
+        var codePoints = new[] { 0x1F603, 0x1F44D, 0x1F389, 0x1F680, 0x1F431, 0x1F31F, 0x2764 };
+        var glyphs = codePoints.Select(face.GlyphFor).ToArray();
+        Assert.All(glyphs, glyph => Assert.NotEqual((ushort)0, glyph));
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(7 * 64, 80)!;
+        White(surface.Canvas);
+        var origins = glyphs.Select((_, i) => new Vector2(8 + 64 * i, 60)).ToArray();
+        surface.Canvas.DrawGlyphs(face, 48, glyphs, origins, Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 7 * 64, 80);
+        for (var i = 0; i < glyphs.Length; i++)
+        {
+            var region = pixels
+                .Chunk(4)
+                .Skip(64 * 80 * 0)
+                .Where((_, index) => index % (7 * 64) >= i * 64 && index % (7 * 64) < (i + 1) * 64);
+            Assert.Contains(region, pixel => pixel[0] < 250 || pixel[1] < 250 || pixel[2] < 250);
+        }
+    }
+
+    [Fact]
     public void DrawsSbixPngColourGlyph()
     {
         var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
