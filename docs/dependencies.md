@@ -18,7 +18,7 @@ Target framework: **.NET 10** (`net10.0` for the engine and headless rendering, 
 | Unicode text algorithms | **Folio builds it**, BCL where it covers the need | See [Unicode](#unicode-what-the-bcl-covers-and-what-folio-implements) below |
 | Font file parsing (OpenType tables, WOFF, WOFF2) | **Folio builds it** | `cmap`, `head`, `hhea`, `hmtx`, `maxp`, `name`, `OS/2`, `post`, `kern`, `GSUB`/`GPOS`/`GDEF` basics, `fvar`; WOFF on `ZLibStream`, WOFF2 on `BrotliDecoder` plus Folio's `glyf` reconstruction |
 | Font matching and fallback logic | **Folio builds it** | CSS Fonts 4 matching, per-cluster fallback chain ([study](study/11-text.md)) |
-| Simple-script shaper (Latin, Greek, Cyrillic, Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base and extended niqqud words are differential-proven, while broader complex-script runs remain on the oracle |
+| Simple-script shaper (Latin, Greek, Cyrillic, Hebrew, common punctuation and digits) | **Folio builds it** | Kerning and ligatures from `kern`/`GPOS`/`GSUB`; Hebrew base, niqqud words and conformance-style RTL paragraphs are differential-proven, while broader complex-script runs remain on the oracle |
 | Complex-script shaping | **Dependency for now**: HarfBuzzSharp | Behind `ITextShaper` |
 | PNG decoder | **Folio builds it** | On `System.IO.Compression.ZLibStream`; all colour types, bit depths, interlacing, `tRNS`, gamma ignored except sRGB; APNG shows the first frame |
 | JPEG decoder | **Folio builds it** | Baseline and progressive, Huffman, 4:4:4/4:2:2/4:2:0, restart markers, EXIF orientation, DCT-domain downscaling; CMYK/arithmetic coding refused with a diagnostic |
