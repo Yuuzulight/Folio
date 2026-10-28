@@ -307,6 +307,15 @@ public sealed class ComplexShaper : ITextShaper
             i = end;
         }
 
+        // Apply Hebrew's contextual GSUB features over the complete run so
+        // ccmp/locl/rlig substitutions can inspect neighboring glyphs. The
+        // current buffer model does not carry ligature cluster spans, so only
+        // same-length substitutions are consumed; the per-glyph locl path
+        // below remains the safe fallback for any length-changing result.
+        var sourceGlyphs = orderedRunes.Select(r => face.GlyphFor(r.Rune.Value)).ToArray();
+        var contextualGlyphs = face.Substitute(sourceGlyphs, "ccmp locl rlig", "hebr");
+        var useContextual = contextualGlyphs.Length == orderedRunes.Count;
+
         ushort? previousBaseGlyph = null;
         int? previousBaseCluster = null;
         ushort? previousMarkGlyph = null;
@@ -319,7 +328,9 @@ public sealed class ComplexShaper : ITextShaper
             // Hebrew localisation can select a script-specific glyph before
             // mark anchors are read; keep this single-substitution step
             // Folio-owned and leave contextual/ligature work to the gate.
-            var glyph = face.Substitute([face.GlyphFor(code)], "locl", "hebr")[0];
+            var glyph = useContextual
+                ? contextualGlyphs[i]
+                : face.Substitute([face.GlyphFor(code)], "locl", "hebr")[0];
             glyphs.Add(glyph);
 
             var category = Rune.GetUnicodeCategory(rune);
