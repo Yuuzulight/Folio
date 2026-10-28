@@ -6,12 +6,9 @@ issues are closed. M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
-The latest serialized Release solution verification passes 4,211 tests, with
-zero failures and three documented skips (4,214 discovered).
-
 The latest full serialized Release verification (2026-10-30, commit
-`893d05ad`) supersedes that historical count: 4,258 discovered, 4,255
-succeeded, zero failed and three documented skips. The skips are the two
+`ae88d398`) passes 4,258 discovered, 4,255 succeeded, zero failed and three
+documented skips. The skips are the two
 software-canvas follow-ups and the local symbolic-link privilege limitation.
 
 Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
