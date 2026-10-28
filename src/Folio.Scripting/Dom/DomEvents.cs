@@ -59,7 +59,11 @@ internal static class DomEvents
             }
 
             function isNode(value) {
-                return typeof NodeCtor === 'function' && value instanceof NodeCtor;
+                // Host-backed DOM wrappers do not necessarily preserve the
+                // script realm's instanceof chain in every engine. The DOM
+                // identity is authoritative here; nodeType is exposed by all
+                // Node implementations and is stable across realms.
+                return value !== null && typeof value === 'object' && typeof value.nodeType === 'number';
             }
 
             function requireArgs(count, given, method, iface) {

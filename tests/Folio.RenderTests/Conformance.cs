@@ -295,6 +295,12 @@ public static class Conformance
                     if (el is null)
                         return $"step {i + 1} ({line}): element not found '{arg}'";
                     el.Click();
+                    // A synthetic interaction is a host task boundary. Drain the
+                    // queued callback/microtask work before the next assertion,
+                    // matching the browser's checkpoint after dispatch.
+                    for (var turns = 0; turns < 256 && CurrentHost()?.Loop.RunOneTurn() == true; turns++) { }
+                    CurrentHost()?.Loop.UpdateTheRendering();
+                    CurrentDocument().Update();
                     break;
                 }
                 case "hover":

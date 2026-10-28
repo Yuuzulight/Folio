@@ -38,12 +38,17 @@ internal sealed class JavaScriptParser
         if (Match(";")) return new JavaScriptExpressionStatement(new JavaScriptLiteralExpression("undefined", JavaScriptTokenKind.Identifier));
         if (_current.Kind == JavaScriptTokenKind.Identifier && Peek(0).Text == ":")
         {
-            // Labeled statements are used by minified React bundles. The
-            // bounded evaluator does not currently expose labeled break
-            // control flow, but the label itself does not change execution of
-            // the following statement.
+            var label = _current.Text;
             Take(); Take();
-            return ParseStatement();
+            var body = ParseStatement();
+            return body switch
+            {
+                JavaScriptWhileStatement loop => loop with { Label = label },
+                JavaScriptDoWhileStatement loop => loop with { Label = label },
+                JavaScriptForStatement loop => loop with { Label = label },
+                JavaScriptForEachStatement loop => loop with { Label = label },
+                _ => new JavaScriptLabeledStatement(label, body),
+            };
         }
         if (Match("{"))
         {
@@ -136,9 +141,10 @@ internal sealed class JavaScriptParser
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text is "break" or "continue")
         {
             var keyword = _current.Text; Take();
-            if (_current.Kind == JavaScriptTokenKind.Identifier) { Take(); Match(";"); }
-            else Match(";");
-            return keyword == "break" ? new JavaScriptBreakStatement() : new JavaScriptContinueStatement();
+            string? label = null;
+            if (_current.Kind == JavaScriptTokenKind.Identifier) { label = _current.Text; Take(); }
+            Match(";");
+            return keyword == "break" ? new JavaScriptBreakStatement(label) : new JavaScriptContinueStatement(label);
         }
         if (_current.Kind == JavaScriptTokenKind.Identifier && _current.Text == "for")
         {

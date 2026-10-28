@@ -179,7 +179,13 @@ internal sealed class JavaScriptEvaluator
                     break;
                 case JavaScriptWithStatement with:
                     var scope = Evaluate(with.Scope);
-                    if (scope is not IDictionary<string, object?> properties)
+                    IDictionary<string, object?>? properties = scope switch
+                    {
+                        IDictionary<string, object?> map => map,
+                        IReadOnlyDictionary<string, object?> readOnly => readOnly.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+                        _ => null,
+                    };
+                    if (properties is null)
                         throw new InvalidDataException("The with scope must be an object.");
                     var scoped = new JavaScriptEvaluator(_bindings, Math.Max(1, _maxSteps - _steps), _parentBindings, _parentEvaluator, _preserveUndefined, [.. _withScopes, properties], _deadlineExceeded);
                     var scopedResult = with.Body is JavaScriptBlockStatement scopedBlock
@@ -198,10 +204,10 @@ internal sealed class JavaScriptEvaluator
                         {
                             if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
                             try { ExecuteCore([loop.Body]); }
-                            catch (ContinueSignal) { }
+                            catch (ContinueSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                         }
                     }
-                    catch (BreakSignal) { }
+                    catch (BreakSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                     break;
                 case JavaScriptDoWhileStatement loop:
                     try
@@ -210,14 +216,14 @@ internal sealed class JavaScriptEvaluator
                         {
                             if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
                             try { ExecuteCore([loop.Body]); }
-                            catch (ContinueSignal) { }
+                            catch (ContinueSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                         }
                         while (Truth(Evaluate(loop.Condition)));
                     }
-                    catch (BreakSignal) { }
+                    catch (BreakSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                     break;
-                case JavaScriptBreakStatement: throw new BreakSignal();
-                case JavaScriptContinueStatement: throw new ContinueSignal();
+                case JavaScriptBreakStatement breakStatement: throw new BreakSignal(breakStatement.Label);
+                case JavaScriptContinueStatement continueStatement: throw new ContinueSignal(continueStatement.Label);
                 case JavaScriptForStatement loop:
                     if (loop.Initializer is not null) ExecuteCore([loop.Initializer]);
                     try
@@ -226,11 +232,11 @@ internal sealed class JavaScriptEvaluator
                         {
                             if (++_steps > _maxSteps) throw new InvalidOperationException("The script exceeded its evaluation step limit.");
                             try { ExecuteCore([loop.Body]); }
-                            catch (ContinueSignal) { }
+                            catch (ContinueSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                             if (loop.Update is not null) Evaluate(loop.Update);
                         }
                     }
-                    catch (BreakSignal) { }
+                    catch (BreakSignal signal) when (signal.Label is null || signal.Label == loop.Label) { }
                     break;
                 case JavaScriptForEachStatement each:
                     var source = Evaluate(each.Iterable);
@@ -254,10 +260,14 @@ internal sealed class JavaScriptEvaluator
                             }
                             else _bindings[each.Name] = item;
                             try { ExecuteCore([each.Body]); }
-                            catch (ContinueSignal) { }
+                            catch (ContinueSignal signal) when (signal.Label is null || signal.Label == each.Label) { }
                         }
                     }
-                    catch (BreakSignal) { }
+                    catch (BreakSignal signal) when (signal.Label is null || signal.Label == each.Label) { }
+                    break;
+                case JavaScriptLabeledStatement labeled:
+                    try { ExecuteCore([labeled.Body]); }
+                    catch (BreakSignal signal) when (signal.Label == labeled.Label) { }
                     break;
                 case JavaScriptThrowStatement thrown: throw new JavaScriptThrownException(Evaluate(thrown.Expression));
                 case JavaScriptTryStatement guarded:
@@ -1385,8 +1395,14 @@ internal sealed class JavaScriptEvaluator
         private UndefinedValue() { }
     }
 
-    private sealed class BreakSignal : Exception;
-    private sealed class ContinueSignal : Exception;
+    private sealed class BreakSignal(string? label) : Exception
+    {
+        internal string? Label { get; } = label;
+    }
+    private sealed class ContinueSignal(string? label) : Exception
+    {
+        internal string? Label { get; } = label;
+    }
     private sealed class ReturnSignal(object? value) : Exception
     {
         internal object? Value { get; } = value;

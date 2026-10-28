@@ -39,4 +39,18 @@ public sealed class NativeDomEventTests
   Assert.Equal("1", value);
  }
 
+ [Fact] public void NativeClickBubblesToParentListener()
+ {
+  using var engine = new NativeJavaScriptEngine(); using var loop = new HtmlEventLoop(engine);
+  var document = Folio.Document.Parse("<div id='root'><button id='b'>go</button></div>", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+  try
+  {
+   DomBindings.Install(engine, document, eventLoop: loop); ScriptGlobalsInstaller.Install(loop, engine);
+   engine.Evaluate("var hit=0; document.getElementById('root').addEventListener('click',()=>hit++);");
+   document.QuerySelector("#b")!.Click();
+  }
+  finally { document.Dispose(); }
+  Assert.Equal(1, engine.Evaluate("hit").AsNumber());
+ }
+
 }
