@@ -3,7 +3,7 @@ using Folio.Typography;
 
 namespace Folio.Painting.Software;
 
-/// <summary>Layered colour glyphs from the OpenType COLR v0 and CPAL tables.</summary>
+/// <summary>Layered colour glyphs from the OpenType COLR v0/v1 and CPAL tables.</summary>
 internal static class ColorGlyphs
 {
     internal readonly record struct Layer(ushort Glyph, Rgba? Color);
@@ -17,7 +17,7 @@ internal static class ColorGlyphs
 
     public static bool Has(FontFace face)
     {
-        try { return face.RawTable("COLR") is { } colr && face.RawTable("CPAL") is not null && colr.U16(0) == 0; }
+        try { return face.RawTable("COLR") is { } colr && face.RawTable("CPAL") is not null && colr.U16(0) is 0 or 1; }
         catch (Exception e) when (e is InvalidDataException or IndexOutOfRangeException) { return false; }
     }
 
@@ -36,9 +36,11 @@ internal static class ColorGlyphs
 
     private static Palette? Read(FontFace face)
     {
-        if (face.RawTable("COLR") is not { } colr || face.RawTable("CPAL") is not { } cpal || colr.U16(0) != 0)
-            return null; // v1 is intentionally left for the paint-graph implementation.
+        if (face.RawTable("COLR") is not { } colr || face.RawTable("CPAL") is not { } cpal)
+            return null;
 
+        var version = colr.U16(0);
+        if (version is not (0 or 1)) return null;
         var records = cpal.U16(2);
         var palettes = cpal.U16(4);
         var colorOffset = (int)cpal.U32(8);
@@ -51,12 +53,31 @@ internal static class ColorGlyphs
             palette[i] = new Rgba(cpal.U8(p + 2) / 255f, cpal.U8(p + 1) / 255f, cpal.U8(p) / 255f, cpal.U8(p + 3) / 255f);
         }
 
-        var count = colr.U16(2);
+        var result = new Palette();
+        if (version == 1 && colr.Length >= 34 && colr.U32(14) is var baseListOffset and not 0)
+        {
+            var baseList = checked((int)baseListOffset);
+            var count = checked((int)colr.U32(baseList));
+            if (count > 65535 || (long)baseList + 4 + 6L * count > colr.Length)
+                throw new InvalidDataException("COLR base glyph list is out of bounds.");
+            var roots = new Dictionary<ushort, int>();
+            for (var i = 0; i < count; i++)
+            {
+                var record = baseList + 4 + 6 * i;
+                roots[colr.U16(record)] = checked(baseList + (int)colr.U32(record + 2));
+            }
+            foreach (var (glyph, root) in roots)
+                if (Paint(colr, root, baseList, colr.U32(18) is var layerList and not 0 ? checked((int)layerList) : 0, palette, records, roots, new HashSet<int>()) is { Count: > 0 } layers)
+                    result.Glyphs[glyph] = layers.ToArray();
+            if (result.Glyphs.Count > 0) return result;
+        }
+
+        if (version != 0) return result.Glyphs.Count == 0 ? null : result;
+        var countV0 = colr.U16(2);
         var baseOffset = (int)colr.U32(4);
         var layerOffset = (int)colr.U32(8);
         var layerCount = colr.U16(12);
-        var result = new Palette();
-        for (var i = 0; i < count; i++)
+        for (var i = 0; i < countV0; i++)
         {
             var b = baseOffset + 6 * i;
             var glyph = colr.U16(b);
@@ -78,4 +99,61 @@ internal static class ColorGlyphs
         }
         return result;
     }
+
+    private static List<Layer>? Paint(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        if (offset < 0 || offset >= colr.Length || !path.Add(offset)) return null;
+        try
+        {
+            return colr.U8(offset) switch
+            {
+                1 when layerList != 0 => PaintLayers(colr, offset, baseList, layerList, palette, records, roots, path),
+                10 => PaintGlyph(colr, offset, baseList, layerList, palette, records, roots, path),
+                11 => roots.TryGetValue(colr.U16(offset + 1), out var root) ? Paint(colr, root, baseList, layerList, palette, records, roots, path) : null,
+                _ => null,
+            };
+        }
+        finally { path.Remove(offset); }
+    }
+
+    private static List<Layer>? PaintLayers(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        var count = colr.U8(offset + 1);
+        var first = checked((int)colr.U32(offset + 2));
+        var total = checked((int)colr.U32(layerList));
+        if (first < 0 || count > total || first > total - count || (long)layerList + 4 + 4L * total > colr.Length)
+            throw new InvalidDataException("COLR layer list is out of bounds.");
+        var result = new List<Layer>();
+        for (var i = 0; i < count; i++)
+        {
+            var child = checked(layerList + 4 + 4 * (first + i));
+            var childOffset = checked(layerList + (int)colr.U32(child));
+            if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is { } layers)
+                result.AddRange(layers);
+        }
+        return result;
+    }
+
+    private static List<Layer>? PaintGlyph(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        var childOffset = checked(offset + ReadU24(colr, offset + 1));
+        var glyph = colr.U16(offset + 4);
+        if (colr.U8(childOffset) != 2) return null;
+        var index = colr.U16(childOffset + 1);
+        if (index == 0xFFFF) return [new Layer(glyph, null)];
+        if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
+        return [new Layer(glyph, color)];
+    }
+
+    private static Rgba? PaintSolid(FontData colr, int offset, Rgba[] palette, int records)
+    {
+        if (colr.U8(offset) != 2) return null;
+        var index = colr.U16(offset + 1);
+        var alpha = Math.Clamp(colr.S16(offset + 3) / 16384f, 0, 1);
+        if (index == 0xFFFF) return null;
+        if (index >= records) throw new InvalidDataException("COLR palette index out of bounds.");
+        return palette[index] with { A = palette[index].A * alpha };
+    }
+
+    private static int ReadU24(FontData data, int offset) => checked(data.U8(offset) << 16 | data.U8(offset + 1) << 8 | data.U8(offset + 2));
 }
