@@ -1032,6 +1032,7 @@ internal sealed class JavaScriptEvaluator
             "forEach" => (Func<IReadOnlyList<object?>, object?>)(args => { _ = Map(values, args, filter: false, discard: true); return null; }),
             "reduce" => (Func<IReadOnlyList<object?>, object?>)(args => Reduce(values, args)),
             "find" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "find")),
+            "findIndex" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findIndex")),
             "some" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "some")),
             "every" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "every")),
             "sort" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1173,10 +1174,11 @@ internal sealed class JavaScriptEvaluator
             TryInvoke(args[0], [values[i], (double)i, values], out var callbackResult);
             var matched = Truth(callbackResult);
             if (mode == "find" && matched) return values[i];
+            if (mode == "findIndex" && matched) return (double)i;
             if (mode == "some" && matched) return true;
             if (mode == "every" && !matched) return false;
         }
-        return mode switch { "find" => UndefinedValue.Instance, "some" => false, _ => true };
+        return mode switch { "find" or "findIndex" => mode == "find" ? UndefinedValue.Instance : -1d, "some" => false, _ => true };
     }
 
     internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
