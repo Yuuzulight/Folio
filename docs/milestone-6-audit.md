@@ -21,7 +21,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 ## Verification refresh — 2026-10-30
 
 Focused runtime checks now pass WebRTC/capture 31/31, Worker/Iframe 196/196,
-media playback/native decoding 26/26, native WebGL texture/framebuffer 74/74,
+media playback/native decoding 26/26, media budget/host-switch 37/37, native WebGL texture/framebuffer 74/74,
 and WebGL fallback/loss/limits 123/123. These strengthen the deterministic
 implementation evidence, but the corresponding issues remain open where their
 original acceptance requires real device, process-teardown, runaway-shader or
