@@ -48,7 +48,7 @@ or a partial Folio implementation is progress, never completion.
 ## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The latest complete Release verification
-passes 4,186 tests with 0 failures and 7 documented skips (4,193 discovered).
+passes 4,188 tests with 0 failures and 7 documented skips (4,195 discovered).
 The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
 4,066,722 mutations respectively with zero failures. These are progress and
 safety evidence, not completion: HybridShaper still routes complex scripts to
