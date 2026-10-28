@@ -241,7 +241,6 @@ public class CanvasTests
     [Fact]
     public void ToDataUrlEncodesThePixels()
     {
-        Assert.SkipWhen(UsesSoftwareRaster, "The software backend encodes PNG only (#568 follow-up: a JPEG encoder).");
         using var page = new Page(this);
         page.Js("ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 100, 60); ''");
         var url = page.Js("canvas.toDataURL()");
@@ -252,7 +251,12 @@ public class CanvasTests
         Assert.NotNull(decoded);
         Assert.Equal((100, 60), (decoded.Width, decoded.Height));
         Assert.Equal(new byte[] { 255, 0, 0, 255 }, decoded.Pixels[..4]);
-        Assert.StartsWith("data:image/jpeg;base64,", page.Js("canvas.toDataURL('image/jpeg', 0.5)"));
+        var jpeg = page.Js("canvas.toDataURL('image/jpeg', 0.5)");
+        Assert.StartsWith("data:image/jpeg;base64,", jpeg);
+        var jpegBytes = Convert.FromBase64String(jpeg["data:image/jpeg;base64,".Length..]);
+        var jpegDecoded = Folio.Imaging.ImageLoader.Decode(jpegBytes);
+        Assert.NotNull(jpegDecoded);
+        Assert.Equal((100, 60), (jpegDecoded.Width, jpegDecoded.Height));
         Assert.StartsWith("data:image/png;base64,", page.Js("canvas.toDataURL('image/unknown')"));
     }
 

@@ -98,7 +98,12 @@ public sealed class SoftwareRasterSurface : IRasterSurface
         }
     }
 
-    public byte[]? Encode(string mimeType, double quality) => mimeType == "image/png" ? Png(ReadPixels(0, 0, Width, Height), Width, Height) : null;
+    public byte[]? Encode(string mimeType, double quality) => mimeType switch
+    {
+        "image/png" => Png(ReadPixels(0, 0, Width, Height), Width, Height),
+        "image/jpeg" => JpegEncoder.Encode(ReadPixels(0, 0, Width, Height), Width, Height, quality),
+        _ => null,
+    };
 
     public IImageHandle Snapshot() => new DecodedImage(Width, Height, ReadPixels(0, 0, Width, Height));
 

@@ -6,10 +6,11 @@ issues are closed. M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
-The latest full serialized Release verification (2026-10-30, commit
-`6b722be0`) passes 4,258 discovered, 4,256 succeeded, zero failed and two
-documented skips. The remaining skips are the software-canvas JPEG follow-up
-and the local symbolic-link privilege limitation.
+The latest full serialized Release verification (2026-10-30) passes 4,258
+discovered, 4,257 succeeded, zero failed and one environment-dependent skip
+(the local symbolic-link privilege limitation). The software-canvas JPEG
+follow-up is complete: Folio's own baseline encoder now round-trips through
+the Folio decoder and the scripting suite has no skips.
 
 The latest compatibility-engine canvas-frame run records
 `D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update)
