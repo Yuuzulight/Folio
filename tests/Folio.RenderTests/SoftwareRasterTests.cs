@@ -642,8 +642,8 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         Assert.NotNull(parsed);
         var gradient = Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient);
         Assert.Equal(GradientKind.Conic, gradient.Kind);
-        Assert.Equal(0, gradient.StartAngle);
-        Assert.Equal(360, gradient.EndAngle);
+        Assert.Equal(90, gradient.StartAngle);
+        Assert.Equal(450, gradient.EndAngle);
         using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
         White(surface.Canvas);
         surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));

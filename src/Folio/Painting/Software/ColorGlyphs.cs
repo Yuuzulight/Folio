@@ -172,8 +172,14 @@ internal static class ColorGlyphs
         var y1 = colr.S16(offset + 10);
         if (colr.U8(offset) == 8)
         {
+            // COLR angles are counter-clockwise from +X in the font design grid;
+            // GradientShader uses clockwise canvas angles from the top. Preserve
+            // the sweep span while converting the start axis.
+            var start = (x1 / 16384f + 1) * 180;
+            var end = (y1 / 16384f + 1) * 180;
+            var shaderStart = 90 - start;
             return new Gradient(GradientKind.Conic, stops, spread,
-                Center: new Vector2(x0, y0), StartAngle: (x1 / 16384f + 1) * 180, EndAngle: (y1 / 16384f + 1) * 180);
+                Center: new Vector2(x0, y0), StartAngle: shaderStart, EndAngle: shaderStart + end - start);
         }
         if (colr.U8(offset) == 6)
         {
