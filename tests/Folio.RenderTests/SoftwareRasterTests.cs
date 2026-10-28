@@ -588,6 +588,13 @@ public class SoftwareRasterTests(ITestOutputHelper output)
 
     private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
 
+    private static byte[] SyntheticColrV0(ushort glyph) =>
+    [
+        0, 0, 0, 1, 0, 0, 0, 14, 0, 0, 0, 20, 0, 1,
+        (byte)(glyph >> 8), (byte)glyph, 0, 0, 0, 1,
+        (byte)(glyph >> 8), (byte)glyph, 0, 0,
+    ];
+
     private static byte[] SyntheticColrV1Layers(ushort lowerGlyph, ushort upperGlyph)
     {
         var colr = new byte[86];
@@ -644,6 +651,22 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
             "The synthetic COLR v1 PaintGlyph did not render its CPAL color.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV0Layer()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV0(glyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0,
+            "The synthetic COLR v0 layer did not render its CPAL color.");
     }
 
     [Fact]
