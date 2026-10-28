@@ -64,6 +64,24 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeLabeledBreakEscapesSwitch()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var result = engine.Evaluate(@"
+            var output = [];
+            outer: for (var i = 0; i < 3; i++) {
+                switch (i) {
+                    case 0: output.push('before'); break outer;
+                    default: output.push('other');
+                }
+                output.push('after');
+            }
+            output.join(',');");
+
+        Assert.Equal("before", result.AsString());
+    }
+
+    [Fact]
     public void NativeHostMethodsHonorCallReceiver()
     {
         using var engine = new NativeJavaScriptEngine();

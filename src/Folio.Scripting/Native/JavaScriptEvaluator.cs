@@ -365,7 +365,10 @@ internal sealed class JavaScriptEvaluator
                             if (activeCase) ExecuteCore(@case.Statements);
                         }
                     }
-                    catch (BreakSignal) { }
+                    // An unlabeled break exits the switch. A labeled break may
+                    // target an enclosing labeled statement and must continue
+                    // propagating until that label handles it.
+                    catch (BreakSignal signal) when (signal.Label is null) { }
                     break;
                 case JavaScriptReturnStatement returned: throw new ReturnSignal(returned.Expression is null ? UndefinedOrNull() : Evaluate(returned.Expression));
                 case JavaScriptYieldStatement yielded:
