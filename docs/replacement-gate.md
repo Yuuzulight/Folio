@@ -47,6 +47,12 @@ or a partial Folio implementation is progress, never completion.
 
 ## Verification refresh — 2026-10-30
 
+The latest audit head (`fa0849fc`) extends the opaque fast path to fully
+covered solid spans, while preserving the 37/37 `SoftwareRasterTests` result.
+A short 20-frame Release run measured software replay at 73.4 ms versus 9.2
+ms for Skia at 800×600 and 49.3 ms versus 16.6 ms at 1920×1080. The spread is
+still noisy and the default-backend performance gate remains open.
+
 The latest audit head (`9f417579`) bulk-fills integral opaque RGBA rectangles
 in the Folio-owned software canvas. `SoftwareRasterTests` remains green at
 37/37. A short Release benchmark measured typical software replay at 66.0 ms
