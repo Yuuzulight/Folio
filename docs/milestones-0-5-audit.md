@@ -11,6 +11,12 @@ The latest full serialized Release verification (2026-10-30, commit
 documented skips. The skips are the two
 software-canvas follow-ups and the local symbolic-link privilege limitation.
 
+The latest compatibility-engine canvas-frame run records
+`D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update)
+against the 16.70 ms requirement; this keeps M5 open under #519. Native
+conformance remains a separate differential result and does not waive the M5
+compatibility-path gate.
+
 Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,
 `Folio.RenderTests` 744/744, and `Folio.Scripting.Tests` 1,390 executable tests,
