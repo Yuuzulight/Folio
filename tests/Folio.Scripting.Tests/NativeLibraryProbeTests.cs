@@ -111,6 +111,15 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeReactSharedDispatcherCanBeSwappedAndReadThroughHooks()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate(File.ReadAllText(Path.Combine(root, "react.production.min.js")), "react.production.min.js");
+        Assert.Equal(7, engine.Evaluate("var dispatcher=React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentDispatcher; dispatcher.current={useState:function(){return 7;}}; React.useState();").AsNumber());
+    }
+
+    [Fact]
     public void NativeNodePrototypeMutationMethodsOperateOnTheReceiver()
     {
         using var engine = new NativeJavaScriptEngine();
