@@ -353,6 +353,22 @@ internal sealed class SoftwareCanvas : ICanvas
                 }
                 if (Rasterizer.Fill(PathGeometry.Polygons(points, _state.Transform), FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
                 {
+                    if (layer.Gradient is { } gradient)
+                    {
+                        var paintAlpha = paint.Color.A;
+                        var stops = gradient.Stops
+                            .Select(stop => stop with { Color = stop.Color with { A = stop.Color.A * paintAlpha } })
+                            .ToArray();
+                        var transformedGradient = gradient with
+                        {
+                            Stops = stops,
+                            Start = Vector2.Transform(gradient.Start, matrix),
+                            End = Vector2.Transform(gradient.End, matrix),
+                            Transform = null,
+                        };
+                        Draw(coverage, new Paint(paint.Color, Gradient: transformedGradient, Blend: paint.Blend));
+                        continue;
+                    }
                     var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A };
                     Draw(coverage, new Paint(colour, Blend: paint.Blend));
                 }

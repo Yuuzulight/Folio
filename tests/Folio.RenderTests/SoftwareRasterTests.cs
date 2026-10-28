@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Text;
 using Folio.Imaging;
 using Folio.Painting;
+using Folio.Painting.Software;
 using Folio.Skia;
 using Folio.Typography;
 
@@ -416,6 +417,35 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1LinearGradient(ushort glyph)
+    {
+        // PaintGlyph -> PaintLinearGradient with two CPAL stops and a horizontal
+        // font-unit gradient. The graph exercises the Folio software shader path.
+        var colr = new byte[104];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 10; colr[45] = 0; colr[46] = 0; colr[47] = 12;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(48), glyph);
+        colr[56] = 4; colr[57] = 0; colr[58] = 0; colr[59] = 30;
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(68), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(70), 500);
+        colr[86] = 0; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(87), 2);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(89), 0);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(91), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(93), 0x4000);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(95), 0x4000);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(97), 1);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(99), 0x4000);
+        return colr;
+    }
+
     private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
 
     private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
@@ -510,6 +540,30 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var redXs = pixels.Chunk(4).Select((pixel, index) => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0 ? index % 96 : -1).Where(x => x >= 0).ToArray();
         Assert.NotEmpty(redXs);
         Assert.True(redXs.Min() > 28, $"The COLR v1 PaintTransform wrapper did not move the glyph (min x={redXs.Min()}).");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1LinearGradientPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1LinearGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        var layer = Assert.Single(parsed!);
+        Assert.Equal(glyph, layer.Glyph);
+        var gradient = Assert.IsType<Gradient>(layer.Gradient);
+        Assert.Equal(2, gradient.Stops.Count);
+        Assert.True(gradient.Stops[0].Color.R > .9f);
+        Assert.True(gradient.Stops[1].Color.B > .9f);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
     }
 
     [Fact]

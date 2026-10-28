@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Numerics;
+using Folio.Painting;
 using Folio.Typography;
 
 namespace Folio.Painting.Software;
@@ -7,7 +8,7 @@ namespace Folio.Painting.Software;
 /// <summary>Layered colour glyphs from the OpenType COLR v0/v1 and CPAL tables.</summary>
 internal static class ColorGlyphs
 {
-    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default)
+    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default, Gradient? Gradient = null)
     {
         public Matrix3x2 TransformOrIdentity => Transform == default ? Matrix3x2.Identity : Transform;
     }
@@ -144,11 +145,52 @@ internal static class ColorGlyphs
     {
         var childOffset = checked(offset + ReadU24(colr, offset + 1));
         var glyph = colr.U16(offset + 4);
-        if (colr.U8(childOffset) != 2) return null;
         var index = colr.U16(childOffset + 1);
-        if (index == 0xFFFF) return [new Layer(glyph, null)];
-        if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
-        return [new Layer(glyph, color)];
+        if (colr.U8(childOffset) == 2)
+        {
+            if (index == 0xFFFF) return [new Layer(glyph, null)];
+            if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
+            return [new Layer(glyph, color)];
+        }
+        if (colr.U8(childOffset) == 4 && PaintLinearGradient(colr, childOffset, palette, records) is { } gradient)
+            return [new Layer(glyph, gradient.Stops[0].Color, Gradient: gradient)];
+        return null;
+    }
+
+    private static Gradient? PaintLinearGradient(FontData colr, int offset, Rgba[] palette, int records)
+    {
+        // PaintLinearGradient: format, ColorLine offset, and three FWORD points.
+        var colorLine = checked(offset + ReadU24(colr, offset + 1));
+        var x0 = colr.S16(offset + 4);
+        var y0 = colr.S16(offset + 6);
+        var x1 = colr.S16(offset + 8);
+        var y1 = colr.S16(offset + 10);
+        if (colr.U8(offset) != 4 || colorLine < 0 || colorLine + 3 > colr.Length)
+            return null;
+        var extend = colr.U8(colorLine);
+        var count = colr.U16(colorLine + 1);
+        if (count == 0 || (long)colorLine + 3 + 6L * count > colr.Length)
+            throw new InvalidDataException("COLR color line is out of bounds.");
+        var stops = new List<GradientStop>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var stop = colorLine + 3 + 6 * i;
+            var position = Math.Clamp(colr.S16(stop) / 16384f, 0, 1);
+            var paletteIndex = colr.U16(stop + 2);
+            if (paletteIndex == 0xFFFF || paletteIndex >= records)
+                continue;
+            var alpha = Math.Clamp(colr.S16(stop + 4) / 16384f, 0, 1);
+            var color = palette[paletteIndex] with { A = palette[paletteIndex].A * alpha };
+            stops.Add(new GradientStop(position, color));
+        }
+        if (stops.Count == 0) return null;
+        var spread = extend switch
+        {
+            1 => GradientSpread.Repeat,
+            2 => GradientSpread.Reflect,
+            _ => GradientSpread.Pad,
+        };
+        return new Gradient(GradientKind.Linear, stops, spread, new Vector2(x0, y0), new Vector2(x1, y1));
     }
 
     private static List<Layer>? PaintTranslate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
