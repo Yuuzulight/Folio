@@ -90,8 +90,11 @@ dotnet run --project tests/Folio.Fuzz -c Release -- fuzz <seconds> [html|css|png
 The benchmark harness times each pipeline stage and measures memory for generated documents and the conformance corpus, against the targets in `docs/study/18-memory-and-performance.md`:
 
 ```
-dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations]
+dotnet run --project tests/Folio.Benchmarks -c Release -- bench [iterations] [frames]
 ```
+
+`iterations` controls parse/layout measurements; `frames` independently fixes the number of animation,
+interaction, and raster-replay samples so runs can be compared across machines (for example, `bench 20 80`).
 
 `gc` reports the layout stage's time, GC pause and collection counts, and a whole render through the public API, for the large generated documents:
 
