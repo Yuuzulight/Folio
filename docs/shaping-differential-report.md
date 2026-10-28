@@ -6,7 +6,7 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 ## Current green corpus
 
-`ShapingDifferentialTests` passes 19/19 on the bundled fonts:
+`ShapingDifferentialTests` passes 23/23 on the bundled fonts:
 
 - Latin and punctuation (`Source Sans 3`)
 - digits and kerning (`Folio Box`)
@@ -15,6 +15,9 @@ This is the checked-in evidence for the mandatory shaping replacement track
 - Hebrew base text
 - Hebrew niqqud words (`שלום`, `בראשית`, `מלכה`)
 - Arabic promotion-switch routing through `ComplexShaper`
+- Arabic extended corpus glyph/cluster parity (`العربية لغة جميلة`,
+  `مَرْحَبًا بِكُمْ`, `اللغة العربية`, `فلسطين`); advance and offset parity
+  for these extended runs remains open
 - Hebrew promotion-switch routing through `ComplexShaper`
 - mixed-script safety (a promoted script cannot capture an entire mixed run)
 - deliberate kerning perturbation detection

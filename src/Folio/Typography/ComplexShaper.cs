@@ -185,16 +185,40 @@ public sealed class ComplexShaper : ITextShaper
             }
         }
 
+        var expanded = new List<(Rune Rune, int Index, ushort Glyph, bool Transparent, bool Auxiliary)>();
         for (var i = 0; i < runes.Count; i++)
         {
             var (rune, cluster) = runes[i];
-            var code = rune.Value;
-            var joining = GetArabicJoining(code);
-
+            var joining = GetArabicJoining(rune.Value);
             if (joining == ArabicJoining.Transparent)
             {
+                expanded.Add((rune, cluster, face.GlyphFor(rune.Value), true, false));
+                continue;
+            }
+
+            var decomposition = face.SubstituteSequence(face.GlyphFor(rune.Value), "ccmp", "arab");
+            var formFeature = forms[i] switch
+            {
+                ArabicForm.Initial => "init",
+                ArabicForm.Medial => "medi",
+                ArabicForm.Final => "fina",
+                _ => "isol",
+            };
+            var formed = face.SubstituteSequence(decomposition[0], formFeature, "arab");
+            for (var j = 0; j < formed.Length; j++)
+                expanded.Add((rune, cluster, formed[j], false, j > 0));
+            for (var j = 1; j < decomposition.Length; j++)
+                expanded.Add((rune, cluster, decomposition[j], false, true));
+        }
+
+        for (var i = 0; i < expanded.Count; i++)
+        {
+            var (rune, cluster, mappedGlyph, transparent, auxiliary) = expanded[i];
+
+            if (transparent)
+            {
                 // Arabic tashkeel: advance = 0, positioned through Folio-owned GPOS anchors.
-                var glyph = face.GlyphFor(code);
+                var glyph = mappedGlyph;
                 glyphs.Add(glyph);
                 clusters.Add(previousBaseCluster ?? cluster);
                 advances.Add(0f);
@@ -236,12 +260,12 @@ public sealed class ComplexShaper : ITextShaper
                 continue;
             }
 
-            var mappedGlyph = face.GlyphFor(code);
-
             glyphs.Add(mappedGlyph);
             clusters.Add(cluster);
             advances.Add(face.Advance(mappedGlyph) * scale);
             offsets.Add(Vector2.Zero);
+            if (auxiliary)
+                continue;
             previousBaseGlyph = mappedGlyph;
             previousBaseCluster = cluster;
             previousMarkGlyph = null;
@@ -255,19 +279,6 @@ public sealed class ComplexShaper : ITextShaper
         if (glyphs.Count > 0)
         {
             var contextual = glyphs.ToArray();
-            for (var i = 0; i < contextual.Length; i++)
-            {
-                var form = forms[i];
-                if (GetArabicJoining(runes[i].Rune.Value) == ArabicJoining.Transparent)
-                    continue;
-                face.SubstituteAt(contextual, i, form switch
-                {
-                    ArabicForm.Initial => "init",
-                    ArabicForm.Medial => "medi",
-                    ArabicForm.Final => "fina",
-                    _ => "isol",
-                }, "arab");
-            }
             contextual = face.Substitute(contextual, "locl rlig calt liga", "arab");
             for (var i = 0; i < contextual.Length && i < glyphs.Count; i++)
             {
@@ -282,9 +293,9 @@ public sealed class ComplexShaper : ITextShaper
             ushort? finalBaseGlyph = null;
             ushort? finalMarkGlyph = null;
             var finalMarkOffset = Vector2.Zero;
-            for (var i = 0; i < contextual.Length && i < runes.Count; i++)
+            for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
             {
-                if (GetArabicJoining(runes[i].Rune.Value) == ArabicJoining.Transparent)
+                if (expanded[i].Transparent)
                 {
                     (int X, int Y)? markOffset = null;
                     var relative = false;
@@ -302,6 +313,10 @@ public sealed class ComplexShaper : ITextShaper
                     offsets[i] = offset;
                     finalMarkOffset = offset;
                     finalMarkGlyph = contextual[i];
+                }
+                else if (expanded[i].Auxiliary)
+                {
+                    offsets[i] = Vector2.Zero;
                 }
                 else
                 {

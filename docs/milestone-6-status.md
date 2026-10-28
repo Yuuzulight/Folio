@@ -10,7 +10,8 @@ Hebrew shaping refresh (2026-10-29, commit `1881c1f7`): ComplexShaper now
 applies GPOS pair adjustments across intervening niqqud marks and carries the
 pair offset into attached marks. The extended bundled corpus (`שָׁלוֹם`,
 `בְּרֵאשִׁית`, `מַלְכָּה`) passes glyph, cluster, advance and offset parity;
-the focused differential suite is 19/19. Broader script coverage and the
+the focused differential suite is now 23/23, including Arabic extended
+glyph/cluster coverage. Broader script coverage and the
 mandatory HarfBuzz replacement gate remain open.
 
 Native React placement refresh (2026-10-28, PR #651 and commit `b37a1f44`):
@@ -61,9 +62,9 @@ failure until the real insertion path is observed and rendered pixels match.
 Arabic shaping refresh (2026-10-30): Folio now applies the
 Arabic script's required GSUB `rlig` contextual records after its joining-form
 pass. Representative `سلام`, `لا`, `لم` and `مُحَمَّد` cases match HarfBuzz,
-including multi-mark offsets, with 19/19 focused shaping tests. This is a
-targeted improvement only; the broader complex-shaping and replacement gates
-remain open.
+including multi-mark offsets; four extended Arabic words now also match glyphs
+and clusters, for 23/23 focused shaping tests. Advances, offsets and broader
+cursive-attachment parity remain open, so this is a targeted improvement only.
 
 Native DOM prototype wiring refresh (2026-10-27, commit `c2e872e1`): the Folio-owned
 native engine now exposes the receiver-preserving `Node.prototype` traversal and

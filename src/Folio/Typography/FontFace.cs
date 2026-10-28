@@ -267,6 +267,9 @@ internal sealed class FontFace : IFontHandle
 
     internal void SubstituteAt(ushort[] glyphs, int position, string features, string scriptTag) => _gsub?.SubstituteAt(glyphs, position, features, scriptTag);
 
+    internal ushort[] SubstituteSequence(ushort glyph, string features, string scriptTag) =>
+        _gsub?.SubstituteSequence(glyph, features, scriptTag) ?? [glyph];
+
     /// <summary>Whether a glyph starts one of the font's default ligatures (liga, clig, rlig).</summary>
     public bool StartsLigature(ushort glyph) => _gsub?.StartsLigature(glyph) == true;
 

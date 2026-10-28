@@ -69,6 +69,73 @@ internal sealed class GsubSubstitution
         }
     }
 
+    /// <summary>Applies direct single and multiple substitutions to one glyph, preserving a decomposed sequence.</summary>
+    public ushort[] SubstituteSequence(ushort glyph, string features, string scriptTag)
+    {
+        var result = new List<ushort> { glyph };
+        try
+        {
+            foreach (var lookupIndex in LookupIndices(features, scriptTag))
+            {
+                var lookupList = _gsub.U16(8);
+                var lookup = lookupList + _gsub.U16(lookupList + 2 + 2 * lookupIndex);
+                var type = _gsub.U16(lookup);
+                if (type is not (Single or 2 or Extension))
+                    continue;
+                for (var i = 0; i < result.Count; i++)
+                {
+                    if (TryApplyDirectLookup(result[i], lookup, out var replacement))
+                    {
+                        result.RemoveAt(i);
+                        result.InsertRange(i, replacement);
+                        i += replacement.Length - 1;
+                    }
+                }
+            }
+            return [.. result];
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException or IndexOutOfRangeException)
+        {
+            return [glyph];
+        }
+    }
+
+    private bool TryApplyDirectLookup(ushort glyph, int lookup, out ushort[] replacement)
+    {
+        var type = _gsub.U16(lookup);
+        for (var i = 0; i < _gsub.U16(lookup + 4); i++)
+        {
+            var subtable = lookup + _gsub.U16(lookup + 6 + 2 * i);
+            if (type == Extension && _gsub.U16(subtable) == 1)
+            {
+                var targetType = _gsub.U16(subtable + 2);
+                var target = checked(subtable + (int)_gsub.U32(subtable + 4));
+                if (targetType is Single or 2 && TryApplyDirectSubtable(glyph, targetType, target, out replacement))
+                    return true;
+            }
+            else if (type is Single or 2 && TryApplyDirectSubtable(glyph, type, subtable, out replacement))
+                return true;
+        }
+        replacement = [];
+        return false;
+    }
+
+    private bool TryApplyDirectSubtable(ushort glyph, int type, int subtable, out ushort[] replacement)
+    {
+        if (type == Single && Apply(subtable, glyph) is { } single)
+        {
+            replacement = [single];
+            return true;
+        }
+        if (type == 2 && ApplyMultipleSequence(subtable, glyph) is { } multiple)
+        {
+            replacement = multiple;
+            return true;
+        }
+        replacement = [];
+        return false;
+    }
+
     /// <summary>Applies script-aware single and format-3 contextual substitutions to a glyph run.</summary>
     public ushort[] Substitute(ushort[] glyphs, string features, string scriptTag)
     {
@@ -356,6 +423,22 @@ internal sealed class GsubSubstitution
             return null;
         var sequence = subtable + _gsub.U16(subtable + 6 + 2 * index);
         return _gsub.U16(sequence) == 1 ? _gsub.U16(sequence + 2) : null;
+    }
+
+    private ushort[]? ApplyMultipleSequence(int subtable, ushort glyph)
+    {
+        if (_gsub.U16(subtable) != 1)
+            return null;
+        var index = CoverageIndex(subtable + _gsub.U16(subtable + 2), glyph);
+        var count = _gsub.U16(subtable + 4);
+        if (index < 0 || index >= count)
+            return null;
+        var sequence = subtable + _gsub.U16(subtable + 6 + 2 * index);
+        var glyphCount = _gsub.U16(sequence);
+        var result = new ushort[glyphCount];
+        for (var i = 0; i < glyphCount; i++)
+            result[i] = _gsub.U16(sequence + 2 + 2 * i);
+        return result;
     }
 
     // https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#coverage-table
