@@ -20,7 +20,7 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 ## Verification refresh — 2026-10-28
 
 The current audit branch was rechecked after the shaping changes: the Release
-render suite passes 758/758 and the Release scripting suite passes 1,393/1,393
+render suite passes 758/758 and the Release scripting suite passes 1,401/1,407
 with six documented software-backend skips. The complete CI run
 `40599053194` passed on Ubuntu and Windows, including all capability-matrix
 rows. These checks confirm that the audited fixes did not regress the covered
