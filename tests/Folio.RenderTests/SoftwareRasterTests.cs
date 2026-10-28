@@ -460,6 +460,17 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1SweepGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1LinearGradient(glyph);
+        colr[56] = 8; // PaintSweepGradient
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 250);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 250);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), unchecked((short)0xC000));
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 0x4000);
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1Composite(ushort glyph)
     {
         var colr = new byte[84];
@@ -611,6 +622,28 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var parsed = ColorGlyphs.Get(face, glyph);
         Assert.NotNull(parsed);
         Assert.Equal(GradientKind.Radial, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1SweepGradientPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1SweepGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        var gradient = Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient);
+        Assert.Equal(GradientKind.Conic, gradient.Kind);
+        Assert.Equal(0, gradient.StartAngle);
+        Assert.Equal(360, gradient.EndAngle);
         using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
         White(surface.Canvas);
         surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));

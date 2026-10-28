@@ -153,7 +153,7 @@ internal static class ColorGlyphs
             if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
             return [new Layer(glyph, color)];
         }
-        if (colr.U8(childOffset) is 4 or 6 && PaintGradient(colr, childOffset, palette, records) is { } gradient)
+        if (colr.U8(childOffset) is 4 or 6 or 8 && PaintGradient(colr, childOffset, palette, records) is { } gradient)
             return [new Layer(glyph, gradient.Stops[0].Color, Gradient: gradient)];
         return null;
     }
@@ -162,7 +162,7 @@ internal static class ColorGlyphs
     {
         // PaintLinearGradient/PaintRadialGradient: format, ColorLine offset and FWORD geometry.
         var colorLine = checked(offset + ReadU24(colr, offset + 1));
-        if (colr.U8(offset) is not (4 or 6) || colorLine < 0 || colorLine + 3 > colr.Length)
+        if (colr.U8(offset) is not (4 or 6 or 8) || colorLine < 0 || colorLine + 3 > colr.Length)
             return null;
         var stops = ReadColorStops(colr, colorLine, palette, records, out var spread);
         if (stops is null) return null;
@@ -170,6 +170,11 @@ internal static class ColorGlyphs
         var y0 = colr.S16(offset + 6);
         var x1 = colr.S16(offset + 8);
         var y1 = colr.S16(offset + 10);
+        if (colr.U8(offset) == 8)
+        {
+            return new Gradient(GradientKind.Conic, stops, spread,
+                Center: new Vector2(x0, y0), StartAngle: (x1 / 16384f + 1) * 180, EndAngle: (y1 / 16384f + 1) * 180);
+        }
         if (colr.U8(offset) == 6)
         {
             var r0 = Math.Max(0, (int)colr.S16(offset + 12));
