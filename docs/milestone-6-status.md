@@ -21,7 +21,7 @@ all 14 jobs. This closes a fuzz-harness false positive, not any of the open
 native backend or replacement gates below.
 
 Full serialized Release verification (2026-10-30) passes
-4,259 of 4,260 discovered tests with zero failures and one environment-dependent
+4,260 of 4,261 discovered tests with zero failures and one environment-dependent
 skip (local symbolic-link privilege). The software canvas now exports and
 round-trips JPEG through Folio's own baseline encoder, removing the former
 JPEG-specific skip. This is repository-wide regression evidence; it does not close the
