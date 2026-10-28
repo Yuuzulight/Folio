@@ -1242,7 +1242,7 @@ internal sealed class JavaScriptEvaluator
             "substring" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var start = ClampStringIndex(args.Count > 0 ? args[0] : null, value.Length);
-                var end = ClampStringIndex(args.Count > 1 ? args[1] : null, value.Length);
+                var end = ClampStringIndex(args.Count > 1 ? args[1] : null, value.Length, value.Length);
                 if (start > end) (start, end) = (end, start);
                 return value[start..end];
             }),
@@ -1257,7 +1257,7 @@ internal sealed class JavaScriptEvaluator
         return index < 0 ? Math.Max(length + index, 0) : Math.Min(index, length);
     }
 
-    private static int ClampStringIndex(object? value, int length) => Math.Clamp(value is null or UndefinedValue ? 0 : (int)Number(value), 0, length);
+    private static int ClampStringIndex(object? value, int length, int fallback = 0) => Math.Clamp(value is null or UndefinedValue ? fallback : (int)Number(value), 0, length);
 
     private object Function(JavaScriptFunctionExpression function)
     {

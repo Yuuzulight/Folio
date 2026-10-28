@@ -668,6 +668,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.True(engine.Evaluate("'folio'.startsWith('fol')").AsBoolean());
         Assert.Equal("bc", engine.Evaluate("'abcdef'.slice(1, -3)").AsString());
         Assert.Equal("bcd", engine.Evaluate("'abcdef'.substring(4, 1)").AsString());
+        Assert.Equal("cdef", engine.Evaluate("'abcdef'.substring(2)").AsString());
     }
 
     [Fact]
