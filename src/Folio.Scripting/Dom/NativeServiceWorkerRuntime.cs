@@ -22,6 +22,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
     private readonly List<ScriptValue> _activateListeners = [];
     private ScriptValue _lastOutgoing;
     private ScriptValue _clients;
+    private ScriptValue _waitUntil;
     private bool _disposed;
 
     internal IsolatedServiceWorkerRuntime(IScriptEngine pageEngine, DomContext context, IScriptEngineFactory factory, IResourceLoader? loader, Uri? baseUri)
@@ -37,6 +38,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         _onActivate = ScriptValue.Null;
         _lastOutgoing = ScriptValue.Undefined;
         _clients = ScriptValue.Undefined;
+        _waitUntil = ScriptValue.Undefined;
         CreateEngine();
     }
 
@@ -114,6 +116,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         _onInstall = ScriptValue.Null;
         _onActivate = ScriptValue.Null;
         _lastOutgoing = ScriptValue.Undefined;
+        _waitUntil = ScriptValue.Undefined;
     }
 
     internal string? Dispatch(string url)
@@ -321,6 +324,11 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
                 };
             })(self);
             """, "folio:native-service-worker-dispatch");
+        // Cache the lifecycle waitUntil identity while trusted bootstrap is
+        // still outside the worker deadline. Dispatch must not spend the
+        // worker's short budget reparsing this helper under load.
+        _engine.EvaluateHostScript("globalThis.__folio_wait_until = function(value) { return value; };", "folio:native-service-worker-wait-until");
+        _waitUntil = _engine.GetGlobalProperty("__folio_wait_until");
 
         // Trusted runtime/bootstrap code is installed before the worker's execution
         // budget is armed. The limit must bound artifact handlers and dispatch, not
@@ -359,7 +367,7 @@ internal sealed class IsolatedServiceWorkerRuntime : IDisposable
         {
             ["type"] = ScriptValue.FromString(type),
             ["target"] = _engine.GetGlobalProperty("self"),
-            ["waitUntil"] = _engine.Evaluate("(function(value) { return value; })", "folio:service-worker-wait-until"),
+            ["waitUntil"] = _waitUntil,
         });
         if (handler.IsFunction) _engine.Call(handler, ScriptValue.Undefined, [eventValue]);
         foreach (var listener in listeners.ToArray()) _engine.Call(listener, ScriptValue.Undefined, [eventValue]);
