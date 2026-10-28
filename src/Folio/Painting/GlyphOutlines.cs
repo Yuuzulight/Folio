@@ -837,6 +837,22 @@ internal static class GlyphOutlines
                     case 11: _stack[_depth - 2] -= _stack[_depth - 1]; _depth--; break;
                     case 12: _stack[_depth - 2] /= _stack[_depth - 1]; _depth--; break;
                     case 14: _stack[_depth - 1] = -_stack[_depth - 1]; break;
+                    case 16: // blend (CFF2): keep the default-instance values.
+                    {
+                        // The operand stack contains n base values, followed by
+                        // n * k deltas, followed by n (the number of blends).
+                        // The variation store is not selected yet, so the
+                        // default instance contributes zero region deltas. Keep
+                        // the bases while validating the complete operand shape;
+                        // silently dropping the stack would corrupt the path.
+                        if (_depth == 0)
+                            throw new InvalidDataException("A CFF2 blend without a count.");
+                        var count = (int)_stack[_depth - 1];
+                        if (count <= 0 || count > _stack.Length || _depth < count + 1 || (_depth - count - 1) % count != 0)
+                            throw new InvalidDataException("A CFF2 blend has an invalid operand count.");
+                        _depth = count;
+                        break;
+                    }
                     case 24: _stack[_depth - 2] *= _stack[_depth - 1]; _depth--; break;
                     case 26: _stack[_depth - 1] = Math.Sqrt(_stack[_depth - 1]); break;
                     case 18: _depth--; break;
