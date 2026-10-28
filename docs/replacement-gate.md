@@ -66,9 +66,9 @@ labeled-break propagation in commit `b37a1f44`.
 The canvas frame benchmark now has an
 explicit native-engine mode. In the current compatibility-engine 30-frame run,
 every library-card artifact and the snake game are below 16.7 ms p95, but
-`D5/canvas-animated-bars` is 40.53 ms, dominated by script/update time, under
+`D5/canvas-animated-bars` is 46.44 ms, dominated by script/update time, under
 #519. The native 30-frame run puts every D5/D7 artifact below the target (worst
-case `D7/canvas-snake-game`: 10.69 ms), so native-mode numbers are now
+case `D7/canvas-snake-game`: 11.55 ms), so native-mode numbers are now
 acceptance evidence; native D2–D7 parity remains tracked separately.
 
 Latest focused refresh: the Folio-owned GIF/WebP decoder suite passes 26/26,

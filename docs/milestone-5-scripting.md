@@ -34,16 +34,16 @@ script mutations and reuses the document text shaper, so it no longer measures a
 layout rebuild for every draw. In the 30-frame Windows run on 2026-10-28, every D5/D7
 library-card artifact stayed below the 16.70 ms p95 target; the deliberately heavy
 `D5/canvas-animated-bars` case remains above target: three fresh 30-frame Release
-runs measured 38.13–43.48 ms total p95. Issue #519 remains open until that workload
+runs measured 38.13–46.44 ms total p95 (the latest run measured 46.44 ms). Issue #519 remains open until that workload
 is genuinely within budget.
 
 The current three-run sample remains a real miss: `canvas-animated-bars` measures
-38.13–43.48 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
+38.13–46.44 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
 threshold relaxation or routing workaround was applied.
 
 The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
 artifact within budget, including `canvas-animated-bars` at 5.12 ms p95 and
-`canvas-snake-game` at 10.69 ms p95. This demonstrates that the native engine
+`canvas-snake-game` at 11.55 ms p95. This demonstrates that the native engine
 has the required frame-time headroom, but does not close #519 while Jint remains
 the production default.
 
