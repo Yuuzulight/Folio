@@ -30,6 +30,11 @@ internal static class Compositor
     {
         if (coverage <= 0)
             return;
+        if (mode == BlendMode.Normal && coverage >= 1 && source.W >= 1)
+        {
+            BlendOpaque(data, offset, source);
+            return;
+        }
         var dr = data[offset] / 255f;
         var dg = data[offset + 1] / 255f;
         var db = data[offset + 2] / 255f;
