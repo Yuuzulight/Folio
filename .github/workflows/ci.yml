@@ -94,6 +94,14 @@ jobs:
           FOLIO_CONFORMANCE_ENGINE: native
         run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll conformance D8
 
+      # The Folio-owned engine must keep the canvas animation budget; the command
+      # exits non-zero when any D5/D7 artifact exceeds the 16.7 ms p95 target.
+      - name: Native canvas frame budget
+        if: always() && matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONFORMANCE_ENGINE: native
+        run: dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll canvas-frames 30
+
       # Time and memory per benchmark document, also on the run's summary page. Documents over a target only warn.
       - name: Benchmarks
         if: matrix.os == 'ubuntu-latest'

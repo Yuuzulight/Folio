@@ -42,10 +42,11 @@ The current three-run sample remains a real miss: `canvas-animated-bars` measure
 threshold relaxation or routing workaround was applied.
 
 The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
-artifact within budget, including `canvas-animated-bars` at 5.12 ms p95 and
-`canvas-snake-game` at 11.55 ms p95. This demonstrates that the native engine
-has the required frame-time headroom, but does not close #519 while Jint remains
-the production default.
+artifact within budget, including `canvas-animated-bars` at 6.17 ms p95 and
+`canvas-snake-game` at 12.53 ms p95 in the latest run. CI now runs this command
+on Windows and fails if any native D5/D7 artifact exceeds 16.70 ms. This
+demonstrates that the native engine has the required frame-time headroom, but
+does not close #519 while Jint remains the compatibility default.
 
 ## Milestone status
 
