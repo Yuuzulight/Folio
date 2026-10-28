@@ -1,5 +1,17 @@
 # Milestone 6 status
 
+## Latest focused audit refresh
+
+Current Release slices pass WebRTC/capture/media-capture 30/30,
+media/playback/capture 51/51, WebAssembly capability/content-process 53/53,
+worker/iframe lifecycle 152/152, service-worker/cache 52/52, software
+raster/filter/Skia canvas 124/124, native WebGL page/object/ANGLE 87/87, and
+native D1–D14 conformance 85/85. The compatibility canvas frame benchmark
+still misses #519 (`D5/canvas-animated-bars`: 50.09 ms total p95 versus 16.70
+ms). These are evidence slices; M6 and the mandatory replacement gate remain
+open for device/process acceptance, optional WebGL formats, interruption,
+production cutover and dependency removal.
+
 Fuzzing refresh (2026-10-30, commit `84835098`): an Ubuntu CSSOM mutation that
 hit the configured script-memory bound is now retained as a regression input,
 and the CSSOM fuzz target treats `ScriptLimitExceededException` as the bounded
