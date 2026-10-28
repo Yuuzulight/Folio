@@ -118,20 +118,20 @@ D6 10/10, D7 10/10). These results strengthen the verified slices but do not
 close the JavaScript, raster-performance, shaping, or WebAssembly replacement
 gates.
 
-The shaping replacement now has a checked-in differential probe covering six
-simple-script runs, seven Hebrew/Arabic complex-script report runs, and a
-deliberately perturbed kerning value that the report detects. The focused test
-suite passes 37/37, including length-changing Hebrew GSUB ligatures, Arabic
-joining and marked vocabulary, and RTL conformance paragraphs. Complex scripts
-remain on the HarfBuzz oracle until the complete per-script corpus and routing
-gate are met.
+The shaping replacement now has a checked-in differential probe covering simple
+scripts plus promoted Hebrew and Arabic complex runs, explicit Arabic joining
+forms, and a deliberately perturbed kerning value that the report detects. The
+focused suite passes 55/55, and native S6 remains 12/12. Hebrew and Arabic now
+route through Folio's ComplexShaper by default; Indic, South-East Asian and
+other unproven scripts remain on the HarfBuzz oracle until their per-script
+corpus and routing gates are met.
 
 The same bundled-font evidence is reproducible without the test runner:
 `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
 -- shaping-differential` reports thirty proven text runs plus a deliberate
 kerning perturbation check. This is the checked-in harness evidence for #561;
 system-font coverage and the remaining complex-script corpus are still required
-before any additional script switch can be turned off.
+before the shaping replacement as a whole can be considered complete.
 On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
 -c Release -- shaping-differential-system` compares Arial, Times New Roman and
 Segoe UI simple runs plus expanded Hebrew and Arabic complex runs against HarfBuzzSharp;
@@ -199,16 +199,16 @@ selects the Arabic script's required `rlig` feature and applies format-3
 contextual substitutions, reverse-chain single substitutions and SingleSubst
 format-2 replacement records.
 Representative `سلام`, `لا` and `لم` forms match the HarfBuzz oracle; the focused
-shaping suite passes 19/19 and the full Release suite passes 4,172 tests with no
-failures. This narrows #563 but does not close it: marks, cursive attachment,
-Indic/SE Asian shaping and broad corpus coverage remain required for the mandatory
-all-Folio replacement track.
+shaping suite now passes 55/55 and Arabic is production-routed through the
+Folio-owned path. Indic/SE Asian shaping, broader system-font coverage and the
+remaining raster/engine gates are still required for the mandatory all-Folio
+replacement track.
 
 The current parser also supports contextual and chained GSUB format-1 and
-class-based format-2 rules, while the Arabic corpus is 49/49 and the current
-system-font probe is 10/10. These are implementation and differential-evidence
-increments; Arabic remains on the HarfBuzz oracle until the complete corpus and
-production cutover gates are met.
+class-based format-2 rules. The Arabic corpus and current system-font probe remain
+differential evidence while the promoted path is exercised in production; the
+replacement gate stays open until all scripts and dependencies meet the same
+standard.
 
 The post-change Release verification remains green across the repository suites:
 Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and

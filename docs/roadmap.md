@@ -116,8 +116,8 @@ This is a required phase after the dependency-backed product and Milestone 6 fea
 This phase is a mandatory, non-waivable completion gate, not an optional follow-up or stretch goal. Folio is not finished, and the roadmap is not complete, until every listed replacement has passed its acceptance criteria and the corresponding production dependency has been removed. The exact release rule and evidence requirements are recorded in [`replacement-gate.md`](replacement-gate.md).
 
 **Current status:** in progress and incomplete. Hybrid shaping covers the proven
-simple-script set plus Hebrew base and isolated-mark runs; multiple-mark Hebrew and
-other complex scripts still use the differential shaper. GIF and WebP decoding are
+simple-script set plus Hebrew and Arabic complex runs; Indic and South-East Asian
+scripts still use the differential shaper. GIF and WebP decoding are
 Folio-owned and production-wired with differential/fuzz evidence; bounded BMP and
 ICO decoding are also Folio-owned slices. Rasterisation and the JavaScript engine
 remain dependency-backed. CFF2 now has a Folio-owned parser path, a pinned
