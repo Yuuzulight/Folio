@@ -199,6 +199,20 @@ internal sealed class SoftwareCanvas : ICanvas
     private void BlendSolid(Coverage coverage, Vector4 color, BlendMode blend)
     {
         var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        if (_state.ClipMask is null)
+        {
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
+                for (var x = area.Left; x < area.Right; x++)
+                {
+                    var c = coverage.Data[row + x];
+                    if (c != 0)
+                        Compositor.Blend(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color, c / 255f, blend);
+                }
+            }
+            return;
+        }
         for (var y = area.Top; y < area.Bottom; y++)
         {
             var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
