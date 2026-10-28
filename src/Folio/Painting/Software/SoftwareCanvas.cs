@@ -174,6 +174,8 @@ internal sealed class SoftwareCanvas : ICanvas
 
     public void ClearRect(in RectF rect)
     {
+        if (TryClearAxisAlignedRect(rect))
+            return;
         var polygons = PathGeometry.Polygons(PathGeometry.Flatten(new PathData().AddRoundedRect(new RoundedRect(rect, default)), FlattenTolerance), _state.Transform);
         if (Rasterizer.Fill(polygons, FillRule.NonZero, _state.Clip) is not { } coverage)
             return;
@@ -183,6 +185,30 @@ internal sealed class SoftwareCanvas : ICanvas
             for (var k = 0; k < 4; k++)
                 _target.Data[offset + k] = (byte)(_target.Data[offset + k] * keep + 0.5f);
         });
+    }
+
+    private bool TryClearAxisAlignedRect(RectF rect)
+    {
+        if (_state.ClipMask is not null || !_state.Transform.IsAffine)
+            return false;
+        var m = _state.Transform;
+        if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
+            return false;
+        var topLeft = m.Apply(new Vector2(rect.X, rect.Y));
+        var bottomRight = m.Apply(new Vector2(rect.Right, rect.Bottom));
+        if (!Integral(topLeft.X) || !Integral(topLeft.Y) || !Integral(bottomRight.X) || !Integral(bottomRight.Y))
+            return false;
+        var area = IntRect.Intersect(_state.Clip, _targetBounds);
+        area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
+            (int)bottomRight.X, (int)bottomRight.Y));
+        for (var y = area.Top; y < area.Bottom; y++)
+        {
+            var first = ((y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left)) * 4;
+            _target.Data.AsSpan(first, area.Width * 4).Clear();
+        }
+        return true;
+
+        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
     }
 
     public void FillPath(PathData path, FillRule rule, in Paint paint)
