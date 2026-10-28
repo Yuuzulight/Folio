@@ -114,6 +114,11 @@ software layers; the focused software raster suite remains 46/46. Follow-up
 30-frame benchmark samples measured 61.8 ms at 800x600 and 39.3 ms at
 1920x1080, still far above the replacement bar and subject to host noise.
 
+Commit `e089a7d7` adds an exact-pixel fast path for integral axis-aligned
+`clearRect` calls. A fresh 20-replay sample measured 57.8 ms versus Skia's
+7.0 ms at 800x600 and 43.7 versus 14.0 ms at 1920x1080; the optimization is
+useful but does not satisfy the production performance gate.
+
 The replacement gate remains open. The latest complete serialized Release
 verification passes 4,260 of 4,261 discovered tests with 0 failures and one
 environment-dependent skip (local symbolic-link privilege). The software
