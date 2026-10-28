@@ -43,6 +43,13 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeClosuresKeepModuleBindingsThroughMethodCalls()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(42, engine.Evaluate("var g={current:{useState:function(a){return [a,function(){}];}}}; var c={useState:function(a){return g.current.useState(a);}}; c.useState(42)[0];").AsNumber());
+    }
+
+    [Fact]
     public void NativeHostMethodsHonorCallReceiver()
     {
         using var engine = new NativeJavaScriptEngine();
