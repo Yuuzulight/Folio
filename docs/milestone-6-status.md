@@ -8,6 +8,12 @@ passes 704 mutated inputs with zero failures; hosted CI run 40780721066 passes
 all 14 jobs. This closes a fuzz-harness false positive, not any of the open
 native backend or replacement gates below.
 
+Full serialized Release verification (2026-10-30, commit `893d05ad`) passes
+4,255 of 4,258 discovered tests with zero failures and three documented skips
+(the two software-canvas skips above plus the local symbolic-link privilege
+skip). This is repository-wide regression evidence; it does not close the
+original M6 backend, device, process-isolation or M7 replacement requirements.
+
 Verification refresh (2026-10-30): the serialized `Folio.Scripting.Tests` runner
 passes 1,408 total tests with zero failures and two documented software-backend
 skips (1,406 executable tests). This is a current scripting regression result;
