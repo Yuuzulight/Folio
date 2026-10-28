@@ -118,6 +118,7 @@ internal static class ColorGlyphs
                 12 => PaintTransform(colr, offset, baseList, layerList, palette, records, roots, path),
                 14 => PaintTranslate(colr, offset, baseList, layerList, palette, records, roots, path),
                 16 or 18 or 20 or 22 => PaintScale(colr, offset, baseList, layerList, palette, records, roots, path),
+                24 or 26 => PaintRotate(colr, offset, baseList, layerList, palette, records, roots, path),
                 32 => PaintComposite(colr, offset, baseList, layerList, palette, records, roots, path),
                 _ => null,
             };
@@ -298,6 +299,24 @@ internal static class ColorGlyphs
         {
             var cx = colr.S16(offset + (format == 18 ? 8 : 6));
             var cy = colr.S16(offset + (format == 18 ? 10 : 8));
+            transform = Matrix3x2.CreateTranslation(-cx, -cy) * transform * Matrix3x2.CreateTranslation(cx, cy);
+        }
+        if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
+            return null;
+        for (var i = 0; i < layers.Count; i++)
+            layers[i] = layers[i] with { Transform = transform * layers[i].TransformOrIdentity };
+        return layers;
+    }
+
+    private static List<Layer>? PaintRotate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        var childOffset = checked(offset + ReadU24(colr, offset + 1));
+        var radians = colr.S16(offset + 4) / 16384f * MathF.PI;
+        var transform = Matrix3x2.CreateRotation(radians);
+        if (colr.U8(offset) == 26)
+        {
+            var cx = colr.S16(offset + 6);
+            var cy = colr.S16(offset + 8);
             transform = Matrix3x2.CreateTranslation(-cx, -cy) * transform * Matrix3x2.CreateTranslation(cx, cy);
         }
         if (Paint(colr, childOffset, baseList, layerList, palette, records, roots, path) is not { } layers)
