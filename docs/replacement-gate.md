@@ -56,7 +56,9 @@ are progress and safety evidence, not completion: HybridShaper still routes
 complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
 production JavaScript engine, and Wasmtime remains part of the native WebAssembly
 path. The complete differential corpus, production selection, parity bars and
-dependency removal are still required for those tracks.
+dependency removal are still required for those tracks. The latest complete
+Release run passes 4,185 tests with 0 failures and 7 documented skips (4,192
+discovered).
 
 The latest Release build succeeds from `Folio.slnx` (4,177 passed, 0 failed,
 7 documented skips). The native D2–D7 probe now passes 60/60: all library-card
