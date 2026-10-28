@@ -101,10 +101,14 @@ paint-only p95 at 8.6 ms. The spread between runs confirms that the benchmark
 needs stabilization before the default-backend decision; these numbers are
 evidence, not a gate pass.
 
-## Verification refresh — 2026-10-28
+## Verification refresh — 2026-10-30
 
-The replacement gate remains open. The latest complete Release verification
-passes 4,211 tests with 0 failures and 3 documented skips (4,214 discovered).
+The replacement gate remains open. The latest complete serialized Release
+verification passes 4,255 of 4,258 discovered tests with 0 failures and three
+documented skips. The CSSOM fuzz harness now retains and replays a mutation
+that hit the configured script-memory bound; hosted CI run 40780721066 is
+green across all 14 jobs. These are regression and containment results, not
+evidence that any dependency replacement is complete.
 The focused Folio-owned JavaScript engine/parser/evaluator/program/library
 probe suites pass 131/131, and native D2–D7 conformance remains 60/60; these
 are implementation slices, not completion evidence while Jint remains in the
