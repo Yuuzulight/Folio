@@ -64,6 +64,14 @@ the mandatory production raster-performance gate (#575), full complex-script
 shaping gate, Jint and Wasmtime removal, and the remaining native M6 backend
 acceptance work remain open.
 
+The follow-up software-raster optimization in PR #658 (`355831eb`) removes a
+delegate allocation from the solid-paint hot path. A fresh local Release run
+measured typical software replay at 81.2 ms at 800×600 and 165.0 ms at
+1920×1080, down from 84.9 ms and 191.0 ms in the preceding run; typical
+paint-only animation remained 6.1 ms p95. This is measurable progress, but
+full-scene software replay is still above the Skia baseline, so it does not
+satisfy the default-backend switch gate.
+
 ## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The latest complete Release verification
