@@ -510,6 +510,20 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1VarRadialGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1RadialGradient(glyph);
+        colr[56] = 7; // PaintVarRadialGradient; zero variation indices use base geometry.
+        return colr;
+    }
+
+    private static byte[] SyntheticColrV1VarSweepGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1SweepGradient(glyph);
+        colr[56] = 9; // PaintVarSweepGradient; zero variation indices use base geometry.
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1SweepGradient(ushort glyph)
     {
         var colr = SyntheticColrV1LinearGradient(glyph);
@@ -739,6 +753,30 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var parsed = ColorGlyphs.Get(face, glyph);
         Assert.NotNull(parsed);
         Assert.Equal(GradientKind.Linear, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableRadialGradientAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1VarRadialGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.Equal(GradientKind.Radial, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1VariableSweepGradientAtDefaultInstance()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1VarSweepGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.Equal(GradientKind.Conic, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
     }
 
     [Fact]
