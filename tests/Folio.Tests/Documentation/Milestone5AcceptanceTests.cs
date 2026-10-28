@@ -9,9 +9,9 @@ public sealed class Milestone5AcceptanceTests
     {
         var document = File.ReadAllText(Path.Combine(RepositoryRoot, "docs", "milestone-5-scripting.md"));
         Assert.Contains("dependency-backed compatibility baseline passes", document, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("native Folio-engine run is not yet equivalent", document, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("native Folio-engine run now matches", document, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("mandatory Folio-owned", document, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("59/60", document, StringComparison.Ordinal);
+        Assert.Contains("60/60", document, StringComparison.Ordinal);
     }
 
     [Theory]
