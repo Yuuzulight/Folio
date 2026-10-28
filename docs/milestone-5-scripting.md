@@ -41,6 +41,12 @@ The current three-run sample remains a real miss: `canvas-animated-bars` measure
 38.13–43.48 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
 threshold relaxation or routing workaround was applied.
 
+The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
+artifact within budget, including `canvas-animated-bars` at 5.12 ms p95 and
+`canvas-snake-game` at 10.69 ms p95. This demonstrates that the native engine
+has the required frame-time headroom, but does not close #519 while Jint remains
+the production default.
+
 ## Milestone status
 
 The dependency-backed scripting surface is complete for the current product phase, but Folio is not complete on that basis alone. The native-engine implementation and dual-engine matrix are work required by the mandatory Folio-owned replacement phase described in [`native-engine-plan.md`](native-engine-plan.md). This document therefore records the dependency-backed acceptance baseline, not a waiver of the replacement gate.
