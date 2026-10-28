@@ -141,4 +141,45 @@ public sealed class CapabilityMatrixTests
         }
         finally { DomBindings.Dispose(engine); }
     }
+
+    [Fact]
+    public void MediaCapabilityRowExercisesBudgetAndRevocationLifecycle()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("media" or "all")) return;
+
+        using var engine = new JintScriptEngine();
+        using var document = Document.Parse("<audio id='a' src='clip'></audio>", new FolioOptions
+        {
+            BaseUri = new Uri("https://matrix.example/"),
+            ResourceLoader = new MatrixMediaLoader(),
+            MediaDecoder = new MatrixMediaDecoder(),
+            Capabilities = new FeatureCapabilities { Media = true },
+            Limits = ResourceLimits.Default with { MaxMediaBytes = 4 },
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            Assert.True(engine.Evaluate("const a=document.getElementById('a'); a.error !== null && a.error.includes('budget')").AsBoolean());
+            Assert.True(DomBindings.UpdateCapabilities(engine, FeatureCapabilities.Default));
+            Assert.True(engine.Evaluate("a.paused && a.error === 'Media is disabled by the host.'").AsBoolean());
+            Assert.True(DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { Media = true }));
+            Assert.True(engine.Evaluate("a.paused && a.error !== null").AsBoolean());
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    private sealed class MatrixMediaLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(request.Kind == ResourceKind.Media
+                ? ResourceResponse.Loaded(new byte[] { 1, 2, 3, 4 }, "audio/x-matrix")
+                : null);
+    }
+
+    private sealed class MatrixMediaDecoder : IMediaDecoder
+    {
+        public MediaDecodeResult? Decode(ReadOnlyMemory<byte> data, string? contentType, bool video, int maxOutputBytes) =>
+            video ? null : new MediaDecodeResult(1, null, new MediaAudioFrame(8_000, 1, new float[] { .25f, -.25f }));
+    }
 }
