@@ -45,11 +45,10 @@ the corrected assignment parser now preserves the full conditional RHS used by
 `innerHTML` updates. The D1 result is accepted as evidence for this corpus
 slice only; full-corpus DOM, sandbox, limit, and failure-behavior gates remain.
 
-The native corpus has since advanced materially. The current differential
-evidence is D1 `2/2` and D2-D7 `60/60` exact passes, including the React pantry
-artifact. The native M6 corpus is also green for D8 `6/6`, D9 `5/5`, D10 `4/4`,
-D11 `4/4`, D12 `4/4`, D13 `4/4`, and D14 `3/3` (32/32 total). These are
-verified corpus slices, not a claim that the engine is production-complete.
+The native corpus has since advanced materially. A fresh full sweep is now
+green across D1-D14: D1 `2/2`, D2-D7 `60/60` (including the React pantry
+artifact), and D8-D14 `32/32`, for `94/94` exact passes. These are verified
+corpus results, not a claim that the engine is production-complete.
 
 The replacement gate remains open because the production content-host default
 is still Jint and the native path has not yet passed the complete DOM host,

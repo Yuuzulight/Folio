@@ -1,8 +1,8 @@
 # Milestone 6 status
 
-Verification refresh (2026-10-28): the native M6 conformance slice remains fully
-green on the current corpus — D8 6/6, D9 5/5, D10 4/4, D11 4/4, D12 4/4,
-D13 4/4 and D14 3/3. These results verify the current corpus and lifecycle
+Verification refresh (2026-10-28): the native Folio conformance sweep is fully
+green across D1-D14 — 94/94 artifacts (D1 2/2, D2-D7 60/60, D8 6/6, D9 5/5,
+D10-D13 4/4 each and D14 3/3). These results verify the current corpus and lifecycle
 coverage only; the original native backend, device/transport, containment and
 mandatory replacement requirements remain open below.
 
