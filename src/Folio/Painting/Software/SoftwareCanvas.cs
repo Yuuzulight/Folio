@@ -201,6 +201,7 @@ internal sealed class SoftwareCanvas : ICanvas
         var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
         if (_state.ClipMask is null)
         {
+            var opaque = blend == BlendMode.Normal && color.W >= 1f;
             for (var y = area.Top; y < area.Bottom; y++)
             {
                 var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
@@ -208,7 +209,13 @@ internal sealed class SoftwareCanvas : ICanvas
                 {
                     var c = coverage.Data[row + x];
                     if (c != 0)
-                        Compositor.Blend(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color, c / 255f, blend);
+                    {
+                        var offset = ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4;
+                        if (opaque && c == 255)
+                            Compositor.BlendOpaque(_target.Data, offset, color);
+                        else
+                            Compositor.Blend(_target.Data, offset, color, c / 255f, blend);
+                    }
                 }
             }
             return;

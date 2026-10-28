@@ -61,6 +61,15 @@ internal static class Compositor
         data[offset + 3] = To8(a);
     }
 
+    /// <summary>Stores an opaque normal-mode source without reading or blending the destination.</summary>
+    public static void BlendOpaque(byte[] data, int offset, Vector4 source)
+    {
+        data[offset] = To8(source.X);
+        data[offset + 1] = To8(source.Y);
+        data[offset + 2] = To8(source.Z);
+        data[offset + 3] = 255;
+    }
+
     /// <summary>The blend of a premultiplied source over a premultiplied backdrop (components 0 to 1), without rounding.</summary>
     public static Vector4 Mix(BlendMode mode, Vector4 source, Vector4 backdrop) =>
         mode == BlendMode.Normal ? source + backdrop * (1 - source.W) : Combine(mode, source, backdrop);
