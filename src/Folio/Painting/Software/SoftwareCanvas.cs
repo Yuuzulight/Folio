@@ -336,6 +336,7 @@ internal sealed class SoftwareCanvas : ICanvas
     private sealed class FlattenedGlyphCache
     {
         private readonly Dictionary<(ushort Glyph, int ToleranceBits), Subpath[]> _entries = [];
+        private long _bytes;
 
         public Subpath[] Get(FontFace face, ushort glyph, float tolerance)
         {
@@ -347,11 +348,27 @@ internal sealed class SoftwareCanvas : ICanvas
                 var flattened = Outlines.GetOrCreateValue(face).Get(face, glyph) is { } path
                     ? PathGeometry.Flatten(path, tolerance).ToArray()
                     : [];
-                if (_entries.Count >= 2048)
-                    _entries.Remove(_entries.Keys.First());
+                var bytes = Estimate(flattened);
+                if (bytes > OutlineCacheBudget)
+                    return flattened;
+                while (_bytes + bytes > OutlineCacheBudget && _entries.Count > 0)
+                {
+                    var evictedKey = _entries.Keys.First();
+                    _bytes -= Estimate(_entries[evictedKey]);
+                    _entries.Remove(evictedKey);
+                }
                 _entries[key] = flattened;
+                _bytes += bytes;
                 return flattened;
             }
+        }
+
+        private static long Estimate(Subpath[] paths)
+        {
+            var bytes = 128L;
+            foreach (var path in paths)
+                bytes += 64L + path.Points.Length * 8L;
+            return bytes;
         }
     }
 
