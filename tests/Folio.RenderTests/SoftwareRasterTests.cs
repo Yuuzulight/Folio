@@ -380,6 +380,29 @@ public class SoftwareRasterTests(ITestOutputHelper output)
 
     private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
 
+    private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
+
+    private static byte[] SyntheticColrV1Layers(ushort lowerGlyph, ushort upperGlyph)
+    {
+        var colr = new byte[86];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(18), 50);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), lowerGlyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 1; colr[45] = 2; // PaintColrLayers
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(46), 0);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(50), 2);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(54), 12);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(58), 24);
+        colr[62] = 10; colr[65] = 6; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(66), lowerGlyph);
+        colr[68] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(69), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(71), 0x4000);
+        colr[74] = 10; colr[77] = 6; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(78), upperGlyph);
+        colr[80] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(81), 1); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(83), 0x4000);
+        return colr;
+    }
+
     [Fact]
     public void DrawsTextFromGlyphOutlines()
     {
@@ -415,6 +438,25 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
             "The synthetic COLR v1 PaintGlyph did not render its CPAL color.");
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1LayerList()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var upperGlyph = original.GlyphFor('B');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1Layers(glyph, upperGlyph))))!;
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
+            "The lower synthetic COLR v1 layer did not render.");
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[2] > 180 && pixel[0] < 80 && pixel[1] < 80 && pixel[3] > 0),
+            "The upper synthetic COLR v1 layer did not render.");
     }
 
     [Fact]
