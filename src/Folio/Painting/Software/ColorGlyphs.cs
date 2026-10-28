@@ -244,7 +244,8 @@ internal static class ColorGlyphs
     {
         blend = mode switch
         {
-            3 => BlendMode.Normal, 13 => BlendMode.Screen, 14 => BlendMode.Overlay,
+            1 => BlendMode.Copy, 3 => BlendMode.Normal, 12 => BlendMode.PlusLighter,
+            13 => BlendMode.Screen, 14 => BlendMode.Overlay,
             15 => BlendMode.Darken, 16 => BlendMode.Lighten, 17 => BlendMode.ColorDodge,
             18 => BlendMode.ColorBurn, 19 => BlendMode.HardLight, 20 => BlendMode.SoftLight,
             21 => BlendMode.Difference, 22 => BlendMode.Exclusion, 23 => BlendMode.Multiply,
@@ -254,7 +255,7 @@ internal static class ColorGlyphs
             10 => BlendMode.DestinationAtop, 11 => BlendMode.Xor, 4 => BlendMode.DestinationOver,
             _ => BlendMode.Normal,
         };
-        return mode is >= 3 and <= 27;
+        return mode is 1 or >= 3 and <= 27;
     }
 
     private static List<Layer>? PaintTransform(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
