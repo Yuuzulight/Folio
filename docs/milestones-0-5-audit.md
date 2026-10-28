@@ -44,3 +44,8 @@ conformance sweep is separately 59/60 for D2–D7; the only failure is the
 React/ReactDOM pantry artifact tracked by [#645](https://github.com/Yuuzulight/Folio/issues/645).
 These totals are evidence for the audited slices only and do not close the
 mandatory native replacement gate or the remaining M6 requirements.
+
+Fresh acceptance-gate recheck (2026-10-28): M0 documentation 2/2, M1–M4
+acceptance classes 15/15 combined, M5 acceptance 7/7, and M7 replacement-gate
+wording checks 2/2. These checks verify the recorded scope and wiring; they do
+not override the open implementation gates above.
