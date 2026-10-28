@@ -45,6 +45,25 @@ The status table in [`docs/dependencies.md`](dependencies.md) and the milestone
 roadmap must be updated with links to this evidence. A dependency-backed pass
 or a partial Folio implementation is progress, never completion.
 
+## Verification refresh — 2026-10-30
+
+PR #658's latest head (`3f3d2c40`) passed CI run
+[`40748439916`](https://github.com/Yuuzulight/Folio/actions/runs/40748439916)
+on both Linux and Windows, including the serialized Release suite, conformance,
+capability matrices, GPU/WebGL checks, benchmarks and fuzz stages. The current
+native conformance sweep remains 94/94 across D1–D14, and the focused
+Folio-owned JavaScript/parser/evaluator/program/library probes remain 131/131.
+These are verified behavior slices; they do not by themselves select the
+native engine for production or remove its dependency-backed transition path.
+
+The current Release benchmark records paint-only animation at 4.8 ms median /
+7.2 ms p95 for the typical dashboard and 17.4 ms median / 26.7 ms p95 for the
+busy dashboard. Software raster replay remains informational at 83.7 ms versus
+Skia's 5.7 ms at 800×600 and 163.0 ms versus 15.5 ms at 1920×1080. Therefore
+the mandatory production raster-performance gate (#575), full complex-script
+shaping gate, Jint and Wasmtime removal, and the remaining native M6 backend
+acceptance work remain open.
+
 ## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The latest complete Release verification
