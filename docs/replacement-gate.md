@@ -47,6 +47,14 @@ or a partial Folio implementation is progress, never completion.
 
 ## Verification refresh — 2026-10-30
 
+The current audit head (`fc431f5b`) adds an exact opaque normal-source-over
+fast path to the Folio-owned compositor. `SoftwareRasterTests` remains green
+at 37/37. A fresh Release benchmark measured software replay at approximately
+69.0 ms versus Skia 8.1 ms at 800×600, and 134.0 ms versus 18.0 ms at
+1920×1080. The optimization is measurable, but the software backend is still
+well above the production performance bar, so #575 and the default-backend
+replacement gate remain open.
+
 PR #658's latest head (`3f3d2c40`) passed CI run
 [`40748439916`](https://github.com/Yuuzulight/Folio/actions/runs/40748439916)
 on both Linux and Windows, including the serialized Release suite, conformance,
