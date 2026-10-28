@@ -214,21 +214,28 @@ internal static class Targets
         document.Paint(800, 600);
         using var engine = new JintScriptEngine();
         DomBindings.Install(engine, document);
-        engine.Evaluate($$"""
-            const rule = {{text}};
-            const attempt = (f) => { try { f(); } catch (e) { if (!(e instanceof DOMException) && !(e instanceof TypeError)) throw e; } };
-            const sheet = document.styleSheets[0];
-            for (let index = 0; index <= 5; index++) attempt(() => sheet.insertRule(rule, index));
-            attempt(() => sheet.cssRules[1].insertRule(rule, 0));
-            attempt(() => sheet.cssRules[1].insertRule(rule, 99));
-            attempt(() => sheet.cssRules[2].appendRule(rule));
-            attempt(() => sheet.cssRules[3].insertRule(rule, 0));
-            attempt(() => { sheet.cssRules[0].selectorText = rule; });
-            attempt(() => { sheet.cssRules[0].style.cssText = rule; });
-            attempt(() => sheet.deleteRule(0));
-            attempt(() => sheet.cssRules[0].cssText);
-            if (sheet.cssRules.length > 100000) throw new Error('rule limit');
-            """);
+        try
+        {
+            engine.Evaluate($$"""
+                const rule = {{text}};
+                const attempt = (f) => { try { f(); } catch (e) { if (!(e instanceof DOMException) && !(e instanceof TypeError)) throw e; } };
+                const sheet = document.styleSheets[0];
+                for (let index = 0; index <= 5; index++) attempt(() => sheet.insertRule(rule, index));
+                attempt(() => sheet.cssRules[1].insertRule(rule, 0));
+                attempt(() => sheet.cssRules[1].insertRule(rule, 99));
+                attempt(() => sheet.cssRules[2].appendRule(rule));
+                attempt(() => sheet.cssRules[3].insertRule(rule, 0));
+                attempt(() => { sheet.cssRules[0].selectorText = rule; });
+                attempt(() => { sheet.cssRules[0].style.cssText = rule; });
+                attempt(() => sheet.deleteRule(0));
+                attempt(() => sheet.cssRules[0].cssText);
+                if (sheet.cssRules.length > 100000) throw new Error('rule limit');
+                """);
+        }
+        catch (Folio.Scripting.ScriptLimitExceededException)
+        {
+            // A fuzzed rule can legitimately hit the sandbox's memory/statement limits.
+        }
         document.Update();
     }
 
