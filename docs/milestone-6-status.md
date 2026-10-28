@@ -6,6 +6,13 @@ D10-D13 4/4 each and D14 3/3). These results verify the current corpus and lifec
 coverage only; the original native backend, device/transport, containment and
 mandatory replacement requirements remain open below.
 
+Hebrew shaping refresh (2026-10-29, commit `1881c1f7`): ComplexShaper now
+applies GPOS pair adjustments across intervening niqqud marks and carries the
+pair offset into attached marks. The extended bundled corpus (`שָׁלוֹם`,
+`בְּרֵאשִׁית`, `מַלְכָּה`) passes glyph, cluster, advance and offset parity;
+the focused differential suite is 19/19. Broader script coverage and the
+mandatory HarfBuzz replacement gate remain open.
+
 Native React placement refresh (2026-10-28, PR #651 and commit `b37a1f44`):
 Folio's evaluator honors labeled `break`/`continue`, host-backed DOM nodes
 participate in event bubbling, and synthetic interaction steps checkpoint queued
