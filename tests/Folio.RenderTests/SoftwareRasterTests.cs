@@ -442,6 +442,15 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1Skew(ushort glyph)
+    {
+        var colr = SyntheticColrV1Scale(glyph);
+        colr[44] = 28; // PaintSkew -> PaintGlyph
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(48), 0x1000);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(50), 0);
+        return colr;
+    }
+
     private static byte[] SyntheticColrV1LinearGradient(ushort glyph)
     {
         // PaintGlyph -> PaintLinearGradient with two CPAL stops and a horizontal
@@ -637,6 +646,23 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var glyph = original.GlyphFor('A');
         var face = FontFace.Parse(AddTables(source,
             ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Rotate(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.NotEqual(Matrix3x2.Identity, Assert.Single(parsed!).TransformOrIdentity);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        Assert.Contains(surface.ReadPixels(0, 0, 96, 96).Chunk(4), pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1SkewPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpal()), ("COLR", SyntheticColrV1Skew(glyph))))!;
         var parsed = ColorGlyphs.Get(face, glyph);
         Assert.NotNull(parsed);
         Assert.NotEqual(Matrix3x2.Identity, Assert.Single(parsed!).TransformOrIdentity);
