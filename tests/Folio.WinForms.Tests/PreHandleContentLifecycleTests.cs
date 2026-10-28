@@ -20,12 +20,15 @@ public sealed class PreHandleContentLifecycleTests
         try { view.AttachContentProcess(client); }
         catch { await client.DisposeAsync(); throw; }
         var frameArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var processStopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         ValueTask OnMessage(ContentMessage message, CancellationToken _)
         {
             if (message.Kind == ContentMessageKind.Frame) frameArrived.TrySetResult();
             return ValueTask.CompletedTask;
         }
         client.MessageReceived += OnMessage;
+        void OnStopped(object? _, ContentProcessStoppedEventArgs args) => processStopped.TrySetResult(args.Reason);
+        client.ScriptStopped += OnStopped;
         try
         {
             Assert.False(view.IsHandleCreated);
@@ -36,7 +39,12 @@ public sealed class PreHandleContentLifecycleTests
                 capabilities = FeatureCapabilities.Default,
                 framePath = client.FramePath, viewportWidth = 220, viewportHeight = 80
             });
-            await frameArrived.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            var completed = await Task.WhenAny(frameArrived.Task, processStopped.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+            if (!ReferenceEquals(completed, frameArrived.Task))
+            {
+                var reason = processStopped.Task.IsCompletedSuccessfully ? processStopped.Task.Result : "frame was not delivered before the lifecycle timeout";
+                throw new TimeoutException($"The pre-handle frame was not delivered: {reason}. process exited: {client.Process.HasExited}");
+            }
             using var form = new Form { ClientSize = new Size(220, 80), ShowInTaskbar = false, Opacity = 0, Location = new Point(-32000, -32000) };
             form.Controls.Add(view);
             form.Show();
@@ -45,7 +53,7 @@ public sealed class PreHandleContentLifecycleTests
             using var bitmap = Capture(view);
             Assert.True(IsBlue(bitmap.GetPixel(100, 70)), "The frame delivered before handle creation was not retained.");
         }
-        finally { client.MessageReceived -= OnMessage; }
+        finally { client.MessageReceived -= OnMessage; client.ScriptStopped -= OnStopped; }
     });
 
     [Fact]

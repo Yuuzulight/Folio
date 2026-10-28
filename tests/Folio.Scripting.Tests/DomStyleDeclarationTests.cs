@@ -1924,6 +1924,15 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void ContentSupervisorAllowsBoundedStartupGraceBeforeFirstHeartbeat()
+    {
+        using var supervisor = new ContentProcessSupervisor(new ContentProcessLimits(HeartbeatTimeout: TimeSpan.FromSeconds(5)));
+        Assert.True(supervisor.CheckHeartbeat());
+        supervisor.Heartbeat();
+        Assert.True(supervisor.CheckHeartbeat());
+    }
+
+    [Fact]
     public async Task ContentHostSessionAcknowledgesHeartbeatAndStops()
     {
         using var payload = JsonDocument.Parse("{}");
