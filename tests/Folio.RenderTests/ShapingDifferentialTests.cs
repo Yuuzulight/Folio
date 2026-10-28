@@ -132,6 +132,7 @@ public sealed class ShapingDifferentialTests
     [InlineData("مَرْحَبًا بِكُمْ")]
     [InlineData("اللغة العربية")]
     [InlineData("فلسطين")]
+    [InlineData("مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.")]
     public void ArabicComplexShaperMatchesGlyphsForExtendedCorpus(string text)
     {
         var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
