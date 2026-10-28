@@ -260,6 +260,37 @@ internal sealed class SoftwareCanvas : ICanvas
 
     private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
 
+    // Curve flattening is deterministic for a face, glyph and tolerance. Keep a
+    // small per-face cache so animation frames do not repeatedly subdivide the
+    // same outlines. The bound prevents a large font corpus from retaining all
+    // tolerances indefinitely.
+    private sealed class FlattenedGlyphCache
+    {
+        private readonly Dictionary<(ushort Glyph, int ToleranceBits), Subpath[]> _entries = [];
+
+        public Subpath[] Get(FontFace face, ushort glyph, float tolerance)
+        {
+            var key = (glyph, BitConverter.SingleToInt32Bits(tolerance));
+            lock (_entries)
+            {
+                if (_entries.TryGetValue(key, out var cached))
+                    return cached;
+                var flattened = GlyphOutlines.Get(face, glyph) is { } path
+                    ? PathGeometry.Flatten(path, tolerance).ToArray()
+                    : [];
+                if (_entries.Count >= 2048)
+                    _entries.Remove(_entries.Keys.First());
+                _entries[key] = flattened;
+                return flattened;
+            }
+        }
+    }
+
+    private static readonly ConditionalWeakTable<FontFace, FlattenedGlyphCache> FlattenedGlyphs = new();
+
+    internal static Subpath[] Flattened(FontFace face, ushort glyph, float tolerance) =>
+        FlattenedGlyphs.GetOrCreateValue(face).Get(face, glyph, tolerance);
+
     private PathData? Outline(IFontHandle font, ushort glyph)
     {
         if (font is not FontFace face)
@@ -277,10 +308,10 @@ internal sealed class SoftwareCanvas : ICanvas
         var tolerance = FlattenTolerance / Math.Max(scale * Math.Max(Scale(), 1e-3f), 1e-6f);
         for (var i = 0; i < glyphs.Length && i < origins.Length; i++)
         {
-            if (Outline(font, glyphs[i]) is not { } path)
+            if (Outline(font, glyphs[i]) is null)
                 continue;
             var matrix = Matrix3x2.CreateScale(scale, -scale) * Matrix3x2.CreateTranslation(SnapToTextGrid(origins[i]));
-            foreach (var subpath in PathGeometry.Flatten(path, tolerance))
+            foreach (var subpath in Flattened(face, glyphs[i], tolerance))
             {
                 var points = new Vector2[subpath.Points.Length];
                 for (var k = 0; k < points.Length; k++)
