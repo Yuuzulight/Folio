@@ -261,6 +261,22 @@ public class CanvasTests
     }
 
     [Fact]
+    public void SoftwareJpegExportHandlesTransparencyAndQualityBounds()
+    {
+        using var page = new Page(this);
+        page.Js("ctx.fillStyle = 'rgba(0, 0, 255, 0.5)'; ctx.fillRect(0, 0, 12, 8); ''");
+        foreach (var quality in new[] { 0, 1 })
+        {
+            var url = page.Js($"canvas.toDataURL('image/jpeg', {quality})");
+            Assert.StartsWith("data:image/jpeg;base64,", url);
+            var bytes = Convert.FromBase64String(url["data:image/jpeg;base64,".Length..]);
+            var decoded = Folio.Imaging.ImageLoader.Decode(bytes);
+            Assert.NotNull(decoded);
+            Assert.Equal((100, 60), (decoded.Width, decoded.Height));
+        }
+    }
+
+    [Fact]
     public void WithoutARasterBackendGetContextReturnsNull()
     {
         using var engine = new JintScriptEngine();
