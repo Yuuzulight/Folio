@@ -58,10 +58,12 @@ production JavaScript engine, and Wasmtime remains part of the native WebAssembl
 path. The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
-The latest Release build succeeds from `Folio.slnx`. The native D2–D7 probe remains
-59/60: all library-card and canvas artifacts pass, while `D2/pantry-react-jsx`
-still fails at its first interaction with the surfaced detached-child
-`NotFoundError` diagnostic tracked by #645. The canvas frame benchmark now has
+The latest Release build succeeds from `Folio.slnx` (4,177 passed, 0 failed,
+7 documented skips). The native D2–D7 probe remains 59/60: all library-card
+and canvas artifacts pass, while `D2/pantry-react-jsx` now mounts its React
+tree and reaches the click handler. Its remaining failure is the state-update
+rerender, where React's hook dispatcher exposes `g.current.useState` as
+undefined; this is tracked by #645. The canvas frame benchmark now has
 an explicit native-engine diagnostic mode. In the current compatibility-engine
 30-frame run, every library-card artifact and the snake game are below 16.7 ms
 p95, but `D5/canvas-animated-bars` is 38.13–43.48 ms total p95 across three runs, dominated by
@@ -98,13 +100,13 @@ tracked in #645. These residual results are not accepted as full parity.
 The native matrix now clears the aggregate M5 category bar, but it cannot select
 the native engine as Folio's production engine until the React artifact passes.
 
-The earlier reproducible library bootstrap failure is resolved: the staged parser
-now executes the cached minified React/ReactDOM sources, and the checked-in native
-probe loads both bundles successfully. The remaining React failure is later in
-the lifecycle: `createRoot(...).render(...)` does not produce the expected DOM
-tree, while a minimal synchronous render reaches a real DOM `NotFoundError`.
-The focused MessageChannel regression passes, so the remaining blocker is
-reconciliation/shared-internals behavior rather than basic scheduler transport.
+The earlier reproducible library bootstrap and host-commit failures are resolved:
+the staged parser executes the cached minified React/ReactDOM sources, labeled
+control flow is implemented, DOM event bubbling works across host wrappers, and
+`createRoot(...).render(...)` produces the expected DOM tree. The remaining React
+failure is later in the lifecycle: a state update reaches `g.current.useState`
+as undefined. The focused MessageChannel, placement and bubbling regressions pass,
+so the remaining blocker is reconciliation/shared-internals state-update behavior.
 
 The script runner now forwards uncaught timer, animation-frame and promise-job
 exceptions into document diagnostics. This makes the React host-commit failure

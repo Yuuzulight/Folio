@@ -37,7 +37,7 @@ D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with no runtime failures.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
 - A fresh native sweep also passes D1 2/2 and repeats D8–D14 at 34/34; these category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
-- Compatibility D2–D7 remains 60/60. Native D2–D7 is 59/60: D3–D7 are 10/10 and the only failure is `D2/pantry-react-jsx`, where the React commit path still leaves the expected host child detached (`#645`).
+- Compatibility D2–D7 remains 60/60. Native D2–D7 is 59/60: D3–D7 are 10/10 and the only failure is `D2/pantry-react-jsx`. PR #651 resolved its detached-root/labeled-control-flow and event-bubbling failures; the remaining mismatch is the React state-update hook dispatcher (`g.current.useState`), tracked in #645.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
 - The focused native WebAssembly capability set passes 46/46, including the current

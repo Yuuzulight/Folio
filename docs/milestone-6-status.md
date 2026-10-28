@@ -6,6 +6,14 @@ D13 4/4 and D14 3/3. These results verify the current corpus and lifecycle
 coverage only; the original native backend, device/transport, containment and
 mandatory replacement requirements remain open below.
 
+Native React placement refresh (2026-10-28, PR #651): Folio's evaluator now
+honors labeled `break`/`continue`, host-backed DOM nodes participate in event
+bubbling, and synthetic interaction steps checkpoint queued work before the next
+assertion. The full Release suite passes these changes. `D2/pantry-react-jsx` now
+mounts the React tree and reaches its click handler; its only remaining native
+failure is the subsequent hook/state rerender (`g.current.useState` is undefined),
+still tracked by #645.
+
 The D8 context-loss artifact now performs a real `WEBGL_lose_context` loss and
 restore cycle and asserts the native `oncontextrestored` callback; the focused
 artifact passes 1/1 as part of the 6/6 D8 result.
