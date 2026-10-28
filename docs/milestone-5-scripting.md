@@ -27,7 +27,7 @@ The native Folio-engine run now matches the dependency-backed corpus: the latest
 - The focused serialized scripting acceptance run passes its covered cases, including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, iframe message-source/target/port regressions, signed and unsigned array-texture sampling, native readback error/packing coverage, native array-growth semantics, and native worker structured-clone object/array/RegExp/cycle/Map/Set/Date/ArrayBuffer/typed-array/Error round trips plus native end-to-end worker transfer detachment.
 - `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7` (dependency-backed baseline): 60 passed, with no expected failures or unexpected failures.
 - Native-engine conformance (fresh 2026-10-28 run): 60/60 passed — D2–D7 each 10/10. The React pantry interaction now passes after correcting labeled-break propagation in the native evaluator; D5's ten Chart.js artifacts match after the bridge geometry correction in #647.
-- `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 747/747 passed.
+- `dotnet test tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release --no-restore`: 790/790 passed.
 
 The canvas frame-time harness now uses the retained `PaintFrame` path for canvas-only
 script mutations and reuses the document text shaper, so it no longer measures a full
