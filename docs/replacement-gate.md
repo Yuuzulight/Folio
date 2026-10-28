@@ -49,6 +49,10 @@ or a partial Folio implementation is progress, never completion.
 
 The replacement gate remains open. The latest complete Release verification
 passes 4,200 tests with 0 failures and 7 documented skips (4,207 discovered).
+The focused Folio-owned JavaScript engine/parser/evaluator/program/library
+probe suites pass 131/131, and native D2–D7 conformance remains 60/60; these
+are implementation slices, not completion evidence while Jint remains in the
+production graph.
 The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
 4,066,722 mutations respectively with zero failures. These are progress and
 safety evidence, not completion: HybridShaper still routes complex scripts to
