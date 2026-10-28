@@ -275,7 +275,7 @@ internal sealed class SoftwareCanvas : ICanvas
             {
                 if (_entries.TryGetValue(key, out var cached))
                     return cached;
-                var flattened = GlyphOutlines.Get(face, glyph) is { } path
+                var flattened = Outlines.GetOrCreateValue(face).Get(face, glyph) is { } path
                     ? PathGeometry.Flatten(path, tolerance).ToArray()
                     : [];
                 if (_entries.Count >= 2048)
