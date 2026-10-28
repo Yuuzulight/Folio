@@ -139,6 +139,22 @@ public sealed class ShapingDifferentialTests
     }
 
     [Theory]
+    [InlineData("ا")]
+    [InlineData("ب")]
+    [InlineData("سلام")]
+    [InlineData("لم")]
+    [InlineData("مُحَمَّد")]
+    public void ArabicJoiningFormsMatchTheOracle(string text)
+    {
+        var face = Fonts.Value.Match("Noto Sans Arabic", FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+        var expected = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "ar");
+
+        Assert.Equal(expected.Glyphs, actual.Glyphs);
+        Assert.Equal(expected.Clusters, actual.Clusters);
+    }
+
+    [Theory]
     [InlineData("سلام")]
     [InlineData("لا")]
     [InlineData("لم")]
