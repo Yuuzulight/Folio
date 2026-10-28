@@ -1216,6 +1216,12 @@ internal sealed class JavaScriptEvaluator
                 }
                 return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
             }),
+            "replaceAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count < 2) return value;
+                if (args[0] is RegexValue regex) return regex.Replace(value, StringValue(args[1]));
+                return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
+            }),
             "match" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0) return null;
@@ -1230,6 +1236,12 @@ internal sealed class JavaScriptEvaluator
                     ? regex.Split(value).Cast<object?>().ToList()
                     : value.Split(StringValue(args[0]), StringSplitOptions.None).Cast<object?>().ToList()),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
+            "repeat" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var count = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), "Invalid count value.");
+                return string.Concat(Enumerable.Repeat(value, count));
+            }),
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
             "charCodeAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? double.NaN : (double)value[(int)Number(args[0])]),

@@ -669,6 +669,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("bc", engine.Evaluate("'abcdef'.slice(1, -3)").AsString());
         Assert.Equal("bcd", engine.Evaluate("'abcdef'.substring(4, 1)").AsString());
         Assert.Equal("cdef", engine.Evaluate("'abcdef'.substring(2)").AsString());
+        Assert.Equal("ababab", engine.Evaluate("'ab'.repeat(3)").AsString());
+        Assert.Equal("x_x_x", engine.Evaluate("'x-x-x'.replaceAll('-', '_')").AsString());
     }
 
     [Fact]
