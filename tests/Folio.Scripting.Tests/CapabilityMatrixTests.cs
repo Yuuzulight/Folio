@@ -4,6 +4,8 @@ using Folio.Resources;
 using Folio.Scripting.Ipc;
 using Folio.Scripting.Dom;
 using Folio.Scripting.Jint;
+using Folio.Scripting.Gpu;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Folio.Scripting.Tests;
@@ -103,5 +105,40 @@ public sealed class CapabilityMatrixTests
 
         static FeatureCapabilities capabilitiesFor(string capabilityRow) => capabilityRow == "all"
             ? CapabilitiesFor("all") : new FeatureCapabilities { Iframes = true };
+    }
+
+    [Fact]
+    public void WebGlCapabilityRowExercisesBudgetAndContextLossLifecycle()
+    {
+        var row = Environment.GetEnvironmentVariable("FOLIO_CAPABILITY_MATRIX") ?? "none";
+        if (row is not ("webgl" or "all") || !OperatingSystem.IsWindows()) return;
+
+        using var engine = new JintScriptEngine();
+        var rid = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X64 => "win-x64", Architecture.Arm64 => "win-arm64", Architecture.X86 => "win-x86",
+            _ => throw new PlatformNotSupportedException(),
+        };
+        var path = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", "av_libglesv2.dll");
+        if (!File.Exists(path)) path = Path.Combine(AppContext.BaseDirectory, "av_libglesv2.dll");
+        Assert.True(DomBindings.ConfigureGpuFactory(engine, bytes => AngleGpuBackend.TryCreate(path, bytes, GpuRendererPreference.WarpOnly)));
+
+        using var document = Document.Parse("<canvas id='c' width='1' height='1'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true },
+            Limits = ResourceLimits.Default with { MaxGpuBytes = 8 },
+            Raster = new Folio.Skia.SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});var lost=0,restored=0;gl.oncontextlost=()=>lost++;gl.oncontextrestored=()=>restored++;var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,2,2,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(16));");
+            Assert.Equal(0x0505, engine.Evaluate("gl.getError()").AsNumber());
+            Assert.True(DomBindings.UpdateCapabilities(engine, FeatureCapabilities.Default));
+            Assert.True(engine.Evaluate("gl.isContextLost() && lost === 1").AsBoolean());
+            Assert.True(DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { WebGl = true }));
+            Assert.True(engine.Evaluate("!gl.isContextLost() && restored === 1").AsBoolean());
+        }
+        finally { DomBindings.Dispose(engine); }
     }
 }
