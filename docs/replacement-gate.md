@@ -90,6 +90,13 @@ their gates are met (9 focused tests total). This is still only the proven
 simple-run corpus for #561; the complete per-script corpus and complex-script
 routing work remain open.
 
+The same bundled-font evidence is reproducible without the test runner:
+`dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj -c Release
+-- shaping-differential` reports six proven runs plus a deliberate kerning
+perturbation check. This is the checked-in harness evidence for #561; system
+font coverage and the remaining complex-script corpus are still required
+before any additional script switch can be turned off.
+
 The artifact classifier now shares the image-format contract with `ImageLoader`:
 data URLs for GIF, WebP, BMP, ICO and SVG remain in Folio alongside PNG/JPEG,
 while unsupported formats such as AVIF still route to the browser. The supported

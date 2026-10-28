@@ -26,6 +26,8 @@ public static class Program
             return CanvasFrames(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 30);
         if (args.Length > 0 && args[0] == "canvas-shared-memory")
             return CanvasSharedMemory(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 10);
+        if (args.Length > 0 && args[0] == "shaping-differential")
+            return ShapingDifferentialReport();
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -133,6 +135,55 @@ public static class Program
     {
         samples.Sort();
         return samples[Math.Min(samples.Count - 1, (int)Math.Ceiling(samples.Count * .95) - 1)];
+    }
+
+    private static int ShapingDifferentialReport()
+    {
+        var corpus = new (string Family, string Text, string Name)[]
+        {
+            ("Source Sans 3", "The quick brown fox, AVATAR", "Latin"),
+            ("Folio Box", "1234", "Latin digits"),
+            ("Source Sans 3", "Γειά σου Κόσμε", "Greek"),
+            ("Source Sans 3", "Привет, мир", "Cyrillic"),
+            ("Source Sans 3", "Ångström — naïve", "Latin extended"),
+            ("Noto Sans Hebrew", "שלום", "Hebrew base"),
+        };
+        var fonts = FontCollection.FromFolder(Path.Combine(RepoPaths.Tests, "fonts"));
+        var failures = 0;
+        Console.WriteLine("Folio shaping differential report (bundled corpus)");
+        Console.WriteLine("| Run | Script | Glyphs | Clusters | Advances | Result |");
+        Console.WriteLine("|---|---|---:|---:|---:|---|");
+        foreach (var (family, text, name) in corpus)
+        {
+            var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
+            if (face is null || !SimpleShaper.CanShape(text, face))
+            {
+                Console.WriteLine($"| {name} | {name} | - | - | - | FAIL (not on Folio path) |");
+                failures++;
+                continue;
+            }
+            var folio = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16,
+                rightToLeft: name.Contains("Hebrew", StringComparison.Ordinal),
+                language: name.Contains("Hebrew", StringComparison.Ordinal) ? "he" : null);
+            var glyphs = folio.Glyphs.SequenceEqual(oracle.Glyphs);
+            var clusters = folio.Clusters.SequenceEqual(oracle.Clusters);
+            var advances = folio.Advances.SequenceEqual(oracle.Advances);
+            var pass = glyphs && clusters && advances;
+            Console.WriteLine($"| {name} | {name} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            if (!pass) failures++;
+        }
+
+        var kerningFace = fonts.Match("Folio Box", FaceStyle.Normal, 400, 100)!;
+        var kerningText = "AVATAR";
+        var expected = new HarfBuzzShaper().Shape(kerningText, 0, kerningText.Length, kerningFace, 16, false, null);
+        var actual = SimpleShaper.Shape(kerningText, 0, kerningText.Length, kerningFace, 16);
+        var broken = (float[])actual.Advances.Clone();
+        broken[0] += 1;
+        var perturbationDetected = !expected.Advances.SequenceEqual(broken);
+        Console.WriteLine($"| deliberate kerning perturbation | Latin | - | - | - | {(perturbationDetected ? "PASS" : "FAIL")} |");
+        if (!perturbationDetected) failures++;
+        return failures == 0 ? 0 : 1;
     }
 
     private static int CanvasSharedMemory(int frameCount)
