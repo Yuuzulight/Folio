@@ -168,6 +168,12 @@ failures. This narrows #563 but does not close it: marks, cursive attachment,
 Indic/SE Asian shaping and broad corpus coverage remain required for the mandatory
 all-Folio replacement track.
 
+The current parser also supports contextual and chained GSUB format-1 and
+class-based format-2 rules, while the Arabic corpus is 47/47 and the current
+system-font probe is 10/10. These are implementation and differential-evidence
+increments; Arabic remains on the HarfBuzz oracle until the complete corpus and
+production cutover gates are met.
+
 The post-change Release verification remains green across the repository suites:
 Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
 Scripting.Tests 1,390 executable tests succeeded, with six documented software skips. These results verify
