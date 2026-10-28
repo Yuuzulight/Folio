@@ -36,7 +36,7 @@ iframe lifecycle/platform slice 152/152, and the service-worker/cache slice
 do not close the original device, isolated-process, Folio-owned-runtime or
 dependency-removal requirements.
 
-Focused runtime checks now pass WebRTC/capture 31/31, Worker/Iframe 196/196,
+Earlier focused runtime checks passed WebRTC/capture 31/31, Worker/Iframe 196/196,
 media playback/native decoding 26/26, media budget/host-switch 37/37, native WebGL texture/framebuffer 74/74,
 and WebGL fallback/loss/limits 123/123. These strengthen the deterministic
 implementation evidence, but the corresponding issues remain open where their
