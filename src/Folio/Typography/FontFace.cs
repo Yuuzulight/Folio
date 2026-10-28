@@ -59,6 +59,7 @@ internal sealed class FontFace : IFontHandle
     private readonly Dictionary<uint, short> _kerning;
     private readonly GposKerning? _gposKerning;
     private readonly GposMarkPositioning? _gposMarks;
+    private readonly GposCursivePositioning? _gposCursive;
     private readonly GsubSubstitution? _gsub;
 
     private FontFace(FontData data, Dictionary<string, (int, int)> tables)
@@ -85,6 +86,7 @@ internal sealed class FontFace : IFontHandle
         _kerning = TryTable("kern") is { } kern ? ReadKern(kern) : [];
         _gposKerning = TryTable("GPOS") is { } gpos ? GposKerning.Read(gpos) : null;
         _gposMarks = TryTable("GPOS") is { } markGpos ? GposMarkPositioning.Read(markGpos) : null;
+        _gposCursive = TryTable("GPOS") is { } cursiveGpos ? GposCursivePositioning.Read(cursiveGpos) : null;
         _gsub = TryTable("GSUB") is { } gsub ? GsubSubstitution.Read(gsub) : null;
 
         Weight = (macStyle & 1) != 0 ? 700 : 400;
@@ -291,6 +293,9 @@ internal sealed class FontFace : IFontHandle
 
     /// <summary>Returns a mark offset relative to the preceding mark glyph, in font units.</summary>
     public (int X, int Y)? MarkToMarkOffset(ushort previousMark, ushort markGlyph) => _gposMarks?.MarkOffset(previousMark, markGlyph);
+
+    /// <summary>Entry/exit anchor delta for adjacent cursive glyphs, in font units.</summary>
+    public (int X, int Y)? CursivePlacement(ushort previousGlyph, ushort glyph) => _gposCursive?.Placement(previousGlyph, glyph);
 
     private FontData Table(string tag) => TryTable(tag) ?? throw new InvalidDataException($"Missing {tag} table.");
 

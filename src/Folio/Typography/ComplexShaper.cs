@@ -376,6 +376,21 @@ public sealed class ComplexShaper : ITextShaper
                     offsets[i] = finalBaseOffset;
                 }
             }
+
+            // Arabic cursive attachment joins the entry anchor of the next base
+            // to the exit anchor of the preceding base. Transparent marks are
+            // skipped, as required by the Arabic shaping model.
+            for (var i = 0; i < contextual.Length && i < expanded.Count; i++)
+            {
+                if (expanded[i].Transparent || expanded[i].Auxiliary) continue;
+                for (var next = i + 1; next < contextual.Length && next < expanded.Count; next++)
+                {
+                    if (expanded[next].Transparent || expanded[next].Auxiliary) continue;
+                    if (face.CursivePlacement(contextual[i], contextual[next]) is { } join)
+                        offsets[next] += new Vector2(join.X * scale, -join.Y * scale);
+                    break;
+                }
+            }
         }
     }
 
