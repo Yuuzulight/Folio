@@ -3,14 +3,15 @@
 ## Canvas animation performance (#519)
 
 The frame harness supports both the compatibility engine and an explicit
-Folio-native diagnostic mode through `FOLIO_CONFORMANCE_ENGINE=native`, and
-reports per-artifact script/update, display-list, host-paint and total p95
-timings. The current compatibility-engine 30-frame run exposes a real target
-miss in `D5/canvas-animated-bars` (38.13–43.48 ms total across three runs, dominated by script/update);
-the remaining D5/D7 artifacts are below 16.7 ms. Native-mode numbers remain
-diagnostic until the native engine executes the complete canvas animation
-semantics. The issue remains open pending optimization rather than being hidden
-by routing.
+Folio-native mode through `FOLIO_CONFORMANCE_ENGINE=native`, and reports
+per-artifact script/update, display-list, host-paint and total p95 timings.
+A fresh Release run (30 frames per artifact) shows the native engine below the
+16.7 ms target for every D5/D7 artifact; the worst case is
+`D7/canvas-snake-game` at 11.06 ms. The compatibility-engine run still misses
+the target for `D5/canvas-animated-bars` and `D5/library-card-08`, so that
+separate performance gap remains open. Native-mode numbers are now acceptance
+evidence for the Folio-owned execution path; the issue remains open for the
+compatibility-engine misses rather than being hidden by routing.
 
 Milestone 6 is **not complete against its original issue scope**. Earlier closure and completion claims were premature. This audit retains the original requirements rather than defining completion as the existing bounded API surface.
 
@@ -30,13 +31,14 @@ The full serialized Release solution runner then passed 4,177 tests with zero
 failures and seven documented skips (4,184 discovered), including benchmarks,
 core tests, render tests, scripting tests, WinForms tests and fuzz tests.
 
-The native conformance runner independently passes D8 6/6, D9 5/5, D10 4/4,
-D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with no runtime failures.
+The native conformance runner independently passes D8 6/6, D10 4/4,
+D11 4/4, D12 4/4, D13 4/4 and D14 3/3. D9 remains compatibility-only: the
+native engine currently fails four of its five media artifacts because native
+media element methods and the canvas media path are not yet wired.
 
 - The latest complete Release solution passes 4,177 tests with 0 failures and 7 documented environment/software skips (4,184 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
-- Native Folio D9–D14 conformance also passes its full current corpus: D9 5/5, D10 4/4, D11 4/4, D12 4/4, D13 4/4 and D14 3/3.
-- A fresh native sweep also passes D1 2/2 and repeats D8–D14 at 34/34; these category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
+- Compatibility D9 passes its current 5/5 corpus. A fresh native sweep passes D1 2/2, D8 6/6, D10–D14 19/19; native D9 is 1/5 with four script failures (`video.play`, `audio.play`, `currentTime`, and `canvas.getContext`). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - Compatibility D2–D7 remains 60/60. Native D2–D7 is 59/60: D3–D7 are 10/10 and the only failure is `D2/pantry-react-jsx`. PR #651 resolved its detached-root/labeled-control-flow and event-bubbling failures; the remaining mismatch is the React state-update hook dispatcher (`g.current.useState`), tracked in #645.
 - The native WebGL page, float/depth, GPU-surface and ANGLE backend checks pass 93/93 on this host.
 - Focused media, worker, WebAssembly, iframe, WebRTC and service-worker compatibility checks pass 266/266.
@@ -241,7 +243,11 @@ Original acceptance:
 
 ### #532 — Conformance: an audio and video category
 
-**Acceptance verified.** Evidence: `tests/conformance/D9: 5 manifests and HTML files`; the report passes 5/5.
+**Compatibility acceptance verified; native replacement remains incomplete.** Evidence:
+`tests/conformance/D9: 5 manifests and HTML files`; the compatibility report passes
+5/5. The native sweep currently passes only 1/5 because four artifacts still call
+media/canvas methods that are not exposed by the Folio-owned staged engine; those
+failures remain part of #533/#535 and the mandatory replacement gate.
 
 Count, references, interaction scripts and visual parity are met. The five bounded data-URI fixtures (WAV, PNG video and VTT captions) pass without crashes, script failures or expected-failure markers. Poster presentation, non-rendering audio, captioned playback, seek interactions and canvas capture are covered by the passing run.
 
