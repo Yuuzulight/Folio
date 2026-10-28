@@ -116,6 +116,8 @@ internal sealed class SoftwareCanvas : ICanvas
         // flattening a PathData when there are no corner curves; the rasterizer already has an exact rectangle path.
         if (rect.Radii.IsZero)
         {
+            if (TryFillOpaqueAxisAlignedRect(rect.Rect, paint))
+                return;
             var r = rect.Rect;
             var polygons = new[]
             {
@@ -132,6 +134,30 @@ internal sealed class SoftwareCanvas : ICanvas
             return;
         }
         FillPath(new PathData().AddRoundedRect(rect), FillRule.NonZero, paint);
+    }
+
+    private bool TryFillOpaqueAxisAlignedRect(RectF rect, in Paint paint)
+    {
+        if (paint.Blur > 0 || paint.Gradient is not null || paint.Pattern is not null || paint.Blend != BlendMode.Normal
+            || paint.Color.A < 1 || _state.ClipMask is not null || !_state.Transform.IsAffine)
+            return false;
+        var m = _state.Transform;
+        if (m.M12 != 0 || m.M21 != 0 || m.M11 <= 0 || m.M22 <= 0)
+            return false;
+        var topLeft = m.Apply(new Vector2(rect.X, rect.Y));
+        var bottomRight = m.Apply(new Vector2(rect.Right, rect.Bottom));
+        if (!Integral(topLeft.X) || !Integral(topLeft.Y) || !Integral(bottomRight.X) || !Integral(bottomRight.Y))
+            return false;
+        var area = IntRect.Intersect(_state.Clip, _targetBounds);
+        area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
+            (int)bottomRight.X, (int)bottomRight.Y));
+        var color = new Vector4(paint.Color.R, paint.Color.G, paint.Color.B, 1);
+        for (var y = area.Top; y < area.Bottom; y++)
+            for (var x = area.Left; x < area.Right; x++)
+                Compositor.BlendOpaque(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color);
+        return true;
+
+        static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
     }
 
     public void ClearRect(in RectF rect)
