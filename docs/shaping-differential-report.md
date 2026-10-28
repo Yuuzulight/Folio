@@ -6,7 +6,7 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 ## Current green corpus
 
-`ShapingDifferentialTests` passes 12/12 on the bundled fonts:
+`ShapingDifferentialTests` passes 16/16 on the bundled fonts:
 
 - Latin and punctuation (`Source Sans 3`)
 - digits and kerning (`Folio Box`)
@@ -19,7 +19,9 @@ This is the checked-in evidence for the mandatory shaping replacement track
 - deliberate kerning perturbation detection
 
 `HarfBuzzShaperTests` passes 19/19, including representative Hebrew niqqud
-and Arabic `سلام`, `لا`, and `لم` cases.
+and Arabic `سلام`, `لا`, and `لم` cases. The direct Arabic corpus now also
+covers `مُحَمَّد`; glyph, cluster and advance parity pass, while multi-mark
+offset parity remains explicitly open.
 
 ## Explicitly open parity
 

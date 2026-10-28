@@ -115,6 +115,21 @@ public sealed class ComplexShaper : ITextShaper
         List<(Rune Rune, int Index)> runes, FontFace face, float scale,
         List<ushort> glyphs, List<int> clusters, List<float> advances, List<Vector2> offsets)
     {
+        // Arabic marks are emitted in visual attachment order. Reverse each
+        // consecutive transparent-mark run so a source sequence such as
+        // fatha + shadda matches the order used by the font's mark anchors.
+        var orderedRunes = new List<(Rune Rune, int Index)>(runes.Count);
+        for (var i = 0; i < runes.Count;)
+        {
+            orderedRunes.Add(runes[i]);
+            var end = i + 1;
+            while (end < runes.Count && GetArabicJoining(runes[end].Rune.Value) == ArabicJoining.Transparent)
+                end++;
+            for (var mark = end - 1; mark > i; mark--)
+                orderedRunes.Add(runes[mark]);
+            i = end;
+        }
+        runes = orderedRunes;
         var forms = new ArabicForm[runes.Count];
 
         ushort? previousBaseGlyph = null;
@@ -185,13 +200,13 @@ public sealed class ComplexShaper : ITextShaper
                 advances.Add(0f);
                 var relativeToPreviousMark = false;
                 (int X, int Y)? markOffset = null;
-                if (previousMarkGlyph is { } previousMark)
+                if (previousBaseGlyph is { } previousBase)
+                    markOffset = face.MarkOffset(previousBase, glyph);
+                if (markOffset is null && previousMarkGlyph is { } previousMark)
                 {
                     markOffset = face.MarkToMarkOffset(previousMark, glyph);
                     relativeToPreviousMark = markOffset is not null;
                 }
-                if (markOffset is null && previousBaseGlyph is { } previousBase)
-                    markOffset = face.MarkOffset(previousBase, glyph);
                 if (markOffset is { } position)
                 {
                     var offset = new Vector2(position.X * scale, -position.Y * scale);
@@ -247,6 +262,42 @@ public sealed class ComplexShaper : ITextShaper
                 if (contextual[i] == glyphs[i]) continue;
                 glyphs[i] = contextual[i];
                 advances[i] = face.Advance(contextual[i]) * scale;
+            }
+
+            // Contextual substitutions can change the base glyph used by a
+            // mark anchor. Recompute Arabic mark offsets against the final
+            // glyph sequence rather than retaining pre-substitution anchors.
+            ushort? finalBaseGlyph = null;
+            ushort? finalMarkGlyph = null;
+            var finalMarkOffset = Vector2.Zero;
+            for (var i = 0; i < contextual.Length && i < runes.Count; i++)
+            {
+                if (GetArabicJoining(runes[i].Rune.Value) == ArabicJoining.Transparent)
+                {
+                    (int X, int Y)? markOffset = null;
+                    var relative = false;
+                    if (finalBaseGlyph is { } baseGlyph)
+                        markOffset = face.MarkOffset(baseGlyph, contextual[i]);
+                    if (markOffset is null && finalMarkGlyph is { } previousMark)
+                    {
+                        markOffset = face.MarkToMarkOffset(previousMark, contextual[i]);
+                        relative = markOffset is not null;
+                    }
+                    var offset = markOffset is { } position
+                        ? new Vector2(position.X * scale, -position.Y * scale)
+                        : Vector2.Zero;
+                    if (relative) offset += finalMarkOffset;
+                    offsets[i] = offset;
+                    finalMarkOffset = offset;
+                    finalMarkGlyph = contextual[i];
+                }
+                else
+                {
+                    finalBaseGlyph = contextual[i];
+                    finalMarkGlyph = null;
+                    finalMarkOffset = Vector2.Zero;
+                    offsets[i] = Vector2.Zero;
+                }
             }
         }
     }
