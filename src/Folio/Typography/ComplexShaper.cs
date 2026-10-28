@@ -371,6 +371,7 @@ public sealed class ComplexShaper : ITextShaper
         int? previousBaseCluster = null;
         ushort? previousMarkGlyph = null;
         var previousMarkOffset = Vector2.Zero;
+        var previousBaseOffset = Vector2.Zero;
 
         for (var i = 0; i < orderedRunes.Count; i++)
         {
@@ -406,6 +407,8 @@ public sealed class ComplexShaper : ITextShaper
                     var offset = new Vector2(position.X * scale, -position.Y * scale);
                     if (relativeToPreviousMark)
                         offset += previousMarkOffset;
+                    else
+                        offset += previousBaseOffset;
                     offsets.Add(offset);
                     previousMarkOffset = offset;
                 }
@@ -418,8 +421,27 @@ public sealed class ComplexShaper : ITextShaper
             }
             else
             {
-                advances.Add(face.Advance(glyph) * scale);
-                offsets.Add(Vector2.Zero);
+                // Hebrew GPOS pair positioning contributes to the advance of
+                // the preceding glyph in the shaped (visual) sequence. Keep
+                // this Folio-owned adjustment alongside the contextual GSUB
+                // result so extended niqqud words retain oracle spacing.
+                var units = face.Advance(glyph);
+                var pairAdjustment = 0;
+                // GPOS pair positioning ignores intervening combining marks;
+                // find the next base glyph rather than pairing with a zero-
+                // advance mark.
+                for (var next = i + 1; next < orderedRunes.Count; next++)
+                {
+                    if (IsHebrewMark(orderedRunes[next].Rune))
+                        continue;
+                    var nextGlyph = useContextual ? contextualGlyphs[next] : face.GlyphFor(orderedRunes[next].Rune.Value);
+                    pairAdjustment = face.Kerning(glyph, nextGlyph);
+                    units += pairAdjustment;
+                    break;
+                }
+                advances.Add(units * scale);
+                previousBaseOffset = new Vector2(pairAdjustment * scale, 0);
+                offsets.Add(previousBaseOffset);
                 clusters.Add(cluster);
                 previousBaseGlyph = glyph;
                 previousBaseCluster = cluster;

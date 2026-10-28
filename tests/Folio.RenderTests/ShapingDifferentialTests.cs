@@ -125,4 +125,24 @@ public sealed class ShapingDifferentialTests
         Assert.Equal(oracle.Clusters, actual.Clusters);
         Assert.Equal(oracle.Advances, actual.Advances);
     }
+
+    [Theory]
+    [InlineData("שָׁלוֹם")]
+    [InlineData("בְּרֵאשִׁית")]
+    [InlineData("מַלְכָּה")]
+    public void HebrewComplexShaperMatchesGlyphsAndPlacementForExtendedCorpus(string text)
+    {
+        var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;
+        var actual = ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, rightToLeft: true, language: "he");
+        Assert.Equal(oracle.Glyphs, actual.Glyphs);
+        Assert.Equal(oracle.Clusters, actual.Clusters);
+        Assert.Equal(oracle.Advances, actual.Advances);
+        Assert.Equal(oracle.Offsets.Length, actual.Offsets.Length);
+        for (var i = 0; i < oracle.Offsets.Length; i++)
+        {
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].X - actual.Offsets[i].X), 0, 0.001f);
+            Assert.InRange(MathF.Abs(oracle.Offsets[i].Y - actual.Offsets[i].Y), 0, 0.001f);
+        }
+    }
 }

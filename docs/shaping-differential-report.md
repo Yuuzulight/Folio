@@ -6,13 +6,14 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 ## Current green corpus
 
-`ShapingDifferentialTests` passes 16/16 on the bundled fonts:
+`ShapingDifferentialTests` passes 19/19 on the bundled fonts:
 
 - Latin and punctuation (`Source Sans 3`)
 - digits and kerning (`Folio Box`)
 - Greek and Cyrillic
 - Latin extended characters
 - Hebrew base text
+- Hebrew niqqud words (`שלום`, `בראשית`, `מלכה`)
 - Arabic promotion-switch routing through `ComplexShaper`
 - Hebrew promotion-switch routing through `ComplexShaper`
 - mixed-script safety (a promoted script cannot capture an entire mixed run)
