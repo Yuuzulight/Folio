@@ -31,6 +31,11 @@ and Arabic `سلام`, `لا`, and `لم` cases. The direct Arabic corpus now al
 covers `مُحَمَّد`; glyph, cluster, advance and multi-mark offset parity pass
 for all four cases. The broader Arabic corpus remains open below.
 
+The local Windows system-font command also passes five runs: Arial, Times New
+Roman and Segoe UI simple-script samples, plus Hebrew (`שלום לכולם`) and Arabic
+(`مرحبا بكم`) shaped through `ComplexShaper`. These are host-local results;
+other system font inventories still require their own run.
+
 ## Explicitly open parity
 
 The promotion switch does not claim parity. It is a controlled harness switch

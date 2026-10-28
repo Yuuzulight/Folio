@@ -231,6 +231,8 @@ public static class Program
             ("Arial", "The quick brown fox, AVATAR"),
             ("Times New Roman", "AVATAR fi office"),
             ("Segoe UI", "Numbers 0123456789"),
+            ("Arial", "שלום לכולם"),
+            ("Arial", "مرحبا بكم"),
         };
         var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
         var compared = 0;
@@ -247,11 +249,17 @@ public static class Program
                 continue;
             }
             compared++;
-            var folio = SimpleShaper.Shape(text, 0, text.Length, face, 16);
-            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, false, null);
+            var complex = text.Any(c => c is >= '\u0590' and <= '\u08FF');
+            var language = text.Any(c => c is >= '\u0600' and <= '\u08FF') ? "ar" : "he";
+            var folio = complex
+                ? ComplexShaper.Instance.Shape(text, 0, text.Length, face, 16, true, language)
+                : SimpleToShapedText(SimpleShaper.Shape(text, 0, text.Length, face, 16));
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, complex, complex ? language : null);
             var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
                 && folio.Clusters.SequenceEqual(oracle.Clusters)
-                && folio.Advances.SequenceEqual(oracle.Advances);
+                && folio.Advances.SequenceEqual(oracle.Advances)
+                && folio.Offsets.Length == oracle.Offsets.Length
+                && folio.Offsets.Zip(oracle.Offsets).All(pair => MathF.Abs(pair.First.X - pair.Second.X) <= 0.001f && MathF.Abs(pair.First.Y - pair.Second.Y) <= 0.001f);
             Console.WriteLine($"| {family} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
             if (!pass) failures++;
         }
@@ -262,6 +270,9 @@ public static class Program
         }
         return failures == 0 ? 0 : 1;
     }
+
+    private static ShapedText SimpleToShapedText(ShapedRun run) =>
+        new(run.Glyphs, run.Clusters, run.Advances, new System.Numerics.Vector2[run.Glyphs.Length]);
 
     private static int CanvasSharedMemory(int frameCount)
     {
