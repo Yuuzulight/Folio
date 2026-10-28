@@ -364,6 +364,11 @@ internal sealed class SoftwareCanvas : ICanvas
                             Stops = stops,
                             Start = Vector2.Transform(gradient.Start, matrix),
                             End = Vector2.Transform(gradient.End, matrix),
+                            Center = Vector2.Transform(gradient.Center, matrix),
+                            Radii = new Vector2(Vector2.TransformNormal(new Vector2(gradient.Radii.X, 0), matrix).Length(),
+                                Vector2.TransformNormal(new Vector2(0, gradient.Radii.Y), matrix).Length()),
+                            Focus = gradient.Focus is { } focus ? Vector2.Transform(focus, matrix) : null,
+                            FocusRadius = gradient.FocusRadius * Vector2.TransformNormal(Vector2.UnitX, matrix).Length(),
                             Transform = null,
                         };
                         Draw(coverage, new Paint(paint.Color, Gradient: transformedGradient, Blend: paint.Blend));

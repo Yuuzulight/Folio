@@ -152,21 +152,37 @@ internal static class ColorGlyphs
             if (PaintSolid(colr, childOffset, palette, records) is not { } color) return null;
             return [new Layer(glyph, color)];
         }
-        if (colr.U8(childOffset) == 4 && PaintLinearGradient(colr, childOffset, palette, records) is { } gradient)
+        if (colr.U8(childOffset) is 4 or 6 && PaintGradient(colr, childOffset, palette, records) is { } gradient)
             return [new Layer(glyph, gradient.Stops[0].Color, Gradient: gradient)];
         return null;
     }
 
-    private static Gradient? PaintLinearGradient(FontData colr, int offset, Rgba[] palette, int records)
+    private static Gradient? PaintGradient(FontData colr, int offset, Rgba[] palette, int records)
     {
-        // PaintLinearGradient: format, ColorLine offset, and three FWORD points.
+        // PaintLinearGradient/PaintRadialGradient: format, ColorLine offset and FWORD geometry.
         var colorLine = checked(offset + ReadU24(colr, offset + 1));
+        if (colr.U8(offset) is not (4 or 6) || colorLine < 0 || colorLine + 3 > colr.Length)
+            return null;
+        var stops = ReadColorStops(colr, colorLine, palette, records, out var spread);
+        if (stops is null) return null;
         var x0 = colr.S16(offset + 4);
         var y0 = colr.S16(offset + 6);
         var x1 = colr.S16(offset + 8);
         var y1 = colr.S16(offset + 10);
-        if (colr.U8(offset) != 4 || colorLine < 0 || colorLine + 3 > colr.Length)
-            return null;
+        if (colr.U8(offset) == 6)
+        {
+            var r0 = Math.Max(0, (int)colr.S16(offset + 12));
+            var r1 = Math.Max(0, (int)colr.S16(offset + 14));
+            return new Gradient(GradientKind.Radial, stops, spread,
+                Center: new Vector2(x1, y1), Radii: new Vector2(r1, r1),
+                Focus: new Vector2(x0, y0), FocusRadius: r0);
+        }
+        return new Gradient(GradientKind.Linear, stops, spread, new Vector2(x0, y0), new Vector2(x1, y1));
+    }
+
+    private static List<GradientStop>? ReadColorStops(FontData colr, int colorLine, Rgba[] palette, int records, out GradientSpread spread)
+    {
+        spread = GradientSpread.Pad;
         var extend = colr.U8(colorLine);
         var count = colr.U16(colorLine + 1);
         if (count == 0 || (long)colorLine + 3 + 6L * count > colr.Length)
@@ -184,13 +200,13 @@ internal static class ColorGlyphs
             stops.Add(new GradientStop(position, color));
         }
         if (stops.Count == 0) return null;
-        var spread = extend switch
+        spread = extend switch
         {
             1 => GradientSpread.Repeat,
             2 => GradientSpread.Reflect,
             _ => GradientSpread.Pad,
         };
-        return new Gradient(GradientKind.Linear, stops, spread, new Vector2(x0, y0), new Vector2(x1, y1));
+        return stops;
     }
 
     private static List<Layer>? PaintTranslate(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)

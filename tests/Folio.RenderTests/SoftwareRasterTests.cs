@@ -446,6 +446,20 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1RadialGradient(ushort glyph)
+    {
+        var colr = SyntheticColrV1LinearGradient(glyph);
+        colr[56] = 6; // PaintRadialGradient
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(60), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(62), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(64), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(66), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(68), 0);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(70), 500);
+        BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(72), 500);
+        return colr;
+    }
+
     private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
 
     private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
@@ -558,6 +572,25 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         Assert.Equal(2, gradient.Stops.Count);
         Assert.True(gradient.Stops[0].Color.R > .9f);
         Assert.True(gradient.Stops[1].Color.B > .9f);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1RadialGradientPaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1RadialGradient(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.Equal(GradientKind.Radial, Assert.IsType<Gradient>(Assert.Single(parsed!).Gradient).Kind);
         using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
         White(surface.Canvas);
         surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
