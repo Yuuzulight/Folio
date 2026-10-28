@@ -1233,12 +1233,31 @@ internal sealed class JavaScriptEvaluator
             "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? -1d : (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal)),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
             "charCodeAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? double.NaN : (double)value[(int)Number(args[0])]),
-            "slice" => (Func<IReadOnlyList<object?>, object?>)(args => value[Math.Clamp(args.Count > 0 ? (int)Number(args[0]) : 0, 0, value.Length)..Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length)]),
-            "substring" => (Func<IReadOnlyList<object?>, object?>)(args => value[Math.Clamp(args.Count > 0 ? (int)Number(args[0]) : 0, 0, value.Length)..Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length)]),
+            "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var start = RelativeStringIndex(args.Count > 0 ? args[0] : null, value.Length, 0);
+                var end = RelativeStringIndex(args.Count > 1 ? args[1] : null, value.Length, value.Length);
+                return value[start..Math.Max(start, end)];
+            }),
+            "substring" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var start = ClampStringIndex(args.Count > 0 ? args[0] : null, value.Length);
+                var end = ClampStringIndex(args.Count > 1 ? args[1] : null, value.Length);
+                if (start > end) (start, end) = (end, start);
+                return value[start..end];
+            }),
             _ => null,
         };
         return method is not null;
     }
+
+    private static int RelativeStringIndex(object? value, int length, int fallback)
+    {
+        var index = value is null or UndefinedValue ? fallback : (int)Number(value);
+        return index < 0 ? Math.Max(length + index, 0) : Math.Min(index, length);
+    }
+
+    private static int ClampStringIndex(object? value, int length) => Math.Clamp(value is null or UndefinedValue ? 0 : (int)Number(value), 0, length);
 
     private object Function(JavaScriptFunctionExpression function)
     {
