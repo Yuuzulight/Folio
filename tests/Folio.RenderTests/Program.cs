@@ -28,6 +28,8 @@ public static class Program
             return CanvasSharedMemory(args.Length > 1 && int.TryParse(args[1], out var frames) ? Math.Max(3, frames) : 10);
         if (args.Length > 0 && args[0] == "shaping-differential")
             return ShapingDifferentialReport();
+        if (args.Length > 0 && args[0] == "shaping-differential-system")
+            return SystemShapingDifferentialReport();
 
         // The rest mirrors the entry point xUnit generates.
         if (args.Any(arg => arg is "--server" or "--internal-msbuild-node"))
@@ -183,6 +185,45 @@ public static class Program
         var perturbationDetected = !expected.Advances.SequenceEqual(broken);
         Console.WriteLine($"| deliberate kerning perturbation | Latin | - | - | - | {(perturbationDetected ? "PASS" : "FAIL")} |");
         if (!perturbationDetected) failures++;
+        return failures == 0 ? 0 : 1;
+    }
+
+    private static int SystemShapingDifferentialReport()
+    {
+        var corpus = new (string Family, string Text)[]
+        {
+            ("Arial", "The quick brown fox, AVATAR"),
+            ("Times New Roman", "AVATAR fi office"),
+            ("Segoe UI", "Numbers 0123456789"),
+        };
+        var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
+        var compared = 0;
+        var failures = 0;
+        Console.WriteLine("Folio shaping differential report (local system-font corpus)");
+        Console.WriteLine("| Family | Glyphs | Clusters | Advances | Result |");
+        Console.WriteLine("|---|---:|---:|---:|---|");
+        foreach (var (family, text) in corpus)
+        {
+            var face = fonts.Match(family, FaceStyle.Normal, 400, 100);
+            if (face is null)
+            {
+                Console.WriteLine($"| {family} | - | - | - | SKIP (family unavailable) |");
+                continue;
+            }
+            compared++;
+            var folio = SimpleShaper.Shape(text, 0, text.Length, face, 16);
+            var oracle = new HarfBuzzShaper().Shape(text, 0, text.Length, face, 16, false, null);
+            var pass = folio.Glyphs.SequenceEqual(oracle.Glyphs)
+                && folio.Clusters.SequenceEqual(oracle.Clusters)
+                && folio.Advances.SequenceEqual(oracle.Advances);
+            Console.WriteLine($"| {family} | {folio.Glyphs.Length} | {folio.Clusters.Length} | {folio.Advances.Length} | {(pass ? "PASS" : "FAIL")} |");
+            if (!pass) failures++;
+        }
+        if (compared == 0)
+        {
+            Console.WriteLine("No requested system families were available; run this command on the target host.");
+            return 2;
+        }
         return failures == 0 ? 0 : 1;
     }
 

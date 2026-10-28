@@ -98,6 +98,10 @@ The same bundled-font evidence is reproducible without the test runner:
 perturbation check. This is the checked-in harness evidence for #561; system
 font coverage and the remaining complex-script corpus are still required
 before any additional script switch can be turned off.
+On Windows, `dotnet run --project tests/Folio.RenderTests/Folio.RenderTests.csproj
+-c Release -- shaping-differential-system` compares Arial, Times New Roman and
+Segoe UI against HarfBuzzSharp; the current host reports all three PASS. The
+system corpus remains a local evidence run because installed fonts vary by host.
 
 The artifact classifier now shares the image-format contract with `ImageLoader`:
 data URLs for GIF, WebP, BMP, ICO and SVG remain in Folio alongside PNG/JPEG,
