@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Folio.Imaging;
 using Folio.Typography;
 
@@ -151,13 +152,24 @@ internal sealed class SoftwareCanvas : ICanvas
         var area = IntRect.Intersect(_state.Clip, _targetBounds);
         area = IntRect.Intersect(area, new IntRect((int)topLeft.X, (int)topLeft.Y,
             (int)bottomRight.X, (int)bottomRight.Y));
-        var color = new Vector4(paint.Color.R, paint.Color.G, paint.Color.B, 1);
+        // The target is a tightly packed RGBA8 surface.  Once the geometry and paint
+        // are known to be an integral opaque rectangle, fill whole pixels as words;
+        // calling the general compositor for every pixel adds needless bounds and
+        // floating-point work to the hottest dashboard path.
+        var packed = (uint)To8(paint.Color.R)
+            | ((uint)To8(paint.Color.G) << 8)
+            | ((uint)To8(paint.Color.B) << 16)
+            | 0xFF000000u;
+        var words = MemoryMarshal.Cast<byte, uint>(_target.Data.AsSpan());
         for (var y = area.Top; y < area.Bottom; y++)
-            for (var x = area.Left; x < area.Right; x++)
-                Compositor.BlendOpaque(_target.Data, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4, color);
+        {
+            var first = (y - _targetBounds.Top) * _target.Width + (area.Left - _targetBounds.Left);
+            words.Slice(first, area.Width).Fill(packed);
+        }
         return true;
 
         static bool Integral(float value) => MathF.Abs(value - MathF.Round(value)) < 1e-4f;
+        static byte To8(float value) => value <= 0 ? (byte)0 : value >= 1 ? (byte)255 : (byte)(value * 255 + 0.5f);
     }
 
     public void ClearRect(in RectF rect)
