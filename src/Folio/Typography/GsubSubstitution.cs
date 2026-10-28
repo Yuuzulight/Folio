@@ -24,6 +24,41 @@ internal sealed class GsubSubstitution
 
     private GsubSubstitution(FontData gsub) => _gsub = gsub;
 
+    internal readonly record struct LigatureGlyph(ushort Glyph, int SourceStart, int SourceLength);
+
+    /// <summary>Applies script-aware ligature substitutions while retaining source spans for clusters.</summary>
+    public LigatureGlyph[] SubstituteLigatures(ushort[] glyphs, string features, string scriptTag)
+    {
+        ArgumentNullException.ThrowIfNull(glyphs);
+        var result = new List<LigatureGlyph>(glyphs.Length);
+        try
+        {
+            var lookups = LookupIndices(features, scriptTag);
+            for (var position = 0; position < glyphs.Length;)
+            {
+                var bestGlyph = glyphs[position];
+                var bestLength = 1;
+                foreach (var lookupIndex in lookups)
+                {
+                    if (TryLigatureAt(glyphs, position, lookupIndex, out var replacement, out var length) && length > bestLength)
+                    {
+                        bestGlyph = replacement;
+                        bestLength = length;
+                    }
+                }
+                result.Add(new LigatureGlyph(bestGlyph, position, bestLength));
+                position += bestLength;
+            }
+        }
+        catch (Exception e) when (e is InvalidDataException or OverflowException or IndexOutOfRangeException)
+        {
+            result.Clear();
+            for (var i = 0; i < glyphs.Length; i++)
+                result.Add(new LigatureGlyph(glyphs[i], i, 1));
+        }
+        return [.. result];
+    }
+
     /// <summary>
     /// Whether a glyph starts a ligature of the features on by default (liga, clig and rlig: lookup type 4), which only
     /// the complex shaper forms.
@@ -118,6 +153,63 @@ internal sealed class GsubSubstitution
         }
         replacement = [];
         return false;
+    }
+
+    private bool TryLigatureAt(ushort[] glyphs, int position, int lookupIndex, out ushort replacement, out int consumed)
+    {
+        var lookupList = _gsub.U16(8);
+        var lookup = lookupList + _gsub.U16(lookupList + 2 + 2 * lookupIndex);
+        var type = _gsub.U16(lookup);
+        var count = _gsub.U16(lookup + 4);
+        replacement = glyphs[position];
+        consumed = 1;
+        for (var i = 0; i < count; i++)
+        {
+            var subtable = lookup + _gsub.U16(lookup + 6 + 2 * i);
+            if (type == Extension && _gsub.U16(subtable) == 1)
+            {
+                var targetType = _gsub.U16(subtable + 2);
+                if (targetType != Ligature)
+                    continue;
+                subtable = checked(subtable + (int)_gsub.U32(subtable + 4));
+            }
+            if (type == Ligature || _gsub.U16(subtable) == 1 && type == Extension)
+                TryLigatureSubtable(glyphs, position, subtable, ref replacement, ref consumed);
+        }
+        return consumed > 1;
+    }
+
+    private void TryLigatureSubtable(ushort[] glyphs, int position, int subtable, ref ushort replacement, ref int consumed)
+    {
+        if (_gsub.U16(subtable) != 1)
+            return;
+        var coverage = subtable + _gsub.U16(subtable + 2);
+        var coverageIndex = CoverageIndex(coverage, glyphs[position]);
+        if (coverageIndex < 0 || coverageIndex >= _gsub.U16(subtable + 4))
+            return;
+        var set = subtable + _gsub.U16(subtable + 6 + 2 * coverageIndex);
+        var count = _gsub.U16(set);
+        for (var i = 0; i < count; i++)
+        {
+            var ligature = set + _gsub.U16(set + 2 + 2 * i);
+            var componentCount = _gsub.U16(ligature + 2);
+            if (componentCount <= consumed || position + componentCount > glyphs.Length)
+                continue;
+            var matches = true;
+            for (var component = 1; component < componentCount; component++)
+            {
+                if (_gsub.U16(ligature + 4 + 2 * (component - 1)) != glyphs[position + component])
+                {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches && componentCount > consumed)
+            {
+                replacement = _gsub.U16(ligature);
+                consumed = componentCount;
+            }
+        }
     }
 
     private bool TryApplyDirectSubtable(ushort glyph, int type, int subtable, out ushort[] replacement)

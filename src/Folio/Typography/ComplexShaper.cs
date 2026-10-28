@@ -444,22 +444,39 @@ public sealed class ComplexShaper : ITextShaper
         var contextualGlyphs = face.Substitute(sourceGlyphs, "ccmp locl rlig", "hebr");
         var useContextual = contextualGlyphs.Length == orderedRunes.Count;
 
+        // Some fonts (notably system Arial faces) use length-changing ccmp/rlig
+        // ligatures for a base plus niqqud. Keep the source span so clusters and
+        // mark classification survive the substitution.
+        var substitutedGlyphs = useContextual ? contextualGlyphs : sourceGlyphs;
+        var ligatures = face.SubstituteLigatures(substitutedGlyphs, "ccmp locl rlig", "hebr");
+        var useLigatures = ligatures.Any(static match => match.SourceLength > 1);
+        var shapedRunes = new List<(Rune Rune, int Cluster, ushort Glyph)>(ligatures.Length);
+        if (useLigatures)
+        {
+            foreach (var match in ligatures)
+                shapedRunes.Add((orderedRunes[match.SourceStart].Rune, orderedRunes[match.SourceStart].Index, match.Glyph));
+        }
+        else
+        {
+            for (var i = 0; i < orderedRunes.Count; i++)
+            {
+                var glyph = useContextual
+                    ? contextualGlyphs[i]
+                    : face.Substitute([face.GlyphFor(orderedRunes[i].Rune.Value)], "locl", "hebr")[0];
+                shapedRunes.Add((orderedRunes[i].Rune, orderedRunes[i].Index, glyph));
+            }
+        }
+
         ushort? previousBaseGlyph = null;
         int? previousBaseCluster = null;
         ushort? previousMarkGlyph = null;
         var previousMarkOffset = Vector2.Zero;
         var previousBaseOffset = Vector2.Zero;
 
-        for (var i = 0; i < orderedRunes.Count; i++)
+        for (var i = 0; i < shapedRunes.Count; i++)
         {
-            var (rune, cluster) = orderedRunes[i];
+            var (rune, cluster, glyph) = shapedRunes[i];
             var code = rune.Value;
-            // Hebrew localisation can select a script-specific glyph before
-            // mark anchors are read; keep this single-substitution step
-            // Folio-owned and leave contextual/ligature work to the gate.
-            var glyph = useContextual
-                ? contextualGlyphs[i]
-                : face.Substitute([face.GlyphFor(code)], "locl", "hebr")[0];
             glyphs.Add(glyph);
 
             var category = Rune.GetUnicodeCategory(rune);
@@ -507,12 +524,11 @@ public sealed class ComplexShaper : ITextShaper
                 // GPOS pair positioning ignores intervening combining marks;
                 // find the next base glyph rather than pairing with a zero-
                 // advance mark.
-                for (var next = i + 1; next < orderedRunes.Count; next++)
+                for (var next = i + 1; next < shapedRunes.Count; next++)
                 {
-                    if (IsHebrewMark(orderedRunes[next].Rune))
+                    if (IsHebrewMark(shapedRunes[next].Rune))
                         continue;
-                    var nextGlyph = useContextual ? contextualGlyphs[next] : face.GlyphFor(orderedRunes[next].Rune.Value);
-                    pairAdjustment = face.Kerning(glyph, nextGlyph);
+                    pairAdjustment = face.Kerning(glyph, shapedRunes[next].Glyph);
                     units += pairAdjustment;
                     break;
                 }

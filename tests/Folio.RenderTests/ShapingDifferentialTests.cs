@@ -160,6 +160,7 @@ public sealed class ShapingDifferentialTests
     [InlineData("מַלְכָּה")]
     [InlineData("שלום לכולם. המרכז הקהילתי פותח את שעריו בכל יום ראשון בשעה 09:30, ומציע סדנאות כתיבה, צילום ומוזיקה לכל המשפחה.")]
     [InlineData("ברוכים הבאים ללוח המודעות: מפגש חדש יתקיים ביום שלישי הקרוב, וההרשמה פתוחה עד סוף החודש.")]
+    [InlineData("שָׁלוֹם וברוכים הבאים")]
     public void HebrewComplexShaperMatchesGlyphsAndPlacementForExtendedCorpus(string text)
     {
         var face = Fonts.Value.Match("Noto Sans Hebrew", FaceStyle.Normal, 400, 100)!;

@@ -270,6 +270,10 @@ internal sealed class FontFace : IFontHandle
     internal ushort[] SubstituteSequence(ushort glyph, string features, string scriptTag) =>
         _gsub?.SubstituteSequence(glyph, features, scriptTag) ?? [glyph];
 
+    internal GsubSubstitution.LigatureGlyph[] SubstituteLigatures(ushort[] glyphs, string features, string scriptTag) =>
+        _gsub?.SubstituteLigatures(glyphs, features, scriptTag)
+        ?? glyphs.Select((glyph, index) => new GsubSubstitution.LigatureGlyph(glyph, index, 1)).ToArray();
+
     /// <summary>Whether a glyph starts one of the font's default ligatures (liga, clig, rlig).</summary>
     public bool StartsLigature(ushort glyph) => _gsub?.StartsLigature(glyph) == true;
 

@@ -6,7 +6,7 @@ This is the checked-in evidence for the mandatory shaping replacement track
 
 ## Current green corpus
 
-`ShapingDifferentialTests` passes 31/31 on the bundled fonts:
+`ShapingDifferentialTests` passes 32/32 on the bundled fonts:
 
 - Latin and punctuation (`Source Sans 3`)
 - digits and kerning (`Folio Box`)
@@ -15,6 +15,7 @@ This is the checked-in evidence for the mandatory shaping replacement track
 - Hebrew base text
 - Hebrew niqqud words (`שלום`, `בראשית`, `מלכה`)
 - Hebrew RTL conformance-style paragraphs with punctuation, times and mixed Latin text
+- Hebrew length-changing ccmp/rlig coverage (`שָׁלוֹם וברוכים הבאים`)
 - Arabic promotion-switch routing through `ComplexShaper`
 - Arabic extended corpus parity (`العربية لغة جميلة`, `مَرْحَبًا بِكُمْ`,
   `اللغة العربية`, `فلسطين`), with advances exact and offsets within 0.001
@@ -31,9 +32,10 @@ and Arabic `سلام`, `لا`, and `لم` cases. The direct Arabic corpus now al
 covers `مُحَمَّد`; glyph, cluster, advance and multi-mark offset parity pass
 for all four cases. The broader Arabic corpus remains open below.
 
-The local Windows system-font command also passes five runs: Arial, Times New
+The local Windows system-font command also passes seven runs: Arial, Times New
 Roman and Segoe UI simple-script samples, plus Hebrew (`שלום לכולם`) and Arabic
-(`مرحبا بكم`) shaped through `ComplexShaper`. These are host-local results;
+(`مرحبا بكم`), marked Hebrew and an Arabic paragraph shaped through
+`ComplexShaper`. These are host-local results;
 other system font inventories still require their own run.
 
 ## Explicitly open parity

@@ -233,6 +233,8 @@ public static class Program
             ("Segoe UI", "Numbers 0123456789"),
             ("Arial", "שלום לכולם"),
             ("Arial", "مرحبا بكم"),
+            ("Arial", "שָׁלוֹם וברוכים הבאים"),
+            ("Arial", "مرحباً بكم في مركز الواحة الثقافي"),
         };
         var fonts = FontCollection.For(new FontSettings { Source = new SystemFontSource() });
         var compared = 0;
