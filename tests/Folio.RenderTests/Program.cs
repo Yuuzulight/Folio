@@ -194,6 +194,11 @@ public static class Program
             ("Noto Sans Arabic", "وَالسَّمَاءِ وَالطَّارِقِ", "Arabic Quranic joining", true, "ar"),
             ("Noto Sans Arabic", "مَدِينَةٌ عَرِيقَةٌ وَمَكْتَبَةٌ كَبِيرَةٌ", "Arabic marked vocabulary", true, "ar"),
             ("Noto Sans Arabic", "تَعَلَّمْ، فَإِنَّ العِلْمَ نُورٌ", "Arabic punctuation", true, "ar"),
+            ("Noto Sans Arabic", "اللَّهُمَّ اغْفِرْ لَنَا", "Arabic prayer marks", true, "ar"),
+            ("Noto Sans Arabic", "رَبِّ زِدْنِي عِلْمًا", "Arabic shadda vocabulary", true, "ar"),
+            ("Noto Sans Arabic", "السَّلَامُ عَلَيْكُمْ وَرَحْمَةُ اللَّهِ", "Arabic greeting paragraph", true, "ar"),
+            ("Noto Sans Arabic", "أَحْرُفٌ مُتَنَوِّعَةٌ", "Arabic varied marks", true, "ar"),
+            ("Noto Sans Arabic", "إِقْرَأْ بِاسْمِ رَبِّكَ", "Arabic hamza marks", true, "ar"),
             ("Noto Sans Arabic", "مرحباً بكم في مركز الواحة الثقافي. نقدّم ورش عمل في الخط العربي والتصوير والطبخ طوال فصل الخريف، وتبدأ التسجيلات يوم الأحد القادم.", "Arabic RTL paragraph", true, "ar"),
         };
         foreach (var (family, text, name, rightToLeft, language) in complexCorpus)
