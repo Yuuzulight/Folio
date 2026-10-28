@@ -460,6 +460,26 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         return colr;
     }
 
+    private static byte[] SyntheticColrV1Composite(ushort glyph)
+    {
+        var colr = new byte[84];
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(0), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(14), 34);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(34), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(38), glyph);
+        BinaryPrimitives.WriteUInt32BigEndian(colr.AsSpan(40), 10);
+        colr[44] = 32; colr[45] = 0; colr[46] = 0; colr[47] = 28; // source
+        colr[48] = 13; // screen
+        colr[49] = 0; colr[50] = 0; colr[51] = 8; // backdrop
+        colr[52] = 10; colr[53] = 0; colr[54] = 0; colr[55] = 6;
+        colr[58] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(59), 0); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(61), 0x4000);
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(56), glyph);
+        colr[72] = 10; colr[73] = 0; colr[74] = 0; colr[75] = 6;
+        BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(76), glyph);
+        colr[78] = 2; BinaryPrimitives.WriteUInt16BigEndian(colr.AsSpan(79), 1); BinaryPrimitives.WriteInt16BigEndian(colr.AsSpan(81), 0x4000);
+        return colr;
+    }
+
     private static byte[] SyntheticCpal() => [0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 12, 0, 0, 255, 255];
 
     private static byte[] SyntheticCpalTwo() => [0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 12, 0, 0, 255, 255, 255, 0, 0, 255];
@@ -597,6 +617,24 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         var pixels = surface.ReadPixels(0, 0, 96, 96);
         Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 150 && pixel[2] < 120 && pixel[3] > 0);
         Assert.Contains(pixels.Chunk(4), pixel => pixel[2] > 150 && pixel[0] < 120 && pixel[3] > 0);
+    }
+
+    [Fact]
+    public void DrawsSyntheticColrV1CompositePaint()
+    {
+        var source = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "SourceSans3-Regular.ttf"));
+        var original = FontFace.Parse(source)!;
+        var glyph = original.GlyphFor('A');
+        var face = FontFace.Parse(AddTables(source,
+            ("CPAL", SyntheticCpalTwo()), ("COLR", SyntheticColrV1Composite(glyph))))!;
+        var parsed = ColorGlyphs.Get(face, glyph);
+        Assert.NotNull(parsed);
+        Assert.Contains(parsed!, layer => layer.Blend == BlendMode.Screen);
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 100 && pixel[2] > 100 && pixel[1] < 100 && pixel[3] > 0);
     }
 
     [Fact]

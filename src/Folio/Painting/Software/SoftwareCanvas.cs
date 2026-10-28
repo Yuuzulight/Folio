@@ -355,6 +355,7 @@ internal sealed class SoftwareCanvas : ICanvas
                 {
                     if (layer.Gradient is { } gradient)
                     {
+                        var blend = layer.Blend == BlendMode.Normal ? paint.Blend : layer.Blend;
                         var paintAlpha = paint.Color.A;
                         var stops = gradient.Stops
                             .Select(stop => stop with { Color = stop.Color with { A = stop.Color.A * paintAlpha } })
@@ -371,11 +372,12 @@ internal sealed class SoftwareCanvas : ICanvas
                             FocusRadius = gradient.FocusRadius * Vector2.TransformNormal(Vector2.UnitX, matrix).Length(),
                             Transform = null,
                         };
-                        Draw(coverage, new Paint(paint.Color, Gradient: transformedGradient, Blend: paint.Blend));
+                        Draw(coverage, new Paint(paint.Color, Gradient: transformedGradient, Blend: blend));
                         continue;
                     }
                     var colour = (layer.Color ?? paint.Color) with { A = (layer.Color?.A ?? 1) * paint.Color.A };
-                    Draw(coverage, new Paint(colour, Blend: paint.Blend));
+                    var blendMode = layer.Blend == BlendMode.Normal ? paint.Blend : layer.Blend;
+                    Draw(coverage, new Paint(colour, Blend: blendMode));
                 }
             }
         }

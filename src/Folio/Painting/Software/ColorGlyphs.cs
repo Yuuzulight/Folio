@@ -8,7 +8,7 @@ namespace Folio.Painting.Software;
 /// <summary>Layered colour glyphs from the OpenType COLR v0/v1 and CPAL tables.</summary>
 internal static class ColorGlyphs
 {
-    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default, Gradient? Gradient = null)
+    internal readonly record struct Layer(ushort Glyph, Rgba? Color, Matrix3x2 Transform = default, Gradient? Gradient = null, BlendMode Blend = BlendMode.Normal)
     {
         public Matrix3x2 TransformOrIdentity => Transform == default ? Matrix3x2.Identity : Transform;
     }
@@ -117,6 +117,7 @@ internal static class ColorGlyphs
                 11 => roots.TryGetValue(colr.U16(offset + 1), out var root) ? Paint(colr, root, baseList, layerList, palette, records, roots, path) : null,
                 12 => PaintTransform(colr, offset, baseList, layerList, palette, records, roots, path),
                 14 => PaintTranslate(colr, offset, baseList, layerList, palette, records, roots, path),
+                32 => PaintComposite(colr, offset, baseList, layerList, palette, records, roots, path),
                 _ => null,
             };
         }
@@ -220,6 +221,40 @@ internal static class ColorGlyphs
         for (var i = 0; i < layers.Count; i++)
             layers[i] = layers[i] with { Transform = translation * layers[i].TransformOrIdentity };
         return layers;
+    }
+
+    private static List<Layer>? PaintComposite(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
+    {
+        // The backdrop is painted first; the source layers then carry the
+        // supported COLR composite mode into the software compositor.
+        var sourceOffset = checked(offset + ReadU24(colr, offset + 1));
+        var mode = colr.U8(offset + 4);
+        var backdropOffset = checked(offset + ReadU24(colr, offset + 5));
+        var backdrop = Paint(colr, backdropOffset, baseList, layerList, palette, records, roots, path);
+        var source = Paint(colr, sourceOffset, baseList, layerList, palette, records, roots, path);
+        if (backdrop is null || source is null || !TryMapComposite(mode, out var blend))
+            return backdrop;
+        for (var i = 0; i < source.Count; i++)
+            source[i] = source[i] with { Blend = blend };
+        backdrop.AddRange(source);
+        return backdrop;
+    }
+
+    private static bool TryMapComposite(byte mode, out BlendMode blend)
+    {
+        blend = mode switch
+        {
+            3 => BlendMode.Normal, 13 => BlendMode.Screen, 14 => BlendMode.Overlay,
+            15 => BlendMode.Darken, 16 => BlendMode.Lighten, 17 => BlendMode.ColorDodge,
+            18 => BlendMode.ColorBurn, 19 => BlendMode.HardLight, 20 => BlendMode.SoftLight,
+            21 => BlendMode.Difference, 22 => BlendMode.Exclusion, 23 => BlendMode.Multiply,
+            24 => BlendMode.Hue, 25 => BlendMode.Saturation, 26 => BlendMode.Color,
+            27 => BlendMode.Luminosity, 5 => BlendMode.SourceIn, 6 => BlendMode.DestinationIn,
+            7 => BlendMode.SourceOut, 8 => BlendMode.DestinationOut, 9 => BlendMode.SourceAtop,
+            10 => BlendMode.DestinationAtop, 11 => BlendMode.Xor, 4 => BlendMode.DestinationOver,
+            _ => BlendMode.Normal,
+        };
+        return mode is >= 3 and <= 27;
     }
 
     private static List<Layer>? PaintTransform(FontData colr, int offset, int baseList, int layerList, Rgba[] palette, int records, Dictionary<ushort, int> roots, HashSet<int> path)
