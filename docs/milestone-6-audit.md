@@ -18,6 +18,15 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 `Partial` means implemented behavior exists but does not prove the full acceptance; `Unverified` means the evidence is not strong enough to claim resolution. Only a later requirement-specific runtime check can change a row to verified. The table is a source/acceptance audit, not a claim that three complete review passes have already been performed for every issue.
 
+## Verification refresh — 2026-10-30
+
+Focused runtime checks now pass WebRTC/capture 31/31, Worker/Iframe 196/196,
+media playback/native decoding 26/26, native WebGL texture/framebuffer 74/74,
+and WebGL fallback/loss/limits 123/123. These strengthen the deterministic
+implementation evidence, but the corresponding issues remain open where their
+original acceptance requires real device, process-teardown, runaway-shader or
+optional-format behavior beyond the local harness.
+
 ## Verification refresh — 2026-10-28
 
 The current audit branch was rechecked after the shaping changes: the Release
