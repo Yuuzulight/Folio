@@ -13,6 +13,13 @@ work before the next assertion. The native `D2/pantry-react-jsx` artifact now
 passes its hook/state rerender and nested deletion interaction; issue #645 is
 resolved. The broader native replacement requirements remain open.
 
+Focused native host acceptance refresh (2026-10-28): the Release slice covering
+the native evaluator, DOM events and library probes, WebAssembly, service
+workers, WebRTC, workers and iframe lifecycle passes 248/248. This is runtime
+and differential evidence only; production routing still uses Jint until the
+complete native DOM, sandbox, limits, failure-behavior and dependency-removal
+gates pass.
+
 The D8 context-loss artifact now performs a real `WEBGL_lose_context` loss and
 restore cycle and asserts the native `oncontextrestored` callback; the focused
 artifact passes 1/1 as part of the 6/6 D8 result.
