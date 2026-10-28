@@ -1216,7 +1216,11 @@ internal sealed class JavaScriptEvaluator
                     var index = value.IndexOf(needle, StringComparison.Ordinal);
                     return index < 0 ? value : value[..index] + StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle])) + value[(index + needle.Length)..];
                 }
-                return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
+                var needle = StringValue(args[0]);
+                var position = value.IndexOf(needle, StringComparison.Ordinal);
+                return position < 0
+                    ? value
+                    : value[..position] + StringValue(args[1]) + value[(position + needle.Length)..];
             }),
             "replaceAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
