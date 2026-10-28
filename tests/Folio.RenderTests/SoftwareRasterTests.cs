@@ -366,6 +366,24 @@ public class SoftwareRasterTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void DrawsTextFromCffType2GlyphOutlines()
+    {
+        var face = Load("NotoSansJP-Regular.otf");
+        var glyph = face.GlyphFor('A');
+        Assert.NotEqual((ushort)0, glyph);
+        var comparison = Compare(c => c.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f)),
+            width: 96, height: 96, background: White);
+        Assert.True(comparison.Mean < 8 && comparison.OverForty < 0.12,
+            $"CFF raster diverged from the Skia oracle: mean={comparison.Mean:F2}, over40={comparison.OverForty:P2}, max={comparison.Max}.");
+        using var surface = SoftwareRasterBackend.Instance.CreateSurface(96, 96)!;
+        White(surface.Canvas);
+        surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(0.1f, 0.1f, 0.6f));
+        var pixels = surface.ReadPixels(0, 0, 96, 96);
+        Assert.True(pixels.Chunk(4).Count(p => p[3] > 0 && p[0] < 250) > 500,
+            "CFF glyph did not produce a raster outline.");
+    }
+
+    [Fact]
     public void DecodesAndDrawsCff2FromWoff2()
     {
         var compressed = File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", "FolioCff2.woff2"));
