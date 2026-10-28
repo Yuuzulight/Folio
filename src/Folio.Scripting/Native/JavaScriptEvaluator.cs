@@ -1004,8 +1004,8 @@ internal sealed class JavaScriptEvaluator
             var match = _regex.Match(input);
             return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
         }
-        internal string Replace(string input, Func<string, string> replacement) => _regex.Replace(input, match => replacement(match.Value));
-        internal string Replace(string input, string replacement) => _regex.Replace(input, replacement);
+        internal string Replace(string input, Func<string, string> replacement, bool all) => all ? _regex.Replace(input, match => replacement(match.Value)) : _regex.Replace(input, match => replacement(match.Value), 1);
+        internal string Replace(string input, string replacement, bool all) => all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1);
         internal string[] Split(string input) => _regex.Split(input);
     }
 
@@ -1207,7 +1207,9 @@ internal sealed class JavaScriptEvaluator
             {
                 if (args.Count < 2) return value;
                 if (args[0] is RegexValue regex)
-                    return IsCallable(args[1]) ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match]))) : regex.Replace(value, StringValue(args[1]));
+                    return IsCallable(args[1])
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match])), regex.Flags.Contains('g'))
+                        : regex.Replace(value, StringValue(args[1]), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
                     var needle = StringValue(args[0]);
@@ -1219,7 +1221,10 @@ internal sealed class JavaScriptEvaluator
             "replaceAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count < 2) return value;
-                if (args[0] is RegexValue regex) return regex.Replace(value, StringValue(args[1]));
+                if (args[0] is RegexValue regex)
+                {
+                    return regex.Replace(value, StringValue(args[1]), all: true);
+                }
                 return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
             }),
             "match" => (Func<IReadOnlyList<object?>, object?>)(args =>

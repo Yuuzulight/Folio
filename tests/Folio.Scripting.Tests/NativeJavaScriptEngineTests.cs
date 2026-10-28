@@ -671,6 +671,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("cdef", engine.Evaluate("'abcdef'.substring(2)").AsString());
         Assert.Equal("ababab", engine.Evaluate("'ab'.repeat(3)").AsString());
         Assert.Equal("x_x_x", engine.Evaluate("'x-x-x'.replaceAll('-', '_')").AsString());
+        Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace(new RegExp('a'), 'x')").AsString());
+        Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replace(new RegExp('a', 'g'), 'x')").AsString());
     }
 
     [Fact]
