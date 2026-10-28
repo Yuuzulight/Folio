@@ -305,7 +305,7 @@ internal sealed class SoftwareCanvas : ICanvas
 
     public void DrawGlyphs(IFontHandle font, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
     {
-        if (font is FontFace colorFace && ColorGlyphs.Has(colorFace))
+        if (font is FontFace colorFace && ColorGlyphs.Has(colorFace) && HasRenderableColorGlyph(colorFace, glyphs))
         {
             DrawColorGlyphs(colorFace, size, glyphs, origins, paint);
             return;
@@ -318,6 +318,14 @@ internal sealed class SoftwareCanvas : ICanvas
         var polygons = PathGeometry.Polygons(Glyphs(font, size, glyphs, origins), _state.Transform);
         if (polygons.Count > 0 && Rasterizer.Fill(polygons, FillRule.NonZero, ClipForPaint(paint)) is { } coverage)
             Draw(coverage, paint);
+    }
+
+    private static bool HasRenderableColorGlyph(FontFace face, ReadOnlySpan<ushort> glyphs)
+    {
+        for (var i = 0; i < glyphs.Length; i++)
+            if (ColorGlyphs.Get(face, glyphs[i]) is not null)
+                return true;
+        return false;
     }
 
     private void DrawColorGlyphs(FontFace face, float size, ReadOnlySpan<ushort> glyphs, ReadOnlySpan<Vector2> origins, in Paint paint)
