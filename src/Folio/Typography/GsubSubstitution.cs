@@ -418,6 +418,8 @@ internal sealed class GsubSubstitution
         var format = _gsub.U16(subtable);
         if (format == 1 && type == 5)
             return ApplyContextFormat1(glyphs, position, type, subtable, depth);
+        if (format == 1 && type == 6)
+            return ApplyChainContextFormat1(glyphs, position, subtable, depth);
         if (format != 3) return false;
         var cursor = subtable + 2;
         var backtrack = Array.Empty<int>();
@@ -491,6 +493,52 @@ internal sealed class GsubSubstitution
             cursor += 2 * Math.Max(0, inputCount - 1);
             var changed = false;
             for (var i = 0; i < substCount; i++, cursor += 4)
+            {
+                var sequenceIndex = _gsub.U16(cursor);
+                var referencedLookup = _gsub.U16(cursor + 2);
+                if (sequenceIndex < inputCount)
+                    changed |= ApplyLookup(glyphs, position + sequenceIndex, referencedLookup, depth + 1);
+            }
+            return changed;
+        }
+        return false;
+    }
+
+    private bool ApplyChainContextFormat1(ushort[] glyphs, int position, int subtable, int depth)
+    {
+        var coverage = subtable + _gsub.U16(subtable + 2);
+        var setIndex = CoverageIndex(coverage, glyphs[position]);
+        if (setIndex < 0 || (uint)setIndex >= _gsub.U16(subtable + 4)) return false;
+        var setOffset = _gsub.U16(subtable + 6 + 2 * setIndex);
+        if (setOffset == 0) return false;
+        var set = subtable + setOffset;
+        for (var r = 0; r < _gsub.U16(set); r++)
+        {
+            var ruleOffset = _gsub.U16(set + 2 + 2 * r);
+            if (ruleOffset == 0) continue;
+            var rule = set + ruleOffset;
+            var cursor = rule;
+            var backtrackCount = _gsub.U16(cursor); cursor += 2;
+            if (position < backtrackCount) continue;
+            var backtrack = new ushort[backtrackCount];
+            for (var i = 0; i < backtrackCount; i++, cursor += 2) backtrack[i] = _gsub.U16(cursor);
+            var inputCount = _gsub.U16(cursor); cursor += 2;
+            if (inputCount == 0 || position + inputCount > glyphs.Length) continue;
+            var matches = true;
+            for (var i = 0; i < backtrackCount; i++)
+                if (glyphs[position - 1 - i] != backtrack[i]) { matches = false; break; }
+            if (!matches) continue;
+            for (var i = 1; i < inputCount; i++, cursor += 2)
+                if (glyphs[position + i] != _gsub.U16(cursor)) { matches = false; break; }
+            if (!matches) continue;
+            var lookaheadCount = _gsub.U16(cursor); cursor += 2;
+            if (position + inputCount + lookaheadCount > glyphs.Length) continue;
+            for (var i = 0; i < lookaheadCount; i++, cursor += 2)
+                if (glyphs[position + inputCount + i] != _gsub.U16(cursor)) { matches = false; break; }
+            if (!matches) continue;
+            var substitutionCount = _gsub.U16(cursor); cursor += 2;
+            var changed = false;
+            for (var i = 0; i < substitutionCount; i++, cursor += 4)
             {
                 var sequenceIndex = _gsub.U16(cursor);
                 var referencedLookup = _gsub.U16(cursor + 2);
