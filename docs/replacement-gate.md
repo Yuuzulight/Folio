@@ -72,6 +72,9 @@ preceding run; typical paint-only animation remained 6.8 ms p95. This is
 measurable progress, but full-scene software replay is still above the Skia
 baseline, so it does not satisfy the default-backend switch gate.
 
+The serialized local Release suite after these changes passes 4,248 tests with
+zero failures and three documented skips (4,251 discovered).
+
 ## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The latest complete Release verification
