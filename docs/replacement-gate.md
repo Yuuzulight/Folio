@@ -47,28 +47,22 @@ or a partial Folio implementation is progress, never completion.
 
 ## Verification refresh — 2026-10-28
 
-The replacement gate remains open. The current focused native-engine/library
-probe set passes 75/75, the direct M1–M6 acceptance suites pass, and the latest
-complete Release verification passes 4,177 tests with 0 failures and 7 documented
-skips (4,184 discovered). The Folio-owned GIF/WebP/BMP fuzz targets completed
-1,167,395, 60,239 and 4,066,722 mutations respectively with zero failures. These
-are progress and safety evidence, not completion: HybridShaper still routes
-complex scripts to HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the
-production JavaScript engine, and Wasmtime remains part of the native WebAssembly
-path. The complete differential corpus, production selection, parity bars and
-dependency removal are still required for those tracks. The latest complete
-Release run passes 4,185 tests with 0 failures and 7 documented skips (4,192
-discovered).
+The replacement gate remains open. The latest complete Release verification
+passes 4,185 tests with 0 failures and 7 documented skips (4,192 discovered).
+The Folio-owned GIF/WebP/BMP fuzz targets completed 1,167,395, 60,239 and
+4,066,722 mutations respectively with zero failures. These are progress and
+safety evidence, not completion: HybridShaper still routes complex scripts to
+HarfBuzz, rasterisation still uses SkiaSharp, Jint remains the production
+JavaScript engine, and Wasmtime remains part of the native WebAssembly path.
+The complete differential corpus, production selection, parity bars and
+dependency removal are still required for those tracks.
 
-The latest Release build succeeds from `Folio.slnx` (4,177 passed, 0 failed,
-7 documented skips). The native D2–D7 probe now passes 60/60: all library-card
-and canvas artifacts pass, including `D2/pantry-react-jsx`, which now mounts and
-and reaches the click handler. Native `var` declarations are now hoisted across
-conditional scheduler branches (commit `c08da8bb`), fixing the previous
-dispatcher-binding corruption. The remaining failure is a spec-correct
-`NotFoundError` during React reconciliation: React asks `#root.removeChild(li)`
-while the `li` is actually attached under its `ul`; this historical diagnosis
-was resolved by labeled-break propagation in commit `b37a1f44`.
+The latest native D2–D7 probe passes 60/60: all library-card and canvas
+artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
+the click handler. Native `var` declarations are hoisted across conditional
+scheduler branches (commit `c08da8bb`), fixing the previous dispatcher-binding
+corruption. The prior React `NotFoundError` diagnosis was resolved by
+labeled-break propagation in commit `b37a1f44`.
 The canvas frame benchmark now has an
 explicit native-engine mode. In the current compatibility-engine 30-frame run,
 every library-card artifact and the snake game are below 16.7 ms p95, but
@@ -109,8 +103,8 @@ while unsupported formats such as AVIF still route to the browser. The supported
 format matrix is covered by `ArtifactClassifierTests.BuiltInImageFormatsStayInFolio`.
 
 The native-engine differential conformance probe makes the remaining JavaScript
-gate concrete: D1 passes 2/2. The latest native D2–D7 run passes 60/60: D2
-9/10, D3 10/10, D4 10/10, D5 10/10, D6 10/10 and D7 10/10. The native D5 chart
+gate concrete: D1 passes 2/2 and the latest native D2–D7 run passes 60/60.
+The native D5 chart
 bridge now renders all ten Chart.js artifacts within the reference tolerance;
 the React hooks interaction artifact now passes. These residual results are not
 accepted as full replacement parity.
