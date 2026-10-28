@@ -1,6 +1,6 @@
 # Roadmap
 
-Verification refresh (2026-10-28): the latest serialized Release solution run passed 4,192 tests with 0 failures and 7 documented skips (4,199 discovered). The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
+Verification refresh (2026-10-28): the latest serialized Release solution run passed 4,193 tests with 0 failures and 7 documented skips (4,200 discovered). The mandatory Folio-owned replacement track and the remaining native-backend gates remain open.
 
 Folio's end goal is parity with how a modern browser shows and runs AI-written HTML artifacts. Milestones are in order; each one ends when its acceptance criteria are met. Pass rates refer to the conformance suite and its categories (S1–S6 static, D1–D7 scripted), defined in [study 19](study/19-testing.md). Until a milestone lands, artifacts that need it are routed to the system browser by `ArtifactClassifier`.
 

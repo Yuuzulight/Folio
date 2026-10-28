@@ -27,15 +27,15 @@ rows. These checks confirm that the audited fixes did not regress the covered
 surfaces; they do not promote any of the explicitly partial rows below to
 complete.
 
-The full serialized Release solution runner then passed 4,192 tests with zero
-failures and seven documented skips (4,199 discovered), including benchmarks,
+The full serialized Release solution runner then passed 4,193 tests with zero
+failures and seven documented skips (4,200 discovered), including benchmarks,
 core tests, render tests, scripting tests, WinForms tests and fuzz tests.
 
 The native conformance runner independently passes D8 6/6, D9 5/5, D10 4/4,
 D11 4/4, D12 4/4, D13 4/4 and D14 3/3, with the document-named-property
 scope now wired for native inline handlers.
 
-- The latest complete Release solution passes 4,192 tests with 0 failures and 7 documented environment/software skips (4,199 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
+- The latest complete Release solution passes 4,193 tests with 0 failures and 7 documented environment/software skips (4,200 discovered). The run includes the worker, WebAssembly, WebRTC, iframe and service-worker sandbox regressions added during this audit, plus the latest render and event-loop diagnostics coverage. This verifies the covered subsets only; the remaining native backend, interruption and routing requirements remain open.
 - Native Folio D8 conformance passes 6/6 with no crashes, hangs, limits or expected failures.
 - Compatibility and native D9 both pass their current 5/5 corpus. A fresh native sweep passes D1 2/2 and D8–D14 at 30/30 (32/32 combined). These category results are current runtime evidence, not a claim that the broader native replacement gate is closed.
 - Compatibility and native D2–D7 both pass 60/60. The final `D2/pantry-react-jsx` interaction now passes after the native evaluator was corrected to propagate labeled breaks out of switches; issue #645 is resolved. The broader Folio-owned engine replacement gate remains open.
