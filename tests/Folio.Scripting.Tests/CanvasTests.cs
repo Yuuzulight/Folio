@@ -1200,7 +1200,7 @@ public class CanvasTests
     [InlineData("Noto Sans JP", "こんにちは世界")]
     public void MeasureTextAgreesWithInlineLayoutForTheSameText(string family, string text)
     {
-        Assert.SkipWhen(UsesSoftwareRaster, "The software backend measures Arabic and Hebrew runs without the shaper's mark positioning (#561 and after).");
+        Assert.SkipWhen(UsesSoftwareRaster && family == "Noto Sans Arabic", "The software backend still lacks Arabic mark positioning parity (#561).");
         using var page = new Page(this, $"<canvas id='c' width='100' height='60'></canvas><div style=\"position:absolute;top:0;left:0;white-space:nowrap\"><span id='t' style=\"font:30px '{family}'\">{text}</span></div>", fonts: true);
         page.Document.Paint(800, 600, 1, new HarfBuzzShaper());
         var span = page.Document.Node.Descendants.OfType<Folio.Dom.ElementNode>().Single(e => e.LocalName == "span");

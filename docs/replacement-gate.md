@@ -48,7 +48,7 @@ or a partial Folio implementation is progress, never completion.
 ## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The latest complete Release verification
-passes 4,200 tests with 0 failures and 7 documented skips (4,207 discovered).
+passes 4,211 tests with 0 failures and 3 documented skips (4,214 discovered).
 The focused Folio-owned JavaScript engine/parser/evaluator/program/library
 probe suites pass 131/131, and native D2–D7 conformance remains 60/60; these
 are implementation slices, not completion evidence while Jint remains in the
