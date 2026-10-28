@@ -242,6 +242,9 @@ script-selected `locl`/`rlig`/`calt`/`liga` contextual substitutions for the
 representative corpus, but broad Arabic mark/corpus parity, Indic and South-East
 Asian scripts, and the differential corpus remain outstanding. The
 rasteriser and JavaScript engine are still dependency-backed. The
+latest local system-font shaping differential report passes 10/10 cases; this
+is host-specific evidence only, and the complete per-script corpus and
+production cutover requirements remain open. The
 Folio-owned JavaScript replacement has now started with a bounded lexer and
 source-location/error tests plus bounded expression, statement, explicit
 host-function, array-literal, indexed-access, object-literal, property-read,
