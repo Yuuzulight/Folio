@@ -75,6 +75,12 @@ baseline, so it does not satisfy the default-backend switch gate.
 The serialized local Release suite after these changes passes 4,248 tests with
 zero failures and three documented skips (4,251 discovered).
 
+An 80-frame benchmark after the unclipped-solid-paint fast path measured 69.8
+ms at 800×600 and 84.9 ms at 1920×1080 for software replay, with typical
+paint-only p95 at 8.6 ms. The spread between runs confirms that the benchmark
+needs stabilization before the default-backend decision; these numbers are
+evidence, not a gate pass.
+
 ## Verification refresh — 2026-10-28
 
 The replacement gate remains open. The latest complete Release verification
