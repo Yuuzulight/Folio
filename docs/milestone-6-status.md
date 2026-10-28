@@ -21,7 +21,7 @@ all 14 jobs. This closes a fuzz-harness false positive, not any of the open
 native backend or replacement gates below.
 
 Full serialized Release verification (2026-10-30, commit `893d05ad`) passes
-4,255 of 4,258 discovered tests with zero failures and three documented skips
+4,256 of 4,258 discovered tests with zero failures and two documented skips
 (the two software-canvas skips above plus the local symbolic-link privilege
 skip). This is repository-wide regression evidence; it does not close the
 original M6 backend, device, process-isolation or M7 replacement requirements.
@@ -137,7 +137,7 @@ broader native engine replacement gate remains open under #579.
 
 Current native service-worker conformance correction (2026-10-27): D14 now passes 3/3 on the native engine after fixing the reopened-page response bridge; the Jint compatibility engine also passes D14 3/3. The service-worker corpus gate is green on both engines, but the broader native service-worker backend, interruption, and sandbox requirements below remain open; the historical claims below must not be read as completion evidence for those requirements.
 
-Latest full Release verification (2026-10-30): 4,255 passed, 0 failed, 3 documented skips, 4,258 discovered. The older aggregate sentences below are retained as historical context.
+Latest full Release verification (2026-10-30): 4,256 passed, 0 failed, 2 documented skips, 4,258 discovered. The older aggregate sentences below are retained as historical context.
 
 Historical snapshot (2026-10-27): after the native evaluator and WebAssembly bridge repairs, a complete Release solution passed 4,147 tests (0 failed, 7 documented skips; 4,154 discovered). That run also included worker, WebAssembly, WebRTC, iframe and service-worker content-process sandbox coverage. These results proved the covered subsets only; the remaining native backend, interruption and routing requirements remain open. The 2026-10-28 refresh at the top supersedes this count.
 

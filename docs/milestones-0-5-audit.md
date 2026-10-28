@@ -7,9 +7,9 @@ but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
 The latest full serialized Release verification (2026-10-30, commit
-`ae88d398`) passes 4,258 discovered, 4,255 succeeded, zero failed and three
-documented skips. The skips are the two
-software-canvas follow-ups and the local symbolic-link privilege limitation.
+`6b722be0`) passes 4,258 discovered, 4,256 succeeded, zero failed and two
+documented skips. The remaining skips are the software-canvas JPEG follow-up
+and the local symbolic-link privilege limitation.
 
 The latest compatibility-engine canvas-frame run records
 `D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update)

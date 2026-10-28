@@ -115,7 +115,7 @@ software layers; the focused software raster suite remains 46/46. Follow-up
 1920x1080, still far above the replacement bar and subject to host noise.
 
 The replacement gate remains open. The latest complete serialized Release
-verification passes 4,255 of 4,258 discovered tests with 0 failures and three
+verification passes 4,256 of 4,258 discovered tests with 0 failures and two
 documented skips. The CSSOM fuzz harness now retains and replays a mutation
 that hit the configured script-memory bound; hosted CI run 40780721066 is
 green across all 14 jobs. These are regression and containment results, not
