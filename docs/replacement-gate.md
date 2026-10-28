@@ -109,6 +109,11 @@ typical dashboard at 63.7 ms median versus Skia's 7.2 ms at 800x600, and 46.0
 ms versus 15.3 ms at 1920x1080. Busy-dashboard paint-only p95 is 24.2 ms
 against the 8.0 ms typical target. #575 therefore remains open.
 
+Commit `d8ff8db5` adds a direct-copy fast path for fully opaque normal-source-over
+software layers; the focused software raster suite remains 46/46. Follow-up
+30-frame benchmark samples measured 61.8 ms at 800x600 and 39.3 ms at
+1920x1080, still far above the replacement bar and subject to host noise.
+
 The replacement gate remains open. The latest complete serialized Release
 verification passes 4,255 of 4,258 discovered tests with 0 failures and three
 documented skips. The CSSOM fuzz harness now retains and replays a mutation
