@@ -29,6 +29,13 @@ the 16.70 ms target, so #519 remains open. These are verified slices; device
 transport, optional-format, interruption and production dependency-removal
 requirements remain open.
 
+The same refresh passes the media/playback/capture slice 51/51, the native and
+compatibility WebAssembly capability/content-process slice 53/53, the worker and
+iframe lifecycle/platform slice 152/152, and the service-worker/cache slice
+52/52. These results strengthen deterministic behavior and policy coverage; they
+do not close the original device, isolated-process, Folio-owned-runtime or
+dependency-removal requirements.
+
 Focused runtime checks now pass WebRTC/capture 31/31, Worker/Iframe 196/196,
 media playback/native decoding 26/26, media budget/host-switch 37/37, native WebGL texture/framebuffer 74/74,
 and WebGL fallback/loss/limits 123/123. These strengthen the deterministic
