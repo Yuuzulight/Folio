@@ -20,6 +20,15 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-30
 
+Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
+software raster/filter and Skia canvas behavior 124/124, native WebGL
+page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
+85/85. The compatibility-engine canvas frame benchmark still records
+`D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update) against
+the 16.70 ms target, so #519 remains open. These are verified slices; device
+transport, optional-format, interruption and production dependency-removal
+requirements remain open.
+
 Focused runtime checks now pass WebRTC/capture 31/31, Worker/Iframe 196/196,
 media playback/native decoding 26/26, media budget/host-switch 37/37, native WebGL texture/framebuffer 74/74,
 and WebGL fallback/loss/limits 123/123. These strengthen the deterministic
