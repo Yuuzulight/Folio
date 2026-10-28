@@ -211,7 +211,10 @@ internal static class SoftwareFilters
 
     private static PixelSurface DropShadow(PixelSurface s, Filter f, float sigmaX, float sigmaY, float scaleX, float scaleY)
     {
-        var shadow = Blur(Offset(AlphaOf(s), f.Offset.X * scaleX, f.Offset.Y * scaleY), sigmaX, sigmaY);
+        var alpha = Offset(AlphaOf(s), f.Offset.X * scaleX, f.Offset.Y * scaleY);
+        var shadow = sigmaX <= 0 && sigmaY <= 0
+            ? alpha
+            : Wrap(alpha, GaussianBlur.Apply(alpha.Data, alpha.Width, alpha.Height, 4, Math.Max(sigmaX, 0), Math.Max(sigmaY, 0), activeChannelMask: 8));
         var tint = Shader.Premultiplied(f.Color);
         var o = new PixelSurface(s.Width, s.Height);
         for (var i = 0; i < o.Data.Length; i += 4)

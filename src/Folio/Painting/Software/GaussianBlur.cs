@@ -15,17 +15,17 @@ internal static class GaussianBlur
     private static readonly ConcurrentDictionary<(int SigmaBits, int Radius), float[]> Kernels = new();
     private static readonly object KernelGate = new();
 
-    public static byte[] Apply(byte[] source, int width, int height, int channels, float sigmaX, float sigmaY)
+    public static byte[] Apply(byte[] source, int width, int height, int channels, float sigmaX, float sigmaY, int activeChannelMask = -1)
     {
         var current = source;
         if (sigmaX > 0)
-            current = Pass(current, width, height, channels, sigmaX, horizontal: true);
+            current = Pass(current, width, height, channels, sigmaX, horizontal: true, activeChannelMask);
         if (sigmaY > 0)
-            current = Pass(current, width, height, channels, sigmaY, horizontal: false);
+            current = Pass(current, width, height, channels, sigmaY, horizontal: false, activeChannelMask);
         return ReferenceEquals(current, source) ? (byte[])source.Clone() : current;
     }
 
-    private static byte[] Pass(byte[] source, int width, int height, int channels, float sigma, bool horizontal)
+    private static byte[] Pass(byte[] source, int width, int height, int channels, float sigma, bool horizontal, int activeChannelMask)
     {
         var length = horizontal ? width : height;
         var lines = horizontal ? height : width;
@@ -47,6 +47,8 @@ internal static class GaussianBlur
                 {
                     for (var c = 0; c < channels; c++)
                     {
+                        if ((activeChannelMask & (1 << c)) == 0)
+                            continue;
                         var start = l * lineStride + c;
                         var any = false;
                         for (var i = 0; i < length; i++)
