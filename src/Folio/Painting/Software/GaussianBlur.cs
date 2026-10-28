@@ -33,44 +33,51 @@ internal static class GaussianBlur
         var lineStride = horizontal ? width * channels : channels; // distance between lines
         var output = new byte[source.Length];
         var pool = ArrayPool<float>.Shared;
-        var line = pool.Rent(length);
-        var result = pool.Rent(length);
-        var scratchA = pool.Rent(length);
-        var scratchB = pool.Rent(length);
         var radius = sigma < BoxThreshold ? Math.Max(1, (int)MathF.Ceiling(sigma * 3)) : 0;
         var kernel = radius == 0 ? [] : GetKernel(sigma, radius);
-        try
+        void ProcessRange(int first, int last)
         {
-            for (var l = 0; l < lines; l++)
+            var line = pool.Rent(length);
+            var result = pool.Rent(length);
+            var scratchA = pool.Rent(length);
+            var scratchB = pool.Rent(length);
+            try
             {
-                for (var c = 0; c < channels; c++)
+                for (var l = first; l < last; l++)
                 {
-                    var start = l * lineStride + c;
-                    var any = false;
-                    for (var i = 0; i < length; i++)
+                    for (var c = 0; c < channels; c++)
                     {
-                        var v = source[start + i * stride];
-                        line[i] = v;
-                        any |= v != 0;
+                        var start = l * lineStride + c;
+                        var any = false;
+                        for (var i = 0; i < length; i++)
+                        {
+                            var v = source[start + i * stride];
+                            line[i] = v;
+                            any |= v != 0;
+                        }
+                        if (!any)
+                            continue;
+                        if (sigma < BoxThreshold)
+                            Kernel(line, result, length, kernel, radius);
+                        else
+                            Boxes(line, result, scratchA, scratchB, length, sigma);
+                        for (var i = 0; i < length; i++)
+                            output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
                     }
-                    if (!any)
-                        continue;
-                    if (sigma < BoxThreshold)
-                        Kernel(line, result, length, kernel, radius);
-                    else
-                        Boxes(line, result, scratchA, scratchB, length, sigma);
-                    for (var i = 0; i < length; i++)
-                        output[start + i * stride] = (byte)Math.Clamp((int)(result[i] + 0.5f), 0, 255);
                 }
             }
+            finally
+            {
+                pool.Return(line);
+                pool.Return(result);
+                pool.Return(scratchA);
+                pool.Return(scratchB);
+            }
         }
-        finally
-        {
-            pool.Return(line);
-            pool.Return(result);
-            pool.Return(scratchA);
-            pool.Return(scratchB);
-        }
+        if (lines < 64)
+            ProcessRange(0, lines);
+        else
+            Parallel.ForEach(Partitioner.Create(0, lines), range => ProcessRange(range.Item1, range.Item2));
         return output;
     }
 
