@@ -1,5 +1,13 @@
 # Milestone 6 status
 
+Fuzzing refresh (2026-10-30, commit `84835098`): an Ubuntu CSSOM mutation that
+hit the configured script-memory bound is now retained as a regression input,
+and the CSSOM fuzz target treats `ScriptLimitExceededException` as the bounded
+outcome it is. The focused regression suite passes 17/17 and the CSSOM target
+passes 704 mutated inputs with zero failures; hosted CI run 40780721066 passes
+all 14 jobs. This closes a fuzz-harness false positive, not any of the open
+native backend or replacement gates below.
+
 Verification refresh (2026-10-30): the serialized `Folio.Scripting.Tests` runner
 passes 1,408 total tests with zero failures and two documented software-backend
 skips (1,406 executable tests). This is a current scripting regression result;
