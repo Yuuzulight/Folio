@@ -251,6 +251,20 @@ internal sealed class SoftwareCanvas : ICanvas
     private void ForEachPixel(Coverage coverage, Action<int, int, float, int> action)
     {
         var area = IntRect.Intersect(IntRect.Intersect(coverage.Bounds, _state.Clip), _targetBounds);
+        if (_state.ClipMask is null)
+        {
+            for (var y = area.Top; y < area.Bottom; y++)
+            {
+                var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
+                for (var x = area.Left; x < area.Right; x++)
+                {
+                    var c = coverage.Data[row + x];
+                    if (c != 0)
+                        action(x, y, c / 255f, ((y - _targetBounds.Top) * _target.Width + (x - _targetBounds.Left)) * 4);
+                }
+            }
+            return;
+        }
         for (var y = area.Top; y < area.Bottom; y++)
         {
             var row = (y - coverage.Bounds.Top) * coverage.Bounds.Width - coverage.Bounds.Left;
