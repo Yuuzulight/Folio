@@ -1,5 +1,11 @@
 # Milestone 6 status
 
+Verification refresh (2026-10-30): the serialized `Folio.Scripting.Tests` runner
+passes 1,408 total tests with zero failures and two documented software-backend
+skips (1,406 executable tests). This is a current scripting regression result;
+the native backend, device/transport, containment and mandatory replacement
+requirements below remain open.
+
 Verification refresh (2026-10-28): the native Folio conformance sweep is fully
 green across D1-D14 — 94/94 artifacts (D1 2/2, D2-D7 60/60, D8 6/6, D9 5/5,
 D10-D13 4/4 each and D14 3/3). These results verify the current corpus and lifecycle
