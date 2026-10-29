@@ -7,7 +7,7 @@ Folio-native mode through `FOLIO_CONFORMANCE_ENGINE=native`, and reports
 per-artifact script/update, display-list, host-paint and total p95 timings.
 A fresh Release run (30 frames per artifact) shows the native engine below the
 16.7 ms target for every D5/D7 artifact; the worst case is
-`D7/canvas-snake-game` at 11.55 ms. The compatibility-engine run still misses
+`D7/canvas-snake-game` at 10.81 ms. The compatibility-engine run still misses
 the target for `D5/canvas-animated-bars` at 46.44 ms and is borderline for
 `D7/canvas-snake-game` at 16.92 ms; the other library-card artifacts remain
 below target. Native-mode numbers are now acceptance
@@ -23,9 +23,11 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
 software raster/filter and Skia canvas behavior 124/124, native WebGL
 page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
-85/85. The compatibility-engine canvas frame benchmark still records
-`D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update) against
-the 16.70 ms target, so #519 remains open. These are verified slices; device
+85/85. The compatibility-engine canvas frame benchmark still exceeds the
+16.70 ms target for `D5/canvas-animated-bars`, so #519 remains open until the
+Folio-owned engine is authoritative. The latest native 30-frame run records
+every D5/D7 artifact below target (worst case 10.81 ms). These are verified
+slices; device
 transport, optional-format, interruption and production dependency-removal
 requirements remain open.
 
