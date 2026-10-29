@@ -435,6 +435,19 @@ public sealed class Document : IDisposable
         if (form.Name.Namespace != Namespaces.Html || form.LocalName != "form")
             return;
 
+        // The submit event is dispatched before the host's navigation/submission
+        // default action.  Script handlers commonly call preventDefault() to
+        // validate or handle the form entirely in-page; skipping this dispatch
+        // made real form interactions silently bypass those handlers.
+        if (Node.EventDispatcher is { } dispatcher && !dispatcher(form, "submit", new EventDispatchArgs
+        {
+            Bubbles = true,
+            Cancelable = true,
+            Composed = true,
+            Detail = 0
+        }))
+            return;
+
         var action = form.GetAttribute("action") ?? "";
         var method = (form.GetAttribute("method") ?? "GET").ToUpperInvariant();
         var data = new List<KeyValuePair<string, string>>();

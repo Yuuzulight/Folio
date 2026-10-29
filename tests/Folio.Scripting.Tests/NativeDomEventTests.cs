@@ -53,4 +53,21 @@ public sealed class NativeDomEventTests
   Assert.Equal(1, engine.Evaluate("hit").AsNumber());
  }
 
+ [Fact] public void NativeSubmitDispatchesBeforeTheFormDefaultAction()
+ {
+  using var engine = new NativeJavaScriptEngine(); using var loop = new HtmlEventLoop(engine);
+  var document = Folio.Document.Parse("<form id='f'><button id='b' type='submit'>go</button></form>", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+  FormSubmittedEventArgs? submitted = null;
+  document.Input.FormSubmitted += (_, args) => submitted = args;
+  try
+  {
+   DomBindings.Install(engine, document, eventLoop: loop); ScriptGlobalsInstaller.Install(loop, engine);
+   engine.Evaluate("var submitSeen=false; document.getElementById('f').addEventListener('submit',e=>{submitSeen=true;e.preventDefault();});");
+   document.QuerySelector("#b")!.Click();
+  }
+  finally { document.Dispose(); }
+  Assert.True(engine.GetGlobalProperty("submitSeen").AsBoolean());
+  Assert.Null(submitted);
+ }
+
 }
