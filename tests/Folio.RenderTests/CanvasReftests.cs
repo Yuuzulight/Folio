@@ -27,9 +27,14 @@ public class CanvasReftests
         document.Paint(200, 120);
         if (script is not null)
         {
+            // Keep the script engine alive through the render. Disposing the
+            // engine retires the document's canvas surfaces; rendering after
+            // that point produced a blank canvas and made every reftest fail.
             using var engine = new JintScriptEngine();
             DomBindings.Install(engine, document);
             engine.Evaluate("var canvas = document.getElementById('c'); var ctx = canvas.getContext('2d');\n" + script);
+            using var scriptedResult = HeadlessRenderer.Render(document, new RenderRequest(200, 120));
+            return new PixelBuffer(scriptedResult.Width, scriptedResult.Height, scriptedResult.Pixels.ToArray());
         }
         using var result = HeadlessRenderer.Render(document, new RenderRequest(200, 120));
         return new PixelBuffer(result.Width, result.Height, result.Pixels.ToArray());
