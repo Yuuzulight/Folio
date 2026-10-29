@@ -1046,6 +1046,35 @@ internal sealed class JavaScriptEvaluator
             "shift" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? JavaScriptEvaluator.UndefinedValue.Instance : Shift(values)),
             "unshift" => (Func<IReadOnlyList<object?>, object?>)(args => { for (var i = args.Count - 1; i >= 0; i--) values.Insert(0, args[i]); return (double)values.Count; }),
             "splice" => (Func<IReadOnlyList<object?>, object?>)(args => Splice(values, args)),
+            "reverse" => (Func<IReadOnlyList<object?>, object?>)(_ =>
+            {
+                for (int left = 0, right = values.Count - 1; left < right; left++, right--)
+                    (values[left], values[right]) = (values[right], values[left]);
+                return values;
+            }),
+            "fill" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var item = args.Count > 0 ? args[0] : JavaScriptEvaluator.UndefinedValue.Instance;
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                var end = RelativeArrayIndex(args.Count > 2 ? args[2] : null, values.Count, values.Count);
+                for (var i = start; i < end; i++) values[i] = item;
+                return values;
+            }),
+            "with" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0) index += values.Count;
+                if (index < 0 || index >= values.Count) throw WebIdlException.RangeError("Array.prototype.with index is out of range.");
+                var copy = values.ToArray();
+                copy[index] = args.Count > 1 ? args[1] : JavaScriptEvaluator.UndefinedValue.Instance;
+                return copy;
+            }),
+            "toSpliced" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var copy = values.ToList();
+                Splice(copy, args);
+                return copy;
+            }),
             "map" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: false)),
             "flatMap" => (Func<IReadOnlyList<object?>, object?>)(args => FlatMap(values, args)),
             "flat" => (Func<IReadOnlyList<object?>, object?>)(args =>
