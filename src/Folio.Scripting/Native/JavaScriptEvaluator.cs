@@ -1008,23 +1008,50 @@ internal sealed class JavaScriptEvaluator
         }
         internal object? Match(string input)
         {
-            if (Flags.Contains('g'))
-                return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToArray();
-            var match = _regex.Match(input);
-            return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+            try
+            {
+                if (Flags.Contains('g'))
+                    return _regex.Matches(input).Cast<Match>().Select(match => (object?)match.Value).ToArray();
+                var match = _regex.Match(input);
+                return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+            }
+            catch (RegexMatchTimeoutException) { return null; }
         }
-        internal object?[] MatchAll(string input) => _regex.Matches(input)
-            .Cast<Match>()
-            .Select(match => (object?)match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray())
-            .ToArray();
+        internal object?[] MatchAll(string input)
+        {
+            try
+            {
+                return _regex.Matches(input)
+                    .Cast<Match>()
+                    .Select(match => (object?)match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray())
+                    .ToArray();
+            }
+            catch (RegexMatchTimeoutException) { return []; }
+        }
         internal int Search(string input)
         {
-            var match = _regex.Match(input);
-            return match.Success ? match.Index : -1;
+            try
+            {
+                var match = _regex.Match(input);
+                return match.Success ? match.Index : -1;
+            }
+            catch (RegexMatchTimeoutException) { return -1; }
         }
-        internal string Replace(string input, Func<string, string> replacement, bool all) => all ? _regex.Replace(input, match => replacement(match.Value)) : _regex.Replace(input, match => replacement(match.Value), 1);
-        internal string Replace(string input, string replacement, bool all) => all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1);
-        internal string[] Split(string input) => _regex.Split(input);
+        internal string Replace(string input, Func<string, string> replacement, bool all)
+        {
+            try { return all ? _regex.Replace(input, match => replacement(match.Value)) : _regex.Replace(input, match => replacement(match.Value), 1); }
+            catch (RegexMatchTimeoutException) { return input; }
+        }
+        internal string Replace(string input, string replacement, bool all)
+        {
+            try { return all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1); }
+            catch (RegexMatchTimeoutException) { return input; }
+        }
+        internal string[] Split(string input)
+        {
+            try { return _regex.Split(input); }
+            catch (RegexMatchTimeoutException) { return [input]; }
+        }
     }
 
     private static bool TryArrayMethod(IList<object?> values, string name, out object? method)
