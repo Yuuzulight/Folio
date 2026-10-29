@@ -351,6 +351,23 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void JavaScriptBindingExposesCustomSections()
+    {
+        // (module (custom "foo" [1,2,3]))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            0, 7, 3, (byte)'f', (byte)'o', (byte)'o', 1, 2, 3
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var s=WebAssembly.Module.customSections(m,'foo'); s.length===1 && s[0].byteLength===3;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
     public void JavaScriptBindingBridgesImportedMutableExternrefGlobals()
     {
         var bytes = new byte[]
