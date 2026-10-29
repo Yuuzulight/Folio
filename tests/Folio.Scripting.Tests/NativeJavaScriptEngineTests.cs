@@ -738,6 +738,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("folionative", engine.Evaluate("'folio'.concat('native')").AsString());
         Assert.Equal("folio", engine.Evaluate("'folio'.valueOf()").AsString());
         Assert.Equal("FOLIO", engine.Evaluate("'folio'.toLocaleUpperCase()").AsString());
+        Assert.Equal("ff", engine.Evaluate("(255).toString(16)").AsString());
         Assert.Equal("é", engine.Evaluate("'é'.normalize('NFC')").AsString());
         Assert.Throws<WebIdlException>(() => engine.Evaluate("'x'.normalize('BAD')"));
         Assert.True(engine.Evaluate("'folio'.at(99)").IsUndefined);

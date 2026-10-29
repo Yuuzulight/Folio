@@ -850,7 +850,16 @@ internal sealed class JavaScriptEvaluator
         if (target is double or int or long)
         {
             if (name == "toString")
-                return (Func<IReadOnlyList<object?>, object?>)(args => StringValue(target));
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    var radix = args.Count == 0 ? 10 : (int)Number(args[0]);
+                    if (radix == 10) return StringValue(number);
+                    if (radix is < 2 or > 36) throw WebIdlException.RangeError("Number radix must be between 2 and 36.");
+                    if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
+                    if (number == Math.Truncate(number)) return Convert.ToString((long)number, radix) ?? string.Empty;
+                    return number.ToString(CultureInfo.InvariantCulture);
+                });
             if (name == "toFixed")
                 return (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
