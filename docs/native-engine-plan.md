@@ -70,3 +70,10 @@ is still Jint and the native path has not yet passed the complete DOM host,
 sandbox, resource-limit, failure-behavior, worker/iframe, and dependency
 removal gates. The native switch and conformance harness therefore remain
 differential probes until those requirements are met.
+
+Audit refresh (2026-10-29): the focused native engine suite remains green
+(82/82), and the capability-matrix/native slices pass. However, running the
+complete `Folio.Scripting.Tests` assembly with `FOLIO_SCRIPT_ENGINE=native`
+does not reach test execution: the runner remains in `Starting` for more than
+60 seconds and must be interrupted. This is an additional cutover blocker,
+not a reason to classify the native engine as production-complete.
