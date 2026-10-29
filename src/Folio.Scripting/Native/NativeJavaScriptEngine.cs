@@ -40,7 +40,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         arrayConstructor.SetProperty("isArray", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is IReadOnlyList<object?>));
         arrayConstructor.SetProperty("from", (Func<IReadOnlyList<object?>, object?>)(args =>
         {
-            if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();
+            if (args.Count == 0 || args[0] is null or JavaScriptEvaluator.UndefinedValue) throw WebIdlException.TypeError("Array.from requires an array-like or iterable object.");
             var values = args[0] switch
             {
                 IReadOnlyList<object?> list => list.ToArray(),
