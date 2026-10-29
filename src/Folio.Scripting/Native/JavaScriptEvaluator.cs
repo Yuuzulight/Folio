@@ -1345,7 +1345,7 @@ internal sealed class JavaScriptEvaluator
             }),
             "search" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
-                if (args.Count == 0) return 0d;
+                if (args.Count == 0) return (double)value.IndexOf("undefined", StringComparison.Ordinal);
                 if (args[0] is RegexValue regex)
                     return (double)regex.Search(value);
                 return (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal);
