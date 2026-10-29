@@ -1509,7 +1509,7 @@ internal sealed class JavaScriptEvaluator
                 if (limit == 0) return Array.Empty<object?>();
                 if (args[0] is RegexValue regex) return regex.Split(value).Take(limit).Cast<object?>().ToList();
                 var separator = StringValue(args[0]);
-                if (separator.Length == 0) return value.EnumerateRunes().Select(rune => (object?)rune.ToString()).Take(limit).ToList();
+                if (separator.Length == 0) return value.Select(character => (object?)character.ToString()).Take(limit).ToList();
                 return value.Split(separator, StringSplitOptions.None).Take(limit).Cast<object?>().ToList();
             }),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
