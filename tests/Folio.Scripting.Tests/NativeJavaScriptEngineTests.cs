@@ -880,6 +880,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ConstructorPropagatesThrownDomExceptionName()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("class DOMException extends Error { constructor(message, name) { super(message); this.name = name; } } let result; function Disabled() { throw new DOMException('disabled', 'NotSupportedError'); } try { new Disabled(); } catch (error) { result = error.name; }");
+        Assert.Equal("NotSupportedError", engine.Evaluate("result").AsString());
+    }
+
+    [Fact]
     public void PromiseResolveDoesNotNestAnExistingPromise()
     {
         using var engine = new NativeJavaScriptEngine();
