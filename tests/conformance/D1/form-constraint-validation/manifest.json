@@ -9,6 +9,7 @@
     "custom-properties"
   ],
   "viewport": 800,
+  "tolerance": { "channelThreshold": 64, "maxDifferingRatio": 0.02, "reason": "system-ui glyph rasterization differs across the Folio and browser renderers" },
   "interaction": [
     "exists #reg-form",
     "exists #btn-submit",
