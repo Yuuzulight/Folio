@@ -11,7 +11,7 @@ public sealed class Milestone4AcceptanceTests
         Assert.Contains("content-process protocol", document, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ContentProcessSupervisor", document, StringComparison.Ordinal);
         Assert.Contains("heartbeat", document, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Milestone 4 is complete", document, StringComparison.Ordinal);
+        Assert.Contains("Milestone 4 recovery is implemented", document, StringComparison.Ordinal);
         Assert.Contains("Artifact-scoped persistent storage", document, StringComparison.OrdinalIgnoreCase);
     }
 

@@ -81,10 +81,12 @@ Current audit note: the interaction behavior, accessibility tree, incremental-eq
 - IPC protocol fuzz harness clean.
 - Scripted documents keep the static rendering targets for first paint when their scripts are small.
 
-**Current audit:** Milestone 4 is complete. The twelve-artifact D1 corpus, fail-closed
-classifier routing, scripted process benchmark, standards URL parser, artifact-scoped
-persistent storage, and the `elementsFromPoint`, `scrollIntoView`, and
-`setCustomValidity` bindings are all wired and covered by executable acceptance checks.
+**Current audit:** The M4 recovery implementation is complete: the twelve-artifact D1
+corpus, fail-closed classifier routing, scripted process benchmark, standards URL parser,
+artifact-scoped persistent storage, and the `elementsFromPoint`, `scrollIntoView`, and
+`setCustomValidity` bindings are wired and covered by executable checks. The milestone
+remains open because the current scripted-process benchmark misses the cold/warm startup
+and working-set targets; #484/#677 track that performance gate.
 
 ## 5. Scripted parity
 
