@@ -700,7 +700,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("x,x,c", engine.Evaluate("['a', 'b', 'c'].fill('x', 0, 2).join(',')").AsString());
         Assert.Equal("aXc", engine.Evaluate("['a', 'b', 'c'].with(1, 'X').join('')").AsString());
         Assert.Equal("ac", engine.Evaluate("['a', 'b', 'c'].toSpliced(1, 1).join('')").AsString());
-        Assert.Equal("ababa", engine.Evaluate("['a', 'b', 'c', 'd', 'e'].copyWithin(2, 0, 2).join('')").AsString());
+        Assert.Equal("ababe", engine.Evaluate("['a', 'b', 'c', 'd', 'e'].copyWithin(2, 0, 2).join('')").AsString());
         Assert.Equal("i", engine.Evaluate("'folio'.at(-2)").AsString());
         Assert.True(engine.Evaluate("'folio'.at(99)").IsUndefined);
         Assert.Equal(128512d, engine.Evaluate("'😀'.codePointAt(0)").AsNumber());
