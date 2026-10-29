@@ -1373,6 +1373,8 @@ internal sealed class JavaScriptEvaluator
         {
             "toUpperCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToUpperInvariant()),
             "toLowerCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToLowerInvariant()),
+            "toLocaleUpperCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToUpperInvariant()),
+            "toLocaleLowerCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToLowerInvariant()),
             "concat" => (Func<IReadOnlyList<object?>, object?>)(args => value + string.Concat(args.Select(StringValue))),
             "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => value),
             "valueOf" => (Func<IReadOnlyList<object?>, object?>)(_ => value),
