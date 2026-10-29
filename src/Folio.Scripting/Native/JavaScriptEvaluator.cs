@@ -1369,6 +1369,8 @@ internal sealed class JavaScriptEvaluator
             "toUpperCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToUpperInvariant()),
             "toLowerCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToLowerInvariant()),
             "concat" => (Func<IReadOnlyList<object?>, object?>)(args => value + string.Concat(args.Select(StringValue))),
+            "toString" => (Func<IReadOnlyList<object?>, object?>)(_ => value),
+            "valueOf" => (Func<IReadOnlyList<object?>, object?>)(_ => value),
             "includes" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0) return false;
