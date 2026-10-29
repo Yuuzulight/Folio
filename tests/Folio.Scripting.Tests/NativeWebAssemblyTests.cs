@@ -58,6 +58,26 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void NativeEngineInterruptsAnInfiniteWasmLoop()
+    {
+        // (module (func (export "run") (loop br 0)))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            1, 4, 1, 96, 0, 0,
+            3, 2, 1, 0,
+            7, 7, 1, 3, (byte)'r', (byte)'u', (byte)'n', 0, 0,
+            10, 9, 1, 7, 0, 3, 64, 12, 0, 11, 11
+        };
+        using var runtime = new NativeWebAssemblyRuntime(64 * 1024, TimeSpan.FromMilliseconds(50));
+        using var engine = new JintScriptEngine();
+        Assert.True(runtime.TryInstantiate(engine, bytes, ScriptValue.Undefined, [], out var instance));
+        using var native = instance!;
+        var error = Assert.ThrowsAny<Exception>(() => native.Invoke(engine, "run", []));
+        Assert.Contains("deadline", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void NativeEngineCallsAJavaScriptFunctionImport()
     {
         // (module (type (func (param i32) (result i32)))
