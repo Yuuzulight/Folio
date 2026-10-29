@@ -1025,7 +1025,10 @@ internal sealed class JavaScriptEvaluator
             var slash = source.LastIndexOf('/');
             var pattern = slash > 0 ? source[1..slash] : source;
             var flags = slash > 0 ? source[(slash + 1)..] : string.Empty;
-            var options = flags.Contains('i') ? RegexOptions.IgnoreCase : RegexOptions.None;
+            var options = RegexOptions.None;
+            if (flags.Contains('i')) options |= RegexOptions.IgnoreCase;
+            if (flags.Contains('m')) options |= RegexOptions.Multiline;
+            if (flags.Contains('s')) options |= RegexOptions.Singleline;
             return new RegexValue(new Regex(pattern, options, TimeSpan.FromMilliseconds(100)), pattern, flags);
         }
         internal bool TryGetProperty(string name, out object? value)
@@ -1036,6 +1039,9 @@ internal sealed class JavaScriptEvaluator
                 "flags" => Flags,
                 "global" => Flags.Contains('g'),
                 "ignoreCase" => Flags.Contains('i'),
+                "multiline" => Flags.Contains('m'),
+                "dotAll" => Flags.Contains('s'),
+                "sticky" => Flags.Contains('y'),
                 "unicode" => Flags.Contains('u'),
                 "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
