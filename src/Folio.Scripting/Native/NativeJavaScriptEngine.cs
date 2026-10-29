@@ -444,7 +444,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Promise"] = promiseConstructor;
         _bindings["queueMicrotask"] = (Func<IReadOnlyList<object?>, object?>)(args =>
         {
-            if (args.Count > 0 && IsCallable(args[0])) _microtasks.Enqueue(() => InvokeCallable(args[0], []));
+            if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("The callback must be callable.");
+            _microtasks.Enqueue(() => InvokeCallable(args[0], []));
             return null;
         });
         _bindings["Function"] = (Func<IReadOnlyList<object?>, object?>)(args => CreateDynamicFunction(args));
