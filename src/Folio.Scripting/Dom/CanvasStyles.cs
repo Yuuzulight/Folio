@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
 using Folio.Css;
@@ -80,6 +81,9 @@ internal sealed class CanvasPattern(IImageHandle image, bool repeatX, bool repea
 /// <summary>What fills or strokes: a colour, a gradient or a pattern, with the text a script reads back.</summary>
 internal sealed class PaintSource
 {
+    private static readonly ConcurrentDictionary<string, Rgba> ParsedColorCache = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxCachedColors = 256;
+
     /// <summary>The longest text a style property takes (a colour, a font, a filter list); longer is ignored as invalid.</summary>
     public const int MaxText = 4096;
 
@@ -126,10 +130,16 @@ internal sealed class PaintSource
         // Longer text is not a colour a script means; refusing it keeps a script from making the CSS parser chew on megabytes.
         if (text.Length > MaxText)
             return null;
+        if (!text.Equals("currentColor", StringComparison.OrdinalIgnoreCase)
+            && ParsedColorCache.TryGetValue(text, out var cached))
+            return cached;
         if (Folio.Css.ColorText.Parse(text) is not { } color)
             return null;
         if (color.IsCurrentColor)
             return current;
-        return new Rgba(color.R, color.G, color.B, color.A);
+        var result = new Rgba(color.R, color.G, color.B, color.A);
+        if (ParsedColorCache.Count < MaxCachedColors)
+            ParsedColorCache.TryAdd(text, result);
+        return result;
     }
 }
