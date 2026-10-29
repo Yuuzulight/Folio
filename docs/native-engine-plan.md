@@ -1,5 +1,10 @@
 # Folio-owned JavaScript engine plan
 
+> **Current evidence correction (2026-10-30):** the historical 94/94
+> D1–D14 claim in this document is superseded. The latest native sweep passes
+> 93/102; nine D4 library-card artifacts still have raster mismatches. The
+> native engine remains differential and is not production-cutover complete.
+
 Folio's production scripting path must not depend on Jint, V8, ClearScript, QuickJS,
 Node, or another external JavaScript runtime. `IScriptEngine` remains the seam, but
 the shipping implementation will be owned by Folio and compiled as part of the

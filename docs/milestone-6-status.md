@@ -2,6 +2,11 @@
 
 ## Focused runtime refresh — 2026-10-30
 
+**Current-result correction:** the latest native conformance sweep is not
+94/94. It passes 93/102 D1–D14 artifacts: D1–D3 and D5–D14 are green, while
+nine D4 library-card artifacts have 2.0% raster mismatches. Earlier 85/85 and
+94/94 statements in this document are historical snapshots.
+
 The native runtime audit also passes the isolated capability slices currently
 available for workers, nested workers, iframes, and WebRTC: `WorkerCapabilityTests`
 54/54, `NestedWorkerCapabilityTests` 7/7, `IframeLifecycleTests` 27/27, and

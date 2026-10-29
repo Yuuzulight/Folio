@@ -21,6 +21,11 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-30
 
+**Current-result correction:** the fresh native D1–D14 run passes 93/102
+artifacts. D1–D3 and D5–D14 pass; D4 passes 1/10 and has nine library-card
+raster mismatches. Earlier 85/85 and 94/94 figures below are historical
+snapshots, not current results.
+
 Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
 software raster/filter and Skia canvas behavior 124/124, native WebGL
 page/object/ANGLE slices 87/87, and the full native D1–D14 conformance sweep
