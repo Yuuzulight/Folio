@@ -870,6 +870,16 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void HostObjectBridgeWorksThroughReflectApplyInsideArrowCallback()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var template = new HostObjectTemplate("Raw").DefineMethod("open", (_, _, _) => ScriptValue.FromString("ok"));
+        engine.SetGlobalProperty("raw", engine.CreateHostObject(template, new object()));
+        engine.Evaluate("function invoke(callback) { return Promise.resolve(callback()); } let result = await invoke(() => Reflect.apply(raw.open, raw, []));");
+        Assert.Equal("ok", engine.Evaluate("result").AsString());
+    }
+
+    [Fact]
     public void PromiseResolveDoesNotNestAnExistingPromise()
     {
         using var engine = new NativeJavaScriptEngine();
