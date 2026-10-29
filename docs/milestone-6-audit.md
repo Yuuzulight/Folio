@@ -679,7 +679,7 @@ media/WebRTC/service-worker 115/115 locally. These are verified implementation
 slices; M6 remains incomplete until the open device/process, optional WebGL,
 interruption, production-routing, and dependency-removal requirements are met.
 
-Hosted CI run `40816100429` is now fully green across all 26 jobs, including
+Hosted CI run `40820835338` is now fully green across all 26 jobs, including
 both compatibility and native capability matrices. The complete scripting suite
 also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
