@@ -758,6 +758,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.True(engine.Evaluate("new RegExp('a+', 'gi').ignoreCase").AsBoolean());
         Assert.True(engine.Evaluate("new RegExp('^a$', 'm').multiline").AsBoolean());
         Assert.True(engine.Evaluate("new RegExp('.', 's').dotAll").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('a.b', 's').test('a\\nb')").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('^b$', 'm').test('a\\nb')").AsBoolean());
         Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace(new RegExp('a'), 'x')").AsString());
         Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replace(new RegExp('a', 'g'), 'x')").AsString());
         Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace('b', '[$&]')").AsString());
