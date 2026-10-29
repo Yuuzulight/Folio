@@ -405,6 +405,7 @@ public static class DomBindings
         // implementation replaces the historical regex shim above and also keeps
         // URLSearchParams mutations synchronized with the URL record.
         UrlBindings.Install(engine);
+        engine.Evaluate("URL.createObjectURL = function(blob) { return __folio_blob_store.create(blob && blob._text); }; URL.revokeObjectURL = function(url) { __folio_blob_store.revoke(url); };", "folio:url-blob-compat");
         context.CaptureState = CaptureBindingState.Install(engine, context);
         context.WebRtcState = WebRtcBindingState.Install(engine, context);
         // Install Fetch before the compatibility service-worker scope so worker

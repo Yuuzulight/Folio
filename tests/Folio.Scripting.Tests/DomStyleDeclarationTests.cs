@@ -1150,7 +1150,7 @@ public sealed class DomStyleDeclarationTests
         DomBindings.Install(reopened, Document.Parse("<html></html>", Options()));
         Assert.True(reopened.Evaluate("let restoredUrl = ''; navigator.serviceWorker.register('sw.js').then(r => restoredUrl = r.scriptURL); true").AsBoolean());
         reopened.PerformMicrotaskCheckpoint();
-        Assert.Equal("sw.js", reopened.Evaluate("restoredUrl").AsString());
+        Assert.Equal("https://worker.example/sw.js", reopened.Evaluate("restoredUrl").AsString());
         Assert.True(DomBindings.Dispose(reopened));
         Assert.True(reopened.Evaluate("navigator.serviceWorker.getRegistrations().then(items => items.length === 0); true").AsBoolean());
         reopened.PerformMicrotaskCheckpoint();
