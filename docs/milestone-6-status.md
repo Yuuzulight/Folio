@@ -3,8 +3,9 @@
 ## Focused runtime refresh — 2026-10-30
 
 **Current-result correction:** the latest native conformance sweep is not
-94/94. It passes 93/102 D1–D14 artifacts: D1–D3 and D5–D14 are green, while
-nine D4 library-card artifacts have 2.0% raster mismatches. Earlier 85/85 and
+94/94. It now passes 102/102 D1–D14 artifacts, including all ten D4 library-card
+artifacts after correcting compact conditional-expression lexing in the native
+JavaScript parser. Earlier 85/85 and
 94/94 statements in this document are historical snapshots.
 
 The native runtime audit also passes the isolated capability slices currently

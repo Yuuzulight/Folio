@@ -8,7 +8,7 @@ This document records the current M5 implementation and verification baseline.
 
 The content-process scripting path, restricted Fetch, raster-backed Canvas 2D, pinned library cache, and JSX hand-off are merged. The public D2–D7 corpus now contains ten reviewed, library-backed artifacts per category (60 total), each with an interaction script and reference. D6's ten Mermaid artifacts exercise flowchart, sequence, class, state, entity-relationship, timeline, Gantt and pie syntax. The dependency-backed compatibility baseline passes every D2–D7 category at 100%, including all ten Chart.js canvas artifacts in D5.
 
-The latest native Folio-engine run passes D2–D3 and D5–D7 (50/50); D4 currently has one pass and nine library-card raster mismatches. This is conformance evidence only; the mandatory Folio-owned replacement gate remains open for the broader engine and dependency-removal work.
+The latest native Folio-engine run passes D2–D7 (60/60), including all ten D4 library-card artifacts after correcting compact conditional-expression lexing in the native JavaScript parser. This is conformance evidence only; the mandatory Folio-owned replacement gate remains open for the broader engine and dependency-removal work.
 
 `ArtifactClassifier` retains Folio's scripted path for the canvas features covered by the parity corpus, including the pinned Chart.js artifacts.
 

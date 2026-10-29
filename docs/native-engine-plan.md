@@ -1,8 +1,9 @@
 # Folio-owned JavaScript engine plan
 
-> **Current evidence correction (2026-10-30):** the historical 94/94
-> D1–D14 claim in this document is superseded. The latest native sweep passes
-> 93/102; nine D4 library-card artifacts still have raster mismatches. The
+> **Current evidence correction (2026-10-30):** the historical 94/94 and 93/102
+> claims in this document are superseded. The latest native sweep passes
+> 102/102 D1–D14 artifacts after correcting compact conditional-expression
+> lexing in the native JavaScript parser. The
 > native engine remains differential and is not production-cutover complete.
 
 Folio's production scripting path must not depend on Jint, V8, ClearScript, QuickJS,

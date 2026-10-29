@@ -21,9 +21,10 @@ Milestone 6 is **not complete against its original issue scope**. Earlier closur
 
 ## Verification refresh — 2026-10-30
 
-**Current-result correction:** the fresh native D1–D14 run passes 93/102
-artifacts. D1–D3 and D5–D14 pass; D4 passes 1/10 and has nine library-card
-raster mismatches. Earlier 85/85 and 94/94 figures below are historical
+**Current-result correction:** the fresh native D1–D14 run passes 102/102
+artifacts. D1–D14 all pass after correcting compact conditional-expression
+lexing in the native JavaScript parser. Earlier 85/85, 94/94 and 93/102 figures
+below are historical
 snapshots, not current results.
 
 Latest focused checks on the audit head: WebRTC/capture/media-capture 30/30,
