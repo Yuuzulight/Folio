@@ -862,6 +862,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void GuardedArrowCallbackSeesClassWeakMapState()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("const states = new WeakMap(), INTERNAL = {}; function invoke(callback) { try { return Promise.resolve(callback()); } catch (e) { return Promise.reject(e); } } class Store { constructor() { Reflect.apply(WeakMap.prototype.set, states, [this, INTERNAL]); } open() { return invoke(() => { if (Reflect.apply(WeakMap.prototype.get, states, [this]) !== INTERNAL) throw new TypeError('guard'); return 1; }); } } let result = await new Store().open();");
+        Assert.Equal(1d, engine.Evaluate("result").AsNumber());
+    }
+
+    [Fact]
     public void PromiseResolveDoesNotNestAnExistingPromise()
     {
         using var engine = new NativeJavaScriptEngine();
