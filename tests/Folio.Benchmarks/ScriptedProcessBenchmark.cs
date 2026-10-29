@@ -123,6 +123,33 @@ public static class ScriptedProcessBenchmark
         {
             var d1Artifacts = Directory.GetDirectories(d1Folder).OrderBy(d => d).ToArray();
             await using var warmClient = ContentProcessClient.Start(host);
+
+            // Prime the process before measuring the warm corpus. The first
+            // message necessarily includes process startup and is the cold
+            // lifecycle measured above; counting it as a D1 warm load makes the
+            // per-artifact warm target depend on process-launch contention.
+            var warmupTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+            ValueTask OnWarmup(ContentMessage m, CancellationToken ct)
+            {
+                if (m.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                    warmupTcs.TrySetResult(m);
+                return ValueTask.CompletedTask;
+            }
+            warmClient.MessageReceived += OnWarmup;
+            try
+            {
+                await warmClient.SendAsync(ContentMessageKind.Load, new
+                {
+                    html = "<!DOCTYPE html><title>Warm-up</title><p>Warm-up</p>",
+                    script = "document.body.dataset.warm = '1';"
+                });
+                await warmupTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+            finally
+            {
+                warmClient.MessageReceived -= OnWarmup;
+            }
+
             foreach (var artDir in d1Artifacts)
             {
                 var artName = Path.GetFileName(artDir);
