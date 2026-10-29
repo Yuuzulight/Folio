@@ -774,6 +774,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Throws<WebIdlException>(() => engine.Evaluate("Array.from(null)"));
         Assert.Equal("0:1|1:2", engine.Evaluate("Array.from([1, 2], (value, index, source) => index + ':' + source[index]).join('|')").AsString());
         Assert.Equal("1|2", engine.Evaluate("Array.from(new Set([1, 2])).join('|')").AsString());
+        Assert.Equal("1|2|3", engine.Evaluate("Array.from(new Uint8Array([1, 2, 3])).join('|')").AsString());
         Assert.Throws<WebIdlException>(() => engine.Evaluate("new Set([1]).forEach(0)"));
         Assert.Throws<WebIdlException>(() => engine.Evaluate("new Map([['a', 1]]).forEach(null)"));
     }
