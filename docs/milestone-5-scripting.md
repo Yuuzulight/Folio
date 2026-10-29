@@ -1,6 +1,6 @@
 # Milestone 5 scripting results
 
-Verification refresh (2026-10-30): the focused M5 acceptance suites remain green, including the dependency-backed D2–D7 conformance baseline, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The latest complete serialized Release solution run passes 4,260 of 4,261 discovered tests with 0 failures and 1 environment-dependent skip (symbolic-link privilege). Folio's software canvas now exports and round-trips JPEG through its own baseline encoder; the former JPEG-specific skip is gone. Native-engine parity is reported separately below and remains incomplete.
+Verification refresh (2026-10-30): the focused M5 acceptance suites remain green, including the dependency-backed D2–D7 conformance baseline, canvas/library/JSX coverage, and the native worker structured-clone and MessageChannel cases added during the Milestone 6 audit. The direct Release runners pass 4,249 tests with 0 failures and 1 environment-dependent skip (symbolic-link privilege). Folio's software canvas now exports and round-trips JPEG through its own baseline encoder; the former JPEG-specific skip is gone. Native-engine parity is reported separately below and remains incomplete.
 
 This document records the current M5 implementation and verification baseline.
 
@@ -24,6 +24,9 @@ The native Folio-engine run now matches the dependency-backed corpus: the latest
 
 - `dotnet build Folio.slnx --no-restore`: passes.
 - `dotnet tests/Folio.Tests/bin/Release/net10.0/Folio.Tests.dll`: 1,998 passed, 1 environment-dependent symlink test skipped.
+- `dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll`: 1,421 passed.
+- `dotnet tests/Folio.RenderTests/bin/Release/net10.0/Folio.RenderTests.dll`: 822 passed.
+- `dotnet tests/Folio.WinForms.Tests/bin/Release/net10.0-windows/Folio.WinForms.Tests.dll`: 8 passed.
 - The focused serialized scripting acceptance run passes its covered cases, including the later M6 lifecycle, native WebAssembly, iframe sandbox, aggregate worker-memory, imported-table, brokered worker isolation, native texture-minification, media-budget, iframe permission, IPC-serialization, host capture-provider, GPU-reset, iframe message-source/target/port regressions, signed and unsigned array-texture sampling, native readback error/packing coverage, native array-growth semantics, and native worker structured-clone object/array/RegExp/cycle/Map/Set/Date/ArrayBuffer/typed-array/Error round trips plus native end-to-end worker transfer detachment.
 - `dotnet run --project tests/Folio.RenderTests -- conformance D2 D3 D4 D5 D6 D7` (dependency-backed baseline): 60 passed, with no expected failures or unexpected failures.
 - Native-engine conformance (fresh 2026-10-28 run): 60/60 passed — D2–D7 each 10/10. The React pantry interaction now passes after correcting labeled-break propagation in the native evaluator; D5's ten Chart.js artifacts match after the bridge geometry correction in #647.
