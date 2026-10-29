@@ -38,6 +38,12 @@ Roman and Segoe UI simple-script samples, plus expanded marked Hebrew and Arabic
 sentences/paragraphs shaped through `ComplexShaper`. These are host-local results;
 other system font inventories still require their own run.
 
+Verification refresh (2026-10-30): the standalone bundled report passes every
+listed case, `ShapingDifferentialTests` passes 55/55, `HarfBuzzShaperTests`
+passes 19/19, and the local system-font report passes 10/10. This strengthens
+the promoted Latin/Hebrew/Arabic slices but does not satisfy the complete
+supported-script corpus required before removing HarfBuzzSharp from production.
+
 ## Explicitly open parity
 
 The promotion switch does not claim parity. It is a controlled harness switch
