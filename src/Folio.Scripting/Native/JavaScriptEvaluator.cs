@@ -1855,6 +1855,16 @@ internal sealed class JavaScriptEvaluator
                 case '&': builder.Append(match.Value); break;
                 case '`': builder.Append(source, 0, match.Index); break;
                 case '\'': builder.Append(source, match.Index + match.Length, source.Length - match.Index - match.Length); break;
+                case '<':
+                    var close = replacement.IndexOf('>', i + 1);
+                    if (close > i + 1)
+                    {
+                        var name = replacement[(i + 1)..close];
+                        builder.Append(match.Groups[name].Success ? match.Groups[name].Value : string.Empty);
+                        i = close;
+                    }
+                    else builder.Append("$<");
+                    break;
                 default: builder.Append('$'); builder.Append(next); break;
             }
         }
