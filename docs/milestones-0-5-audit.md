@@ -4,7 +4,8 @@ Tracker refresh (2026-10-30): M0 (Study and architecture) remains closed. The
 revert-reconciliation implementation for #481 and #482 is present again and
 those issues are closed; #484 remains open for the measured scripted
 performance gap, while #676 records the recovery evidence. M4 remains open
-only for that performance gate. M5 remains open: its dependency-backed parity is verified,
+for that performance gate and the four strict D1 interaction raster mismatches
+(#678–#681). M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 

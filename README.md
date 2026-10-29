@@ -31,10 +31,10 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana | 0 |
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
 | 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
-| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress: recovery implementation verified; scripted startup and memory targets open | 3 |
-| 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path verified; frame-time and native replacement gates open | 2 |
-| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress | 16 |
-| 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine and WebAssembly runtime with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 12 |
+| 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress: recovery implementation is verified; scripted startup/memory targets and four strict D1 raster mismatches remain | 6 |
+| 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path is verified; the canvas frame-time gate remains open | 1 |
+| 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress: capability slices pass, but backend, device, transport and isolation acceptance remains open | 15 |
+| 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine and WebAssembly runtime with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 9 |
 
 Until a milestone lands, anything Folio can't handle yet opens in the system browser.
 
