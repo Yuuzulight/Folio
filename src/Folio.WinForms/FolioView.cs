@@ -68,6 +68,7 @@ public class FolioView : Control
     };
     private FolioViewAccessibleObject? _accessibleObject;
     private ContentProcessClient? _contentProcess;
+    private bool _contentProcessPrewarmed;
     private Func<ContentMessage, CancellationToken, ValueTask>? _contentMessageHandler;
     private CanvasFrameStore? _contentFrameStore;
     private Bitmap? _contentBitmap;
@@ -201,6 +202,7 @@ public class FolioView : Control
             _pendingContentFrame = null;
             _pendingScriptStopped = null;
             _pendingMediaActivity = null;
+            _contentProcessPrewarmed = false;
         }
         _contentProcess.ScriptStopped += OnScriptStopped;
         var generation = _contentGeneration;
@@ -247,7 +249,34 @@ public class FolioView : Control
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        PrewarmContentProcess();
         FlushPendingContent();
+    }
+
+    private void PrewarmContentProcess()
+    {
+        if (Options.Scripting != ScriptingPolicy.ContentProcess || string.IsNullOrWhiteSpace(Options.ContentProcessPath))
+            return;
+        lock (_contentStateGate)
+            if (_contentProcess is not null)
+                return;
+        try
+        {
+            var process = ContentProcessClient.Start(Options.ContentProcessPath,
+                resourceLoader: Options.ResourceLoader,
+                artifactStorage: Options.ArtifactStorage,
+                artifactId: Options.ArtifactId,
+                documentLimits: Options.Limits,
+                mediaCaptureProvider: Options.MediaCaptureProvider);
+            AttachContentProcess(process);
+            lock (_contentStateGate)
+                _contentProcessPrewarmed = true;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // LoadHtml reports a visible script-stop notice if the later launch
+            // also fails; handle creation must remain usable for static content.
+        }
     }
 
     /// <summary>Changes capabilities on the live content artifact without reloading it.</summary>
@@ -510,13 +539,35 @@ public class FolioView : Control
             _contentFrameStore?.Dispose();
             _contentFrameStore = null;
             _contentFramePath = null;
-            var previous = RetireAttachedContentProcess(clearFrame: true);
-            if (previous is not null)
-                DisposeRetiredContentProcess(previous);
+            ContentProcessClient? process;
+            lock (_contentStateGate)
+            {
+                process = _contentProcessPrewarmed ? _contentProcess : null;
+                _contentProcessPrewarmed = false;
+            }
+            if (process is null)
+            {
+                var previous = RetireAttachedContentProcess(clearFrame: true);
+                if (previous is not null)
+                    DisposeRetiredContentProcess(previous);
+                try
+                {
+                    process = ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits, mediaCaptureProvider: Options.MediaCaptureProvider);
+                    AttachContentProcess(process);
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    OnScriptStopped(this, new ContentProcessStoppedEventArgs($"unable to start content process: {exception.Message}"));
+                    return;
+                }
+            }
             try
             {
-                AttachContentProcess(ContentProcessClient.Start(Options.ContentProcessPath, resourceLoader: Options.ResourceLoader, artifactStorage: Options.ArtifactStorage, artifactId: Options.ArtifactId, documentLimits: Options.Limits, mediaCaptureProvider: Options.MediaCaptureProvider));
-                var process = _contentProcess!;
+                _contentBitmap?.Dispose();
+                _contentBitmap = null;
+                _contentFrameStore?.Dispose();
+                _contentFrameStore = null;
+                _contentFramePath = null;
                 _contentFramePath = process.FramePath;
                 QueueContentLoad(process, new
                 {
