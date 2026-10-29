@@ -1403,7 +1403,7 @@ internal sealed class JavaScriptEvaluator
                 if (args[0] is RegexValue regex)
                     return IsCallable(args[1])
                         ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match.Value, (double)match.Index, value])), regex.Flags.Contains('g'))
-                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match.Value, match.Index, value), regex.Flags.Contains('g'));
+                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
                     var needle = StringValue(args[0]);
@@ -1425,7 +1425,7 @@ internal sealed class JavaScriptEvaluator
                         throw WebIdlException.TypeError("String.prototype.replaceAll requires a global regular expression.");
                     return IsCallable(args[1])
                         ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match])), all: true)
-                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match.Value, match.Index, value), all: true);
+                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), all: true);
                 }
                 if (IsCallable(args[1]))
                 {
@@ -1815,6 +1815,47 @@ internal sealed class JavaScriptEvaluator
                 case '`': builder.Append(source, 0, index); break;
                 case '\'': builder.Append(source, index + match.Length, source.Length - index - match.Length); break;
                 default: builder.Append('$'); builder.Append(replacement[i]); break;
+            }
+        }
+        return builder.ToString();
+    }
+
+    private static string ExpandReplacement(string replacement, System.Text.RegularExpressions.Match match, string source)
+    {
+        var builder = new System.Text.StringBuilder(replacement.Length);
+        for (var i = 0; i < replacement.Length; i++)
+        {
+            if (replacement[i] != '$' || i + 1 >= replacement.Length)
+            {
+                builder.Append(replacement[i]);
+                continue;
+            }
+
+            var next = replacement[++i];
+            if (next is >= '0' and <= '9')
+            {
+                var end = i;
+                while (end + 1 < replacement.Length && end - i < 2 && replacement[end + 1] is >= '0' and <= '9') end++;
+                var groupNumber = int.Parse(replacement.AsSpan(i, end - i + 1), CultureInfo.InvariantCulture);
+                if (groupNumber > 0 && groupNumber < match.Groups.Count)
+                {
+                    builder.Append(match.Groups[groupNumber].Value);
+                    i = end;
+                    continue;
+                }
+                builder.Append('$');
+                builder.Append(replacement.AsSpan(i, end - i + 1));
+                i = end;
+                continue;
+            }
+
+            switch (next)
+            {
+                case '$': builder.Append('$'); break;
+                case '&': builder.Append(match.Value); break;
+                case '`': builder.Append(source, 0, match.Index); break;
+                case '\'': builder.Append(source, match.Index + match.Length, source.Length - match.Index - match.Length); break;
+                default: builder.Append('$'); builder.Append(next); break;
             }
         }
         return builder.ToString();
