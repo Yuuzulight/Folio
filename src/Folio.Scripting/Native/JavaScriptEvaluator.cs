@@ -1014,7 +1014,12 @@ internal sealed class JavaScriptEvaluator
         method = name switch
         {
             "join" => (Func<IReadOnlyList<object?>, object?>)(args => string.Join(args.Count > 0 ? StringValue(args[0]) : ",", values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? string.Empty : StringValue(value)))),
-            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args => Enumerable.Range(0, values.Count).FirstOrDefault(index => Equals(values[index], args.Count > 0 ? args[0] : null), -1)),
+            "indexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                return (double)Enumerable.Range(start, Math.Max(0, values.Count - start)).FirstOrDefault(index => Equals(values[index], args[0]), -1);
+            }),
             "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var index = args.Count == 0 ? 0 : (int)Number(args[0]);
