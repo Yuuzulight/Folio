@@ -300,7 +300,7 @@ coverage; they do not close the React reconciliation or replacement gate.
 
 ## Verification refresh — 2026-10-29 (hosted and native full-suite)
 
-Hosted CI run `40815041120` is fully green after the latest audit updates. The
+Hosted CI run `40816100429` is fully green after the latest audit updates. The
 exact WinForms and native capability checks passed in the hosted matrix. The
 complete scripting suite also passes 1,412/1,412 with
 `FOLIO_SCRIPT_ENGINE=native`, so native evidence covers the full suite rather
