@@ -986,12 +986,21 @@ internal sealed class JavaScriptEvaluator
         {
             value = name switch
             {
-                "test" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && _regex.IsMatch(StringValue(args[0]))),
+                "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    if (args.Count == 0) return false;
+                    try { return _regex.IsMatch(StringValue(args[0])); }
+                    catch (RegexMatchTimeoutException) { return false; }
+                }),
                 "exec" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return null;
-                    var match = _regex.Match(StringValue(args[0]));
-                    return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                    try
+                    {
+                        var match = _regex.Match(StringValue(args[0]));
+                        return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                    }
+                    catch (RegexMatchTimeoutException) { return null; }
                 }),
                 _ => null,
             };
