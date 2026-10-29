@@ -60,6 +60,8 @@ string/array accessors. The focused native suite is `81/81`, and the full
 Recent numeric coverage also includes radix conversion and precision/exponential
 formatting; these remain differential evidence until the complete corpus and
 production cutover gates pass.
+Regex replacement callbacks also now preserve capture groups, offsets, and
+source text across both replace variants.
 
 The replacement gate remains open because the production content-host default
 is still Jint and the native path has not yet passed the complete DOM host,
