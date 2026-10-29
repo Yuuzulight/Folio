@@ -335,7 +335,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["hypot"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sqrt(args.Sum(value => Math.Pow(NumberValue(value), 2)))),
             ["pow"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Pow(Number(args, 0), Number(args, 1))),
             ["sqrt"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sqrt(Number(args, 0))),
-            ["sign"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sign(Number(args, 0))),
+            ["sign"] = (Func<IReadOnlyList<object?>, object?>)(args => MathSign(args.Count > 0 ? args[0] : 0)),
             ["trunc"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Truncate(Number(args, 0))),
             ["round"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Floor(NumberValue(args.Count > 0 ? args[0] : 0) + 0.5)),
             ["imul"] = (Func<IReadOnlyList<object?>, object?>)(args => (double)(int)((uint)(int)NumberValue(args.Count > 0 ? args[0] : 0) * (uint)(int)NumberValue(args.Count > 1 ? args[1] : 0))),
@@ -1126,6 +1126,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var result = double.PositiveInfinity;
         foreach (var value in args) { var number = NumberValue(value); if (double.IsNaN(number)) return double.NaN; result = Math.Min(result, number); }
         return result;
+    }
+    private static double MathSign(object? value)
+    {
+        var number = NumberValue(value);
+        if (double.IsNaN(number) || number == 0) return number;
+        return number > 0 ? 1 : -1;
     }
     private static bool SameValue(object? left, object? right)
     {
