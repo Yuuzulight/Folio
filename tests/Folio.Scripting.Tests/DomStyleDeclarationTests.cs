@@ -1797,6 +1797,17 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void RestoredFormAndPointApisAreAvailable()
+    {
+        var document = TreeBuilder.Parse("<form><input id='field' required></form><div id='box'></div>");
+        using var engine = new JintScriptEngine();
+        DomBindings.Install(engine, document);
+        Assert.True(engine.Evaluate("const field=document.getElementById('field'); field.setCustomValidity('no'); !field.checkValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("field.setCustomValidity(''); field.value='ok'; field.checkValidity()").AsBoolean());
+        Assert.True(engine.Evaluate("Array.isArray(document.elementsFromPoint(0,0)); document.getElementById('box').scrollIntoView(); true").AsBoolean());
+    }
+
+    [Fact]
     public void ScriptingUtilityApisAreAvailable()
     {
         var document = TreeBuilder.Parse("<div></div>");
