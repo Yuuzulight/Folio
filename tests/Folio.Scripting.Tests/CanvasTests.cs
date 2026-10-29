@@ -285,6 +285,21 @@ public class CanvasTests
         Assert.True(engine.Evaluate("document.getElementById('c').getContext('2d') === null").AsBoolean());
     }
 
+    [Fact]
+    public void RetiringTheScriptEngineDisposesCanvasState()
+    {
+        using var engine = new JintScriptEngine();
+        var document = Document.Parse("<canvas id='c' width='8' height='8'></canvas>", new FolioOptions { Raster = new SkiaRasterBackend() });
+        DomBindings.Install(engine, document);
+        engine.Evaluate("document.getElementById('c').getContext('2d').fillRect(0, 0, 1, 1);");
+        var state = Assert.IsType<CanvasElementState>(document.Node.Descendants.OfType<Folio.Dom.ElementNode>().Single(e => e.LocalName == "canvas").CanvasSurface);
+        Assert.False(state.IsDisposed);
+
+        Assert.True(DomBindings.Dispose(engine));
+        Assert.True(state.IsDisposed);
+        document.Dispose();
+    }
+
     // ---------------------------------------------------------------- #504: paths
 
     [Fact]

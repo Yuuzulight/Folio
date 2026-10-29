@@ -108,7 +108,7 @@ public static class DomBindings
         Action[] retire =
         [
             () => context.DisposeCacheStorage?.Invoke(), context.LoseCanvasContexts, context.DisposeIframes,
-            context.DisposeWorkers, context.DisposeMedia,
+            context.DisposeWorkers, context.DisposeMedia, context.DisposeCanvases,
             () => context.CaptureState?.Dispose(), () => context.WebRtcState?.Dispose(),
             () => context.ServiceWorkerState?.Dispose(), () => context.DisposeServiceWorker?.Invoke(), () => { if (context.ParentOptions is { } options) options.ResourceInterceptor = null; }, context.DisposeGpu
             , () => context.DisposeWebAssembly?.Invoke()

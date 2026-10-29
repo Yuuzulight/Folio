@@ -44,6 +44,8 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
 
     public ElementNode Element { get; }
 
+    internal bool IsDisposed { get; private set; }
+
     public Canvas2DContext? Context2D { get; private set; }
 
     public WebGlContextState? WebGlContext { get; set; }
@@ -269,6 +271,27 @@ internal sealed class CanvasElementState : ICanvasSurface, IFeatureFallbackSourc
             _snapshotVersion = version;
         }
         return _snapshot;
+    }
+
+    /// <summary>Releases all resources owned by this canvas when its document is retired.</summary>
+    internal void Dispose()
+    {
+        if (IsDisposed) return;
+        IsDisposed = true;
+        _webGlRegistry?.Dispose();
+        _webGlRegistry = null;
+        _nativeCurrent = null;
+        NativeWebGlContext = null;
+        WebGlContext = null;
+        _webGlEngine = null;
+        _webGlFactory = null;
+        _webGlFactoryProvider = null;
+        _webGlDiagnosticSink = null;
+        _surface?.Dispose();
+        _surface = null;
+        _snapshot = null;
+        _snapshotVersion = -1;
+        NativeSurfaceInvalidated = null;
     }
 }
 
