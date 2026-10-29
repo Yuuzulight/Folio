@@ -19,7 +19,7 @@ public sealed class NativeWebAssemblyTests
             7, 7, 1, 3, (byte)'r', (byte)'u', (byte)'n', 0, 0,
             10, 6, 1, 4, 0, 65, 42, 11
         };
-        using var engine = new NativeJavaScriptEngine();
+        using var engine = new JintScriptEngine();
         using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
         WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
         var values = string.Join(',', bytes);
@@ -313,6 +313,23 @@ public sealed class NativeWebAssemblyTests
         WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
         var values = string.Join(',', bytes);
         var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.tab.set(0,o); i.exports.tab.get(0)===o;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
+    public void JavaScriptBindingBridgesImportedNativeExternrefTables()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            2, 13, 1, 3, (byte)'e', (byte)'n', (byte)'v', 3, (byte)'t', (byte)'a', (byte)'b', 1, 0x6f, 0, 1,
+            7, 7, 1, 3, (byte)'t', (byte)'a', (byte)'b', 1, 0
+        };
+        using var engine = new JintScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var source=new WebAssembly.Table({{initial:1,element:'externref'}}); var o={{answer:42}}; source.set(0,o); var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{env:{{tab:source}}}}); i.exports.tab.get(0)===o;");
         Assert.True(result.AsBoolean());
     }
 
