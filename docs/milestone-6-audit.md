@@ -696,6 +696,10 @@ also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
 parity corpus. This is an audit checkpoint, not an M6 completion claim.
 
+The current branch's Release compatibility run has since grown to 1,436/1,436
+passing; that newer local result does not replace the hosted native evidence
+above and does not close the remaining acceptance gates.
+
 The native RegExp implementation now honors sticky `y` matching with
 `lastIndex` advancement and reset semantics; the focused regression and full
 native scripting suite both pass.
