@@ -1248,6 +1248,24 @@ internal sealed class JavaScriptEvaluator
                     ? regex.Split(value).Cast<object?>().ToList()
                     : value.Split(StringValue(args[0]), StringSplitOptions.None).Cast<object?>().ToList()),
             "trim" => (Func<IReadOnlyList<object?>, object?>)(_ => value.Trim()),
+            "trimStart" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimStart()),
+            "trimEnd" => (Func<IReadOnlyList<object?>, object?>)(_ => value.TrimEnd()),
+            "padStart" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var target = args.Count == 0 ? value.Length : Math.Max(0, (int)Number(args[0]));
+                if (target <= value.Length) return value;
+                var fill = args.Count > 1 ? StringValue(args[1]) : " ";
+                if (fill.Length == 0) return value;
+                return string.Concat(string.Concat(Enumerable.Repeat(fill, (target - value.Length + fill.Length - 1) / fill.Length))[..(target - value.Length)], value);
+            }),
+            "padEnd" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var target = args.Count == 0 ? value.Length : Math.Max(0, (int)Number(args[0]));
+                if (target <= value.Length) return value;
+                var fill = args.Count > 1 ? StringValue(args[1]) : " ";
+                if (fill.Length == 0) return value;
+                return value + string.Concat(Enumerable.Repeat(fill, (target - value.Length + fill.Length - 1) / fill.Length))[..(target - value.Length)];
+            }),
             "repeat" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var count = args.Count == 0 ? 0 : (int)Number(args[0]);
