@@ -109,6 +109,11 @@ internal sealed partial class AngleNativeWebGlContext : IDisposable, INativeWebG
     private readonly HashSet<uint> _renderbuffers = [];
     private readonly Dictionary<uint, IDisposable> _renderbufferReservations = [];
     private readonly Dictionary<uint, long> _renderbufferSizes = [];
+    // ANGLE/WARP rejects optional float renderbuffer formats even though it
+    // supports the corresponding float textures. Keep the WebGL renderbuffer
+    // identity while attaching a texture-backed storage object for those
+    // formats.
+    private readonly Dictionary<uint, uint> _emulatedFloatRenderbuffers = [];
     private uint? _boundRenderbuffer;
     private readonly Dictionary<uint, IDisposable> _textureReservations = [];
     private readonly Dictionary<uint, long> _textureSizes = [];
@@ -375,7 +380,7 @@ internal sealed partial class AngleNativeWebGlContext : IDisposable, INativeWebG
                 foreach (var feedback in _transformFeedbacks.ToArray()) { try { var value = feedback; _gl.DeleteTransformFeedbacks(1, ref value); } catch { } }
                 _programs.Clear(); _shaders.Clear();
                 foreach (var reservation in _renderbufferReservations.Values) { try { reservation.Dispose(); } catch { } }
-                _buffers.Clear(); _textures.Clear(); _framebuffers.Clear(); _renderbuffers.Clear(); _textureSizes.Clear(); _textureParameters.Clear(); _textureTargets.Clear(); _textureLevels.Clear(); _textureLevelSizes.Clear(); _renderbufferReservations.Clear(); _renderbufferSizes.Clear(); _vertexArrays.Clear(); _transformFeedbacks.Clear();
+                _buffers.Clear(); _textures.Clear(); _framebuffers.Clear(); _renderbuffers.Clear(); _textureSizes.Clear(); _textureParameters.Clear(); _textureTargets.Clear(); _textureLevels.Clear(); _textureLevelSizes.Clear(); _renderbufferReservations.Clear(); _renderbufferSizes.Clear(); _emulatedFloatRenderbuffers.Clear(); _vertexArrays.Clear(); _transformFeedbacks.Clear();
             }
             catch { }
             finally { ReleaseCurrentLocked(); }

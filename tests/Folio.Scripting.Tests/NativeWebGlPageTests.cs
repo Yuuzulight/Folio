@@ -1072,6 +1072,29 @@ public sealed class NativeWebGlPageTests
     }
 
     [Fact]
+    public void NativeWebGl2FloatRenderbuffersRemainFramebufferCompleteOnWarp()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var engine = new JintScriptEngine();
+        ConfigureWarp(engine);
+        using var document = Document.Parse("<canvas id='c' width='2' height='2'></canvas>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = true }, Raster = new SkiaRasterBackend(),
+        });
+        DomBindings.Install(engine, document);
+        try
+        {
+            engine.Evaluate("var gl=document.getElementById('c').getContext('webgl2',{antialias:false,depth:false});var f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);var r=gl.createRenderbuffer();gl.bindRenderbuffer(gl.RENDERBUFFER,r);gl.renderbufferStorage(gl.RENDERBUFFER,gl.RGBA32F,2,2);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.RENDERBUFFER,r);var status=gl.checkFramebufferStatus(gl.FRAMEBUFFER);gl.clearColor(.25,.5,.75,1);gl.clear(gl.COLOR_BUFFER_BIT);var px=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);");
+            Assert.Equal(0, engine.Evaluate("gl.getError()").AsNumber());
+            Assert.Equal(0x8CD5, engine.Evaluate("status").AsNumber());
+            Assert.InRange(engine.Evaluate("px[0]").AsNumber(), 62, 65);
+            Assert.InRange(engine.Evaluate("px[1]").AsNumber(), 127, 129);
+            Assert.InRange(engine.Evaluate("px[2]").AsNumber(), 190, 193);
+        }
+        finally { DomBindings.Dispose(engine); }
+    }
+
+    [Fact]
     public void NativeTextureResourcesRetireAcrossCapabilityLossAndRestore()
     {
         if (!OperatingSystem.IsWindows()) return;

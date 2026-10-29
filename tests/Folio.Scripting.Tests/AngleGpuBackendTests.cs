@@ -216,8 +216,19 @@ public sealed class AngleGpuBackendTests
         Assert.True(native.TryCreateRenderbuffer(out var renderbuffer, out var failure), failure?.Message);
         Assert.True(native.TryBindRenderbuffer(0x8D41, renderbuffer, out failure), failure?.Message);
         var before = device.ReservedBytes;
-        Assert.False(native.TryRenderbufferStorage(0x8D41, 0x881A /* RGBA16F: unsupported by WARP */, 2, 2, out failure));
-        Assert.Equal(before, device.ReservedBytes);
+        Assert.True(native.TryRenderbufferStorage(0x8D41, 0x881A /* RGBA16F */, 2, 2, out failure), failure?.Message);
+        Assert.True(device.ReservedBytes > before);
+        Assert.True(native.TryCreateFramebuffer(out var framebuffer, out failure), failure?.Message);
+        Assert.True(native.TryBindFramebuffer(0x8D40, framebuffer, out failure), failure?.Message);
+        Assert.True(native.TryFramebufferRenderbuffer(0x8D40, 0x8CE0, 0x8D41, renderbuffer, out failure), failure?.Message);
+        Assert.True(native.TryCheckFramebufferStatus(0x8D40, out var status, out failure), failure?.Message);
+        Assert.Equal(0x8CD5u /* FRAMEBUFFER_COMPLETE */, status);
+        Assert.True(native.TryClear(0.25f, 0.5f, 0.75f, 1, 0x4000, out failure), failure?.Message);
+        var pixels = new byte[16];
+        Assert.True(native.TryReadPixels(0, 0, 2, 2, pixels, out failure), failure?.Message);
+        Assert.InRange(pixels[0], 62, 65);
+        Assert.InRange(pixels[1], 127, 129);
+        Assert.InRange(pixels[2], 190, 193);
         Assert.True(native.TryRenderbufferStorage(0x8D41, 0x8058 /* RGBA8 */, 2, 2, out failure), failure?.Message);
         Assert.True(device.ReservedBytes > before);
     }
