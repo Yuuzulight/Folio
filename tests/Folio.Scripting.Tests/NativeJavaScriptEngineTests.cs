@@ -598,6 +598,11 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal((ScriptBufferSourceKind.ArrayBuffer, 4, 0, 1, 4), (info.Kind, info.ByteLength, info.ByteOffset, info.ElementSize, info.Length));
         Assert.True(engine.TryDetachArrayBuffer(buffer));
         Assert.False(engine.TryGetArrayBufferBytes(buffer, out _));
+
+        var typed = engine.CreateTypedArray(ScriptBufferSourceKind.Uint8, [5, 6, 7]);
+        var backing = engine.GetProperty(typed, "buffer");
+        Assert.True(engine.TryDetachArrayBuffer(backing));
+        Assert.Equal(0d, engine.GetProperty(typed, "byteLength").AsNumber());
     }
 
     [Fact]

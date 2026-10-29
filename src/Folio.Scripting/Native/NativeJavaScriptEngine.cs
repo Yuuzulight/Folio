@@ -1370,12 +1370,17 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     private sealed class NativeBuffer : INativeBuffer
     {
-        private byte[] _storage;
+        private sealed class BufferStorage(byte[] bytes)
+        {
+            internal byte[] Bytes { get; set; } = bytes;
+            internal bool Detached { get; set; }
+        }
+        private readonly BufferStorage _storage;
         private readonly int _offset;
         private int _viewByteLength;
         internal NativeBuffer(ScriptBufferSourceKind kind, byte[] bytes, int elementSize)
-            : this(kind, bytes, 0, bytes.Length, elementSize) { }
-        private NativeBuffer(ScriptBufferSourceKind kind, byte[] storage, int offset, int viewByteLength, int elementSize)
+            : this(kind, new BufferStorage(bytes), 0, bytes.Length, elementSize) { }
+        private NativeBuffer(ScriptBufferSourceKind kind, BufferStorage storage, int offset, int viewByteLength, int elementSize)
         {
             Kind = kind;
             _storage = storage;
@@ -1400,13 +1405,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ScriptBufferSourceKind.DataView => "DataView",
             _ => "ArrayBuffer",
         };
-        internal byte[] Bytes => _storage;
+        internal byte[] Bytes => _storage.Bytes;
         internal int ElementSize { get; }
         internal int ByteOffset => IsAttached ? _offset : 0;
         internal int ByteLength => IsAttached ? _viewByteLength : 0;
         internal int Length => IsAttached ? _viewByteLength / ElementSize : 0;
-        internal bool IsAttached { get; private set; } = true;
-        internal void Detach() { _storage = []; _viewByteLength = 0; IsAttached = false; }
+        internal bool IsAttached => !_storage.Detached;
+        internal void Detach() { _storage.Bytes = []; _storage.Detached = true; _viewByteLength = 0; }
         public bool TryGetProperty(string name, out object? value)
         {
             if (!IsAttached) { value = name is "byteLength" or "length" or "byteOffset" ? 0d : null; return name is "byteLength" or "length" or "byteOffset"; }
@@ -1415,7 +1420,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 "byteLength" => (double)ByteLength,
                 "length" => (double)Length,
                 "byteOffset" => (double)ByteOffset,
-                "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, Bytes, 0, Bytes.Length, 1),
+                "buffer" => new NativeBuffer(ScriptBufferSourceKind.ArrayBuffer, _storage, 0, Bytes.Length, 1),
                 "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     var start = args.Count > 0 ? RelativeIndex(Number(args[0]), Length) : 0;
@@ -1428,7 +1433,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     var start = args.Count > 0 ? RelativeIndex(Number(args[0]), Length) : 0;
                     var end = args.Count > 1 ? RelativeIndex(Number(args[1]), Length) : Length;
                     if (end < start) end = start;
-                    return new NativeBuffer(Kind, Bytes, _offset + start * ElementSize, (end - start) * ElementSize, ElementSize);
+                    return new NativeBuffer(Kind, _storage, _offset + start * ElementSize, (end - start) * ElementSize, ElementSize);
                 }),
                 "set" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
