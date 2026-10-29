@@ -78,6 +78,14 @@ internal static class PathGeometry
         {
             if (subpath.Points.Length < 3)
                 continue;
+            // Glyph runs are already transformed into device space by the
+            // software text path. Reusing their immutable point arrays avoids
+            // a second full allocation/copy during every replay frame.
+            if (transform.Equals(Matrix33.Identity))
+            {
+                polygons.Add(subpath.Points);
+                continue;
+            }
             var points = new Vector2[subpath.Points.Length];
             for (var i = 0; i < points.Length; i++)
                 points[i] = transform.Apply(subpath.Points[i]);
