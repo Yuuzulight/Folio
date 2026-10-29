@@ -730,6 +730,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("ac", engine.Evaluate("['a', 'b', 'c'].toSpliced(1, 1).join('')").AsString());
         Assert.Equal("ababe", engine.Evaluate("['a', 'b', 'c', 'd', 'e'].copyWithin(2, 0, 2).join('')").AsString());
         Assert.Equal("i", engine.Evaluate("'folio'.at(-2)").AsString());
+        Assert.Equal("folionative", engine.Evaluate("'folio'.concat('native')").AsString());
         Assert.True(engine.Evaluate("'folio'.at(99)").IsUndefined);
         Assert.Equal(128512d, engine.Evaluate("'😀'.codePointAt(0)").AsNumber());
         Assert.Equal(3d, engine.Evaluate("'folio'.indexOf('i', 2)").AsNumber());
