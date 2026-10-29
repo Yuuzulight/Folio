@@ -1153,6 +1153,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     private static double ParseFloat(string text)
     {
         text = text.Trim();
+        if (text.StartsWith("Infinity", StringComparison.Ordinal)) return double.PositiveInfinity;
+        if (text.StartsWith("-Infinity", StringComparison.Ordinal)) return double.NegativeInfinity;
         for (var length = text.Length; length > 0; length--)
             if (double.TryParse(text[..length], NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return value;
         return double.NaN;
