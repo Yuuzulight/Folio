@@ -314,7 +314,15 @@ internal static class ServiceWorkerBindings
                         if (pageOrigin && scriptOrigin && pageOrigin !== scriptOrigin)
                             return Promise.reject(new DOMException('The service-worker script is cross-origin.', 'SecurityError'));
                     } catch (_) { }
-                    var scope = (options && options.scope) || '/';
+                    var scope = options && options.scope;
+                    if (!scope) {
+                        try {
+                            var scriptUrl = new URL(url, base || undefined);
+                            var scriptPath = scriptUrl.pathname || '/';
+                            var separator = scriptPath.lastIndexOf('/');
+                            scope = separator >= 0 ? scriptPath.slice(0, separator + 1) : '/';
+                        } catch (_) { scope = '/'; }
+                    }
                     try {
                         var scopeText = String(scope);
                         // Relative and root scopes are already constrained by the registering
