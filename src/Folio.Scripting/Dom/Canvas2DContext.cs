@@ -25,6 +25,14 @@ internal sealed class CanvasDrawingState
     public double ShadowBlur;
     public double ShadowOffsetX;
     public double ShadowOffsetY;
+    // Shadow filters are immutable for a given drawing state. Cache the
+    // generated filter so animated canvases do not allocate one array and one
+    // filter object for every shadowed shape on every frame.
+    public Filter[]? CachedShadowFilters;
+    public Rgba CachedShadowFilterColor;
+    public double CachedShadowFilterBlur;
+    public double CachedShadowFilterOffsetX;
+    public double CachedShadowFilterOffsetY;
     public string Filter = "none";
     public Filter[]? FilterPrimitives;
     public bool ImageSmoothingEnabled = true;
@@ -250,7 +258,22 @@ internal sealed partial class Canvas2DContext
         {
             // The shadow takes its alpha from the shape drawn at globalAlpha, so the colour's own is all it adds.
             var color = State.ShadowColor;
-            canvas.PushLayer(new LayerOptions(1, [new Filter(FilterKind.DropShadow, (float)State.ShadowBlur / 2, Offset: new Vector2((float)State.ShadowOffsetX, (float)State.ShadowOffsetY), Color: color)]));
+            if (State.CachedShadowFilters is null
+                || State.CachedShadowFilterColor != color
+                || State.CachedShadowFilterBlur != State.ShadowBlur
+                || State.CachedShadowFilterOffsetX != State.ShadowOffsetX
+                || State.CachedShadowFilterOffsetY != State.ShadowOffsetY)
+            {
+                State.CachedShadowFilters = [new Filter(FilterKind.DropShadow,
+                    (float)State.ShadowBlur / 2,
+                    Offset: new Vector2((float)State.ShadowOffsetX, (float)State.ShadowOffsetY),
+                    Color: color)];
+                State.CachedShadowFilterColor = color;
+                State.CachedShadowFilterBlur = State.ShadowBlur;
+                State.CachedShadowFilterOffsetX = State.ShadowOffsetX;
+                State.CachedShadowFilterOffsetY = State.ShadowOffsetY;
+            }
+            canvas.PushLayer(new LayerOptions(1, State.CachedShadowFilters));
             layers++;
         }
         if (State.FilterPrimitives is { } filters)
