@@ -28,9 +28,9 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | Milestone | Status | Open |
 |---|---|---|
 | 0. Study and architecture: how each part of an engine works, written up as Folio's own design in `docs/study`. | Done | 0 |
-| 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana | 0 |
+| 1. Static rendering: parsing, cascade, block, inline, flex and grid layout, text, images and painting. Ships as a WinForms control and a render-to-image API. | Done, in use in Mana; CI fuzz job still times out after a zero-failure run | 0 |
 | 2. Static parity: gradients, shadows, transforms, transitions and animations, web fonts, and SVG. | Done | 0 |
-| 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done | 0 |
+| 3. Interaction: scrolling, hover, links, text selection, focus, forms and text input, incremental relayout and repaint. | Done; performance target remains an advisory measurement | 0 |
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress on audit branch/PR #672 only: recovery is not merged to `main`; scripted startup/memory targets and four strict D1 raster mismatches remain | 6 |
 | 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path is verified; the canvas frame-time gate remains open | 1 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress: capability slices pass, but backend, device, transport and isolation acceptance remains open | 15 |
