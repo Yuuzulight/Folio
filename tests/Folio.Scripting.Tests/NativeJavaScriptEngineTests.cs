@@ -828,6 +828,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(2d, engine.Evaluate("r.lastIndex").AsNumber());
         Assert.True(engine.Evaluate("r.test('ba')").AsBoolean() == false);
         Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
+        Assert.True(engine.Evaluate("r.lastIndex=0; r.test('ba')").AsBoolean() == false);
+        Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
     }
 
     [Fact]

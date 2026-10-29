@@ -1078,7 +1078,10 @@ internal sealed class JavaScriptEvaluator
             var start = stateful ? Math.Clamp(LastIndex, 0, input.Length) : 0;
             var match = _regex.Match(input, start);
             if (Flags.Contains('y') && match.Success && match.Index != start)
+            {
+                LastIndex = 0;
                 return null;
+            }
             if (stateful)
                 LastIndex = match.Success ? match.Index + match.Length : 0;
             return match.Success ? match : null;
