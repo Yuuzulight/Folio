@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product Features Accordion</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --brand: #2563eb;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  main {
+    max-width: 680px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  p.sub { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+  .accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .acc-item {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .acc-header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+  }
+  .acc-header:hover {
+    background: #f1f5f9;
+  }
+  .acc-header:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: -2px;
+  }
+  .chevron {
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg);
+    transition: transform 0.2s;
+  }
+  .acc-header[aria-expanded="true"] .chevron {
+    transform: rotate(-135deg);
+  }
+  .acc-content {
+    padding: 0 20px 18px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .acc-content[hidden] {
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Product Architecture</h1>
+    <p class="sub">Explore core modules and deployment capabilities.</p>
+    <div class="accordion" id="faq-acc">
+      <div class="acc-item">
+        <button class="acc-header" aria-expanded="true" aria-controls="sec-1">
+          <span>Sandbox Isolation Architecture</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="acc-content" id="sec-1">
+          Every script engine runs inside an AppContainer token with Job Object CPU and memory caps, ensuring unprivileged execution without network access.
+        </div>
+      </div>
+      <div class="acc-item">
+        <button class="acc-header" aria-expanded="false" aria-controls="sec-2">
+          <span>Deterministic Virtual Clock</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="acc-content" id="sec-2" hidden>
+          Timers, frame animation ticks, and random number seeds synchronize through a virtual clock harness to eliminate rendering jitter.
+        </div>
+      </div>
+      <div class="acc-item">
+        <button class="acc-header" aria-expanded="false" aria-controls="sec-3">
+          <span>Shared Memory IPC Framing</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="acc-content" id="sec-3" hidden>
+          Display lists and raster buffers stream through length-prefixed shared memory primitives directly to host presentation surfaces.
+        </div>
+      </div>
+    </div>
+  </main>
+<script>
+  const buttons = document.querySelectorAll('.acc-header');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+      buttons.forEach(other => {
+        other.setAttribute('aria-expanded', 'false');
+        const target = document.getElementById(other.getAttribute('aria-controls'));
+        if (target) target.hidden = true;
+      });
+      if (!isExpanded) {
+        btn.setAttribute('aria-expanded', 'true');
+        const target = document.getElementById(btn.getAttribute('aria-controls'));
+        if (target) target.hidden = false;
+      }
+    });
+  });
+</script>
+</body>
+</html>

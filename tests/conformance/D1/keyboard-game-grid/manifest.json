@@ -1,0 +1,24 @@
+{
+  "prompt": "A 5x5 grid collector game built with pure CSS grid and HTML cells without canvas. Use Arrow keys to move the player character to collect coins and reach the exit, updating score and step counters.",
+  "features": [
+    "script",
+    "dom-events",
+    "grid",
+    "keyboard",
+    "aria",
+    "flex",
+    "custom-properties"
+  ],
+  "viewport": 800,
+  "interaction": [
+    "exists #game-grid",
+    "text #score 0",
+    "text #moves 0",
+    "key ArrowRight",
+    "text #moves 1",
+    "key ArrowDown",
+    "text #moves 2",
+    "click #btn-reset-game",
+    "text #moves 0"
+  ]
+}
