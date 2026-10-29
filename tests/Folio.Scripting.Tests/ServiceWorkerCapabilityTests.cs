@@ -99,7 +99,7 @@ public sealed class ServiceWorkerCapabilityTests
         DomBindings.UpdateCapabilities(engine, new FeatureCapabilities { ServiceWorkers = true });
         Assert.True(engine.Evaluate("let newRegistration; navigator.serviceWorker.register('new.js').then(r => newRegistration = r); true").AsBoolean());
         engine.PerformMicrotaskCheckpoint();
-        Assert.Equal("new.js", engine.Evaluate("newRegistration.scriptURL").AsString());
+        Assert.Equal("https://worker.example/new.js", engine.Evaluate("newRegistration.scriptURL").AsString());
     }
 
     [Fact]
