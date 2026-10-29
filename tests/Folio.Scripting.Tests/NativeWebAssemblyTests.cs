@@ -300,6 +300,23 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void JavaScriptBindingExposesNativeExternrefTables()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            4, 4, 1, 0x6f, 0, 1,
+            7, 7, 1, 3, (byte)'t', (byte)'a', (byte)'b', 1, 0
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.tab.set(0,o); i.exports.tab.get(0)===o;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
     public void NativeEngineAcceptsImportedNullFunctionTables()
     {
         // (module (import "env" "tab" (table 1 funcref)) (export "tab" (table 0)))
