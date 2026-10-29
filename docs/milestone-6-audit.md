@@ -695,6 +695,13 @@ every capability row. The native `all` row passes locally through the real
 content process (12/12 scripting checks and 8/8 WinForms lifecycle checks).
 This closes the previous CI-evidence gap while leaving the production cutover
 and dependency-removal requirements open.
+
+The 30-frame canvas benchmark now reports the performance split explicitly:
+native D5/D7 artifacts all stay below the 16.7 ms p95 target (D5 animated bars
+5.99 ms, D7 snake 10.41 ms), while compatibility/Jint still misses D5 animated
+bars at 31.83 ms because of script/update time. This isolates the remaining
+performance issue to the compatibility path and keeps #519 open until that
+path is retired or brought under the target.
 The Windows build also runs the complete conformance report with
 `FOLIO_CONFORMANCE_ENGINE=native`, so the native D1–D14 and S1–S6 evidence is
 continuously checked in hosted CI.
