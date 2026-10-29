@@ -1,8 +1,9 @@
 # Milestones 0–5 acceptance audit
 
-Tracker refresh (2026-10-28): the GitHub milestones for M0 (Study and
-architecture) and M4 (Scripting foundations) are closed because all of their
-issues are closed. M5 remains open: its dependency-backed parity is verified,
+Tracker refresh (2026-10-29): M0 (Study and architecture) remains closed. M4
+(Scripting foundations) is reopened for recovery: #481, #482, and #484 were
+reopened and #676 is now assigned to M5 as the mandatory revert-reconciliation
+gate. M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
@@ -44,7 +45,7 @@ mandatory Folio-owned replacement gate in [replacement-gate.md](replacement-gate
 | 1 — Static rendering | HTML/DOM/CSS, layout, text, painting, resources, host view, reftests, fuzzing and CI | `docs/roadmap.md` M1 acceptance section; `Milestone1AcceptanceTests`; `Folio.Tests`, `Folio.RenderTests`, `Folio.Fuzz`, `Folio.WinForms.Tests`; S1/S3 12/12 conformance; Release benchmark | Verified; CI/static corpus wiring, reference pairs, and integration/safety projects are executable checks |
 | 2 — Static parity | transforms, filters, SVG, fonts, animation, selectors and static corpus parity | `Milestone2AcceptanceTests` enforces 12 reference-backed artifacts in each S1–S6 corpus and the SVG/font/image fuzz targets; S1–S6 conformance 12/12 each; 140 focused typography/SVG/allowlist tests; 123 focused reftest/headless/font tests; SVG and font fuzzing (0 failures) | Verified |
 | 3 — Interaction | scrolling, input, focus, selection, forms, accessibility, invalidation and incremental equivalence | `Milestone3AcceptanceTests` checks the M3 audit claim and executable interaction/equivalence suites; `docs/roadmap.md` M3 audit note; 115 focused interaction/accessibility/invalidation tests; 164 incremental-equivalence tests; S1–S6 interaction scripts and three-iteration performance evidence | Verified |
-| 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | `Milestone4AcceptanceTests` checks the content-process safety claims and executable process/scripting suites; `docs/milestone-4-scripting.md`; D1 2/2; 116 focused scripting/process tests; 4 focused WinForms watchdog/lifecycle tests; IPC fuzz 503,085 mutations with 0 failures | Verified |
+| 4 — Scripting foundations | sandbox/content process, event loop, DOM bindings, timers/promises, observers, storage and classifier routing | `Milestone4AcceptanceTests` and the focused process/scripting suites cover the implemented surface, but the revert-recovery gate is tracked by #676: the expanded D1 corpus, classifier rules, scripted benchmark, standards URL parser, persistent storage, and three DOM APIs must be restored and reverified | Open — recovery required |
 | 5 — Scripted parity | mutation observers, CSSOM, canvas, fetch, diagrams, JSX/library artifacts and D2–D7 corpus | `Milestone5AcceptanceTests` enforces ten reference-backed artifacts in each D2–D7 category and the qualified native/dependency status; `docs/roadmap.md` M5 audit result; dependency-backed and native D2–D7 60/60; the artifact-level canvas benchmark reports per-stage p95 and currently exposes misses against 16.7 ms; 370 focused scripting tests passed with 6 documented software-backend skips; 26 diagram and 17 cache/golden tests passed | Dependency-backed corpus and native conformance are verified, but the frame-time gate remains open (#519) and the broader Folio-owned replacement gate remains open |
 
 The M5 result is intentionally qualified: its acceptance is complete for the
