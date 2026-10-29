@@ -26,16 +26,17 @@ against the 16.70 ms requirement; this keeps M5 open under #519. Native
 conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
 
-The current scripted-process benchmark also keeps M4 open: after the apphost
-launch fix in `d8aa7ff4` and the calibration warm-up in the working tree, cold
-first frame is 1,289.8 ms against the 400 ms target, warm D1 first frames range
-from 24.7 to 333.6 ms against the 50 ms target, and the reused process working
-set grows from 63.2 MB to 109.8 MB against the 80 MB target. The calibrated
-script-size samples are 35.8 ms (1 KB), 55.2 ms (10 KB), 41.0 ms (30 KB),
-52.1 ms (50 KB), 52.7 ms (100 KB), and 202.8 ms (250 KB); the first sample is
-measured after a dedicated warm-up so it does not include process/JIT bootstrap.
-These measurements are recorded in #677; the benchmark emits warnings and does
-not silently waive the gate.
+The current scripted-process benchmark also keeps M4 open. The CI path now
+publishes the content host with ReadyToRun before measuring it, as required by
+the original cold-start target. A local Release run of that same published
+host recorded cold first frame at 1,032.6 ms against the 400 ms target, warm D1
+first frames from 12.5 to 113.6 ms against the 50 ms target, and reused-process
+working set from 62.8 MB to 97.1 MB against the 80 MB target. This is a
+material improvement over the build-only host, but it does not pass the gate.
+The calibrated script-size samples are measured after a dedicated warm-up so
+the first row does not include process/JIT bootstrap. These measurements are
+recorded in #677; the benchmark emits warnings and does not silently waive the
+gate.
 
 Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 `Folio.Tests` 1,961/1,961 with one documented symbolic-link privilege skip,

@@ -119,8 +119,13 @@ jobs:
       # M4 scripted startup, first-paint and content-process working-set evidence.
       # The command reports target misses as warnings while #677 is open; keeping it
       # in the Windows matrix prevents the recovery gate from becoming stale.
+      - name: Publish ReadyToRun content host
+        if: matrix.os == 'windows-latest'
+        run: dotnet publish tools/Folio.ContentHost/Folio.ContentHost.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -o tools/Folio.ContentHost/bin/Release/net10.0/win-x64/publish --no-restore
       - name: Scripted process benchmarks
         if: matrix.os == 'windows-latest'
+        env:
+          FOLIO_CONTENT_HOST: ${{ github.workspace }}\tools\Folio.ContentHost\bin\Release\net10.0\win-x64\publish\Folio.ContentHost.exe
         run: dotnet tests/Folio.Benchmarks/bin/Release/net10.0/Folio.Benchmarks.dll scripted
 
       - name: Sandboxed GPU memory

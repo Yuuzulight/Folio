@@ -49,11 +49,17 @@ public static class ScriptedProcessBenchmark
     private static async Task<int> RunCoreAsync(string[]? args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Parent!.Name;
-        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
-        if (!File.Exists(host))
+        var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
+        if (string.IsNullOrWhiteSpace(host))
         {
-            host = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0", "Folio.ContentHost.dll");
+            host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+                "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+            if (!File.Exists(host))
+                host = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0", "Folio.ContentHost.dll");
+        }
+        else
+        {
+            host = Path.GetFullPath(host);
         }
 
         // On Windows, launch the apphost directly instead of spawning a new
