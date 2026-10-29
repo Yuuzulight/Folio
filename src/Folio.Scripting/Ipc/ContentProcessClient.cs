@@ -291,6 +291,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         // never leaves a camera or microphone session live until the caller
         // happens to dispose the client.
         ReleaseMediaCaptureSessions();
+        _session.StopMediaOutput();
         try
         {
             if (!_process.HasExited) { _job?.Terminate(); _process.Kill(entireProcessTree: true); }
