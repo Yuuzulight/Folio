@@ -1,5 +1,16 @@
 # Milestone 6 status
 
+## Focused runtime refresh — 2026-10-30
+
+The native runtime audit also passes the isolated capability slices currently
+available for workers, nested workers, iframes, and WebRTC: `WorkerCapabilityTests`
+54/54, `NestedWorkerCapabilityTests` 7/7, `IframeLifecycleTests` 27/27, and
+`WebRtcCapabilityTests` 11/11. These checks establish deterministic lifecycle,
+capability-policy, structured-clone, and local transport behavior. They do not
+close the broader M6 acceptance rows that require full web-platform coverage,
+real device/network transport, iframe visual/watchdog parity, or process-death
+and offline-reopen isolation.
+
 ## Latest focused audit refresh
 
 Current Release slices pass WebRTC/capture/media-capture 30/30,
