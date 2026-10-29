@@ -322,6 +322,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         };
         _bindings["Math"] = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["E"] = Math.E, ["LN2"] = Math.Log(2), ["LN10"] = Math.Log(10), ["LOG2E"] = Math.Log2(Math.E), ["LOG10E"] = Math.Log10(Math.E), ["PI"] = Math.PI, ["SQRT1_2"] = Math.Sqrt(0.5), ["SQRT2"] = Math.Sqrt(2),
             ["abs"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Abs(Number(args, 0))),
             ["floor"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Floor(Number(args, 0))),
             ["ceil"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Ceiling(Number(args, 0))),
