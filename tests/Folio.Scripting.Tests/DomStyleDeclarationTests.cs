@@ -1767,6 +1767,23 @@ public sealed class DomStyleDeclarationTests
     }
 
     [Fact]
+    public void LocalStoragePersistsThroughArtifactStorage()
+    {
+        var storage = new ArtifactMemoryStorage();
+        var document = TreeBuilder.Parse("<div></div>");
+        using (var first = new JintScriptEngine())
+        {
+            DomBindings.Install(first, document, artifactStorage: storage);
+            Assert.Equal("saved", first.Evaluate("localStorage.setItem('answer', 'saved'); localStorage.getItem('answer')").AsString());
+        }
+
+        using var second = new JintScriptEngine();
+        DomBindings.Install(second, TreeBuilder.Parse("<div></div>"), artifactStorage: storage);
+        Assert.Equal("saved", second.Evaluate("localStorage.getItem('answer')").AsString());
+        Assert.Equal(1, second.Evaluate("localStorage.length").AsNumber());
+    }
+
+    [Fact]
     public void UrlSearchParamsSupportsBasicParsingAndMutation()
     {
         var document = TreeBuilder.Parse("<div></div>");

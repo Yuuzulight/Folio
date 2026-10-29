@@ -167,6 +167,35 @@ public static class DomBindings
             })
             .DefineMethod("revoke", (_, _, args) => { if (args.Length > 0) blobSources.TryRemove(args[0].AsString() ?? "", out _); return ScriptValue.Undefined; });
         engine.SetGlobalProperty("__folio_blob_store", engine.CreateHostObject(blobStore, context));
+        // localStorage is artifact-scoped persistence, not process-local scratch state.
+        // Keep the storage backend behind a host object so the page never receives the
+        // trusted IArtifactStorage implementation itself.
+        var storage = new HostObjectTemplate("ArtifactStorage")
+            .DefineMethod("read", (target, _, args) =>
+            {
+                var key = args.Length > 0 ? args[0].AsString() ?? "" : "";
+                var value = context.ArtifactStorage?.Read("folio/local-storage/" + key);
+                return value is null ? ScriptValue.Null : ScriptValue.FromString(value);
+            })
+            .DefineMethod("write", (target, _, args) =>
+            {
+                if (context.ArtifactStorage is not null && args.Length > 1)
+                    context.ArtifactStorage.Write("folio/local-storage/" + (args[0].AsString() ?? ""), args[1].AsString() ?? "");
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("delete", (target, _, args) =>
+            {
+                if (context.ArtifactStorage is not null && args.Length > 0)
+                    context.ArtifactStorage.Delete("folio/local-storage/" + (args[0].AsString() ?? ""));
+                return ScriptValue.Undefined;
+            })
+            .DefineMethod("keys", (target, _, _) =>
+            {
+                var prefix = "folio/local-storage/";
+                var keys = context.ArtifactStorage?.Keys(prefix).Select(k => k[prefix.Length..]).ToArray() ?? [];
+                return engine.CreateArray(keys.Select(ScriptValue.FromString).ToArray());
+            });
+        engine.SetGlobalProperty("__folio_storage", engine.CreateHostObject(storage, context));
         Contexts.Remove(engine);
         Contexts.Add(engine, context);
         context.InitializeMediaElements();
@@ -323,19 +352,20 @@ public static class DomBindings
             FormData.prototype.entries = function() { return this._entries[Symbol.iterator](); };
             FormData.prototype.keys = function() { return this._entries.map(x => x[0])[Symbol.iterator](); };
             FormData.prototype.values = function() { return this._entries.map(x => x[1])[Symbol.iterator](); };
-            function makeStorage() {
+            function makeStorage(persistent) {
                 const data = Object.create(null);
+                if (persistent) for (const key of __folio_storage.keys()) { const value = __folio_storage.read(key); if (value !== null) data[key] = value; }
                 const storage = {
                     get length() { return Object.keys(data).length; },
                     key: function(index) { return Object.keys(data)[index] ?? null; },
                     getItem: function(key) { key = String(key); return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
-                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; },
-                    removeItem: function(key) { delete data[String(key)]; },
-                    clear: function() { for (const key of Object.keys(data)) delete data[key]; }
+                    setItem: function(key, value) { key = String(key); value = String(value); let size = 0; for (const k of Object.keys(data)) if (k !== key) size += k.length + data[k].length; size += key.length + value.length; if (size > 5 * 1024 * 1024) throw new DOMException('Storage quota exceeded', 'QuotaExceededError'); data[key] = value; if (persistent) __folio_storage.write(key, value); },
+                    removeItem: function(key) { key = String(key); delete data[key]; if (persistent) __folio_storage.delete(key); },
+                    clear: function() { for (const key of Object.keys(data)) { delete data[key]; if (persistent) __folio_storage.delete(key); } }
                 };
                 return new Proxy(storage, { get: function(target, key) { if (key in target) return target[key]; return target.getItem(key); }, set: function(target, key, value) { target.setItem(key, value); return true; }, deleteProperty: function(target, key) { target.removeItem(key); return true; }, ownKeys: function() { return Object.keys(data); } });
             }
-            globalThis.localStorage = makeStorage();
+            globalThis.localStorage = makeStorage(true);
             globalThis.sessionStorage = makeStorage();
             globalThis.URLSearchParams = function(init) {
                 const result = { _pairs: [] };
