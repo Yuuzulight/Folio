@@ -8,6 +8,13 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void DecodesUnicodeAndHexStringEscapes()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(">:A", engine.Evaluate("'\\u003E' + ':' + '\\x41'").AsString());
+    }
+
+    [Fact]
     public void ExecutesThroughTheScriptEngineInterface()
     {
         using var engine = new NativeJavaScriptEngine();

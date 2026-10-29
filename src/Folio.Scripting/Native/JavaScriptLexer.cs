@@ -134,6 +134,21 @@ internal sealed class JavaScriptLexer
             if (_index >= _source.Length) throw Error("The string escape is incomplete.");
             var escaped = _source[_index];
             Advance();
+            if (escaped is 'u' or 'x')
+            {
+                var digits = escaped == 'u' ? 4 : 2;
+                if (_index + digits > _source.Length) throw Error("The Unicode escape is incomplete.");
+                var codePoint = 0;
+                for (var i = 0; i < digits; i++)
+                {
+                    var digit = HexValue(_source[_index]);
+                    if (digit < 0) throw Error("The Unicode escape is invalid.");
+                    codePoint = (codePoint << 4) | digit;
+                    Advance();
+                }
+                value.Append((char)codePoint);
+                continue;
+            }
             value.Append(escaped switch
             {
                 'n' => '\n', 'r' => '\r', 't' => '\t', 'b' => '\b', 'f' => '\f', 'v' => '\v',
@@ -143,6 +158,14 @@ internal sealed class JavaScriptLexer
         }
         throw Error("The string literal is unterminated.");
     }
+
+    private static int HexValue(char value) => value switch
+    {
+        >= '0' and <= '9' => value - '0',
+        >= 'a' and <= 'f' => value - 'a' + 10,
+        >= 'A' and <= 'F' => value - 'A' + 10,
+        _ => -1,
+    };
 
     private JavaScriptToken ReadTemplate(int offset, int line, int column)
     {
