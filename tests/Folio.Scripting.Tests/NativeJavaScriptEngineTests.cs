@@ -668,6 +668,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("😀", engine.Evaluate("String.fromCodePoint(0x1f600)").AsString());
         Assert.Equal(12d, engine.Evaluate("Number.parseInt('12px')").AsNumber());
         Assert.Throws<WebIdlException>(() => engine.Evaluate("String.fromCodePoint(0x110000)"));
+        Assert.Equal("1970-01-01T00:00:00.000Z", engine.Evaluate("new Date(0).toISOString()").AsString());
+        Assert.Equal(0d, engine.Evaluate("Date.parse('1970-01-01T00:00:00Z')").AsNumber());
         Assert.True(engine.Evaluate("console.log('ok'); return true;").AsBoolean());
     }
 

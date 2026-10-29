@@ -833,6 +833,13 @@ internal sealed class JavaScriptEvaluator
             if (name == "apply") return (Func<IReadOnlyList<object?>, object?>)(args => nativeFunction.Invoke(args.Count > 1 && args[1] is IReadOnlyList<object?> callArgs ? callArgs : []));
         }
         if (target is NativeJavaScriptEngine.INativePromise promise && promise.TryGetProperty(name, out var promiseValue)) return promiseValue;
+        if (target is NativeJavaScriptEngine.NativeDate date)
+        {
+            if (name is "getTime" or "valueOf") return (Func<IReadOnlyList<object?>, object?>)(_ => date.Milliseconds);
+            if (name == "toISOString") return (Func<IReadOnlyList<object?>, object?>)(_ => double.IsNaN(date.Milliseconds)
+                ? FormatDateInvalid()
+                : DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        }
         if (target is IList<object?> values)
         {
             if (name == "length") return (double)values.Count;
@@ -1747,6 +1754,7 @@ internal sealed class JavaScriptEvaluator
     }
 
     private static string StringValue(object? value) => value switch { null => "null", UndefinedValue => "undefined", bool boolean => boolean ? "true" : "false", double number => number.ToString("G15", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };
+    private static string FormatDateInvalid() => throw WebIdlException.RangeError("Invalid time value.");
     private object? UndefinedOrNull() => _preserveUndefined ? UndefinedValue.Instance : null;
 
     internal sealed class UndefinedValue

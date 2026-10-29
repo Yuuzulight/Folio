@@ -448,12 +448,15 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             return null;
         });
         _bindings["Function"] = (Func<IReadOnlyList<object?>, object?>)(args => CreateDynamicFunction(args));
-        var dateConstructor = new NativeFunction(args => new NativeDate(args.Count > 0 ? NumberValue(args[0]) : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        var dateConstructor = new NativeFunction(args => new NativeDate(args.Count == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : ParseDateMilliseconds(args[0])));
         dateConstructor.SetProperty("prototype", new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["getTime"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date ? date.Milliseconds : double.NaN),
+            ["valueOf"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date ? date.Milliseconds : double.NaN),
+            ["toISOString"] = new NativeReceiverFunction((receiver, _) => receiver is NativeDate date && !double.IsNaN(date.Milliseconds) ? DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) : throw WebIdlException.RangeError("Invalid time value.")),
         });
         dateConstructor.SetProperty("now", (Func<IReadOnlyList<object?>, object?>)(_ => (double)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        dateConstructor.SetProperty("parse", (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NaN : ParseDateMilliseconds(args[0])));
         _bindings["Date"] = dateConstructor;
         _bindings["RegExp"] = new NativeFunction(args => JavaScriptEvaluator.RegexValue.Create("/" + (args.Count > 0 ? StringValue(args[0]) : string.Empty) + "/" + (args.Count > 1 ? StringValue(args[1]) : string.Empty)));
         _bindings["BigInt"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 ? NumberValue(args[0]) : 0d);
@@ -708,8 +711,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             return ToScriptValue(mapValue);
         if (target.Raw is NativeSet set && set.TryGetProperty(name, out var setValue))
             return ToScriptValue(setValue);
-        if (target.Raw is NativeDate date && name == "getTime")
-            return ToScriptValue(new NativeReceiverFunction((_, _) => date.Milliseconds));
+        if (target.Raw is NativeDate date)
+        {
+            if (name == "getTime" || name == "valueOf") return ToScriptValue(new NativeReceiverFunction((_, _) => date.Milliseconds));
+            if (name == "toISOString") return ToScriptValue(new NativeReceiverFunction((_, _) => !double.IsNaN(date.Milliseconds) ? DateTimeOffset.FromUnixTimeMilliseconds((long)date.Milliseconds).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) : throw WebIdlException.RangeError("Invalid time value.")));
+        }
         if (target.Raw is INativeBuffer buffer && buffer.TryGetProperty(name, out var bufferValue))
             return ToScriptValue(bufferValue);
         if (target.Raw is IReadOnlyList<object?> array && name == "length") return ScriptValue.FromNumber(array.Count);
@@ -1094,6 +1100,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
         _ => double.NaN,
     };
+    private static double ParseDateMilliseconds(object? value)
+    {
+        if (value is double number) return number;
+        if (value is int integer) return integer;
+        return DateTimeOffset.TryParse(StringValue(value), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+            ? parsed.ToUnixTimeMilliseconds()
+            : double.NaN;
+    }
     private static double MathMax(IReadOnlyList<object?> args)
     {
         var result = double.NegativeInfinity;
