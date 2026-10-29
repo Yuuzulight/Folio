@@ -691,3 +691,6 @@ every capability row. The native `all` row passes locally through the real
 content process (12/12 scripting checks and 8/8 WinForms lifecycle checks).
 This closes the previous CI-evidence gap while leaving the production cutover
 and dependency-removal requirements open.
+The Windows build also runs the complete conformance report with
+`FOLIO_CONFORMANCE_ENGINE=native`, so the native D1–D14 and S1–S6 evidence is
+continuously checked in hosted CI.

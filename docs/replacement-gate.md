@@ -311,3 +311,6 @@ compatibility engine and the Folio-owned native engine. The native process
 matrix and WinForms lifecycle slice pass locally for the `all` row (12/12 and
 8/8), making hosted sandbox coverage a required regression gate instead of an
 opt-in probe.
+The Windows build also runs the complete conformance report with
+`FOLIO_CONFORMANCE_ENGINE=native`; native conformance is therefore a hosted CI
+requirement rather than a local-only verification command.
