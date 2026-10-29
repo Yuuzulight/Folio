@@ -141,6 +141,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
             }),
+            ["forEach"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is not IReadOnlyList<object?> values) return JavaScriptEvaluator.UndefinedValue.Instance;
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
+                for (var index = 0; index < values.Count; index++)
+                    InvokeCallable(args[0]!, [values[index], (double)index, values]);
+                return JavaScriptEvaluator.UndefinedValue.Instance;
+            }),
+            ["filter"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
+                return values
+                    .Where((value, index) => JavaScriptEvaluator.Truth(InvokeCallable(args[0]!, [value, (double)index, values])))
+                    .ToList();
+            }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
@@ -911,7 +927,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             if (!_domPrototypes.TryGetValue(prototypeName, out var prototypeValue) || prototypeValue is not Dictionary<string, object?> prototype) return;
             foreach (var methodName in methodNames)
-                prototype[methodName] = new NativeReceiverFunction((receiver, args) => InvokeDomPrototypeMethod(receiver, methodName, args));
+            prototype[methodName] = new NativeReceiverFunction((receiver, args) => InvokeDomPrototypeMethod(receiver, methodName, args));
         }
 
         AddPrototypeMethods("Document", "createElement", "createElementNS", "createTextNode", "createComment", "createDocumentFragment", "getElementById", "querySelector", "querySelectorAll", "getElementsByTagName", "getElementsByClassName", "createEvent", "createRange", "addEventListener", "removeEventListener", "dispatchEvent");
@@ -1061,11 +1077,25 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         });
     }
 
-    private static object? InvokeDomPrototypeMethod(object? receiver, string name, IReadOnlyList<object?> args)
+    private object? InvokeDomPrototypeMethod(object? receiver, string name, IReadOnlyList<object?> args)
     {
-        if (receiver is not NativeHostValue host || !host.Template.TryGetMethod(name, out var method))
-            return null;
-        return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+        if (receiver is not NativeHostValue host) return null;
+        if (host.Template.TryGetMethod(name, out var method))
+            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+
+        // Generic DOM nodes use the script-level EventTarget dispatch tables.
+        // The native host prototypes are installed before DomEvents, so expose
+        // the EventTarget prototype methods here instead of silently returning
+        // undefined for add/remove/dispatchEvent.
+        if (name is "addEventListener" or "removeEventListener" or "dispatchEvent"
+            && _bindings.TryGetValue("EventTarget", out var eventTarget)
+            && eventTarget is INativeCallable eventTargetCallable
+            && eventTargetCallable.TryGetProperty("prototype", out var prototype)
+            && prototype is IReadOnlyDictionary<string, object?> properties
+            && properties.TryGetValue(name, out var eventMethod))
+            return JavaScriptEvaluator.InvokeWithReceiver(ReadProperty(eventMethod)!, host, args);
+
+        return null;
     }
     public void PerformMicrotaskCheckpoint()
     {
@@ -1768,6 +1798,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 value = receiverMethod;
                 return true;
             }
+            // Indexed host collections (NodeList/HTMLCollection and typed DOM
+            // views) are array-like.  Expose numeric property names through the
+            // same lookup path so Array.from(collection) preserves each host
+            // object instead of producing undefined entries.
+            if (int.TryParse(name, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                && index >= 0 && TryGetIndex(index, out value)) return true;
             if (Template.NamedGetter is not null)
             {
                 value = ToObject(Template.NamedGetter(Target, ScriptValue.FromObject(this), name));

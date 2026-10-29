@@ -362,6 +362,13 @@ internal sealed class JavaScriptParser
                 expression = Node(new JavaScriptMemberExpression(expression, name));
                 continue;
             }
+            if (Match("?."))
+            {
+                if (_current.Kind != JavaScriptTokenKind.Identifier) throw Error("Expected a member name after optional chaining");
+                var name = _current.Text; Take();
+                expression = Node(new JavaScriptMemberExpression(expression, name, Optional: true));
+                continue;
+            }
             if (Match("("))
             {
                 var arguments = new List<JavaScriptExpression>();

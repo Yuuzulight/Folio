@@ -799,7 +799,10 @@ internal sealed class JavaScriptEvaluator
 
     private object? Member(JavaScriptMemberExpression member)
     {
-        return MemberValue(Evaluate(member.Target), member.Name);
+        var target = Evaluate(member.Target);
+        return member.Optional && target is null or UndefinedValue
+            ? UndefinedValue.Instance
+            : MemberValue(target, member.Name);
     }
 
     private object? MemberValue(object? target, string name)

@@ -25,6 +25,19 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeArrayFromPreservesDomHostMethods()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body><button id='a'></button><button id='b'></button></body></html>", new FolioOptions
+        {
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("2|object|function|function", engine.Evaluate("const a=Array.from(document.querySelectorAll('button')); [a.length,typeof a[0],typeof a[0].addEventListener,typeof a.forEach].join('|')").AsString());
+    }
+
+    [Fact]
     public void NativeDeniedWorkerConstructorThrows()
     {
         using var engine = new NativeJavaScriptEngine();

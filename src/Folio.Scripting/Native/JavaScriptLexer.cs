@@ -78,7 +78,7 @@ internal sealed class JavaScriptLexer
             Advance(); Advance(); Advance();
             return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
         }
-        if (two is "=>" or "==" or "!=" or "<=" or ">=" or "&&" or "||" or "??" or "++" or "--" or "**" or "<<" or ">>" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=")
+        if (two is "=>" or "==" or "!=" or "<=" or ">=" or "&&" or "||" or "??" or "?." or "++" or "--" or "**" or "<<" or ">>" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=")
         {
             Advance(); Advance();
             return new(JavaScriptTokenKind.Punctuation, two, offset, line, column);

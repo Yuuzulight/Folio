@@ -11,7 +11,7 @@ internal sealed record JavaScriptUnaryExpression(string Operator, JavaScriptExpr
 internal sealed record JavaScriptUpdateExpression(string Operator, JavaScriptExpression Operand, bool Prefix) : JavaScriptExpression;
 internal sealed record JavaScriptBinaryExpression(string Operator, JavaScriptExpression Left, JavaScriptExpression Right) : JavaScriptExpression;
 internal sealed record JavaScriptConditionalExpression(JavaScriptExpression Condition, JavaScriptExpression WhenTrue, JavaScriptExpression WhenFalse) : JavaScriptExpression;
-internal sealed record JavaScriptMemberExpression(JavaScriptExpression Target, string Name) : JavaScriptExpression;
+internal sealed record JavaScriptMemberExpression(JavaScriptExpression Target, string Name, bool Optional = false) : JavaScriptExpression;
 internal sealed record JavaScriptCallExpression(JavaScriptExpression Callee, IReadOnlyList<JavaScriptExpression> Arguments) : JavaScriptExpression;
 internal sealed record JavaScriptArrayExpression(IReadOnlyList<JavaScriptExpression> Elements) : JavaScriptExpression;
 internal sealed record JavaScriptSpreadExpression(JavaScriptExpression Operand) : JavaScriptExpression;
