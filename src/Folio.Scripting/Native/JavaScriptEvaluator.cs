@@ -1052,6 +1052,7 @@ internal sealed class JavaScriptEvaluator
                 "multiline" => Flags.Contains('m'),
                 "dotAll" => Flags.Contains('s'),
                 "unicode" => Flags.Contains('u'),
+                "sticky" => Flags.Contains('y'),
                 "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return false;

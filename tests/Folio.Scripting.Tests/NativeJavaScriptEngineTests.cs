@@ -757,6 +757,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("gi", engine.Evaluate("new RegExp('a+', 'ig').flags").AsString());
         Assert.True(engine.Evaluate("new RegExp('a+', 'gi').global").AsBoolean());
         Assert.True(engine.Evaluate("new RegExp('a+', 'gi').ignoreCase").AsBoolean());
+        Assert.True(engine.Evaluate("new RegExp('a+', 'y').sticky").AsBoolean());
         Assert.True(engine.Evaluate("new RegExp('^a$', 'm').multiline").AsBoolean());
         Assert.True(engine.Evaluate("new RegExp('.', 's').dotAll").AsBoolean());
         Assert.True(engine.Evaluate("new RegExp('a.b', 's').test('a\\nb')").AsBoolean());
