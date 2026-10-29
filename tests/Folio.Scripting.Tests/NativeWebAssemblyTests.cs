@@ -351,6 +351,23 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void JavaScriptBindingBridgesImportedMutableExternrefGlobals()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            2, 10, 1, 3, (byte)'e', (byte)'n', (byte)'v', 1, (byte)'g', 3, 0x6f, 1,
+            7, 5, 1, 1, (byte)'g', 3, 0
+        };
+        using var engine = new JintScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var o={{answer:42}}; var source=new WebAssembly.Global({{value:'externref',mutable:true}},o); var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{env:{{g:source}}}}); var n={{answer:7}}; i.exports.g.value=n; source.value===n;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
     public void NativeEngineAcceptsImportedNullFunctionTables()
     {
         // (module (import "env" "tab" (table 1 funcref)) (export "tab" (table 0)))
