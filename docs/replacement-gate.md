@@ -5,6 +5,17 @@ implementations are allowed as intermediate delivery steps, but they do not
 count as Folio completion. No milestone, release, or completion report may
 waive, defer, or reclassify this gate as optional.
 
+## Current audit head — 2026-10-30
+
+The native worker, nested-worker, iframe, and WebRTC capability slices are
+green (54/54, 7/7, 27/27, and 11/11 respectively), and the full native
+scripting runner is 1,412/1,412. These are compatibility and Folio-owned
+runtime slices, not proof that production dependencies can be removed. Jint,
+SkiaSharp, HarfBuzzSharp, and Wasmtime remain in the production graph until
+the complete replacement gates below are met. The WARP float-renderbuffer
+probe also confirms that the current WebGL fallback is RGBA8 emulation, so it
+cannot be counted as a Folio-owned float backend.
+
 Folio is complete only when every replacement below is selected by production,
 has passed differential and failure-behavior verification, and its superseded
 production dependency has been removed:
