@@ -51,6 +51,9 @@ Current PR #658 head (`ec7a5d56`) adds the native glyph-cache cap check: parsed
 outlines and flattened paths share an 8 MiB per-font budget, and the stress
 test covers every Source Sans glyph at three tolerances. `SoftwareRasterTests`
 passes 39/39 and the full `Folio.RenderTests` Release suite passes 822/822.
+The same head's broader project-level Release checks pass `Folio.Tests`
+1997/1997 executable tests (one documented symlink skip), `Folio.WinForms.Tests`
+8/8, and `Folio.Scripting.Tests` 1410/1410.
 This closes the cache-cap evidence portion of #573; CFF2 non-default variation
 deltas, the broader glyph corpus and the default-backend performance gate remain
 open.
