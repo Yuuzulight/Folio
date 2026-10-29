@@ -232,7 +232,7 @@ public static class ArtifactClassifier
                     if (element.GetAttribute("src") is { } src)
                     {
                         if (!IsConfiguredDiagramLibrary(src) || !_diagramBlockSeen)
-                            Load(src, "a script");
+                            Load(src, "a script", allowConfiguredLoader: true);
                         else
                             Scripts.Add("renders diagram blocks through Folio.Diagrams");
                     }
@@ -374,17 +374,18 @@ public static class ArtifactClassifier
                 .Contains(token, StringComparer.OrdinalIgnoreCase) == true;
 
         /// <summary>
-        /// True when the options' loader can handle the URL. The default
-        /// options load <c>data:</c> URLs alone; a configured host loader owns
-        /// the allowlist decision for external resources.
+        /// True when the default data URL path can handle the URL, or when the
+        /// caller explicitly delegates this resource kind to its configured
+        /// host loader. The classifier remains conservative for other external
+        /// resources because it cannot inspect an arbitrary loader's allowlist.
         /// </summary>
-        private bool Loadable(string url) => url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
-            || options.ResourceLoader is not null;
+        private bool Loadable(string url, bool allowConfiguredLoader = false) => url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || (allowConfiguredLoader && options.ResourceLoader is not null);
 
-        private void Load(string url, string what)
+        private void Load(string url, string what, bool allowConfiguredLoader = false)
         {
             url = url.Trim();
-            if (!Loadable(url))
+            if (!Loadable(url, allowConfiguredLoader))
                 Unsupported.Add($"loads {what} these options do not allow: {Shorten(url)}");
         }
 
