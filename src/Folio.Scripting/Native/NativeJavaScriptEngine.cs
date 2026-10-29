@@ -191,6 +191,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     _ => Array.Empty<object?>(),
                 }
                 : Array.Empty<object?>()),
+            ["fromEntries"] = (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+                if (args.Count == 0 || args[0] is not IEnumerable<object?> entries) return result;
+                foreach (var entry in entries)
+                {
+                    if (entry is not IReadOnlyList<object?> pair || pair.Count < 2)
+                        throw WebIdlException.TypeError("Object.fromEntries requires iterable key/value pairs.");
+                    result[StringValue(pair[0])] = pair[1];
+                }
+                return result;
+            }),
             ["getOwnPropertyNames"] = (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 if (args.Count == 0 || args[0] is null || args[0] is JavaScriptEvaluator.UndefinedValue) return Array.Empty<object?>();

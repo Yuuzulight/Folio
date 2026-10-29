@@ -731,6 +731,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(1d, engine.Evaluate("[...['a', 'b'].keys()][1]").AsNumber());
         engine.SetGlobalProperty("iterable", ScriptValue.FromObject(new[] { "x", "y" }));
         Assert.Equal("x,y", engine.Evaluate("Array.from(iterable).join(',')").AsString());
+        Assert.Equal(2d, engine.Evaluate("Object.fromEntries([['a', 2]]).a").AsNumber());
         Assert.Equal("ac", engine.Evaluate("['a', 'b', 'c'].toSpliced(1, 1).join('')").AsString());
         Assert.Equal("ababe", engine.Evaluate("['a', 'b', 'c', 'd', 'e'].copyWithin(2, 0, 2).join('')").AsString());
         Assert.Equal("i", engine.Evaluate("'folio'.at(-2)").AsString());
