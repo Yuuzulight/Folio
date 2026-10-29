@@ -52,10 +52,19 @@ public static class ScriptedProcessBenchmark
         var host = Environment.GetEnvironmentVariable("FOLIO_CONTENT_HOST");
         if (string.IsNullOrWhiteSpace(host))
         {
-            host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-                "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+            var hostRoot = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0");
+            // CI publishes the content host with ReadyToRun because the M4
+            // cold-start gate measures the shipped Windows host. Prefer that
+            // exact artifact for an unconfigured local run as well; falling
+            // back to the ordinary build keeps the benchmark usable before a
+            // publish has been produced.
+            var published = Path.Combine(hostRoot, "win-x64", "publish", "Folio.ContentHost.exe");
+            host = File.Exists(published)
+                ? published
+                : Path.Combine(hostRoot, "Folio.ContentHost.dll");
             if (!File.Exists(host))
-                host = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0", "Folio.ContentHost.dll");
+                host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+                    "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
         }
         else
         {
