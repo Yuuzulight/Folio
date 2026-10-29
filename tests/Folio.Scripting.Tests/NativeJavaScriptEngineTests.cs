@@ -2,11 +2,38 @@ using Folio.Scripting.Native;
 using Folio.Scripting.Dom;
 using Folio.Dom;
 using Folio.Html;
+using Folio.Resources;
 
 namespace Folio.Scripting.Tests;
 
 public sealed class NativeJavaScriptEngineTests
 {
+    [Fact]
+    public void NativeCacheMethodsSurviveAwait()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions
+        {
+            BaseUri = new Uri("https://cache.example/"),
+            ArtifactStorage = new TinyStorage(),
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        engine.Evaluate("var result=''; caches.open('x').then(c => c.put('/one', new Response('value'))).then(() => caches.open('x')).then(c => c.match('/one')).then(r => r.text()).then(v => result = v, e => result = 'error:' + e.message); true");
+        for (var i = 0; i < 10; i++) { engine.PerformMicrotaskCheckpoint(); loop.SpinUntilIdle(); }
+        var actual = engine.GetGlobalProperty("result").AsString();
+        Assert.True(actual == "value", actual);
+    }
+
+    private sealed class TinyStorage : IArtifactStorage
+    {
+        private readonly Dictionary<string, string> _values = [];
+        public string? Read(string key) => _values.GetValueOrDefault(key);
+        public void Write(string key, string value) => _values[key] = value;
+        public void Delete(string key) => _values.Remove(key);
+        public IReadOnlyList<string> Keys(string prefix) => _values.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+    }
     [Fact]
     public void DecodesUnicodeAndHexStringEscapes()
     {

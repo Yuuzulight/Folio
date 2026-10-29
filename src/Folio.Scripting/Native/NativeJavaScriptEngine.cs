@@ -64,6 +64,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         }));
         var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["join"] = new NativeReceiverFunction((receiver, args) =>
+            {
+                var separator = args.Count > 0 && args[0] is not null && args[0] is not JavaScriptEvaluator.UndefinedValue ? StringValue(args[0]) : ",";
+                var values = receiver switch
+                {
+                    IReadOnlyList<object?> list => list,
+                    IReadOnlyDictionary<string, object?> properties when properties.TryGetValue("length", out var length)
+                        => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length))).Select(index => properties.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance)).ToArray(),
+                    _ => Array.Empty<object?>(),
+                };
+                return string.Join(separator, values.Select(value => value is null or JavaScriptEvaluator.UndefinedValue ? "" : StringValue(value)));
+            }),
             ["push"] = new NativeReceiverFunction((receiver, args) =>
             {
                 if (receiver is IDictionary<string, object?> properties)
@@ -469,6 +481,19 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }
             return promise;
         });
+        var promisePrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["then"] = new NativeReceiverFunction((receiver, args) => receiver is NativePromise promise
+                ? promise.Chain(args.Count > 0 ? args[0] : null, args.Count > 1 ? args[1] : null)
+                : throw WebIdlException.TypeError("Promise.prototype.then called on a non-Promise.")),
+            ["catch"] = new NativeReceiverFunction((receiver, args) => receiver is NativePromise promise
+                ? promise.Chain(null, args.Count > 0 ? args[0] : null)
+                : throw WebIdlException.TypeError("Promise.prototype.catch called on a non-Promise.")),
+            ["finally"] = new NativeReceiverFunction((receiver, args) => receiver is NativePromise promise
+                ? promise.Finally(args.Count > 0 ? args[0] : null)
+                : throw WebIdlException.TypeError("Promise.prototype.finally called on a non-Promise.")),
+        };
+        promiseConstructor.SetProperty("prototype", promisePrototype);
         promiseConstructor.SetProperty("resolve", (Func<IReadOnlyList<object?>, object?>)(args =>
             args.Count > 0 && args[0] is NativePromise existing ? existing : new NativePromise(this, args.Count > 0 ? args[0] : null, false)));
         promiseConstructor.SetProperty("reject", (Func<IReadOnlyList<object?>, object?>)(args => new NativePromise(this, args.Count > 0 ? args[0] : null, true)));
@@ -737,6 +762,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     {
         if (target.Raw is NativeHostValue host && host.TryGetValue(name, out var hostValue))
             return ToScriptValue(hostValue);
+        if (target.Raw is INativeCallable callable && callable.TryGetProperty(name, out var callableValue))
+            return ToScriptValue(callableValue);
         if (target.Raw is JavaScriptEvaluator.RegexValue regex && regex.TryGetProperty(name, out var regexValue))
             return ToScriptValue(regexValue);
         if (target.Raw is NativeMap map && map.TryGetProperty(name, out var mapValue))
@@ -1434,7 +1461,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             };
             return value is not null;
         }
-        private NativePromise Chain(object? onFulfilled, object? onRejected)
+        internal NativePromise Chain(object? onFulfilled, object? onRejected)
         {
             var next = new NativePromise(_engine, null, false);
             next._settled = false;
@@ -1442,7 +1469,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             else _continuations.Add((onFulfilled, onRejected, next));
             return next;
         }
-        private NativePromise Finally(object? callback)
+        internal NativePromise Finally(object? callback)
         {
             var next = new NativePromise(_engine, null, false);
             next._settled = false;

@@ -84,31 +84,36 @@ internal static class CacheBindings
             'use strict';
             const apply = Reflect.apply, create = Object.create, DOMExceptionCtor = DOMException;
             const host = create(null);
-            const methods = ['open','has','names','deleteName','query','put','deleteEntry'];
-            for (let i = 0; i < methods.length; i++) {
-                const name = methods[i], callback = rawHost[name];
+            function bind(name, callback) {
                 host[name] = function() {
-                    const result = apply(callback, rawHost, arguments);
+                    const result = callback(...arguments);
                     if (result[0]) return result[1];
                     throw result[1] === 'DOMException' ? new DOMExceptionCtor(result[3], result[2]) : new TypeErrorCtor(result[3]);
                 };
             }
+            bind('open', rawHost.open);
+            bind('has', rawHost.has);
+            bind('names', rawHost.names);
+            bind('deleteName', rawHost.deleteName);
+            bind('query', rawHost.query);
+            bind('put', rawHost.put);
+            bind('deleteEntry', rawHost.deleteEntry);
             const PromiseCtor = Promise, StringCtor = String, TypeErrorCtor = TypeError;
             const then = Promise.prototype.then, resolve = Promise.resolve, reject = Promise.reject, all = Promise.all;
             const arrayFrom = Array.from, ArrayCtor = Array, parse = JSON.parse;
             const weakGet = WeakMap.prototype.get, weakSet = WeakMap.prototype.set;
             const fetchResource = fetch, states = new WeakMap(), INTERNAL = {};
-            const settled = value => apply(resolve, PromiseCtor, [value]);
-            const failed = error => apply(reject, PromiseCtor, [error]);
-            const after = (promise, callback) => apply(then, promise, [callback]);
+            const settled = value => PromiseCtor.resolve(value);
+            const failed = error => PromiseCtor.reject(error);
+            const after = (promise, callback) => promise.then(callback);
             function invoke(callback) { try { return settled(callback()); } catch (error) { return failed(error); } }
             function state(cache) {
-                const value = apply(weakGet, states, [cache]);
+                const value = states.get(cache);
                 if (!value || value === INTERNAL) throw new TypeErrorCtor('Illegal Cache invocation');
                 return value;
             }
             function storage(value) {
-                if (apply(weakGet, states, [value]) !== INTERNAL) throw new TypeErrorCtor('Illegal CacheStorage invocation');
+                if (states.get(value) !== INTERNAL) throw new TypeErrorCtor('Illegal CacheStorage invocation');
             }
             function options(value) {
                 if (value !== undefined && value !== null && typeof value !== 'object' && typeof value !== 'function')
@@ -138,7 +143,7 @@ internal static class CacheBindings
             class Cache {
                 constructor(token, value) {
                     if (token !== INTERNAL) throw new TypeErrorCtor('Illegal constructor');
-                    apply(weakSet, states, [this, value]);
+                    states.set(this, value);
                 }
                 match(input, opts) { if (!arguments.length) return failed(new TypeErrorCtor('A request is required')); return invoke(() => responses(host.query(state(this), request(input), options(opts), "first"))[0]); }
                 matchAll(input, opts) { return invoke(() => responses(host.query(state(this), input === undefined ? undefined : request(input), options(opts), "all"))); }
@@ -162,7 +167,7 @@ internal static class CacheBindings
                 addAll(inputs) {
                     let cache, requests;
                     try {
-                        cache = state(this); requests = apply(arrayFrom, ArrayCtor, [inputs]);
+                        cache = state(this); requests = ArrayCtor.from(inputs);
                         for (let i = 0; i < requests.length; i++) { requests[i] = request(requests[i]); validate(requests[i]); }
                     } catch (error) { return failed(error); }
                     const pending = [];
@@ -170,14 +175,14 @@ internal static class CacheBindings
                         const current = requests[i];
                         pending[i] = after(fetchResource(api.restoreRequestLower(current)), response => entry(current, response, true));
                     }
-                    return after(apply(all, PromiseCtor, [pending]), entries => { host.put(cache, entries, true); });
+                    return after(PromiseCtor.all(pending), entries => { host.put(cache, entries, true); });
                 }
             }
             const nativeAddAll = Cache.prototype.addAll;
             class CacheStorage {
                 constructor(token) {
                     if (token !== INTERNAL) throw new TypeErrorCtor('Illegal constructor');
-                    apply(weakSet, states, [this, INTERNAL]);
+                    states.set(this, INTERNAL);
                 }
                 open(name) { if (!arguments.length) return failed(new TypeErrorCtor("A cache name is required")); return invoke(() => { storage(this); return new Cache(INTERNAL, host.open(StringCtor(name))); }); }
                 has(name) { if (!arguments.length) return failed(new TypeErrorCtor("A cache name is required")); return invoke(() => { storage(this); return host.has(StringCtor(name)); }); }
