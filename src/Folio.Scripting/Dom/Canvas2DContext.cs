@@ -213,7 +213,8 @@ internal sealed partial class Canvas2DContext
     private void Render(PaintSource source, Action<ICanvas, Paint> draw, bool shadows = true)
     {
         var transform = State.Transform;
-        if (!Matrix3x2.Invert(transform, out _) || !float.IsFinite(transform.M11 + transform.M12 + transform.M21 + transform.M22 + transform.M31 + transform.M32))
+        var identity = transform == Matrix3x2.Identity;
+        if (!identity && (!Matrix3x2.Invert(transform, out _) || !float.IsFinite(transform.M11 + transform.M12 + transform.M21 + transform.M22 + transform.M31 + transform.M32)))
             return;
         var mode = BlendOf(State.GlobalCompositeOperation) ?? BlendMode.Normal;
         var paint = source.ToPaint((float)State.GlobalAlpha, transform);
@@ -242,10 +243,20 @@ internal sealed partial class Canvas2DContext
             canvas.PushLayer(new LayerOptions(1, filters));
             layers++;
         }
-        canvas.Save();
-        canvas.Transform(transform);
-        draw(canvas, paint);
-        canvas.Restore();
+        // Most canvas animation commands use the default identity transform and
+        // source-over compositing. Avoid pushing a native save/transform pair for
+        // that hot path; the operation is already in canvas coordinates and no
+        // state needs to be isolated.
+        if (transform == Matrix3x2.Identity && layers == 0 && mode == BlendMode.Normal)
+            draw(canvas, paint);
+        else
+        {
+            canvas.Save();
+            if (!identity)
+                canvas.Transform(transform);
+            draw(canvas, paint);
+            canvas.Restore();
+        }
         while (layers-- > 0)
             canvas.PopLayer();
         Version++;
