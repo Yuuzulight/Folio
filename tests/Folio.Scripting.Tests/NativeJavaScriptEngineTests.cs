@@ -15,6 +15,13 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void TryCatchExpressionPreservesCompletionValue()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal("caught", engine.Evaluate("try { throw new Error('caught'); } catch (error) { error.message; }").AsString());
+    }
+
+    [Fact]
     public void EvaluatesParenthesizedSequenceExpressions()
     {
         using var engine = new NativeJavaScriptEngine();

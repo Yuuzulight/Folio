@@ -249,7 +249,7 @@ internal sealed class JavaScriptEvaluator
                 case JavaScriptFunctionDeclarationStatement function: _bindings[function.Name] = Evaluate(function.Function); break;
                 case JavaScriptClassDeclarationStatement @class: _bindings[@class.Name] = Evaluate(@class.Class); break;
                 case JavaScriptBlockStatement block:
-                    ExecuteCore(block.Statements);
+                    lastResult = ExecuteCore(block.Statements);
                     break;
                 case JavaScriptWithStatement with:
                     var scope = Evaluate(with.Scope);
@@ -345,16 +345,18 @@ internal sealed class JavaScriptEvaluator
                     break;
                 case JavaScriptThrowStatement thrown: throw new JavaScriptThrownException(Evaluate(thrown.Expression));
                 case JavaScriptTryStatement guarded:
-                    try { ExecuteCore([guarded.Body]); }
+                    object? tryResult = UndefinedValue.Instance;
+                    try { tryResult = ExecuteCore([guarded.Body]); }
                     catch (JavaScriptThrownException error) when (guarded.CatchBody is not null)
                     {
                         if (guarded.CatchName is not null) _bindings[guarded.CatchName] = error.Value;
-                        ExecuteCore([guarded.CatchBody]);
+                        tryResult = ExecuteCore([guarded.CatchBody]);
                     }
                     finally
                     {
                         if (guarded.FinallyBody is not null) ExecuteCore([guarded.FinallyBody]);
                     }
+                    lastResult = tryResult;
                     break;
                 case JavaScriptSwitchStatement selection:
                     var switchValue = Evaluate(selection.Expression);
