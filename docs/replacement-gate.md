@@ -175,6 +175,12 @@ still selects Jint, and the complete DOM/sandbox/resource-limit/failure corpus,
 Folio-owned raster/shaper/WebAssembly cutovers, and dependency removal remain
 mandatory before Folio completion.
 
+The full native scripting cutover check was also attempted on 2026-10-29 with
+`FOLIO_SCRIPT_ENGINE=native`. The complete `Folio.Scripting.Tests` runner did
+not reach test execution within 60 seconds and had to be interrupted, while
+the focused native suite and capability-matrix slices remained green. The
+production JavaScript replacement gate therefore remains open.
+
 The latest native D2–D7 probe passes 60/60: all library-card and canvas
 artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
 the click handler. Native `var` declarations are hoisted across conditional
