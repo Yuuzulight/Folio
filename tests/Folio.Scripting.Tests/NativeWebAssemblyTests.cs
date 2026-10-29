@@ -368,6 +368,15 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void CompatibilityTableEnforcesElementValueTypes()
+    {
+        using var engine = new JintScriptEngine();
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024);
+        Assert.True(engine.Evaluate("var t=new WebAssembly.Table({initial:1,element:'externref'}); var o={answer:42}; t.set(0,o); t.get(0)===o;").AsBoolean());
+        Assert.ThrowsAny<Exception>(() => engine.Evaluate("var t=new WebAssembly.Table({initial:1,element:'funcref'}); t.set(0,42);"));
+    }
+
+    [Fact]
     public void JavaScriptBindingBridgesImportedMutableExternrefGlobals()
     {
         var bytes = new byte[]
