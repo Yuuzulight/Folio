@@ -51,8 +51,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                         .ToArray(),
                 _ => Array.Empty<object?>(),
             };
-            if (args.Count > 1 && IsCallable(args[1]))
+            if (args.Count > 1)
+            {
+                if (!IsCallable(args[1])) throw WebIdlException.TypeError("Array.from mapfn must be callable.");
                 for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index]);
+            }
             return values;
         }));
         var arrayPrototype = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -118,12 +121,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }),
             ["map"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.Select((value, index) => InvokeCallable(args[0], [value, (double)index, values])).ToList();
             }),
             ["flatMap"] = new NativeReceiverFunction((receiver, args) =>
             {
-                if (receiver is not IReadOnlyList<object?> values || args.Count == 0) return Array.Empty<object?>();
+                if (receiver is not IReadOnlyList<object?> values) return Array.Empty<object?>();
+                if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array callback must be callable.");
                 return values.SelectMany((value, index) =>
                 {
                     var mapped = InvokeCallable(args[0], [value, (double)index, values]);

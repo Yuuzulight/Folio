@@ -739,6 +739,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].some('callback')"));
         Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].every(false)"));
         Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].flatMap(0)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("Array.from([1], 0)"));
     }
 
     [Fact]
