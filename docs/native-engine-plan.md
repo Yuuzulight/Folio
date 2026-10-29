@@ -49,6 +49,8 @@ The native corpus has since advanced materially. A fresh full sweep is now
 green across D1-D14: D1 `2/2`, D2-D7 `60/60` (including the React pantry
 artifact), and D8-D14 `32/32`, for `94/94` exact passes. These are verified
 corpus results, not a claim that the engine is production-complete.
+The same native run also passes the scripting-focused S1-S6 corpus `72/72`
+with no mismatches, crashes, hangs, limit hits, or script failures.
 
 The follow-on parity slice now also covers native string replacement expansion
 (`$&`, `$$`, prefix/suffix, numbered and named capture groups), array iteration
