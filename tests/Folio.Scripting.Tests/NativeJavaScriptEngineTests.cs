@@ -668,6 +668,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.True(engine.Evaluate("Number.isNaN(Math.min(1, 'x'))").AsBoolean());
         Assert.Equal(-2d, engine.Evaluate("Math.round(-2.4)").AsNumber());
         Assert.Equal(6d, engine.Evaluate("Math.imul(2, 3)").AsNumber());
+        Assert.Equal(2d, engine.Evaluate("Math.log10(100)").AsNumber());
+        Assert.Equal(5d, engine.Evaluate("Math.hypot(3, 4)").AsNumber());
         Assert.Equal("😀", engine.Evaluate("String.fromCodePoint(0x1f600)").AsString());
         Assert.Equal(12d, engine.Evaluate("Number.parseInt('12px')").AsNumber());
         Assert.Equal(10d, engine.Evaluate("parseInt('1010', 2)").AsNumber());
