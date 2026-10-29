@@ -37,6 +37,7 @@ public static class Program
         return ConsoleRunner.Run(args).GetAwaiter().GetResult();
     }
 
+
     private static int CanvasPerformance(int iterations)
     {
         var artifacts = Conformance.Discover().Where(a => a.Category is "D5" or "D7").ToArray();
