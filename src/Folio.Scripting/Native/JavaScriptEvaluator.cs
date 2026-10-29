@@ -1012,6 +1012,14 @@ internal sealed class JavaScriptEvaluator
         internal string Source { get; }
         internal string Flags { get; }
         private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = flags; }
+        internal IReadOnlyDictionary<string, object?>? NamedGroups(Match match)
+        {
+            var names = _regex.GetGroupNames().Where(name => !int.TryParse(name, out _)).ToArray();
+            if (names.Length == 0) return null;
+            var groups = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var name in names) groups[name] = match.Groups[name].Success ? match.Groups[name].Value : JavaScriptEvaluator.UndefinedValue.Instance;
+            return groups;
+        }
         internal static RegexValue Create(string source)
         {
             var slash = source.LastIndexOf('/');
@@ -1435,7 +1443,7 @@ internal sealed class JavaScriptEvaluator
                 if (args.Count < 2) return value;
                 if (args[0] is RegexValue regex)
                     return IsCallable(args[1])
-                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(match, value))), regex.Flags.Contains('g'))
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(regex, match, value))), regex.Flags.Contains('g'))
                         : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
@@ -1457,7 +1465,7 @@ internal sealed class JavaScriptEvaluator
                     if (!regex.Flags.Contains('g'))
                         throw WebIdlException.TypeError("String.prototype.replaceAll requires a global regular expression.");
                     return IsCallable(args[1])
-                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(match, value))), all: true)
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(regex, match, value))), all: true)
                         : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), all: true);
                 }
                 if (IsCallable(args[1]))
@@ -1933,13 +1941,17 @@ internal sealed class JavaScriptEvaluator
         return builder.ToString();
     }
 
-    private static object?[] ReplacementCallbackArgs(System.Text.RegularExpressions.Match match, string source)
+    private static object?[] ReplacementCallbackArgs(RegexValue regex, System.Text.RegularExpressions.Match match, string source)
     {
-        var args = new object?[match.Groups.Count + 2];
+        var namedGroups = regex.NamedGroups(match);
+        var args = new object?[match.Groups.Count + 2 + (namedGroups is null ? 0 : 1)];
         args[0] = match.Value;
         for (var group = 1; group < match.Groups.Count; group++) args[group] = match.Groups[group].Value;
         args[^2] = (double)match.Index;
         args[^1] = source;
+        if (namedGroups is not null) args[^1] = namedGroups;
+        if (namedGroups is not null) args[^2] = source;
+        if (namedGroups is not null) args[^3] = (double)match.Index;
         return args;
     }
     private static string FormatDateInvalid() => throw WebIdlException.RangeError("Invalid time value.");

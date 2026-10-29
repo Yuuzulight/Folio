@@ -765,6 +765,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace(new RegExp('(b)'), '[$1]')").AsString());
         Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace(new RegExp('(?<part>b)'), '[$<part>]')").AsString());
         Assert.Equal("abb1", engine.Evaluate("'ab'.replace(new RegExp('(b)'), (match, group, offset) => match + group + offset)").AsString());
+        Assert.Equal("ab1a", engine.Evaluate("'ab'.replace(new RegExp('(?<part>b)'), (match, group, offset, source, groups) => groups.part + offset + source[0])").AsString());
         Assert.Equal("a|b|c", engine.Evaluate("'abc'.split('').join('|')").AsString());
         Assert.Equal(2d, engine.Evaluate("'😀'.split('').length").AsNumber());
         Assert.Equal("a|b", engine.Evaluate("'a,b,c'.split(',', 2).join('|')").AsString());
