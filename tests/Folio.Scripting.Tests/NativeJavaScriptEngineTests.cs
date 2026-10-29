@@ -819,6 +819,18 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ImplementsStickyRegExpLastIndexSemantics()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.True(engine.Evaluate("var r=/a/y; r.exec('ba') === null").AsBoolean());
+        Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
+        Assert.Equal("a", engine.Evaluate("r.lastIndex=1; r.exec('ba')[0]").AsString());
+        Assert.Equal(2d, engine.Evaluate("r.lastIndex").AsNumber());
+        Assert.True(engine.Evaluate("r.test('ba')").AsBoolean() == false);
+        Assert.Equal(0d, engine.Evaluate("r.lastIndex").AsNumber());
+    }
+
+    [Fact]
     public void DrainsQueuedMicrotasksAtExplicitCheckpoints()
     {
         using var engine = new NativeJavaScriptEngine();

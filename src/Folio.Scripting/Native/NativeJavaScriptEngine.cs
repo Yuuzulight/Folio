@@ -757,6 +757,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
     }
     public bool TrySetProperty(ScriptValue target, string name, ScriptValue value)
     {
+        if (target.Raw is JavaScriptEvaluator.RegexValue regex && name == "lastIndex")
+        {
+            regex.LastIndex = Math.Max(0, (int)NumberValue(ToObject(value)));
+            return true;
+        }
         if (target.Raw is NativeHostValue host)
             return host.TrySetSetValue(name, ToObject(value)) || host.TrySetPrototypeValue(name, ToObject(value));
         if (target.Raw is IDictionary<string, object?> properties)

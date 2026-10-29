@@ -672,7 +672,7 @@ Original acceptance is not satisfied. Previous closure and completion documentat
 ## Current audit checkpoint — 2026-10-29
 
 The latest native scripting parity work remains regression-clean: focused native
-tests pass 81/81, the complete scripting suite passes 1,411/1,411, and the
+tests pass 81/81, the complete scripting suite passes 1,412/1,412, and the
 native conformance report passes D1–D14 94/94 plus S1–S6 72/72 exactly. The
 latest capability slices also pass WebAssembly/worker/iframe 137/137 and
 media/WebRTC/service-worker 115/115 locally. These are verified implementation
@@ -682,9 +682,13 @@ interruption, production-routing, and dependency-removal requirements are met.
 Hosted CI run `40808471561` is now fully green. Its only initial failure was a
 transient media-row watchdog timeout before the first frame; the exact test
 passed locally and the failed job passed on rerun. The complete scripting suite
-also passes 1,411/1,411 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
+also passes 1,412/1,412 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
 parity corpus. This is an audit checkpoint, not an M6 completion claim.
+
+The native RegExp implementation now honors sticky `y` matching with
+`lastIndex` advancement and reset semantics; the focused regression and full
+native scripting suite both pass.
 
 The capability-matrix workflow now covers both `jint` and `native` engines for
 every capability row. The native `all` row passes locally through the real

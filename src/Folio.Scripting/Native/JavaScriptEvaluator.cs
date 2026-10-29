@@ -595,6 +595,9 @@ internal sealed class JavaScriptEvaluator
                 if (!host.TrySetSetValue(member.Name, assigned) && !host.TrySetPrototypeValue(member.Name, assigned))
                     throw new InvalidDataException($"Host property '{member.Name}' is read-only.");
                 break;
+            case JavaScriptMemberExpression member when Evaluate(member.Target) is RegexValue regex && member.Name == "lastIndex":
+                regex.LastIndex = Math.Max(0, (int)Number(assigned));
+                break;
             case JavaScriptMemberExpression member when Evaluate(member.Target) is IDictionary<string, object?> properties:
                 if (properties.TryGetValue(member.Name, out var existing)
                     && existing is NativeJavaScriptEngine.NativePropertyAccessor accessor)
@@ -1011,6 +1014,7 @@ internal sealed class JavaScriptEvaluator
         private readonly Regex _regex;
         internal string Source { get; }
         internal string Flags { get; }
+        internal int LastIndex { get; set; }
         private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = CanonicalFlags(flags); }
         private static string CanonicalFlags(string flags)
         {
@@ -1043,6 +1047,7 @@ internal sealed class JavaScriptEvaluator
                 "source" => Source,
                 "flags" => Flags,
                 "global" => Flags.Contains('g'),
+                "lastIndex" => (double)LastIndex,
                 "ignoreCase" => Flags.Contains('i'),
                 "multiline" => Flags.Contains('m'),
                 "dotAll" => Flags.Contains('s'),
@@ -1050,7 +1055,7 @@ internal sealed class JavaScriptEvaluator
                 "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return false;
-                    try { return _regex.IsMatch(StringValue(args[0])); }
+                    try { return Execute(StringValue(args[0])) is not null; }
                     catch (RegexMatchTimeoutException) { return false; }
                 }),
                 "exec" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1058,14 +1063,25 @@ internal sealed class JavaScriptEvaluator
                     if (args.Count == 0) return null;
                     try
                     {
-                        var match = _regex.Match(StringValue(args[0]));
-                        return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
+                        var match = Execute(StringValue(args[0]));
+                        return match is not null ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
                     }
                     catch (RegexMatchTimeoutException) { return null; }
                 }),
                 _ => null,
             };
             return value is not null;
+        }
+        private Match? Execute(string input)
+        {
+            var stateful = Flags.Contains('g') || Flags.Contains('y');
+            var start = stateful ? Math.Clamp(LastIndex, 0, input.Length) : 0;
+            var match = _regex.Match(input, start);
+            if (Flags.Contains('y') && match.Success && match.Index != start)
+                return null;
+            if (stateful)
+                LastIndex = match.Success ? match.Index + match.Length : 0;
+            return match.Success ? match : null;
         }
         internal object? Match(string input)
         {

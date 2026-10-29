@@ -301,10 +301,14 @@ coverage; they do not close the React reconciliation or replacement gate.
 
 Hosted CI run `40808471561` is fully green after rerunning one transient media
 watchdog timeout. The exact WinForms test passed locally and in the rerun. The
-complete scripting suite also passes 1,411/1,411 with
+complete scripting suite also passes 1,412/1,412 with
 `FOLIO_SCRIPT_ENGINE=native`, so native evidence covers the full suite rather
 than only the focused parity corpus. These results strengthen the replacement
 evidence but do not remove the mandatory production dependency gates.
+
+Native RegExp now implements the previously missing sticky `y` flag contract:
+stateful `lastIndex`, anchored matching, success advancement and failure reset
+are covered by a focused regression and the full native suite.
 
 The CI capability matrix now runs every capability row through both the
 compatibility engine and the Folio-owned native engine. The native process
