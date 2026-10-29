@@ -685,3 +685,9 @@ passed locally and the failed job passed on rerun. The complete scripting suite
 also passes 1,411/1,411 with `FOLIO_SCRIPT_ENGINE=native`, confirming that the
 native runtime evidence covers the full suite rather than only the focused
 parity corpus. This is an audit checkpoint, not an M6 completion claim.
+
+The capability-matrix workflow now covers both `jint` and `native` engines for
+every capability row. The native `all` row passes locally through the real
+content process (12/12 scripting checks and 8/8 WinForms lifecycle checks).
+This closes the previous CI-evidence gap while leaving the production cutover
+and dependency-removal requirements open.

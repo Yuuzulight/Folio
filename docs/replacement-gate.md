@@ -305,3 +305,9 @@ complete scripting suite also passes 1,411/1,411 with
 `FOLIO_SCRIPT_ENGINE=native`, so native evidence covers the full suite rather
 than only the focused parity corpus. These results strengthen the replacement
 evidence but do not remove the mandatory production dependency gates.
+
+The CI capability matrix now runs every capability row through both the
+compatibility engine and the Folio-owned native engine. The native process
+matrix and WinForms lifecycle slice pass locally for the `all` row (12/12 and
+8/8), making hosted sandbox coverage a required regression gate instead of an
+opt-in probe.

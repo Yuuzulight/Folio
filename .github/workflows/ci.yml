@@ -158,11 +158,12 @@ jobs:
           if-no-files-found: ignore
 
   capability-matrix:
-    name: capability matrix (${{ matrix.capability }})
+    name: capability matrix (${{ matrix.capability }}, ${{ matrix.engine }})
     strategy:
       fail-fast: false
       matrix:
         capability: [none, webgl, media, sound, camera, microphone, workers, webassembly, iframes, webrtc, service-workers, all]
+        engine: [jint, native]
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -174,8 +175,10 @@ jobs:
       - name: Run sandbox and limits suite (${{ matrix.capability }})
         env:
           FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
+          FOLIO_SCRIPT_ENGINE: ${{ matrix.engine }}
         run: dotnet tests/Folio.Scripting.Tests/bin/Release/net10.0/Folio.Scripting.Tests.dll -class '*CapabilityMatrixTests' -class '*WindowsSandboxTests'
       - name: Verify frame retention, stopped notice and view lifecycle (${{ matrix.capability }})
         env:
           FOLIO_CAPABILITY_MATRIX: ${{ matrix.capability }}
+          FOLIO_SCRIPT_ENGINE: ${{ matrix.engine }}
         run: dotnet tests/Folio.WinForms.Tests/bin/Release/net10.0-windows/Folio.WinForms.Tests.dll
