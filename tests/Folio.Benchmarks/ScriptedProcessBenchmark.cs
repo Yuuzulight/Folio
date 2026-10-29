@@ -208,6 +208,32 @@ public static class ScriptedProcessBenchmark
 
         int[] sampleSizes = [1 * 1024, 10 * 1024, 30 * 1024, 50 * 1024, 100 * 1024, 250 * 1024];
         await using var sizeClient = ContentProcessClient.Start(host);
+
+        // Do not charge the calibration table for the process/JIT bootstrap.
+        // The first measured row is meant to represent parse + execute scaling,
+        // so prime this dedicated client with the same frame path first.
+        var calibrationWarmup = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask OnCalibrationWarmup(ContentMessage message, CancellationToken cancellationToken)
+        {
+            if (message.Kind is ContentMessageKind.Frame or ContentMessageKind.Diagnostic)
+                calibrationWarmup.TrySetResult(message);
+            return ValueTask.CompletedTask;
+        }
+        sizeClient.MessageReceived += OnCalibrationWarmup;
+        try
+        {
+            await sizeClient.SendAsync(ContentMessageKind.Load, new
+            {
+                html = "<!DOCTYPE html><title>Calibration warm-up</title><body>Warm-up</body>",
+                script = "document.body.dataset.warm = '1';"
+            });
+            await calibrationWarmup.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        }
+        finally
+        {
+            sizeClient.MessageReceived -= OnCalibrationWarmup;
+        }
+
         foreach (var size in sampleSizes)
         {
             var varCount = size / 25;
