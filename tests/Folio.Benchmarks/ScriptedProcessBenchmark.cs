@@ -126,7 +126,18 @@ public static class ScriptedProcessBenchmark
                     Console.Error.WriteLine($"SendAsync error: {ex.Message}. Process exited: {coldClient.Process.HasExited}, ExitCode: {(coldClient.Process.HasExited ? coldClient.Process.ExitCode.ToString() : "running")}");
                     throw;
                 }
-                var msg = await coldTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                ContentMessage msg;
+                try
+                {
+                    msg = await coldTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                }
+                catch (TimeoutException error)
+                {
+                    var state = coldClient.Process.HasExited
+                        ? $"exited ({coldClient.Process.ExitCode})"
+                        : "still running";
+                    throw new TimeoutException($"Cold content host produced no frame; process is {state}. stderr: {coldClient.StandardError}", error);
+                }
                 var coldElapsed = coldSw.Elapsed;
                 var sendElapsed = sendSw.Elapsed;
                 coldClient.Process.Refresh();
