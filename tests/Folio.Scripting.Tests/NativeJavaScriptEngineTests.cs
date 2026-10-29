@@ -854,6 +854,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void PromiseResolveDoesNotNestAnExistingPromise()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("let p = Promise.resolve(4); let same = Promise.resolve(p) === p;");
+        Assert.True(engine.Evaluate("same").AsBoolean());
+    }
+
+    [Fact]
     public void EvaluatesAsyncFunctionsAndSettledAwaitExpressions()
     {
         using var engine = new NativeJavaScriptEngine();

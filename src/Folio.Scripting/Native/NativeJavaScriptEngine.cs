@@ -469,7 +469,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }
             return promise;
         });
-        promiseConstructor.SetProperty("resolve", (Func<IReadOnlyList<object?>, object?>)(args => new NativePromise(this, args.Count > 0 ? args[0] : null, false)));
+        promiseConstructor.SetProperty("resolve", (Func<IReadOnlyList<object?>, object?>)(args =>
+            args.Count > 0 && args[0] is NativePromise existing ? existing : new NativePromise(this, args.Count > 0 ? args[0] : null, false)));
         promiseConstructor.SetProperty("reject", (Func<IReadOnlyList<object?>, object?>)(args => new NativePromise(this, args.Count > 0 ? args[0] : null, true)));
         _bindings["Promise"] = promiseConstructor;
         _bindings["queueMicrotask"] = (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1394,7 +1395,19 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         bool TryGetProperty(string name, out object? value);
     }
 
-    internal static object? UnwrapAwait(object? value) => value is NativePromise promise ? promise.SettledValue : value;
+    internal static object? UnwrapAwait(object? value)
+    {
+        // Promise resolution is recursive: Promise.resolve(promise) and an
+        // awaited promise must expose the eventual value rather than a nested
+        // promise wrapper.
+        while (value is NativePromise promise)
+        {
+            var settled = promise.SettledValue;
+            if (ReferenceEquals(settled, promise)) break;
+            value = settled;
+        }
+        return value;
+    }
 
     private sealed class NativePromise : INativePromise
     {
