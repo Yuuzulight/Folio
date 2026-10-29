@@ -1413,6 +1413,14 @@ internal sealed class JavaScriptEvaluator
             }),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
             "charCodeAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? double.NaN : (double)value[(int)Number(args[0])]),
+            "codePointAt" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var index = args.Count == 0 ? 0 : (int)Number(args[0]);
+                if (index < 0 || index >= value.Length) return UndefinedValue.Instance;
+                if (char.IsHighSurrogate(value[index]) && index + 1 < value.Length && char.IsLowSurrogate(value[index + 1]))
+                    return (double)char.ConvertToUtf32(value[index], value[index + 1]);
+                return (double)value[index];
+            }),
             "slice" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var start = RelativeStringIndex(args.Count > 0 ? args[0] : null, value.Length, 0);
