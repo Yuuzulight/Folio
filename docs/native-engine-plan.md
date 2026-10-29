@@ -50,6 +50,12 @@ green across D1-D14: D1 `2/2`, D2-D7 `60/60` (including the React pantry
 artifact), and D8-D14 `32/32`, for `94/94` exact passes. These are verified
 corpus results, not a claim that the engine is production-complete.
 
+The follow-on parity slice now also covers native string replacement expansion
+(`$&`, `$$`, prefix/suffix, numbered and named capture groups), array iteration
+helpers, Unicode normalization, locale-case helpers, and the remaining common
+string/array accessors. The focused native suite is `81/81`, and the full
+`Folio.Scripting.Tests` suite is `1,411/1,411` on the audit branch.
+
 The replacement gate remains open because the production content-host default
 is still Jint and the native path has not yet passed the complete DOM host,
 sandbox, resource-limit, failure-behavior, worker/iframe, and dependency
