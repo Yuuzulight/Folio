@@ -49,6 +49,9 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     => Enumerable.Range(0, Math.Max(0, (int)NumberValue(length)))
                         .Select(index => arrayLike.GetValueOrDefault(index.ToString(CultureInfo.InvariantCulture), JavaScriptEvaluator.UndefinedValue.Instance))
                         .ToArray(),
+                NativeSet set => set.Values(),
+                NativeMap map => map.Entries(),
+                NativeBuffer buffer => Enumerable.Range(0, buffer.Length).Select(index => buffer.TryGetIndex(index, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
                 _ => Array.Empty<object?>(),
             };
             if (args.Count > 1)
