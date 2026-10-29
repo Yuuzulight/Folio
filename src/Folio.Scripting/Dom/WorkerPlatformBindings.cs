@@ -138,15 +138,16 @@ internal static class WorkerPlatformBindings
           const typedCount=getDescriptor(typedProto,'length').get;
           const dataBuffer=getDescriptor(DataView.prototype,'buffer').get,dataOffset=getDescriptor(DataView.prototype,'byteOffset').get,dataLength=getDescriptor(DataView.prototype,'byteLength').get;
           const arrayLength=getDescriptor(AB.prototype,'byteLength').get;
+          function getter(g,v,f){return typeof g==='function'?apply(g,v,[]):f(v);}
           function typedBrand(v){
             if(!isView(v)||v instanceof DataView)return undefined;
             const proto=Object.getPrototypeOf(v);
-            for(const C of allViews)if(proto===C.prototype){try{apply(typedLength,v,[]);return C.name;}catch(_){return undefined;}}
+            for(const C of allViews)if(proto===C.prototype){try{getter(typedLength,v,x=>x.byteLength);return C.name;}catch(_){return undefined;}}
             return undefined;
           }
-          function viewBytes(v){return new U8(apply(typedBuffer,v,[]),apply(typedOffset,v,[]),apply(typedLength,v,[]));}
+          function viewBytes(v){return new U8(getter(typedBuffer,v,x=>x.buffer),getter(typedOffset,v,x=>x.byteOffset),getter(typedLength,v,x=>x.byteLength));}
           function bytesOf(v) {
-            if(isView(v)) return v instanceof DataView ? new U8(apply(dataBuffer,v,[]),apply(dataOffset,v,[]),apply(dataLength,v,[])) : viewBytes(v);
+            if(isView(v)) return v instanceof DataView ? new U8(getter(dataBuffer,v,x=>x.buffer),getter(dataOffset,v,x=>x.byteOffset),getter(dataLength,v,x=>x.byteLength)) : viewBytes(v);
             if(v instanceof AB) return new U8(v);
             throw new TypeError('Expected a BufferSource.');
           }
