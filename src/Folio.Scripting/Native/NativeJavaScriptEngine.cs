@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Buffers.Binary;
 
 using System.Numerics;
 
@@ -1452,7 +1453,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         public bool TryGetIndex(int index, out object? value)
         {
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) { value = null; return false; }
-            value = (double)Bytes[_offset + index * ElementSize];
+            value = ReadElement(index);
             return true;
         }
         public bool TrySetIndex(int index, object? value)
@@ -1460,8 +1461,42 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (!IsAttached || Kind == ScriptBufferSourceKind.ArrayBuffer || index < 0 || index >= Length) return false;
             var number = value switch { double d => d, int i => i, _ => double.NaN };
             if (double.IsNaN(number)) return false;
-            Bytes[_offset + index * ElementSize] = unchecked((byte)Math.Clamp((int)number, 0, 255));
+            WriteElement(index, number);
             return true;
+        }
+        private double ReadElement(int index)
+        {
+            var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
+            return Kind switch
+            {
+                ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped => span[0],
+                ScriptBufferSourceKind.Int8 => unchecked((sbyte)span[0]),
+                ScriptBufferSourceKind.Uint16 => BinaryPrimitives.ReadUInt16LittleEndian(span),
+                ScriptBufferSourceKind.Int16 => BinaryPrimitives.ReadInt16LittleEndian(span),
+                ScriptBufferSourceKind.Uint32 => BinaryPrimitives.ReadUInt32LittleEndian(span),
+                ScriptBufferSourceKind.Int32 => BinaryPrimitives.ReadInt32LittleEndian(span),
+                ScriptBufferSourceKind.Float32 => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(span)),
+                ScriptBufferSourceKind.Float64 => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(span)),
+                _ => span[0],
+            };
+        }
+        private void WriteElement(int index, double number)
+        {
+            var span = Bytes.AsSpan(_offset + index * ElementSize, ElementSize);
+            switch (Kind)
+            {
+                case ScriptBufferSourceKind.Uint8 or ScriptBufferSourceKind.Uint8Clamped:
+                    span[0] = unchecked((byte)Math.Clamp((int)number, 0, 255)); break;
+                case ScriptBufferSourceKind.Int8:
+                    span[0] = unchecked((byte)(sbyte)Math.Clamp((int)number, -128, 127)); break;
+                case ScriptBufferSourceKind.Uint16: BinaryPrimitives.WriteUInt16LittleEndian(span, unchecked((ushort)number)); break;
+                case ScriptBufferSourceKind.Int16: BinaryPrimitives.WriteInt16LittleEndian(span, unchecked((short)number)); break;
+                case ScriptBufferSourceKind.Uint32: BinaryPrimitives.WriteUInt32LittleEndian(span, unchecked((uint)number)); break;
+                case ScriptBufferSourceKind.Int32: BinaryPrimitives.WriteInt32LittleEndian(span, unchecked((int)number)); break;
+                case ScriptBufferSourceKind.Float32: BinaryPrimitives.WriteInt32LittleEndian(span, BitConverter.SingleToInt32Bits((float)number)); break;
+                case ScriptBufferSourceKind.Float64: BinaryPrimitives.WriteInt64LittleEndian(span, BitConverter.DoubleToInt64Bits(number)); break;
+                default: span[0] = unchecked((byte)number); break;
+            }
         }
     }
 
