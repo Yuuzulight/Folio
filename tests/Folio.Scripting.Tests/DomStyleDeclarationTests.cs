@@ -1006,6 +1006,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let relativeScope = ''; navigator.serviceWorker.register('sw.js', { scope: 'app' }).then(r => navigator.serviceWorker.getRegistration('app').then(found => relativeScope = r.scope + ':' + (found === r))); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("/app/:true", intercepted.Evaluate("relativeScope").AsString());
+        Assert.True(intercepted.Evaluate("let foreignRegistration = 'pending'; navigator.serviceWorker.getRegistration('https://evil.example/app/').then(found => foreignRegistration = String(found)); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("undefined", intercepted.Evaluate("foreignRegistration").AsString());
         Assert.True(intercepted.Evaluate("let crossOriginText = ''; fetch('https://other.example/offline').then(r => r.text()).then(text => crossOriginText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from host", intercepted.Evaluate("crossOriginText").AsString());
