@@ -34,7 +34,7 @@ Each milestone is a [GitHub milestone](https://github.com/Yuuzulight/Folio/miles
 | 4. Scripting foundations: a sandboxed JavaScript engine, a broad DOM and CSS object model subset, events, timers, animation frames and storage. | In progress on audit branch/PR #672 only: recovery is not merged to `main`; scripted startup/memory targets and four strict D1 raster mismatches remain | 6 |
 | 5. Scripted parity: canvas 2D, mutation observers, diagrams, and the UI and charting library artifacts load from a host-approved list of CDNs. | In progress: dependency-backed path is verified; the canvas frame-time gate remains open | 1 |
 | 6. Beyond artifacts: WebGL, audio and video, workers, WebAssembly, iframes, service workers and WebRTC. | In progress: capability slices pass, but backend, device, transport and isolation acceptance remains open | 15 |
-| 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine and WebAssembly runtime with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 9 |
+| 7. Folio-owned replacements: replace the dependency-backed shaper, rasteriser, image codecs, script engine, WebAssembly runtime and ANGLE GPU backend with Folio-owned implementations. **Mandatory, non-waivable completion gate after Milestone 6.** | In progress, incomplete (mandatory) | 12 |
 
 Until a milestone lands, anything Folio can't handle yet opens in the system browser.
 
