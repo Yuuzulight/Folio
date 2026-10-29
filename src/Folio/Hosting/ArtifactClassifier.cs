@@ -231,8 +231,6 @@ public static class ArtifactClassifier
                     Scripts.Add("runs scripts: a script element");
                     if (element.GetAttribute("src") is { } src)
                     {
-                        if (IsKnownCanvasLibrary(src) && document.QuerySelectorAll("canvas").Count > 0)
-                            Unsupported.Add("uses a canvas library whose painting is not yet pixel-equivalent: Chart.js");
                         if (!IsConfiguredDiagramLibrary(src) || !_diagramBlockSeen)
                             Load(src, "a script");
                         else
@@ -266,10 +264,6 @@ public static class ArtifactClassifier
                 return options.DiagramLibraryUrls.Contains(resolved.AbsoluteUri);
             return false;
         }
-
-        private static bool IsKnownCanvasLibrary(string url) =>
-            url.Contains("chart.js", StringComparison.OrdinalIgnoreCase) ||
-            url.Contains("chart.umd", StringComparison.OrdinalIgnoreCase);
 
         private static bool HasDiagramBlock(Element element)
         {
@@ -380,10 +374,12 @@ public static class ArtifactClassifier
                 .Contains(token, StringComparer.OrdinalIgnoreCase) == true;
 
         /// <summary>
-        /// True when the options' loader would load the URL. The only loader is the default one, which loads
-        /// <c>data:</c> URLs alone; this follows the public loader when it joins <see cref="FolioOptions"/>.
+        /// True when the options' loader can handle the URL. The default
+        /// options load <c>data:</c> URLs alone; a configured host loader owns
+        /// the allowlist decision for external resources.
         /// </summary>
-        private static bool Loadable(string url) => url.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+        private bool Loadable(string url) => url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || options.ResourceLoader is not null;
 
         private void Load(string url, string what)
         {

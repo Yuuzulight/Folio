@@ -1,3 +1,5 @@
+using Folio.Resources;
+
 namespace Folio.Tests.Hosting;
 
 public class ArtifactClassifierTests
@@ -234,12 +236,24 @@ public class ArtifactClassifierTests
     }
 
     [Fact]
-    public void ChartJsCanvasPaintingIsRoutedToTheBrowserUntilPixelParity()
+    public void ChartJsCanvasPaintingStaysInFolioWhenTheHostAllowsTheScript()
     {
-        var result = ArtifactClassifier.Classify("<canvas id='chart'></canvas><script src='https://cdn.example.com/chart.umd.min.js'></script>");
+        var options = new FolioOptions
+        {
+            ResourceLoader = new AllowAllLoader(),
+            BaseUri = new Uri("https://example.com/app/index.html")
+        };
+        var result = ArtifactClassifier.Classify("<canvas id='chart'></canvas><script src='https://cdn.example.com/chart.umd.min.js'></script>", options);
 
-        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
-        Assert.Contains(result.Reasons, reason => reason.Contains("Chart.js", StringComparison.Ordinal));
+        Assert.Equal(ArtifactKind.Scripted, result.Kind);
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("Chart.js", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Reasons, reason => reason.Contains("do not allow", StringComparison.Ordinal));
+    }
+
+    private sealed class AllowAllLoader : IResourceLoader
+    {
+        public Task<ResourceResponse?> LoadAsync(ResourceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ResourceResponse?>(ResourceResponse.Loaded([], "application/javascript"));
     }
 
     [Theory]
