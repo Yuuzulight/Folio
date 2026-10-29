@@ -697,6 +697,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(3d, engine.Evaluate("'folio'.indexOf('i', 2)").AsNumber());
         Assert.Equal(3d, engine.Evaluate("'folio'.lastIndexOf('i')").AsNumber());
         Assert.Equal("x_x_x", engine.Evaluate("'x-x-x'.replaceAll('-', '_')").AsString());
+        Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replaceAll(new RegExp('a', 'g'), 'x')").AsString());
         Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace(new RegExp('a'), 'x')").AsString());
         Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replace(new RegExp('a', 'g'), 'x')").AsString());
         Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace('a', 'x')").AsString());
