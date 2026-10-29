@@ -1395,7 +1395,7 @@ internal sealed class JavaScriptEvaluator
                 var position = value.IndexOf(literalNeedle, StringComparison.Ordinal);
                 return position < 0
                     ? value
-                    : value[..position] + StringValue(args[1]) + value[(position + literalNeedle.Length)..];
+                    : value[..position] + ExpandReplacement(StringValue(args[1]), literalNeedle, position, value) + value[(position + literalNeedle.Length)..];
             }),
             "replaceAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
@@ -1423,7 +1423,19 @@ internal sealed class JavaScriptEvaluator
                     }
                     return builder.ToString();
                 }
-                return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
+                var allNeedle = StringValue(args[0]);
+                if (allNeedle.Length == 0) return value;
+                var allReplacement = StringValue(args[1]);
+                var allBuilder = new System.Text.StringBuilder(value.Length);
+                for (var allStart = 0; allStart < value.Length;)
+                {
+                    var allIndex = value.IndexOf(allNeedle, allStart, StringComparison.Ordinal);
+                    if (allIndex < 0) { allBuilder.Append(value, allStart, value.Length - allStart); break; }
+                    allBuilder.Append(value, allStart, allIndex - allStart);
+                    allBuilder.Append(ExpandReplacement(allReplacement, allNeedle, allIndex, value));
+                    allStart = allIndex + allNeedle.Length;
+                }
+                return allBuilder.ToString();
             }),
             "match" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
@@ -1764,6 +1776,30 @@ internal sealed class JavaScriptEvaluator
     }
 
     private static string StringValue(object? value) => value switch { null => "null", UndefinedValue => "undefined", bool boolean => boolean ? "true" : "false", double number => number.ToString("G15", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty };
+
+    private static string ExpandReplacement(string replacement, string match, int index, string source)
+    {
+        if (!replacement.Contains('$')) return replacement;
+        var builder = new System.Text.StringBuilder(replacement.Length);
+        for (var i = 0; i < replacement.Length; i++)
+        {
+            if (replacement[i] != '$' || i + 1 >= replacement.Length)
+            {
+                builder.Append(replacement[i]);
+                continue;
+            }
+
+            switch (replacement[++i])
+            {
+                case '$': builder.Append('$'); break;
+                case '&': builder.Append(match); break;
+                case '`': builder.Append(source, 0, index); break;
+                case '\'': builder.Append(source, index + match.Length, source.Length - index - match.Length); break;
+                default: builder.Append('$'); builder.Append(replacement[i]); break;
+            }
+        }
+        return builder.ToString();
+    }
     private static string FormatDateInvalid() => throw WebIdlException.RangeError("Invalid time value.");
     private object? UndefinedOrNull() => _preserveUndefined ? UndefinedValue.Instance : null;
 
