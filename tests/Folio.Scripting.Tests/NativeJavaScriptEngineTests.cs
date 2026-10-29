@@ -698,6 +698,7 @@ public sealed class NativeJavaScriptEngineTests
     {
         using var engine = new NativeJavaScriptEngine();
         Assert.Equal(12d, engine.Evaluate("[1, 2, 3].map(value => value * 2).reduce((total, value) => total + value, 0)").AsNumber());
+        Assert.Equal("cba", engine.Evaluate("['a', 'b', 'c'].reduceRight((result, value) => result + value, '')").AsString());
         Assert.Throws<WebIdlException>(() => engine.Evaluate("[].reduce((total, value) => total + value)"));
         Assert.Equal(2d, engine.Evaluate("[1, 2, 3].filter(value => value > 1).length").AsNumber());
         Assert.Equal(3d, engine.Evaluate("Object.keys([7, 8, 9]).length").AsNumber());

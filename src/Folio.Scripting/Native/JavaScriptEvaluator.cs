@@ -1047,6 +1047,7 @@ internal sealed class JavaScriptEvaluator
             "filter" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: true)),
             "forEach" => (Func<IReadOnlyList<object?>, object?>)(args => { _ = Map(values, args, filter: false, discard: true); return null; }),
             "reduce" => (Func<IReadOnlyList<object?>, object?>)(args => Reduce(values, args)),
+            "reduceRight" => (Func<IReadOnlyList<object?>, object?>)(args => ReduceRight(values, args)),
             "find" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "find")),
             "findIndex" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findIndex")),
             "some" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "some")),
@@ -1184,6 +1185,16 @@ internal sealed class JavaScriptEvaluator
         var index = args.Count > 1 ? 0 : 1;
         object? accumulator = args.Count > 1 ? args[1] : values[0];
         for (; index < values.Count; index++) TryInvoke(args[0], [accumulator, values[index], (double)index, values], out accumulator);
+        return accumulator;
+    }
+
+    private static object? ReduceRight(IList<object?> values, IReadOnlyList<object?> args)
+    {
+        if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array.prototype.reduceRight callback must be callable.");
+        if (args.Count < 2 && values.Count == 0) throw WebIdlException.TypeError("Reduce of empty array with no initial value.");
+        var index = args.Count > 1 ? values.Count - 1 : values.Count - 2;
+        object? accumulator = args.Count > 1 ? args[1] : values[^1];
+        for (; index >= 0; index--) TryInvoke(args[0], [accumulator, values[index], (double)index, values], out accumulator);
         return accumulator;
     }
 
