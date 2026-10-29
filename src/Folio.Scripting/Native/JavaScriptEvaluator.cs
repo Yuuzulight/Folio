@@ -993,6 +993,11 @@ internal sealed class JavaScriptEvaluator
         {
             value = name switch
             {
+                "source" => Source,
+                "flags" => Flags,
+                "global" => Flags.Contains('g'),
+                "ignoreCase" => Flags.Contains('i'),
+                "unicode" => Flags.Contains('u'),
                 "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
                     if (args.Count == 0) return false;
