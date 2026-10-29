@@ -358,10 +358,10 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
         numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]))));
-        numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
-        numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
+        numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
+        numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
         numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && double.IsNaN(number)));
-        numberConstructor.SetProperty("isFinite", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && !double.IsNaN(NumberValue(args[0])) && !double.IsInfinity(NumberValue(args[0]))));
+        numberConstructor.SetProperty("isFinite", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number)));
         _bindings["Number"] = numberConstructor;
         _bindings["Boolean"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && TruthValue(args[0]));
         _bindings["parseInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0])));
