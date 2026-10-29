@@ -11,6 +11,13 @@ close the broader M6 acceptance rows that require full web-platform coverage,
 real device/network transport, iframe visual/watchdog parity, or process-death
 and offline-reopen isolation.
 
+The content-host teardown path now closes host-owned media capture sessions and
+stops host audio immediately when the content process exits or is killed
+(commits `c9546fff` and `17e8f32b`). Real content-process regressions cover both
+capture-session disposal and audio-output stop on process death. These repairs
+close the corresponding teardown slices, but do not claim real device/network
+transport acceptance for the broader WebRTC and media issues.
+
 The float-renderbuffer follow-up also confirmed the remaining WebGL gap: using
 RGBA16F/RGBA32F texture backing instead of the current RGBA8 compatibility
 surface leaves WARP's framebuffer incomplete (`INVALID_FRAMEBUFFER_OPERATION`).
