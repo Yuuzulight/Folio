@@ -52,6 +52,7 @@ session.MessageReceived += async (message, cancellationToken) =>
             ScriptLimitExceededException limit => limit.LimitName,
             ScriptInterruptedException => "Interrupted",
             ScriptRuntimeException => "Runtime",
+            InvalidOperationException error when error.Message.Contains("evaluation step limit", StringComparison.OrdinalIgnoreCase) => "Statements",
             _ => "Host"
         };
         await session.SendAsync(ContentMessageKind.Diagnostic, new { sequence = message.Sequence, code, message = exception.Message }, cancellationToken);
