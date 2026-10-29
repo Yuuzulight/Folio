@@ -1158,9 +1158,10 @@ internal sealed class JavaScriptEvaluator
 
     private static object? Reduce(IList<object?> values, IReadOnlyList<object?> args)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return null;
+        if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError("Array.prototype.reduce callback must be callable.");
+        if (args.Count < 2 && values.Count == 0) throw WebIdlException.TypeError("Reduce of empty array with no initial value.");
         var index = args.Count > 1 ? 0 : 1;
-        object? accumulator = args.Count > 1 ? args[1] : values.Count > 0 ? values[0] : null;
+        object? accumulator = args.Count > 1 ? args[1] : values[0];
         for (; index < values.Count; index++) TryInvoke(args[0], [accumulator, values[index], (double)index, values], out accumulator);
         return accumulator;
     }
