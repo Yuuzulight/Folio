@@ -160,6 +160,21 @@ Wasmtime remains part of the native WebAssembly path.
 The complete differential corpus, production selection, parity bars and
 dependency removal are still required for those tracks.
 
+## Verification refresh — 2026-10-29 (current audit branch)
+
+The current native scripting audit adds replacement-string tokens, regex capture
+callback arguments, enumerable `Array.from` sources, `Object.fromEntries`,
+numeric radix/precision formatting, Unicode normalization, and UTF-16
+`split('')` semantics. Focused native tests pass 81/81 and the full scripting
+suite passes 1,411/1,411. A fresh native conformance report passes D1–D14
+94/94 and S1–S6 72/72 with no mismatches, crashes, hangs, limit hits, or
+script failures.
+
+These results strengthen the Folio-owned JavaScript evidence only. Production
+still selects Jint, and the complete DOM/sandbox/resource-limit/failure corpus,
+Folio-owned raster/shaper/WebAssembly cutovers, and dependency removal remain
+mandatory before Folio completion.
+
 The latest native D2–D7 probe passes 60/60: all library-card and canvas
 artifacts pass, including `D2/pantry-react-jsx`, which now mounts and reaches
 the click handler. Native `var` declarations are hoisted across conditional
