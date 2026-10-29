@@ -55,13 +55,15 @@ with no mismatches, crashes, hangs, limit hits, or script failures.
 The follow-on parity slice now also covers native string replacement expansion
 (`$&`, `$$`, prefix/suffix, numbered and named capture groups), array iteration
 helpers, Unicode normalization, locale-case helpers, and the remaining common
-string/array accessors. The focused native suite is `81/81`, and the full
-`Folio.Scripting.Tests` suite is `1,411/1,411` on the audit branch.
+string/array accessors. The focused native suite is `82/82`, and the full
+`Folio.Scripting.Tests` suite is `1,412/1,412` on the audit branch.
 Recent numeric coverage also includes radix conversion and precision/exponential
 formatting; these remain differential evidence until the complete corpus and
 production cutover gates pass.
 Regex replacement callbacks also now preserve capture groups, offsets, and
 source text across both replace variants.
+Native regular expressions also honor the sticky `y` flag with stateful
+`lastIndex` advancement and reset behavior.
 
 The replacement gate remains open because the production content-host default
 is still Jint and the native path has not yet passed the complete DOM host,
