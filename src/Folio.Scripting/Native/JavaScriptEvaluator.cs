@@ -1435,7 +1435,7 @@ internal sealed class JavaScriptEvaluator
                 if (args.Count < 2) return value;
                 if (args[0] is RegexValue regex)
                     return IsCallable(args[1])
-                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match.Value, (double)match.Index, value])), regex.Flags.Contains('g'))
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(match, value))), regex.Flags.Contains('g'))
                         : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
@@ -1457,7 +1457,7 @@ internal sealed class JavaScriptEvaluator
                     if (!regex.Flags.Contains('g'))
                         throw WebIdlException.TypeError("String.prototype.replaceAll requires a global regular expression.");
                     return IsCallable(args[1])
-                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match])), all: true)
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], ReplacementCallbackArgs(match, value))), all: true)
                         : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match, value), all: true);
                 }
                 if (IsCallable(args[1]))
@@ -1931,6 +1931,16 @@ internal sealed class JavaScriptEvaluator
             }
         }
         return builder.ToString();
+    }
+
+    private static object?[] ReplacementCallbackArgs(System.Text.RegularExpressions.Match match, string source)
+    {
+        var args = new object?[match.Groups.Count + 2];
+        args[0] = match.Value;
+        for (var group = 1; group < match.Groups.Count; group++) args[group] = match.Groups[group].Value;
+        args[^2] = (double)match.Index;
+        args[^1] = source;
+        return args;
     }
     private static string FormatDateInvalid() => throw WebIdlException.RangeError("Invalid time value.");
     private object? UndefinedOrNull() => _preserveUndefined ? UndefinedValue.Instance : null;
