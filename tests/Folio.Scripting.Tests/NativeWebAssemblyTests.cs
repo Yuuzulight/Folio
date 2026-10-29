@@ -334,6 +334,23 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void JavaScriptBindingExposesMutableExternrefGlobals()
+    {
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            6, 6, 1, 0x6f, 1, 0xd0, 0x6f, 0x0b,
+            7, 5, 1, 1, (byte)'g', 3, 0
+        };
+        using var engine = new NativeJavaScriptEngine();
+        using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
+        WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
+        var values = string.Join(',', bytes);
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.g.value=o; i.exports.g.value===o;");
+        Assert.True(result.AsBoolean());
+    }
+
+    [Fact]
     public void NativeEngineAcceptsImportedNullFunctionTables()
     {
         // (module (import "env" "tab" (table 1 funcref)) (export "tab" (table 0)))
