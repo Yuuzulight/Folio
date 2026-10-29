@@ -127,6 +127,28 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void NativeEngineRoundTripsLocalExternrefFunctionResults()
+    {
+        // (module (type (func (param externref) (result externref)))
+        //   (func (export "run") (type 0) (local.get 0)))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            1, 6, 1, 0x60, 1, 0x6f, 1, 0x6f,
+            3, 2, 1, 0,
+            7, 7, 1, 3, (byte)'r', (byte)'u', (byte)'n', 0, 0,
+            10, 6, 1, 4, 0, 0x20, 0, 0x0b
+        };
+        using var runtime = new NativeWebAssemblyRuntime(64 * 1024);
+        using var engine = new JintScriptEngine();
+        Assert.True(runtime.TryInstantiate(engine, bytes, ScriptValue.Undefined, [], out var instance));
+        using var native = instance!;
+        var value = engine.Evaluate("({answer:42})");
+        var result = native.Invoke(engine, "run", [value]);
+        Assert.Same(value.Raw, result.Raw);
+    }
+
+    [Fact]
     public void NativeEngineReusesBoundedCompiledModuleCache()
     {
         var bytes = new byte[]
