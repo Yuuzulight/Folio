@@ -56,6 +56,17 @@ public static class ScriptedProcessBenchmark
             host = Path.Combine(RepoPaths.Root, "tools", "Folio.ContentHost", "bin", configuration, "net10.0", "Folio.ContentHost.dll");
         }
 
+        // On Windows, launch the apphost directly instead of spawning a new
+        // dotnet host for every measurement. The apphost uses the same output
+        // directory and dependencies, but removes the CLI bootstrap from the
+        // cold first-frame path being measured.
+        if (OperatingSystem.IsWindows())
+        {
+            var appHost = Path.ChangeExtension(host, ".exe");
+            if (File.Exists(appHost))
+                host = appHost;
+        }
+
         if (!File.Exists(host))
         {
             Console.Error.WriteLine($"Content host not found at {host}");
