@@ -1,9 +1,10 @@
 # Milestones 0–5 acceptance audit
 
-Tracker refresh (2026-10-29): M0 (Study and architecture) remains closed. M4
-(Scripting foundations) is reopened for recovery: #481, #482, and #484 were
-reopened and #676 is now assigned to M5 as the mandatory revert-reconciliation
-gate. M5 remains open: its dependency-backed parity is verified,
+Tracker refresh (2026-10-30): M0 (Study and architecture) remains closed. The
+revert-reconciliation implementation for #481 and #482 is present again and
+those issues are closed; #484 remains open for the measured scripted
+performance gap, while #676 records the recovery evidence. M4 remains open
+only for that performance gate. M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
