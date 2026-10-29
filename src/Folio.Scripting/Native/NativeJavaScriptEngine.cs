@@ -54,7 +54,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             if (args.Count > 1)
             {
                 if (!IsCallable(args[1])) throw WebIdlException.TypeError("Array.from mapfn must be callable.");
-                for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index]);
+                for (var index = 0; index < values.Length; index++) values[index] = InvokeCallable(args[1]!, [values[index], (double)index, values]);
             }
             return values;
         }));

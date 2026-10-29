@@ -740,6 +740,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].every(false)"));
         Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].flatMap(0)"));
         Assert.Throws<WebIdlException>(() => engine.Evaluate("Array.from([1], 0)"));
+        Assert.Equal("0:1|1:2", engine.Evaluate("Array.from([1, 2], (value, index, source) => index + ':' + source[index]).join('|')").AsString());
     }
 
     [Fact]
