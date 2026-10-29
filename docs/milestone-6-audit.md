@@ -31,6 +31,11 @@ slices; device
 transport, optional-format, interruption and production dependency-removal
 requirements remain open.
 
+The current focused reruns also pass native WebAssembly/worker/iframe coverage
+217/217 and media/WebRTC/service-worker coverage 132/132. These reruns confirm
+the deterministic local slices only; they do not close the original device,
+isolated-process, interruption, or Folio-owned-runtime requirements.
+
 The current Release fuzz checks also pass: the native WebGL shader target
 completed 175 mutated inputs from seven seeds with zero failures. This is
 parser robustness evidence only; it does not establish the runaway-shader
