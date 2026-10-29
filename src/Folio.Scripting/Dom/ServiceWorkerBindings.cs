@@ -327,8 +327,16 @@ internal static class ServiceWorkerBindings
                             if (scopeUrl.origin && scopeOrigin && scopeUrl.origin !== scopeOrigin)
                                 return Promise.reject(new DOMException('The service-worker scope is cross-origin.', 'SecurityError'));
                             scope = scopeUrl.pathname;
+                        } else if (base) {
+                            var relativeScopeUrl = new URL(scopeText, base);
+                            var relativeScopeOrigin = new URL(base).origin;
+                            if (relativeScopeUrl.origin && relativeScopeOrigin && relativeScopeUrl.origin !== relativeScopeOrigin)
+                                return Promise.reject(new DOMException('The service-worker scope is cross-origin.', 'SecurityError'));
+                            scope = relativeScopeUrl.pathname;
                         } else scope = scopeText;
                     } catch (_) { scope = String(scope); }
+                    if (scope.length === 0 || scope.charAt(0) !== '/') scope = '/' + scope;
+                    if (scope.charAt(scope.length - 1) !== '/') scope += '/';
                     var registrationKey = 'service-worker-registration/' + encodeURIComponent(String(scope));
                     if (registrationStorage) { var persisted = registrationStorage.read(registrationKey); if (persisted) { try { var metadata = JSON.parse(persisted); if (metadata && metadata.scriptURL === url) url = String(metadata.scriptURL); } catch (_) { } } }
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scope === scope; });
@@ -421,7 +429,7 @@ internal static class ServiceWorkerBindings
                     ensureLive(); if (registrationStorage) { registrationStorage.write(registrationKey, JSON.stringify({ scope: scope, scriptURL: url })); rememberScope(scope); }
                     __folio_service_worker_registrations.push(registration); navigator.serviceWorker.controller = worker; navigator.serviceWorker.dispatchEvent({ type: 'controllerchange', target: navigator.serviceWorker }); navigator.serviceWorker.ready = Promise.resolve(registration); return Promise.resolve(registration); } catch(error) {lease.release();return Promise.reject(error);}
                 },
-                getRegistration: function(scope) { var value = String(scope || '/'); return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
+                getRegistration: function(scope) { var value = String(scope || '/'); try { if (base) value = new URL(value, base).pathname; } catch (_) { } if (value.length === 0 || value.charAt(0) !== '/') value = '/' + value; if (value.charAt(value.length - 1) !== '/') value += '/'; return Promise.resolve(__folio_service_worker_registrations.find(function(r) { return r.scope === value; })); },
                 getRegistrations: function() { return Promise.resolve(__folio_service_worker_registrations.slice()); }
             }; })(registrationStorage, isolatedRuntime);
             var container=globalThis.navigator.serviceWorker;
