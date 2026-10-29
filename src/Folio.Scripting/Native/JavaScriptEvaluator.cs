@@ -1077,6 +1077,18 @@ internal sealed class JavaScriptEvaluator
                 var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
                 return (double)Enumerable.Range(start, Math.Max(0, values.Count - start)).FirstOrDefault(index => Equals(values[index], args[0]), -1);
             }),
+            "lastIndexOf" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return -1d;
+                var start = args.Count > 1 && args[1] is not null and not JavaScriptEvaluator.UndefinedValue
+                    ? (int)Number(args[1])
+                    : values.Count - 1;
+                if (start < 0) start += values.Count;
+                start = Math.Min(start, values.Count - 1);
+                for (var index = start; index >= 0; index--)
+                    if (Equals(values[index], args[0])) return (double)index;
+                return -1d;
+            }),
             "at" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var index = args.Count == 0 ? 0 : (int)Number(args[0]);

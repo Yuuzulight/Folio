@@ -734,6 +734,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(128512d, engine.Evaluate("'😀'.codePointAt(0)").AsNumber());
         Assert.Equal(3d, engine.Evaluate("'folio'.indexOf('i', 2)").AsNumber());
         Assert.Equal(3d, engine.Evaluate("'folio'.lastIndexOf('i')").AsNumber());
+        Assert.Equal(1d, engine.Evaluate("['a', 'b', 'a'].lastIndexOf('b')").AsNumber());
+        Assert.Equal(0d, engine.Evaluate("['a', 'b', 'a'].lastIndexOf('a', 1)").AsNumber());
         Assert.Equal("x_x_x", engine.Evaluate("'x-x-x'.replaceAll('-', '_')").AsString());
         Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replaceAll(new RegExp('a', 'g'), 'x')").AsString());
         Assert.Equal(2d, engine.Evaluate("'folio'.search(new RegExp('l'))").AsNumber());
