@@ -138,16 +138,22 @@ internal static class WorkerPlatformBindings
           const typedCount=getDescriptor(typedProto,'length').get;
           const dataBuffer=getDescriptor(DataView.prototype,'buffer').get,dataOffset=getDescriptor(DataView.prototype,'byteOffset').get,dataLength=getDescriptor(DataView.prototype,'byteLength').get;
           const arrayLength=getDescriptor(AB.prototype,'byteLength').get;
-          function typedBrand(v){try{return apply(typedTag,v,[]);}catch(_){return undefined;}}
+          function typedBrand(v){
+            if(!isView(v)||v instanceof DataView)return undefined;
+            const proto=Object.getPrototypeOf(v);
+            for(const C of allViews)if(proto===C.prototype){try{apply(typedLength,v,[]);return C.name;}catch(_){return undefined;}}
+            return undefined;
+          }
+          function viewBytes(v){return new U8(apply(typedBuffer,v,[]),apply(typedOffset,v,[]),apply(typedLength,v,[]));}
           function bytesOf(v) {
-            if(isView(v)) return new U8(v.buffer, v.byteOffset, v.byteLength);
-            if(v && typeof v.byteLength === 'number') return new U8(v);
+            if(isView(v)) return v instanceof DataView ? new U8(apply(dataBuffer,v,[]),apply(dataOffset,v,[]),apply(dataLength,v,[])) : viewBytes(v);
+            if(v instanceof AB) return new U8(v);
             throw new TypeError('Expected a BufferSource.');
           }
           function byteList(view){const length=typeof view.byteLength==='number'?view.byteLength:view.length,bytes=[];for(let i=0;i<length;i++)bytes[i]=view[i];return bytes;}
           globalThis.TextEncoder = function() {};
           TextEncoder.prototype.encode = function(v) { return new U8(host.encode(v===undefined?'':S(v))); };
-          TextEncoder.prototype.encodeInto = function(v, dest) { if(!dest||typeof dest.length!=='number')throw new TypeError('Expected Uint8Array.'); const text=v===undefined?'':S(v),capacity=dest.length; let read=0,written=0; while(read<text.length){const cp=text.codePointAt(read), chars=cp>65535?2:1, b=host.encode(text.slice(read,read+chars)); if(written+b.length>capacity) break; for(let i=0;i<b.length;i++) dest[written+i]=b[i]; read+=chars; written+=b.length;} return { read, written }; };
+          TextEncoder.prototype.encodeInto = function(v, dest) { if(!dest||typedBrand(dest)!=='Uint8Array')throw new TypeError('Expected Uint8Array.'); const text=v===undefined?'':S(v),capacity=dest.length; let read=0,written=0; while(read<text.length){const cp=text.codePointAt(read), chars=cp>65535?2:1, b=host.encode(text.slice(read,read+chars)); if(written+b.length>capacity) break; for(let i=0;i<b.length;i++) dest[written+i]=b[i]; read+=chars; written+=b.length;} return { read, written }; };
           const decoderStates = new WeakMap();
           globalThis.TextDecoder = function(label, options) {
             if (!new.target) throw new TypeError('TextDecoder requires new.');
@@ -184,8 +190,8 @@ internal static class WorkerPlatformBindings
           globalThis.btoa = function(v) { v=S(v); for (let i=0;i<v.length;i++) if (v.charCodeAt(i)>255) throw new DOMException('Invalid character','InvalidCharacterError'); return host.base64Encode(v); };
           const bigViews = [typeof BigInt64Array==='function'?BigInt64Array:null, typeof BigUint64Array==='function'?BigUint64Array:null].filter(Boolean); const allViews=views.concat(bigViews);
           globalThis.crypto = { getRandomValues: function(v) {
-            if(!v||typeof v.length!=='number')throw new TypeError('Expected an integer typed array.');
-            const out=bytesOf(v),length=typeof v.length==='number'?v.length:out.length;if(length>65536)throw new DOMException('The requested random buffer is too large.','QuotaExceededError');
+            if(!v||typeof v.length!=='number'||!allViews.some(C=>typedBrand(v)===C.name))throw new TypeError('Expected an integer typed array.');
+            const out=bytesOf(v),length=out.byteLength;if(length>65536)throw new DOMException('The requested random buffer is too large.','QuotaExceededError');
             const b=host.random(length);for(let i=0;i<length;i++)out[i]=b[i];return v;
           } };
           globalThis.console = {}; ['log','info','warn','error','debug','dir','trace'].forEach(k => console[k] = function(...a) { host.console(k, a.map(S).join(' ')); });
