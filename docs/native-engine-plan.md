@@ -55,6 +55,9 @@ The follow-on parity slice now also covers native string replacement expansion
 helpers, Unicode normalization, locale-case helpers, and the remaining common
 string/array accessors. The focused native suite is `81/81`, and the full
 `Folio.Scripting.Tests` suite is `1,411/1,411` on the audit branch.
+Recent numeric coverage also includes radix conversion and precision/exponential
+formatting; these remain differential evidence until the complete corpus and
+production cutover gates pass.
 
 The replacement gate remains open because the production content-host default
 is still Jint and the native path has not yet passed the complete DOM host,
