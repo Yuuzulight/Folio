@@ -746,6 +746,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replace(new RegExp('a', 'g'), 'x')").AsString());
         Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace('b', '[$&]')").AsString());
         Assert.Equal("a$c", engine.Evaluate("'abc'.replaceAll('b', '$$')").AsString());
+        Assert.Equal("a[b]c", engine.Evaluate("'abc'.replace(new RegExp('b'), '[$&]')").AsString());
         Assert.Equal("a|b|c", engine.Evaluate("'abc'.split('').join('|')").AsString());
         Assert.Equal("a|b", engine.Evaluate("'a,b,c'.split(',', 2).join('|')").AsString());
         Assert.Equal("A0a-A2a", engine.Evaluate("'a-a'.replaceAll('a', (match, offset, source) => match.toUpperCase() + offset + source[0])").AsString());

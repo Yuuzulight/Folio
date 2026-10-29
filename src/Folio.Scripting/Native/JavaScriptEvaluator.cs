@@ -1384,7 +1384,7 @@ internal sealed class JavaScriptEvaluator
                 if (args[0] is RegexValue regex)
                     return IsCallable(args[1])
                         ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match.Value, (double)match.Index, value])), regex.Flags.Contains('g'))
-                        : regex.Replace(value, StringValue(args[1]), regex.Flags.Contains('g'));
+                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match.Value, match.Index, value), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
                     var needle = StringValue(args[0]);
@@ -1406,7 +1406,7 @@ internal sealed class JavaScriptEvaluator
                         throw WebIdlException.TypeError("String.prototype.replaceAll requires a global regular expression.");
                     return IsCallable(args[1])
                         ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match])), all: true)
-                        : regex.Replace(value, StringValue(args[1]), all: true);
+                        : regex.Replace(value, match => ExpandReplacement(StringValue(args[1]), match.Value, match.Index, value), all: true);
                 }
                 if (IsCallable(args[1]))
                 {
