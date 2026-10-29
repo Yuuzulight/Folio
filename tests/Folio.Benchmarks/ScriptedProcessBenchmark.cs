@@ -122,6 +122,7 @@ public static class ScriptedProcessBenchmark
         if (Directory.Exists(d1Folder))
         {
             var d1Artifacts = Directory.GetDirectories(d1Folder).OrderBy(d => d).ToArray();
+            await using var warmClient = ContentProcessClient.Start(host);
             foreach (var artDir in d1Artifacts)
             {
                 var artName = Path.GetFileName(artDir);
@@ -129,7 +130,6 @@ public static class ScriptedProcessBenchmark
                 if (!File.Exists(indexPath)) continue;
                 var html = await File.ReadAllTextAsync(indexPath);
 
-                await using var client = ContentProcessClient.Start(host);
                 var frameTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
                 ValueTask OnFrame(ContentMessage m, CancellationToken ct)
                 {
@@ -137,15 +137,15 @@ public static class ScriptedProcessBenchmark
                         frameTcs.TrySetResult(m);
                     return ValueTask.CompletedTask;
                 }
-                client.MessageReceived += OnFrame;
+                warmClient.MessageReceived += OnFrame;
                 try
                 {
                     var sw = Stopwatch.StartNew();
-                    await client.SendAsync(ContentMessageKind.Load, new { html });
+                    await warmClient.SendAsync(ContentMessageKind.Load, new { html });
                     var frame = await frameTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
                     var elapsed = sw.Elapsed;
-                    client.Process.Refresh();
-                    var ws = client.Process.WorkingSet64;
+                    warmClient.Process.Refresh();
+                    var ws = warmClient.Process.WorkingSet64;
                     var frameSize = frame.Payload.ToString().Length;
                     var within = elapsed <= TargetWarmFirstPaint && ws <= TargetWorkingSet;
                     table.AppendLine(string.Create(CultureInfo.InvariantCulture,
@@ -155,7 +155,7 @@ public static class ScriptedProcessBenchmark
                 }
                 finally
                 {
-                    client.MessageReceived -= OnFrame;
+                    warmClient.MessageReceived -= OnFrame;
                 }
             }
         }
@@ -169,6 +169,7 @@ public static class ScriptedProcessBenchmark
             .AppendLine("|---|--:|---|---|");
 
         int[] sampleSizes = [1 * 1024, 10 * 1024, 30 * 1024, 50 * 1024, 100 * 1024, 250 * 1024];
+        await using var sizeClient = ContentProcessClient.Start(host);
         foreach (var size in sampleSizes)
         {
             var varCount = size / 25;
@@ -177,7 +178,6 @@ public static class ScriptedProcessBenchmark
                 scriptBuilder.Append($"var a{i} = {i} * 2; ");
             var script = scriptBuilder.ToString();
 
-            await using var client = ContentProcessClient.Start(host);
             var frameTcs = new TaskCompletionSource<ContentMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             ValueTask OnFrame(ContentMessage m, CancellationToken ct)
             {
@@ -185,11 +185,11 @@ public static class ScriptedProcessBenchmark
                     frameTcs.TrySetResult(m);
                 return ValueTask.CompletedTask;
             }
-            client.MessageReceived += OnFrame;
+            sizeClient.MessageReceived += OnFrame;
             try
             {
                 var sw = Stopwatch.StartNew();
-                await client.SendAsync(ContentMessageKind.Load, new
+                await sizeClient.SendAsync(ContentMessageKind.Load, new
                 {
                     html = "<!DOCTYPE html><title>Size</title><body>Test</body>",
                     script
@@ -203,7 +203,7 @@ public static class ScriptedProcessBenchmark
             }
             finally
             {
-                client.MessageReceived -= OnFrame;
+                sizeClient.MessageReceived -= OnFrame;
             }
         }
 

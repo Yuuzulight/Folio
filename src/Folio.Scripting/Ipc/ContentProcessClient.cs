@@ -246,14 +246,19 @@ public sealed class ContentProcessClient : IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested && !_process.HasExited)
             {
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested || _process.HasExited) break;
                 await _session.SendAsync(ContentMessageKind.Heartbeat, new { }, cancellationToken).ConfigureAwait(false);
                 if (!_supervisor.CheckHeartbeat()) break;
-                if (!_supervisor.CheckMemory(_process.WorkingSet64)) break;
+                long workingSet;
+                try { workingSet = _process.WorkingSet64; }
+                catch (InvalidOperationException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { break; }
+                if (!_supervisor.CheckMemory(workingSet)) break;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (IOException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
         catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
+        catch (InvalidOperationException) when (cancellationToken.IsCancellationRequested || _process.HasExited) { }
     }
 
     private async Task DrainErrorAsync(CancellationToken cancellationToken)
