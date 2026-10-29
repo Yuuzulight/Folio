@@ -882,7 +882,7 @@ public sealed class DomStyleDeclarationTests
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Instance(memoryImport, { env: { mem: new WebAssembly.Table({ initial: 1 }) } })"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Instance(tableImport, { env: { tab: new WebAssembly.Memory({ initial: 1 }) } })"));
         Assert.True(allowed.Evaluate("const memory = new WebAssembly.Memory({ initial: 1, maximum: 2 }); memory.buffer.byteLength === 65536 && memory.grow(1) === 1 && memory.buffer.byteLength === 131072").AsBoolean());
-        Assert.True(allowed.Evaluate("const table = new WebAssembly.Table({ initial: 1, maximum: 2 }); table.set(0, 7); table.get(0) === 7 && table.grow(1) === 1 && table.length === 2").AsBoolean());
+        Assert.True(allowed.Evaluate("const table = new WebAssembly.Table({ initial: 1, maximum: 2, element: 'externref' }); table.set(0, 7); table.get(0) === 7 && table.grow(1) === 1 && table.length === 2").AsBoolean());
         Assert.True(allowed.Evaluate("const preserved = new WebAssembly.Memory({ initial: 1, maximum: 2 }); new Uint8Array(preserved.buffer)[1234] = 77; preserved.grow(1) === 1 && new Uint8Array(preserved.buffer)[1234] === 77").AsBoolean());
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Memory({ initial: 1.5 })"));
         Assert.ThrowsAny<Exception>(() => allowed.Evaluate("new WebAssembly.Table({ initial: 1, maximum: 2.5 })"));
