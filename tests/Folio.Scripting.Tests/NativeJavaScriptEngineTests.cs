@@ -854,6 +854,14 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ArrowFunctionsCaptureClassThis()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        engine.Evaluate("class Store { constructor() { this.value = 'ok'; } read() { const callback = () => this.value; return callback(); } } let result = new Store().read();");
+        Assert.Equal("ok", engine.Evaluate("result").AsString());
+    }
+
+    [Fact]
     public void PromiseResolveDoesNotNestAnExistingPromise()
     {
         using var engine = new NativeJavaScriptEngine();

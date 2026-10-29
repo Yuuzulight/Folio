@@ -334,7 +334,7 @@ internal sealed class JavaScriptParser
             var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
                 ? ParseBlockStatement().Statements
                 : [new JavaScriptReturnStatement(ParseBinary(0))];
-            left = Node(new JavaScriptFunctionExpression([parameter.Name], body));
+            left = Node(new JavaScriptFunctionExpression([parameter.Name], body, IsArrow: true));
         }
         return left;
     }
@@ -441,7 +441,7 @@ internal sealed class JavaScriptParser
                     var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
                         ? ParseBlockStatement().Statements
                         : [new JavaScriptReturnStatement(ParseBinary(0))];
-                    return Node(new JavaScriptFunctionExpression([parameter], body, IsAsync: true));
+                    return Node(new JavaScriptFunctionExpression([parameter], body, IsAsync: true, IsArrow: true));
                 }
                 if (IsArrowParameterList(out var asyncArrowParameters))
                     return Node(ParseArrowFunction(asyncArrowParameters, isAsync: true));
@@ -456,7 +456,7 @@ internal sealed class JavaScriptParser
                 var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
                     ? ParseBlockStatement().Statements
                     : [new JavaScriptReturnStatement(ParseBinary(0))];
-                return Node(new JavaScriptFunctionExpression([parameter], body));
+                return Node(new JavaScriptFunctionExpression([parameter], body, IsArrow: true));
             }
             var name = _current.Text; Take();
             if (name == "yield")
@@ -646,7 +646,7 @@ internal sealed class JavaScriptParser
         var body = _current.Kind == JavaScriptTokenKind.Punctuation && _current.Text == "{"
             ? ParseBlockStatement().Statements
             : [new JavaScriptReturnStatement(ParseBinary(0))];
-        return new JavaScriptFunctionExpression(parsedParameters, body, defaults, IsAsync: isAsync);
+        return new JavaScriptFunctionExpression(parsedParameters, body, defaults, IsAsync: isAsync, IsArrow: true);
     }
 
     private JavaScriptClassExpression ParseClassTail()

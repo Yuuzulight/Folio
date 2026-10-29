@@ -1678,6 +1678,10 @@ internal sealed class JavaScriptEvaluator
     {
         var captured = _bindings;
         var capturedWithScopes = _withScopes.ToArray();
+        // Arrow functions capture the lexical receiver. This matters for
+        // host bootstrap code such as CacheStorage, whose promise callbacks
+        // intentionally close over the class instance via `this`.
+        var lexicalThis = function.IsArrow && TryLookup("this", out var capturedThis) ? capturedThis : null;
         Func<IReadOnlyList<object?>, object?>? functionValue = null;
         functionValue = arguments => InvokeBody(null, arguments);
         ReceiverBindings.Add(functionValue, new ReceiverBinding((receiver, arguments) => InvokeBody(receiver, arguments)));
@@ -1705,7 +1709,7 @@ internal sealed class JavaScriptEvaluator
             // invoked without an explicit receiver. UMD libraries rely on this
             // for their `(function(){ ... })(this)` wrapper; method calls still
             // supply their actual receiver through ReceiverBindings.
-            local["this"] = receiver ?? captured;
+            local["this"] = function.IsArrow ? lexicalThis : receiver ?? captured;
             local["arguments"] = arguments.ToList();
             if (function.IsGenerator) return RunGenerator(local, function.Body);
             try
