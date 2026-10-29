@@ -296,3 +296,12 @@ Folio.Tests 1,961 with one documented symlink skip, RenderTests 744/744, and
 Scripting.Tests 1,390 executable tests succeeded, with six documented software skips. These results verify
 that the receiver-aware and stable-identity host fixes do not regress existing
 coverage; they do not close the React reconciliation or replacement gate.
+
+## Verification refresh — 2026-10-29 (hosted and native full-suite)
+
+Hosted CI run `40808471561` is fully green after rerunning one transient media
+watchdog timeout. The exact WinForms test passed locally and in the rerun. The
+complete scripting suite also passes 1,411/1,411 with
+`FOLIO_SCRIPT_ENGINE=native`, so native evidence covers the full suite rather
+than only the focused parity corpus. These results strengthen the replacement
+evidence but do not remove the mandatory production dependency gates.
