@@ -11,6 +11,13 @@ close the broader M6 acceptance rows that require full web-platform coverage,
 real device/network transport, iframe visual/watchdog parity, or process-death
 and offline-reopen isolation.
 
+The float-renderbuffer follow-up also confirmed the remaining WebGL gap: using
+RGBA16F/RGBA32F texture backing instead of the current RGBA8 compatibility
+surface leaves WARP's framebuffer incomplete (`INVALID_FRAMEBUFFER_OPERATION`).
+The current path therefore preserves API shape and framebuffer behavior but is
+not true float-precision storage; #530 remains open for a real float-capable
+backend.
+
 ## Latest focused audit refresh
 
 Current Release slices pass WebRTC/capture/media-capture 30/30,
