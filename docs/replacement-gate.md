@@ -118,6 +118,12 @@ evidence, not a gate pass.
 
 ## Verification refresh — 2026-10-30
 
+An additional Release benchmark (`Folio.Benchmarks bench 3 5`) measured the
+typical dashboard at 5.1 ms paint-only p95 and the busy dashboard at 18.8 ms
+p95. Raster replay remained 60.2 ms versus Skia's 5.9 ms at 800x600 and
+109.2 ms versus 11.6 ms at 1920x1080. The typical animation is within its
+frame target, but the busy case and software-backend gap keep #575 open.
+
 Fresh Release benchmark evidence (`Folio.Benchmarks bench 3 20`) still fails
 the production raster gate: the Folio-owned software backend replays the
 typical dashboard at 63.7 ms median versus Skia's 7.2 ms at 800x600, and 46.0
