@@ -31,6 +31,11 @@ slices; device
 transport, optional-format, interruption and production dependency-removal
 requirements remain open.
 
+The current Release fuzz checks also pass: the native WebGL shader target
+completed 175 mutated inputs from seven seeds with zero failures. This is
+parser robustness evidence only; it does not establish the runaway-shader
+interruption requirement in #531.
+
 The same refresh passes the media/playback/capture slice 51/51, the native and
 compatibility WebAssembly capability/content-process slice 53/53, the worker and
 iframe lifecycle/platform slice 152/152, and the service-worker/cache slice
