@@ -52,6 +52,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                 NativeSet set => set.Values(),
                 NativeMap map => map.Entries(),
                 NativeBuffer buffer => Enumerable.Range(0, buffer.Length).Select(index => buffer.TryGetIndex(index, out var value) ? value : JavaScriptEvaluator.UndefinedValue.Instance).ToArray(),
+                IEnumerable<object?> enumerable => enumerable.ToArray(),
                 _ => Array.Empty<object?>(),
             };
             if (args.Count > 1)
