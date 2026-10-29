@@ -38,6 +38,23 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void NativeSvgDomCreationAndAppendWork()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body><svg id='plot'></svg></body></html>", new FolioOptions { Limits = ResourceLimits.Default });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        Assert.Equal("1|circle|blue", engine.Evaluate("const svg=document.getElementById('plot'); const c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('fill','blue'); svg.append(c); [svg.children.length,c.localName,c.getAttribute('fill')].join('|')").AsString());
+    }
+
+    [Fact]
+    public void NativeConditionalFractionIsNotOptionalChaining()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Equal(0.5, engine.Evaluate("var value=undefined; value ? 1 : .5").AsNumber());
+    }
+
+    [Fact]
     public void NativeDeniedWorkerConstructorThrows()
     {
         using var engine = new NativeJavaScriptEngine();

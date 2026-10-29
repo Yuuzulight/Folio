@@ -16,6 +16,21 @@ public sealed class NativeLibraryProbeTests
     }
 
     [Fact]
+    public void NativeD3SelectAppendsSvgCircle()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../..", "tests", "conformance-cache", "files"));
+        using var document = Folio.Document.Parse("<svg id='plot' width='240' height='140'></svg>");
+        using var engine = new NativeJavaScriptEngine();
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        engine.Evaluate(File.ReadAllText(Path.Combine(root, "d3.min.js")), "d3.min.js");
+        engine.Evaluate("if(window.d3){d3.select('#plot').append('circle').attr('cx',120).attr('cy',70).attr('r',40).attr('fill','#2563eb');}");
+        Assert.Single(document.GetElementById("plot")!.Children);
+        Assert.Equal("circle", document.GetElementById("plot")!.Children[0].LocalName);
+        Assert.Equal("#2563eb", document.GetElementById("plot")!.Children[0].GetAttribute("fill"));
+    }
+
+    [Fact]
     public void NativeChartBridgeDrawsIntoAFolioCanvas()
     {
         using var document = Folio.Document.Parse("<canvas id='plot' width='640' height='220'></canvas>",

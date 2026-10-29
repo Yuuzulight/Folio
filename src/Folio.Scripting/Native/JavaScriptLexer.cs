@@ -78,7 +78,10 @@ internal sealed class JavaScriptLexer
             Advance(); Advance(); Advance();
             return new(JavaScriptTokenKind.Punctuation, three, offset, line, column);
         }
-        if (two is "=>" or "==" or "!=" or "<=" or ">=" or "&&" or "||" or "??" or "?." or "++" or "--" or "**" or "<<" or ">>" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=")
+        // `e?.5` is the conditional operator followed by a fractional literal,
+        // not optional chaining.  Keep the question mark separate in that case.
+        var optionalChain = two == "?." && !(_index + 2 < _source.Length && char.IsDigit(_source[_index + 2]));
+        if (two is "=>" or "==" or "!=" or "<=" or ">=" or "&&" or "||" or "??" or "++" or "--" or "**" or "<<" or ">>" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" || optionalChain)
         {
             Advance(); Advance();
             return new(JavaScriptTokenKind.Punctuation, two, offset, line, column);
