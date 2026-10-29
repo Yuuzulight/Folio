@@ -1011,7 +1011,12 @@ internal sealed class JavaScriptEvaluator
         private readonly Regex _regex;
         internal string Source { get; }
         internal string Flags { get; }
-        private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = flags; }
+        private RegexValue(Regex regex, string source, string flags) { _regex = regex; Source = source; Flags = CanonicalFlags(flags); }
+        private static string CanonicalFlags(string flags)
+        {
+            const string order = "dgimsuvy";
+            return string.Concat(order.Where(flags.Contains));
+        }
         internal IReadOnlyDictionary<string, object?>? NamedGroups(Match match)
         {
             var names = _regex.GetGroupNames().Where(name => !int.TryParse(name, out _)).ToArray();
