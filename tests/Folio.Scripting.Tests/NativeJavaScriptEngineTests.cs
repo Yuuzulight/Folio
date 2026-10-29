@@ -729,6 +729,19 @@ public sealed class NativeJavaScriptEngineTests
     }
 
     [Fact]
+    public void ArrayCallbackMethodsRejectNonCallableCallbacks()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].map(1)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].filter(null)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].find(undefined)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].findLast({})"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].some('callback')"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].every(false)"));
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("[1].flatMap(0)"));
+    }
+
+    [Fact]
     public void ProvidesJsonRoundTripGlobals()
     {
         using var engine = new NativeJavaScriptEngine();

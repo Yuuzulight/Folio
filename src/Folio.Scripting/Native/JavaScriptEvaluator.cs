@@ -1243,7 +1243,7 @@ internal sealed class JavaScriptEvaluator
 
     private static object? Map(IList<object?> values, IReadOnlyList<object?> args, bool filter, bool discard = false)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return Array.Empty<object?>();
+        RequireCallable(args, "Array callback must be callable.");
         var result = new List<object?>();
         for (var i = 0; i < values.Count; i++)
         {
@@ -1255,7 +1255,7 @@ internal sealed class JavaScriptEvaluator
 
     private static object?[] FlatMap(IList<object?> values, IReadOnlyList<object?> args)
     {
-        if (args.Count == 0 || !IsCallable(args[0])) return [];
+        RequireCallable(args, "Array callback must be callable.");
         var result = new List<object?>();
         for (var i = 0; i < values.Count; i++)
         {
@@ -1301,8 +1301,7 @@ internal sealed class JavaScriptEvaluator
 
     private static object? Find(IList<object?> values, IReadOnlyList<object?> args, string mode)
     {
-        if (args.Count == 0 || !IsCallable(args[0]))
-            return mode == "every";
+        RequireCallable(args, "Array callback must be callable.");
         var reverse = mode is "findLast" or "findLastIndex";
         var first = reverse ? values.Count - 1 : 0;
         var last = reverse ? -1 : values.Count;
@@ -1322,6 +1321,10 @@ internal sealed class JavaScriptEvaluator
     }
 
     internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
+    private static void RequireCallable(IReadOnlyList<object?> args, string message)
+    {
+        if (args.Count == 0 || !IsCallable(args[0])) throw WebIdlException.TypeError(message);
+    }
     private static bool TryInvoke(object? value, IReadOnlyList<object?> args, out object? result)
     {
         switch (value)
