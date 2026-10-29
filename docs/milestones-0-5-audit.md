@@ -1,13 +1,17 @@
 # Milestones 0–5 acceptance audit
 
 Tracker refresh (2026-10-30): M0 (Study and architecture) remains closed. The
-revert-reconciliation implementation for #481 and #482 is present again and
-those issues are closed; #484 remains open for the measured scripted
-performance gap, while #676 records the recovery evidence. M4 remains open
+revert-reconciliation implementation for #481 and #482 is present again on
+the audit branch in PR #672, but is not merged to `main`; those issues are
+closed while #484 remains open for the measured scripted performance gap.
+#676 records the recovery evidence. M4 remains open
 for that performance gate and the four strict D1 interaction raster mismatches
 (#678–#681). M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
+
+PR #672's current head is `1c58848c`; CI run `40909686820` is in progress, so
+the branch has no completed current-HEAD CI conclusion yet.
 
 The latest direct Release verification (2026-10-30) passes 4,249 tests with
 zero failures and one environment-dependent skip (the local symbolic-link

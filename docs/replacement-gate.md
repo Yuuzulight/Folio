@@ -11,7 +11,8 @@ The native worker, nested-worker, iframe, and WebRTC capability slices are
 green (54/54, 7/7, 27/27, and 11/11 respectively), and the full native
 scripting runner is 1,412/1,412. These are compatibility and Folio-owned
 runtime slices, not proof that production dependencies can be removed. Jint,
-SkiaSharp, HarfBuzzSharp, and Wasmtime remain in the production graph until
+SkiaSharp, HarfBuzzSharp, Wasmtime, and ANGLE
+(`Avalonia.Angle.Windows.Natives`) remain in the production graph until
 the complete replacement gates below are met. The WARP float-renderbuffer
 probe also confirms that the current WebGL fallback is RGBA8 emulation, so it
 cannot be counted as a Folio-owned float backend.
@@ -38,6 +39,11 @@ production dependency has been removed:
 5. **WebAssembly** — Folio-owned validation, compilation and execution replace
    Wasmtime and the compatibility interpreter, including imports, linear memory,
    tables, globals, streaming, workers, traps, limits and teardown behavior.
+6. **GPU backend and shader translation** — Folio-owned WebGL/GPU backend and
+   shader translation replace ANGLE, including texture/framebuffer formats,
+   float/integer paths, device loss/recovery, budgets, sandboxing and host-frame
+   transport. The dependency must be absent from production projects and
+   published artifacts after differential verification.
 
 ## Evidence required for each replacement
 

@@ -25,6 +25,19 @@ The current path therefore preserves API shape and framebuffer behavior but is
 not true float-precision storage; #530 remains open for a real float-capable
 backend.
 
+Historical cache checkpoint: commit `d277f346` failed 13 of 23
+`ContentCacheTests` on both the default and native engines. The current audit
+branch contains the subsequent repair (`ced4c474`); its focused cache run is
+23/23. That branch-local result does not close the broader service-worker
+registration, process-death, offline-reopen and isolation acceptance in #556
+and #560, and current-HEAD CI is still in progress on PR #672.
+
+Likewise, native D8's 6/6 is a verified corpus slice, not full WebGL
+conformance. #527, #530 and #531 remain open for the complete category,
+optional formats/readback, context loss, limits and sandbox evidence. The M6
+audit still includes the media (#533/#535/#537), WebAssembly (#545), WebRTC
+(#554), service-worker (#556) and umbrella (#170–#174) requirements.
+
 ## Latest focused audit refresh
 
 Current Release slices pass WebRTC/capture/media-capture 30/30,
