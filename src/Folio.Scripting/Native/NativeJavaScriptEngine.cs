@@ -1429,6 +1429,46 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         // promise wrapper.
         while (value is NativePromise promise)
         {
+            if (!promise.IsSettled)
+            {
+                for (var turn = 0; turn < 32 && !promise.IsSettled; turn++)
+                    promise._engine.PerformMicrotaskCheckpoint();
+                if (!promise.IsSettled) return JavaScriptEvaluator.UndefinedValue.Instance;
+            }
+            if (promise.IsRejected)
+            {
+                var reason = promise.SettledValue;
+                if (reason is IReadOnlyDictionary<string, object?> properties
+                    && properties.TryGetValue("name", out var nameValue)
+                    && properties.TryGetValue("message", out var messageValue))
+                {
+                    var name = nameValue?.ToString() ?? "Error";
+                    var message = messageValue?.ToString() ?? string.Empty;
+                    return new RejectedPromiseValue(new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["name"] = name,
+                        ["message"] = message,
+                    });
+                }
+                if (reason is Exception exception)
+                {
+                    var message = exception.Message;
+                    const string prefix = "JavaScript throw: ";
+                    if (message.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        var text = message[prefix.Length..];
+                        var separator = text.IndexOf(':');
+                        var name = separator > 0 ? text[..separator] : "Error";
+                        var detail = separator > 0 ? text[(separator + 1)..].TrimStart() : text;
+                        return new RejectedPromiseValue(new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            ["name"] = name,
+                            ["message"] = detail,
+                        });
+                    }
+                }
+                return new RejectedPromiseValue(reason);
+            }
             var settled = promise.SettledValue;
             if (ReferenceEquals(settled, promise)) break;
             value = settled;
@@ -1438,7 +1478,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
 
     private sealed class NativePromise : INativePromise
     {
-        private readonly NativeJavaScriptEngine _engine;
+        internal readonly NativeJavaScriptEngine _engine;
         private object? _value;
         private bool _rejected;
         private bool _settled;
@@ -1450,6 +1490,8 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         internal void Resolve(object? value) => Settle(value, rejected: false);
         internal void Reject(object? value) => Settle(value, rejected: true);
         internal object? SettledValue => _settled ? _value : JavaScriptEvaluator.UndefinedValue.Instance;
+        internal bool IsSettled => _settled;
+        internal bool IsRejected => _settled && _rejected;
         public bool TryGetProperty(string name, out object? value)
         {
             value = name switch
@@ -1517,6 +1559,11 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         {
             ScheduleContinuation(callback, null, next);
         }
+    }
+
+    internal sealed class RejectedPromiseValue(object? value)
+    {
+        internal object? Value { get; } = value;
     }
 
     private sealed class NativeBuffer : INativeBuffer

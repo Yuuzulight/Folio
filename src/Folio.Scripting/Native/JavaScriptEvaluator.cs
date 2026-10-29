@@ -55,7 +55,7 @@ internal sealed class JavaScriptEvaluator
             JavaScriptTemplateExpression template => Template(template.Text),
             JavaScriptRegexExpression regex => RegexValue.Create(regex.Text),
             JavaScriptIdentifierExpression identifier => Lookup(identifier.Name),
-            JavaScriptAwaitExpression awaited => NativeJavaScriptEngine.UnwrapAwait(Evaluate(awaited.Operand)),
+            JavaScriptAwaitExpression awaited => UnwrapAwait(Evaluate(awaited.Operand)),
             JavaScriptYieldExpression yielded => EvaluateYield(yielded),
             JavaScriptUnaryExpression unary => Unary(unary),
             JavaScriptUpdateExpression update => Update(update),
@@ -71,6 +71,14 @@ internal sealed class JavaScriptEvaluator
             JavaScriptClassExpression @class => Class(@class),
             _ => throw new InvalidDataException("Unknown JavaScript expression node."),
         };
+    }
+
+    private static object? UnwrapAwait(object? value)
+    {
+        var unwrapped = NativeJavaScriptEngine.UnwrapAwait(value);
+        return unwrapped is NativeJavaScriptEngine.RejectedPromiseValue rejected
+            ? throw new JavaScriptThrownException(rejected.Value)
+            : unwrapped;
     }
 
     private object Template(string text)
@@ -1729,9 +1737,23 @@ internal sealed class JavaScriptEvaluator
         object? ResolvePromise(object? value) => PromiseCall("resolve", value);
         object? RejectPromise(Exception error) => PromiseCall("reject", new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["name"] = error is WebIdlException web ? web.Name : "Error",
-            ["message"] = error.Message,
+            ["name"] = error is WebIdlException web ? web.Name : ThrownName(error),
+            ["message"] = error is WebIdlException ? error.Message : ThrownMessage(error),
         });
+        static string ThrownName(Exception error)
+        {
+            const string prefix = "JavaScript throw: ";
+            var text = error.Message.StartsWith(prefix, StringComparison.Ordinal) ? error.Message[prefix.Length..] : string.Empty;
+            var separator = text.IndexOf(':');
+            return separator > 0 ? text[..separator] : "Error";
+        }
+        static string ThrownMessage(Exception error)
+        {
+            const string prefix = "JavaScript throw: ";
+            var text = error.Message.StartsWith(prefix, StringComparison.Ordinal) ? error.Message[prefix.Length..] : error.Message;
+            var separator = text.IndexOf(':');
+            return separator > 0 ? text[(separator + 1)..].TrimStart() : text;
+        }
         object? PromiseCall(string name, object? value)
         {
             if (captured.TryGetValue("Promise", out var promise)
