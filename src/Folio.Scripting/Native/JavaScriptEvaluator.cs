@@ -1041,7 +1041,6 @@ internal sealed class JavaScriptEvaluator
                 "ignoreCase" => Flags.Contains('i'),
                 "multiline" => Flags.Contains('m'),
                 "dotAll" => Flags.Contains('s'),
-                "sticky" => Flags.Contains('y'),
                 "unicode" => Flags.Contains('u'),
                 "test" => (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
