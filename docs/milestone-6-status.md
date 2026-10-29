@@ -27,8 +27,8 @@ backend.
 
 Historical cache checkpoint: commit `d277f346` failed 13 of 23
 `ContentCacheTests` on both the default and native engines. The current audit
-branch contains the subsequent repair (`ced4c474`); its focused cache run is
-23/23. That branch-local result does not close the broader service-worker
+tip (`bfb3b9a9`) contains the subsequent repair; its full cache run is 23/23
+(41.525 seconds). That branch-local result does not close the broader service-worker
 registration, process-death, offline-reopen and isolation acceptance in #556
 and #560, and current-HEAD CI is still in progress on PR #672.
 
