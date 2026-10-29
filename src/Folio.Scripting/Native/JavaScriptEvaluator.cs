@@ -1409,7 +1409,7 @@ internal sealed class JavaScriptEvaluator
             {
                 var index = args.Count == 0 ? 0 : (int)Number(args[0]);
                 if (index < 0) index += value.Length;
-                return index < 0 || index >= value.Length ? string.Empty : value[index].ToString();
+                return index < 0 || index >= value.Length ? UndefinedValue.Instance : value[index].ToString();
             }),
             "charAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? string.Empty : value[(int)Number(args[0])].ToString()),
             "charCodeAt" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || (int)Number(args[0]) < 0 || (int)Number(args[0]) >= value.Length ? double.NaN : (double)value[(int)Number(args[0])]),

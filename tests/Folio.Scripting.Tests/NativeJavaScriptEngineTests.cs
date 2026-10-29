@@ -694,6 +694,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("abc!!", engine.Evaluate("'abc'.padEnd(5, '!')").AsString());
         Assert.Equal(3d, engine.Evaluate("[1, 2, 3].at(-1)").AsNumber());
         Assert.Equal("i", engine.Evaluate("'folio'.at(-2)").AsString());
+        Assert.True(engine.Evaluate("'folio'.at(99)").IsUndefined);
         Assert.Equal(3d, engine.Evaluate("'folio'.indexOf('i', 2)").AsNumber());
         Assert.Equal(3d, engine.Evaluate("'folio'.lastIndexOf('i')").AsNumber());
         Assert.Equal("x_x_x", engine.Evaluate("'x-x-x'.replaceAll('-', '_')").AsString());
