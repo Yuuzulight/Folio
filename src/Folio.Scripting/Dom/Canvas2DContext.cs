@@ -129,7 +129,22 @@ internal sealed partial class Canvas2DContext
 
     // ---------------------------------------------------------------- transforms
 
-    private static bool Finite(params double[] values) => values.All(double.IsFinite);
+    // Keep validation on the canvas hot path allocation-free. A params array here
+    // used to allocate for every fill/path call in animated canvases.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double value) => double.IsFinite(value);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b) => double.IsFinite(a) && double.IsFinite(b);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c) => double.IsFinite(a) && double.IsFinite(b) && double.IsFinite(c);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d) => double.IsFinite(a) && double.IsFinite(b) && double.IsFinite(c) && double.IsFinite(d);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d, double e) => Finite(a, b, c, d) && double.IsFinite(e);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d, double e, double f) => Finite(a, b, c, d, e) && double.IsFinite(f);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static bool Finite(double a, double b, double c, double d, double e, double f, double g, double h) => Finite(a, b, c, d, e, f) && double.IsFinite(g) && double.IsFinite(h);
 
     public void Scale(double x, double y)
     {
