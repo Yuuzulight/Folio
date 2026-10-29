@@ -8,7 +8,8 @@ per-artifact script/update, display-list, host-paint and total p95 timings.
 A fresh Release run (30 frames per artifact) shows the native engine below the
 16.7 ms target for every D5/D7 artifact; the worst case is
 `D7/canvas-snake-game` at 10.81 ms. The compatibility-engine run still misses
-the target for `D5/canvas-animated-bars` at 46.44 ms and is borderline for
+the target for `D5/canvas-animated-bars` at 26.46 ms after the Canvas2D
+identity-transform hot-path optimization and is still above budget; it is borderline for
 `D7/canvas-snake-game` at 16.92 ms; the other library-card artifacts remain
 below target. Native-mode numbers are now acceptance
 evidence for the Folio-owned execution path; the issue remains open for the

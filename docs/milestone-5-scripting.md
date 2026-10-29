@@ -36,12 +36,12 @@ The canvas frame-time harness now uses the retained `PaintFrame` path for canvas
 script mutations and reuses the document text shaper, so it no longer measures a full
 layout rebuild for every draw. In the 30-frame Windows run on 2026-10-28, every D5/D7
 library-card artifact stayed below the 16.70 ms p95 target; the deliberately heavy
-`D5/canvas-animated-bars` case remains above target: three fresh 30-frame Release
-runs measured 38.13–46.44 ms total p95 (the latest run measured 46.44 ms). Issue #519 remains open until that workload
+`D5/canvas-animated-bars` case remains above target: a fresh 100-frame Release
+run after the Canvas2D identity-transform hot-path optimization measured 26.46 ms total p95 (23.79 ms script/update). Issue #519 remains open until that workload
 is genuinely within budget.
 
-The current three-run sample remains a real miss: `canvas-animated-bars` measures
-38.13–46.44 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
+The current sample remains a real miss: `canvas-animated-bars` measures
+26.46 ms total p95, dominated by script/update. The benchmark exits non-zero when any artifact exceeds 16.70 ms; no
 threshold relaxation or routing workaround was applied.
 
 The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
