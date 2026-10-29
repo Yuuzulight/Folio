@@ -670,6 +670,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(6d, engine.Evaluate("Math.imul(2, 3)").AsNumber());
         Assert.Equal("😀", engine.Evaluate("String.fromCodePoint(0x1f600)").AsString());
         Assert.Equal(12d, engine.Evaluate("Number.parseInt('12px')").AsNumber());
+        Assert.Equal(10d, engine.Evaluate("parseInt('1010', 2)").AsNumber());
+        Assert.Equal(255d, engine.Evaluate("Number.parseInt('0xff')").AsNumber());
         Assert.Throws<WebIdlException>(() => engine.Evaluate("String.fromCodePoint(0x110000)"));
         Assert.Throws<WebIdlException>(() => engine.Evaluate("queueMicrotask(1)"));
         Assert.Equal("1970-01-01T00:00:00.000Z", engine.Evaluate("new Date(0).toISOString()").AsString());

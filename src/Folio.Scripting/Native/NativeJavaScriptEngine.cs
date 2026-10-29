@@ -357,14 +357,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }))));
         _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
-        numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]))));
+        numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0)));
         numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
         numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
         numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && double.IsNaN(number)));
         numberConstructor.SetProperty("isFinite", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number)));
         _bindings["Number"] = numberConstructor;
         _bindings["Boolean"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && TruthValue(args[0]));
-        _bindings["parseInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0])));
+        _bindings["parseInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0));
         _bindings["encodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.EscapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["decodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.UnescapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["isNaN"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0])));
@@ -1127,13 +1127,22 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             return (double.IsNaN(leftNumber) && double.IsNaN(rightNumber)) || leftNumber == rightNumber && !((leftNumber == 0) && (rightNumber == 0) && double.IsNegative(leftNumber) != double.IsNegative(rightNumber));
         return Equals(left, right);
     }
-    private static double ParseInteger(string text)
+    private static double ParseInteger(string text, int radix = 0)
     {
         text = text.Trim();
-        var length = 0;
-        if (text.StartsWith('+') || text.StartsWith('-')) length++;
-        while (length < text.Length && char.IsDigit(text[length])) length++;
-        return length == 0 || (length == 1 && (text[0] is '+' or '-')) || !double.TryParse(text[..length], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? double.NaN : parsed;
+        var sign = 1;
+        if (text.StartsWith('+') || text.StartsWith('-')) { if (text[0] == '-') sign = -1; text = text[1..]; }
+        if (radix == 0) radix = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16 : 10;
+        if (radix is < 2 or > 36) return double.NaN;
+        if (radix == 16 && text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) text = text[2..];
+        var value = 0d; var consumed = 0;
+        foreach (var character in text)
+        {
+            var digit = character switch { >= '0' and <= '9' => character - '0', >= 'a' and <= 'z' => character - 'a' + 10, >= 'A' and <= 'Z' => character - 'A' + 10, _ => -1 };
+            if (digit < 0 || digit >= radix) break;
+            value = value * radix + digit; consumed++;
+        }
+        return consumed == 0 ? double.NaN : sign * value;
     }
     private static bool TruthValue(object? value) => value switch
     {
