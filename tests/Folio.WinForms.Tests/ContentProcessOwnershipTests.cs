@@ -13,6 +13,31 @@ namespace Folio.WinForms.Tests;
 public sealed class ContentProcessOwnershipTests
 {
     [Fact]
+    public Task HandleCreationPrewarmsAndReusesTheContentProcess() => RunStaAsync(async () =>
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent!.Name;
+        var host = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/Folio.ContentHost/bin", configuration, "net10.0/Folio.ContentHost.dll"));
+        using var form = new Form { ClientSize = new Size(220, 80), ShowInTaskbar = false, Opacity = 0, Location = new Point(-32000, -32000) };
+        using var view = new FolioView
+        {
+            Size = new Size(220, 80),
+            Options = new FolioOptions
+            {
+                Scripting = ScriptingPolicy.ContentProcess,
+                ContentProcessPath = host,
+                ResourceLoader = new TestResourceLoader()
+            }
+        };
+        form.Controls.Add(view);
+        form.Show();
+        view.CreateControl();
+        view.LoadHtml("<canvas id='c' width='220' height='80'></canvas><script>var c=document.getElementById('c'),x=c.getContext('2d');x.fillStyle='rgb(0,0,255)';x.fillRect(0,0,220,80);</script>", new Uri("https://prewarm.example/"));
+        await WaitForBlueAsync(view);
+        using var retained = Capture(view);
+        Assert.True(IsBlue(retained.GetPixel(100, 70)), "The first scripted frame was not delivered through the prewarmed process.");
+    });
+
+    [Fact]
     public Task ReplacingProcessRetiresOldClientAndKeepsNewClientUsable() => RunStaAsync(async () =>
     {
         using var form = new Form { ClientSize = new Size(220, 80), ShowInTaskbar = false, Opacity = 0, Location = new Point(-32000, -32000) };

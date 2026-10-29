@@ -246,6 +246,26 @@ public class FolioView : Control
     private static void DisposeRetiredContentProcess(ContentProcessClient process) =>
         process.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
+    private void RebindContentProcess(ContentProcessClient client)
+    {
+        client.ScriptStopped -= OnScriptStopped;
+        if (_contentMessageHandler is { } previousHandler)
+            client.MessageReceived -= previousHandler;
+        lock (_contentStateGate)
+        {
+            _contentGeneration++;
+            _contentCommands = new();
+            _pendingContentFrame = null;
+            _pendingScriptStopped = null;
+            _pendingMediaActivity = null;
+        }
+        client.ScriptStopped += OnScriptStopped;
+        var generation = _contentGeneration;
+        _contentMessageHandler = (message, token) => OnContentMessage(client, generation, message, token);
+        client.MessageReceived += _contentMessageHandler;
+        _scriptStoppedReason = null;
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
@@ -561,6 +581,8 @@ public class FolioView : Control
                     return;
                 }
             }
+            else
+                RebindContentProcess(process);
             try
             {
                 _contentBitmap?.Dispose();
