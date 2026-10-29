@@ -374,6 +374,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["encodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.EscapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["decodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.UnescapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["isNaN"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0])));
+        _bindings["isFinite"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && !double.IsNaN(NumberValue(args[0])) && !double.IsInfinity(NumberValue(args[0])));
         _bindings["Error"] = CreateErrorConstructor("Error");
         _bindings["TypeError"] = CreateErrorConstructor("TypeError");
         _bindings["RangeError"] = CreateErrorConstructor("RangeError");
