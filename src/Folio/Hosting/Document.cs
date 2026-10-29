@@ -300,6 +300,8 @@ public sealed class Document : IDisposable
         element.Checked = next;
         SetState(element, NodeFlags.Checked, next);
         Update();
+        DispatchFormControlEvent(element, "input");
+        DispatchFormControlEvent(element, "change");
     }
 
     internal void CheckRadio(ElementNode element)
@@ -321,6 +323,18 @@ public sealed class Document : IDisposable
         element.Checked = true;
         SetState(element, NodeFlags.Checked, true);
         Update();
+        DispatchFormControlEvent(element, "input");
+        DispatchFormControlEvent(element, "change");
+    }
+
+    private void DispatchFormControlEvent(ElementNode element, string type)
+    {
+        Node.EventDispatcher?.Invoke(element, type, new EventDispatchArgs
+        {
+            Bubbles = true,
+            Cancelable = false,
+            Composed = true
+        });
     }
 
     internal void SelectAdjacentRadio(ElementNode current, int offset)

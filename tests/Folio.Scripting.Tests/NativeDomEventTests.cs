@@ -70,4 +70,19 @@ public sealed class NativeDomEventTests
   Assert.Null(submitted);
  }
 
+ [Fact] public void NativeCheckboxClickDispatchesInputAndChange()
+ {
+  using var engine = new NativeJavaScriptEngine(); using var loop = new HtmlEventLoop(engine);
+  var document = Folio.Document.Parse("<input id='cb' type='checkbox'>", new FolioOptions { Scripting = ScriptingPolicy.ContentProcess });
+  document.Paint(200, 100);
+  try
+  {
+   DomBindings.Install(engine, document, eventLoop: loop); ScriptGlobalsInstaller.Install(loop, engine);
+   engine.Evaluate("var events=''; var cb=document.getElementById('cb'); cb.addEventListener('input',()=>events+='i'); cb.addEventListener('change',()=>events+='c');");
+   document.QuerySelector("#cb")!.Click();
+  }
+  finally { document.Dispose(); }
+  Assert.Equal("ic", engine.GetGlobalProperty("events").AsString());
+ }
+
 }
