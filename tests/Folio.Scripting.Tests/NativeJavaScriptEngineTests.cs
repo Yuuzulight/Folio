@@ -683,6 +683,9 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal(2d, engine.Evaluate("[4, 8, 9].indexOf(9, -1)").AsNumber());
         Assert.Equal("BC", engine.Evaluate("'abc'.toUpperCase().slice(1)").AsString());
         Assert.True(engine.Evaluate("'folio'.startsWith('fol')").AsBoolean());
+        Assert.True(engine.Evaluate("'folio'.includes('li', 2)").AsBoolean());
+        Assert.True(engine.Evaluate("'folio'.startsWith('li', 2)").AsBoolean());
+        Assert.True(engine.Evaluate("'folio'.endsWith('fo', 2)").AsBoolean());
         Assert.Equal("bc", engine.Evaluate("'abcdef'.slice(1, -3)").AsString());
         Assert.Equal("bcd", engine.Evaluate("'abcdef'.substring(4, 1)").AsString());
         Assert.Equal("cdef", engine.Evaluate("'abcdef'.substring(2)").AsString());

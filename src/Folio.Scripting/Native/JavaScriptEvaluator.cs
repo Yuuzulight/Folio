@@ -1257,9 +1257,27 @@ internal sealed class JavaScriptEvaluator
         {
             "toUpperCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToUpperInvariant()),
             "toLowerCase" => (Func<IReadOnlyList<object?>, object?>)(_ => value.ToLowerInvariant()),
-            "includes" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.Contains(StringValue(args[0]), StringComparison.Ordinal)),
-            "startsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.StartsWith(StringValue(args[0]), StringComparison.Ordinal)),
-            "endsWith" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && value.EndsWith(StringValue(args[0]), StringComparison.Ordinal)),
+            "includes" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return false;
+                var needle = StringValue(args[0]);
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : 0, 0, value.Length);
+                return value.IndexOf(needle, start, StringComparison.Ordinal) >= 0;
+            }),
+            "startsWith" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return false;
+                var needle = StringValue(args[0]);
+                var start = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : 0, 0, value.Length);
+                return start + needle.Length <= value.Length && value.AsSpan(start, needle.Length).SequenceEqual(needle.AsSpan());
+            }),
+            "endsWith" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return false;
+                var needle = StringValue(args[0]);
+                var end = Math.Clamp(args.Count > 1 ? (int)Number(args[1]) : value.Length, 0, value.Length);
+                return needle.Length <= end && value.AsSpan(end - needle.Length, needle.Length).SequenceEqual(needle.AsSpan());
+            }),
             "localeCompare" => (Func<IReadOnlyList<object?>, object?>)(args => (double)string.Compare(value, args.Count > 0 ? StringValue(args[0]) : string.Empty, StringComparison.CurrentCulture)),
             "replace" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
