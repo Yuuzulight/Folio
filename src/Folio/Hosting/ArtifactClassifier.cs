@@ -89,6 +89,8 @@ public static class ArtifactClassifier
     {
         public readonly HashSet<string> Unsupported = [];
         public readonly HashSet<string> Scripts = [];
+        private const int ScriptSizeThreshold = 50 * 1024;
+        private int _totalScriptSize;
         private bool _diagramBlockSeen;
 
         // Media blocks count when they match some screen: a phone or a wide window.
@@ -159,6 +161,8 @@ public static class ArtifactClassifier
 
             foreach (var script in document.QuerySelectorAll("script"))
                 ScriptSource(script.TextContent);
+            if (_totalScriptSize > ScriptSizeThreshold)
+                Unsupported.Add($"script text size ({_totalScriptSize / 1024} KB) exceeds the scripted start-up threshold ({ScriptSizeThreshold / 1024} KB); heavy scripts must run in the browser");
         }
 
         private void Element(Element element)
@@ -280,6 +284,7 @@ public static class ArtifactClassifier
             if (string.IsNullOrWhiteSpace(source))
                 return;
             var text = source;
+            _totalScriptSize += text.Length;
             // Whitespace and quote style do not change these API calls. Compacting first keeps this scan
             // conservative without attempting to parse arbitrary JavaScript.
             var compact = string.Concat(text.Where(character => !char.IsWhiteSpace(character)));
