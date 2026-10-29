@@ -3,6 +3,7 @@ using Folio.Scripting.Dom;
 using Folio.Dom;
 using Folio.Html;
 using Folio.Resources;
+using System.Text.Json;
 
 namespace Folio.Scripting.Tests;
 
@@ -24,6 +25,27 @@ public sealed class NativeJavaScriptEngineTests
         for (var i = 0; i < 10; i++) { engine.PerformMicrotaskCheckpoint(); loop.SpinUntilIdle(); }
         var actual = engine.GetGlobalProperty("result").AsString();
         Assert.True(actual == "value", actual);
+    }
+
+    [Fact]
+    public void NativeNestedBlobWorkerRoundTrip()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = true },
+            Limits = ResourceLimits.Default with { MaxWorkers = 2 }
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        var child = "onmessage=()=>{var bytes=new Uint8Array(8),identity=crypto.getRandomValues(bytes)===bytes;var target=new EventTarget(),abort=new AbortController(),count=0;target.addEventListener('x',()=>count++,{signal:abort.signal});target.dispatchEvent(new Event('x'));abort.abort();target.dispatchEvent(new Event('x'));fetch('data:text/plain,%E2%98%83').then(r=>r.text()).then(text=>postMessage(new TextDecoder().decode(new TextEncoder().encode(text))+':'+identity+':'+count+':'+typeof document+':'+typeof window));};";
+        var parent = "var n=new Worker(URL.createObjectURL(new Blob([" + JsonSerializer.Serialize(child) + "])));n.onmessage=e=>postMessage(e.data);onmessage=()=>n.postMessage(0);";
+        engine.Evaluate("var responses=[];var worker=new Worker('data:text/javascript,'+encodeURIComponent(" + JsonSerializer.Serialize(parent) + "));worker.onmessage=e=>responses.push(String(e.data)); true");
+        engine.Evaluate("worker.postMessage(0); true");
+        for (var i = 0; i < 200 && engine.Evaluate("responses.length").AsNumber() == 0; i++) { loop.SpinUntilIdle(); Thread.Sleep(1); }
+        var actual = engine.Evaluate("responses.join('|')").AsString();
+        Assert.Equal("☃:true:1:undefined:undefined", actual);
     }
 
     private sealed class TinyStorage : IArtifactStorage
