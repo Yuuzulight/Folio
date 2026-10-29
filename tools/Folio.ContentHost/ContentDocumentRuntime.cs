@@ -155,6 +155,8 @@ public sealed class ContentDocumentRuntime : IDisposable
     private void DisposeDocument()
     {
         _captureProvider?.Dispose(); _captureProvider = null;
+        if (_engine is not null)
+            DomBindings.Dispose(_engine);
         _runner?.Dispose(); _runner = null;
         _engine?.Dispose(); _engine = null;
         _eventLoop?.Dispose(); _eventLoop = null;
