@@ -1049,9 +1049,9 @@ internal sealed class JavaScriptEvaluator
             }
             catch (RegexMatchTimeoutException) { return -1; }
         }
-        internal string Replace(string input, Func<string, string> replacement, bool all)
+        internal string Replace(string input, MatchEvaluator replacement, bool all)
         {
-            try { return all ? _regex.Replace(input, match => replacement(match.Value)) : _regex.Replace(input, match => replacement(match.Value), 1); }
+            try { return all ? _regex.Replace(input, replacement) : _regex.Replace(input, replacement, 1); }
             catch (RegexMatchTimeoutException) { return input; }
         }
         internal string Replace(string input, string replacement, bool all)
@@ -1383,13 +1383,13 @@ internal sealed class JavaScriptEvaluator
                 if (args.Count < 2) return value;
                 if (args[0] is RegexValue regex)
                     return IsCallable(args[1])
-                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match])), regex.Flags.Contains('g'))
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match.Value, (double)match.Index, value])), regex.Flags.Contains('g'))
                         : regex.Replace(value, StringValue(args[1]), regex.Flags.Contains('g'));
                 if (IsCallable(args[1]))
                 {
                     var needle = StringValue(args[0]);
                     var index = value.IndexOf(needle, StringComparison.Ordinal);
-                    return index < 0 ? value : value[..index] + StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle])) + value[(index + needle.Length)..];
+                    return index < 0 ? value : value[..index] + StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle, (double)index, value])) + value[(index + needle.Length)..];
                 }
                 var literalNeedle = StringValue(args[0]);
                 var position = value.IndexOf(literalNeedle, StringComparison.Ordinal);
@@ -1418,7 +1418,7 @@ internal sealed class JavaScriptEvaluator
                         var index = value.IndexOf(needle, start, StringComparison.Ordinal);
                         if (index < 0) { builder.Append(value, start, value.Length - start); break; }
                         builder.Append(value, start, index - start);
-                        builder.Append(StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle])));
+                        builder.Append(StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle, (double)index, value])));
                         start = index + needle.Length;
                     }
                     return builder.ToString();
