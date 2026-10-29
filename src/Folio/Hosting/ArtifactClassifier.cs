@@ -187,7 +187,7 @@ public static class ArtifactClassifier
                 else if (name is "href" or "src" or "action" or "formaction" or "xlink:href"
                          && value.Trim().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
                 {
-                    Scripts.Add("runs scripts: a javascript: link");
+                    Unsupported.Add("uses a javascript: URL; Folio ignores javascript: URLs");
                     ScriptSource(value.Trim()["javascript:".Length..]);
                 }
             }
@@ -229,6 +229,9 @@ public static class ArtifactClassifier
                     break;
                 case "script" when ScriptTypes.Contains((element.GetAttribute("type") ?? "").Trim()):
                     Scripts.Add("runs scripts: a script element");
+                    if (string.Equals((element.GetAttribute("type") ?? "").Trim(), "module", StringComparison.OrdinalIgnoreCase)
+                        && HasModuleDependency(element.TextContent))
+                        Unsupported.Add("uses module imports; Folio's content process does not load JavaScript modules");
                     if (element.GetAttribute("src") is { } src)
                     {
                         if (!IsConfiguredDiagramLibrary(src) || !_diagramBlockSeen)
@@ -306,6 +309,13 @@ public static class ArtifactClassifier
                 Require(ImplementedFeatures.WebRtc, options.Capabilities.WebRtc, "uses WebRTC", "WebRTC");
             if (Contains(compact, "navigator.serviceWorker") || Contains(compact, "serviceWorker.register("))
                 Require(ImplementedFeatures.ServiceWorkers, options.Capabilities.ServiceWorkers, "uses service workers", "service workers");
+        }
+
+        private static bool HasModuleDependency(string source)
+        {
+            var compact = string.Concat(source.Where(character => !char.IsWhiteSpace(character)));
+            return compact.Contains("import", StringComparison.OrdinalIgnoreCase)
+                || compact.Contains("export", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool Contains(string source, string value) => source.Contains(value, StringComparison.OrdinalIgnoreCase);

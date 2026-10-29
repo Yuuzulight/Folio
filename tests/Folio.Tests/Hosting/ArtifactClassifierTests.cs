@@ -30,12 +30,28 @@ public class ArtifactClassifierTests
 
     [Theory]
     [InlineData("<p>x<script>document.title = 'y'</script>")]
-    [InlineData("<p>x<script type=module>import './a.js'</script>")]
     [InlineData("<button onclick=\"go()\">Go</button>")]
-    [InlineData("<a href=\" javascript:void(0)\">x</a>")]
     public void ScriptsMakeItScripted(string html)
     {
         Assert.Equal(ArtifactKind.Scripted, ArtifactClassifier.Classify(html).Kind);
+    }
+
+    [Fact]
+    public void JavascriptUrlsRouteToTheBrowser()
+    {
+        var result = ArtifactClassifier.Classify("<a href=\" javascript:void(0)\">x</a>");
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
+        Assert.Contains(result.Reasons, reason => reason.Contains("javascript:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ModuleImportsRouteToTheBrowser()
+    {
+        var result = ArtifactClassifier.Classify("<script type=module>import './a.js'; export const value = 1;</script>");
+
+        Assert.Equal(ArtifactKind.NeedsBrowser, result.Kind);
+        Assert.Contains(result.Reasons, reason => reason.Contains("module imports", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
