@@ -53,7 +53,7 @@ test covers every Source Sans glyph at three tolerances. `SoftwareRasterTests`
 passes 39/39 and the full `Folio.RenderTests` Release suite passes 822/822.
 The same head's broader project-level Release checks pass `Folio.Tests`
 1997/1997 executable tests (one documented symlink skip), `Folio.WinForms.Tests`
-8/8, and `Folio.Scripting.Tests` 1410/1410.
+8/8, and `Folio.Scripting.Tests` 1411/1411.
 The font fuzz target also completed 178,885 mutated inputs from six seeds with
 zero failures in a five-second Release run.
 The decoder fuzz targets also remain clean on this head: JPEG 181,368 inputs,

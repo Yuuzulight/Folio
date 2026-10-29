@@ -27,14 +27,14 @@ round-trips JPEG through Folio's own baseline encoder, removing the former
 JPEG-specific skip. This is repository-wide regression evidence; it does not close the
 original M6 backend, device, process-isolation or M7 replacement requirements.
 
-The native scripting suite now passes 1,410/1,410 after containing regex-match
+The native scripting suite now passes 1,411/1,411 after containing regex-match
 timeouts in isolated service-worker probes; the busy-fetch watchdog regression
 and the full suite both pass on the current audit head. Native array and string
 parity additions remain staged evidence under PR #658, not a claim that the
 Jint-removal gate is complete.
 
 Verification refresh (2026-10-30): the serialized `Folio.Scripting.Tests` runner
-passes 1,410 total tests with zero failures and no skips. This is a current
+passes 1,411 total tests with zero failures and no skips. This is a current
 scripting regression result;
 the native backend, device/transport, containment and mandatory replacement
 requirements below remain open.
