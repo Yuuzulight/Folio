@@ -1060,6 +1060,15 @@ internal sealed class JavaScriptEvaluator
                 for (var i = start; i < end; i++) values[i] = item;
                 return values;
             }),
+            "copyWithin" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                var target = RelativeArrayIndex(args.Count > 0 ? args[0] : null, values.Count, 0);
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                var end = RelativeArrayIndex(args.Count > 2 ? args[2] : null, values.Count, values.Count);
+                var copied = values.Skip(start).Take(Math.Max(0, end - start)).ToArray();
+                for (var i = 0; i < copied.Length && target + i < values.Count; i++) values[target + i] = copied[i];
+                return values;
+            }),
             "with" => (Func<IReadOnlyList<object?>, object?>)(args =>
             {
                 var index = args.Count == 0 ? 0 : (int)Number(args[0]);
