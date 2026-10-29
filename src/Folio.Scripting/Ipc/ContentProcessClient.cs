@@ -285,6 +285,12 @@ public sealed class ContentProcessClient : IAsyncDisposable
 
     private void OnStopped(string reason)
     {
+        // A crashed or externally terminated content process can no longer send
+        // the close request for its capture streams. Release host devices at the
+        // containment boundary, before notifying observers, so a process death
+        // never leaves a camera or microphone session live until the caller
+        // happens to dispose the client.
+        ReleaseMediaCaptureSessions();
         try
         {
             if (!_process.HasExited) { _job?.Terminate(); _process.Kill(entireProcessTree: true); }
@@ -301,6 +307,21 @@ public sealed class ContentProcessClient : IAsyncDisposable
                     lock (_standardError)
                     {
                         _standardError.AppendLine($"Stopped observer threw {error.GetType().Name}.");
+                        if (_standardError.Length > 8192) _standardError.Remove(0, _standardError.Length - 8192);
+                    }
+                }
+    }
+
+    private void ReleaseMediaCaptureSessions()
+    {
+        foreach (var pair in _mediaCaptureSessions)
+            if (_mediaCaptureSessions.TryRemove(pair.Key, out var capture))
+                try { capture.Dispose(); }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    lock (_standardError)
+                    {
+                        _standardError.AppendLine($"Capture session cleanup threw {error.GetType().Name}.");
                         if (_standardError.Length > 8192) _standardError.Remove(0, _standardError.Length - 8192);
                     }
                 }
@@ -328,9 +349,7 @@ public sealed class ContentProcessClient : IAsyncDisposable
         await DrainAsync(_stderrReader).ConfigureAwait(false);
         try { await _session.DisposeAsync().ConfigureAwait(false); }
         catch (Exception error) { failure ??= error; }
-        foreach (var pair in _mediaCaptureSessions)
-            if (_mediaCaptureSessions.TryRemove(pair.Key, out var capture))
-                try { capture.Dispose(); } catch (Exception error) { failure ??= error; }
+        ReleaseMediaCaptureSessions();
         _process.Exited -= OnProcessExited;
         Release(_job);
         Release(_input);
