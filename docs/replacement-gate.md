@@ -232,7 +232,7 @@ required before the native engine can pass the React/JSX interaction artifact or
 the mandatory replacement gate.
 
 The Folio-owned software rasterizer also remains differential-only: the focused
-software raster suite passes 37/37, including glyf, CFF, CFF2 and WOFF2 outline
+software raster suite passes 39/39, including glyf, CFF, CFF2 and WOFF2 outline
 cases plus CBDT/CBLC, sbix and COLR colour-glyph cases. After the SIMD blur pass, the latest
 repository benchmark measured 77.5 ms versus Skia's 7.0 ms at 800x600 (11.1x
 slower), and 195.1 ms versus 13.5 ms at 1920x1080 (14.4x slower). The
