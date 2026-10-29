@@ -325,14 +325,16 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             ["abs"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Abs(Number(args, 0))),
             ["floor"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Floor(Number(args, 0))),
             ["ceil"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Ceiling(Number(args, 0))),
-            ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : args.Max(value => value is double number ? number : 0)),
-            ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : args.Min(value => value is double number ? number : 0)),
+            ["max"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.NegativeInfinity : MathMax(args)),
+            ["min"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 ? double.PositiveInfinity : MathMin(args)),
             ["random"] = (Func<IReadOnlyList<object?>, object?>)(_ => Random.Shared.NextDouble()),
             ["log"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Log(Number(args, 0))),
             ["pow"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Pow(Number(args, 0), Number(args, 1))),
             ["sqrt"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sqrt(Number(args, 0))),
             ["sign"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sign(Number(args, 0))),
             ["trunc"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Truncate(Number(args, 0))),
+            ["round"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Floor(NumberValue(args.Count > 0 ? args[0] : 0) + 0.5)),
+            ["imul"] = (Func<IReadOnlyList<object?>, object?>)(args => (double)(int)((uint)(int)NumberValue(args.Count > 0 ? args[0] : 0) * (uint)(int)NumberValue(args.Count > 1 ? args[1] : 0))),
             ["sin"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Sin(Number(args, 0))),
             ["cos"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Cos(Number(args, 0))),
             ["atan2"] = (Func<IReadOnlyList<object?>, object?>)(args => Math.Atan2(Number(args, 0), Number(args, 1))),
@@ -1083,6 +1085,18 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
         _ => double.NaN,
     };
+    private static double MathMax(IReadOnlyList<object?> args)
+    {
+        var result = double.NegativeInfinity;
+        foreach (var value in args) { var number = NumberValue(value); if (double.IsNaN(number)) return double.NaN; result = Math.Max(result, number); }
+        return result;
+    }
+    private static double MathMin(IReadOnlyList<object?> args)
+    {
+        var result = double.PositiveInfinity;
+        foreach (var value in args) { var number = NumberValue(value); if (double.IsNaN(number)) return double.NaN; result = Math.Min(result, number); }
+        return result;
+    }
     private static bool SameValue(object? left, object? right)
     {
         if (left is double leftNumber && right is double rightNumber)
