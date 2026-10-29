@@ -347,8 +347,17 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         var stringConstructor = new NativeFunction(args => args.Count == 0 ? string.Empty : StringValue(args[0]));
         stringConstructor.SetProperty("fromCharCode", (Func<IReadOnlyList<object?>, object?>)(args =>
             string.Concat(args.Select(value => (char)((int)NumberValue(value) & 0xffff)))));
+        stringConstructor.SetProperty("fromCodePoint", (Func<IReadOnlyList<object?>, object?>)(args =>
+            string.Concat(args.Select(value =>
+            {
+                var point = NumberValue(value);
+                if (double.IsNaN(point) || point < 0 || point > 0x10ffff || point != Math.Truncate(point))
+                    throw WebIdlException.RangeError("Invalid code point.");
+                return char.ConvertFromUtf32((int)point);
+            }))));
         _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
+        numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]))));
         numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
         numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && NumberValue(args[0]) is var number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
         numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && double.IsNaN(number)));
