@@ -276,6 +276,30 @@ public sealed class NativeWebAssemblyTests
     }
 
     [Fact]
+    public void NativeEngineExposesLocalExternrefTables()
+    {
+        // (module (table (export "tab") 1 externref))
+        var bytes = new byte[]
+        {
+            0, 97, 115, 109, 1, 0, 0, 0,
+            4, 4, 1, 0x6f, 0, 1,
+            7, 7, 1, 3, (byte)'t', (byte)'a', (byte)'b', 1, 0
+        };
+        using var runtime = new NativeWebAssemblyRuntime(64 * 1024);
+        using var engine = new JintScriptEngine();
+        Assert.True(runtime.TryInstantiate(engine, bytes, ScriptValue.Undefined, [], out var instance));
+        using var native = instance!;
+        var table = native.GetTable("tab");
+        Assert.NotNull(table);
+        var value = engine.Evaluate("({answer:42})");
+        table!.Set(0, value.Raw);
+        Assert.Same(value.Raw, table.Get(0));
+        Assert.Equal(1, table.Grow(1, null));
+        Assert.Equal(2, table.Length);
+        Assert.Null(table.Get(1));
+    }
+
+    [Fact]
     public void NativeEngineAcceptsImportedNullFunctionTables()
     {
         // (module (import "env" "tab" (table 1 funcref)) (export "tab" (table 0)))
