@@ -328,6 +328,23 @@ public class SoftwareRasterTests(ITestOutputHelper output)
 
     private static FontFace Load(string name) => FontFace.Parse(File.ReadAllBytes(Path.Combine(RepoPaths.Tests, "fonts", name)))!;
 
+    [Fact]
+    public void NativeGlyphCacheRemainsBounded()
+    {
+        var face = Load("SourceSans3-Regular.ttf");
+        var count = Math.Min(face.GlyphCount, ushort.MaxValue + 1);
+        for (var glyph = 0; glyph < count; glyph++)
+        {
+            var id = (ushort)glyph;
+            SoftwareCanvas.Flattened(face, id, 0.25f);
+            SoftwareCanvas.Flattened(face, id, 0.5f);
+            SoftwareCanvas.Flattened(face, id, 1f);
+        }
+
+        var usage = SoftwareCanvas.GlyphCacheUsage(face);
+        Assert.InRange(usage.Outlines + usage.Flattened, 0, 8L * 1024 * 1024);
+    }
+
     private static byte[] AddTables(byte[] source, params (string Tag, byte[] Data)[] additions)
     {
         var oldCount = BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(4));
@@ -665,7 +682,7 @@ public class SoftwareRasterTests(ITestOutputHelper output)
         White(surface.Canvas);
         surface.Canvas.DrawGlyphs(face, 64, [glyph], [new Vector2(12, 76)], Solid(1, 1, 1));
         var pixels = surface.ReadPixels(0, 0, 96, 96);
-        Assert.Contains(pixels.Chunk(4), pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0,
+        Assert.True(pixels.Chunk(4).Any(pixel => pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80 && pixel[3] > 0),
             "The synthetic COLR v0 layer did not render its CPAL color.");
     }
 

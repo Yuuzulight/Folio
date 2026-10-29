@@ -368,10 +368,12 @@ internal sealed class SoftwareCanvas : ICanvas
 
     // Keep the native outline cache bounded per font.  The cache is shared by canvases for
     // the same face, but a face can be released as soon as the font itself is no longer
-    // reachable through the ConditionalWeakTable.  Eight MiB is the documented default
-    // backend glyph-cache budget; entries are evicted least-recently-used when a font's
-    // parsed outlines exceed that budget.
-    private const long OutlineCacheBudget = 8L * 1024 * 1024;
+    // reachable through the ConditionalWeakTable. Eight MiB is the documented default
+    // backend glyph-cache budget. The parsed outline and flattened caches each receive
+    // half so their combined retained footprint cannot exceed the cap.
+    private const long GlyphCacheBudget = 8L * 1024 * 1024;
+    private const long OutlineCacheBudget = GlyphCacheBudget / 2;
+    private const long FlattenedCacheBudget = GlyphCacheBudget - OutlineCacheBudget;
     private sealed class OutlineCache
     {
         private readonly Dictionary<ushort, (PathData? Path, long Bytes, LinkedListNode<ushort> Node)> _entries = [];
@@ -409,6 +411,11 @@ internal sealed class SoftwareCanvas : ICanvas
         private static long Estimate(PathData? path) => path is null
             ? 128
             : 256L + path.Commands.Count * 64L;
+
+        public long Bytes
+        {
+            get { lock (_entries) return _bytes; }
+        }
     }
 
     private static readonly ConditionalWeakTable<FontFace, OutlineCache> Outlines = new();
@@ -433,9 +440,9 @@ internal sealed class SoftwareCanvas : ICanvas
                     ? PathGeometry.Flatten(path, tolerance).ToArray()
                     : [];
                 var bytes = Estimate(flattened);
-                if (bytes > OutlineCacheBudget)
+                if (bytes > FlattenedCacheBudget)
                     return flattened;
-                while (_bytes + bytes > OutlineCacheBudget && _entries.Count > 0)
+                while (_bytes + bytes > FlattenedCacheBudget && _entries.Count > 0)
                 {
                     var evictedKey = _entries.Keys.First();
                     _bytes -= Estimate(_entries[evictedKey]);
@@ -454,12 +461,25 @@ internal sealed class SoftwareCanvas : ICanvas
                 bytes += 64L + path.Points.Length * 8L;
             return bytes;
         }
+
+        public long Bytes
+        {
+            get { lock (_entries) return _bytes; }
+        }
     }
 
     private static readonly ConditionalWeakTable<FontFace, FlattenedGlyphCache> FlattenedGlyphs = new();
 
     internal static Subpath[] Flattened(FontFace face, ushort glyph, float tolerance) =>
         FlattenedGlyphs.GetOrCreateValue(face).Get(face, glyph, tolerance);
+
+    /// <summary>Returns the currently retained native glyph-cache bytes for diagnostics and conformance tests.</summary>
+    internal static (long Outlines, long Flattened) GlyphCacheUsage(FontFace face)
+    {
+        var outlines = Outlines.TryGetValue(face, out var outlineCache) ? outlineCache.Bytes : 0;
+        var flattened = FlattenedGlyphs.TryGetValue(face, out var flattenedCache) ? flattenedCache.Bytes : 0;
+        return (outlines, flattened);
+    }
 
     private PathData? Outline(IFontHandle font, ushort glyph)
     {
