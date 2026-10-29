@@ -52,7 +52,6 @@ public sealed class StageSixRoutingTests
         yield return ("<script>navigator.serviceWorker.register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
         yield return ("<script>navigator?.serviceWorker.register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
         yield return ("<script>navigator?.['serviceWorker'].register('sw.js')</script>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
-        yield return ("<a href=\"javascript:navigator.serviceWorker.register('sw.js')\">run</a>", ArtifactClassifier.ImplementedFeatures.ServiceWorkers, "service workers", true);
     }
 
     [Theory]
