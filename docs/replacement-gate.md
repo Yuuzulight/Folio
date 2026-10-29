@@ -79,6 +79,11 @@ A short 20-frame Release run measured software replay at 73.4 ms versus 9.2
 ms for Skia at 800×600 and 49.3 ms versus 16.6 ms at 1920×1080. The spread is
 still noisy and the default-backend performance gate remains open.
 
+Commit `fd8e8e4d` removes a second identity-transform glyph polygon copy during
+software replay. `SoftwareRasterTests` remains 39/39; a short Release run then
+measured approximately 55 ms at 800×600. The 1920×1080 replay remained above
+the target, so this is an optimization result, not completion of #575.
+
 The latest audit head (`9f417579`) bulk-fills integral opaque RGBA rectangles
 in the Folio-owned software canvas. `SoftwareRasterTests` remains green at
 37/37. A short Release benchmark measured typical software replay at 66.0 ms
