@@ -1026,7 +1026,12 @@ internal sealed class JavaScriptEvaluator
                 if (index < 0) index += values.Count;
                 return index < 0 || index >= values.Count ? JavaScriptEvaluator.UndefinedValue.Instance : values[index];
             }),
-            "includes" => (Func<IReadOnlyList<object?>, object?>)(args => values.Any(item => Equals(item, args.Count > 0 ? args[0] : null))),
+            "includes" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return values.Count > 0 && values.Any(item => item is null or JavaScriptEvaluator.UndefinedValue);
+                var start = RelativeArrayIndex(args.Count > 1 ? args[1] : null, values.Count, 0);
+                return values.Skip(start).Any(item => SameValueZero(item, args[0]));
+            }),
             "push" => (Func<IReadOnlyList<object?>, object?>)(args => { foreach (var value in args) values.Add(value); return (double)values.Count; }),
             "pop" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Pop(values)),
             "shift" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Shift(values)),
@@ -1103,6 +1108,11 @@ internal sealed class JavaScriptEvaluator
         var integer = (int)Math.Truncate(number);
         return integer < 0 ? Math.Max(length + integer, 0) : Math.Min(integer, length);
     }
+
+    private static bool SameValueZero(object? left, object? right) =>
+        left is double leftNumber && right is double rightNumber
+            ? leftNumber == rightNumber || (double.IsNaN(leftNumber) && double.IsNaN(rightNumber))
+            : Equals(left, right);
 
     private static object? Pop(IList<object?> values)
     {
