@@ -1042,8 +1042,8 @@ internal sealed class JavaScriptEvaluator
                 return values.Skip(start).Any(item => SameValueZero(item, args[0]));
             }),
             "push" => (Func<IReadOnlyList<object?>, object?>)(args => { foreach (var value in args) values.Add(value); return (double)values.Count; }),
-            "pop" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Pop(values)),
-            "shift" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? null : Shift(values)),
+            "pop" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? JavaScriptEvaluator.UndefinedValue.Instance : Pop(values)),
+            "shift" => (Func<IReadOnlyList<object?>, object?>)(_ => values.Count == 0 ? JavaScriptEvaluator.UndefinedValue.Instance : Shift(values)),
             "unshift" => (Func<IReadOnlyList<object?>, object?>)(args => { for (var i = args.Count - 1; i >= 0; i--) values.Insert(0, args[i]); return (double)values.Count; }),
             "splice" => (Func<IReadOnlyList<object?>, object?>)(args => Splice(values, args)),
             "map" => (Func<IReadOnlyList<object?>, object?>)(args => Map(values, args, filter: false)),
