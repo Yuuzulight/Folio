@@ -695,6 +695,7 @@ public sealed class NativeJavaScriptEngineTests
         Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace(new RegExp('a'), 'x')").AsString());
         Assert.Equal("x-x-x", engine.Evaluate("'a-a-a'.replace(new RegExp('a', 'g'), 'x')").AsString());
         Assert.Equal("x-a-a", engine.Evaluate("'a-a-a'.replace('a', 'x')").AsString());
+        Assert.Throws<WebIdlException>(() => engine.Evaluate("'a-a'.replaceAll(new RegExp('a'), 'x')"));
     }
 
     [Fact]

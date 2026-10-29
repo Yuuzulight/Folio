@@ -1285,7 +1285,26 @@ internal sealed class JavaScriptEvaluator
                 if (args.Count < 2) return value;
                 if (args[0] is RegexValue regex)
                 {
-                    return regex.Replace(value, StringValue(args[1]), all: true);
+                    if (!regex.Flags.Contains('g'))
+                        throw WebIdlException.TypeError("String.prototype.replaceAll requires a global regular expression.");
+                    return IsCallable(args[1])
+                        ? regex.Replace(value, match => StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [match])), all: true)
+                        : regex.Replace(value, StringValue(args[1]), all: true);
+                }
+                if (IsCallable(args[1]))
+                {
+                    var needle = StringValue(args[0]);
+                    if (needle.Length == 0) return value;
+                    var builder = new System.Text.StringBuilder(value.Length);
+                    for (var start = 0; start < value.Length;)
+                    {
+                        var index = value.IndexOf(needle, start, StringComparison.Ordinal);
+                        if (index < 0) { builder.Append(value, start, value.Length - start); break; }
+                        builder.Append(value, start, index - start);
+                        builder.Append(StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [needle])));
+                        start = index + needle.Length;
+                    }
+                    return builder.ToString();
                 }
                 return value.Replace(StringValue(args[0]), StringValue(args[1]), StringComparison.Ordinal);
             }),
