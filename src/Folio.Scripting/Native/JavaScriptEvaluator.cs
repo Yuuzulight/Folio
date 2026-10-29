@@ -1050,6 +1050,8 @@ internal sealed class JavaScriptEvaluator
             "reduceRight" => (Func<IReadOnlyList<object?>, object?>)(args => ReduceRight(values, args)),
             "find" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "find")),
             "findIndex" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findIndex")),
+            "findLast" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findLast")),
+            "findLastIndex" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "findLastIndex")),
             "some" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "some")),
             "every" => (Func<IReadOnlyList<object?>, object?>)(args => Find(values, args, mode: "every")),
             "sort" => (Func<IReadOnlyList<object?>, object?>)(args =>
@@ -1202,16 +1204,22 @@ internal sealed class JavaScriptEvaluator
     {
         if (args.Count == 0 || !IsCallable(args[0]))
             return mode == "every";
-        for (var i = 0; i < values.Count; i++)
+        var reverse = mode is "findLast" or "findLastIndex";
+        var first = reverse ? values.Count - 1 : 0;
+        var last = reverse ? -1 : values.Count;
+        var step = reverse ? -1 : 1;
+        for (var i = first; i != last; i += step)
         {
             TryInvoke(args[0], [values[i], (double)i, values], out var callbackResult);
             var matched = Truth(callbackResult);
             if (mode == "find" && matched) return values[i];
             if (mode == "findIndex" && matched) return (double)i;
+            if (mode == "findLast" && matched) return values[i];
+            if (mode == "findLastIndex" && matched) return (double)i;
             if (mode == "some" && matched) return true;
             if (mode == "every" && !matched) return false;
         }
-        return mode switch { "find" or "findIndex" => mode == "find" ? UndefinedValue.Instance : -1d, "some" => false, _ => true };
+        return mode switch { "find" or "findLast" or "findIndex" or "findLastIndex" => mode is "find" or "findLast" ? UndefinedValue.Instance : -1d, "some" => false, _ => true };
     }
 
     internal static bool IsCallable(object? value) => value is Func<IReadOnlyList<object?>, object?> or NativeJavaScriptEngine.INativeCallable;
