@@ -866,6 +866,27 @@ internal sealed class JavaScriptEvaluator
                     var digits = args.Count > 0 ? Math.Clamp((int)Number(args[0]), 0, 100) : 0;
                     return Number(target).ToString($"F{digits}", CultureInfo.InvariantCulture);
                 });
+            if (name == "toExponential")
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    if (double.IsNaN(number) || double.IsInfinity(number)) return StringValue(number);
+                    var digits = args.Count == 0 ? 15 : Math.Clamp((int)Number(args[0]), 0, 100);
+                    var formatted = number.ToString($"E{digits}", CultureInfo.InvariantCulture);
+                    var separator = formatted.IndexOf('E');
+                    if (separator < 0) return formatted;
+                    var exponent = int.Parse(formatted.AsSpan(separator + 1), CultureInfo.InvariantCulture);
+                    var mantissa = formatted[..separator].TrimEnd('0').TrimEnd('.');
+                    return $"{mantissa}e{(exponent >= 0 ? "+" : string.Empty)}{exponent}";
+                });
+            if (name == "toPrecision")
+                return (Func<IReadOnlyList<object?>, object?>)(args =>
+                {
+                    var number = Number(target);
+                    if (args.Count == 0 || args[0] is UndefinedValue) return StringValue(number);
+                    var precision = Math.Clamp((int)Number(args[0]), 1, 100);
+                    return number.ToString($"G{precision}", CultureInfo.InvariantCulture);
+                });
             if (name == "toLocaleString")
                 return (Func<IReadOnlyList<object?>, object?>)(args =>
                 {
