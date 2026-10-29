@@ -401,6 +401,10 @@ public static class DomBindings
             globalThis.console = globalThis.console || {};
             for (const method of ['log','info','warn','error','debug','dir','trace']) if (typeof console[method] !== 'function') console[method] = function() {};
         ", "folio:dom-globals");
+        // Use the URL Standard parser for page-visible URL objects. The host-backed
+        // implementation replaces the historical regex shim above and also keeps
+        // URLSearchParams mutations synchronized with the URL record.
+        UrlBindings.Install(engine);
         context.CaptureState = CaptureBindingState.Install(engine, context);
         context.WebRtcState = WebRtcBindingState.Install(engine, context);
         // Install Fetch before the compatibility service-worker scope so worker
