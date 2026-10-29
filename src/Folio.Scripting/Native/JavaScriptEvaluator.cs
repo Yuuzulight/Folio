@@ -1004,6 +1004,10 @@ internal sealed class JavaScriptEvaluator
             var match = _regex.Match(input);
             return match.Success ? match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray() : null;
         }
+        internal object?[] MatchAll(string input) => _regex.Matches(input)
+            .Cast<Match>()
+            .Select(match => (object?)match.Groups.Cast<Group>().Select(group => (object?)group.Value).ToArray())
+            .ToArray();
         internal int Search(string input)
         {
             var match = _regex.Match(input);
@@ -1345,6 +1349,18 @@ internal sealed class JavaScriptEvaluator
                 if (args[0] is RegexValue regex)
                     return (double)regex.Search(value);
                 return (double)value.IndexOf(StringValue(args[0]), StringComparison.Ordinal);
+            }),
+            "matchAll" => (Func<IReadOnlyList<object?>, object?>)(args =>
+            {
+                if (args.Count == 0) return Array.Empty<object?>();
+                if (args[0] is RegexValue regex)
+                {
+                    if (!regex.Flags.Contains('g'))
+                        throw WebIdlException.TypeError("String.prototype.matchAll requires a global regular expression.");
+                    return regex.MatchAll(value);
+                }
+                var literal = RegexValue.Create($"/{Regex.Escape(StringValue(args[0]))}/g");
+                return literal.MatchAll(value);
             }),
             "split" => (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0
                 ? new List<object?> { value }
