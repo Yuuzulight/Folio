@@ -47,6 +47,14 @@ or a partial Folio implementation is progress, never completion.
 
 ## Verification refresh — 2026-10-30
 
+Current PR #658 head (`ec7a5d56`) adds the native glyph-cache cap check: parsed
+outlines and flattened paths share an 8 MiB per-font budget, and the stress
+test covers every Source Sans glyph at three tolerances. `SoftwareRasterTests`
+passes 39/39 and the full `Folio.RenderTests` Release suite passes 822/822.
+This closes the cache-cap evidence portion of #573; CFF2 non-default variation
+deltas, the broader glyph corpus and the default-backend performance gate remain
+open.
+
 The latest audit head (`fa0849fc`) extends the opaque fast path to fully
 covered solid spans, while preserving the 37/37 `SoftwareRasterTests` result.
 A short 20-frame Release run measured software replay at 73.4 ms versus 9.2
