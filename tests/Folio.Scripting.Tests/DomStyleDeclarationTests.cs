@@ -1003,6 +1003,9 @@ public sealed class DomStyleDeclarationTests
         Assert.True(intercepted.Evaluate("let defaultScope = ''; navigator.serviceWorker.register('/scripts/sw.js').then(r => defaultScope = r.scope); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("/scripts/", intercepted.Evaluate("defaultScope").AsString());
+        Assert.True(intercepted.Evaluate("let broadScopeError = ''; navigator.serviceWorker.register('/scripts/sw.js', { scope: '/' }).catch(error => broadScopeError = error.name); true").AsBoolean());
+        intercepted.PerformMicrotaskCheckpoint();
+        Assert.Equal("SecurityError", intercepted.Evaluate("broadScopeError").AsString());
         Assert.True(intercepted.Evaluate("let boundaryText = ''; navigator.serviceWorker.register('sw.js', { scope: '/app/' }).then(() => fetch('/apple/offline')).then(r => r.text()).then(text => boundaryText = text); true").AsBoolean());
         intercepted.PerformMicrotaskCheckpoint();
         Assert.Equal("from host", intercepted.Evaluate("boundaryText").AsString());

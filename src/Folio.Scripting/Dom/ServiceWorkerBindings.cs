@@ -345,6 +345,16 @@ internal static class ServiceWorkerBindings
                     } catch (_) { scope = String(scope); }
                     if (scope.length === 0 || scope.charAt(0) !== '/') scope = '/' + scope;
                     if (scope.charAt(scope.length - 1) !== '/') scope += '/';
+                    // Without a Service-Worker-Allowed response header, a worker
+                    // cannot control paths above its script directory.
+                    try {
+                        var resolvedScript = new URL(url, base || undefined);
+                        var scriptPath = resolvedScript.pathname || '/';
+                        var scriptSeparator = scriptPath.lastIndexOf('/');
+                        var scriptDirectory = scriptSeparator >= 0 ? scriptPath.slice(0, scriptSeparator + 1) : '/';
+                        if (scope.indexOf(scriptDirectory) !== 0)
+                            return Promise.reject(new DOMException('The service-worker scope is outside the script directory.', 'SecurityError'));
+                    } catch (_) { }
                     var registrationKey = 'service-worker-registration/' + encodeURIComponent(String(scope));
                     if (registrationStorage) { var persisted = registrationStorage.read(registrationKey); if (persisted) { try { var metadata = JSON.parse(persisted); if (metadata && metadata.scriptURL === url) url = String(metadata.scriptURL); } catch (_) { } } }
                     var existing = __folio_service_worker_registrations.find(function(r) { return r.scope === scope; });
