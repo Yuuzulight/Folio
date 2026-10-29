@@ -665,6 +665,8 @@ public sealed class NativeJavaScriptEngineTests
         Assert.True(engine.Evaluate("Number.isInteger(2)").AsBoolean());
         Assert.False(engine.Evaluate("Number.isFinite('2')").AsBoolean());
         Assert.True(engine.Evaluate("isFinite('2')").AsBoolean());
+        Assert.True(engine.Evaluate("Number.isNaN(Number.NaN)").AsBoolean());
+        Assert.True(engine.Evaluate("Number.POSITIVE_INFINITY > Number.MAX_VALUE").AsBoolean());
         Assert.Equal(7d, engine.Evaluate("Math.max('7', 3)").AsNumber());
         Assert.True(engine.Evaluate("Number.isNaN(Math.min(1, 'x'))").AsBoolean());
         Assert.Equal(-2d, engine.Evaluate("Math.round(-2.4)").AsNumber());

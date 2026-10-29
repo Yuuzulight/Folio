@@ -361,6 +361,12 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             }))));
         _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
+        numberConstructor.SetProperty("NaN", double.NaN);
+        numberConstructor.SetProperty("POSITIVE_INFINITY", double.PositiveInfinity);
+        numberConstructor.SetProperty("NEGATIVE_INFINITY", double.NegativeInfinity);
+        numberConstructor.SetProperty("MAX_VALUE", double.MaxValue);
+        numberConstructor.SetProperty("MIN_VALUE", double.Epsilon);
+        numberConstructor.SetProperty("EPSILON", 2.220446049250313e-16d);
         numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0)));
         numberConstructor.SetProperty("parseFloat", (Func<IReadOnlyList<object?>, object?>)(args => ParseFloat(args.Count == 0 ? string.Empty : StringValue(args[0]))));
         numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
