@@ -26,9 +26,10 @@ against the 16.70 ms requirement; this keeps M5 open under #519. Native
 conformance remains a separate differential result and does not waive the M5
 compatibility-path gate.
 
-The current scripted-process benchmark also keeps M4 open: cold first frame is
-996.5 ms against the 400 ms target, warm D1 first frames range from 18.8 to
-253.2 ms against the 50 ms target, and the reused process working set grows
+The current scripted-process benchmark also keeps M4 open: after the apphost
+launch fix in `d8aa7ff4`, cold first frame is 1,316.4 ms against the 400 ms
+target, warm D1 first frames range from 27.6 to 377.4 ms against the 50 ms
+target, and the reused process working set grows
 from 63.4 MB to 108.2 MB against the 80 MB target. These measurements are
 recorded in #677; the benchmark emits warnings and does not silently waive
 the gate.
