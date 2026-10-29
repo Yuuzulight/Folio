@@ -6,11 +6,12 @@ issues are closed. M5 remains open: its dependency-backed parity is verified,
 but the canvas frame-time gate and mandatory Folio-owned native replacement
 gate remain unresolved.
 
-The latest full serialized Release verification (2026-10-30) passes 4,261
-discovered, 4,260 succeeded, zero failed and one environment-dependent skip
-(the local symbolic-link privilege limitation). The software-canvas JPEG
-follow-up is complete: Folio's own baseline encoder now round-trips through
-the Folio decoder and the scripting suite has no skips.
+The latest direct Release verification (2026-10-30) passes 4,249 tests with
+zero failures and one environment-dependent skip (the local symbolic-link
+privilege limitation): Folio.Tests 1,998/1,999, Folio.Scripting.Tests
+1,421/1,421, Folio.RenderTests 822/822 and Folio.WinForms.Tests 8/8. The
+software-canvas JPEG follow-up is complete: Folio's own baseline encoder now
+round-trips through the Folio decoder and the scripting suite has no skips.
 
 The latest compatibility-engine canvas-frame run records
 `D5/canvas-animated-bars` at 50.09 ms total p95 (45.98 ms script/update)
@@ -25,7 +26,12 @@ Historical snapshot (2026-10-27): the focused pre-M6 Release runs passed
 4,147 tests with 0 failures and 7 documented skips (4,154 discovered). Earlier
 totals are historical snapshots.
 
-Latest solution verification after native class/prototype, event-handler receiver, constructed-member, worker, WebRTC, iframe, service-worker, native glyph-cache, Arabic GSUB, labeled-control-flow, React host-event and COLR gradient/composite/sweep-gradient/scale-wrapper/rotation-wrapper/skew-wrapper audit work: 4,214 tests discovered, 4,211 succeeded, 0 failed, and 3 documented skips. Earlier counts below are historical snapshots.
+The latest direct Release verification includes the native class/prototype,
+event-handler receiver, constructed-member, worker, WebRTC, iframe,
+service-worker, native glyph-cache, Arabic GSUB, labeled-control-flow, React
+host-event and COLR gradient/composite/sweep-gradient/scale-wrapper/
+rotation-wrapper/skew-wrapper audit work. Earlier serialized-solution totals
+below are historical snapshots.
 
 This is the requirement-to-evidence index for the pre-M6 milestone surfaces. It
 records the verified slices, but does not mark Milestone 5 complete while its
