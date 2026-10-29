@@ -358,6 +358,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["String"] = stringConstructor;
         var numberConstructor = new NativeFunction(args => args.Count == 0 ? 0d : NumberValue(args[0]));
         numberConstructor.SetProperty("parseInt", (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0)));
+        numberConstructor.SetProperty("parseFloat", (Func<IReadOnlyList<object?>, object?>)(args => ParseFloat(args.Count == 0 ? string.Empty : StringValue(args[0]))));
         numberConstructor.SetProperty("isInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number)));
         numberConstructor.SetProperty("isSafeInteger", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && !double.IsNaN(number) && !double.IsInfinity(number) && number == Math.Truncate(number) && Math.Abs(number) <= 9007199254740991d));
         numberConstructor.SetProperty("isNaN", (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && args[0] is double number && double.IsNaN(number)));
@@ -365,6 +366,7 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
         _bindings["Number"] = numberConstructor;
         _bindings["Boolean"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count > 0 && TruthValue(args[0]));
         _bindings["parseInt"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseInteger(args.Count == 0 ? string.Empty : StringValue(args[0]), args.Count > 1 ? (int)NumberValue(args[1]) : 0));
+        _bindings["parseFloat"] = (Func<IReadOnlyList<object?>, object?>)(args => ParseFloat(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["encodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.EscapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["decodeURIComponent"] = (Func<IReadOnlyList<object?>, object?>)(args => Uri.UnescapeDataString(args.Count == 0 ? string.Empty : StringValue(args[0])));
         _bindings["isNaN"] = (Func<IReadOnlyList<object?>, object?>)(args => args.Count == 0 || double.IsNaN(NumberValue(args[0])));
@@ -1143,6 +1145,13 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
             value = value * radix + digit; consumed++;
         }
         return consumed == 0 ? double.NaN : sign * value;
+    }
+    private static double ParseFloat(string text)
+    {
+        text = text.Trim();
+        for (var length = text.Length; length > 0; length--)
+            if (double.TryParse(text[..length], NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return value;
+        return double.NaN;
     }
     private static bool TruthValue(object? value) => value switch
     {
