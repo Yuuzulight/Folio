@@ -668,3 +668,13 @@ Original acceptance:
 **Incomplete.** Evidence: `All rows below`.
 
 Original acceptance is not satisfied. Previous closure and completion documentation were premature.
+
+## Current audit checkpoint — 2026-10-29
+
+The latest native scripting parity work remains regression-clean: focused native
+tests pass 81/81, the complete scripting suite passes 1,411/1,411, and the
+native conformance report passes D1–D14 94/94 plus S1–S6 72/72 exactly. The
+latest capability slices also pass WebAssembly/worker/iframe 137/137 and
+media/WebRTC/service-worker 115/115 locally. These are verified implementation
+slices; M6 remains incomplete until the open device/process, optional WebGL,
+interruption, production-routing, and dependency-removal requirements are met.
