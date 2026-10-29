@@ -312,7 +312,7 @@ public sealed class NativeWebAssemblyTests
         using var bridge = NativeWebAssemblyBridge.Install(engine, 64 * 1024);
         WebAssemblyBindings.Install(engine, () => true, 64 * 1024, bridge);
         var values = string.Join(',', bytes);
-        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.tab.set(0,o); i.exports.tab.get(0)===o;");
+        var result = engine.Evaluate($"var m=new WebAssembly.Module(new Uint8Array([{values}])); var i=new WebAssembly.Instance(m,{{}}); var o={{answer:42}}; i.exports.tab.set(0,o); i.exports.tab.grow(1,o); i.exports.tab.get(0)===o && i.exports.tab.get(1)===o;");
         Assert.True(result.AsBoolean());
     }
 
