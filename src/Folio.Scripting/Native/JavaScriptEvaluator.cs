@@ -1433,8 +1433,16 @@ internal sealed class JavaScriptEvaluator
                 if (IsCallable(args[1]))
                 {
                     var needle = StringValue(args[0]);
-                    if (needle.Length == 0) return value;
                     var builder = new System.Text.StringBuilder(value.Length);
+                    if (needle.Length == 0)
+                    {
+                        for (var index = 0; index <= value.Length; index++)
+                        {
+                            builder.Append(StringValue(NativeJavaScriptEngine.InvokeCallable(args[1], [string.Empty, (double)index, value])));
+                            if (index < value.Length) builder.Append(value[index]);
+                        }
+                        return builder.ToString();
+                    }
                     for (var start = 0; start < value.Length;)
                     {
                         var index = value.IndexOf(needle, start, StringComparison.Ordinal);
@@ -1446,9 +1454,17 @@ internal sealed class JavaScriptEvaluator
                     return builder.ToString();
                 }
                 var allNeedle = StringValue(args[0]);
-                if (allNeedle.Length == 0) return value;
                 var allReplacement = StringValue(args[1]);
                 var allBuilder = new System.Text.StringBuilder(value.Length);
+                if (allNeedle.Length == 0)
+                {
+                    for (var index = 0; index <= value.Length; index++)
+                    {
+                        allBuilder.Append(ExpandReplacement(allReplacement, string.Empty, index, value));
+                        if (index < value.Length) allBuilder.Append(value[index]);
+                    }
+                    return allBuilder.ToString();
+                }
                 for (var allStart = 0; allStart < value.Length;)
                 {
                     var allIndex = value.IndexOf(allNeedle, allStart, StringComparison.Ordinal);
