@@ -26,10 +26,11 @@ not true float-precision storage; #530 remains open for a real float-capable
 backend.
 
 The compatibility canvas frame probe after commit `2b6635f5` reports the same
-remaining M5 performance miss: `D5/canvas-animated-bars` is 35.26 ms
-script/update p95 and 38.77 ms total p95 in a 30-frame Release run. The native
-probe is materially faster for D5, but a separate D7 snake run reached 19.45 ms
-p95, so native performance evidence still needs repeated, stabilized runs.
+remaining M5 performance miss: `D5/canvas-animated-bars` is 40.55 ms
+script/update p95 and 44.25 ms total p95 in a 100-frame Release run. A repeated
+100-frame native probe is materially faster (D5 canvas 6.45 ms total p95 and
+D7 snake 9.10 ms total p95); the earlier 30-frame D7 19.45 ms result was a
+short-run outlier, so native performance claims use the longer run.
 
 Historical cache checkpoint: commit `d277f346` failed 13 of 23
 `ContentCacheTests` on both the default and native engines. The current audit

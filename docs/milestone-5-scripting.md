@@ -51,6 +51,8 @@ After the bounded canvas text-layout cache in commit `2b6635f5`, a fresh
 30-frame Release run measured `canvas-animated-bars` at 35.26 ms script/update
 p95, 2.14 ms display-list build, 2.21 ms host paint, and 38.77 ms total p95.
 This is an improvement, but it remains above the 16.70 ms acceptance gate.
+A longer 100-frame Release run measured 40.55 ms script/update p95 and 44.25 ms
+total p95, confirming that the gate miss is not a short-run artifact.
 
 The same 30-frame run with `FOLIO_CONFORMANCE_ENGINE=native` keeps every D5/D7
 artifact within budget, including `canvas-animated-bars` at 6.17 ms p95 and
