@@ -1754,7 +1754,14 @@ public sealed class NativeJavaScriptEngine : IScriptEngine, IScriptEngineFactory
                     receiverMethod = new NativeReceiverFunction((receiver, args) =>
                     {
                         var host = receiver as NativeHostValue ?? this;
-                        return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                        try
+                        {
+                            return ToObject(method(host.Target, ScriptValue.FromObject(host), args.Select(ToScriptValue).ToArray()));
+                        }
+                        catch (WebIdlException error)
+                        {
+                            throw JavaScriptEvaluator.ConvertHostException(error);
+                        }
                     });
                     _methods[name] = receiverMethod;
                 }

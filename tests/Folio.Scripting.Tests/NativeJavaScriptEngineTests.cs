@@ -10,6 +10,99 @@ namespace Folio.Scripting.Tests;
 public sealed class NativeJavaScriptEngineTests
 {
     [Fact]
+    public void NativeDeniedWebGlProbeReturnsNull()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebGl = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { WebGl = false } });
+        Assert.True(engine.Evaluate("document.createElement('canvas').getContext('webgl2') === null").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWorkerConstructorThrows()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { Workers = false } });
+        Assert.True(engine.Evaluate("try { new Worker('data:text/javascript,'); false; } catch (_) { true; }").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWebAssemblyConstructorThrows()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebAssembly = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { WebAssembly = false } });
+        Assert.True(engine.Evaluate("try { new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])); false; } catch (_) { true; }").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedIframeDocumentIsNull()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Iframes = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { Iframes = false } });
+        Assert.True(engine.Evaluate("var frame=document.createElement('iframe'); document.body.appendChild(frame); frame.contentDocument === null").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWebRtcConstructorThrows()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        using var document = Document.Parse("<html><body></body></html>", new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { WebRtc = false },
+            Limits = ResourceLimits.Default
+        });
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        using var runner = new ScriptRunner(document, engine, loop, new FolioOptions { Capabilities = new FeatureCapabilities { WebRtc = false } });
+        Assert.True(engine.Evaluate("try { new RTCPeerConnection(); false; } catch (_) { true; }").AsBoolean());
+    }
+
+    [Fact]
+    public void NativeDeniedWorkerProbeAfterScriptRunnerLoadCompletes()
+    {
+        using var engine = new NativeJavaScriptEngine();
+        var options = new FolioOptions
+        {
+            Capabilities = new FeatureCapabilities { Workers = false },
+            Limits = ResourceLimits.Default
+        };
+        using var document = Document.Parse("<html><body><canvas id='c'></canvas><script>var soundResult='pending';</script></body></html>", options);
+        using var loop = new HtmlEventLoop(engine);
+        DomBindings.Install(engine, document, eventLoop: loop);
+        ScriptGlobalsInstaller.Install(loop, engine);
+        using var runner = new ScriptRunner(document, engine, loop, options);
+        runner.Run();
+        Assert.True(engine.Evaluate("var p=document.createElement('canvas').getContext('webgl')!==null,w=false;try{var worker=new Worker('data:text/javascript,');worker.terminate();w=true;}catch(_){};w===false").AsBoolean());
+    }
+
+    [Fact]
     public void NativeCacheMethodsSurviveAwait()
     {
         using var engine = new NativeJavaScriptEngine();

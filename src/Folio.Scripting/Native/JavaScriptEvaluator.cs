@@ -509,9 +509,9 @@ internal sealed class JavaScriptEvaluator
         var instance = new Dictionary<string, object?>(StringComparer.Ordinal) { ["__constructor"] = constructor };
         object? result = constructor switch
         {
-            NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => receiverFunction.Invoke(instance, arguments),
-            NativeJavaScriptEngine.INativeCallable callable => callable.Invoke(arguments),
-            Func<IReadOnlyList<object?>, object?> function => InvokeFunction(function, instance, arguments),
+            NativeJavaScriptEngine.NativeReceiverFunction receiverFunction => InvokeWithReceiver(receiverFunction, instance, arguments),
+            NativeJavaScriptEngine.INativeCallable callable => InvokeWithReceiver(callable, instance, arguments),
+            Func<IReadOnlyList<object?>, object?> function => InvokeWithReceiver(function, instance, arguments),
             _ => throw new NotSupportedException($"Constructor is not callable (callee: {call.Callee})."),
         };
         if (instance is IDictionary<string, object?> properties && TryGetPrototype(constructor, out var prototype))
@@ -767,11 +767,12 @@ internal sealed class JavaScriptEvaluator
             else expandedArguments.Add(value);
         }
         var arguments = expandedArguments.ToArray();
-        if (target is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable)
-            return receiverCallable.Invoke(receiver, arguments);
-        return target is NativeJavaScriptEngine.INativeCallable callable
-            ? callable.Invoke(arguments)
-            : InvokeFunction((Func<IReadOnlyList<object?>, object?>)target, receiver, arguments);
+        return target switch
+        {
+            NativeJavaScriptEngine.NativeReceiverFunction receiverCallable => InvokeWithReceiver(receiverCallable, receiver, arguments),
+            NativeJavaScriptEngine.INativeCallable callable => InvokeWithReceiver(callable, receiver, arguments),
+            _ => InvokeWithReceiver((Func<IReadOnlyList<object?>, object?>)target, receiver, arguments),
+        };
     }
 
     private object? Index(JavaScriptIndexExpression index)
@@ -1792,10 +1793,19 @@ internal sealed class JavaScriptEvaluator
         local[parameter] = value;
     }
 
-    internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments) =>
-        function is Func<IReadOnlyList<object?>, object?> callback ? InvokeFunction(callback, receiver, arguments) :
-        function is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable ? receiverCallable.Invoke(receiver, arguments) :
-        function is NativeJavaScriptEngine.INativeCallable callable ? callable.Invoke(arguments) : null;
+    internal static object? InvokeWithReceiver(object function, object? receiver, IReadOnlyList<object?> arguments)
+    {
+        return function is Func<IReadOnlyList<object?>, object?> callback ? InvokeFunction(callback, receiver, arguments) :
+            function is NativeJavaScriptEngine.NativeReceiverFunction receiverCallable ? receiverCallable.Invoke(receiver, arguments) :
+            function is NativeJavaScriptEngine.INativeCallable callable ? callable.Invoke(arguments) : null;
+    }
+
+    internal static Exception ConvertHostException(WebIdlException error) =>
+        new JavaScriptThrownException(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["name"] = error.Name,
+            ["message"] = error.Message,
+        });
 
     private static object? InvokeFunction(Func<IReadOnlyList<object?>, object?> function, object? receiver, IReadOnlyList<object?> arguments)
         => ReceiverBindings.TryGetValue(function, out var binding) ? binding.Invoke(receiver, arguments) : function(arguments);
